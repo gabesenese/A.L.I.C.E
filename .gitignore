@@ -4,6 +4,13 @@ __pycache__/
 *$py.class
 
 
+# logs
+*.log
+
+
+# Database files
+*.db 
+
 # Project 
 datasets/
 notes/
