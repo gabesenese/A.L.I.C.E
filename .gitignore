@@ -194,3 +194,7 @@ SETUP_INSTRUCTIONS.md
 config.json.template
 todo.md
 
+data/memory/memories.json
+data/context/user_prefs.json
+data/memory/vectors.pkl
+data/context/semantic_memory.pkl
