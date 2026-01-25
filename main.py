@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ai.nlp_processor import NLPProcessor, Intent
 from ai.llm_engine import LocalLLMEngine, LLMConfig
 from ai.context_manager import ContextManager
+from ai.advanced_context_handler import AdvancedContextHandler
 from ai.memory_system import MemorySystem
 from ai.email_plugin import GmailPlugin
 from ai.plugin_system import (
@@ -76,6 +77,9 @@ class ALICE:
         self.referenced_items = {}  # Track items user has referenced (emails, files, etc.)
         self.conversation_topics = []  # Track topics discussed in this session
         
+        # Advanced context handler
+        self.advanced_context = None  # Will be initialized after NLP processor
+        
         logger.info("=" * 80)
         logger.info("Initializing A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity")
         logger.info("=" * 80)
@@ -85,6 +89,16 @@ class ALICE:
             # 1. NLP Processor
             logger.info("Loading NLP processor...")
             self.nlp = NLPProcessor()
+            
+            # 1.5. Advanced Context Handler (after NLP for embeddings)
+            logger.info("Loading advanced context handler...")
+            try:
+                # Try to use the same embeddings model as NLP processor
+                embeddings_model = getattr(self.nlp, 'embeddings_model', None)
+                self.advanced_context = AdvancedContextHandler(embeddings_model)
+            except Exception as e:
+                logger.warning(f"Advanced context handler without embeddings: {e}")
+                self.advanced_context = AdvancedContextHandler()
             
             # 2. Context Manager
             logger.info("Loading context manager...")
@@ -156,7 +170,7 @@ class ALICE:
         logger.info(f"[OK] Registered {len(self.plugins.plugins)} plugins")
     
     def _build_llm_context(self, user_input: str) -> str:
-        """Build enhanced context for LLM"""
+        """Build enhanced context for LLM using advanced context handler"""
         context_parts = []
         
         # 1. Personalization
@@ -164,22 +178,29 @@ class ALICE:
         if personalization:
             context_parts.append(personalization)
         
-        # 2. Recent conversation summary (last 3 exchanges)
+        # 2. Advanced contextual understanding
+        if self.advanced_context:
+            advanced_context = self.advanced_context.get_context_for_llm(user_input)
+            if advanced_context:
+                context_parts.append(advanced_context)
+        
+        # 3. Recent conversation summary (fallback)
         recent_context = self._get_recent_conversation_summary()
-        if recent_context:
+        if recent_context and not self.advanced_context:
             context_parts.append(f"Recent discussion: {recent_context}")
         
-        # 3. Active context tracking (email lists, pending actions, etc.)
-        active_context = self._get_active_context()
-        if active_context:
-            context_parts.append(active_context)
+        # 4. Active context tracking (fallback if advanced context not available)
+        if not self.advanced_context:
+            active_context = self._get_active_context()
+            if active_context:
+                context_parts.append(active_context)
         
-        # 4. Relevant memories (RAG)
+        # 5. Relevant memories (RAG)
         memory_context = self.memory.get_context_for_llm(user_input, max_memories=5)  # Increased from 3
         if memory_context:
             context_parts.append(memory_context)
         
-        # 5. System capabilities
+        # 6. System capabilities
         capabilities = self.plugins.get_capabilities()
         if capabilities:
             context_parts.append(f"Available capabilities: {', '.join(capabilities[:10])}")
@@ -367,6 +388,21 @@ class ALICE:
                     self.last_email_list = emails
                     self.last_email_context = "list"
                     
+                    # Register emails with advanced context handler
+                    if self.advanced_context:
+                        for email in emails:
+                            entity_id = self.advanced_context.add_entity(
+                                entity_type="email",
+                                data={
+                                    'id': email['id'],
+                                    'subject': email['subject'],
+                                    'from': email['from'],
+                                    'date': email['date'],
+                                    'unread': email.get('unread', False)
+                                },
+                                aliases=[email['subject'], f"email from {email['from'].split('<')[0].strip()}"]
+                            )
+                    
                     response = "Here are your recent emails:\n\n"
                     for i, email in enumerate(emails, 1):
                         unread = "[UNREAD] " if email.get('unread') else ""
@@ -389,6 +425,29 @@ class ALICE:
                     
                     email = emails[0]
                     content = self.gmail.get_email_content(email['id'])
+                    
+                    # Store in context for potential follow-up actions (delete, archive, etc.)
+                    self.last_email_list = emails
+                    self.last_email_context = "latest_email"
+                    
+                    # Register with advanced context handler
+                    if self.advanced_context:
+                        entity_id = self.advanced_context.add_entity(
+                            entity_type="email",
+                            data={
+                                'id': email['id'],
+                                'subject': email['subject'],
+                                'from': email['from'],
+                                'date': email['date'],
+                                'content': content[:200] if content else "",  # Store snippet
+                                'unread': email.get('unread', False)
+                            },
+                            aliases=[
+                                "this email", "the email", "latest email", "recent email",
+                                email['subject'], 
+                                f"email from {email['from'].split('<')[0].strip()}"
+                            ]
+                        )
                     
                     response = f"Your latest email:\n\n"
                     response += f"From: {email['from']}\n"
@@ -472,6 +531,40 @@ class ALICE:
                 
                 # Delete email
                 elif 'delete' in query_lower or 'remove' in query_lower:
+                    # Check for contextual references first
+                    if any(word in query_lower for word in ['this', 'that', 'it', 'the email', 'the latest']):
+                    # Advanced context resolution
+                    if self.advanced_context:
+                        resolved_ref = self.advanced_context.resolve_reference(user_input)
+                        if resolved_ref and resolved_ref.startswith("email_"):
+                            # Get entity data
+                            entity = self.advanced_context.entities.get(resolved_ref)
+                            if entity and entity.entity_type == "email":
+                                email_data = entity.data
+                                if self.gmail.delete_email(email_data['id']):
+                                    # Remove from advanced context
+                                    del self.advanced_context.entities[resolved_ref]
+                                    # Clear simple context too
+                                    self.last_email_list = []
+                                    return f"Deleted email: '{email_data['subject']}' from {email_data.get('from', 'Unknown')}"
+                                else:
+                                    return "Failed to delete the email. Please try again."
+                    
+                    # Fallback to simple context
+                            # Single email in context (like "latest email")
+                            email = self.last_email_list[0]
+                            if self.gmail.delete_email(email['id']):
+                                # Clear the context since we deleted it
+                                self.last_email_list = []
+                                return f"Deleted email: '{email['subject']}' from {email['from']}"
+                            else:
+                                return "Failed to delete the email. Please try again."
+                        elif self.last_email_list and len(self.last_email_list) > 1:
+                            # Multiple emails in context - ask for clarification
+                            return "I see multiple emails from our last search. Which one would you like to delete? Use the number (e.g., 'delete email 1')"
+                        else:
+                            return "I don't see any emails in our current context. Please show me some emails first or be more specific about which email to delete."
+                    
                     # Extract search criteria
                     search_terms = query_lower.replace('delete', '').replace('remove', '').replace('email', '').replace('that says', '').replace('about', '').strip('?!. ')
                     
@@ -504,6 +597,22 @@ class ALICE:
                 
                 # Archive email
                 elif 'archive' in query_lower:
+                    # Check for contextual references first
+                    if any(word in query_lower for word in ['this', 'that', 'it', 'the email', 'the latest']):
+                        # User is referring to a previously shown email
+                        if self.last_email_list and len(self.last_email_list) == 1:
+                            # Single email in context
+                            email = self.last_email_list[0]
+                            if self.gmail.archive_email(email['id']):
+                                self.last_email_list = []
+                                return f"Archived: '{email['subject']}'"
+                            else:
+                                return "Failed to archive the email."
+                        elif self.last_email_list and len(self.last_email_list) > 1:
+                            return "I see multiple emails. Which one would you like to archive? Use the number (e.g., 'archive email 2')"
+                        else:
+                            return "I don't see any emails in our current context. Please show me some emails first."
+                    
                     search_terms = query_lower.replace('archive', '').replace('email', '').strip('?!. ')
                     
                     if not search_terms:
@@ -778,6 +887,16 @@ class ALICE:
                     logger.info("[OK] Previous conversation context restored")
             except Exception as e:
                 logger.warning(f"[WARNING] Could not load conversation state: {e}")
+        
+        # Load advanced context state if available
+        if self.advanced_context:
+            advanced_state_file = "data/advanced_context_state.pkl"
+            if os.path.exists(advanced_state_file):
+                try:
+                    self.advanced_context.load_state(advanced_state_file)
+                    logger.info("[OK] Advanced context state restored")
+                except Exception as e:
+                    logger.warning(f"[WARNING] Could not load advanced context state: {e}")
     
     def _save_conversation_state(self):
         """Save conversation state for next session"""
@@ -798,6 +917,11 @@ class ALICE:
             with open(state_file, 'wb') as f:
                 pickle.dump(state, f)
             
+            # Save advanced context state if available
+            if self.advanced_context:
+                advanced_state_file = "data/advanced_context_state.pkl"
+                self.advanced_context.save_state(advanced_state_file)
+            
             logger.info("[OK] Conversation state saved")
         except Exception as e:
             logger.warning(f"[WARNING] Could not save conversation state: {e}")
@@ -811,6 +935,15 @@ class ALICE:
     ):
         """Store interaction in memory and context"""
         try:
+            # Process with advanced context handler
+            if self.advanced_context:
+                turn = self.advanced_context.process_turn(
+                    user_input=user_input,
+                    assistant_response=response,
+                    intent=intent,
+                    entities=entities
+                )
+            
             # Add to conversation summary (keep last 10)
             self.conversation_summary.append({
                 'user': user_input,
