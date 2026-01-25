@@ -46,6 +46,7 @@ from ai.plugin_system import (
     FileOperationsPlugin, SystemControlPlugin, WebSearchPlugin
 )
 from ai.document_plugin import DocumentPlugin
+from ai.calendar_plugin import CalendarPlugin
 from ai.task_executor import TaskExecutor
 from speech.speech_engine import SpeechEngine, SpeechConfig
 
@@ -195,6 +196,7 @@ class ALICE:
         self.plugins.register_plugin(SystemControlPlugin())
         self.plugins.register_plugin(WebSearchPlugin())
         self.plugins.register_plugin(DocumentPlugin())
+        self.plugins.register_plugin(CalendarPlugin())
         
         logger.info(f"[OK] Registered {len(self.plugins.plugins)} plugins")
     
