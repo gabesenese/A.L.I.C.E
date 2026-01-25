@@ -6,6 +6,7 @@ Features:
 - Long-term memory with ChromaDB/FAISS
 - Episodic and semantic memory
 - Knowledge graph integration
+- Document ingestion (PDF, TXT, MD, DOCX, etc.)
 """
 
 import os
@@ -16,6 +17,8 @@ from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime
 from dataclasses import dataclass, asdict
 import numpy as np
+from pathlib import Path
+import hashlib
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,7 +29,7 @@ class MemoryEntry:
     """Single memory entry"""
     id: str
     content: str
-    memory_type: str  # "episodic", "semantic", "procedural"
+    memory_type: str  # "episodic", "semantic", "procedural", "document"
     timestamp: str
     context: Dict[str, Any]
     importance: float = 0.5
@@ -34,10 +37,258 @@ class MemoryEntry:
     last_accessed: Optional[str] = None
     embedding: Optional[List[float]] = None
     tags: List[str] = None
+    source_file: Optional[str] = None  # Source document path
+    chunk_index: Optional[int] = None  # For document chunks
     
     def __post_init__(self):
         if self.tags is None:
             self.tags = []
+
+
+@dataclass
+class DocumentChunk:
+    """Represents a chunk of a larger document"""
+    content: str
+    chunk_index: int
+    start_position: int
+    end_position: int
+    metadata: Dict[str, Any]
+
+
+class DocumentProcessor:
+    """Handles document ingestion and chunking"""
+    
+    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.supported_extensions = {'.txt', '.md', '.pdf', '.docx', '.html', '.json', '.csv'}
+    
+    def process_file(self, file_path: str) -> Tuple[str, List[DocumentChunk], Dict[str, Any]]:
+        """
+        Process a file and extract text content with chunks
+        
+        Returns:
+            (full_text, chunks, metadata)
+        """
+        file_path = Path(file_path)
+        
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        extension = file_path.suffix.lower()
+        if extension not in self.supported_extensions:
+            raise ValueError(f"Unsupported file type: {extension}")
+        
+        # Extract text based on file type
+        try:
+            if extension == '.txt':
+                text = self._extract_text_from_txt(file_path)
+            elif extension == '.md':
+                text = self._extract_text_from_markdown(file_path)
+            elif extension == '.pdf':
+                text = self._extract_text_from_pdf(file_path)
+            elif extension == '.docx':
+                text = self._extract_text_from_docx(file_path)
+            elif extension == '.html':
+                text = self._extract_text_from_html(file_path)
+            elif extension == '.json':
+                text = self._extract_text_from_json(file_path)
+            elif extension == '.csv':
+                text = self._extract_text_from_csv(file_path)
+            else:
+                text = self._extract_text_from_txt(file_path)  # Fallback
+        except Exception as e:
+            logger.error(f"Error processing {file_path}: {e}")
+            raise
+        
+        # Create document chunks
+        chunks = self._create_chunks(text)
+        
+        # Create metadata
+        metadata = {
+            'filename': file_path.name,
+            'filepath': str(file_path),  # Ensure string for JSON serialization
+            'extension': extension,
+            'file_size': file_path.stat().st_size,
+            'created_date': datetime.fromtimestamp(file_path.stat().st_ctime).isoformat(),
+            'modified_date': datetime.fromtimestamp(file_path.stat().st_mtime).isoformat(),
+            'file_hash': self._calculate_file_hash(file_path),
+            'total_chunks': len(chunks),
+            'total_characters': len(text)
+        }
+        
+        return text, chunks, metadata
+    
+    def _extract_text_from_txt(self, file_path: Path) -> str:
+        """Extract text from plain text file"""
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            return f.read()
+    
+    def _extract_text_from_markdown(self, file_path: Path) -> str:
+        """Extract text from markdown file"""
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        
+        # Simple markdown parsing - remove basic formatting
+        import re
+        # Remove headers but keep content
+        content = re.sub(r'^#+\s*', '', content, flags=re.MULTILINE)
+        # Remove links but keep text
+        content = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', content)
+        # Remove emphasis
+        content = re.sub(r'[*_]+([^*_]+)[*_]+', r'\1', content)
+        # Remove code blocks
+        content = re.sub(r'```[^`]*```', '', content, flags=re.DOTALL)
+        content = re.sub(r'`([^`]+)`', r'\1', content)
+        
+        return content.strip()
+    
+    def _extract_text_from_pdf(self, file_path: Path) -> str:
+        """Extract text from PDF file"""
+        try:
+            import PyPDF2
+            with open(file_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                text = ""
+                for page in reader.pages:
+                    text += page.extract_text() + "\n"
+            return text
+        except ImportError:
+            logger.warning("PyPDF2 not installed. Install with: pip install PyPDF2")
+            raise ImportError("PyPDF2 required for PDF processing")
+    
+    def _extract_text_from_docx(self, file_path: Path) -> str:
+        """Extract text from DOCX file"""
+        try:
+            from docx import Document
+            doc = Document(file_path)
+            text = ""
+            for paragraph in doc.paragraphs:
+                text += paragraph.text + "\n"
+            return text
+        except ImportError:
+            logger.warning("python-docx not installed. Install with: pip install python-docx")
+            raise ImportError("python-docx required for DOCX processing")
+    
+    def _extract_text_from_html(self, file_path: Path) -> str:
+        """Extract text from HTML file"""
+        try:
+            from bs4 import BeautifulSoup
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            soup = BeautifulSoup(content, 'html.parser')
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.decompose()
+            return soup.get_text(separator=' ', strip=True)
+        except ImportError:
+            logger.warning("beautifulsoup4 not installed. Install with: pip install beautifulsoup4")
+            # Fallback: simple HTML tag removal
+            import re
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            content = re.sub(r'<[^>]+>', '', content)
+            return content
+    
+    def _extract_text_from_json(self, file_path: Path) -> str:
+        """Extract text from JSON file"""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        def extract_text_values(obj):
+            """Recursively extract text values from JSON"""
+            text_parts = []
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    if isinstance(value, str):
+                        text_parts.append(f"{key}: {value}")
+                    else:
+                        text_parts.extend(extract_text_values(value))
+            elif isinstance(obj, list):
+                for item in obj:
+                    text_parts.extend(extract_text_values(item))
+            elif isinstance(obj, str):
+                text_parts.append(obj)
+            
+            return text_parts
+        
+        return "\n".join(extract_text_values(data))
+    
+    def _extract_text_from_csv(self, file_path: Path) -> str:
+        """Extract text from CSV file"""
+        try:
+            import pandas as pd
+            df = pd.read_csv(file_path)
+            return df.to_string()
+        except ImportError:
+            # Fallback without pandas
+            import csv
+            text_parts = []
+            with open(file_path, 'r', encoding='utf-8', newline='') as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    text_parts.append(" | ".join(row))
+            return "\n".join(text_parts)
+    
+    def _calculate_file_hash(self, file_path: Path) -> str:
+        """Calculate SHA-256 hash of file"""
+        hash_sha256 = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_sha256.update(chunk)
+        return hash_sha256.hexdigest()
+    
+    def _create_chunks(self, text: str) -> List[DocumentChunk]:
+        """Create overlapping chunks from text"""
+        if len(text) <= self.chunk_size:
+            return [DocumentChunk(
+                content=text,
+                chunk_index=0,
+                start_position=0,
+                end_position=len(text),
+                metadata={"is_complete_document": True}
+            )]
+        
+        chunks = []
+        start = 0
+        chunk_index = 0
+        
+        while start < len(text):
+            end = start + self.chunk_size
+            
+            # Try to break at sentence boundaries
+            if end < len(text):
+                # Look for sentence endings within the overlap area
+                sentence_endings = ['.', '!', '?', '\n\n']
+                best_break = end
+                
+                for i in range(max(end - self.chunk_overlap, start), min(end + self.chunk_overlap, len(text))):
+                    if text[i] in sentence_endings and i < len(text) - 1:
+                        best_break = i + 1
+                        break
+                
+                end = best_break
+            
+            chunk_content = text[start:end].strip()
+            if chunk_content:
+                chunks.append(DocumentChunk(
+                    content=chunk_content,
+                    chunk_index=chunk_index,
+                    start_position=start,
+                    end_position=end,
+                    metadata={
+                        "is_complete_document": False,
+                        "total_document_length": len(text)
+                    }
+                ))
+                chunk_index += 1
+            
+            # Move start position with overlap
+            start = end - self.chunk_overlap
+            if start <= 0:
+                break
+        
+        return chunks
 
 
 class VectorStore:
@@ -124,6 +375,7 @@ class MemorySystem:
     """
     Advanced memory management system for A.L.I.C.E
     Implements episodic, semantic, and procedural memory with RAG
+    Enhanced with document ingestion capabilities
     """
     
     def __init__(self, data_dir: str = "data/memory"):
@@ -134,9 +386,16 @@ class MemorySystem:
         self.episodic_memory: List[MemoryEntry] = []  # Conversations and events
         self.semantic_memory: List[MemoryEntry] = []  # Facts and knowledge
         self.procedural_memory: List[MemoryEntry] = []  # How-to knowledge
+        self.document_memory: List[MemoryEntry] = []  # Ingested documents
         
         # Vector store for semantic search
         self.vector_store = VectorStore(dimension=384)
+        
+        # Document processor for ingestion
+        self.document_processor = DocumentProcessor()
+        
+        # Document registry to track ingested files
+        self.document_registry: Dict[str, Dict] = {}
         
         # Embedding function (lightweight - can use sentence-transformers for better results)
         self._embedding_model = None
@@ -144,7 +403,7 @@ class MemorySystem:
         # Load existing memories
         self._load_memories()
         
-        logger.info("[OK] Memory System initialized")
+        logger.info("[OK] Memory System initialized with document ingestion")
     
     def _get_embedding_model(self):
         """Lazy load embedding model"""
@@ -231,6 +490,11 @@ class MemorySystem:
             self.semantic_memory.append(memory)
         elif memory_type == "procedural":
             self.procedural_memory.append(memory)
+        elif memory_type == "document":
+            self.document_memory.append(memory)
+        else:
+            # Default to semantic for unknown types
+            self.semantic_memory.append(memory)
         
         # Add to vector store for search
         self.vector_store.add(
@@ -308,7 +572,8 @@ class MemorySystem:
     
     def _get_memory_by_id(self, memory_id: str) -> Optional[MemoryEntry]:
         """Get memory entry by ID"""
-        for memory_list in [self.episodic_memory, self.semantic_memory, self.procedural_memory]:
+        for memory_list in [self.episodic_memory, self.semantic_memory, 
+                           self.procedural_memory, self.document_memory]:
             for memory in memory_list:
                 if memory.id == memory_id:
                     return memory
@@ -337,6 +602,306 @@ class MemorySystem:
             context_parts.append(f"{i}. {mem['content']} (from {mem['timestamp'][:10]})")
         
         return "\n".join(context_parts)
+    
+    def ingest_document(self, file_path: str, importance: float = 0.7, tags: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Ingest a document into memory with chunking and embedding
+        
+        Args:
+            file_path: Path to document file
+            importance: Importance score for the document (0-1)
+            tags: Tags for categorization
+            
+        Returns:
+            Dictionary with ingestion results
+        """
+        try:
+            # Process the document
+            full_text, chunks, metadata = self.document_processor.process_file(file_path)
+            
+            # Check if document was already ingested (by hash)
+            file_hash = metadata['file_hash']
+            if file_hash in self.document_registry:
+                existing_doc = self.document_registry[file_hash]
+                logger.info(f"Document already ingested: {metadata['filename']}")
+                return {
+                    "status": "already_exists",
+                    "document_id": existing_doc['document_id'],
+                    "chunks_created": existing_doc['chunks_created'],
+                    "message": f"Document '{metadata['filename']}' was already ingested"
+                }
+            
+            # Generate document ID
+            doc_id = f"doc_{int(datetime.now().timestamp())}_{file_hash[:8]}"
+            
+            # Store chunks as individual memories
+            chunk_ids = []
+            for chunk in chunks:
+                memory_id = self.store_memory(
+                    content=chunk.content,
+                    memory_type="document",
+                    context={
+                        "document_id": doc_id,
+                        "chunk_index": chunk.chunk_index,
+                        "start_position": chunk.start_position,
+                        "end_position": chunk.end_position,
+                        "document_metadata": metadata,
+                        **chunk.metadata
+                    },
+                    importance=importance,
+                    tags=(tags or []) + [f"document:{metadata['filename']}", f"filetype:{metadata['extension']}"]
+                )
+                chunk_ids.append(memory_id)
+            
+            # Register document
+            self.document_registry[file_hash] = {
+                "document_id": doc_id,
+                "file_path": str(file_path),  # Convert Path to string for JSON serialization
+                "metadata": metadata,
+                "chunk_ids": chunk_ids,
+                "chunks_created": len(chunks),
+                "ingestion_timestamp": datetime.now().isoformat(),
+                "importance": importance,
+                "tags": tags or []
+            }
+            
+            # Save updated registry and memories
+            self._save_document_registry()
+            self._save_memories()
+            
+            logger.info(f"Document ingested: {metadata['filename']} ({len(chunks)} chunks)")
+            
+            return {
+                "status": "success",
+                "document_id": doc_id,
+                "chunks_created": len(chunks),
+                "total_characters": metadata['total_characters'],
+                "file_hash": file_hash,
+                "message": f"Successfully ingested '{metadata['filename']}' with {len(chunks)} chunks"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error ingesting document {file_path}: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "message": f"Failed to ingest document: {e}"
+            }
+    
+    def ingest_directory(self, directory_path: str, recursive: bool = True, 
+                        file_patterns: Optional[List[str]] = None, 
+                        importance: float = 0.7) -> Dict[str, Any]:
+        """
+        Ingest all supported documents from a directory
+        
+        Args:
+            directory_path: Path to directory
+            recursive: Whether to search subdirectories
+            file_patterns: List of file patterns to match (e.g., ['*.pdf', '*.txt'])
+            importance: Default importance for all documents
+            
+        Returns:
+            Summary of ingestion results
+        """
+        directory_path = Path(directory_path)
+        
+        if not directory_path.exists() or not directory_path.is_dir():
+            return {
+                "status": "error",
+                "message": f"Directory not found: {directory_path}"
+            }
+        
+        results = {
+            "status": "success",
+            "total_files": 0,
+            "successful": 0,
+            "already_existed": 0,
+            "failed": 0,
+            "details": []
+        }
+        
+        # Find all supported files
+        if recursive:
+            files = directory_path.rglob("*")
+        else:
+            files = directory_path.glob("*")
+        
+        supported_files = []
+        for file_path in files:
+            if file_path.is_file() and file_path.suffix.lower() in self.document_processor.supported_extensions:
+                # Apply file patterns if specified
+                if file_patterns:
+                    if not any(file_path.match(pattern) for pattern in file_patterns):
+                        continue
+                supported_files.append(file_path)
+        
+        results["total_files"] = len(supported_files)
+        
+        # Ingest each file
+        for file_path in supported_files:
+            try:
+                result = self.ingest_document(
+                    str(file_path), 
+                    importance=importance,
+                    tags=[f"directory:{directory_path.name}"]
+                )
+                
+                if result["status"] == "success":
+                    results["successful"] += 1
+                elif result["status"] == "already_exists":
+                    results["already_existed"] += 1
+                else:
+                    results["failed"] += 1
+                    
+                results["details"].append({
+                    "file": str(file_path),
+                    "status": result["status"],
+                    "message": result.get("message", "")
+                })
+                
+            except Exception as e:
+                results["failed"] += 1
+                results["details"].append({
+                    "file": str(file_path),
+                    "status": "error",
+                    "message": str(e)
+                })
+        
+        logger.info(f"Directory ingestion complete: {results['successful']}/{results['total_files']} files")
+        return results
+    
+    def search_documents(self, query: str, top_k: int = 5, min_similarity: float = 0.6) -> List[Dict]:
+        """
+        Search specifically in ingested documents
+        
+        Args:
+            query: Search query
+            top_k: Number of results
+            min_similarity: Minimum similarity threshold
+            
+        Returns:
+            List of relevant document chunks
+        """
+        return self.recall_memory(
+            query=query,
+            memory_type="document",
+            top_k=top_k,
+            min_similarity=min_similarity
+        )
+    
+    def get_document_info(self, document_id: str = None, file_path: str = None) -> Optional[Dict]:
+        """
+        Get information about an ingested document
+        
+        Args:
+            document_id: Document ID
+            file_path: Original file path
+            
+        Returns:
+            Document information or None if not found
+        """
+        for file_hash, doc_info in self.document_registry.items():
+            if (document_id and doc_info["document_id"] == document_id) or \
+               (file_path and doc_info["file_path"] == file_path):
+                return doc_info
+        return None
+    
+    def list_ingested_documents(self) -> List[Dict]:
+        """
+        List all ingested documents
+        
+        Returns:
+            List of document information
+        """
+        documents = []
+        for file_hash, doc_info in self.document_registry.items():
+            # Get file type from extension
+            extension = doc_info["metadata"]["extension"]
+            file_type = extension.upper() if extension else "UNKNOWN"
+            
+            # Calculate size in MB
+            size_bytes = doc_info["metadata"]["file_size"]
+            size_mb = size_bytes / (1024 * 1024)
+            
+            documents.append({
+                "document_id": doc_info["document_id"],
+                "filename": doc_info["metadata"]["filename"],
+                "file_path": doc_info["file_path"],
+                "file_type": file_type,
+                "file_size": doc_info["metadata"]["file_size"],
+                "size_mb": size_mb,
+                "chunks": doc_info["chunks_created"],
+                "ingestion_date": doc_info["ingestion_timestamp"][:10],
+                "ingested_at": doc_info["ingestion_timestamp"][:19].replace('T', ' '),
+                "tags": doc_info["tags"]
+            })
+        return sorted(documents, key=lambda x: x["ingestion_date"], reverse=True)
+    
+    def remove_document(self, document_id: str) -> bool:
+        """
+        Remove an ingested document and all its chunks
+        
+        Args:
+            document_id: Document ID to remove
+            
+        Returns:
+            True if removed successfully
+        """
+        # Find document in registry
+        doc_info = None
+        file_hash_to_remove = None
+        for file_hash, info in self.document_registry.items():
+            if info["document_id"] == document_id:
+                doc_info = info
+                file_hash_to_remove = file_hash
+                break
+        
+        if not doc_info:
+            return False
+        
+        # Remove all chunk memories
+        removed_count = 0
+        for chunk_id in doc_info["chunk_ids"]:
+            if self._remove_memory_by_id(chunk_id):
+                removed_count += 1
+        
+        # Remove from registry
+        del self.document_registry[file_hash_to_remove]
+        self._save_document_registry()
+        
+        logger.info(f"Removed document {document_id} ({removed_count} chunks)")
+        return True
+    
+    def _remove_memory_by_id(self, memory_id: str) -> bool:
+        """Remove memory by ID from all memory stores"""
+        for memory_list in [self.episodic_memory, self.semantic_memory, self.procedural_memory, self.document_memory]:
+            for i, memory in enumerate(memory_list):
+                if memory.id == memory_id:
+                    del memory_list[i]
+                    self.vector_store.delete(memory_id)
+                    return True
+        return False
+    
+    def _save_document_registry(self):
+        """Save document registry to disk"""
+        registry_file = os.path.join(self.data_dir, "document_registry.json")
+        try:
+            with open(registry_file, 'w') as f:
+                json.dump(self.document_registry, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving document registry: {e}")
+    
+    def _load_document_registry(self):
+        """Load document registry from disk"""
+        registry_file = os.path.join(self.data_dir, "document_registry.json")
+        if os.path.exists(registry_file):
+            try:
+                with open(registry_file, 'r') as f:
+                    self.document_registry = json.load(f)
+                logger.info(f"Document registry loaded ({len(self.document_registry)} documents)")
+            except Exception as e:
+                logger.error(f"Error loading document registry: {e}")
+                self.document_registry = {}
     
     def consolidate_memories(self, max_episodic: int = 1000):
         """
@@ -375,7 +940,8 @@ class MemorySystem:
             memories_data = {
                 "episodic": [asdict(m) for m in self.episodic_memory],
                 "semantic": [asdict(m) for m in self.semantic_memory],
-                "procedural": [asdict(m) for m in self.procedural_memory]
+                "procedural": [asdict(m) for m in self.procedural_memory],
+                "document": [asdict(m) for m in self.document_memory]
             }
             
             with open(os.path.join(self.data_dir, "memories.json"), 'w', encoding='utf-8') as f:
@@ -384,7 +950,11 @@ class MemorySystem:
             # Save vector store
             self.vector_store.save(os.path.join(self.data_dir, "vectors.pkl"))
             
-            logger.info("All memories saved")
+            # Save document registry
+            self._save_document_registry()
+            
+            total_memories = len(self.episodic_memory) + len(self.semantic_memory) + len(self.procedural_memory) + len(self.document_memory)
+            logger.info(f"All {total_memories} memories saved")
             
         except Exception as e:
             logger.error(f"[ERROR] Error saving memories: {e}")
@@ -400,15 +970,22 @@ class MemorySystem:
                 self.episodic_memory = [MemoryEntry(**m) for m in memories_data.get("episodic", [])]
                 self.semantic_memory = [MemoryEntry(**m) for m in memories_data.get("semantic", [])]
                 self.procedural_memory = [MemoryEntry(**m) for m in memories_data.get("procedural", [])]
+                self.document_memory = [MemoryEntry(**m) for m in memories_data.get("document", [])]
                 
-                logger.info(f"📂 Loaded {len(self.episodic_memory)} episodic, "
+                total_memories = len(self.episodic_memory) + len(self.semantic_memory) + len(self.procedural_memory) + len(self.document_memory)
+                logger.info(f"📂 Loaded {total_memories} memories "
+                          f"({len(self.episodic_memory)} episodic, "
                           f"{len(self.semantic_memory)} semantic, "
-                          f"{len(self.procedural_memory)} procedural memories")
+                          f"{len(self.procedural_memory)} procedural, "
+                          f"{len(self.document_memory)} document)")
             
             # Load vector store
             vectors_path = os.path.join(self.data_dir, "vectors.pkl")
             if os.path.exists(vectors_path):
                 self.vector_store.load(vectors_path)
+                
+            # Load document registry
+            self._load_document_registry()
                 
         except Exception as e:
             logger.warning(f"[WARNING] Could not load memories: {e}")
