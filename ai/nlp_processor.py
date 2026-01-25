@@ -71,6 +71,21 @@ class Intent:
     
     # Media & Entertainment
     MUSIC = "music"
+    MUSIC_PLAY = "music_play"
+    MUSIC_PAUSE = "music_pause"
+    MUSIC_RESUME = "music_resume"
+    MUSIC_STOP = "music_stop"
+    MUSIC_NEXT = "music_next"
+    MUSIC_PREVIOUS = "music_previous"
+    MUSIC_VOLUME = "music_volume"
+    MUSIC_SEARCH = "music_search"
+    MUSIC_PLAYLIST = "music_playlist"
+    MUSIC_STATUS = "music_status"
+    PLAY = "play"
+    PAUSE = "pause"
+    NEXT = "next"
+    PREVIOUS = "previous"
+    VOLUME = "volume"
     VIDEO = "video"
     GAME = "game"
     NEWS = "news"
@@ -303,7 +318,75 @@ class NLPProcessor:
             
             # Media & Entertainment
             Intent.MUSIC: [
-                r'\b(music|song|play|pause|skip|spotify|apple music|youtube music|sound|audio|playlist)\b',
+                r'\b(music|song|audio|sound|track|album|artist|band|spotify|apple music|youtube music|soundcloud|pandora)\b',
+                r'\b(play|pause|stop|skip|next|previous|volume)\b.*\b(spotify|music)\b',
+                r'\bby\s+\w+\b.*\b(on|from)\s+(spotify|apple music|youtube music)',
+            ],
+            Intent.MUSIC_PLAY: [
+                r'^\s*(play|start|begin)\s+[\w\s\']+?\s+(by|from)\s+\w+',  # Command at start + song + by artist
+                r'^\s*(play|start|begin)\s+[\w\s\']+?\s+(on|via)\s+(spotify|apple music|youtube|pandora)',  # Command + song + platform
+                r'^\s*(play|start|begin)\b(?!\s*$)',  # Play at start followed by something (not just "play" alone)
+                r'\bi want you to (play|start)\b',  # Explicit request
+                r'\bcan you (play|start)\b',  # Polite request
+                r'\bplease (play|start)\b',  # Polite request
+                r'\b(play|start|begin)\b.*\b(music|song|track|audio|album|playlist|artist|band)\b',
+            ],
+            Intent.MUSIC_PAUSE: [
+                r'^\s*(pause|stop|halt)\b',
+                r'\b(pause|stop|halt)\b.*\b(music|song|audio|playback|this|it)\b',
+            ],
+            Intent.MUSIC_RESUME: [
+                r'^\s*(resume|continue|unpause)\b',
+                r'\b(resume|continue|unpause)\b.*\b(music|song|audio|playback|this|it)\b',
+            ],
+            Intent.MUSIC_STOP: [
+                r'^\s*stop\b(?!.*\b(talking|doing|working)\b)',
+                r'\bstop\b.*\b(music|song|audio|playback|this|it)\b',
+            ],
+            Intent.MUSIC_NEXT: [
+                r'^\s*(next|skip|forward)\s*(song|track)?\s*$',
+                r'\b(next|skip|forward)\b.*\b(song|track|music)\b',
+            ],
+            Intent.MUSIC_PREVIOUS: [
+                r'^\s*(previous|back|last|prev)\s*(song|track)?\s*$',
+                r'\b(previous|back|last|prev)\b.*\b(song|track|music)\b',
+            ],
+            Intent.MUSIC_VOLUME: [
+                r'\b(volume|loud|quiet|mute)\b.*\b(music|audio|sound)\b',
+                r'\b(turn up|turn down|increase|decrease|set)\b.*\b(volume|sound)\b',
+                r'\b(volume|sound)\b.*\b(up|down|to|percent|%)\b',
+            ],
+            Intent.MUSIC_SEARCH: [
+                r'\b(search|find|look for)\b.*\b(music|song|artist|album|track|band)\b',
+                r'\bfind\b.*\b(music|song|artist|album)\b',
+            ],
+            Intent.MUSIC_PLAYLIST: [
+                r'\b(playlist|playlists|play list)\b',
+                r'\b(show|list|display|open)\b.*\b(playlist|playlists)\b',
+            ],
+            Intent.MUSIC_STATUS: [
+                r'\b(what\'s playing|current song|now playing|music status)\b',
+                r'\b(what|which)\b.*\b(song|music|track)\b.*\b(playing|current)\b',
+            ],
+            Intent.PLAY: [
+                r'^\s*play\s*$',  # Just "play" alone
+                r'^\s*play\b(?=\s+(it|this|that|music|something))',  # Play + generic object
+            ],
+            Intent.PAUSE: [
+                r'^\s*pause\s*$',  # Just "pause" alone
+                r'^\s*pause\b(?=\s+(it|this|that))',  # Pause + generic object
+            ],
+            Intent.NEXT: [
+                r'^\s*(next|skip)\s*$',  # Just "next/skip" alone
+                r'^\s*(next|skip)\b(?=\s+(it|this|that))',  # Next + generic object
+            ],
+            Intent.PREVIOUS: [
+                r'^\s*(previous|back|prev)\s*$',  # Just "previous/back" alone
+                r'^\s*(previous|back|prev)\b(?=\s+(it|this|that))',  # Previous + generic object
+            ],
+            Intent.VOLUME: [
+                r'^\s*volume\s*(\d+|up|down|mute)?\s*%?\s*$',  # Volume commands
+                r'\b(turn up|turn down|increase|decrease)\s+(volume|sound)\b',
             ],
             Intent.VIDEO: [
                 r'\b(video|movie|film|youtube|netflix|streaming|watch|player)\b',
@@ -329,7 +412,13 @@ class NLPProcessor:
                 r'\b(time|clock|hour|minute|second|now|current time)\b',
             ],
             Intent.DATE: [
-                r'\b(date|today|tomorrow|yesterday|calendar|day|month|year)\b',
+                r'\bwhat.*date\b',
+                r'\bcurrent date\b',
+                r'\bdate today\b',
+                r'\bwhat day is it\b',
+                r'\btoday\'s date\b',
+                r'^\s*(today|tomorrow|yesterday)\s*$',  # Only when these words stand alone
+                r'\b(today|tomorrow|yesterday)\s+(is|was)\b',  # When asking about dates
             ],
             Intent.LOCATION: [
                 r'\b(location|address|where|place|coordinates|gps|map)\b',
@@ -569,7 +658,15 @@ class NLPProcessor:
             'mac_address': r'\b[0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}\b',
             
             # Media and entertainment
-            'music_service': r'\b(spotify|apple music|youtube music|pandora|amazon music)\b',
+            'music_service': r'\b(spotify|apple music|youtube music|pandora|amazon music|soundcloud|tidal|deezer)\b',
+            'music_action': r'\b(play|pause|stop|skip|next|previous|resume|shuffle|repeat|volume)\b',
+            'music_genre': r'\b(rock|pop|jazz|classical|hip hop|rap|country|electronic|blues|reggae|folk|metal)\b',
+            'artist': r'\b(?:by|artist|singer)\s+([A-Za-z\s&]+?)(?=\s+(?:from|on|$))',
+            'song': r'\b(?:song|track|play)\s+"?([^"]+?)"?(?=\s+(?:by|from|on|$))',
+            'album': r'\b(?:album|from)\s+"?([^"]+?)"?(?=\s+(?:by|on|$))',
+            'playlist': r'\b(?:playlist|list)\s+"?([^"]+?)"?(?=\s+(?:by|on|$))',
+            'volume_level': r'\b(volume|sound)\s+(?:to\s+)?(\d{1,3})(?:%|percent)?\b',
+            'music_time': r'\b(morning|afternoon|evening|workout|study|sleep|relaxing|upbeat|slow)\b',
             'video_service': r'\b(netflix|youtube|hulu|disney plus|amazon prime|hbo)\b',
             'social_media': r'\b(facebook|twitter|instagram|linkedin|tiktok|snapchat|reddit)\b',
             
@@ -627,6 +724,11 @@ class NLPProcessor:
         # Entity extraction
         entities = self.extract_entities(text)
         
+        # Add music-specific entity extraction
+        music_entities = self._extract_music_entities(text)
+        if music_entities:
+            entities['music_entities'] = music_entities
+        
         # Sentiment analysis
         sentiment = self.analyze_sentiment(text)
         
@@ -666,6 +768,24 @@ class NLPProcessor:
             Intent.SAFETY,
             Intent.SECURITY,
             
+            # Media & entertainment (HIGH PRIORITY to avoid conflicts)
+            Intent.MUSIC_PLAY,
+            Intent.MUSIC_PAUSE,
+            Intent.MUSIC_RESUME,
+            Intent.MUSIC_STOP,
+            Intent.MUSIC_NEXT,
+            Intent.MUSIC_PREVIOUS,
+            Intent.MUSIC_VOLUME,
+            Intent.MUSIC_SEARCH,
+            Intent.MUSIC_PLAYLIST,
+            Intent.MUSIC_STATUS,
+            Intent.PLAY,
+            Intent.PAUSE,
+            Intent.NEXT,
+            Intent.PREVIOUS,
+            Intent.VOLUME,
+            Intent.MUSIC,
+            
             # Basic conversational
             Intent.GREETING,
             Intent.FAREWELL,
@@ -696,8 +816,7 @@ class NLPProcessor:
             Intent.DATE,
             Intent.LOCATION,
             
-            # Media & entertainment
-            Intent.MUSIC,
+            # Other media
             Intent.VIDEO,
             Intent.NEWS,
             
@@ -843,6 +962,104 @@ class NLPProcessor:
             TF-IDF vector
         """
         return self.vectorizer.transform([text])
+    
+    def _extract_music_entities(self, text: str) -> Dict[str, str]:
+        """
+        Extract music-specific entities from text
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            Dictionary with music entities (action, song, artist, album, etc.)
+        """
+        music_entities = {}
+        text_lower = text.lower()
+        
+        # Music actions
+        actions = ['play', 'pause', 'stop', 'skip', 'next', 'previous', 'resume', 'shuffle', 'repeat']
+        for action in actions:
+            if re.search(rf'\b{action}\b', text_lower):
+                music_entities['action'] = action
+                break
+        
+        # Volume
+        volume_match = re.search(r'\b(?:volume|sound)\s+(?:to\s+)?(\d{1,3})(?:%|percent)?\b', text_lower)
+        if volume_match:
+            music_entities['volume'] = int(volume_match.group(1))
+        
+        # Song/track
+        song_patterns = [
+            r'"([^"]+)"',  # Quoted songs
+            r'\b(?:play|song|track)\s+(.+?)(?:\s+by|\s+from|$)',
+            r'\bplay\s+([^,]+?)(?:\s+by|\s+from|$)',
+        ]
+        for pattern in song_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                song = match.group(1).strip()
+                if len(song) > 1:  # Avoid single characters
+                    music_entities['song'] = song
+                    break
+        
+        # Artist
+        artist_patterns = [
+            r'\bby\s+([A-Za-z\s&]+?)(?:\s+from|\s+on|$)',
+            r'\bartist\s+([A-Za-z\s&]+?)(?:\s+from|\s+on|$)',
+            r'\bsinger\s+([A-Za-z\s&]+?)(?:\s+from|\s+on|$)',
+        ]
+        for pattern in artist_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                artist = match.group(1).strip()
+                if len(artist) > 1:
+                    music_entities['artist'] = artist
+                    break
+        
+        # Album
+        album_patterns = [
+            r'\balbum\s+"?([^"]+?)"?(?:\s+by|\s+on|$)',
+            r'\bfrom\s+"?([^"]+?)"?(?:\s+by|\s+on|$)',
+        ]
+        for pattern in album_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                album = match.group(1).strip()
+                if len(album) > 1:
+                    music_entities['album'] = album
+                    break
+        
+        # Playlist
+        playlist_patterns = [
+            r'\bplaylist\s+"?([^"]+?)"?(?:\s+by|\s+on|$)',
+            r'\bplay\s+my\s+([A-Za-z\s]+?)\s+playlist',
+            r'\bplay\s+(.+?)\s+playlist',
+        ]
+        for pattern in playlist_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                playlist = match.group(1).strip()
+                if len(playlist) > 1:
+                    music_entities['playlist'] = playlist
+                    break
+        
+        # Genre or mood
+        genres = ['rock', 'pop', 'jazz', 'classical', 'hip hop', 'rap', 'country', 'electronic', 
+                 'blues', 'reggae', 'folk', 'metal', 'indie', 'alternative', 'dance', 'r&b',
+                 'upbeat', 'relaxing', 'chill', 'energetic', 'slow', 'fast', 'happy', 'sad']
+        for genre in genres:
+            if re.search(rf'\b{genre}\b', text_lower):
+                music_entities['genre'] = genre
+                break
+        
+        # Music service
+        services = ['spotify', 'apple music', 'youtube music', 'pandora', 'amazon music', 'soundcloud']
+        for service in services:
+            if re.search(rf'\b{service}\b', text_lower):
+                music_entities['service'] = service
+                break
+        
+        return music_entities
     
     def is_question(self, text: str) -> bool:
         """Check if text is a question"""
