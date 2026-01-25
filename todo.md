@@ -22,11 +22,13 @@
 
 ### Plugins & Integration
 - [x] Calendar plugin (Google Calendar, Outlook) (✅ COMPLETED - Google Calendar integration with natural language support)
-- [ ] Email plugin (read, send, manage)
+- [x] Email plugin (read, send, manage) (✅ COMPLETED)
 - [ ] Smart home integration (lights, thermostat, etc.)
-- [ ] Music control plugin (Spotify, local files)
-- [ ] Browser automation plugin
-- [ ] Note-taking plugin with search
+- [ ] Music control plugin (YouTube only; local and Spotify support incomplete)
+	- Current: Only YouTube playback is supported.
+	- TODO: Add local file playback and Spotify integration.
+- [ ] Browser automation plugin (-- Maybe Later --)
+- [x] Note-taking plugin with search (✅ COMPLETED - Full note management with tags, search, and date filtering)
 - [ ] Reminder/alarm system
 - [ ] News aggregator plugin
 
