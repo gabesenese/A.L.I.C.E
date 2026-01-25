@@ -155,14 +155,21 @@ class TaskExecutor:
         """
         try:
             if self.system == "Windows":
-                # Windows
-                result = self.execute_command(f"start {app_name}")
+                # Handle protocol URLs (like steam://, com.epicgames.launcher://)
+                if "://" in app_name:
+                    result = self.execute_command(f'start "" "{app_name}"', timeout=10)
+                # Handle direct executable names  
+                elif app_name.lower() in ['notepad', 'calc', 'mspaint', 'explorer']:
+                    result = self.execute_command(f"start {app_name}", timeout=5)
+                # Handle application names with spaces or complex names
+                else:
+                    result = self.execute_command(f'start "" "{app_name}"', timeout=10)
             elif self.system == "Darwin":
                 # macOS
-                result = self.execute_command(f"open -a {app_name}")
+                result = self.execute_command(f"open -a '{app_name}'")
             else:
                 # Linux
-                result = self.execute_command(app_name)
+                result = self.execute_command(f"nohup {app_name} &")
             
             if result.success:
                 logger.info(f"[OK] Opened application: {app_name}")
