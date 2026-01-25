@@ -18,6 +18,10 @@ gmail_token.pickle
 # Conversation state (personal data)
 data/conversation_state.pkl
 
+# Data files (JSON data, not config)
+data/**/*.json
+memory/*.json
+
 # Project 
 datasets/
 notes/
