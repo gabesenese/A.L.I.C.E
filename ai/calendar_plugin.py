@@ -133,6 +133,9 @@ class CalendarPlugin(PluginInterface):
         # Check for calendar keywords in entities
         if isinstance(entities, dict):
             text = str(entities).lower()
+            # Exclude if it's a note command
+            if 'note' in text or 'notes' in text:
+                return False
             return any(keyword in text for keyword in calendar_keywords)
         
         return False
