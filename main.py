@@ -47,6 +47,8 @@ from ai.plugin_system import (
 )
 from ai.document_plugin import DocumentPlugin
 from ai.calendar_plugin import CalendarPlugin
+from ai.music_plugin import MusicPlugin
+from ai.notes_plugin import NotesPlugin
 from ai.task_executor import TaskExecutor
 from speech.speech_engine import SpeechEngine, SpeechConfig
 
@@ -190,6 +192,8 @@ class ALICE:
     
     def _register_plugins(self):
         """Register all available plugins"""
+        # Register NotesPlugin early to ensure it handles note commands before calendar
+        self.plugins.register_plugin(NotesPlugin())
         self.plugins.register_plugin(WeatherPlugin())
         self.plugins.register_plugin(TimePlugin())
         self.plugins.register_plugin(FileOperationsPlugin())
@@ -197,6 +201,7 @@ class ALICE:
         self.plugins.register_plugin(WebSearchPlugin())
         self.plugins.register_plugin(DocumentPlugin())
         self.plugins.register_plugin(CalendarPlugin())
+        self.plugins.register_plugin(MusicPlugin())
         
         logger.info(f"[OK] Registered {len(self.plugins.plugins)} plugins")
     
