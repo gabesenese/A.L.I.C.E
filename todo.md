@@ -21,7 +21,7 @@
 - [x] Implement active learning from user corrections (✅ COMPLETED - Full correction tracking and pattern learning)
 
 ### Plugins & Integration
-- [ ] Calendar plugin (Google Calendar, Outlook)
+- [x] Calendar plugin (Google Calendar, Outlook) (✅ COMPLETED - Google Calendar integration with natural language support)
 - [ ] Email plugin (read, send, manage)
 - [ ] Smart home integration (lights, thermostat, etc.)
 - [ ] Music control plugin (Spotify, local files)
