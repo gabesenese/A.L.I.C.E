@@ -379,23 +379,180 @@ class SystemControlPlugin(PluginInterface):
     def __init__(self):
         super().__init__()
         self.name = "SystemControlPlugin"
-        self.description = "Control system settings"
-        self.capabilities = ["volume_control", "brightness", "system_status"]
+        self.description = "Control system settings and launch applications"
+        self.capabilities = ["volume_control", "brightness", "system_status", "app_launching"]
+        self.task_executor = None
     
     def initialize(self) -> bool:
+        from .task_executor import TaskExecutor
+        self.task_executor = TaskExecutor(safe_mode=True)
+        self._installed_apps = None  # Cache for installed apps
         logger.info("⚙️ System Control plugin initialized")
         return True
+    
+    def _get_installed_apps(self) -> Dict[str, str]:
+        """Get list of installed applications on Windows"""
+        if self._installed_apps is not None:
+            return self._installed_apps
+            
+        self._installed_apps = {}
+        
+        try:
+            import subprocess
+            import json
+            
+            # Use PowerShell to get installed apps
+            powershell_cmd = """
+            Get-WmiObject -Class Win32_Product | 
+            Select-Object Name, InstallLocation | 
+            Where-Object {$_.Name -ne $null -and $_.InstallLocation -ne $null} |
+            ConvertTo-Json
+            """
+            
+            # Also get apps from Programs folder and Start Menu
+            start_menu_cmd = """
+            Get-ChildItem -Path "$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs", "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs" -Recurse -Include "*.lnk" |
+            ForEach-Object { 
+                $shell = New-Object -ComObject WScript.Shell
+                $shortcut = $shell.CreateShortcut($_.FullName)
+                @{
+                    Name = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+                    Path = $shortcut.TargetPath
+                }
+            } | ConvertTo-Json
+            """
+            
+            # Try to get installed programs
+            try:
+                result = subprocess.run(
+                    ["powershell", "-Command", start_menu_cmd], 
+                    capture_output=True, 
+                    text=True, 
+                    timeout=10
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    apps_data = json.loads(result.stdout)
+                    if isinstance(apps_data, list):
+                        for app in apps_data:
+                            if isinstance(app, dict) and app.get('Name') and app.get('Path'):
+                                name_lower = app['Name'].lower()
+                                self._installed_apps[name_lower] = app['Path']
+                    elif isinstance(apps_data, dict) and apps_data.get('Name'):
+                        name_lower = apps_data['Name'].lower()
+                        self._installed_apps[name_lower] = apps_data['Path']
+            except:
+                pass
+            
+            # Add common protocol handlers and system apps
+            protocol_apps = {
+                "epic games launcher": "com.epicgames.launcher://",
+                "epicgames": "com.epicgames.launcher://", 
+                "epic": "com.epicgames.launcher://",
+                "steam": "steam://",
+                "spotify": "spotify:",
+                "notepad": "notepad",
+                "calculator": "calc",
+                "paint": "mspaint",
+                "explorer": "explorer"
+            }
+            self._installed_apps.update(protocol_apps)
+            
+            logger.info(f"[APP-DETECT] Found {len(self._installed_apps)} applications")
+            
+        except Exception as e:
+            logger.error(f"[APP-DETECT] Error getting installed apps: {e}")
+            # Fallback to minimal set
+            self._installed_apps = {
+                "notepad": "notepad",
+                "calculator": "calc",
+                "paint": "mspaint"
+            }
+        
+        return self._installed_apps
+    
+    def _find_app(self, app_name: str) -> Optional[str]:
+        """Find the best match for an app name"""
+        apps = self._get_installed_apps()
+        app_name_lower = app_name.lower()
+        
+        # Exact match
+        if app_name_lower in apps:
+            return apps[app_name_lower]
+        
+        # Partial match
+        for installed_name, path in apps.items():
+            if app_name_lower in installed_name or installed_name in app_name_lower:
+                return path
+        
+        # Check if it might be an executable name
+        if not app_name_lower.endswith('.exe'):
+            exe_name = f"{app_name_lower}.exe"
+            if exe_name in apps:
+                return apps[exe_name]
+        
+        return None
     
     def can_handle(self, intent: str, entities: Dict) -> bool:
         return intent == "system_control" or any(
             word in str(entities).lower() 
-            for word in ["volume", "brightness", "shutdown", "restart"]
+            for word in ["volume", "brightness", "shutdown", "restart", "open", "launch", "start"]
         )
     
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         query_lower = query.lower()
         
-        if "volume" in query_lower:
+        # Handle application launching
+        if any(word in query_lower for word in ["open", "launch", "start"]) and \
+           not any(word in query_lower for word in ["volume", "brightness", "file"]):
+            
+            # Extract app name - look for word after "open", "launch", "start"
+            import re
+            app_match = re.search(r'\b(?:open|launch|start)\s+(.+?)(?:\s|$)', query_lower)
+            if app_match:
+                app_name = app_match.group(1).strip()
+                
+                # Find the app dynamically
+                app_path = self._find_app(app_name)
+                
+                if app_path:
+                    # Use TaskExecutor to actually launch the app
+                    if self.task_executor:
+                        result = self.task_executor.open_application(app_path)
+                        if result.success:
+                            return {
+                                "success": True,
+                                "response": f"Opened {app_name} successfully!",
+                                "data": {"action": "app_launch", "app": app_path}
+                            }
+                        else:
+                            return {
+                                "success": False,
+                                "response": f"Found {app_name} but failed to launch it. {result.error or 'Launch failed.'}",
+                                "data": {"action": "app_launch_failed", "app": app_path, "error": result.error}
+                            }
+                    else:
+                        return {
+                            "success": False,
+                            "response": "Task executor not available for launching applications.",
+                            "data": {"action": "app_launch_failed"}
+                        }
+                else:
+                    # App not found - provide helpful message
+                    return {
+                        "success": False,
+                        "response": f"'{app_name}' is not installed on this computer or I couldn't find it. Make sure the application is installed and try using its exact name.",
+                        "data": {"action": "app_not_found", "app": app_name}
+                    }
+            else:
+                return {
+                    "success": False,
+                    "response": "I need to know which application to open. Try 'open [app name]'",
+                    "data": {"action": "app_launch_help"}
+                }
+        
+        # Handle volume controls
+        elif "volume" in query_lower:
             if "up" in query_lower or "increase" in query_lower:
                 action = "volume_up"
                 response = "Volume increased by 10%"
@@ -405,12 +562,16 @@ class SystemControlPlugin(PluginInterface):
             else:
                 action = "volume_status"
                 response = "Current volume is at 70%"
+        
+        # Handle brightness
         elif "brightness" in query_lower:
             action = "brightness_adjust"
             response = "Brightness adjusted"
+        
+        # Default fallback
         else:
             action = "unknown"
-            response = "I can control volume, brightness, and other system settings."
+            response = "I can control volume, brightness, launch applications, and manage system settings."
         
         return {
             "success": True,
