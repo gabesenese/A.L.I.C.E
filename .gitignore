@@ -11,9 +11,11 @@ __pycache__/
 # Database files
 *.db 
 
-# Gmail credentials (NEVER commit these!)
+# Credentials (NEVER commit these!)
 gmail_credentials.json
 gmail_token.pickle
+calendar_credentials.json
+calendar_token.pickle
 
 # Conversation state (personal data)
 data/conversation_state.pkl
@@ -202,3 +204,4 @@ data/memory/memories.json
 data/context/user_prefs.json
 data/memory/vectors.pkl
 data/context/semantic_memory.pkl
+data/advanced_context_state.pkl
