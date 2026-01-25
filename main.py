@@ -23,8 +23,10 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
 import sys
 import logging
 import random
+import re
 from typing import Optional, Dict, Any
 from datetime import datetime
+from collections import defaultdict
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -35,11 +37,15 @@ from ai.llm_engine import LocalLLMEngine, LLMConfig
 from ai.context_manager import ContextManager
 from ai.advanced_context_handler import AdvancedContextHandler
 from ai.memory_system import MemorySystem
+from ai.conversation_summarizer import ConversationSummarizer
+from ai.entity_relationship_tracker import EntityRelationshipTracker
+from ai.active_learning_manager import ActiveLearningManager, CorrectionType, FeedbackType
 from ai.email_plugin import GmailPlugin
 from ai.plugin_system import (
     PluginManager, WeatherPlugin, TimePlugin,
     FileOperationsPlugin, SystemControlPlugin, WebSearchPlugin
 )
+from ai.document_plugin import DocumentPlugin
 from ai.task_executor import TaskExecutor
 from speech.speech_engine import SpeechEngine, SpeechConfig
 
@@ -76,6 +82,16 @@ class ALICE:
         self.conversation_summary = []  # Summary of recent exchanges
         self.referenced_items = {}  # Track items user has referenced (emails, files, etc.)
         self.conversation_topics = []  # Track topics discussed in this session
+        
+        # Active learning tracking
+        self.last_user_input = ""
+        self.last_assistant_response = ""
+        self.last_intent = ""
+        self.last_entities = {}
+        self.last_nlp_result = {}
+        
+        # Conversation summarizer for intelligent context management
+        self.summarizer = None  # Will be initialized after LLM engine
         
         # Advanced context handler
         self.advanced_context = None  # Will be initialized after NLP processor
@@ -114,13 +130,25 @@ class ALICE:
             llm_config = LLMConfig(model=llm_model)
             self.llm = LocalLLMEngine(llm_config)
             
+            # 4.5. Conversation Summarizer
+            logger.info("Loading conversation summarizer...")
+            self.summarizer = ConversationSummarizer(llm_engine=self.llm)
+            
+            # 4.6. Entity Relationship Tracker
+            logger.info("Loading entity relationship tracker...")
+            self.relationship_tracker = EntityRelationshipTracker()
+            
+            # 4.7. Active Learning Manager
+            logger.info("Loading active learning system...")
+            self.learning_manager = ActiveLearningManager()
+            
             # 5. Plugin System
             logger.info("Loading plugins...")
             self.plugins = PluginManager()
             self._register_plugins()
             
             # 6. Task Executor
-            logger.info("⚙️ Loading task executor...")
+            logger.info(" Loading task executor...")
             self.executor = TaskExecutor(safe_mode=True)
             
             # 7. Speech Engine (optional)
@@ -166,6 +194,7 @@ class ALICE:
         self.plugins.register_plugin(FileOperationsPlugin())
         self.plugins.register_plugin(SystemControlPlugin())
         self.plugins.register_plugin(WebSearchPlugin())
+        self.plugins.register_plugin(DocumentPlugin())
         
         logger.info(f"[OK] Registered {len(self.plugins.plugins)} plugins")
     
@@ -184,12 +213,24 @@ class ALICE:
             if advanced_context:
                 context_parts.append(advanced_context)
         
-        # 3. Recent conversation summary (fallback)
+        # 3. Intelligent conversation summarization
+        if self.summarizer:
+            conversation_context = self.summarizer.get_context_summary()
+            if conversation_context:
+                context_parts.append(f"Conversation context: {conversation_context}")
+            
+            # Get detailed context for complex interactions
+            detailed_context = self.summarizer.get_detailed_context()
+            if detailed_context.get("frequent_topics"):
+                topics_text = ", ".join(detailed_context["frequent_topics"][:3])
+                context_parts.append(f"Current session topics: {topics_text}")
+        
+        # 4. Recent conversation summary (fallback)
         recent_context = self._get_recent_conversation_summary()
-        if recent_context and not self.advanced_context:
+        if recent_context and not self.advanced_context and not self.summarizer:
             context_parts.append(f"Recent discussion: {recent_context}")
         
-        # 4. Active context tracking (fallback if advanced context not available)
+        # 5. Active context tracking (fallback if advanced context not available)
         if not self.advanced_context:
             active_context = self._get_active_context()
             if active_context:
@@ -227,7 +268,52 @@ class ALICE:
             entities = nlp_result['entities']
             sentiment = nlp_result['sentiment']
             
+            # Store for active learning
+            self.last_user_input = user_input
+            self.last_nlp_result = nlp_result.copy()
+            self.last_intent = intent
+            self.last_entities = entities
+            
+            # 1.5. Apply Active Learning improvements
+            improved_nlp_result = self.learning_manager.apply_learning(user_input, nlp_result)
+            if improved_nlp_result != nlp_result:
+                logger.info("Active learning improved NLP result")
+                intent = improved_nlp_result['intent']
+                entities = improved_nlp_result['entities']
+                sentiment = improved_nlp_result.get('sentiment', sentiment)
+            
+            # Store sentiment for use in conversation summarizer
+            self._last_sentiment = sentiment['category'] if sentiment else None
+            
             logger.info(f"Intent: {intent}, Sentiment: {sentiment['category']}")
+            
+            # 2. Advanced Context Processing (GLOBAL - for all interactions)
+            context_resolved_input = user_input
+            if self.advanced_context:
+                # Process the turn and get any resolved references
+                turn = self.advanced_context.process_turn(
+                    user_input=user_input,
+                    assistant_response="",  # Will be filled later
+                    intent=intent,
+                    entities=entities
+                )
+                
+                # Apply any coreference resolutions to improve understanding
+                if turn.entities_resolved:
+                    for reference, entity_id in turn.entities_resolved.items():
+                        entity = self.advanced_context.entities.get(entity_id)
+                        if entity:
+                            # Create more explicit version of input for better processing
+                            entity_desc = f"{entity.entity_type} '{entity.data.get('subject', entity.data.get('name', entity_id))}'"
+                            context_resolved_input = user_input.replace(reference, entity_desc)
+                            logger.info(f"Resolved '{reference}' to {entity_desc}")
+            
+            # Use the context-resolved input for further processing
+            user_input_processed = context_resolved_input
+            
+            # 3. General Entity Detection (for non-email interactions)
+            if self.advanced_context and intent != "email":
+                self._detect_general_entities(user_input, intent, entities)
             
             # Handle pending multi-step actions
             if self.pending_action == "compose_email":
@@ -372,6 +458,11 @@ class ALICE:
                 # Parse what the user wants to do with email
                 query_lower = user_input.lower()
                 
+                # Extract number from request (e.g., "2 latest emails", "show 3 emails")
+                import re
+                number_match = re.search(r'\b(\d+)\b', query_lower)
+                requested_count = int(number_match.group(1)) if number_match else None
+                
                 # Check/List emails
                 if any(word in query_lower for word in ['check', 'show', 'list', 'inbox']):
                     if 'unread' in query_lower:
@@ -417,50 +508,92 @@ class ALICE:
                     
                     return response.strip()
                 
-                # Read specific email
+                # Read specific email(s) or latest
                 elif any(word in query_lower for word in ['read', 'open', 'first', 'latest']):
-                    emails = self.gmail.get_recent_emails(max_results=1)
-                    if not emails:
-                        return "Couldn't find any emails."
+                    # If user specified a number, get multiple emails
+                    if requested_count and requested_count > 1:
+                        emails = self.gmail.get_recent_emails(max_results=min(requested_count, 10))
+                        if not emails:
+                            return "Couldn't find any emails."
+                        
+                        # Store in context for potential follow-up actions
+                        self.last_email_list = emails
+                        self.last_email_context = f"latest_{len(emails)}_emails"
+                        
+                        # Register with advanced context handler
+                        if self.advanced_context:
+                            for email in emails:
+                                entity_id = self.advanced_context.add_entity(
+                                    entity_type="email",
+                                    data={
+                                        'id': email['id'],
+                                        'subject': email['subject'],
+                                        'from': email['from'],
+                                        'date': email['date'],
+                                        'unread': email.get('unread', False)
+                                    },
+                                    aliases=[
+                                        email['subject'], 
+                                        f"email from {email['from'].split('<')[0].strip()}"
+                                    ]
+                                )
+                        
+                        response = f"Your {len(emails)} latest emails:\n\n"
+                        for i, email in enumerate(emails, 1):
+                            unread = "[UNREAD] " if email.get('unread') else ""
+                            from_field = email['from']
+                            sender_name = from_field.split('<')[0].strip().strip('"') if '<' in from_field else from_field
+                            date_str = email['date'].split(',', 1)[1].strip().split(' +')[0] if ',' in email['date'] else email['date']
+                            
+                            response += f"{i}. {unread}{email['subject']}\n"
+                            response += f"   {sender_name} • {date_str}\n\n"
+                        
+                        return response.strip()
                     
-                    email = emails[0]
-                    content = self.gmail.get_email_content(email['id'])
-                    
-                    # Store in context for potential follow-up actions (delete, archive, etc.)
-                    self.last_email_list = emails
-                    self.last_email_context = "latest_email"
-                    
-                    # Register with advanced context handler
-                    if self.advanced_context:
-                        entity_id = self.advanced_context.add_entity(
-                            entity_type="email",
-                            data={
-                                'id': email['id'],
-                                'subject': email['subject'],
-                                'from': email['from'],
-                                'date': email['date'],
-                                'content': content[:200] if content else "",  # Store snippet
-                                'unread': email.get('unread', False)
-                            },
-                            aliases=[
-                                "this email", "the email", "latest email", "recent email",
-                                email['subject'], 
-                                f"email from {email['from'].split('<')[0].strip()}"
-                            ]
-                        )
-                    
-                    response = f"Your latest email:\n\n"
-                    response += f"From: {email['from']}\n"
-                    response += f"Subject: {email['subject']}\n"
-                    response += f"Date: {email['date']}\n\n"
-                    
-                    if content:
-                        if len(content) > 500:
-                            response += content[:500] + "...\n\n(Content truncated)"
-                        else:
-                            response += content
-                    
-                    return response
+                    else:
+                        # Single latest email with full content
+                        emails = self.gmail.get_recent_emails(max_results=1)
+                        if not emails:
+                            return "Couldn't find any emails."
+                        
+                        email = emails[0]
+                        content = self.gmail.get_email_content(email['id'])
+                        
+                        # Store in context for potential follow-up actions (delete, archive, etc.)
+                        self.last_email_list = emails
+                        self.last_email_context = "latest_email"
+                        
+                        # Register with advanced context handler
+                        if self.advanced_context:
+                            entity_id = self.advanced_context.add_entity(
+                                entity_type="email",
+                                data={
+                                    'id': email['id'],
+                                    'subject': email['subject'],
+                                    'from': email['from'],
+                                    'date': email['date'],
+                                    'content': content[:200] if content else "",  # Store snippet
+                                    'unread': email.get('unread', False)
+                                },
+                                aliases=[
+                                    "this email", "the email", "latest email", "recent email",
+                                    email['subject'], 
+                                    f"email from {email['from'].split('<')[0].strip()}"
+                                ]
+                            )
+                        
+                        response = f"Your latest email:\n\n"
+                        response += f"From: {email['from']}\n"
+                        response += f"Subject: {email['subject']}\n"
+                        response += f"Date: {email['date']}\n\n"
+                        
+                        if content:
+                            if len(content) > 500:
+                                response += content[:500] + "...\n\n(Content truncated)"
+                            else:
+                                response += content
+                        
+                        return response
                 
                 # Search emails
                 elif 'search' in query_lower or 'find' in query_lower or 'from' in query_lower:
@@ -533,16 +666,22 @@ class ALICE:
                 elif 'delete' in query_lower or 'remove' in query_lower:
                     # Check for contextual references first
                     if any(word in query_lower for word in ['this', 'that', 'it', 'the email', 'the latest']):
-                    # Advanced context resolution
-                    if self.advanced_context:
-                        resolved_ref = self.advanced_context.resolve_reference(user_input)
-                        if resolved_ref and resolved_ref.startswith("email_"):
-                            # Get entity data
-                            entity = self.advanced_context.entities.get(resolved_ref)
-                            if entity and entity.entity_type == "email":
-                                email_data = entity.data
-                                if self.gmail.delete_email(email_data['id']):
-                                    # Remove from advanced context
+                        # Advanced context resolution
+                        if self.advanced_context:
+                            resolved_ref = self.advanced_context.resolve_reference(user_input)
+                            if resolved_ref and resolved_ref.startswith("email_"):
+                                # Get entity data
+                                entity = self.advanced_context.entities.get(resolved_ref)
+                                if entity and entity.entity_type == "email":
+                                    email_data = entity.data
+                                    if self.gmail.delete_email(email_data['id']):
+                                        # Remove from advanced context
+                                        del self.advanced_context.entities[resolved_ref]
+                                        # Clear simple context too
+                                        self.last_email_list = []
+                                        return f"Deleted email: '{email_data['subject']}' from {email_data.get('from', 'Unknown')}"
+                                    else:
+                                        return "Failed to delete the email. Please try again."
                                     del self.advanced_context.entities[resolved_ref]
                                     # Clear simple context too
                                     self.last_email_list = []
@@ -764,9 +903,16 @@ class ALICE:
                 intent, user_input, entities, context_summary
             )
             
-            if plugin_result and plugin_result.get('success'):
+            if plugin_result:
+                # Plugin handled the request, regardless of success/failure
                 response = plugin_result['response']
-                logger.info(f"[PLUGIN] Handled by: {plugin_result.get('plugin')}")
+                plugin_name = plugin_result.get('plugin', 'Unknown')
+                success = plugin_result.get('success', False)
+                
+                if success:
+                    logger.info(f"[PLUGIN]  Handled by: {plugin_name}")
+                else:
+                    logger.info(f"[PLUGIN]  Failed in: {plugin_name}")
                 
                 # Store interaction in memory
                 self._store_interaction(user_input, response, intent, entities)
@@ -779,9 +925,21 @@ class ALICE:
             
             # 3. If plugin couldn't handle or failed, use LLM with context
             
+            # Handle relationship queries before LLM generation
+            if self.relationship_tracker:
+                relationship_response = self._handle_relationship_query(user_input, intent, entities)
+                if relationship_response:
+                    return relationship_response
+            
             # 3. Use LLM for general conversation
-            # Build enhanced context
-            enhanced_context = self._build_llm_context(user_input)
+            # Build enhanced context using the processed input
+            enhanced_context = self._build_llm_context(user_input_processed)
+            
+            # Add active learning guidance if available
+            learning_guidance = improved_nlp_result.get("learning_guidance")
+            if learning_guidance:
+                guidance_text = self._format_learning_guidance(learning_guidance)
+                enhanced_context = f"{enhanced_context}\n\n{guidance_text}"
             
             # Prepend context to conversation if available
             if enhanced_context:
@@ -791,8 +949,16 @@ class ALICE:
                     "content": f"Context: {enhanced_context}"
                 })
             
-            # Get LLM response
-            response = self.llm.chat(user_input, use_history=True)
+            # Get LLM response using the context-resolved input
+            response = self.llm.chat(user_input_processed, use_history=True)
+            
+            # Update the advanced context with the response
+            if self.advanced_context:
+                # Update the turn with the response
+                turn.assistant_response = response
+                
+                # Extract any entities mentioned in the response and track them
+                self._track_response_entities(response, intent)
             
             # Remove context message
             if enhanced_context and self.llm.conversation_history:
@@ -801,6 +967,9 @@ class ALICE:
             
             # 4. Store interaction
             self._store_interaction(user_input, response, intent, entities)
+            
+            # Store response for active learning
+            self.last_assistant_response = response
             
             # 5. Speak if voice enabled
             if use_voice and self.speech:
@@ -817,6 +986,127 @@ class ALICE:
                 self.speech.speak(error_response, blocking=False)
             
             return error_response
+    
+    def _track_response_entities(self, response: str, intent: str):
+        """Track entities mentioned in assistant responses"""
+        if not self.advanced_context:
+            return
+            
+        # Track files mentioned
+        import re
+        file_patterns = [
+            r"created? (?:a )?file (?:called )?['\"]([^'\"]+)['\"]",
+            r"(?:file|document) ['\"]([^'\"]+)['\"]",
+            r"saved? (?:to|as) ['\"]([^'\"]+)['\"]"
+        ]
+        
+        for pattern in file_patterns:
+            matches = re.finditer(pattern, response, re.IGNORECASE)
+            for match in matches:
+                filename = match.group(1)
+                self.advanced_context.add_entity(
+                    entity_type="file",
+                    data={"name": filename, "mentioned_in_response": True},
+                    aliases=["the file", "this file", filename]
+                )
+        
+        # Track people mentioned
+        person_patterns = [
+            r"(?:from|by|to) ([A-Z][a-z]+ [A-Z][a-z]+)",  # Full names
+            r"(?:from|by|to) ([A-Z][a-z]+)",  # First names
+        ]
+        
+        for pattern in person_patterns:
+            matches = re.finditer(pattern, response, re.IGNORECASE)
+            for match in matches:
+                person_name = match.group(1)
+                self.advanced_context.add_entity(
+                    entity_type="person",
+                    data={"name": person_name, "mentioned_in_response": True},
+                    aliases=["this person", person_name]
+                )
+        
+        # Track topics mentioned
+        if intent in ["weather", "time", "calculation"]:
+            topic_name = intent.replace("_", " ")
+            self.advanced_context.add_entity(
+                entity_type="topic",
+                data={"name": topic_name, "intent": intent},
+                aliases=["this topic", "that", topic_name]
+            )
+    
+    def _detect_general_entities(self, user_input: str, intent: str, entities: Dict):
+        """Detect and track general entities from user input"""
+        if not self.advanced_context:
+            return
+            
+        import re
+        
+        # Detect file mentions
+        file_patterns = [
+            r"(?:file|document) (?:called |named )?['\"]([^'\"]+)['\"]",
+            r"create (?:a )?file ['\"]([^'\"]+)['\"]",
+            r"(?:open|read|edit) ['\"]([^'\"]+)['\"]"
+        ]
+        
+        for pattern in file_patterns:
+            matches = re.finditer(pattern, user_input, re.IGNORECASE)
+            for match in matches:
+                filename = match.group(1)
+                self.advanced_context.add_entity(
+                    entity_type="file",
+                    data={"name": filename, "mentioned_by_user": True},
+                    aliases=["the file", "this file", "that file", filename]
+                )
+        
+        # Detect person mentions
+        person_patterns = [
+            r"(?:tell|ask|message|email|call) ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+            r"(?:with|from|to) ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)"
+        ]
+        
+        for pattern in person_patterns:
+            matches = re.finditer(pattern, user_input, re.IGNORECASE)
+            for match in matches:
+                person_name = match.group(1)
+                if person_name.lower() not in ["alice", "you", "me", "i"]:  # Skip self-references
+                    self.advanced_context.add_entity(
+                        entity_type="person",
+                        data={"name": person_name, "mentioned_by_user": True},
+                        aliases=["this person", "they", "them", person_name]
+                    )
+        
+        # Detect location mentions
+        location_patterns = [
+            r"(?:in|at|to|from) ([A-Z][a-z]+(?:,?\s+[A-Z][a-z]+)*)",
+            r"weather (?:in|at|for) ([A-Z][a-z]+(?:,?\s+[A-Z][a-z]+)*)"
+        ]
+        
+        for pattern in location_patterns:
+            matches = re.finditer(pattern, user_input, re.IGNORECASE)
+            for match in matches:
+                location = match.group(1)
+                # Simple validation - avoid common words
+                if location.lower() not in ["the", "this", "that", "there", "here", "now", "today"]:
+                    self.advanced_context.add_entity(
+                        entity_type="location",
+                        data={"name": location, "mentioned_by_user": True},
+                        aliases=["there", "this place", "that location", location]
+                    )
+        
+        # Detect task/topic mentions based on intent
+        if intent in ["file_operation", "system_control", "weather", "time"]:
+            topic_data = {
+                "intent": intent,
+                "user_input": user_input[:100],  # Store snippet
+                "mentioned_by_user": True
+            }
+            
+            self.advanced_context.add_entity(
+                entity_type="topic",
+                data=topic_data,
+                aliases=["this", "that", intent.replace("_", " ")]
+            )
     
     def _get_recent_conversation_summary(self) -> str:
         """Get a summary of the last few conversation exchanges"""
@@ -944,6 +1234,42 @@ class ALICE:
                     entities=entities
                 )
             
+            # Add to conversation summarizer for intelligent context management
+            if self.summarizer:
+                # Extract entity list from entities dict
+                entity_list = []
+                if entities:
+                    for entity_type, entity_values in entities.items():
+                        if isinstance(entity_values, list):
+                            entity_list.extend(entity_values)
+                        elif entity_values:
+                            entity_list.append(str(entity_values))
+                
+                # Get sentiment from NLP result if available
+                sentiment = getattr(self, '_last_sentiment', None)
+                
+                self.summarizer.add_turn(
+                    user_input=user_input,
+                    assistant_response=response,
+                    intent=intent,
+                    entities=entity_list,
+                    sentiment=sentiment
+                )
+            
+            # Extract and store entity relationships
+            if self.relationship_tracker:
+                try:
+                    # Extract relationships from user input
+                    relationships = self.relationship_tracker.process_text(user_input)
+                    logger.debug(f"Extracted {len(relationships)} relationships from user input")
+                    
+                    # Also process assistant response for relationship context
+                    if response and len(response) < 500:  # Only process shorter responses
+                        assistant_relationships = self.relationship_tracker.process_text(response)
+                        logger.debug(f"Extracted {len(assistant_relationships)} relationships from assistant response")
+                except Exception as e:
+                    logger.error(f"Error extracting relationships: {e}")
+            
             # Add to conversation summary (keep last 10)
             self.conversation_summary.append({
                 'user': user_input,
@@ -1017,7 +1343,16 @@ class ALICE:
         print("   /location  - Set or view your location")
         print("   /status    - Show system status")
         print("   /save      - Save current state")
-        print("   /status    - Show system status")
+        print("   /summary   - Get conversation summary")
+        print("   /context   - Show current context")
+        print("   /topics    - List conversation topics")
+        print("   /entities  - Show tracked entities")
+        print("   /relationships - Show entity relationships")
+        print()
+        print("Debug Commands:")
+        print("   /correct   - Correct my last response")
+        print("   /feedback  - Rate my last response")
+        print("   /learning  - Show learning statistics")
         print("   exit       - End conversation")
         print("=" * 80)
         
@@ -1114,8 +1449,17 @@ class ALICE:
             print("   /status            - Show system status and capabilities")
             print("   /location [City]   - Set or view your location")
             print("   /save              - Save current state manually")
-            print("   /save      - Save current state")
-            print("   exit       - End conversation and exit")
+            print("   /summary           - Get conversation summary")
+            print("   /context           - Show current context")
+            print("   /topics            - List conversation topics")
+            print("   /entities          - Show tracked entities")
+            print("   /relationships     - Show entity relationships")
+            print()
+            print("Debug Commands:")
+            print("   /correct [type]    - Correct A.L.I.C.E's last response")
+            print("   /feedback [rating] - Rate A.L.I.C.E's last response (1-5)")
+            print("   /learning          - Show active learning statistics")
+            print("   exit               - End conversation and exit")
         
         elif cmd == '/voice':
             if self.speech:
@@ -1174,6 +1518,109 @@ class ALICE:
             self.context.save_context()
             self.memory._save_memories()
             print("\n[OK] Conversation state saved successfully")
+        
+        elif cmd == '/summary':
+            if self.summarizer:
+                try:
+                    summary_text = self.summarizer.get_conversation_summary()
+                    print("\n📝 Conversation Summary:")
+                    print("=" * 50)
+                    print(summary_text)
+                    print("=" * 50)
+                except Exception as e:
+                    print(f"\n[ERROR] Failed to get summary: {e}")
+            else:
+                print("\n[ERROR] Conversation summarizer not available")
+        
+        elif cmd == '/context':
+            if self.summarizer:
+                try:
+                    context_summary = self.summarizer.get_context_summary()
+                    print("\n🧠 Current Context:")
+                    print("=" * 50)
+                    print(context_summary)
+                    print("=" * 50)
+                except Exception as e:
+                    print(f"\n[ERROR] Failed to get context: {e}")
+            else:
+                print("\n[ERROR] Conversation summarizer not available")
+        
+        elif cmd == '/topics':
+            if self.summarizer:
+                try:
+                    context = self.summarizer.get_detailed_context()
+                    topics = context.get('frequent_topics', [])
+                    print("\n🏷️ Conversation Topics:")
+                    print("=" * 50)
+                    if topics:
+                        for i, topic in enumerate(topics, 1):
+                            print(f"   {i}. {topic.title()}")
+                    else:
+                        print("   No topics identified yet.")
+                    print("=" * 50)
+                except Exception as e:
+                    print(f"\n[ERROR] Failed to get topics: {e}")
+            else:
+                print("\n[ERROR] Conversation summarizer not available")
+        
+        elif cmd == '/entities':
+            if self.relationship_tracker:
+                try:
+                    stats = self.relationship_tracker.get_statistics()
+                    print("\n👥 Tracked Entities:")
+                    print("=" * 50)
+                    print(f"Total entities: {stats['total_entities']}")
+                    
+                    if stats['most_connected_entities']:
+                        print("\nMost connected entities:")
+                        for entity, count in stats['most_connected_entities']:
+                            print(f"   • {entity.title()}: {count} connections")
+                    
+                    if stats['entity_types']:
+                        print(f"\nEntity types: {', '.join(stats['entity_types'].keys())}")
+                    
+                    print("=" * 50)
+                except Exception as e:
+                    print(f"\n[ERROR] Failed to get entities: {e}")
+            else:
+                print("\n[ERROR] Entity relationship tracker not available")
+        
+        elif cmd == '/relationships':
+            if self.relationship_tracker:
+                try:
+                    stats = self.relationship_tracker.get_statistics()
+                    print("\n🔗 Entity Relationships:")
+                    print("=" * 50)
+                    print(f"Total relationships: {stats['total_relationships']}")
+                    
+                    if stats['relationship_types']:
+                        print("\nRelationship types:")
+                        for rel_type, count in stats['relationship_types'].items():
+                            print(f"   • {rel_type.replace('_', ' ').title()}: {count}")
+                    
+                    if stats['recent_relationships']:
+                        print(f"\nRecent relationships:")
+                        for rel in stats['recent_relationships'][:5]:
+                            source = rel['source_entity'].title()
+                            target = rel['target_entity'].title()
+                            rel_type = rel['relationship_type'].replace('_', ' ')
+                            confidence = rel['confidence']
+                            print(f"   • {source} {rel_type} {target} (confidence: {confidence:.2f})")
+                    
+                    print("=" * 50)
+                except Exception as e:
+                    print(f"\n[ERROR] Failed to get relationships: {e}")
+            else:
+                print("\n[ERROR] Entity relationship tracker not available")
+        
+        elif cmd.startswith('/correct'):
+            self._handle_correction_command(cmd)
+        
+        elif cmd.startswith('/feedback'):
+            self._handle_feedback_command(cmd)
+        
+        elif cmd == '/learning':
+            self._handle_learning_stats_command()
         
         else:
             print(f"\n[ERROR] Unknown command: {command}")
@@ -1251,9 +1698,288 @@ class ALICE:
         
         return random.choice(farewells)
     
+    def _handle_relationship_query(self, user_input: str, intent: str, entities: Dict[str, Any]) -> Optional[str]:
+        """Handle relationship queries like 'who does John work for?' or 'tell me about Sarah'"""
+        query_lower = user_input.lower()
+        
+        # Patterns for relationship queries
+        relationship_query_patterns = [
+            r'who does (\w+) work (?:for|with)',
+            r'where does (\w+) live',
+            r'who is (\w+)(?:\s+to\s+(\w+))?',
+            r'tell me about (\w+)',
+            r'what do you know about (\w+)',
+            r"(\w+)(?:'s)?\s+(?:relationship|connection)\s+(?:with|to)\s+(\w+)",
+            r'how are (\w+) and (\w+) (?:related|connected)',
+            r'(\w+) and (\w+) relationship',
+        ]
+        
+        for pattern in relationship_query_patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                entity_name = match.group(1)
+                second_entity = match.group(2) if len(match.groups()) > 1 and match.group(2) else None
+                
+                # Get relationships for the entity
+                relationships = self.relationship_tracker.get_entity_relationships(entity_name)
+                
+                if not relationships:
+                    return f"I don't have any information about relationships involving {entity_name.title()}."
+                
+                # Format relationships
+                response_parts = [f"Here's what I know about {entity_name.title()}:"]
+                
+                # Group relationships by type
+                by_type = defaultdict(list)
+                for rel in relationships:
+                    if rel.source_entity == entity_name.lower():
+                        by_type[rel.relationship_type].append(f"{rel.relationship_type.replace('_', ' ')} {rel.target_entity.title()}")
+                    else:
+                        by_type[rel.relationship_type].append(f"is {rel.relationship_type.replace('_', ' ')} by {rel.source_entity.title()}")
+                
+                for rel_type, connections in by_type.items():
+                    if len(connections) == 1:
+                        response_parts.append(f"• {connections[0]}")
+                    else:
+                        response_parts.append(f"• {rel_type.replace('_', ' ')}: {', '.join([c.replace(rel_type.replace('_', ' '), '').strip() for c in connections])}")
+                
+                # If asking about specific relationship between two entities
+                if second_entity:
+                    specific_rels = [
+                        rel for rel in relationships
+                        if (rel.source_entity == second_entity.lower() or rel.target_entity == second_entity.lower())
+                    ]
+                    if specific_rels:
+                        response_parts.append(f"\nConnection with {second_entity.title()}:")
+                        for rel in specific_rels:
+                            if rel.source_entity == entity_name.lower():
+                                response_parts.append(f"• {entity_name.title()} {rel.relationship_type.replace('_', ' ')} {rel.target_entity.title()}")
+                            else:
+                                response_parts.append(f"• {rel.source_entity.title()} {rel.relationship_type.replace('_', ' ')} {entity_name.title()}")
+                
+                return "\n".join(response_parts)
+        
+        # Check if user is asking for general relationship information
+        if any(word in query_lower for word in ['relationships', 'connections', 'network']):
+            stats = self.relationship_tracker.get_statistics()
+            if stats['total_relationships'] == 0:
+                return "I haven't tracked any entity relationships yet. Have a conversation mentioning people, places, or things and I'll start building a relationship map!"
+            
+            response_parts = [
+                f"I've tracked {stats['total_relationships']} relationships between {stats['total_entities']} entities.",
+            ]
+            
+            if stats['most_connected_entities']:
+                response_parts.append("\nMost connected entities:")
+                for entity, count in stats['most_connected_entities'][:3]:
+                    response_parts.append(f"• {entity.title()}: {count} connections")
+            
+            return "\n".join(response_parts)
+        
+        return None
+    
+    def _handle_correction_command(self, command: str):
+        """Handle correction commands"""
+        if not self.last_user_input or not self.last_assistant_response:
+            print("\n[ERROR] No previous interaction to correct")
+            return
+        
+        parts = command.split(" ", 1)
+        correction_type = parts[1] if len(parts) > 1 else ""
+        
+        print(f"\n📝 Correction Mode")
+        print("=" * 50)
+        print(f"Last input: {self.last_user_input}")
+        print(f"Last response: {self.last_assistant_response[:200]}...")
+        print()
+        
+        if not correction_type:
+            print("Available correction types:")
+            print("   intent     - Correct intent classification")
+            print("   entity     - Correct entity extraction")
+            print("   response   - Correct response quality")
+            print("   sentiment  - Correct sentiment analysis")
+            print("   factual    - Correct factual error")
+            print()
+            correction_type = input("Correction type: ").strip().lower()
+        
+        if correction_type == "intent":
+            print(f"Current intent: {self.last_intent}")
+            new_intent = input("Correct intent: ").strip()
+            if new_intent:
+                self.learning_manager.record_correction(
+                    CorrectionType.INTENT_CLASSIFICATION,
+                    self.last_user_input,
+                    self.last_intent,
+                    new_intent,
+                    f"User corrected intent from '{self.last_intent}' to '{new_intent}'",
+                    {"original_nlp_result": self.last_nlp_result}
+                )
+                print(f"✅ Recorded intent correction: {self.last_intent} → {new_intent}")
+        
+        elif correction_type == "entity":
+            print(f"Current entities: {self.last_entities}")
+            print("Enter correct entities (JSON format):")
+            try:
+                new_entities_input = input("Correct entities: ").strip()
+                if new_entities_input:
+                    new_entities = eval(new_entities_input)  # Simple eval for demo
+                    self.learning_manager.record_correction(
+                        CorrectionType.ENTITY_EXTRACTION,
+                        self.last_user_input,
+                        self.last_entities,
+                        new_entities,
+                        "User corrected entity extraction",
+                        {"original_nlp_result": self.last_nlp_result}
+                    )
+                    print("✅ Recorded entity correction")
+            except Exception as e:
+                print(f"[ERROR] Invalid entity format: {e}")
+        
+        elif correction_type == "response":
+            print("Enter the correct response:")
+            correct_response = input("Correct response: ").strip()
+            if correct_response:
+                self.learning_manager.record_correction(
+                    CorrectionType.RESPONSE_QUALITY,
+                    self.last_user_input,
+                    self.last_assistant_response,
+                    correct_response,
+                    "User provided better response",
+                    {"intent": self.last_intent}
+                )
+                print("✅ Recorded response quality correction")
+        
+        elif correction_type == "sentiment":
+            print(f"Current sentiment: {self.last_nlp_result.get('sentiment', {})}")
+            new_sentiment = input("Correct sentiment (positive/negative/neutral): ").strip()
+            if new_sentiment:
+                self.learning_manager.record_correction(
+                    CorrectionType.SENTIMENT_ANALYSIS,
+                    self.last_user_input,
+                    self.last_nlp_result.get('sentiment'),
+                    new_sentiment,
+                    f"User corrected sentiment to {new_sentiment}",
+                    {"original_nlp_result": self.last_nlp_result}
+                )
+                print(f"✅ Recorded sentiment correction: {new_sentiment}")
+        
+        elif correction_type == "factual":
+            print("Describe the factual error:")
+            error_description = input("Error description: ").strip()
+            correct_fact = input("Correct fact: ").strip()
+            if error_description and correct_fact:
+                self.learning_manager.record_correction(
+                    CorrectionType.FACTUAL_ERROR,
+                    self.last_user_input,
+                    error_description,
+                    correct_fact,
+                    f"User corrected factual error: {error_description}",
+                    {"response": self.last_assistant_response}
+                )
+                print("✅ Recorded factual correction")
+        
+        else:
+            print(f"[ERROR] Unknown correction type: {correction_type}")
+    
+    def _handle_feedback_command(self, command: str):
+        """Handle feedback commands"""
+        if not self.last_user_input or not self.last_assistant_response:
+            print("\n[ERROR] No previous interaction to rate")
+            return
+        
+        parts = command.split(" ", 1)
+        rating_str = parts[1] if len(parts) > 1 else ""
+        
+        try:
+            rating = int(rating_str) if rating_str else None
+        except ValueError:
+            rating = None
+        
+        print(f"\n📊 Feedback Mode")
+        print("=" * 50)
+        print(f"Last input: {self.last_user_input}")
+        print(f"Last response: {self.last_assistant_response[:200]}...")
+        print()
+        
+        if rating is None:
+            rating = int(input("Rate this response (1-5): ").strip())
+        
+        if 1 <= rating <= 5:
+            feedback_type = FeedbackType.POSITIVE if rating >= 4 else FeedbackType.NEGATIVE
+            comment = input("Additional comment (optional): ").strip()
+            suggestion = ""
+            
+            if rating <= 3:
+                suggestion = input("How could I improve? ").strip()
+            
+            self.learning_manager.record_feedback(
+                feedback_type,
+                self.last_user_input,
+                self.last_assistant_response,
+                rating,
+                comment,
+                suggestion,
+                {"intent": self.last_intent, "entities": self.last_entities}
+            )
+            
+            print(f"✅ Thank you for the {rating}/5 rating!")
+            if suggestion:
+                print(f"💡 I'll work on: {suggestion}")
+        else:
+            print("[ERROR] Rating must be between 1 and 5")
+    
+    def _handle_learning_stats_command(self):
+        """Handle learning statistics command"""
+        print(f"\n🧠 Active Learning Statistics")
+        print("=" * 50)
+        
+        try:
+            stats = self.learning_manager.get_learning_stats()
+            
+            print(f"Total corrections: {stats['total_corrections']}")
+            print(f"Learning patterns: {stats['total_patterns']}")
+            print(f"User feedback entries: {stats['total_feedback']}")
+            print(f"Applied patterns: {stats['applied_patterns']}")
+            print(f"Recent corrections (7 days): {stats['recent_corrections']}")
+            print(f"Average user rating: {stats['average_user_rating']:.1f}/5.0")
+            
+            if stats['correction_types']:
+                print("\nCorrection types:")
+                for corr_type, count in stats['correction_types'].items():
+                    print(f"   • {corr_type.replace('_', ' ').title()}: {count}")
+            
+            suggestions = self.learning_manager.suggest_improvements()
+            if suggestions:
+                print("\n💡 Improvement suggestions:")
+                for suggestion in suggestions:
+                    print(f"   • {suggestion}")
+            
+            print("=" * 50)
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to get learning statistics: {e}")
+    
+    def _format_learning_guidance(self, guidance: Dict[str, Any]) -> str:
+        """Format learning guidance for LLM context"""
+        guidance_parts = ["Learning guidance:"]
+        
+        if guidance.get("preferred_words"):
+            preferred = ", ".join(guidance["preferred_words"][:5])
+            guidance_parts.append(f"Consider using these words: {preferred}")
+        
+        if guidance.get("avoid_words"):
+            avoid = ", ".join(guidance["avoid_words"][:5])
+            guidance_parts.append(f"Avoid using these words: {avoid}")
+        
+        if guidance.get("style_improvement"):
+            guidance_parts.append(f"Style note: {guidance['style_improvement']}")
+        
+        return "\n".join(guidance_parts)
+    
     def shutdown(self):
         """Gracefully shutdown ALICE"""
-        logger.info("🔄 Shutting down ALICE...")
+        logger.info(" Shutting down ALICE...")
         
         # Save conversation state
         self._save_conversation_state()
