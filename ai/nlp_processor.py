@@ -77,6 +77,17 @@ class Intent:
     PODCAST = "podcast"
     RADIO = "radio"
     
+    # Productivity & Organization
+    SCHEDULE = "schedule"
+    CALENDAR = "calendar"
+    MEETING = "meeting"
+    APPOINTMENT = "appointment"
+    REMINDER = "reminder"
+    TODO = "todo"
+    TASK = "task"
+    NOTE = "note"
+    DOCUMENT = "document"
+    
     # Information & Data
     WEATHER = "weather"
     TIME = "time"
@@ -207,6 +218,23 @@ class NLPProcessor:
             ],
             Intent.COMPARE: [
                 r'\b(compare|comparison|difference between|vs|versus|better|worse)\b',
+            ],
+            
+            # Calendar & Scheduling
+            Intent.CALENDAR: [
+                r'\b(calendar|schedule|agenda|events|appointments)\b',
+            ],
+            Intent.SCHEDULE: [
+                r'\b(schedule|book|plan|set up|arrange|organize)\b',
+            ],
+            Intent.MEETING: [
+                r'\b(meeting|conference|call|session|appointment)\b',
+            ],
+            Intent.APPOINTMENT: [
+                r'\b(appointment|booking|reservation|visit)\b',
+            ],
+            Intent.REMINDER: [
+                r'\b(remind|reminder|alert|notification|don\'t forget)\b',
             ],
             Intent.RECOMMEND: [
                 r'\b(recommend|suggestion|suggest|advice|what should|which is better)\b',
@@ -513,11 +541,19 @@ class NLPProcessor:
             'url': r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
             
             # Time and dates
-            'time': r'\b([0-1]?[0-9]|2[0-3]):[0-5][0-9]\b',
+            'time': r'\b([0-1]?[0-9]|2[0-3]):[0-5][0-9]\s*(am|pm)?\b',
+            'time_12h': r'\b([0-1]?[0-9]):([0-5][0-9])\s*(am|pm)\b',
+            'time_natural': r'\b(morning|afternoon|evening|night|noon|midnight)\b',
             'date': r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
-            'relative_date': r'\b(today|tomorrow|yesterday|next week|last week|this week)\b',
+            'relative_date': r'\b(today|tomorrow|yesterday|next week|last week|this week|next month|last month)\b',
             'day_of_week': r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b',
             'month': r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\b',
+            'duration': r'\b(\d+)\s*(minute|hour|day|week|month)s?\b',
+            
+            # Calendar-specific entities
+            'event_type': r'\b(meeting|appointment|call|conference|session|interview|lunch|dinner|workshop|training)\b',
+            'location': r'\b(?:at|in|@)\s+([^,\n]+?)(?=\s+(?:on|at|tomorrow|today|$))',
+            'attendee': r'\b(?:with|invite|including)\s+([A-Za-z\s]+?)(?=\s+(?:on|at|tomorrow|today|$))',
             
             # Numbers and measurements
             'number': r'\b\d+\b',
