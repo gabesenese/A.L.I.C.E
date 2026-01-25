@@ -11,6 +11,10 @@ from typing import List, Dict, Optional
 from datetime import datetime
 import sys
 import io
+import subprocess
+import time
+import os
+from pathlib import Path
 
 # Encoding
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -40,7 +44,7 @@ class LLMConfig:
         self.base_url = base_url
         self.temperature = temperature
         self.max_history = max_history
-        self.timeout = timeout
+        self.timeout = timeout 
 
 
 class LocalLLMEngine:
@@ -96,7 +100,88 @@ Behavior:
 Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of a human."""
 
         # Check GPU availability and connection
-        self._check_connection()
+        self._ensure_ollama_running()
+        
+    def _find_ollama_executable(self) -> Optional[str]:
+        """Find Ollama executable path (Tony Stark style - smart detection)"""
+        possible_paths = [
+            os.path.expanduser("~/AppData/Local/Programs/Ollama/ollama.exe"),
+            "C:\\Program Files\\Ollama\\ollama.exe", 
+            "C:\\Program Files (x86)\\Ollama\\ollama.exe",
+            "ollama.exe",  # If in PATH
+            "ollama"       # Unix style if somehow present
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path) or (path in ["ollama.exe", "ollama"]):
+                try:
+                    # Test if executable works
+                    result = subprocess.run([path, "--version"], 
+                                          capture_output=True, timeout=5)
+                    if result.returncode == 0:
+                        logger.info(f"Ollama found at: {path}")
+                        return path
+                except:
+                    continue
+        return None
+    
+    def _is_ollama_running(self) -> bool:
+        """Check if Ollama service is already running"""
+        try:
+            response = requests.get(f"{self.config.base_url}/api/tags", timeout=2)
+            return response.status_code == 200
+        except:
+            return False
+    
+    def _start_ollama_service(self) -> bool:
+        """Start Ollama service automatically"""
+        ollama_path = self._find_ollama_executable()
+        if not ollama_path:
+            logger.error("Ollama executable not found. Please install Ollama.")
+            return False
+            
+        try:
+            logger.info("Initializing Ollama service...")
+            
+            # Start Ollama serve in background
+            if os.name == 'nt':  # Windows
+                subprocess.Popen([ollama_path, "serve"], 
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            else:  # Unix-like
+                subprocess.Popen([ollama_path, "serve"], 
+                               stdout=subprocess.DEVNULL, 
+                               stderr=subprocess.DEVNULL)
+            
+            # Wait for service to come online (with timeout)
+            logger.info("Waiting for service initialization...")
+            for attempt in range(15):  # 15 seconds max
+                if self._is_ollama_running():
+                    logger.info("Ollama service online")
+                    return True
+                time.sleep(1)
+                if attempt % 3 == 0:
+                    logger.info(f"Still initializing... ({attempt + 1}/15)")
+                    
+            logger.error("Service failed to start within timeout")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to start Ollama: {e}")
+            return False
+    
+    def _ensure_ollama_running(self) -> bool:
+        """Ensure Ollama is running, start if needed"""
+        if self._is_ollama_running():
+            logger.info("Ollama service already running")
+            return self._check_connection()
+        
+        logger.info("Ollama service not detected, auto-starting...")
+        if self._start_ollama_service():
+            return self._check_connection()
+        else:
+            logger.error("Could not establish Ollama connection")
+            logger.info("[MANUAL] Please run manually: ollama serve")
+            return False
         
     def _check_connection(self) -> bool:
         """Check if Ollama server is running and GPU is available"""
@@ -106,21 +191,22 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
                 models = response.json().get('models', [])
                 model_names = [m['name'] for m in models]
                 
-                logger.info("[OK] Ollama server connected")
+                logger.info("Ollama connection established")
                 logger.info(f"Available models: {', '.join(model_names) if model_names else 'None'}")
                 
                 if self.config.model.split(':')[0] not in ' '.join(model_names):
-                    logger.warning(f"[WARNING] Model {self.config.model} not found. Run: ollama pull {self.config.model}")
+                    logger.warning(f"Model {self.config.model} not found")
+                    logger.info(f"Run: ollama pull {self.config.model}")
                 else:
-                    logger.info(f"[OK] Model {self.config.model} ready")
-                    logger.info("[GPU] Acceleration: ENABLED")
+                    logger.info(f"Model {self.config.model} ready")
+                    logger.info("GPU acceleration enabled")
                 
                 return True
         except requests.exceptions.ConnectionError:
-            logger.error("[ERROR] Cannot connect to Ollama. Make sure it's running: ollama serve")
+            logger.error("Cannot connect to Ollama")
             return False
         except Exception as e:
-            logger.error(f"[ERROR] Connection check failed: {e}")
+            logger.error(f"Connection check failed: {e}")
             return False
     
     def chat(self, user_input: str, use_history: bool = True) -> str:
@@ -181,8 +267,10 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
             logger.error("Request timeout")
             return "[TIMEOUT] Response took too long. Let me try a simpler approach..."
         except requests.exceptions.ConnectionError:
-            logger.error("Connection error")
-            return "[WARNING] Cannot connect to LLM. Make sure Ollama is running:\n   Run: ollama serve"
+            logger.error("[STARK-TECH]  Connection lost - attempting auto-restart...")
+            if self._ensure_ollama_running():
+                return self.chat(user_input, use_history)  # Retry once
+            return "[STARK-TECH]  Service temporarily unavailable. Please try again."
         except Exception as e:
             logger.error(f"Error in LLM chat: {e}")
             return "I encountered an error. Please try again."
