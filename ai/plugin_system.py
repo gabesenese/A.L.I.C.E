@@ -14,6 +14,14 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Import semantic intent classifier
+try:
+    from ai.intent_classifier import get_intent_classifier
+    SEMANTIC_CLASSIFICATION_AVAILABLE = True
+except ImportError:
+    logger.warning("Semantic intent classifier not available")
+    SEMANTIC_CLASSIFICATION_AVAILABLE = False
+
 
 class PluginInterface(ABC):
     """
@@ -72,12 +80,24 @@ class PluginManager:
     """
     Manages all plugins for A.L.I.C.E
     Handles loading, execution, and coordination
+    Uses semantic intent classification for intelligent routing
     """
     
-    def __init__(self, plugins_dir: str = "plugins"):
+    def __init__(self, plugins_dir: str = "plugins", use_semantic: bool = True):
         self.plugins_dir = plugins_dir
         self.plugins: Dict[str, PluginInterface] = {}
         self.plugin_order: List[str] = []  # Execution priority
+        self.use_semantic = use_semantic and SEMANTIC_CLASSIFICATION_AVAILABLE
+        self.intent_classifier = None
+        
+        # Initialize semantic classifier if available
+        if self.use_semantic:
+            try:
+                self.intent_classifier = get_intent_classifier()
+                logger.info("[OK] Semantic intent classification enabled")
+            except Exception as e:
+                logger.warning(f"Semantic classifier failed to load: {e}")
+                self.use_semantic = False
         
         os.makedirs(plugins_dir, exist_ok=True)
         logger.info("[OK] Plugin Manager initialized")
@@ -121,22 +141,69 @@ class PluginManager:
     def execute_for_intent(self, intent: str, query: str, entities: Dict, context: Dict) -> Optional[Dict]:
         """
         Find and execute appropriate plugin for the given intent
+        Uses semantic classification to understand user intent when available
         
         Returns:
             Plugin execution result or None if no plugin can handle it
         """
+        # First, try semantic classification if available
+        if self.use_semantic and self.intent_classifier and query:
+            try:
+                semantic_result = self.intent_classifier.get_plugin_action(query, threshold=0.45)
+                
+                if semantic_result and semantic_result['confidence'] > 0.5:
+                    plugin_name = semantic_result['plugin']
+                    
+                    # Map plugin name to registered plugin (handle variations)
+                    plugin_map = {
+                        'notes': 'Notes Plugin',
+                        'email': 'GmailPlugin',  # Will fallback to email intent handler in main.py
+                        'music': 'Music Plugin',
+                        'calendar': 'Calendar Plugin',
+                        'document': 'Document Plugin',
+                        'weather': 'WeatherPlugin',
+                        'time': 'TimePlugin',
+                    }
+                    
+                    actual_plugin_name = plugin_map.get(plugin_name, plugin_name)
+                    plugin = self.plugins.get(actual_plugin_name)
+                    
+                    if plugin and plugin.enabled:
+                        logger.info(f"🔌 Semantic match: {plugin_name}:{semantic_result['action']} (confidence: {semantic_result['confidence']:.2f})")
+                        try:
+                            # Execute plugin with semantic action hint
+                            result = plugin.execute(intent, query, entities, context)
+                            result['plugin'] = actual_plugin_name
+                            result['semantic_match'] = semantic_result
+                            return result
+                        except Exception as e:
+                            logger.error(f"[ERROR] Plugin execution error ({actual_plugin_name}): {e}")
+                            # Fall through to traditional matching
+        
+        except Exception as e:
+            logger.warning(f"Semantic classification error: {e}")
+        
+        # Fallback to traditional pattern-based matching
         for plugin_name in self.plugin_order:
             plugin = self.plugins.get(plugin_name)
             
-            if plugin and plugin.enabled and plugin.can_handle(intent, entities):
-                logger.info(f"🔌 Executing plugin: {plugin_name}")
+            if plugin and plugin.enabled:
+                # Try to pass query as third parameter for plugins that need it (like NotesPlugin)
                 try:
-                    result = plugin.execute(intent, query, entities, context)
-                    result['plugin'] = plugin_name
-                    return result
-                except Exception as e:
-                    logger.error(f"[ERROR] Plugin execution error ({plugin_name}): {e}")
-                    continue
+                    can_handle = plugin.can_handle(intent, entities, query)
+                except TypeError:
+                    # Fallback for plugins with old signature
+                    can_handle = plugin.can_handle(intent, entities)
+                
+                if can_handle:
+                    logger.info(f"🔌 Executing plugin: {plugin_name}")
+                    try:
+                        result = plugin.execute(intent, query, entities, context)
+                        result['plugin'] = plugin_name
+                        return result
+                    except Exception as e:
+                        logger.error(f"[ERROR] Plugin execution error ({plugin_name}): {e}")
+                        continue
         
         return None
     
@@ -303,7 +370,17 @@ class TimePlugin(PluginInterface):
         return True
     
     def can_handle(self, intent: str, entities: Dict) -> bool:
-        return intent == "time" or any(word in str(entities).lower() for word in ["time", "date", "day"])
+        # Only handle explicit time/date requests, not incidental mentions
+        if intent.lower() in ["time", "date"]:
+            return True
+        
+        # Check for time/date specific patterns in query context
+        entity_str = str(entities).lower()
+        if intent == "time" or intent == "date":
+            return True
+            
+        # Don't match on incidental mentions of time words
+        return False
     
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         now = datetime.now()
