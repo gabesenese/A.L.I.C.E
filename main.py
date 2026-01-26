@@ -1,6 +1,6 @@
 """   
 A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity
-Main Orchestrator - Jarvis-like Personal Assistant
+Main Orchestrator - Intelligent Personal Assistant
 
 Integrates all components:
 - Advanced NLP with intent detection
@@ -32,7 +32,7 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import ALICE components
-from ai.nlp_processor import NLPProcessor, Intent
+from ai.nlp_processor import NLPProcessor
 from ai.llm_engine import LocalLLMEngine, LLMConfig
 from ai.context_manager import ContextManager
 from ai.advanced_context_handler import AdvancedContextHandler
@@ -63,13 +63,13 @@ logger = logging.getLogger(__name__)
 class ALICE:
     """
     Main A.L.I.C.E system
-    Jarvis-like personal assistant with advanced AI capabilities
+    Intelligent personal assistant with advanced AI capabilities
     """
     
     def __init__(
         self,
         voice_enabled: bool = False,
-        llm_model: str = "llama3.3:70b",
+        llm_model: str = "llama3.1:8b",
         user_name: str = "User"
     ):
         self.voice_enabled = voice_enabled
@@ -271,19 +271,19 @@ class ALICE:
             
             # 1. NLP Processing
             nlp_result = self.nlp.process(user_input)
-            intent = nlp_result['intent']
-            entities = nlp_result['entities']
-            sentiment = nlp_result['sentiment']
+            intent = nlp_result.intent
+            entities = nlp_result.entities
+            sentiment = nlp_result.sentiment
             
             # Store for active learning
             self.last_user_input = user_input
-            self.last_nlp_result = nlp_result.copy()
+            self.last_nlp_result = vars(nlp_result).copy()  # Convert to dict for compatibility
             self.last_intent = intent
             self.last_entities = entities
             
             # 1.5. Apply Active Learning improvements
-            improved_nlp_result = self.learning_manager.apply_learning(user_input, nlp_result)
-            if improved_nlp_result != nlp_result:
+            improved_nlp_result = self.learning_manager.apply_learning(user_input, vars(nlp_result))
+            if improved_nlp_result != vars(nlp_result):
                 logger.info("Active learning improved NLP result")
                 intent = improved_nlp_result['intent']
                 entities = improved_nlp_result['entities']
@@ -1332,43 +1332,48 @@ class ALICE:
         except Exception as e:
             logger.warning(f"[WARNING] Error storing interaction: {e}")
     
-    def run_interactive(self):
-        """Run interactive console mode"""
+    def run_interactive(self, skip_welcome=False):
+        """Run interactive console mode
+        
+        Args:
+            skip_welcome: If True, skip welcome banner and greeting (for alice.py)
+        """
         self.running = True
         
-        print("\n" + "=" * 80)
-        print("A.L.I.C.E - Your Personal AI Assistant")
-        print("=" * 80)
-        print(f"\nHello {self.context.user_prefs.name}! I'm ALICE, your advanced AI assistant.")
-        print("I'm here to help you with anything you need.\n")
-        print("Commands:")
-        print("   /help      - Show available commands")
-        print("   /voice     - Toggle voice mode")
-        print("   /clear     - Clear conversation history")
-        print("   /memory    - Show memory statistics")
-        print("   /plugins   - List available plugins")
-        print("   /location  - Set or view your location")
-        print("   /status    - Show system status")
-        print("   /save      - Save current state")
-        print("   /summary   - Get conversation summary")
-        print("   /context   - Show current context")
-        print("   /topics    - List conversation topics")
-        print("   /entities  - Show tracked entities")
-        print("   /relationships - Show entity relationships")
-        print()
-        print("Debug Commands:")
-        print("   /correct   - Correct my last response")
-        print("   /feedback  - Rate my last response")
-        print("   /learning  - Show learning statistics")
-        print("   exit       - End conversation")
-        print("=" * 80)
-        
-        # Greet user
-        greeting = self._get_greeting()
-        print(f"\nA.L.I.C.E: {greeting}\n")
-        
-        if self.speech and self.voice_enabled:
-            self.speech.speak(greeting, blocking=False)
+        if not skip_welcome:
+            print("\n" + "=" * 80)
+            print("A.L.I.C.E - Your Personal AI Assistant")
+            print("=" * 80)
+            print(f"\nHello {self.context.user_prefs.name}! I'm ALICE, your advanced AI assistant.")
+            print("I'm here to help you with anything you need.\n")
+            print("Commands:")
+            print("   /help      - Show available commands")
+            print("   /voice     - Toggle voice mode")
+            print("   /clear     - Clear conversation history")
+            print("   /memory    - Show memory statistics")
+            print("   /plugins   - List available plugins")
+            print("   /location  - Set or view your location")
+            print("   /status    - Show system status")
+            print("   /save      - Save current state")
+            print("   /summary   - Get conversation summary")
+            print("   /context   - Show current context")
+            print("   /topics    - List conversation topics")
+            print("   /entities  - Show tracked entities")
+            print("   /relationships - Show entity relationships")
+            print()
+            print("Debug Commands:")
+            print("   /correct   - Correct my last response")
+            print("   /feedback  - Rate my last response")
+            print("   /learning  - Show learning statistics")
+            print("   exit       - End conversation")
+            print("=" * 80)
+            
+            # Greet user
+            greeting = self._get_greeting()
+            print(f"\nA.L.I.C.E: {greeting}\n")
+            
+            if self.speech and self.voice_enabled:
+                self.speech.speak(greeting, blocking=False)
         
         while self.running:
             try:
@@ -2011,7 +2016,7 @@ def main():
     parser = argparse.ArgumentParser(description="A.L.I.C.E - Advanced AI Assistant")
     parser.add_argument("--voice", action="store_true", help="Enable voice interaction")
     parser.add_argument("--voice-only", action="store_true", help="Run in voice-only mode")
-    parser.add_argument("--model", default="llama3.1:8b", help="LLM model to use")
+    parser.add_argument("--model", default="llama3", help="LLM model to use")
     parser.add_argument("--name", default="User", help="Your name")
     
     args = parser.parse_args()
