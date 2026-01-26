@@ -305,7 +305,7 @@ class SpotifyManager:
         try:
             # Check for credentials file
             if not os.path.exists(self.credentials_path):
-                print(f"Spotify credentials not found at {self.credentials_path}")
+                logger.debug(f"Spotify credentials not found at {self.credentials_path}")
                 return False
             
             with open(self.credentials_path, 'r') as f:
@@ -565,7 +565,7 @@ class LocalMusicManager:
             if os.path.exists(directory):
                 self._scan_directory(directory)
         
-        print(f"Found {len(self.music_library)} local music files")
+        logger.debug(f"Found {len(self.music_library)} local music files")
     
     def _scan_directory(self, directory: str) -> None:
         """Recursively scan directory for music files"""
