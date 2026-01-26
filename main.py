@@ -52,6 +52,15 @@ from ai.notes_plugin import NotesPlugin
 from ai.task_executor import TaskExecutor
 from speech.speech_engine import SpeechEngine, SpeechConfig
 
+# New anticipatory AI systems
+from ai.event_bus import get_event_bus, EventType, EventPriority
+from ai.system_state import get_state_tracker, SystemStatus
+from ai.observers import get_observer_manager
+from ai.pattern_learner import get_pattern_learner
+from ai.system_monitor import get_system_monitor
+from ai.task_planner import get_planner
+from ai.plan_executor import initialize_executor, get_executor
+
 # Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -98,6 +107,24 @@ class ALICE:
         
         # Advanced context handler
         self.advanced_context = None  # Will be initialized after NLP processor
+        
+        # Event-driven architecture (anticipatory AI)
+        self.event_bus = None
+        self.state_tracker = None
+        self.observer_manager = None
+        self.pattern_learner = None
+        self.system_monitor = None
+        self.planner = None
+        self.plan_executor = None
+        
+        # Event-driven architecture
+        self.event_bus = None
+        self.state_tracker = None
+        self.observer_manager = None
+        self.pattern_learner = None
+        self.system_monitor = None
+        self.planner = None
+        self.plan_executor = None
         
         logger.info("=" * 80)
         logger.info("Initializing A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity")
@@ -174,6 +201,45 @@ class ALICE:
                 logger.warning(f"[WARNING] Gmail not available: {e}")
                 self.gmail = None
             
+            # 9. Event-driven architecture
+            logger.info("Initializing event-driven systems...")
+            
+            # Event bus
+            self.event_bus = get_event_bus()
+            logger.info("[OK] Event bus ready")
+            
+            # System state tracker
+            self.state_tracker = get_state_tracker()
+            self.state_tracker.start_monitoring(interval=30)  # Check every 30 seconds
+            logger.info("[OK] System state tracker monitoring")
+            
+            # Pattern learner for anticipatory suggestions
+            self.pattern_learner = get_pattern_learner()
+            logger.info("[OK] Pattern learner ready")
+            
+            # System monitor for OS-level awareness
+            self.system_monitor = get_system_monitor()
+            self.system_monitor.start_monitoring()
+            logger.info("[OK] System monitor tracking apps")
+            
+            # Task planner (separates planning from execution)
+            self.planner = get_planner()
+            logger.info("[OK] Task planner ready")
+            
+            # Plan executor
+            self.plan_executor = initialize_executor(
+                plugin_manager=self.plugins,
+                llm_engine=self.llm,
+                memory_system=self.memory
+            )
+            logger.info("[OK] Plan executor ready")
+            
+            # Observer manager for smart notifications
+            self.observer_manager = get_observer_manager()
+            self.observer_manager.set_notification_callback(self._handle_observer_notification)
+            self.observer_manager.start_all()
+            logger.info("[OK] Background observers watching")
+            
             logger.info("=" * 80)
             logger.info("[OK] A.L.I.C.E initialized successfully!")
             logger.info("=" * 80)
@@ -204,6 +270,128 @@ class ALICE:
         self.plugins.register_plugin(MusicPlugin())
         
         logger.info(f"[OK] Registered {len(self.plugins.plugins)} plugins")
+    
+    def _handle_observer_notification(self, message: str, priority: EventPriority):
+        """
+        Handle notifications from background observers
+        Display/speak them appropriately
+        """
+        priority_label = {
+            EventPriority.LOW: "ℹ️",
+            EventPriority.NORMAL: "💡",
+            EventPriority.HIGH: "⚠️",
+            EventPriority.CRITICAL: "🚨"
+        }.get(priority, "•")
+        
+        notification = f"\n{priority_label} {message}\n"
+        print(notification)
+        
+        # Speak if voice is enabled and priority is high enough
+        if self.speech and priority.value >= EventPriority.NORMAL.value:
+            self.speech.speak(message)
+    
+    def _log_action_for_learning(self, action: str, context: Dict[str, Any] = None):
+        """
+        Log user action to pattern learner
+        
+        Args:
+            action: Action taken (e.g., "review_notes:finance")
+            context: Current context (time, state, etc.)
+        """
+        if not self.pattern_learner:
+            return
+        
+        # Build context
+        full_context = context or {}
+        full_context.update({
+            'day': datetime.now().strftime("%A"),
+            'hour': datetime.now().hour,
+            'system_state': self.state_tracker.get_status().value if self.state_tracker else 'unknown'
+        })
+        
+        # Log the action
+        self.pattern_learner.observe_action(action, full_context)
+    
+    def _check_proactive_suggestions(self) -> Optional[str]:
+        """
+        Check if we should make proactive suggestions
+        
+        Returns:
+            Suggestion text or None
+        """
+        if not self.pattern_learner:
+            return None
+        
+        # Get context
+        context = {
+            'system_state': self.state_tracker.get_status().value if self.state_tracker else 'unknown',
+            'running_apps': self.system_monitor.get_running_apps() if self.system_monitor else []
+        }
+        
+        # Get suggestions
+        suggestions = self.pattern_learner.get_suggestions(context)
+        
+        if suggestions:
+            # Return top suggestion
+            pattern, suggestion_text = suggestions[0]
+            
+            # Store pattern ID for tracking acceptance
+            self._last_suggestion_pattern = pattern.pattern_id
+            
+            return f"💡 {suggestion_text}"
+        
+        return None
+    
+    def _use_planner_executor(self, intent: str, entities: Dict[str, Any], query: str) -> Optional[str]:
+        """
+        Use task planner and executor for complex tasks
+        
+        Args:
+            intent: Detected intent
+            entities: Extracted entities
+            query: User's query
+        
+        Returns:
+            Response or None if not planned
+        """
+        # Only use planner for specific intents that benefit from structured execution
+        plannable_intents = [
+            'summarize_notes', 'check_calendar', 'send_email',
+            'play_music', 'create_note', 'question'
+        ]
+        
+        if intent not in plannable_intents:
+            return None
+        
+        try:
+            # Create execution plan
+            context = {
+                'user_prefs': vars(self.context.user_prefs),
+                'system_state': self.state_tracker.get_status().value if self.state_tracker else 'unknown'
+            }
+            
+            plan = self.planner.create_plan(intent, entities, context)
+            
+            # Validate plan
+            if not self.planner.validate_plan(plan):
+                logger.error(f"Invalid plan for intent {intent}")
+                return None
+            
+            # Log plan explanation
+            logger.info(f"Execution plan:\n{self.planner.explain_plan(plan)}")
+            
+            # Execute plan
+            result = self.plan_executor.execute(plan)
+            
+            if result['success']:
+                return result.get('result')
+            else:
+                logger.error(f"Plan execution failed: {result.get('error')}")
+                return None
+        
+        except Exception as e:
+            logger.error(f"Planner/executor error: {e}")
+            return None
     
     def _build_llm_context(self, user_input: str) -> str:
         """Build enhanced context for LLM using advanced context handler"""
@@ -398,6 +586,34 @@ class ALICE:
                     self.pending_action = None
                     self.pending_data = {}
                     return "Reply cancelled."
+            
+            # Mark user as active (for pattern learning and observers)
+            if self.state_tracker:
+                self.state_tracker.mark_user_active()
+            
+            # Check for proactive suggestions (only when user is idle or on specific triggers)
+            proactive_suggestion = self._check_proactive_suggestions()
+            if proactive_suggestion and intent in ['greeting', 'status', 'help']:
+                # Only show suggestions on non-urgent intents
+                return proactive_suggestion
+            
+            # Try planner/executor for structured tasks first
+            planned_response = self._use_planner_executor(intent, entities, user_input_processed)
+            if planned_response:
+                # Log action for pattern learning
+                action = f"{intent}:{entities.get('topic', entities.get('query', 'general'))}"
+                self._log_action_for_learning(action)
+                
+                # Store interaction
+                self._store_interaction(user_input, planned_response, intent, entities)
+                self.last_assistant_response = planned_response
+                
+                # Speak if voice enabled
+                if use_voice and self.speech:
+                    self.speech.speak(planned_response, blocking=False)
+                
+                logger.info(f"A.L.I.C.E (planned): {planned_response[:100]}...")
+                return planned_response
             
             # Check for numbered email references first (context-aware, intent-agnostic)
             import re
@@ -977,6 +1193,10 @@ class ALICE:
             
             # Store response for active learning
             self.last_assistant_response = response
+            
+            # Log action for pattern learning
+            action = f"{intent}:{entities.get('topic', entities.get('query', 'general'))}"
+            self._log_action_for_learning(action)
             
             # 5. Speak if voice enabled
             if use_voice and self.speech:
@@ -1991,7 +2211,7 @@ class ALICE:
     
     def shutdown(self):
         """Gracefully shutdown ALICE"""
-        logger.info(" Shutting down ALICE...")
+        logger.info("🛑 Shutting down ALICE...")
         
         # Save conversation state
         self._save_conversation_state()
@@ -1999,6 +2219,23 @@ class ALICE:
         # Save context and memory
         self.context.save_context()
         self.memory._save_memories()
+        
+        # Stop event-driven systems
+        if self.observer_manager:
+            self.observer_manager.stop_all()
+            logger.info("[OK] Observers stopped")
+        
+        if self.system_monitor:
+            self.system_monitor.stop_monitoring()
+            logger.info("[OK] System monitor stopped")
+        
+        if self.state_tracker:
+            self.state_tracker.stop_monitoring()
+            logger.info("[OK] State tracker stopped")
+        
+        if self.pattern_learner:
+            self.pattern_learner._save_patterns()
+            logger.info("[OK] Patterns saved")
         
         # Stop voice if active
         if self.speech:

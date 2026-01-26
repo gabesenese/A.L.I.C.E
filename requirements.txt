@@ -50,6 +50,7 @@ psutil>=5.8.0  # For system monitoring
 rich>=13.0.0  # Enhanced terminal UI
 
 # Development Tools
+watchdog>=2.1.0  # File watching for dev mode
 pytest>=6.2.0  # For testing
 black>=21.0  # For code formatting
 
