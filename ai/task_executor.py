@@ -1,6 +1,6 @@
 """
 Task Execution Framework for A.L.I.C.E
-Enables Jarvis-like automation and system control
+Enables intelligent automation and system control
 Features:
 - System command execution
 - File operations
@@ -52,7 +52,7 @@ class TaskResult:
 class TaskExecutor:
     """
     Advanced task execution system
-    Handles system automation and control like Jarvis
+    Handles system automation and intelligent control
     """
     
     def __init__(self, safe_mode: bool = True):

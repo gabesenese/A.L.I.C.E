@@ -1,7 +1,7 @@
 """
 Advanced Context Manager for A.L.I.C.E
 Maintains conversation state, user preferences, and system context
-Similar to Jarvis's contextual awareness
+Provides contextual awareness for natural conversation continuity
 """
 
 import json
@@ -343,7 +343,7 @@ if __name__ == "__main__":
     
     with ContextManager() as ctx:
         # Set user preferences
-        ctx.user_prefs.name = "Tony Stark"
+        ctx.user_prefs.name = "User"
         ctx.user_prefs.location = "Malibu"
         
         # Store some facts

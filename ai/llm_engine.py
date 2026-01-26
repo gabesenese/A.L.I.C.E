@@ -103,7 +103,7 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
         self._ensure_ollama_running()
         
     def _find_ollama_executable(self) -> Optional[str]:
-        """Find Ollama executable path (Tony Stark style - smart detection)"""
+        """Find Ollama executable path using smart detection"""
         possible_paths = [
             os.path.expanduser("~/AppData/Local/Programs/Ollama/ollama.exe"),
             "C:\\Program Files\\Ollama\\ollama.exe", 
@@ -267,10 +267,10 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
             logger.error("Request timeout")
             return "[TIMEOUT] Response took too long. Let me try a simpler approach..."
         except requests.exceptions.ConnectionError:
-            logger.error("[STARK-TECH]  Connection lost - attempting auto-restart...")
+            logger.error("[A.L.I.C.E.] Connection lost - attempting auto-restart...")
             if self._ensure_ollama_running():
                 return self.chat(user_input, use_history)  # Retry once
-            return "[STARK-TECH]  Service temporarily unavailable. Please try again."
+            return "[A.L.I.C.E.] Service temporarily unavailable. Please try again."
         except Exception as e:
             logger.error(f"Error in LLM chat: {e}")
             return "I encountered an error. Please try again."

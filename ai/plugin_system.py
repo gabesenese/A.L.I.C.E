@@ -1,6 +1,6 @@
 """
 Plugin System for A.L.I.C.E
-Extensible architecture for adding capabilities like Jarvis
+Extensible architecture for adding capabilities
 Supports: Weather, Calendar, File Operations, System Control, Web Search, etc.
 """
 
@@ -26,7 +26,7 @@ except ImportError:
 class PluginInterface(ABC):
     """
     Base interface that all plugins must implement
-    Similar to Jarvis's modular capabilities
+    Modular architecture for extensibility
     """
     
     def __init__(self):
@@ -179,9 +179,8 @@ class PluginManager:
                         except Exception as e:
                             logger.error(f"[ERROR] Plugin execution error ({actual_plugin_name}): {e}")
                             # Fall through to traditional matching
-        
-        except Exception as e:
-            logger.warning(f"Semantic classification error: {e}")
+            except Exception as e:
+                logger.warning(f"Semantic classification error: {e}")
         
         # Fallback to traditional pattern-based matching
         for plugin_name in self.plugin_order:

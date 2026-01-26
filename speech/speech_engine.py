@@ -44,7 +44,7 @@ class SpeechConfig:
 class SpeechEngine:
     """
     Advanced speech interaction engine
-    Handles voice input/output for Jarvis-like experience
+    Handles voice input/output for natural conversation
     """
     
     def __init__(self, config: Optional[SpeechConfig] = None):
