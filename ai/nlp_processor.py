@@ -1,1130 +1,1029 @@
 """
-Advanced NLP Processor for A.L.I.C.E
+A.L.I.C.E. Advanced NLP Processor
+Natural Language Understanding
+
+Advanced approach: Semantic understanding over regex patterns.
+
 Features:
-- Intent classification
-- Entity extraction
-- Sentiment analysis
-- Semantic understanding
-- Context-aware processing
+- Semantic intent classification (no more manual patterns)
+- Advanced slot filling with structured data extraction
+- Temporal expression normalization (tomorrow -> actual dates)
+- Custom NER for domain entities (tags, priorities, categories)
+- Coreference resolution (track "it", "this", "that")
+- Multi-label emotion & urgency detection
+- Performance optimization with caching
+- Context-aware conversation tracking
 """
 
 import re
 import logging
-from typing import Dict, List, Tuple, Optional
-from sklearn.feature_extraction.text import TfidfVectorizer
-from nltk.tokenize import word_tokenize
+from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from collections import defaultdict, deque
+import threading
+
+# Core NLP libraries
+from nltk import word_tokenize
 from nltk.sentiment import SentimentIntensityAnalyzer
-import nltk
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# Download necessary NLTK data
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-    
-try:
-    nltk.data.find('sentiment/vader_lexicon.zip')
-except LookupError:
-    nltk.download('vader_lexicon')
+# Advanced temporal parsing
+import dateparser
+from parsedatetime import Calendar
 
-logging.basicConfig(level=logging.INFO)
+# Semantic intent classification
+try:
+    from ai.intent_classifier import get_intent_classifier
+    SEMANTIC_CLASSIFIER_AVAILABLE = True
+except ImportError:
+    SEMANTIC_CLASSIFIER_AVAILABLE = False
+    logging.warning("⚠️ Semantic intent classifier not available. Using fallback patterns.")
+
 logger = logging.getLogger(__name__)
 
 
-class Intent:
-    """Intent classification categories - Enhanced with comprehensive categories"""
-    # Basic conversational
-    GREETING = "greeting"
-    FAREWELL = "farewell"
-    CONVERSATION = "conversation"
-    QUESTION = "question"
-    
-    # Information seeking
-    INFORMATION = "information"
-    SEARCH = "search"
-    EXPLAIN = "explain"
-    DEFINE = "define"
-    COMPARE = "compare"
-    RECOMMEND = "recommend"
-    
-    # Task management
-    TASK = "task"
-    REMINDER = "reminder"
-    SCHEDULE = "schedule"
-    CALENDAR = "calendar"
-    TODO = "todo"
-    DEADLINE = "deadline"
-    
-    # System & Commands
-    COMMAND = "command"
-    SYSTEM_CONTROL = "system_control"
-    FILE_OPERATION = "file_operation"
-    PROCESS_CONTROL = "process_control"
-    SETTINGS = "settings"
-    
-    # Communication
-    EMAIL = "email"
-    MESSAGE = "message"
-    CALL = "call"
-    CONTACT = "contact"
-    NOTIFICATION = "notification"
-    
-    # Media & Entertainment
-    MUSIC = "music"
-    MUSIC_PLAY = "music_play"
-    MUSIC_PAUSE = "music_pause"
-    MUSIC_RESUME = "music_resume"
-    MUSIC_STOP = "music_stop"
-    MUSIC_NEXT = "music_next"
-    MUSIC_PREVIOUS = "music_previous"
-    MUSIC_VOLUME = "music_volume"
-    MUSIC_SEARCH = "music_search"
-    MUSIC_PLAYLIST = "music_playlist"
-    MUSIC_STATUS = "music_status"
-    PLAY = "play"
-    PAUSE = "pause"
-    NEXT = "next"
-    PREVIOUS = "previous"
-    VOLUME = "volume"
-    VIDEO = "video"
-    GAME = "game"
-    NEWS = "news"
-    PODCAST = "podcast"
-    RADIO = "radio"
-    
-    # Productivity & Organization
-    SCHEDULE = "schedule"
-    CALENDAR = "calendar"
-    MEETING = "meeting"
-    APPOINTMENT = "appointment"
-    REMINDER = "reminder"
-    TODO = "todo"
-    TASK = "task"
-    NOTE = "note"
-    DOCUMENT = "document"
-    
-    # Information & Data
-    WEATHER = "weather"
-    TIME = "time"
-    DATE = "date"
-    LOCATION = "location"
-    TRANSLATION = "translation"
-    CALCULATION = "calculation"
-    UNIT_CONVERSION = "unit_conversion"
-    
-    # Web & Internet
-    WEB_SEARCH = "web_search"
-    BROWSE = "browse"
-    DOWNLOAD = "download"
-    UPLOAD = "upload"
-    SOCIAL_MEDIA = "social_media"
-    
-    # Learning & Education
-    LEARN = "learn"
-    STUDY = "study"
-    TUTORIAL = "tutorial"
-    COURSE = "course"
-    QUIZ = "quiz"
-    
-    # Health & Fitness
-    HEALTH = "health"
-    FITNESS = "fitness"
-    NUTRITION = "nutrition"
-    MEDITATION = "meditation"
-    SLEEP = "sleep"
-    
-    # Shopping & Finance
-    SHOPPING = "shopping"
-    FINANCE = "finance"
-    BUDGET = "budget"
-    INVESTMENT = "investment"
-    BANKING = "banking"
-    
-    # Travel & Transportation
-    TRAVEL = "travel"
-    NAVIGATION = "navigation"
-    TRANSPORTATION = "transportation"
-    HOTEL = "hotel"
-    FLIGHT = "flight"
-    
-    # Home & Lifestyle
-    SMART_HOME = "smart_home"
-    COOKING = "cooking"
-    RECIPE = "recipe"
-    SHOPPING_LIST = "shopping_list"
-    HOME_AUTOMATION = "home_automation"
-    
-    # Work & Productivity
-    WORK = "work"
-    MEETING = "meeting"
-    PROJECT = "project"
-    DOCUMENT = "document"
-    PRESENTATION = "presentation"
-    EMAIL_WORK = "email_work"
-    
-    # Creative & Fun
-    CREATIVE = "creative"
-    JOKE = "joke"
-    STORY = "story"
-    POEM = "poem"
-    ART = "art"
-    WRITING = "writing"
-    
-    # Technical & Development
-    PROGRAMMING = "programming"
-    DEBUG = "debug"
-    CODE_REVIEW = "code_review"
-    TECH_SUPPORT = "tech_support"
-    
-    # Emergency & Safety
-    EMERGENCY = "emergency"
-    SAFETY = "safety"
-    SECURITY = "security"
-    BACKUP = "backup"
-    
-    # Personal & Emotional
-    PERSONAL = "personal"
-    EMOTION = "emotion"
-    COMPLIMENT = "compliment"
-    COMPLAINT = "complaint"
-    GRATITUDE = "gratitude"
-    APOLOGY = "apology"
-    
-    # Unknown
-    UNKNOWN = "unknown"
+# ============================================================================
+# DATA STRUCTURES
+# ============================================================================
+
+@dataclass
+class Entity:
+    """Represents an extracted entity with metadata"""
+    type: str
+    value: str
+    confidence: float
+    start_pos: int = -1
+    end_pos: int = -1
+    normalized_value: Any = None
 
 
-class NLPProcessor:
+@dataclass
+class Slot:
+    """Represents a filled slot in structured extraction"""
+    name: str
+    value: Any
+    confidence: float
+    raw_text: str = ""
+
+
+@dataclass
+class ProcessedQuery:
+    """Complete NLP processing result"""
+    original_text: str
+    clean_text: str
+    tokens: List[str]
+    intent: str
+    intent_confidence: float
+    entities: Dict[str, List[Entity]]
+    slots: Dict[str, Slot]
+    sentiment: Dict[str, float]
+    emotions: List[str]
+    urgency_level: str
+    is_question: bool
+    keywords: List[str]
+    context_entities: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class ConversationContext:
+    """Tracks conversation state for coreference resolution"""
+    last_intent: Optional[str] = None
+    last_entities: Dict[str, Any] = field(default_factory=dict)
+    mentioned_notes: deque = field(default_factory=lambda: deque(maxlen=5))
+    mentioned_events: deque = field(default_factory=lambda: deque(maxlen=5))
+    mentioned_songs: deque = field(default_factory=lambda: deque(maxlen=3))
+    query_history: deque = field(default_factory=lambda: deque(maxlen=10))
+
+
+# ============================================================================
+# SLOT FILLING SYSTEM
+# ============================================================================
+
+class SlotFiller:
     """
-    Advanced NLP processing for A.L.I.C.E
-    Handles intent detection, entity extraction, and semantic understanding
+    Extracts structured data from queries
+    
+    Example:
+        "Create note about meeting tomorrow at 2pm tagged work high priority"
+        -> {
+            'title': 'meeting',
+            'date': '2025-01-26',
+            'time': '14:00',
+            'tags': ['work'],
+            'priority': 'high'
+        }
     """
     
-    def __init__(self):
-        self.vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
-        self.sentiment_analyzer = SentimentIntensityAnalyzer()
+    # Slot templates per intent category
+    SLOT_TEMPLATES = {
+        'note_create': ['title', 'content', 'tags', 'priority', 'category', 'date', 'time', 'note_type'],
+        'note_search': ['query', 'tags', 'date_range', 'priority', 'category'],
+        'note_update': ['note_id', 'title', 'content', 'tags', 'priority'],
+        'note_delete': ['note_id', 'query'],
         
-        # Intent patterns (keyword-based for lightweight performance)
-        self.intent_patterns = {
-            # Basic conversational
-            Intent.GREETING: [
-                r'\b(hello|hi|hey|greetings|good morning|good afternoon|good evening|howdy|sup|what\'s up)\b',
-            ],
-            Intent.FAREWELL: [
-                r'\b(bye|goodbye|see you|farewell|exit|quit|later|take care|catch you later)\b',
-            ],
-            Intent.QUESTION: [
-                r'\b(what|when|where|who|why|how|which|can you|could you|would you)\b.*\?',
-                r'^(what|when|where|who|why|how|which)',
-            ],
-            Intent.CONVERSATION: [
-                r'\b(chat|talk|discuss|conversation|tell me)\b',
-            ],
-            
-            # Information seeking
-            Intent.INFORMATION: [
-                r'\b(info|information|details|about|explain|tell me about)\b',
-            ],
-            Intent.EXPLAIN: [
-                r'\b(explain|describe|elaborate|clarify|break down|walk me through)\b',
-            ],
-            Intent.DEFINE: [
-                r'\b(define|definition|what is|what does.*mean|meaning of)\b',
-            ],
-            Intent.COMPARE: [
-                r'\b(compare|comparison|difference between|vs|versus|better|worse)\b',
-            ],
-            
-            # Calendar & Scheduling
-            Intent.CALENDAR: [
-                r'\b(calendar|schedule|agenda|events|appointments)\b',
-            ],
-            Intent.SCHEDULE: [
-                r'\b(schedule|book|plan|set up|arrange|organize)\b',
-            ],
-            Intent.MEETING: [
-                r'\b(meeting|conference|call|session|appointment)\b',
-            ],
-            Intent.APPOINTMENT: [
-                r'\b(appointment|booking|reservation|visit)\b',
-            ],
-            Intent.REMINDER: [
-                r'\b(remind|reminder|alert|notification|don\'t forget)\b',
-            ],
-            Intent.RECOMMEND: [
-                r'\b(recommend|suggestion|suggest|advice|what should|which is better)\b',
-            ],
-            
-            # Task management
-            Intent.TASK: [
-                r'\b(task|to.?do|assignment|project|work on)\b',
-            ],
-            Intent.REMINDER: [
-                r'\b(remind|reminder|remember|don\'t forget|alert me)\b',
-            ],
-            Intent.SCHEDULE: [
-                r'\b(schedule|plan|arrange|book|appointment|meeting)\b',
-            ],
-            Intent.CALENDAR: [
-                r'\b(calendar|event|appointment|date|schedule|availability)\b',
-            ],
-            Intent.TODO: [
-                r'\b(todo|to.?do|task list|checklist|add to list)\b',
-            ],
-            Intent.DEADLINE: [
-                r'\b(deadline|due date|expires?|finish by|complete by)\b',
-            ],
-            
-            # System & Commands
-            Intent.COMMAND: [
-                r'\b(start|stop|run|execute|launch|kill|terminate|command|execute)\b',
-            ],
-            Intent.SYSTEM_CONTROL: [
-                r'\b(shutdown|restart|reboot|sleep|hibernate|volume|brightness|wifi|bluetooth)\b',
-                r'\b(open|launch|start|run|execute)\b.*\b(app|application|program|game|software)\b',
-                r'\b(open|launch|start|run)\s+\w+',
-            ],
-            Intent.FILE_OPERATION: [
-                r'\b(file|folder|directory|document|create|delete|remove|move|copy|save|load)\b',
-                r'\b(save|load|read|write|edit|modify)\b.*\b(file|document)\b',
-            ],
-            Intent.PROCESS_CONTROL: [
-                r'\b(process|kill|terminate|stop|close|end task|task manager)\b',
-            ],
-            Intent.SETTINGS: [
-                r'\b(settings|preferences|config|configure|setup|options)\b',
-            ],
-            
-            # Communication
-            Intent.EMAIL: [
-                r'\b(emails?|gmail|mails?|inbox|messages?|compose|draft|send)\b',
-                r'\b(check|read|show|list|send|reply|write|compose|draft|star|flag).*\b(email|mail|inbox)\b',
-                r'\bunread\b.*\b(email|mail)\b',
-                r'@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
-                r'\b(latest|last|recent|new).*\b(emails?|mails?)\b',
-            ],
-            Intent.MESSAGE: [
-                r'\b(text|sms|message|chat|whatsapp|telegram|slack|discord)\b',
-            ],
-            Intent.CALL: [
-                r'\b(call|phone|dial|ring|contact|video call|voice call)\b',
-            ],
-            Intent.CONTACT: [
-                r'\b(contact|phone book|address book|contacts list)\b',
-            ],
-            Intent.NOTIFICATION: [
-                r'\b(notification|alert|popup|notify|bell|badge)\b',
-            ],
-            
-            # Media & Entertainment
-            Intent.MUSIC: [
-                r'\b(music|song|audio|sound|track|album|artist|band|spotify|apple music|youtube music|soundcloud|pandora)\b',
-                r'\b(play|pause|stop|skip|next|previous|volume)\b.*\b(spotify|music)\b',
-                r'\bby\s+\w+\b.*\b(on|from)\s+(spotify|apple music|youtube music)',
-            ],
-            Intent.MUSIC_PLAY: [
-                r'^\s*(play|start|begin)\s+[\w\s\']+?\s+(by|from)\s+\w+',  # Command at start + song + by artist
-                r'^\s*(play|start|begin)\s+[\w\s\']+?\s+(on|via)\s+(spotify|apple music|youtube|pandora)',  # Command + song + platform
-                r'^\s*(play|start|begin)\b(?!\s*$)',  # Play at start followed by something (not just "play" alone)
-                r'\bi want you to (play|start)\b',  # Explicit request
-                r'\bcan you (play|start)\b',  # Polite request
-                r'\bplease (play|start)\b',  # Polite request
-                r'\b(play|start|begin)\b.*\b(music|song|track|audio|album|playlist|artist|band)\b',
-            ],
-            Intent.MUSIC_PAUSE: [
-                r'^\s*(pause|stop|halt)\b',
-                r'\b(pause|stop|halt)\b.*\b(music|song|audio|playback|this|it)\b',
-            ],
-            Intent.MUSIC_RESUME: [
-                r'^\s*(resume|continue|unpause)\b',
-                r'\b(resume|continue|unpause)\b.*\b(music|song|audio|playback|this|it)\b',
-            ],
-            Intent.MUSIC_STOP: [
-                r'^\s*stop\b(?!.*\b(talking|doing|working)\b)',
-                r'\bstop\b.*\b(music|song|audio|playback|this|it)\b',
-            ],
-            Intent.MUSIC_NEXT: [
-                r'^\s*(next|skip|forward)\s*(song|track)?\s*$',
-                r'\b(next|skip|forward)\b.*\b(song|track|music)\b',
-            ],
-            Intent.MUSIC_PREVIOUS: [
-                r'^\s*(previous|back|last|prev)\s*(song|track)?\s*$',
-                r'\b(previous|back|last|prev)\b.*\b(song|track|music)\b',
-            ],
-            Intent.MUSIC_VOLUME: [
-                r'\b(volume|loud|quiet|mute)\b.*\b(music|audio|sound)\b',
-                r'\b(turn up|turn down|increase|decrease|set)\b.*\b(volume|sound)\b',
-                r'\b(volume|sound)\b.*\b(up|down|to|percent|%)\b',
-            ],
-            Intent.MUSIC_SEARCH: [
-                r'\b(search|find|look for)\b.*\b(music|song|artist|album|track|band)\b',
-                r'\bfind\b.*\b(music|song|artist|album)\b',
-            ],
-            Intent.MUSIC_PLAYLIST: [
-                r'\b(playlist|playlists|play list)\b',
-                r'\b(show|list|display|open)\b.*\b(playlist|playlists)\b',
-            ],
-            Intent.MUSIC_STATUS: [
-                r'\b(what\'s playing|current song|now playing|music status)\b',
-                r'\b(what|which)\b.*\b(song|music|track)\b.*\b(playing|current)\b',
-            ],
-            Intent.PLAY: [
-                r'^\s*play\s*$',  # Just "play" alone
-                r'^\s*play\b(?=\s+(it|this|that|music|something))',  # Play + generic object
-            ],
-            Intent.PAUSE: [
-                r'^\s*pause\s*$',  # Just "pause" alone
-                r'^\s*pause\b(?=\s+(it|this|that))',  # Pause + generic object
-            ],
-            Intent.NEXT: [
-                r'^\s*(next|skip)\s*$',  # Just "next/skip" alone
-                r'^\s*(next|skip)\b(?=\s+(it|this|that))',  # Next + generic object
-            ],
-            Intent.PREVIOUS: [
-                r'^\s*(previous|back|prev)\s*$',  # Just "previous/back" alone
-                r'^\s*(previous|back|prev)\b(?=\s+(it|this|that))',  # Previous + generic object
-            ],
-            Intent.VOLUME: [
-                r'^\s*volume\s*(\d+|up|down|mute)?\s*%?\s*$',  # Volume commands
-                r'\b(turn up|turn down|increase|decrease)\s+(volume|sound)\b',
-            ],
-            Intent.VIDEO: [
-                r'\b(video|movie|film|youtube|netflix|streaming|watch|player)\b',
-            ],
-            Intent.GAME: [
-                r'\b(game|gaming|play|steam|xbox|playstation|nintendo)\b',
-            ],
-            Intent.NEWS: [
-                r'\b(news|headlines|breaking news|current events|newspaper|journalism)\b',
-            ],
-            Intent.PODCAST: [
-                r'\b(podcast|listen|audio show|episode|podcasting)\b',
-            ],
-            Intent.RADIO: [
-                r'\b(radio|fm|am|station|broadcast)\b',
-            ],
-            
-            # Information & Data
-            Intent.WEATHER: [
-                r'\b(weather|temperature|forecast|rain|sunny|cloudy|storm|humidity|wind)\b',
-            ],
-            Intent.TIME: [
-                r'\b(time|clock|hour|minute|second|now|current time)\b',
-            ],
-            Intent.DATE: [
-                r'\bwhat.*date\b',
-                r'\bcurrent date\b',
-                r'\bdate today\b',
-                r'\bwhat day is it\b',
-                r'\btoday\'s date\b',
-                r'^\s*(today|tomorrow|yesterday)\s*$',  # Only when these words stand alone
-                r'\b(today|tomorrow|yesterday)\s+(is|was)\b',  # When asking about dates
-            ],
-            Intent.LOCATION: [
-                r'\b(location|address|where|place|coordinates|gps|map)\b',
-            ],
-            Intent.TRANSLATION: [
-                r'\b(translate|translation|language|spanish|french|german|chinese|japanese)\b',
-            ],
-            Intent.CALCULATION: [
-                r'\b(calculate|math|plus|minus|multiply|divide|equals|sum|total)\b',
-                r'\d+\s*[\+\-\*\/\=]\s*\d+',
-            ],
-            Intent.UNIT_CONVERSION: [
-                r'\b(convert|conversion|miles to km|feet to meters|celsius to fahrenheit)\b',
-            ],
-            
-            # Web & Internet
-            Intent.WEB_SEARCH: [
-                r'\b(search|google|bing|yahoo|find|look for|look up)\b',
-            ],
-            Intent.BROWSE: [
-                r'\b(browse|website|url|internet|web|browser|chrome|firefox|safari)\b',
-            ],
-            Intent.DOWNLOAD: [
-                r'\b(download|get|fetch|pull|retrieve)\b',
-            ],
-            Intent.UPLOAD: [
-                r'\b(upload|post|share|send|publish)\b',
-            ],
-            Intent.SOCIAL_MEDIA: [
-                r'\b(facebook|twitter|instagram|linkedin|tiktok|snapchat|reddit|social)\b',
-            ],
-            
-            # Learning & Education
-            Intent.LEARN: [
-                r'\b(learn|study|education|knowledge|understand|master)\b',
-            ],
-            Intent.STUDY: [
-                r'\b(study|review|practice|homework|assignment|exam|test)\b',
-            ],
-            Intent.TUTORIAL: [
-                r'\b(tutorial|guide|how to|walkthrough|instructions|demo)\b',
-            ],
-            Intent.COURSE: [
-                r'\b(course|class|lesson|training|workshop|seminar)\b',
-            ],
-            Intent.QUIZ: [
-                r'\b(quiz|test|exam|question|assessment|evaluation)\b',
-            ],
-            
-            # Health & Fitness
-            Intent.HEALTH: [
-                r'\b(health|medical|doctor|symptom|illness|disease|medicine)\b',
-            ],
-            Intent.FITNESS: [
-                r'\b(fitness|exercise|workout|gym|training|running|cycling|swimming)\b',
-            ],
-            Intent.NUTRITION: [
-                r'\b(nutrition|diet|food|calories|vitamins|protein|carbs)\b',
-            ],
-            Intent.MEDITATION: [
-                r'\b(meditation|mindfulness|relaxation|zen|breathing|calm)\b',
-            ],
-            Intent.SLEEP: [
-                r'\b(sleep|tired|rest|nap|bedtime|insomnia|dream)\b',
-            ],
-            
-            # Shopping & Finance
-            Intent.SHOPPING: [
-                r'\b(shop|shopping|buy|purchase|order|cart|checkout|amazon|ebay)\b',
-            ],
-            Intent.FINANCE: [
-                r'\b(money|finance|financial|bank|account|balance|transaction)\b',
-            ],
-            Intent.BUDGET: [
-                r'\b(budget|expense|spending|cost|price|afford|save)\b',
-            ],
-            Intent.INVESTMENT: [
-                r'\b(invest|investment|stock|bond|portfolio|retirement|401k)\b',
-            ],
-            Intent.BANKING: [
-                r'\b(bank|atm|deposit|withdraw|transfer|loan|credit|debit)\b',
-            ],
-            
-            # Travel & Transportation
-            Intent.TRAVEL: [
-                r'\b(travel|trip|vacation|holiday|journey|destination)\b',
-            ],
-            Intent.NAVIGATION: [
-                r'\b(navigate|direction|route|map|gps|turn|left|right)\b',
-            ],
-            Intent.TRANSPORTATION: [
-                r'\b(transport|bus|train|subway|uber|taxi|car|bike|plane)\b',
-            ],
-            Intent.HOTEL: [
-                r'\b(hotel|accommodation|room|booking|reservation|airbnb)\b',
-            ],
-            Intent.FLIGHT: [
-                r'\b(flight|airplane|airport|boarding|ticket|airline)\b',
-            ],
-            
-            # Home & Lifestyle
-            Intent.SMART_HOME: [
-                r'\b(smart home|lights|thermostat|security|camera|door|lock)\b',
-            ],
-            Intent.COOKING: [
-                r'\b(cook|cooking|bake|baking|kitchen|chef|recipe)\b',
-            ],
-            Intent.RECIPE: [
-                r'\b(recipe|ingredient|cook|bake|dish|meal|food)\b',
-            ],
-            Intent.SHOPPING_LIST: [
-                r'\b(shopping list|grocery|groceries|buy|store|market)\b',
-            ],
-            Intent.HOME_AUTOMATION: [
-                r'\b(automation|automatic|schedule|timer|routine|smart)\b',
-            ],
-            
-            # Work & Productivity
-            Intent.WORK: [
-                r'\b(work|job|office|business|career|professional|colleague)\b',
-            ],
-            Intent.MEETING: [
-                r'\b(meeting|conference|call|zoom|teams|presentation|agenda)\b',
-            ],
-            Intent.PROJECT: [
-                r'\b(project|milestone|deadline|deliverable|team|collaboration)\b',
-            ],
-            Intent.DOCUMENT: [
-                r'\b(document|doc|pdf|spreadsheet|presentation|report|file)\b',
-            ],
-            Intent.PRESENTATION: [
-                r'\b(presentation|slide|powerpoint|keynote|present|demo)\b',
-            ],
-            
-            # Creative & Fun
-            Intent.CREATIVE: [
-                r'\b(creative|create|design|art|draw|paint|sketch|imagine)\b',
-            ],
-            Intent.JOKE: [
-                r'\b(joke|funny|humor|laugh|comic|pun|witty)\b',
-            ],
-            Intent.STORY: [
-                r'\b(story|tale|narrative|plot|character|fiction)\b',
-            ],
-            Intent.POEM: [
-                r'\b(poem|poetry|verse|rhyme|haiku|sonnet)\b',
-            ],
-            Intent.ART: [
-                r'\b(art|artist|painting|sculpture|gallery|museum|creative)\b',
-            ],
-            Intent.WRITING: [
-                r'\b(write|writing|author|novel|essay|blog|article)\b',
-            ],
-            
-            # Technical & Development
-            Intent.PROGRAMMING: [
-                r'\b(code|coding|program|programming|developer|software|python|javascript|java)\b',
-            ],
-            Intent.DEBUG: [
-                r'\b(debug|error|bug|fix|troubleshoot|problem|issue)\b',
-            ],
-            Intent.CODE_REVIEW: [
-                r'\b(review|code review|feedback|optimization|refactor)\b',
-            ],
-            Intent.TECH_SUPPORT: [
-                r'\b(tech support|technical|help|support|problem|issue|broken)\b',
-            ],
-            
-            # Emergency & Safety
-            Intent.EMERGENCY: [
-                r'\b(emergency|urgent|help|911|crisis|danger|ambulance|fire|police)\b',
-            ],
-            Intent.SAFETY: [
-                r'\b(safety|safe|secure|protection|guard|warning)\b',
-            ],
-            Intent.SECURITY: [
-                r'\b(security|password|encryption|privacy|breach|hack)\b',
-            ],
-            Intent.BACKUP: [
-                r'\b(backup|restore|recovery|save|archive|sync)\b',
-            ],
-            
-            # Personal & Emotional
-            Intent.PERSONAL: [
-                r'\b(personal|private|family|friend|relationship|life)\b',
-            ],
-            Intent.EMOTION: [
-                r'\b(feel|feeling|emotion|mood|happy|sad|angry|excited|nervous)\b',
-            ],
-            Intent.COMPLIMENT: [
-                r'\b(great|awesome|excellent|amazing|wonderful|fantastic|good job)\b',
-            ],
-            Intent.COMPLAINT: [
-                r'\b(complain|complaint|problem|issue|annoying|frustrated|unhappy)\b',
-            ],
-            Intent.GRATITUDE: [
-                r'\b(thank|thanks|grateful|appreciate|gratitude)\b',
-            ],
-            Intent.APOLOGY: [
-                r'\b(sorry|apologize|apology|regret|mistake|fault)\b',
-            ],
+        'music_play': ['song', 'artist', 'album', 'playlist', 'genre', 'mood', 'service'],
+        'music_control': ['action', 'volume'],
+        
+        'calendar_create': ['event', 'date', 'time', 'duration', 'location', 'attendees', 'recurring'],
+        'calendar_search': ['query', 'date_range', 'event_type'],
+        
+        'email_compose': ['recipient', 'subject', 'body', 'cc', 'bcc', 'attachments'],
+        'email_search': ['sender', 'subject', 'date_range', 'has_attachment', 'status'],
+    }
+    
+    def __init__(self, temporal_parser):
+        self.temporal_parser = temporal_parser
+        
+        # Priority keywords
+        self.priority_map = {
+            'urgent': 'urgent',
+            'critical': 'urgent',
+            'asap': 'urgent',
+            'immediately': 'urgent',
+            'high': 'high',
+            'important': 'high',
+            'medium': 'medium',
+            'normal': 'medium',
+            'low': 'low',
+            'minor': 'low',
         }
         
-        # Entity patterns
-        self.entity_patterns = {
-            # Contact information
-            'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-            'phone': r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
-            'url': r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
-            
-            # Time and dates
-            'time': r'\b([0-1]?[0-9]|2[0-3]):[0-5][0-9]\s*(am|pm)?\b',
-            'time_12h': r'\b([0-1]?[0-9]):([0-5][0-9])\s*(am|pm)\b',
-            'time_natural': r'\b(morning|afternoon|evening|night|noon|midnight)\b',
-            'date': r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
-            'relative_date': r'\b(today|tomorrow|yesterday|next week|last week|this week|next month|last month)\b',
-            'day_of_week': r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b',
-            'month': r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\b',
-            'duration': r'\b(\d+)\s*(minute|hour|day|week|month)s?\b',
-            
-            # Calendar-specific entities
-            'event_type': r'\b(meeting|appointment|call|conference|session|interview|lunch|dinner|workshop|training)\b',
-            'location': r'\b(?:at|in|@)\s+([^,\n]+?)(?=\s+(?:on|at|tomorrow|today|$))',
-            'attendee': r'\b(?:with|invite|including)\s+([A-Za-z\s]+?)(?=\s+(?:on|at|tomorrow|today|$))',
-            
-            # Numbers and measurements
-            'number': r'\b\d+\b',
-            'percentage': r'\b\d+(\.\d+)?%\b',
-            'currency': r'\$\d+(\.\d{2})?\b',
-            'temperature': r'\b\d+°[CF]\b',
-            'duration': r'\b\d+\s*(minute|hour|day|week|month|year)s?\b',
-            
-            # File and system
-            'file_path': r'[A-Za-z]:\\[\\\S|*\S]?.*?\.[\w:]+',
-            'file_extension': r'\.\w{2,4}\b',
-            'ip_address': r'\b(?:\d{1,3}\.){3}\d{1,3}\b',
-            'mac_address': r'\b[0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}\b',
-            
-            # Media and entertainment
-            'music_service': r'\b(spotify|apple music|youtube music|pandora|amazon music|soundcloud|tidal|deezer)\b',
-            'music_action': r'\b(play|pause|stop|skip|next|previous|resume|shuffle|repeat|volume)\b',
-            'music_genre': r'\b(rock|pop|jazz|classical|hip hop|rap|country|electronic|blues|reggae|folk|metal)\b',
-            'artist': r'\b(?:by|artist|singer)\s+([A-Za-z\s&]+?)(?=\s+(?:from|on|$))',
-            'song': r'\b(?:song|track|play)\s+"?([^"]+?)"?(?=\s+(?:by|from|on|$))',
-            'album': r'\b(?:album|from)\s+"?([^"]+?)"?(?=\s+(?:by|on|$))',
-            'playlist': r'\b(?:playlist|list)\s+"?([^"]+?)"?(?=\s+(?:by|on|$))',
-            'volume_level': r'\b(volume|sound)\s+(?:to\s+)?(\d{1,3})(?:%|percent)?\b',
-            'music_time': r'\b(morning|afternoon|evening|workout|study|sleep|relaxing|upbeat|slow)\b',
-            'video_service': r'\b(netflix|youtube|hulu|disney plus|amazon prime|hbo)\b',
-            'social_media': r'\b(facebook|twitter|instagram|linkedin|tiktok|snapchat|reddit)\b',
-            
-            # Programming and tech
-            'programming_language': r'\b(python|javascript|java|c\+\+|c#|ruby|php|go|rust|swift)\b',
-            'file_format': r'\b(pdf|doc|docx|txt|csv|json|xml|html|css|js|py|java)\b',
-            'browser': r'\b(chrome|firefox|safari|edge|opera)\b',
-            'operating_system': r'\b(windows|mac|linux|android|ios)\b',
-            
-            # Location and travel
-            'country': r'\b(usa|canada|uk|france|germany|japan|china|australia|brazil)\b',
-            'city': r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b',  # Simple city name pattern
-            'address': r'\b\d+\s+[A-Za-z\s]+(street|st|avenue|ave|road|rd|drive|dr|lane|ln)\b',
-            
-            # Health and fitness
-            'exercise': r'\b(running|walking|swimming|cycling|yoga|weightlifting|cardio)\b',
-            'body_part': r'\b(head|neck|shoulder|arm|hand|chest|back|leg|foot|knee|ankle)\b',
-            'symptom': r'\b(headache|fever|cough|fatigue|pain|nausea|dizziness)\b',
-            
-            # Food and nutrition
-            'food_item': r'\b(apple|banana|chicken|beef|rice|pasta|bread|milk|cheese|egg)\b',
-            'meal_type': r'\b(breakfast|lunch|dinner|snack|appetizer|dessert)\b',
-            'cuisine': r'\b(italian|chinese|mexican|indian|japanese|thai|french)\b',
-            
-            # Work and business
-            'job_title': r'\b(manager|developer|engineer|designer|analyst|director|ceo|cto)\b',
-            'company': r'\b(google|microsoft|apple|amazon|facebook|netflix|tesla)\b',
-            'meeting_platform': r'\b(zoom|teams|skype|webex|meet|hangouts)\b',
+        # Note type keywords
+        self.note_type_map = {
+            'todo': 'todo',
+            'task': 'todo',
+            'checklist': 'todo',
+            'idea': 'idea',
+            'thought': 'idea',
+            'brainstorm': 'idea',
+            'meeting': 'meeting',
+            'notes': 'meeting',
+            'reminder': 'reminder',
+            'alert': 'reminder',
         }
         
-        logger.info("✅ NLP Processor initialized with advanced features")
-    
-    def process(self, text: str) -> Dict[str, any]:
-        """
-        Comprehensive text processing
-        
-        Returns:
-            Dict containing:
-            - tokens: List of tokens
-            - intent: Detected intent
-            - entities: Extracted entities
-            - sentiment: Sentiment analysis
-            - clean_text: Cleaned version of text
-        """
-        
-        # Clean and normalize
-        clean_text = self._clean_text(text)
-        
-        # Tokenize
-        tokens = word_tokenize(clean_text.lower())
-        
-        # Intent detection
-        intent = self.detect_intent(text)
-        
-        # Entity extraction
-        entities = self.extract_entities(text)
-        
-        # Add music-specific entity extraction
-        music_entities = self._extract_music_entities(text)
-        if music_entities:
-            entities['music_entities'] = music_entities
-        
-        # Sentiment analysis
-        sentiment = self.analyze_sentiment(text)
-        
-        return {
-            'tokens': tokens,
-            'intent': intent,
-            'entities': entities,
-            'sentiment': sentiment,
-            'clean_text': clean_text,
-            'original_text': text
+        # Category keywords
+        self.category_map = {
+            'work': 'work',
+            'business': 'work',
+            'office': 'work',
+            'personal': 'personal',
+            'home': 'personal',
+            'family': 'personal',
+            'project': 'project',
+            'dev': 'project',
+            'development': 'project',
+            'health': 'health',
+            'fitness': 'health',
+            'study': 'study',
+            'learning': 'study',
+            'education': 'study',
         }
     
-    def _clean_text(self, text: str) -> str:
-        """Clean and normalize text"""
-        # Remove extra whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
-        # Remove special characters but keep basic punctuation
-        text = re.sub(r'[^\w\s.,!?\'-]', '', text)
-        return text
-    
-    def detect_intent(self, text: str) -> str:
-        """
-        Detect user intent from text
-        
-        Args:
-            text: Input text
-            
-        Returns:
-            Intent category (from Intent class)
-        """
+    def extract_slots(self, text: str, intent: str, entities: Dict[str, List[Entity]]) -> Dict[str, Slot]:
+        """Extract slots based on intent and entities"""
+        slots = {}
         text_lower = text.lower()
         
-        # Check specific intents first (before generic ones like QUESTION)
-        priority_intents = [
-            # Emergency & Critical
-            Intent.EMERGENCY,
-            Intent.SAFETY,
-            Intent.SECURITY,
-            
-            # Media & entertainment (HIGH PRIORITY to avoid conflicts)
-            Intent.MUSIC_PLAY,
-            Intent.MUSIC_PAUSE,
-            Intent.MUSIC_RESUME,
-            Intent.MUSIC_STOP,
-            Intent.MUSIC_NEXT,
-            Intent.MUSIC_PREVIOUS,
-            Intent.MUSIC_VOLUME,
-            Intent.MUSIC_SEARCH,
-            Intent.MUSIC_PLAYLIST,
-            Intent.MUSIC_STATUS,
-            Intent.PLAY,
-            Intent.PAUSE,
-            Intent.NEXT,
-            Intent.PREVIOUS,
-            Intent.VOLUME,
-            Intent.MUSIC,
-            
-            # Basic conversational
-            Intent.GREETING,
-            Intent.FAREWELL,
-            Intent.GRATITUDE,
-            Intent.APOLOGY,
-            
-            # High-priority tasks
-            Intent.REMINDER,
-            Intent.DEADLINE,
-            Intent.CALENDAR,
-            Intent.SCHEDULE,
-            
-            # Communication
-            Intent.EMAIL,
-            Intent.MESSAGE,
-            Intent.CALL,
-            
-            # System control
-            Intent.COMMAND,
-            Intent.SYSTEM_CONTROL,
-            Intent.FILE_OPERATION,
-            Intent.PROCESS_CONTROL,
-            Intent.SETTINGS,
-            
-            # Information & time-sensitive
-            Intent.WEATHER,
-            Intent.TIME,
-            Intent.DATE,
-            Intent.LOCATION,
-            
-            # Other media
-            Intent.VIDEO,
-            Intent.NEWS,
-            
-            # Work & productivity
-            Intent.MEETING,
-            Intent.DOCUMENT,
-            Intent.PROJECT,
-            
-            # Web & search
-            Intent.WEB_SEARCH,
-            Intent.BROWSE,
-            
-            # Task management
-            Intent.TASK,
-            Intent.TODO,
-            
-            # Creative & fun
-            Intent.JOKE,
-            Intent.STORY,
-            Intent.CREATIVE,
-            
-            # Technical
-            Intent.PROGRAMMING,
-            Intent.DEBUG,
-            Intent.TECH_SUPPORT,
-            
-            # Health & lifestyle
-            Intent.HEALTH,
-            Intent.FITNESS,
-            Intent.COOKING,
-            Intent.RECIPE,
-            
-            # Shopping & finance
-            Intent.SHOPPING,
-            Intent.FINANCE,
-            Intent.BUDGET,
-            
-            # Travel
-            Intent.TRAVEL,
-            Intent.NAVIGATION,
-            Intent.TRANSPORTATION,
-            
-            # Learning
-            Intent.LEARN,
-            Intent.TUTORIAL,
-            Intent.COURSE,
-            
-            # Information seeking
-            Intent.EXPLAIN,
-            Intent.DEFINE,
-            Intent.COMPARE,
-            Intent.RECOMMEND,
-            Intent.INFORMATION,
-            Intent.CALCULATION,
-            Intent.TRANSLATION,
+        # Determine template
+        template_key = self._get_template_key(intent)
+        if template_key not in self.SLOT_TEMPLATES:
+            return slots
+        
+        slot_names = self.SLOT_TEMPLATES[template_key]
+        
+        # Extract each slot
+        for slot_name in slot_names:
+            extractor = getattr(self, f'_extract_{slot_name}', None)
+            if extractor:
+                value, confidence, raw = extractor(text, text_lower, entities)
+                if value is not None:
+                    slots[slot_name] = Slot(slot_name, value, confidence, raw)
+        
+        return slots
+    
+    def _get_template_key(self, intent: str) -> str:
+        """Map intent to slot template"""
+        # Note intents
+        if 'create' in intent or 'add' in intent:
+            if 'note' in intent:
+                return 'note_create'
+            elif 'event' in intent or 'calendar' in intent:
+                return 'calendar_create'
+        elif 'search' in intent or 'find' in intent or 'list' in intent:
+            if 'note' in intent:
+                return 'note_search'
+            elif 'calendar' in intent:
+                return 'calendar_search'
+            elif 'email' in intent:
+                return 'email_search'
+        elif 'play' in intent or 'music' in intent:
+            return 'music_play'
+        elif 'email' in intent and ('compose' in intent or 'send' in intent):
+            return 'email_compose'
+        
+        return intent
+    
+    # ==================== NOTE SLOT EXTRACTORS ====================
+    
+    def _extract_title(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract note title"""
+        # Patterns like "note about X", "create X note", "X task"
+        patterns = [
+            r'(?:note|task|reminder)\s+(?:about|for|titled?)\s+([^,\n]+)',
+            r'(?:create|add|make)\s+(?:a\s+)?(?:note\s+)?(?:about\s+)?([^,\n]+)',
+            r'(?:called|named|titled)\s+([^,\n]+)',
         ]
         
-        # Check priority intents first
-        for intent in priority_intents:
-            if intent in self.intent_patterns:
-                for pattern in self.intent_patterns[intent]:
-                    if re.search(pattern, text_lower, re.IGNORECASE):
-                        logger.debug(f"Intent detected: {intent}")
-                        return intent
+        for pattern in patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                title = match.group(1).strip()
+                # Clean up common trailing words
+                title = re.sub(r'\s+(tagged?|with|priority|at|on|tomorrow|today).*$', '', title)
+                if len(title) > 2:
+                    return title, 0.85, match.group(0)
         
-        # Then check remaining intents (like QUESTION)
-        for intent, patterns in self.intent_patterns.items():
-            if intent not in priority_intents:
-                for pattern in patterns:
-                    if re.search(pattern, text_lower, re.IGNORECASE):
-                        logger.debug(f"Intent detected: {intent}")
-                        return intent
+        # Fallback: extract first noun phrase (simple heuristic)
+        words = text_lower.split()
+        if len(words) >= 3:
+            # Look for pattern after action words
+            action_words = {'create', 'add', 'make', 'new', 'note', 'task', 'reminder'}
+            for i, word in enumerate(words):
+                if word in action_words and i + 1 < len(words):
+                    # Take next 2-4 words as title
+                    title_words = words[i+1:min(i+5, len(words))]
+                    title = ' '.join(title_words)
+                    title = re.sub(r'\s+(tagged?|with|priority|at|on).*$', '', title)
+                    if len(title) > 2:
+                        return title, 0.6, ' '.join(words[i:i+5])
         
-        # Default to conversation or question based on punctuation
-        if '?' in text:
-            return Intent.QUESTION
-        
-        return Intent.CONVERSATION
+        return None, 0.0, ""
     
-    def extract_entities(self, text: str) -> Dict[str, List[str]]:
-        """
-        Extract named entities from text
-        
-        Args:
-            text: Input text
-            
-        Returns:
-            Dictionary of entity types and their values
-        """
-        entities = {}
-        
-        for entity_type, pattern in self.entity_patterns.items():
-            matches = re.findall(pattern, text)
-            if matches:
-                entities[entity_type] = matches
-                logger.debug(f"Entities found - {entity_type}: {matches}")
-        
-        return entities
-    
-    def analyze_sentiment(self, text: str) -> Dict[str, float]:
-        """
-        Analyze sentiment of text
-        
-        Args:
-            text: Input text
-            
-        Returns:
-            Dictionary with sentiment scores (neg, neu, pos, compound)
-        """
-        scores = self.sentiment_analyzer.polarity_scores(text)
-        
-        # Categorize
-        if scores['compound'] >= 0.05:
-            category = 'positive'
-        elif scores['compound'] <= -0.05:
-            category = 'negative'
-        else:
-            category = 'neutral'
-        
-        scores['category'] = category
-        return scores
-    
-    def vectorize(self, texts: List[str]):
-        """
-        Vectorize texts using TF-IDF
-        
-        Args:
-            texts: List of text documents
-            
-        Returns:
-            TF-IDF matrix
-        """
-        return self.vectorizer.fit_transform(texts)
-    
-    def transform(self, text: str):
-        """
-        Transform single text using fitted vectorizer
-        
-        Args:
-            text: Input text
-            
-        Returns:
-            TF-IDF vector
-        """
-        return self.vectorizer.transform([text])
-    
-    def _extract_music_entities(self, text: str) -> Dict[str, str]:
-        """
-        Extract music-specific entities from text
-        
-        Args:
-            text: Input text
-            
-        Returns:
-            Dictionary with music entities (action, song, artist, album, etc.)
-        """
-        music_entities = {}
-        text_lower = text.lower()
-        
-        # Music actions
-        actions = ['play', 'pause', 'stop', 'skip', 'next', 'previous', 'resume', 'shuffle', 'repeat']
-        for action in actions:
-            if re.search(rf'\b{action}\b', text_lower):
-                music_entities['action'] = action
-                break
-        
-        # Volume
-        volume_match = re.search(r'\b(?:volume|sound)\s+(?:to\s+)?(\d{1,3})(?:%|percent)?\b', text_lower)
-        if volume_match:
-            music_entities['volume'] = int(volume_match.group(1))
-        
-        # Song/track
-        song_patterns = [
-            r'"([^"]+)"',  # Quoted songs
-            r'\b(?:play|song|track)\s+(.+?)(?:\s+by|\s+from|$)',
-            r'\bplay\s+([^,]+?)(?:\s+by|\s+from|$)',
+    def _extract_content(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract note content"""
+        # Content is usually after title or in quotes
+        patterns = [
+            r'content[:\s]+"?([^"\n]+)"?',
+            r'body[:\s]+"?([^"\n]+)"?',
+            r'text[:\s]+"?([^"\n]+)"?',
         ]
-        for pattern in song_patterns:
+        
+        for pattern in patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                return match.group(1).strip(), 0.9, match.group(0)
+        
+        return None, 0.0, ""
+    
+    def _extract_tags(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[List[str]], float, str]:
+        """Extract tags from #tagname or 'tagged X'"""
+        tags = []
+        
+        # Hashtag style: #work #urgent
+        hashtag_pattern = r'#(\w+)'
+        hashtags = re.findall(hashtag_pattern, text_lower)
+        tags.extend(hashtags)
+        
+        # Explicit tagging: "tagged work urgent" or "tag it as work"
+        tag_patterns = [
+            r'tagged?\s+(?:as\s+)?(?:with\s+)?([a-z,\s]+?)(?:\s+priority|\s+category|$)',
+            r'tags?\s+(?:are\s+)?(?:with\s+)?([a-z,\s]+?)(?:\s+priority|\s+category|$)',
+        ]
+        
+        for pattern in tag_patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                tag_text = match.group(1).strip()
+                # Split by comma or space
+                new_tags = [t.strip() for t in re.split(r'[,\s]+', tag_text) if t.strip()]
+                tags.extend(new_tags)
+        
+        if tags:
+            # Remove duplicates, keep order
+            seen = set()
+            unique_tags = []
+            for tag in tags:
+                if tag not in seen:
+                    seen.add(tag)
+                    unique_tags.append(tag)
+            return unique_tags, 0.9, ' '.join(f'#{t}' for t in unique_tags)
+        
+        return None, 0.0, ""
+    
+    def _extract_priority(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract priority level"""
+        for keyword, priority in self.priority_map.items():
+            if re.search(rf'\b{keyword}\b', text_lower):
+                return priority, 0.95, keyword
+        
+        # Check for explicit priority syntax
+        priority_pattern = r'priority[:\s]+(urgent|high|medium|low)'
+        match = re.search(priority_pattern, text_lower)
+        if match:
+            return match.group(1), 0.98, match.group(0)
+        
+        return None, 0.0, ""
+    
+    def _extract_category(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract category"""
+        for keyword, category in self.category_map.items():
+            if re.search(rf'\b{keyword}\b', text_lower):
+                return category, 0.8, keyword
+        
+        # Explicit category syntax
+        cat_pattern = r'category[:\s]+(\w+)'
+        match = re.search(cat_pattern, text_lower)
+        if match:
+            return match.group(1), 0.95, match.group(0)
+        
+        return None, 0.0, ""
+    
+    def _extract_note_type(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract note type"""
+        for keyword, note_type in self.note_type_map.items():
+            if re.search(rf'\b{keyword}\b', text_lower):
+                return note_type, 0.85, keyword
+        
+        return None, 0.0, ""
+    
+    def _extract_date(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract and normalize date"""
+        result = self.temporal_parser.parse_temporal_expression(text)
+        if result and result.get('date'):
+            return result['date'], result.get('confidence', 0.8), result.get('raw_text', '')
+        return None, 0.0, ""
+    
+    def _extract_time(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract and normalize time"""
+        result = self.temporal_parser.parse_temporal_expression(text)
+        if result and result.get('time'):
+            return result['time'], result.get('confidence', 0.8), result.get('raw_text', '')
+        return None, 0.0, ""
+    
+    # ==================== MUSIC SLOT EXTRACTORS ====================
+    
+    def _extract_song(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract song name"""
+        patterns = [
+            r'"([^"]+)"',  # Quoted
+            r'play\s+([^,\n]+?)(?:\s+by|\s+from|$)',
+            r'song\s+"?([^"]+?)"?(?:\s+by|$)',
+        ]
+        
+        for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 song = match.group(1).strip()
-                if len(song) > 1:  # Avoid single characters
-                    music_entities['song'] = song
-                    break
+                if len(song) > 1:
+                    return song, 0.85, match.group(0)
         
-        # Artist
-        artist_patterns = [
-            r'\bby\s+([A-Za-z\s&]+?)(?:\s+from|\s+on|$)',
-            r'\bartist\s+([A-Za-z\s&]+?)(?:\s+from|\s+on|$)',
-            r'\bsinger\s+([A-Za-z\s&]+?)(?:\s+from|\s+on|$)',
+        return None, 0.0, ""
+    
+    def _extract_artist(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract artist name"""
+        patterns = [
+            r'\bby\s+([A-Za-z\s&\']+?)(?:\s+from|\s+on|$)',
+            r'\bartist\s+([A-Za-z\s&\']+?)(?:\s+from|$)',
         ]
-        for pattern in artist_patterns:
+        
+        for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 artist = match.group(1).strip()
                 if len(artist) > 1:
-                    music_entities['artist'] = artist
-                    break
+                    return artist, 0.9, match.group(0)
         
-        # Album
-        album_patterns = [
-            r'\balbum\s+"?([^"]+?)"?(?:\s+by|\s+on|$)',
-            r'\bfrom\s+"?([^"]+?)"?(?:\s+by|\s+on|$)',
-        ]
-        for pattern in album_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                album = match.group(1).strip()
-                if len(album) > 1:
-                    music_entities['album'] = album
-                    break
+        return None, 0.0, ""
+    
+    def _extract_genre(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract music genre"""
+        genres = ['rock', 'pop', 'jazz', 'classical', 'hip hop', 'rap', 'country', 
+                 'electronic', 'blues', 'reggae', 'folk', 'metal', 'indie']
         
-        # Playlist
-        playlist_patterns = [
-            r'\bplaylist\s+"?([^"]+?)"?(?:\s+by|\s+on|$)',
-            r'\bplay\s+my\s+([A-Za-z\s]+?)\s+playlist',
-            r'\bplay\s+(.+?)\s+playlist',
-        ]
-        for pattern in playlist_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                playlist = match.group(1).strip()
-                if len(playlist) > 1:
-                    music_entities['playlist'] = playlist
-                    break
-        
-        # Genre or mood
-        genres = ['rock', 'pop', 'jazz', 'classical', 'hip hop', 'rap', 'country', 'electronic', 
-                 'blues', 'reggae', 'folk', 'metal', 'indie', 'alternative', 'dance', 'r&b',
-                 'upbeat', 'relaxing', 'chill', 'energetic', 'slow', 'fast', 'happy', 'sad']
         for genre in genres:
             if re.search(rf'\b{genre}\b', text_lower):
-                music_entities['genre'] = genre
-                break
+                return genre, 0.95, genre
         
-        # Music service
-        services = ['spotify', 'apple music', 'youtube music', 'pandora', 'amazon music', 'soundcloud']
+        return None, 0.0, ""
+    
+    def _extract_mood(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract mood/vibe"""
+        moods = ['upbeat', 'relaxing', 'chill', 'energetic', 'slow', 'happy', 'sad', 
+                'workout', 'study', 'sleep', 'party', 'romantic']
+        
+        for mood in moods:
+            if re.search(rf'\b{mood}\b', text_lower):
+                return mood, 0.85, mood
+        
+        return None, 0.0, ""
+    
+    def _extract_action(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract music action"""
+        actions = ['play', 'pause', 'stop', 'skip', 'next', 'previous', 'resume', 'shuffle', 'repeat']
+        
+        for action in actions:
+            if re.search(rf'\b{action}\b', text_lower):
+                return action, 0.95, action
+        
+        return None, 0.0, ""
+    
+    def _extract_volume(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[int], float, str]:
+        """Extract volume level"""
+        volume_match = re.search(r'\b(?:volume|sound)\s+(?:to\s+)?(\d{1,3})(?:%|percent)?\b', text_lower)
+        if volume_match:
+            volume = int(volume_match.group(1))
+            return min(100, max(0, volume)), 0.98, volume_match.group(0)
+        
+        return None, 0.0, ""
+    
+    # ==================== OTHER SLOT EXTRACTORS ====================
+    
+    def _extract_query(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract search query"""
+        # For search intents, the main query is usually the text minus action words
+        query = re.sub(r'\b(search|find|show|list|get|fetch)\s+', '', text_lower, count=1)
+        query = re.sub(r'\b(notes?|emails?|events?|tasks?)\b', '', query).strip()
+        
+        if len(query) > 2:
+            return query, 0.7, query
+        
+        return None, 0.0, ""
+    
+    def _extract_album(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract album name"""
+        return None, 0.0, ""  # Implement if needed
+    
+    def _extract_playlist(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract playlist name"""
+        return None, 0.0, ""  # Implement if needed
+    
+    def _extract_service(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+        """Extract music service"""
+        services = ['spotify', 'apple music', 'youtube music', 'pandora']
         for service in services:
-            if re.search(rf'\b{service}\b', text_lower):
-                music_entities['service'] = service
-                break
-        
-        return music_entities
+            if service in text_lower:
+                return service, 0.98, service
+        return None, 0.0, ""
+
+
+# ============================================================================
+# TEMPORAL EXPRESSION NORMALIZATION
+# ============================================================================
+
+class TemporalParser:
+    """
+    Parse and normalize temporal expressions
     
-    def is_question(self, text: str) -> bool:
-        """Check if text is a question"""
-        question_words = ['what', 'when', 'where', 'who', 'why', 'how', 'which', 'can', 'could', 'would', 'should']
+    Examples:
+        "tomorrow at 2pm" -> {'date': '2025-01-26', 'time': '14:00'}
+        "next week" -> {'date': '2025-02-02'}
+        "in 3 days" -> {'date': '2025-01-28'}
+        "morning" -> {'time': '09:00'}
+    """
+    
+    def __init__(self):
+        self.cal = Calendar()
+        
+        # Time of day mappings
+        self.time_of_day = {
+            'morning': '09:00',
+            'noon': '12:00',
+            'afternoon': '14:00',
+            'evening': '18:00',
+            'night': '20:00',
+            'midnight': '00:00',
+        }
+    
+    def parse_temporal_expression(self, text: str) -> Optional[Dict[str, Any]]:
+        """Parse temporal expressions from text"""
+        result = {}
+        confidence = 0.0
+        raw_text = ""
+        
+        # Try dateparser first (most comprehensive)
+        parsed_date = dateparser.parse(
+            text,
+            settings={
+                'PREFER_DATES_FROM': 'future',
+                'RETURN_AS_TIMEZONE_AWARE': False,
+                'RELATIVE_BASE': datetime.now()
+            }
+        )
+        
+        if parsed_date:
+            result['date'] = parsed_date.strftime('%Y-%m-%d')
+            result['time'] = parsed_date.strftime('%H:%M')
+            confidence = 0.9
+            raw_text = text
+        else:
+            # Try parsedatetime for relative expressions
+            time_struct, parse_status = self.cal.parse(text)
+            if parse_status > 0:
+                parsed_dt = datetime(*time_struct[:6])
+                result['date'] = parsed_dt.strftime('%Y-%m-%d')
+                result['time'] = parsed_dt.strftime('%H:%M')
+                confidence = 0.8
+                raw_text = text
+        
+        # Check for time of day keywords
         text_lower = text.lower()
-        return '?' in text or any(text_lower.startswith(qw) for qw in question_words)
-    
-    def extract_keywords(self, text: str, top_n: int = 5) -> List[str]:
-        """
-        Extract top keywords from text
+        for keyword, time_str in self.time_of_day.items():
+            if keyword in text_lower:
+                result['time'] = time_str
+                confidence = max(confidence, 0.85)
+                if not raw_text:
+                    raw_text = keyword
         
-        Args:
-            text: Input text
-            top_n: Number of keywords to extract
-            
-        Returns:
-            List of keywords
+        if result:
+            result['confidence'] = confidence
+            result['raw_text'] = raw_text
+            return result
+        
+        return None
+    
+    def normalize_duration(self, text: str) -> Optional[Dict[str, Any]]:
+        """Parse duration expressions"""
+        patterns = [
+            (r'(\d+)\s*(?:minute|min)s?', 'minutes'),
+            (r'(\d+)\s*(?:hour|hr)s?', 'hours'),
+            (r'(\d+)\s*(?:day)s?', 'days'),
+            (r'(\d+)\s*(?:week)s?', 'weeks'),
+            (r'(\d+)\s*(?:month)s?', 'months'),
+        ]
+        
+        for pattern, unit in patterns:
+            match = re.search(pattern, text.lower())
+            if match:
+                value = int(match.group(1))
+                return {'value': value, 'unit': unit, 'raw_text': match.group(0)}
+        
+        return None
+
+
+# ============================================================================
+# CUSTOM NER FOR DOMAIN ENTITIES
+# ============================================================================
+
+class DomainEntityExtractor:
+    """
+    Extract domain-specific entities
+    
+    Entities:
+    - NOTE_TAG: #work, #personal
+    - PRIORITY: urgent, high, low
+    - NOTE_TYPE: todo, idea, meeting
+    - CATEGORY: work, personal, project
+    - MUSIC_GENRE: rock, pop, jazz
+    - MUSIC_MOOD: upbeat, chill, relaxing
+    """
+    
+    ENTITY_PATTERNS = {
+        'NOTE_TAG': r'#(\w+)',
+        'PRIORITY': r'\b(urgent|critical|high|important|medium|normal|low|minor)\b',
+        'NOTE_TYPE': r'\b(todo|task|idea|thought|meeting|reminder)\b',
+        'CATEGORY': r'\b(work|personal|project|health|study)\b',
+        'MUSIC_GENRE': r'\b(rock|pop|jazz|classical|hip hop|rap|country|electronic|blues|metal)\b',
+        'MUSIC_MOOD': r'\b(upbeat|relaxing|chill|energetic|happy|sad|workout|study)\b',
+    }
+    
+    def extract(self, text: str) -> Dict[str, List[Entity]]:
+        """Extract all domain entities"""
+        entities = defaultdict(list)
+        text_lower = text.lower()
+        
+        for entity_type, pattern in self.ENTITY_PATTERNS.items():
+            matches = re.finditer(pattern, text_lower)
+            for match in matches:
+                entity = Entity(
+                    type=entity_type,
+                    value=match.group(1) if match.groups() else match.group(0),
+                    confidence=0.95,
+                    start_pos=match.start(),
+                    end_pos=match.end()
+                )
+                entities[entity_type].append(entity)
+        
+        return dict(entities)
+
+
+# ============================================================================
+# COREFERENCE RESOLUTION
+# ============================================================================
+
+class CoreferenceResolver:
+    """
+    Resolve pronouns to entities mentioned in conversation
+    
+    Examples:
+        User: "Create note shopping list"
+        Then: "Add eggs to it" -> "it" resolves to "shopping list" note
+        
+        User: "Play Bohemian Rhapsody"
+        Then: "pause it" -> "it" resolves to "Bohemian Rhapsody"
+    """
+    
+    def __init__(self):
+        self.pronouns = ['it', 'this', 'that', 'the note', 'the event', 'the song', 
+                        'the task', 'the email', 'the reminder']
+    
+    def resolve(self, text: str, context: ConversationContext) -> str:
+        """Resolve coreferences in text using conversation context"""
+        resolved_text = text
+        text_lower = text.lower()
+        
+        # Check if text contains pronouns
+        for pronoun in self.pronouns:
+            if pronoun in text_lower:
+                replacement = self._find_referent(pronoun, context)
+                if replacement:
+                    # Replace pronoun with actual entity
+                    resolved_text = re.sub(
+                        rf'\b{re.escape(pronoun)}\b',
+                        replacement,
+                        resolved_text,
+                        count=1,
+                        flags=re.IGNORECASE
+                    )
+                    logger.info(f"🔗 Resolved '{pronoun}' -> '{replacement}'")
+        
+        return resolved_text
+    
+    def _find_referent(self, pronoun: str, context: ConversationContext) -> Optional[str]:
+        """Find what the pronoun refers to"""
+        # Check based on last intent
+        if context.last_intent:
+            if 'note' in context.last_intent and context.mentioned_notes:
+                return str(context.mentioned_notes[-1])
+            elif 'calendar' in context.last_intent and context.mentioned_events:
+                return str(context.mentioned_events[-1])
+            elif 'music' in context.last_intent and context.mentioned_songs:
+                return str(context.mentioned_songs[-1])
+        
+        # Check generic entities
+        if context.last_entities:
+            # Return most recent entity of appropriate type
+            for entity_type in ['title', 'song', 'event', 'note_id']:
+                if entity_type in context.last_entities:
+                    return str(context.last_entities[entity_type])
+        
+        return None
+
+
+# ============================================================================
+# ENHANCED EMOTION & URGENCY DETECTION
+# ============================================================================
+
+class EmotionDetector:
+    """
+    Multi-label emotion detection + urgency analysis
+    
+    Emotions: angry, excited, worried, confused, satisfied, frustrated
+    Urgency: none, low, medium, high, critical
+    """
+    
+    EMOTION_KEYWORDS = {
+        'angry': ['angry', 'mad', 'pissed', 'furious', 'annoyed', 'irritated'],
+        'excited': ['excited', 'awesome', 'amazing', 'great', 'fantastic', 'wonderful'],
+        'worried': ['worried', 'concerned', 'anxious', 'nervous', 'stressed'],
+        'confused': ['confused', 'lost', 'unclear', 'dont understand', 'help'],
+        'satisfied': ['thanks', 'thank you', 'perfect', 'exactly', 'good'],
+        'frustrated': ['not working', 'broken', 'frustrated', 'cant', 'wont', 'doesnt work'],
+    }
+    
+    URGENCY_KEYWORDS = {
+        'critical': ['emergency', 'critical', 'asap', 'immediately', 'right now', 'urgent'],
+        'high': ['urgent', 'important', 'soon', 'quickly', 'hurry'],
+        'medium': ['when you can', 'sometime', 'later'],
+        'low': ['no rush', 'whenever', 'eventually'],
+    }
+    
+    def detect_emotions(self, text: str, sentiment_scores: Dict) -> List[str]:
+        """Detect emotions from text"""
+        emotions = []
+        text_lower = text.lower()
+        
+        for emotion, keywords in self.EMOTION_KEYWORDS.items():
+            for keyword in keywords:
+                if keyword in text_lower:
+                    emotions.append(emotion)
+                    break
+        
+        # Infer from sentiment if no explicit emotions
+        if not emotions:
+            compound = sentiment_scores.get('compound', 0)
+            if compound > 0.5:
+                emotions.append('satisfied')
+            elif compound < -0.5:
+                emotions.append('frustrated')
+        
+        return emotions
+    
+    def detect_urgency(self, text: str) -> str:
+        """Detect urgency level"""
+        text_lower = text.lower()
+        
+        # Check from highest to lowest
+        for level in ['critical', 'high', 'medium', 'low']:
+            for keyword in self.URGENCY_KEYWORDS[level]:
+                if keyword in text_lower:
+                    return level
+        
+        return 'none'
+
+
+# ============================================================================
+# MAIN NLP PROCESSOR V2
+# ============================================================================
+
+class NLPProcessor:
+    """
+    NLP processing for A.L.I.C.E.
+    
+    No more regex hell. Pure intelligence.
+    """
+    
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        """Singleton pattern for performance"""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def __init__(self):
+        if hasattr(self, '_initialized'):
+            return
+        
+        self._initialized = True
+        
+        # Core components
+        self.sentiment_analyzer = SentimentIntensityAnalyzer()
+        self.vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
+        
+        # Advanced components
+        self.temporal_parser = TemporalParser()
+        self.slot_filler = SlotFiller(self.temporal_parser)
+        self.domain_ner = DomainEntityExtractor()
+        self.coref_resolver = CoreferenceResolver()
+        self.emotion_detector = EmotionDetector()
+        
+        # Conversation context
+        self.context = ConversationContext()
+        
+        # Semantic intent classifier
+        self.semantic_classifier = None
+        if SEMANTIC_CLASSIFIER_AVAILABLE:
+            try:
+                self.semantic_classifier = get_intent_classifier()
+                logger.info("✅ Semantic intent classifier loaded")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to load semantic classifier: {e}")
+        
+        # Cache for performance
+        self._entity_cache = {}
+        self._cache_lock = threading.Lock()
+        
+        logger.info("🧠 NLPProcessor initialized with advanced semantic understanding")
+    
+    def process(self, text: str, use_context: bool = True) -> ProcessedQuery:
         """
-        # Tokenize and remove stopwords
+        Complete NLP processing pipeline
+        
+        Steps:
+        1. Resolve coreferences (if context enabled)
+        2. Detect intent (semantic-first, regex fallback)
+        3. Extract entities (domain-specific + general)
+        4. Fill slots (structured data extraction)
+        5. Analyze sentiment & emotions
+        6. Detect urgency
+        7. Extract keywords
+        8. Update conversation context
+        """
+        
+        # Step 1: Coreference resolution
+        if use_context:
+            resolved_text = self.coref_resolver.resolve(text, self.context)
+        else:
+            resolved_text = text
+        
+        # Clean text
+        clean_text = self._clean_text(resolved_text)
+        
+        # Tokenize
+        tokens = word_tokenize(clean_text.lower())
+        
+        # Step 2: Intent detection (SEMANTIC-FIRST!)
+        intent, intent_confidence = self._detect_intent_semantic(clean_text)
+        
+        # Step 3: Entity extraction
+        entities = self._extract_all_entities(clean_text)
+        
+        # Step 4: Slot filling
+        slots = self.slot_filler.extract_slots(clean_text, intent, entities)
+        
+        # Step 5: Sentiment analysis
+        sentiment = self.sentiment_analyzer.polarity_scores(clean_text)
+        compound = sentiment.get('compound', 0)
+        sentiment['category'] = 'positive' if compound >= 0.05 else ('negative' if compound <= -0.05 else 'neutral')
+        
+        # Step 6: Emotion detection
+        emotions = self.emotion_detector.detect_emotions(clean_text, sentiment)
+        
+        # Step 7: Urgency detection
+        urgency = self.emotion_detector.detect_urgency(clean_text)
+        
+        # Step 8: Keyword extraction
+        keywords = self._extract_keywords(clean_text)
+        
+        # Step 9: Check if question
+        is_question = self._is_question(clean_text)
+        
+        # Build result
+        result = ProcessedQuery(
+            original_text=text,
+            clean_text=clean_text,
+            tokens=tokens,
+            intent=intent,
+            intent_confidence=intent_confidence,
+            entities=entities,
+            slots=slots,
+            sentiment=sentiment,
+            emotions=emotions,
+            urgency_level=urgency,
+            is_question=is_question,
+            keywords=keywords
+        )
+        
+        # Step 10: Update conversation context
+        if use_context:
+            self._update_context(result)
+        
+        logger.info(f"🎯 Intent: {intent} ({intent_confidence:.2f}) | Slots: {len(slots)} | Emotions: {emotions} | Urgency: {urgency}")
+        
+        return result
+    
+    def _detect_intent_semantic(self, text: str) -> Tuple[str, float]:
+        """Detect intent using semantic classifier (primary) or regex (fallback)"""
+        
+        # Try semantic classification first
+        if self.semantic_classifier:
+            try:
+                result = self.semantic_classifier.get_plugin_action(text, threshold=0.4)
+                if result and result.get('confidence', 0) > 0.5:
+                    # Map plugin:action to intent
+                    plugin = result.get('plugin', '')
+                    action = result.get('action', '')
+                    intent = f"{plugin}:{action}"
+                    confidence = result.get('confidence', 0.0)
+                    
+                    logger.debug(f"✨ Semantic intent: {intent} ({confidence:.3f})")
+                    return intent, confidence
+            except Exception as e:
+                logger.warning(f"⚠️ Semantic classification failed: {e}")
+        
+        # Fallback to simple keyword matching
+        text_lower = text.lower()
+        
+        # Simple intent mapping
+        if any(word in text_lower for word in ['create', 'add', 'new']) and 'note' in text_lower:
+            return 'notes:create', 0.7
+        elif any(word in text_lower for word in ['search', 'find', 'show', 'list']) and 'note' in text_lower:
+            return 'notes:search', 0.7
+        elif 'play' in text_lower and any(word in text_lower for word in ['music', 'song']):
+            return 'music:play', 0.7
+        elif any(word in text_lower for word in ['email', 'mail', 'gmail']):
+            return 'email:list', 0.6
+        elif any(word in text_lower for word in ['calendar', 'event', 'schedule']):
+            return 'calendar:create', 0.6
+        elif '?' in text:
+            return 'conversation:question', 0.5
+        
+        return 'conversation:general', 0.3
+    
+    def _extract_all_entities(self, text: str) -> Dict[str, List[Entity]]:
+        """Extract all entities (domain-specific + general)"""
+        
+        # Check cache
+        cache_key = hash(text)
+        with self._cache_lock:
+            if cache_key in self._entity_cache:
+                return self._entity_cache[cache_key]
+        
+        entities = {}
+        
+        # Domain-specific entities (custom NER)
+        domain_entities = self.domain_ner.extract(text)
+        entities.update(domain_entities)
+        
+        # General entities (regex patterns)
+        general_patterns = {
+            'EMAIL': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            'PHONE': r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
+            'URL': r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
+            'NUMBER': r'\b\d+\b',
+            'PERCENTAGE': r'\b\d+(?:\.\d+)?%\b',
+        }
+        
+        for entity_type, pattern in general_patterns.items():
+            matches = re.finditer(pattern, text)
+            entity_list = []
+            for match in matches:
+                entity = Entity(
+                    type=entity_type,
+                    value=match.group(0),
+                    confidence=0.9,
+                    start_pos=match.start(),
+                    end_pos=match.end()
+                )
+                entity_list.append(entity)
+            
+            if entity_list:
+                entities[entity_type] = entity_list
+        
+        # Cache result
+        with self._cache_lock:
+            self._entity_cache[cache_key] = entities
+            # Limit cache size
+            if len(self._entity_cache) > 1000:
+                # Remove oldest 20%
+                to_remove = list(self._entity_cache.keys())[:200]
+                for key in to_remove:
+                    del self._entity_cache[key]
+        
+        return entities
+    
+    def _update_context(self, result: ProcessedQuery):
+        """Update conversation context"""
+        self.context.last_intent = result.intent
+        self.context.query_history.append(result.original_text)
+        
+        # Extract entities to context
+        self.context.last_entities = {}
+        
+        # From slots
+        for slot_name, slot in result.slots.items():
+            self.context.last_entities[slot_name] = slot.value
+            
+            # Track specific entity types
+            if slot_name == 'title' and 'note' in result.intent:
+                self.context.mentioned_notes.append(slot.value)
+            elif slot_name == 'song':
+                self.context.mentioned_songs.append(slot.value)
+            elif slot_name == 'event':
+                self.context.mentioned_events.append(slot.value)
+    
+    def _clean_text(self, text: str) -> str:
+        """Clean and normalize text"""
+        text = re.sub(r'\s+', ' ', text).strip()
+        text = re.sub(r'[^\w\s.,!?\'-]', '', text)
+        return text
+    
+    def _is_question(self, text: str) -> bool:
+        """Check if text is a question"""
+        if '?' in text:
+            return True
+        
+        question_words = ['what', 'when', 'where', 'who', 'why', 'how', 'which', 
+                         'can', 'could', 'would', 'should', 'is', 'are', 'do', 'does']
+        
+        text_lower = text.lower()
+        return any(text_lower.startswith(qw) for qw in question_words)
+    
+    def _extract_keywords(self, text: str, top_n: int = 5) -> List[str]:
+        """Extract top keywords"""
         tokens = word_tokenize(text.lower())
         
-        # Simple stopwords list
-        stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+        stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
                     'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be',
                     'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
                     'should', 'may', 'might', 'can', 'i', 'you', 'he', 'she', 'it', 'we', 'they'}
         
-        # Filter and get unique keywords
         keywords = [token for token in tokens if token.isalnum() and token not in stopwords]
         
-        # Return top N by frequency
         from collections import Counter
         keyword_freq = Counter(keywords)
         return [word for word, _ in keyword_freq.most_common(top_n)]
     
-    def similarity(self, text1: str, text2: str) -> float:
-        """
-        Calculate semantic similarity between two texts
-        
-        Args:
-            text1: First text
-            text2: Second text
-            
-        Returns:
-            Similarity score (0-1)
-        """
-        try:
-            # Transform both texts
-            vec1 = self.transform(text1)
-            vec2 = self.transform(text2)
-            
-            # Calculate cosine similarity
-            from sklearn.metrics.pairwise import cosine_similarity
-            similarity = cosine_similarity(vec1, vec2)[0][0]
-            
-            return float(similarity)
-        except:
-            # Fallback to simple word overlap
-            words1 = set(word_tokenize(text1.lower()))
-            words2 = set(word_tokenize(text2.lower()))
-            
-            if not words1 or not words2:
-                return 0.0
-            
-            overlap = len(words1 & words2)
-            total = len(words1 | words2)
-            
-            return overlap / total if total > 0 else 0.0
+    def get_context(self) -> ConversationContext:
+        """Get current conversation context"""
+        return self.context
+    
+    def reset_context(self):
+        """Reset conversation context"""
+        self.context = ConversationContext()
+        logger.info("🔄 Conversation context reset")
+
+
+# ============================================================================
+# FACTORY FUNCTION (for compatibility with existing code)
+# ============================================================================
+
+def get_nlp_processor() -> NLPProcessor:
+    """Get singleton NLP processor instance"""
+    return NLPProcessor()
