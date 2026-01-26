@@ -46,6 +46,9 @@ pydub>=0.25.1  # For audio manipulation
 # System Integration
 psutil>=5.8.0  # For system monitoring
 
+# UI Enhancement
+rich>=13.0.0  # Enhanced terminal UI
+
 # Development Tools
 pytest>=6.2.0  # For testing
 black>=21.0  # For code formatting
