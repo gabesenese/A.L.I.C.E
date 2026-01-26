@@ -5,12 +5,13 @@ A sophisticated AI personal assistant powered by advanced machine learning, natu
 ## Features
 
 ### Advanced AI Capabilities
-- **Llama 3.3 70B Integration**: ChatGPT-level performance running locally via Ollama
-- **GPU-Accelerated**: Optimized for RTX 5070 Ti and high-end systems
+- **Llama 3.1 8B Integration**: Local LLM via Ollama with efficient performance
+- **GPU-Accelerated**: Optimized for RTX 5070 Ti and compatible systems
 - **Intent Classification**: Automatically detects user intent (questions, commands, tasks, etc.)
 - **Entity Extraction**: Identifies emails, dates, times, URLs, and more
 - **Sentiment Analysis**: Understands emotional context of conversations
 - **Semantic Understanding**: Deep comprehension of user queries
+- **Enhanced Terminal UI**: Rich library-powered terminal with modern aesthetics
 
 ### Memory & Context Management
 - **Episodic Memory**: Remembers conversations and events
@@ -56,15 +57,15 @@ A sophisticated AI personal assistant powered by advanced machine learning, natu
 ### Recommended Specifications
 - **CPU**: Intel i7-14700K or equivalent
 - **GPU**: RTX 5070 Ti (or any CUDA-compatible GPU)
-- **RAM**: 32GB+ (for 70B model)
-- **Storage**: 50GB+ free space (for models and data)
+- **RAM**: 16GB+ (for 8B model)
+- **Storage**: 20GB+ free space (for models and data)
 - **OS**: Windows 10/11, Linux, macOS
 
 ### Minimum Specifications
 - **CPU**: Intel i5 or AMD Ryzen 5
-- **GPU**: GTX 1060 6GB or better
-- **RAM**: 16GB
-- **Storage**: 20GB free space
+- **GPU**: GTX 1060 6GB or better (optional, CPU works)
+- **RAM**: 8GB (for 3B model)
+- **Storage**: 10GB free space
 - **OS**: Windows 10+, Ubuntu 20.04+, macOS 11+
 
 ## Installation
@@ -92,7 +93,7 @@ python -c "import nltk; nltk.download('punkt'); nltk.download('vader_lexicon')"
 
 ### 5. Pull the LLM Model
 ```bash
-ollama pull llama3.3:70b
+ollama pull llama3.1:8b
 ```
 
 ### 6. Optional: Install Voice Dependencies
@@ -117,24 +118,46 @@ python -c "from sentence_transformers import SentenceTransformer; SentenceTransf
 
 ## Usage
 
-### Interactive Console Mode (Default)
+### 🌟 Production Mode (Enhanced Terminal)
+**For regular use with Rich terminal UI and minimal logs:**
+```bash
+python alice.py
+```
+
+With options:
+```bash
+# Classic terminal mode (no Rich formatting)
+python alice.py --ui classic
+
+# Rich terminal mode (default)
+python alice.py --ui rich
+
+# Enable voice interaction
+python alice.py --voice
+
+# Specify LLM model
+python alice.py --model llama3.1:8b
+```
+
+### 🔧 Debug Mode (Full Logs)
+**For development and troubleshooting:**
 ```bash
 python main.py
 ```
 
-### With Voice Support
+With voice support:
 ```bash
 python main.py --voice
 ```
 
-### Voice-Only Mode (Wake Word Activation)
+Voice-only mode (wake word activation):
 ```bash
 python main.py --voice-only
 ```
 
-### Custom Configuration
+Custom configuration:
 ```bash
-python main.py --name "Tony Stark" --model llama3.3:70b --voice
+python main.py --name "User" --model llama3.1:8b --voice
 ```
 
 ### Available Commands
@@ -142,9 +165,17 @@ python main.py --name "Tony Stark" --model llama3.3:70b --voice
 - `/voice` - Toggle voice mode on/off
 - `/clear` - Clear conversation history
 - `/memory` - Show memory statistics
+- `/summary` - Get conversation summary
+- `/context` - Show current context
+- `/topics` - List conversation topics
+- `/entities` - Show tracked entities
 - `/plugins` - List available plugins
+- `/location` - Set or view your location
 - `/status` - Show system status
 - `/save` - Save current state
+- `/correct` - Correct last response
+- `/feedback` - Rate last response
+- `/learning` - Show learning statistics
 - `exit` - End conversation
 
 ## Project Structure
@@ -152,31 +183,52 @@ python main.py --name "Tony Stark" --model llama3.3:70b --voice
 ```
 A.L.I.C.E/
 ├── ai/
-│   ├── ai_engine.py          # Legacy ML engine
-│   ├── ai_model.py            # Neural network models
-│   ├── llm_engine.py          # Ollama LLM integration
-│   ├── nlp_processor.py       # Advanced NLP with intent detection
-│   ├── context_manager.py     # Context and state management
-│   ├── memory_system.py       # Long-term memory with RAG
-│   ├── plugin_system.py       # Extensible plugin architecture
-│   ├── task_executor.py       # Task automation framework
-│   └── dataset.py             # Dataset management
+│   ├── ai_engine.py                    # Legacy ML engine
+│   ├── ai_model.py                     # Neural network models
+│   ├── llm_engine.py                   # Ollama LLM integration
+│   ├── nlp_processor.py                # Advanced NLP with intent detection & slot filling
+│   ├── context_manager.py              # Context and state management
+│   ├── advanced_context_handler.py     # Enhanced context tracking
+│   ├── memory_system.py                # Long-term memory with RAG
+│   ├── conversation_summarizer.py      # Conversation summarization
+│   ├── entity_relationship_tracker.py  # Entity & relationship tracking
+│   ├── active_learning_manager.py      # Self-improvement system
+│   ├── plugin_system.py                # Extensible plugin architecture
+│   ├── task_executor.py                # Task automation framework
+│   ├── calendar_plugin.py              # Calendar integration
+│   ├── email_plugin.py                 # Email integration
+│   ├── music_plugin.py                 # Music control (Spotify)
+│   ├── notes_plugin.py                 # Notes management
+│   ├── document_plugin.py              # Document operations
+│   └── dataset.py                      # Dataset management
 ├── speech/
 │   ├── speech_engine.py       # Voice interaction system
 │   ├── audio_segmentation.py  # Audio processing
 │   └── phoneme_generation.py  # Speech synthesis
+├── ui/
+│   ├── rich_terminal.py       # Enhanced Rich terminal UI
+│   └── __init__.py            # UI package exports
 ├── self_learning/
 │   ├── self_learning.py       # Self-improvement system
 │   ├── clean_database.py      # Data cleaning
 │   └── reset_database.py      # Database management
 ├── features/
-│   └── welcome.py             # Welcome messages
+│   └── welcome.py             # Welcome messages & greetings
 ├── data/
 │   ├── context/               # User context and preferences
-│   └── memory/                # Long-term memory storage
-├── models/
-│   └── (AI models stored here)
-├── main.py                    # Main orchestrator
+│   ├── memory/                # Long-term memory storage
+│   ├── notes/                 # User notes
+│   ├── entities.json          # Tracked entities
+│   └── relationships.json     # Entity relationships
+├── cred/
+│   ├── calendar_credentials.json  # Google Calendar credentials
+│   └── gmail_credentials.json     # Gmail credentials
+├── memory/
+│   ├── corrections.json       # User corrections
+│   ├── learning_patterns.json # Learning patterns
+│   └── user_feedback.json     # User feedback data
+├── alice.py                   # Production interface (Rich UI)
+├── main.py                    # Debug interface (full logs)
 ├── requirements.txt           # Python dependencies
 ├── README.md                  # This file
 └── LICENSE
@@ -246,22 +298,22 @@ pm.register_plugin(MyCustomPlugin())
 
 ### Out of Memory Error
 
-**Error:** `model requires more system memory (39.8 GiB) than is available (33.4 GiB)`
+**Error:** `model requires more system memory`
 
-**Solution:** The llama3.3:70b model requires about 40GB RAM. Switch to a smaller model:
+**Solution:** Switch to a smaller model:
 
 ```bash
-# Download a smaller model (recommended for 32GB RAM systems)
-ollama pull llama3.1:8b
+# Download a smaller model
+ollama pull llama3.2:3b
 
 # Run ALICE with the smaller model
-python main.py --name "Your Name" --model llama3.1:8b
+python alice.py --model llama3.2:3b
 ```
 
 **Model Recommendations by RAM:**
-- 8GB RAM: `llama3.2:3b` (2GB model)
-- 16GB RAM: `mistral:7b` or `llama3.1:8b` (~5GB)
-- 32GB RAM: `llama3.1:8b` or `mistral:7b` (70b won't fit)
+- 8GB RAM: `llama3.2:3b` (~2GB model)
+- 16GB RAM: `llama3.1:8b` (~5GB, recommended)
+- 32GB RAM: `llama3.1:8b` or `mixtral:8x7b` (better quality)
 - 64GB+ RAM: `llama3.3:70b` (best quality)
 
 ### Cannot Connect to Ollama
@@ -311,14 +363,18 @@ For issues, questions, or suggestions:
 
 ## Roadmap
 
+- [x] Enhanced terminal UI with Rich library
+- [x] Advanced NLP with slot filling and temporal parsing
+- [x] Entity and relationship tracking
+- [x] Conversation summarization
+- [x] Active learning and self-improvement
+- [x] Plugin system (Calendar, Email, Music, Notes, Documents)
 - [ ] Web interface for remote access
 - [ ] Mobile app integration
 - [ ] Advanced computer vision capabilities
 - [ ] Home automation integration
 - [ ] Multi-language support
 - [ ] Cloud sync for memories
-- [ ] Advanced reasoning capabilities
-- [ ] Tool use and function calling
 
 ---
 
