@@ -24,11 +24,11 @@ def welcome_message(name="User", show_ascii=True):
     # ASCII Art for ALICE (optional)
     if show_ascii and terminal_width >= 60:
         ascii_art = """
-    ___    __    ____  ________ 
-   /   |  / /   /  _/ / ____/ / 
-  / /| | / /    / /  / /   / /  
- / ___ |/ /____/ /_ / /___/_/   
-/_/  |_/_____/___(_)____(_)     
+    ___    __    ____  ________  ______
+   /   |  / /   /  _/ / ____/   / ____/
+  / /| | / /    / /  / /       / __/   
+ / ___ |/ /____/ /_ / /____   / /___   
+/_/  |_/_____/___(_)_____/   /_____/   
 """
         print(ascii_art.center(terminal_width))
     
@@ -92,22 +92,29 @@ def display_startup_info():
     
     info = [
         "A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity",
-        "📅 " + datetime.datetime.now().strftime("%A, %B %d, %Y"),
-        "🕐 " + datetime.datetime.now().strftime("%I:%M %p"),
+        datetime.datetime.now().strftime("%A, %B %d, %Y"),
+        datetime.datetime.now().strftime("%I:%M %p"),
         "",
         "Type /help for available commands",
-        "🚀 Ready to assist you!",
     ]
     
     for line in info:
         print(line.center(terminal_width))
 
 
+def animate_text(text, delay=0.03):
+    """Display text with typewriter animation effect"""
+    for char in text:
+        print(char, end='', flush=True)
+        time.sleep(delay)
+    print()  # Newline at end
+
+
 def animated_loading(duration=2):
     """Show animated loading effect"""
     terminal_width = get_terminal_width()
     
-    frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    frames = ["|", "/", "-", "\\"]  # Simple spinner without special characters
     messages = [
         "Initializing neural networks",
         "Loading language models",
@@ -173,7 +180,7 @@ def full_welcome_sequence(name="User", show_animation=True):
 # Test
 if __name__ == "__main__":
     # Test welcome sequence
-    full_welcome_sequence("Tony Stark", show_animation=True)
+    full_welcome_sequence("User", show_animation=True)
     
     # Test different times of day
     print("\nTesting different greetings:\n")
