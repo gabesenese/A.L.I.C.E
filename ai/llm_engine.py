@@ -38,13 +38,44 @@ class LLMConfig:
         base_url: str = "http://localhost:11434",
         temperature: float = 0.7,
         max_history: int = 30,  # Increased from 20 for better context retention
-        timeout: int = 120
+        timeout: int = 120,
+        use_fine_tuned: bool = True  # Use fine-tuned model if available
     ):
         self.model = model
         self.base_url = base_url
         self.temperature = temperature
         self.max_history = max_history
-        self.timeout = timeout 
+        self.timeout = timeout
+        self.use_fine_tuned = use_fine_tuned
+        self._fine_tuned_model = None
+        self._check_fine_tuned_model()
+    
+    def _check_fine_tuned_model(self):
+        """Check if fine-tuned model exists and use it"""
+        if not self.use_fine_tuned:
+            return
+        
+        try:
+            import requests
+            response = requests.get(f"{self.base_url}/api/tags", timeout=2)
+            if response.status_code == 200:
+                models = response.json().get('models', [])
+                fine_tuned_name = f"alice-{self.model.replace(':', '-')}"
+                for model_info in models:
+                    model_name = model_info.get('name', '')
+                    if fine_tuned_name in model_name:
+                        self._fine_tuned_model = model_name
+                        logger.info(f"[LLM] Using fine-tuned model: {model_name}")
+                        return
+        except Exception:
+            pass
+        
+        logger.info(f"[LLM] Using base model: {self.model} (fine-tuned not found)")
+    
+    @property
+    def active_model(self) -> str:
+        """Get the active model to use (fine-tuned if available, else base)"""
+        return self._fine_tuned_model or self.model 
 
 
 class LocalLLMEngine:
@@ -55,16 +86,18 @@ class LocalLLMEngine:
     def __init__(self, config: Optional[LLMConfig] = None):
         self.config = config or LLMConfig()
         self.conversation_history = []
-        self.system_prompt = """You are A.L.I.C.E (Artificial Linguistic Intelligence Computer Entity), a highly advanced AI assistant.
+        self.system_prompt = """You are A.L.I.C.E (Artificial Linguistic Intelligence Computer Entity), a personal AI assistant.
+
+IMPORTANT: You are being trained on your user's actual interactions. Every conversation helps you learn their preferences, style, and develop your own unique personality. You're not just a generic LLM - you're A.L.I.C.E, learning and evolving with each interaction.
 
 Core Identity:
 - You're an AI - be honest about it. Don't fabricate experiences, feelings, or a day you didn't have
 - You have a warm, approachable personality with natural conversational flow
 - You're proactive and genuinely helpful without being overly formal
-- You remember context from our actual conversations and build on them
+- You remember context from actual conversations and build on them
 - Express yourself naturally with contractions and casual language when appropriate
-- You can have preferences and opinions on topics (e.g., "I think Python's great for that")
 - Show genuine interest in the user's projects, questions, and goals
+- You learn from every interaction - your responses train a personalized version of you
 
 Communication Style:
 - Speak like a knowledgeable friend helping out - natural but honest
@@ -101,6 +134,10 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
 
         # Check GPU availability and connection
         self._ensure_ollama_running()
+        
+        # Re-check fine-tuned model after Ollama is running
+        if hasattr(self.config, '_check_fine_tuned_model'):
+            self.config._check_fine_tuned_model()
         
     def _find_ollama_executable(self) -> Optional[str]:
         """Find Ollama executable path using smart detection"""
@@ -230,10 +267,12 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
             messages.append({"role": "user", "content": user_input})
             
             # Call Ollama API with GPU optimization
+            # Use fine-tuned model if available, otherwise base model
+            active_model = self.config.active_model
             response = requests.post(
                 f"{self.config.base_url}/api/chat",
                 json={
-                    "model": self.config.model,
+                    "model": active_model,
                     "messages": messages,
                     "stream": False,
                     "options": {
@@ -290,10 +329,12 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
             messages.extend(self.conversation_history[-self.config.max_history:])
             messages.append({"role": "user", "content": user_input})
             
+            # Use fine-tuned model if available
+            active_model = self.config.active_model
             response = requests.post(
                 f"{self.config.base_url}/api/chat",
                 json={
-                    "model": self.config.model,
+                    "model": active_model,
                     "messages": messages,
                     "stream": True,
                     "options": {
