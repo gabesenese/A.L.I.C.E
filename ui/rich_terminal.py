@@ -31,18 +31,28 @@ class RichTerminalUI:
         """Display welcome banner"""
         self.clear()
         
-        # ASCII Art - modern styling
-        ascii_art = """
-    ___    __    ____  ________  ______
-   /   |  / /   /  _/ / ____/   / ____/
-  / /| | / /    / /  / /       / __/   
- / ___ |/ /____/ /_ / /____   / /___   
-/_/  |_/_____/___(_)_____/   /_____/   
-"""
+        # ASCII Art - align as one block so "justify center" doesn't shift each line
+        ascii_lines = [
+            "    ___    __    ____  ________  ______",
+            "   /   |  / /   /  _/ / ____/   / ____/",
+            "  / /| | / /    / /  / /       / __/   ",
+            " / ___ |/ /____/ /_ / /____   / /___   ",
+            "/_/  |_/_____/___(_)_____/   /_____/   ",
+        ]
+        # Same width for every line so the block stays rectangular
+        art_width = max(len(line) for line in ascii_lines)
+        lines_padded = [line.ljust(art_width) for line in ascii_lines]
+        # Center the whole block (one unit), not line-by-line
+        try:
+            width = getattr(self.console.size, "width", None) or getattr(self.console, "width", 80) or 80
+        except Exception:
+            width = 80
+        margin = max(0, (width - art_width) // 2)
+        centered_block = "\n".join(" " * margin + line for line in lines_padded)
         
         # Welcome panel - modern minimal design
         welcome_panel = Panel(
-            Text(ascii_art, style="bright_white", justify="center"),
+            Text(centered_block, style="bright_white", justify="left"),
             title=f"[white]Welcome, {self.user_name}[/white]",
             border_style="dim white",
             box=box.ROUNDED
@@ -83,7 +93,7 @@ Type [white]/help[/white] for available commands
     def show_loading(self, message="Initializing A.L.I.C.E systems"):
         """Show loading animation"""
         with self.console.status(f"[bold cyan]{message}...", spinner="dots") as status:
-            time.sleep(2)  # Simulatdim whiteg
+            time.sleep(2)  # Simulated loading delay
     
     def print_user_input(self, text):
         """Display user input"""
