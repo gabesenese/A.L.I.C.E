@@ -183,24 +183,44 @@ python main.py --name "User" --model llama3.1:8b --voice
 ```
 A.L.I.C.E/
 ├── ai/
-│   ├── ai_engine.py                    # Legacy ML engine
-│   ├── ai_model.py                     # Neural network models
-│   ├── llm_engine.py                   # Ollama LLM integration
-│   ├── nlp_processor.py                # Advanced NLP with intent detection & slot filling
+│   ├── llm_engine.py                   # Ollama LLM integration (reasoning engine)
+│   ├── nlp_processor.py                # Advanced NLP with intent detection
+│   ├── intent_classifier.py            # Semantic intent classification
+│   ├── training_system.py              # ML training and data collection
+│   ├── response_generator.py           # ML-based response generation
+│   ├── response_optimizer.py           # Response refinement
 │   ├── context_manager.py              # Context and state management
 │   ├── advanced_context_handler.py     # Enhanced context tracking
 │   ├── memory_system.py                # Long-term memory with RAG
 │   ├── conversation_summarizer.py      # Conversation summarization
 │   ├── entity_relationship_tracker.py  # Entity & relationship tracking
-│   ├── active_learning_manager.py      # Self-improvement system
+│   ├── active_learning_manager.py      # Continuous learning system
+│   ├── world_state.py                  # Global world state
+│   ├── goal_resolver.py                # Multi-turn goal tracking
+│   ├── reference_resolver.py           # Reference resolution
+│   ├── reasoning_engine.py             # Intent reasoning and disambiguation
+│   ├── verifier.py                     # Action verification
+│   ├── error_recovery.py               # Error handling and recovery
+│   ├── smart_context_cache.py          # Context caching
+│   ├── adaptive_context_selector.py    # Context optimization
+│   ├── predictive_prefetcher.py        # Action prediction
+│   ├── self_reflection.py              # Code introspection
 │   ├── plugin_system.py                # Extensible plugin architecture
 │   ├── task_executor.py                # Task automation framework
+│   ├── task_planner.py                 # Task planning
+│   ├── plan_executor.py                # Plan execution
 │   ├── calendar_plugin.py              # Calendar integration
 │   ├── email_plugin.py                 # Email integration
 │   ├── music_plugin.py                 # Music control (Spotify)
 │   ├── notes_plugin.py                 # Notes management
 │   ├── document_plugin.py              # Document operations
-│   └── dataset.py                      # Dataset management
+│   ├── maps_plugin.py                  # Location and maps services
+│   ├── event_bus.py                    # Event system
+│   ├── observers.py                    # Observer pattern
+│   ├── pattern_learner.py              # Behavioral pattern learning
+│   ├── system_monitor.py               # System monitoring
+│   ├── system_state.py                 # System state tracking
+│   └── proactive_assistant.py          # Proactive suggestions
 ├── speech/
 │   ├── speech_engine.py       # Voice interaction system
 │   ├── audio_segmentation.py  # Audio processing
@@ -208,10 +228,6 @@ A.L.I.C.E/
 ├── ui/
 │   ├── rich_terminal.py       # Enhanced Rich terminal UI
 │   └── __init__.py            # UI package exports
-├── self_learning/
-│   ├── self_learning.py       # Self-improvement system
-│   ├── clean_database.py      # Data cleaning
-│   └── reset_database.py      # Database management
 ├── features/
 │   └── welcome.py             # Welcome messages & greetings
 ├── data/
