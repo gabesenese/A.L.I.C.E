@@ -28,7 +28,7 @@ from features.welcome import welcome_message, get_greeting, display_startup_info
 from main import ALICE
 
 
-def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel"):
+def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False):
     """Start A.L.I.C.E with Rich terminal UI"""
     try:
         from ui.rich_terminal import RichTerminalUI
@@ -41,21 +41,27 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
     ui.show_welcome()
     ui.show_loading("Initializing A.L.I.C.E systems")
     
-    # Initialize ALICE with stdout suppressed
+    # Initialize ALICE with stdout suppressed (unless debug, so thinking is visible)
     import io
     old_stdout = sys.stdout
-    sys.stdout = io.StringIO()
+    if not debug:
+        sys.stdout = io.StringIO()
     
     try:
         alice = ALICE(
             voice_enabled=voice_enabled,
             llm_model=llm_model,
-            user_name=user_name
+            user_name=user_name,
+            debug=debug
         )
-        sys.stdout = old_stdout
+        if not debug:
+            sys.stdout = old_stdout
         
         ui.clear()
         ui.show_welcome()
+        if debug:
+            ui.print_info("Debug mode: A.L.I.C.E thinking steps will appear above each response.")
+        ui.print_info("")
         
         # Main interaction loop
         while True:
@@ -92,7 +98,7 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
         ui.print_info("\nFor detailed error logs, run: python main.py")
 
 
-def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel"):
+def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False):
     """
     Start A.L.I.C.E with welcome screen (classic terminal mode)
     
@@ -100,7 +106,7 @@ def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel
         voice_enabled: Enable voice interaction
         llm_model: LLM model to use
         user_name: User's name for personalization
-
+        debug: Show thinking steps (used by dev.py)
     """
     # Clear screen for clean start
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -120,22 +126,27 @@ def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel
     print("Initializing A.L.I.C.E systems...")
     print()
     
-    # Initialize ALICE with stdout suppressed to avoid debug messages
+    # Initialize ALICE with stdout suppressed to avoid debug messages (unless debug)
     import io
     
     try:
-        # Redirect stdout to suppress initialization messages
+        # Redirect stdout to suppress initialization messages (unless debug)
         old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
+        if not debug:
+            sys.stdout = io.StringIO()
         
         alice = ALICE(
             voice_enabled=voice_enabled,
             llm_model=llm_model,
-            user_name=user_name
+            user_name=user_name,
+            debug=debug
         )
         
         # Restore stdout
-        sys.stdout = old_stdout
+        if not debug:
+            sys.stdout = old_stdout
+        if debug:
+            print("Debug mode: A.L.I.C.E thinking steps will appear above each response.\n")
         
         # Clear the console completely for a fresh start
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -206,6 +217,12 @@ For debugging with full logs:
         help='LLM model to use (default: llama3.1:8b)'
     )
     
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Show A.L.I.C.E thinking steps (intent, plugins, verifier). Used by dev.py'
+    )
+    
     args = parser.parse_args()
     
     # Default user name
@@ -216,13 +233,15 @@ For debugging with full logs:
         start_alice_rich(
             voice_enabled=args.voice,
             llm_model=args.model,
-            user_name=user_name
+            user_name=user_name,
+            debug=args.debug
         )
     else:  # classic
         start_alice(
             voice_enabled=args.voice,
             llm_model=args.model,
-            user_name=user_name
+            user_name=user_name,
+            debug=args.debug
         )
 
 
