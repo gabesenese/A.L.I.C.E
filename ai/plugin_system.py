@@ -183,26 +183,49 @@ class PluginManager:
                 logger.warning(f"Semantic classification error: {e}")
         
         # Fallback to traditional pattern-based matching
+        # Smart: evaluate all plugins first, then execute best match
+        candidates = []
         for plugin_name in self.plugin_order:
             plugin = self.plugins.get(plugin_name)
             
             if plugin and plugin.enabled:
-                # Try to pass query as third parameter for plugins that need it (like NotesPlugin)
                 try:
                     can_handle = plugin.can_handle(intent, entities, query)
                 except TypeError:
-                    # Fallback for plugins with old signature
                     can_handle = plugin.can_handle(intent, entities)
                 
                 if can_handle:
-                    logger.info(f"🔌 Executing plugin: {plugin_name}")
+                    # Score candidate based on intent match and plugin priority
+                    score = 1.0
+                    if intent and plugin_name.lower() in intent.lower():
+                        score = 2.0  # Strong match
+                    candidates.append((plugin_name, plugin, score))
+        
+        # Execute best candidate first
+        if candidates:
+            # Sort by score (best first)
+            candidates.sort(key=lambda x: x[2], reverse=True)
+            plugin_name, plugin, score = candidates[0]
+            
+            logger.info(f"🔌 Executing plugin: {plugin_name} (score: {score:.1f})")
+            try:
+                result = plugin.execute(intent, query, entities, context)
+                result['plugin'] = plugin_name
+                result['match_score'] = score
+                return result
+            except Exception as e:
+                logger.error(f"[ERROR] Plugin execution error ({plugin_name}): {e}")
+                # Try next candidate if first fails
+                if len(candidates) > 1:
+                    plugin_name, plugin, score = candidates[1]
+                    logger.info(f"🔌 Trying fallback plugin: {plugin_name}")
                     try:
                         result = plugin.execute(intent, query, entities, context)
                         result['plugin'] = plugin_name
+                        result['match_score'] = score
                         return result
-                    except Exception as e:
-                        logger.error(f"[ERROR] Plugin execution error ({plugin_name}): {e}")
-                        continue
+                    except Exception as e2:
+                        logger.error(f"[ERROR] Fallback plugin also failed: {e2}")
         
         return None
     
@@ -257,9 +280,13 @@ class WeatherPlugin(PluginInterface):
             response = requests.get(url, timeout=5)
             if response.status_code == 200:
                 data = response.json()
-                if data.get('results'):
+
+                # Be defensive: API might return a list or a plain string on error
+                if isinstance(data, dict) and data.get('results'):
                     result = data['results'][0]
-                    return result['latitude'], result['longitude'], result.get('name')
+                    return result.get('latitude'), result.get('longitude'), result.get('name')
+                else:
+                    logger.error(f"Unexpected geocoding response format for {location!r}: {data!r}")
         except Exception as e:
             logger.error(f"Geocoding error: {e}")
         return None
@@ -267,7 +294,12 @@ class WeatherPlugin(PluginInterface):
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         try:
             import requests
-            
+
+            # Ensure context is a dict (main may pass a string summary)
+            if not isinstance(context, dict):
+                logger.debug(f"Weather plugin received non-dict context: {type(context)}")
+                context = {}
+
             # Get location from context
             location = context.get('location')
             city = context.get('city')
@@ -329,13 +361,14 @@ class WeatherPlugin(PluginInterface):
                 
                 return {
                     "success": True,
-                    "response": f"In {location_name}, it's currently {temp}°C with {condition}. Humidity is {humidity}% and wind speed is {wind} km/h.",
+                    "response": f"In {location_name}, it's currently {temp}°C with {condition}. Humidity is {humidity}% and wind speed is {wind} km/h.",  # Fallback
                     "data": {
                         "temperature": temp,
                         "condition": condition,
                         "humidity": humidity,
                         "wind_speed": wind,
-                        "location": location_name
+                        "location": location_name,
+                        "plugin_type": "weather"
                     }
                 }
             else:
@@ -569,10 +602,17 @@ class SystemControlPlugin(PluginInterface):
         
         return None
     
-    def can_handle(self, intent: str, entities: Dict) -> bool:
+    # Require query to contain control-related words so "just going to work" isn't hijacked
+    _CONTROL_WORDS = ("volume", "brightness", "shutdown", "restart", "open", "launch", "mute", "unmute")
+    
+    def can_handle(self, intent: str, entities: Dict, query: str = None) -> bool:
+        if query is not None:
+            q = query.lower()
+            if not any(w in q for w in self._CONTROL_WORDS):
+                return False
         return intent == "system_control" or any(
-            word in str(entities).lower() 
-            for word in ["volume", "brightness", "shutdown", "restart", "open", "launch", "start"]
+            word in str(entities).lower()
+            for word in ["volume", "brightness", "shutdown", "restart", "open", "launch"]
         )
     
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
