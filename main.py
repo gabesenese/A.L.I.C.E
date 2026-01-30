@@ -49,6 +49,7 @@ from ai.document_plugin import DocumentPlugin
 from ai.calendar_plugin import CalendarPlugin
 from ai.music_plugin import MusicPlugin
 from ai.notes_plugin import NotesPlugin
+from ai.maps_plugin import MapsPlugin
 from ai.task_executor import TaskExecutor
 from speech.speech_engine import SpeechEngine, SpeechConfig
 
@@ -60,6 +61,25 @@ from ai.pattern_learner import get_pattern_learner
 from ai.system_monitor import get_system_monitor
 from ai.task_planner import get_planner
 from ai.plan_executor import initialize_executor, get_executor
+from ai.world_state import get_world_state, WorldEntity, EntityKind
+from ai.reference_resolver import get_reference_resolver
+from ai.goal_resolver import get_goal_resolver
+from ai.verifier import get_verifier
+from ai.proactive_assistant import get_proactive_assistant
+from ai.reasoning_engine import get_reasoning_engine
+from ai.error_recovery import get_error_recovery
+from ai.smart_context_cache import get_context_cache
+from ai.adaptive_context_selector import get_context_selector
+from ai.predictive_prefetcher import get_prefetcher
+from ai.response_optimizer import get_response_optimizer
+from ai.self_reflection import get_self_reflection
+from ai.training_system import (
+    get_training_collector,
+    get_fine_tuning_system,
+    get_ml_learner,
+)
+from ai.response_generator import get_response_generator
+from ai.conversational_engine import get_conversational_engine, ConversationalContext
 
 # Logging
 logging.basicConfig(
@@ -79,14 +99,17 @@ class ALICE:
         self,
         voice_enabled: bool = False,
         llm_model: str = "llama3.1:8b",
-        user_name: str = "User"
+        user_name: str = "User",
+        debug: bool = False
     ):
         self.voice_enabled = voice_enabled
+        self.debug = debug
         self.running = False
         
         # Conversation state for context-aware operations
         self.last_email_list = []  # Store last displayed email list
         self.last_email_context = None  # Store context of last email operation
+        self.last_code_file = None  # Store last code file for follow-up queries
         self.pending_action = None  # Track multi-step actions (e.g., composing email)
         self.pending_data = {}  # Store data for pending actions
         
@@ -151,12 +174,51 @@ class ALICE:
             self.context = ContextManager()
             self.context.user_prefs.name = user_name
             
-            # 3. Memory System
+            # 2.5. World state, reference resolver, goal resolver, verifier
+            logger.info("Loading world state and resolvers...")
+            self.world_state = get_world_state(user_name)
+            self.reference_resolver = get_reference_resolver(self.world_state)
+            self.goal_resolver = get_goal_resolver(self.world_state)
+            self.verifier = get_verifier(self.world_state)
+            self.reasoning_engine = get_reasoning_engine(self.world_state)
+            self.error_recovery = get_error_recovery()
+            self.context_cache = get_context_cache()
+            self.context_selector = get_context_selector()
+            self.prefetcher = get_prefetcher(self.world_state)
+            self.response_optimizer = get_response_optimizer(self.world_state)
+            self.self_reflection = get_self_reflection()
+            logger.info("[OK] Self-reflection system initialized")
+            
+            # 2.9. Training System - collect data to train A.L.I.C.E on your interactions
+            self.training_collector = get_training_collector()
+            self.fine_tuning_system = get_fine_tuning_system(llm_model)
+            logger.info("[OK] Training system initialized - A.L.I.C.E will learn from your interactions")
+
+            # 2.10. A.L.I.C.E's own ML learner (independent of Ollama)
+            self.ml_learner = get_ml_learner()
+            logger.info("[OK] ML learner initialized - A.L.I.C.E now has her own machine learning model")
+            
+            # 2.11. Response generator - A.L.I.C.E generates her own responses from plugin data
+            self.response_generator = get_response_generator(
+                ml_learner=self.ml_learner,
+                training_collector=self.training_collector
+            )
+            logger.info("[OK] Response generator initialized - A.L.I.C.E creates her own responses")
+            
+            # 3. Memory System (needs to be before conversational engine)
             logger.info("Loading memory system...")
             self.memory = MemorySystem()
             
+            # 3.5. Conversational engine - A.L.I.C.E's own conversational logic (no Ollama)
+            self.conversational_engine = get_conversational_engine(
+                memory_system=self.memory,
+                training_collector=self.training_collector,
+                world_state=self.world_state
+            )
+            logger.info("[OK] Conversational engine initialized - A.L.I.C.E thinks independently")
+            
             # 4. LLM Engine
-            logger.info("🚀 Loading LLM engine...")
+            logger.info(" Loading LLM engine...")
             llm_config = LLMConfig(model=llm_model)
             self.llm = LocalLLMEngine(llm_config)
             
@@ -240,6 +302,23 @@ class ALICE:
             self.observer_manager.start_all()
             logger.info("[OK] Background observers watching")
             
+            # Proactive assistant (reminders, follow-ups, proactive info)
+            calendar_plugin = None
+            notes_plugin = None
+            for name, plugin in self.plugins.plugins.items():
+                if 'Calendar' in name or isinstance(plugin, CalendarPlugin):
+                    calendar_plugin = plugin
+                if 'Notes' in name or isinstance(plugin, NotesPlugin):
+                    notes_plugin = plugin
+            self.proactive_assistant = get_proactive_assistant(
+                world_state=self.world_state,
+                calendar_plugin=calendar_plugin,
+                notes_plugin=notes_plugin
+            )
+            self.proactive_assistant.set_notification_callback(self._handle_observer_notification)
+            self.proactive_assistant.start()
+            logger.info("[OK] Proactive assistant monitoring")
+            
             logger.info("=" * 80)
             logger.info("[OK] A.L.I.C.E initialized successfully!")
             logger.info("=" * 80)
@@ -261,6 +340,7 @@ class ALICE:
         # Register NotesPlugin early to ensure it handles note commands before calendar
         self.plugins.register_plugin(NotesPlugin())
         self.plugins.register_plugin(WeatherPlugin())
+        self.plugins.register_plugin(MapsPlugin())
         self.plugins.register_plugin(TimePlugin())
         self.plugins.register_plugin(FileOperationsPlugin())
         self.plugins.register_plugin(SystemControlPlugin())
@@ -393,55 +473,409 @@ class ALICE:
             logger.error(f"Planner/executor error: {e}")
             return None
     
-    def _build_llm_context(self, user_input: str) -> str:
-        """Build enhanced context for LLM using advanced context handler"""
+    def _build_llm_context(self, user_input: str, intent: str = "", entities: Dict = None, goal_res = None) -> str:
+        """Build enhanced context for LLM with smart caching and adaptive selection"""
+        # Check cache first
+        cached = self.context_cache.get(user_input, intent or "", entities or {})
+        if cached:
+            self._think("Context cache hit → reusing context")
+            return cached
+        
+        # Build all context parts
         context_parts = []
+        context_types = []
+        
+        # 0. ACTIVE GOAL - Most important for understanding user intent
+        if goal_res and goal_res.goal:
+            goal = goal_res.goal
+            goal_context = f"ACTIVE GOAL: The user is trying to {goal.description}. "
+            goal_context += f"Intent: {goal.intent}. "
+            if goal.entities:
+                goal_ents = ", ".join(f"{k}={v}" for k, v in list(goal.entities.items())[:3])
+                goal_context += f"Entities: {goal_ents}. "
+            goal_context += "Use this goal to understand ambiguous inputs and guide your response to help complete this goal."
+            context_parts.insert(0, goal_context)  # Put goal first - highest priority
+            context_types.insert(0, "goal")
+            self._think(f"Goal context → {goal.description[:50]}...")
+        
+        # 0.5. Self-Reflection Capability - ALWAYS include when user asks about code/access
+        code_keywords = ['code', 'improve', 'analyze', 'read file', 'my code', 'your code', 'alice code', 
+                        'show code', 'list files', 'access to', 'internal code', 'codebase', 'see code',
+                        'have access', 'can you see', 'your files']
+        if any(word in user_input.lower() for word in code_keywords):
+            codebase_summary = self.self_reflection.get_codebase_summary()
+            reflection_context = f"CRITICAL: You ARE A.L.I.C.E, an AI assistant with read-only access to your own codebase. "
+            reflection_context += f"Your codebase is at {codebase_summary['base_path']} with {codebase_summary['total_files']} Python files. "
+            reflection_context += f"You can read files, analyze code, search, and suggest improvements through the self_reflection system. "
+            reflection_context += f"When asked about code access, confirm you have it and offer to read/analyze files. "
+            reflection_context += f"You are NOT a generic LLM - you are A.L.I.C.E with self-reflection capabilities!"
+            context_parts.insert(1, reflection_context)  # After goal, before personalization
+            context_types.insert(1, "self_reflection")
+            self._think("Self-reflection context added")
+        
+        # 0.7. Recent plugin data (e.g., weather from last query)
+        if self.world_state:
+            weather_entity = self.world_state.get_entity('current_weather')
+            if weather_entity and weather_entity.data:
+                wd = weather_entity.data
+                weather_context = f"RECENT WEATHER: In {wd.get('location', 'your area')}, it's {wd.get('temperature')}°C with {wd.get('condition')}. "
+                weather_context += f"Humidity: {wd.get('humidity')}%, Wind: {wd.get('wind_speed')} km/h. "
+                weather_context += "Use this when answering questions about going outside, clothing, or weather-related decisions."
+                context_parts.append(weather_context)
+                context_types.append("recent_weather")
+                self._think("Recent weather data included in context")
         
         # 1. Personalization
         personalization = self.context.get_personalization_context()
         if personalization:
             context_parts.append(personalization)
+            context_types.append("personalization")
         
         # 2. Advanced contextual understanding
         if self.advanced_context:
             advanced_context = self.advanced_context.get_context_for_llm(user_input)
             if advanced_context:
                 context_parts.append(advanced_context)
+                context_types.append("conversation")
         
         # 3. Intelligent conversation summarization
         if self.summarizer:
             conversation_context = self.summarizer.get_context_summary()
             if conversation_context:
                 context_parts.append(f"Conversation context: {conversation_context}")
+                context_types.append("conversation")
             
-            # Get detailed context for complex interactions
             detailed_context = self.summarizer.get_detailed_context()
             if detailed_context.get("frequent_topics"):
                 topics_text = ", ".join(detailed_context["frequent_topics"][:3])
                 context_parts.append(f"Current session topics: {topics_text}")
+                context_types.append("conversation")
         
         # 4. Recent conversation summary (fallback)
         recent_context = self._get_recent_conversation_summary()
         if recent_context and not self.advanced_context and not self.summarizer:
             context_parts.append(f"Recent discussion: {recent_context}")
+            context_types.append("conversation")
         
-        # 5. Active context tracking (fallback if advanced context not available)
+        # 5. Active context tracking (fallback)
         if not self.advanced_context:
             active_context = self._get_active_context()
             if active_context:
                 context_parts.append(active_context)
+                context_types.append("general")
         
-        # 5. Relevant memories (RAG)
-        memory_context = self.memory.get_context_for_llm(user_input, max_memories=5)  # Increased from 3
-        if memory_context:
-            context_parts.append(memory_context)
+        # 6. Relevant memories (RAG) - smart retrieval
+        # Only fetch memories if query is substantial (not just "yes" or "ok")
+        if len(user_input.split()) >= 3 or intent not in ["conversation:ack", "conversation:general"]:
+            memory_context = self.memory.get_context_for_llm(user_input, max_memories=5)
+            if memory_context:
+                context_parts.append(memory_context)
+                context_types.append("memory")
         
-        # 6. System capabilities
-        capabilities = self.plugins.get_capabilities()
-        if capabilities:
-            context_parts.append(f"Available capabilities: {', '.join(capabilities[:10])}")
+        # 7. System capabilities (only if relevant)
+        if intent and any(cap in intent for cap in ['note', 'email', 'calendar', 'music']):
+            capabilities = self.plugins.get_capabilities()
+            if capabilities:
+                context_parts.append(f"Available capabilities: {', '.join(capabilities[:10])}")
+                context_types.append("capabilities")
         
-        return "\n\n".join(context_parts)
+        # Adaptive selection - only include relevant context
+        if self.context_selector and context_parts:
+            optimized = self.context_selector.select_relevant_context(
+                user_input=user_input,
+                intent=intent,
+                entities=entities or {},
+                all_context_parts=context_parts,
+                context_types=context_types
+            )
+            # Cache the optimized context
+            self.context_cache.put(user_input, intent or "", entities or {}, optimized)
+            return optimized
+        
+        # Fallback to all context if selector not available
+        full_context = "\n\n".join(context_parts)
+        self.context_cache.put(user_input, intent or "", entities or {}, full_context)
+        return full_context
+    
+    def _think(self, msg: str) -> None:
+        """Emit a thinking-step line when debug mode is on (dev mode)."""
+        if getattr(self, 'debug', False):
+            print("  💭 " + msg, flush=True)
+    
+    def _handle_code_request(self, user_input: str, entities: Dict = None) -> Optional[str]:
+        """Handle requests to read/analyze code - flexible and intelligent"""
+        input_lower = user_input.lower()
+        entities = entities or {}
+        
+        # Check if this is a follow-up to previous code request
+        if hasattr(self, 'last_code_file') and self.last_code_file:
+            # User said "show me" or similar after asking about a file
+            if input_lower in ('show me', 'show it', 'read it', 'yes', 'sure', 'analyze it'):
+                file_path = self.last_code_file
+                
+                if 'analyze' in input_lower or input_lower in ('analyze it',):
+                    analysis = self.self_reflection.analyze_file(file_path)
+                    if 'error' not in analysis:
+                        suggestions = self.self_reflection.get_improvement_suggestions(file_path)
+                        result = f"📊 **Analysis of {analysis['name']}**:\n"
+                        result += f"- Lines: {analysis['lines']}\n"
+                        result += f"- Type: {analysis['module_type']}\n"
+                        if analysis.get('classes'):
+                            result += f"- Classes: {', '.join(analysis['classes'][:5])}\n"
+                        if analysis.get('functions'):
+                            result += f"- Functions: {', '.join(analysis['functions'][:10])}\n"
+                        if suggestions:
+                            result += f"\n💡 **Suggestions**:\n" + "\n".join(f"- {s}" for s in suggestions[:5])
+                        self.last_code_file = None  # Clear after use
+                        return result
+                else:
+                    # Show contents
+                    code_file = self.self_reflection.read_file(file_path)
+                    if code_file:
+                        self.last_code_file = None  # Clear after use
+                        return f"📄 **{code_file.name}** ({code_file.lines} lines, {code_file.module_type}):\n\n```python\n{code_file.content[:2000]}...\n```"
+        
+        # First, check if there's a .py file mentioned anywhere in the input
+        py_file_match = re.search(r'([a-zA-Z0-9_/\\]+\.py)', input_lower)
+        has_py_file = py_file_match is not None
+        
+        # General questions about code access - SHOW don't tell
+        if not has_py_file and any(phrase in input_lower for phrase in [
+            'show me your code', 'show me code', 'show your code', 'show code',
+            'show me all', 'see your code', 'see code', 'read your code', 'read code',
+            'your internal code', 'internal code', 'your codebase', 'show me internal'
+        ]):
+            # A.L.I.C.E understands: show means LIST the codebase
+            files = self.self_reflection.list_codebase()
+            result = f"📁 **My codebase** ({len(files)} files):\n\n"
+            for f in files[:25]:
+                result += f"- `{f['path']}` ({f['module_type']})\n"
+            if len(files) > 25:
+                result += f"\n... and {len(files) - 25} more files. Ask me about any file to see its details."
+            return result
+        
+        # Simple capability check (when not asking to "show")
+        if not has_py_file and any(phrase in input_lower for phrase in [
+            'access to your code', 'access to code', 'have access to code',
+            'can you see', 'do you have access', 'do you know your code'
+        ]):
+            # Brief confirmation
+            return "Yes, I have read-only access to my codebase. Which file would you like to see?"
+        
+        # If a .py file is mentioned, extract it
+        if has_py_file:
+            file_path = py_file_match.group(1).strip("'\"")
+            
+            # Check if asking about file visibility (e.g., "can you see alice.py?")
+            if any(word in input_lower for word in ['see', 'can you', 'do you have', 'access']):
+                code_file = self.self_reflection.read_file(file_path)
+                if not code_file and not file_path.startswith('ai/') and not file_path.startswith('ai\\'):
+                    code_file = self.self_reflection.read_file(f'ai/{file_path}')
+                    if code_file:
+                        file_path = f'ai/{file_path}'
+                if code_file:
+                    self.last_code_file = file_path  # Store for follow-up
+                    # Just show the summary - no questions
+                    return f"`{file_path}` - {code_file.lines} lines, {code_file.module_type}"
+                # File not found - just list what's available
+                files = self.self_reflection.list_codebase()
+                result = f"Couldn't find `{file_path}`. Available files:\n\n"
+                for f in files[:15]:
+                    result += f"- `{f['path']}`\n"
+                return result
+        
+        # Read file request - flexible matching
+        read_patterns = [
+            r'(?:read|show)\s+(?:file|code)\s+(?:called|named)?\s*([^\s]+\.py)',  # "read file main.py"
+            r'(?:read|show)\s+([^\s]+\.py)',  # "read main.py"
+            r'([^\s]+\.py)\s*(?:file|code)',  # "main.py file"
+        ]
+        for pattern in read_patterns:
+            match = re.search(pattern, input_lower)
+            if match:
+                file_path = match.group(1)
+                # Try direct path first
+                code_file = self.self_reflection.read_file(file_path)
+                if not code_file and not file_path.startswith('ai/') and not file_path.startswith('ai\\'):
+                    # Try with ai/ prefix
+                    code_file = self.self_reflection.read_file(f'ai/{file_path}')
+                if code_file:
+                    return f"📄 **{code_file.name}** ({code_file.lines} lines, {code_file.module_type}):\n\n```python\n{code_file.content[:2000]}...\n```"
+                # File not found - show alternatives
+                files = self.self_reflection.list_codebase()
+                result = f"Not found: `{file_path}`\n\n"
+                for f in files[:15]:
+                    result += f"- `{f['path']}`\n"
+                return result
+        
+        # Analyze file - intelligent matching (if "analyze" keyword and .py file exist, analyze it)
+        if 'analyze' in input_lower and has_py_file:
+            file_path = py_file_match.group(1).strip("'\"")
+            # Try direct path first
+            analysis = self.self_reflection.analyze_file(file_path)
+            if 'error' in analysis and not file_path.startswith('ai/') and not file_path.startswith('ai\\'):
+                # Try with ai/ prefix
+                analysis = self.self_reflection.analyze_file(f'ai/{file_path}')
+                if 'error' not in analysis:
+                    file_path = f'ai/{file_path}'
+            
+            if 'error' not in analysis:
+                suggestions = self.self_reflection.get_improvement_suggestions(file_path)
+                result = f"📊 **Analysis of {analysis['name']}**:\n"
+                result += f"- Lines: {analysis['lines']}\n"
+                result += f"- Type: {analysis['module_type']}\n"
+                if analysis.get('classes'):
+                    result += f"- Classes: {', '.join(analysis['classes'][:5])}\n"
+                if analysis.get('functions'):
+                    result += f"- Functions: {', '.join(analysis['functions'][:10])}\n"
+                if suggestions:
+                    result += f"\n💡 **Suggestions**:\n" + "\n".join(f"- {s}" for s in suggestions[:5])
+                return result
+            # Analysis failed - show alternatives
+            files = self.self_reflection.list_codebase()
+            result = f"Can't analyze: `{file_path}`\n\n"
+            for f in files[:15]:
+                result += f"- `{f['path']}`\n"
+            return result
+        
+        # List codebase
+        if any(word in input_lower for word in ['list files', 'show files', 'what files', 'codebase']):
+            files = self.self_reflection.list_codebase()
+            result = f"📁 **Codebase Structure** ({len(files)} files):\n\n"
+            for f in files[:20]:
+                result += f"- `{f['path']}` ({f['module_type']})\n"
+            if len(files) > 20:
+                result += f"\n... and {len(files) - 20} more files"
+            return result
+        
+        # Search code
+        if 'search code' in input_lower or 'find in code' in input_lower:
+            match = re.search(r'(?:search|find).*?["\'](.+?)["\']', input_lower)
+            if match:
+                query = match.group(1)
+                results = self.self_reflection.search_code(query)
+                if results:
+                    result = f"🔍 **Found '{query}' in {len(results)} file(s)**:\n\n"
+                    for r in results[:5]:
+                        result += f"**{r['file']}** ({r['match_count']} matches):\n"
+                        for m in r['matches'][:2]:
+                            result += f"  Line {m['line']}: `{m['content'][:80]}...`\n"
+                    return result
+                return f"No matches found for '{query}'"
+        
+        return None
+    
+    def _handle_training_request(self, user_input: str) -> Optional[str]:
+        """Handle requests about training status and data collection"""
+        input_lower = user_input.lower()
+        
+        # Training status
+        if any(phrase in input_lower for phrase in [
+            'training status', 'how many examples', 'training data', 'learning progress',
+            'fine-tuned', 'fine tuned', 'trained model'
+        ]):
+            if not getattr(self, 'fine_tuning_system', None):
+                return "Training system not initialized."
+            
+            status = self.fine_tuning_system.get_training_status()
+            result = f"📊 **Training Status**:\n\n"
+            result += f"📝 Total examples collected: {status['total_examples']}\n"
+            result += f"⭐ High-quality examples: {status['high_quality_examples']}\n"
+            result += f"✅ Ready for training: {'Yes' if status['ready_for_training'] else 'No (need 50+ examples)'}\n"
+            result += f"🤖 Fine-tuned model: {'✅ Available' if status['fine_tuned_model_exists'] else '❌ Not yet trained'}\n"
+            if status['fine_tuned_model_exists']:
+                result += f"   Model name: {status['fine_tuned_model_name']}\n"
+            result += f"📚 Base model: {status['base_model']}\n"
+            
+            if status['examples_by_intent']:
+                result += f"\n📈 Examples by intent:\n"
+                for intent, count in list(status['examples_by_intent'].items())[:5]:
+                    result += f"  - {intent}: {count}\n"
+            
+            if not status['ready_for_training']:
+                result += f"\n💡 Keep using A.L.I.C.E! I'm learning from every interaction. Once I have 50+ examples, you can train me on your data."
+            
+            return result
+        
+        # Export training data
+        if 'export training' in input_lower or 'export data' in input_lower:
+            if not getattr(self, 'fine_tuning_system', None):
+                return "Training system not initialized."
+            
+            format_match = re.search(r'(jsonl|json|txt)', input_lower)
+            format_type = format_match.group(1) if format_match else 'jsonl'
+            
+            export_path = self.fine_tuning_system.export_for_training(format=format_type)
+            if export_path:
+                return f"✅ Exported training data to: `{export_path}`\n\nYou can use this file to train A.L.I.C.E externally or with Ollama's fine-tuning tools."
+            return "No training data to export yet. Keep using A.L.I.C.E to collect data!"
+        
+        # Prepare training data
+        if 'prepare training' in input_lower or 'ready to train' in input_lower:
+            if not getattr(self, 'fine_tuning_system', None):
+                return "Training system not initialized."
+            
+            success, message = self.fine_tuning_system.prepare_training_data()
+            if success:
+                return f"✅ {message}\n\nTo train A.L.I.C.E:\n1. Use Ollama's fine-tuning: `ollama create alice-llama3-1-8b -f data/training/training_data.txt`\n2. Or export the data and use external training tools."
+            return f"❌ {message}"
+        
+        return None
+
+    def _handle_weather_followup(self, user_input: str, intent: str) -> Optional[str]:
+        """
+        Handle weather-related follow-ups using stored weather data.
+        This is A.L.I.C.E's routing policy - no need to call Ollama for simple decisions.
+        """
+        input_lower = user_input.lower()
+        
+        # Check if this is a weather-related question
+        weather_keywords = ['umbrella', 'jacket', 'coat', 'layer', 'wear', 'bring', 'cold', 'warm', 'outside', 'go out']
+        if not any(kw in input_lower for kw in weather_keywords):
+            return None
+        
+        # Check if we have recent weather data
+        if not self.world_state:
+            return None
+        
+        weather_entity = self.world_state.get_entity('current_weather')
+        if not weather_entity or not weather_entity.data:
+            return None
+        
+        # We have weather data! A.L.I.C.E answers directly using her own reasoning
+        wd = weather_entity.data
+        temp = wd.get('temperature')
+        condition = wd.get('condition', '').lower()
+        location = wd.get('location', 'your area')
+        
+        # A.L.I.C.E thinks about the question and weather data
+        if 'umbrella' in input_lower:
+            # Check for rain conditions
+            rainy = any(word in condition for word in ['rain', 'drizzle', 'shower', 'storm'])
+            if rainy:
+                return f"Yes, bring an umbrella - it's {condition} in {location}."
+            else:
+                return f"No need for an umbrella - it's {condition}, no rain expected."
+        
+        elif any(word in input_lower for word in ['jacket', 'coat', 'layer', 'wear']):
+            # Temperature-based clothing advice
+            if temp is None:
+                return None
+            
+            if temp < -20:
+                return f"Definitely wear layers! It's {temp}°C - that's extremely cold."
+            elif temp < -10:
+                return f"Yes, wear a warm layer or two. It's {temp}°C out there."
+            elif temp < 0:
+                return f"I'd recommend a jacket - it's {temp}°C, below freezing."
+            elif temp < 10:
+                return f"A light jacket would be good - it's {temp}°C, a bit chilly."
+            elif temp < 20:
+                return f"You probably don't need a heavy layer - it's {temp}°C, mild."
+            else:
+                return f"No jacket needed - it's {temp}°C, nice and warm!"
+        
+        return None
     
     def process_input(self, user_input: str, use_voice: bool = False) -> str:
         """
@@ -463,11 +897,23 @@ class ALICE:
             entities = nlp_result.entities
             sentiment = nlp_result.sentiment
             
+            self._think(f"NLP → intent={intent!r} confidence={getattr(nlp_result, 'intent_confidence', '?')}")
+            if entities:
+                self._think(f"     entities={str(entities)[:120]}...")
+            
             # Store for active learning
             self.last_user_input = user_input
             self.last_nlp_result = vars(nlp_result).copy()  # Convert to dict for compatibility
             self.last_intent = intent
             self.last_entities = entities
+            
+            # Invalidate context cache if intent changed significantly
+            if hasattr(self, 'context_cache') and self.last_intent and intent != self.last_intent:
+                # Only invalidate if it's a major topic shift
+                if not any(word in intent for word in self.last_intent.split(':')) and \
+                   not any(word in self.last_intent.split(':') for word in intent.split(':')):
+                    self.context_cache.invalidate()
+                    self._think("Context cache invalidated (topic shift)")
             
             # 1.5. Apply Active Learning improvements
             improved_nlp_result = self.learning_manager.apply_learning(user_input, vars(nlp_result))
@@ -476,11 +922,83 @@ class ALICE:
                 intent = improved_nlp_result['intent']
                 entities = improved_nlp_result['entities']
                 sentiment = improved_nlp_result.get('sentiment', sentiment)
+                self._think(f"     active learning → intent={intent!r}")
             
             # Store sentiment for use in conversation summarizer
             self._last_sentiment = sentiment['category'] if sentiment else None
             
             logger.info(f"Intent: {intent}, Sentiment: {sentiment['category']}")
+            
+            # 1.5.5. Check for code/self-reflection requests EARLY (before reasoning/plugins)
+            code_response = self._handle_code_request(user_input, entities)
+            if code_response:
+                self._think("Code request detected → handled directly")
+                # Store in training data
+                if getattr(self, 'training_collector', None):
+                    self.training_collector.collect_interaction(
+                        user_input=user_input,
+                        assistant_response=code_response,
+                        context={'intent': 'code_request', 'entities': entities or {}},
+                        intent='code:request',
+                        entities=entities or {},
+                        quality_score=0.9
+                    )
+                return code_response
+            
+            # 1.5.6. Check for training status requests
+            training_response = self._handle_training_request(user_input)
+            if training_response:
+                self._think("Training request detected → handled directly")
+                return training_response
+            
+            # 1.5.7. A.L.I.C.E's conversational reasoning (no Ollama unless needed)
+            # Initialize goal_res early so conversational engine can check for active goals
+            goal_res = None
+            
+            if getattr(self, 'conversational_engine', None):
+                conv_context = ConversationalContext(
+                    user_input=user_input,
+                    intent=intent,
+                    entities=entities or {},
+                    recent_topics=self.conversation_topics[-5:] if self.conversation_topics else [],
+                    active_goal=goal_res.goal.description if (goal_res and goal_res.goal) else None,
+                    world_state=self.world_state
+                )
+                
+                if self.conversational_engine.can_handle(user_input, intent, conv_context):
+                    self._think("Checking if A.L.I.C.E has learned patterns for this...")
+                    response = self.conversational_engine.generate_response(conv_context)
+                    if response:
+                        self._think("A.L.I.C.E responded from learned patterns (no Ollama)")
+                        return response
+                    else:
+                        self._think("No learned patterns yet → will use Ollama")
+            
+            # 1.5.8. Weather follow-up routing (use stored weather data, no LLM)
+            weather_followup = self._handle_weather_followup(user_input, intent)
+            if weather_followup:
+                self._think("Weather follow-up → answering from stored data (no LLM)")
+                return weather_followup
+            
+            # 1.6. Reasoning engine - check for uncertainty and need for clarification
+            intent_confidence = getattr(nlp_result, 'intent_confidence', 0.7)
+            if getattr(self, 'reasoning_engine', None):
+                reasoning = self.reasoning_engine.reason_about_intent(
+                    user_input=user_input,
+                    detected_intent=intent,
+                    intent_confidence=intent_confidence,
+                    entities=entities,
+                    recent_context=[t.user_input for t in (self.world_state.turns[-3:] if self.world_state else [])]
+                )
+                if reasoning.needs_clarification and reasoning.clarification_question:
+                    self._think(f"Reasoning → uncertainty: {', '.join(reasoning.uncertainty_reasons)}")
+                    clarification = self.reasoning_engine.get_clarification_prompt(reasoning)
+                    if clarification:
+                        return clarification
+                # Update intent confidence from reasoning
+                if reasoning.confidence < intent_confidence:
+                    intent_confidence = reasoning.confidence
+                    self._think(f"Reasoning → adjusted confidence to {intent_confidence:.2f}")
             
             # 2. Advanced Context Processing (GLOBAL - for all interactions)
             context_resolved_input = user_input
@@ -506,14 +1024,36 @@ class ALICE:
             # Use the context-resolved input for further processing
             user_input_processed = context_resolved_input
             
+            # 2.5. Reference resolution and goal resolution (world state)
+            if getattr(self, 'reference_resolver', None) and getattr(self, 'goal_resolver', None):
+                try:
+                    resolution = self.reference_resolver.resolve(user_input)
+                    if resolution.bindings:
+                        self._think(f"Reference resolution → {list(resolution.bindings.keys())} → {[r.resolved_label for r in resolution.bindings.values()]}")
+                        user_input_processed = resolution.resolved_input or user_input_processed
+                    if resolution.entities_to_use:
+                        entities = {**(entities or {}), **resolution.entities_to_use}
+                    goal_res = self.goal_resolver.resolve(
+                        user_input, intent, entities or {}, resolution.resolved_input
+                    )
+                    if goal_res.cancelled and goal_res.message:
+                        self._think("Goal cancelled → returning ack")
+                        return goal_res.message
+                    if goal_res.revised:
+                        intent, entities = goal_res.intent, goal_res.entities
+                        self._think(f"Goal revised → intent={intent!r}")
+                    elif goal_res.goal:
+                        self._think(f"Goal: {goal_res.goal.description[:60]}...")
+                except Exception as e:
+                    logger.warning(f"Reference/goal resolution skipped: {e}")
+                    # Graceful degradation - continue without resolution
+            
             # 3. General Entity Detection (for non-email interactions)
             if self.advanced_context and intent != "email":
                 self._detect_general_entities(user_input, intent, entities)
             
             # Handle pending multi-step actions
             if self.pending_action == "compose_email":
-                import re
-                
                 # Waiting for recipient email
                 if 'recipient' not in self.pending_data:
                     email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', user_input)
@@ -616,7 +1156,6 @@ class ALICE:
                 return planned_response
             
             # Check for numbered email references first (context-aware, intent-agnostic)
-            import re
             number_match = re.search(r'\b(\d+)(st|nd|rd|th)?\b', user_input.lower())
             if number_match and self.last_email_list and any(word in user_input.lower() for word in ['delete', 'remove', 'read', 'open', 'archive', 'mark']):
                 email_num = int(number_match.group(1))
@@ -682,7 +1221,6 @@ class ALICE:
                 query_lower = user_input.lower()
                 
                 # Extract number from request (e.g., "2 latest emails", "show 3 emails")
-                import re
                 number_match = re.search(r'\b(\d+)\b', query_lower)
                 requested_count = int(number_match.group(1)) if number_match else None
                 
@@ -873,7 +1411,6 @@ class ALICE:
                 elif any(word in query_lower for word in ['send', 'write', 'compose', 'draft']):
                     # Extract recipient and content
                     if '@' in user_input:
-                        import re
                         email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', user_input)
                         if email_match:
                             self.pending_action = "compose_email"
@@ -1118,27 +1655,175 @@ class ALICE:
                     return "Which email would you like to unstar? Use the email number from the list."
                 
                 else:
-                    return "I can help you:\n- Check emails: 'check my emails'\n- Read latest: 'read first email'\n- Search: 'find emails from Amazon'\n- Send: 'write an email'\n- Reply: 'reply to email 2'\n- Star: 'star email 3'\n- Delete: 'delete email 1'\n- Archive: 'archive email 4'\n\nWhat would you like to do?"
+                    # Don't give menu - just check emails by default
+                    return None  # Let plugins handle or use Ollama
             
-            # 2. Check if plugin can handle this
-            context_summary = self.context.get_context_summary()
-            plugin_result = self.plugins.execute_for_intent(
-                intent, user_input, entities, context_summary
+            # 2. Check if plugin can handle this (skip for short conversation follow-ups)
+            # BUT: Use goal to disambiguate - if there's an active goal, try plugins first
+            plugin_result = None
+            _cmd_words = (
+                "volume", "brightness", "open", "launch", "play", "delete", "add", "create",
+                "send", "search", "list", "check", "email", "note", "notes", "music", "calendar",
+                "file", "weather", "time", "how many", "what's", "show", "find", "remind",
             )
+            
+            # If there's an active goal, use it to enhance intent understanding
+            active_goal = goal_res.goal if goal_res else None
+            if active_goal and intent_confidence < 0.7:
+                # Low confidence but we have a goal - use goal intent to disambiguate
+                self._think(f"Low confidence ({intent_confidence:.2f}) but active goal → using goal intent: {active_goal.intent}")
+                intent = active_goal.intent
+                entities = {**(entities if entities else {}), **(active_goal.entities if active_goal.entities else {})}
+                intent_confidence = 0.8  # Boost confidence when goal helps
+            
+            _is_short_followup = (
+                len(user_input.split()) <= 12
+                and not any(w in user_input.lower() for w in _cmd_words)
+                and not active_goal  # Don't skip if there's an active goal
+            )
+            if _is_short_followup:
+                self._think("Short follow-up (no command words, no goal) → skipping plugins, using LLM")
+            else:
+                self._think(f"Trying plugins... (confidence: {intent_confidence:.2f}, goal: {active_goal.description[:30] if active_goal else 'none'}...)")
+            if not _is_short_followup:
+                context_summary = self.context.get_context_summary()
+                # Enhance context with goal info (keep as dict for plugins)
+                if active_goal:
+                    context_summary['active_goal'] = active_goal.description
+                plugin_result = self.plugins.execute_for_intent(
+                    intent, user_input, entities, context_summary
+                )
+                # If low confidence and no plugin match, consider using LLM with clarification
+                if not plugin_result and intent_confidence < 0.6:
+                    self._think("Low confidence + no plugin match → using LLM with context")
             
             if plugin_result:
                 # Plugin handled the request, regardless of success/failure
-                response = plugin_result['response']
                 plugin_name = plugin_result.get('plugin', 'Unknown')
                 success = plugin_result.get('success', False)
+                self._think(f"Plugin → {plugin_name} success={success}")
+                
+                # A.L.I.C.E generates her own response from plugin data (learned patterns only)
+                response = None
+                if getattr(self, 'response_generator', None) and plugin_result.get('data'):
+                    response = self.response_generator.generate_from_plugin_data(
+                        plugin_name=plugin_name,
+                        plugin_data=plugin_result.get('data', {}),
+                        user_input=user_input,
+                        intent=intent,
+                        success=success
+                    )
+                    if response:
+                        self._think(f"A.L.I.C.E generated response from learned patterns")
+                    else:
+                        self._think(f"No learned pattern → using Ollama to explain plugin data")
+                
+                # If A.L.I.C.E has no learned pattern, use Ollama to explain the data
+                if not response:
+                    # Use Ollama to generate response from plugin data
+                    plugin_data_str = str(plugin_result.get('data', {}))
+                    ollama_prompt = f"The {plugin_name} returned this data: {plugin_data_str}. Explain it naturally to the user in 1-2 sentences."
+                    response = self.llm.chat(ollama_prompt, use_history=False)
+                    self._think("Ollama generated response from plugin data")
+                
+                # Optimize plugin response
+                if getattr(self, 'response_optimizer', None):
+                    response = self.response_optimizer.optimize(response, intent, {"plugin": plugin_name})
+                
+                # Track incomplete tasks for proactive follow-up
+                if getattr(self, 'proactive_assistant', None) and not success:
+                    task_id = f"{intent}_{int(user_input[:20].encode().hex(), 16)}"
+                    self.proactive_assistant.track_incomplete_task(
+                        task_id=task_id,
+                        description=f"{intent}: {user_input[:50]}",
+                        context={"plugin": plugin_name, "intent": intent}
+                    )
+                elif getattr(self, 'proactive_assistant', None) and success:
+                    # Mark as complete if we had tracked it
+                    task_id = f"{intent}_{int(user_input[:20].encode().hex(), 16)}"
+                    self.proactive_assistant.mark_task_complete(task_id)
+                
+                # Verifier and world state
+                if getattr(self, 'verifier', None):
+                    verification = self.verifier.verify(
+                        plugin_result,
+                        goal_intent=intent,
+                        goal_description=goal_res.goal.description if (goal_res and goal_res.goal) else None,
+                    )
+                    self._think(f"Verifier → verified={verification.verified} goal_fulfilled={verification.goal_fulfilled}")
+                    if not verification.verified and verification.suggested_follow_up:
+                        response = f"{response}\n\n{verification.suggested_follow_up}" if response else verification.suggested_follow_up
+                    if verification.goal_fulfilled and goal_res and goal_res.goal and getattr(self, 'goal_resolver', None):
+                        self.goal_resolver.mark_goal_completed()
+                if getattr(self, 'world_state', None):
+                    self.world_state.record_turn(user_input, intent, entities or {}, response, success)
+                    self.world_state.record_plugin_result(plugin_name, success)
+                    
+                    # Store weather data in world state for follow-up questions
+                    if plugin_name == 'WeatherPlugin' and success and plugin_result.get('data'):
+                        weather_data = plugin_result['data']
+                        self.world_state.add_entity(WorldEntity(
+                            id='current_weather',
+                            kind=EntityKind.TOPIC,
+                            label=f"Current weather in {weather_data.get('location', 'your area')}",
+                            data=weather_data,
+                            aliases=['weather', 'current weather', 'temperature', 'outside']
+                        ))
+                        self._think(f"Stored weather data: {weather_data.get('temperature')}°C, {weather_data.get('condition')}")
+                    
+                    # Seed world state with entities from plugin so "delete it" can resolve
+                    for note in (plugin_result.get('notes') or []):
+                        n = note if isinstance(note, dict) else (note.to_dict() if hasattr(note, 'to_dict') and callable(getattr(note, 'to_dict')) else {})
+                        tid = (n.get('id') or n.get('title') or '')[:64]
+                        if tid:
+                            title = n.get('title', str(tid))
+                            self.world_state.add_entity(WorldEntity(
+                                id=tid, kind=EntityKind.NOTE, label=title,
+                                data=dict(n), aliases=[title] if title else [],
+                            ))
                 
                 if success:
                     logger.info(f"[PLUGIN]  Handled by: {plugin_name}")
+                    # Record successful action for prediction
+                    if getattr(self, 'prefetcher', None):
+                        self.prefetcher.record_action(intent, entities, True)
                 else:
                     logger.info(f"[PLUGIN]  Failed in: {plugin_name}")
+                    # Error recovery - try to provide helpful feedback
+                    if getattr(self, 'error_recovery', None):
+                        recovery_msg, suggestion = self.error_recovery.recover_from_error(
+                            error_type="plugin_failure",
+                            original_intent=intent,
+                            failed_action=plugin_name,
+                            error_message=response[:200],
+                            context={"plugin": plugin_name, "entities": entities}
+                        )
+                        if recovery_msg:
+                            response = recovery_msg
+                        if suggestion:
+                            response = f"{response}\n\n💡 {suggestion}"
                 
                 # Store interaction in memory
                 self._store_interaction(user_input, response, intent, entities)
+                
+                # Collect training data for plugin responses
+                if getattr(self, 'training_collector', None):
+                    quality_score = 0.9 if success else 0.6
+                    self.training_collector.collect_interaction(
+                        user_input=user_input,
+                        assistant_response=response,
+                        context={
+                            'goal': goal_res.goal.description if (goal_res and goal_res.goal) else None,
+                            'intent': intent,
+                            'entities': entities or {},
+                            'plugin': plugin_name,
+                            'success': success
+                        },
+                        intent=intent,
+                        entities=entities or {},
+                        quality_score=quality_score
+                    )
+                    self._think(f"Training data collected (plugin, quality: {quality_score:.2f})")
                 
                 # Speak if voice enabled
                 if use_voice and self.speech:
@@ -1147,6 +1832,7 @@ class ALICE:
                 return response
             
             # 3. If plugin couldn't handle or failed, use LLM with context
+            self._think("No plugin match → using LLM with context")
             
             # Handle relationship queries before LLM generation
             if self.relationship_tracker:
@@ -1154,9 +1840,10 @@ class ALICE:
                 if relationship_response:
                     return relationship_response
             
-            # 3. Use LLM for general conversation
-            # Build enhanced context using the processed input
-            enhanced_context = self._build_llm_context(user_input_processed)
+            # 3. Use Ollama only for complex knowledge/reasoning (last resort)
+            self._think("A.L.I.C.E needs Ollama for complex reasoning/knowledge...")
+            # Build enhanced context with smart caching and adaptive selection, including goal
+            enhanced_context = self._build_llm_context(user_input_processed, intent, entities, goal_res)
             
             # Add active learning guidance if available
             learning_guidance = improved_nlp_result.get("learning_guidance")
@@ -1173,7 +1860,39 @@ class ALICE:
                 })
             
             # Get LLM response using the context-resolved input
-            response = self.llm.chat(user_input_processed, use_history=True)
+            # Enhance user input with goal context if available
+            llm_input = user_input_processed
+            if goal_res and goal_res.goal:
+                # Add goal context to help LLM understand what user is trying to accomplish
+                goal_note = f"\n[Context: You're helping the user accomplish: {goal_res.goal.description}. Keep this goal in mind when responding.]"
+                llm_input = user_input_processed + goal_note
+            
+            response = self.llm.chat(llm_input, use_history=True)
+            
+            # Optimize response for clarity and user preference
+            if getattr(self, 'response_optimizer', None):
+                response = self.response_optimizer.optimize(
+                    response,
+                    intent,
+                    {
+                        "entities": entities,
+                        "goal": goal_res.goal.description if (goal_res and goal_res.goal) else None,
+                    },
+                )
+
+            # A.L.I.C.E's own ML evaluates the LLM answer for consistency/quality
+            if getattr(self, 'ml_learner', None):
+                try:
+                    mq = self.ml_learner.predict_high_quality_prob(user_input, response)
+                    self._think(f"ML learner quality estimate for LLM response: {mq:.2f}")
+                    # If ML thinks this is weak, gently invite refinement
+                    if mq < 0.35:
+                        response = (
+                            response
+                            + "\n\n(If this isn't quite what you wanted, tell me and I'll adjust or try a different angle.)"
+                        )
+                except Exception as ml_e:
+                    self._think(f"ML learner quality check skipped due to error: {ml_e}")
             
             # Update the advanced context with the response
             if self.advanced_context:
@@ -1183,13 +1902,75 @@ class ALICE:
                 # Extract any entities mentioned in the response and track them
                 self._track_response_entities(response, intent)
             
-            # Remove context message
+            # Remove context message and prune old history if too long
             if enhanced_context and self.llm.conversation_history:
                 if self.llm.conversation_history[0]["role"] == "system":
                     self.llm.conversation_history.pop(0)
             
+            # Smart history pruning - keep most relevant turns
+            if len(self.llm.conversation_history) > self.llm.config.max_history:
+                # Keep system prompt, last 5 turns, and recent relevant turns
+                to_keep = []
+                # Keep first (system prompt if exists)
+                if self.llm.conversation_history and self.llm.conversation_history[0].get("role") == "system":
+                    to_keep.append(self.llm.conversation_history[0])
+                # Keep last 8 turns (most recent context)
+                to_keep.extend(self.llm.conversation_history[-8:])
+                self.llm.conversation_history = to_keep
+            
             # 4. Store interaction
             self._store_interaction(user_input, response, intent, entities)
+            
+            # 4.5. Collect training data - learn from this interaction
+            if getattr(self, 'training_collector', None):
+                # Calculate quality score based on success, length, etc.
+                quality_score = 1.0
+                if plugin_result:
+                    quality_score = 0.9 if plugin_result.get('success', False) else 0.6
+                elif len(response) > 20:  # Substantial response
+                    quality_score = 0.8
+                
+                # Collect for training
+                self.training_collector.collect_interaction(
+                    user_input=user_input,
+                    assistant_response=response,
+                    context={
+                        'goal': goal_res.goal.description if (goal_res and goal_res.goal) else None,
+                        'intent': intent,
+                        'entities': entities or {}
+                    },
+                    intent=intent,
+                    entities=entities or {},
+                    quality_score=quality_score
+                )
+                self._think(f"Training data collected (quality: {quality_score:.2f})")
+
+                # 4.6. Train A.L.I.C.E's own ML model on accumulated data
+                # Trains at 10, 20, 30, then every 25 examples after that
+                # This is lightweight and uses only local scikit-learn, not Ollama.
+                try:
+                    stats = self.training_collector.get_stats()
+                    total = stats.get('total_examples', 0)
+                    
+                    # Train at milestones: 10, 20, 30, 55, 80, 105, etc.
+                    should_train = (
+                        total in (10, 20, 30) or 
+                        (total > 30 and (total - 30) % 25 == 0)
+                    )
+                    
+                    if should_train and getattr(self, 'ml_learner', None):
+                        examples = self.training_collector.get_training_data(min_quality=0.5)
+                        if examples:
+                            ok = self.ml_learner.train_from_examples(examples, min_examples=10)
+                            if ok:
+                                self._think(f"🧠 ML learner trained on {len(examples)} examples")
+                                # Reload conversational engine patterns after training
+                                if getattr(self, 'conversational_engine', None):
+                                    self.conversational_engine._load_patterns()
+                                if getattr(self, 'response_generator', None):
+                                    self.response_generator._load_learned_patterns()
+                except Exception as ml_e:
+                    self._think(f"ML learner training skipped due to error: {ml_e}")
             
             # Store response for active learning
             self.last_assistant_response = response
@@ -1220,7 +2001,6 @@ class ALICE:
             return
             
         # Track files mentioned
-        import re
         file_patterns = [
             r"created? (?:a )?file (?:called )?['\"]([^'\"]+)['\"]",
             r"(?:file|document) ['\"]([^'\"]+)['\"]",
@@ -1267,8 +2047,6 @@ class ALICE:
         if not self.advanced_context:
             return
             
-        import re
-        
         # Detect file mentions
         file_patterns = [
             r"(?:file|document) (?:called |named )?['\"]([^'\"]+)['\"]",
@@ -1583,6 +2361,12 @@ class ALICE:
             print()
             print("Debug Commands:")
             print("   /correct   - Correct my last response")
+            
+            # Proactive morning briefing
+            if getattr(self, 'proactive_assistant', None):
+                briefing = self.proactive_assistant.get_morning_briefing()
+                if briefing:
+                    print("\n" + briefing)
             print("   /feedback  - Rate my last response")
             print("   /learning  - Show learning statistics")
             print("   exit       - End conversation")
@@ -2236,6 +3020,10 @@ class ALICE:
         if self.pattern_learner:
             self.pattern_learner._save_patterns()
             logger.info("[OK] Patterns saved")
+        
+        if getattr(self, 'proactive_assistant', None):
+            self.proactive_assistant.stop()
+            logger.info("[OK] Proactive assistant stopped")
         
         # Stop voice if active
         if self.speech:
