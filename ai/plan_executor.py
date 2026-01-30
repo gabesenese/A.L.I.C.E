@@ -4,7 +4,7 @@ Executes plans created by TaskPlanner
 Strictly separated from planning logic
 """
 
-from typing import Dict, Any, Callable, Optional
+from typing import Dict, Any, Callable, List, Optional
 import logging
 import re
 
