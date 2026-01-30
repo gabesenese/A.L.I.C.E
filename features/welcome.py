@@ -21,16 +21,20 @@ def welcome_message(name="User", show_ascii=True):
     """Display welcome banner for A.L.I.C.E"""
     terminal_width = get_terminal_width()
 
-    # ASCII Art for ALICE (optional)
+    # ASCII Art for A.L.I.C.E (optional) - all lines same width so block aligns
     if show_ascii and terminal_width >= 60:
-        ascii_art = """
-    ___    __    ____  ________  ______
-   /   |  / /   /  _/ / ____/   / ____/
-  / /| | / /    / /  / /       / __/   
- / ___ |/ /____/ /_ / /____   / /___   
-/_/  |_/_____/___(_)_____/   /_____/   
-"""
-        print(ascii_art.center(terminal_width))
+        ascii_lines = [
+            "    ___    __    ____  ________  ______",
+            "   /   |  / /   /  _/ / ____/   / ____/",
+            "  / /| | / /    / /  / /       / __/   ",
+            " / ___ |/ /____/ /_ / /____   / /___   ",
+            "/_/  |_/_____/___(_)_____/   /_____/   ",
+        ]
+        art_width = max(len(line) for line in ascii_lines)
+        lines_padded = [line.ljust(art_width) for line in ascii_lines]
+        margin = max(0, (terminal_width - art_width) // 2)
+        centered_block = "\n".join(" " * margin + line for line in lines_padded)
+        print(centered_block)
     
     # Welcome message
     message = f"Welcome, {name}!"
