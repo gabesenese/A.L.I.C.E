@@ -1,229 +1,149 @@
-# A.L.I.C.E System Architecture Update
+# A.L.I.C.E Architecture
 
-## Addressing the Gaps: Reactive → Anticipatory
-
-### Gap 1: ALICE now anticipates (Pattern Learning)
-
-**Before:** Waited for input
-**Now:** Notices patterns and suggests proactively
-
-#### Pattern Learner ([ai/pattern_learner.py](ai/pattern_learner.py))
-- **Temporal patterns**: "Every Sunday at 3pm, user reviews finance notes"
-- **Sequential patterns**: "After checking email, user opens calendar"
-- **Contextual patterns**: "When system is idle >10min, user takes a break"
-
-**How it works:**
-```python
-# ALICE observes actions
-learner.observe_action("review_notes:finance", context={'day': 'Sunday', 'hour': 15})
-
-# Later, when Sunday 3pm arrives
-suggestions = learner.get_suggestions()
-# → "You usually review finance notes around this time. Want me to prepare a summary?"
-```
-
-**Smart suggestions:**
-- Confidence threshold (>60%)
-- Acceptance rate tracking (learns what you actually want)
-- Cooldown periods (won't spam)
-- Only suggests reliable patterns (≥3 occurrences)
+This document describes the intended architecture: runtime flow (router → tool vs LLM → resolver → policy → verifier → logger) and the offline training loop.
 
 ---
 
-### Gap 2: Planning vs Execution - Strictly Separated
+## Runtime flow
 
-**Before:** Blended logic flow
-**Now:** Clean pipeline: Understand → Plan → Execute
-
-#### Task Planner ([ai/task_planner.py](ai/task_planner.py))
-**Job:** Create plans, NOT execute them
-
-```python
-# Input: Intent + Entities
-plan = planner.create_plan(
-    intent="summarize_notes",
-    entities={'topic': 'finance', 'timeframe': 'last_month'},
-    context={}
-)
-
-# Output: ExecutionPlan with steps
-# Step 1: plugin.notes.list (topic=finance, timeframe=last_month)
-# Step 2: plugin.notes.read_multiple (depends on Step 1)
-# Step 3: llm.summarize (depends on Step 2)
+```
+User input
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. ROUTER                                                        │
+│    Predicts tool/action with confidence                          │
+│    (intent + intent_confidence)                                  │
+└─────────────────────────────────────────────────────────────────┘
+    │
+    ├── If confident ──────────────────────────────────────────────► TOOL PATH
+    │       • Code/self-reflection, training status, weather follow-up
+    │       • Plugins: execute_for_intent(intent, user_input, entities)
+    │       • Planner/executor for structured tasks
+    │
+    └── If not confident ─────────────────────────────────────────► GOAL PATH
+            │
+            ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │ 2. GOAL (when unclear)                                       │
+    │    LLM produces Goal JSON  ← [GAP: currently goal from        │
+    │    (target intent, target item, ask vs execute)     resolver] │
+    └─────────────────────────────────────────────────────────────┘
+            │
+            ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │ 3. RESOLVER                                                  │
+    │    Picks target item (references: "it", "that email", etc.)  │
+    │    • ReferenceResolver → bindings, resolved_input            │
+    │    • GoalResolver → current goal, cancel/revise/reference     │
+    └─────────────────────────────────────────────────────────────┘
+            │
+            ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │ 4. POLICY                                                    │
+    │    Decides: execute vs ask (clarify / confirm)               │
+    │    [GAP: today this is implicit in main loop:                │
+    │     try plugin → if match execute; low confidence → LLM]     │
+    └─────────────────────────────────────────────────────────────┘
+            │
+            ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │ 5. EXECUTE / ASK                                             │
+    │    • Execute: plugin run, then response from generator/Ollama│
+    │    • Ask: clarification (reasoning_engine) or LLM response   │
+    └─────────────────────────────────────────────────────────────┘
+            │
+            ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │ 6. VERIFIER                                                  │
+    │    Checks result: action_succeeded, goal_fulfilled           │
+    │    → suggest follow-up or mark goal completed                │
+    └─────────────────────────────────────────────────────────────┘
+            │
+            ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │ 7. LOGGER                                                    │
+    │    Writes training row (training_collector.collect_interaction)│
+    │    • user_input, assistant_response, intent, context, quality│
+    └─────────────────────────────────────────────────────────────┘
 ```
 
-#### Plan Executor ([ai/plan_executor.py](ai/plan_executor.py))
-**Job:** Execute plans, NOT create them
+### Current code mapping
 
-```python
-# Takes a plan, executes step-by-step
-result = executor.execute(plan)
-
-# Handles:
-# - Dependency resolution (Step 2 waits for Step 1)
-# - Parameter interpolation ({{step_1_result}})
-# - Error recovery
-# - Progress tracking
-# - Event emission
-```
-
-**Separation benefits:**
-- Planner can explain without executing
-- Executor can retry without re-planning
-- Plans can be validated before execution
-- Can ask "confirm this plan?" before running
+| Step | Component | Location |
+|------|-----------|----------|
+| **Router** | NLP (intent + confidence), reasoning_engine (uncertainty → clarify) | `nlp_processor`, `intent_classifier`, `reasoning_engine`; confidence used in `main.py` (~984, 1672, 1696) |
+| **Tool path** | Code handler, training handler, plugins, planner/executor | `_handle_code_request`, `_handle_training_request`, `plugin_system.execute_for_intent`, `_use_planner_executor` |
+| **Goal** | Goal resolution from user input (no LLM Goal JSON yet) | `goal_resolver.resolve(user_input, intent, entities)` |
+| **Resolver** | Reference + goal | `reference_resolver.resolve`, `goal_resolver.resolve` |
+| **Policy** | Implicit: plugin match → execute; low confidence → LLM | `main.py` plugin branch vs LLM branch |
+| **Verifier** | After plugin result | `verifier.verify(plugin_result, goal_intent, goal_description)` |
+| **Logger** | Training row | `training_collector.collect_interaction(...)` |
 
 ---
 
-### Gap 3: ALICE now "owns the system"
-
-**Before:** Knew context when asked
-**Now:** Continuously observes system state
-
-#### System Monitor ([ai/system_monitor.py](ai/system_monitor.py))
-**Tracks:**
-- Running apps (Chrome opened, VS Code closed)
-- Process state (CPU, memory per app)
-- File changes (watched files modified)
-- Notable events (Spotify started, Outlook closed)
-
-**Integration with Event Bus:**
-```python
-monitor.start_monitoring()
-
-# Now ALICE knows:
-- "Chrome just opened → Maybe user wants to browse?"
-- "VS Code running for 3 hours → Suggest a break?"
-- "Outlook closed → User finished email session"
-```
-
-**Smart filtering:**
-- Ignores system processes (dwm.exe, svchost.exe)
-- Only tracks "notable" apps (browsers, IDEs, office, dev tools)
-- Emits events for app launch/close
-
----
-
-## The Complete Pipeline Now
-
-### Input → Understanding → Planning → Execution → Response
+## Offline training loop (daily or weekly)
 
 ```
-User: "Summarize my finance notes from last month"
-  ↓
-[1. UNDERSTAND] NLP Processor
-  → Intent: summarize_notes
-  → Entities: {topic: finance, timeframe: last_month}
-  ↓
-[2. PLAN] Task Planner
-  → Step 1: Load finance notes
-  → Step 2: Read note contents
-  → Step 3: LLM summarize
-  ↓
-[3. EXECUTE] Plan Executor
-  → Runs steps with dependency management
-  → Emits progress events
-  → Handles errors
-  ↓
-[4. RESPOND] Rich Terminal UI
-  → Display summary
-  → Log to memory
-  ↓
-[5. LEARN] Pattern Learner
-  → Observe: "User asked for finance summary on Sunday"
-  → Next Sunday → Suggest proactively
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. Train router + policy from logs                                │
+│    • Router: intent (and optionally tool) prediction from        │
+│      user_input + context in training_data.jsonl                 │
+│    • Policy: execute vs ask from outcomes (success, clarification)│
+└─────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. Evaluate accuracy                                             │
+│    • Router: intent accuracy, tool prediction accuracy            │
+│    • Policy: correct execute/ask decisions                        │
+└─────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. Update thresholds                                             │
+│    • Confidence thresholds for “confident → tool” vs “→ Goal path”│
+│    • Optional: per-intent or per-tool thresholds                 │
+└─────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 4. Deploy model file locally                                     │
+│    • Save router/policy model (e.g. ml_learner.pkl, or new files) │
+│    • Load on next A.L.I.C.E startup                              │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
----
+### Current code mapping
 
-## Background Intelligence
-
-### Observers Watch Everything
-
-**TaskObserver:**
-- Long-running tasks (>2min) → Notify user
-- Task failures → Always interrupt
-- Important completions → Notify
-
-**SystemHealthObserver:**
-- Memory >85% → Warning (with cooldown)
-- Storage <10% → Alert
-- System errors → Critical notification
-
-**ReminderObserver:**
-- Due reminders → High priority interrupt
-- Approaching events → Normal priority
-
-**BackgroundActivityObserver:**
-- Important emails → Notify
-- Calendar changes → Low priority
-- File changes → Configurable
-
-### Pattern-Based Proactivity
-
-**SystemMonitor** sees: User opened VS Code at 9am
-**PatternLearner** knows: User codes 9am-12pm on weekdays
-**Suggestion**: "Want me to set 'focus mode' and mute notifications?"
+| Step | Component | Location |
+|------|-----------|----------|
+| **Train from logs** | `TrainingDataCollector` (JSONL), `SimpleMLLearner` (TF-IDF + LR, optional sentence_transformers) | `training_system.py`: `collect_interaction`, `SimpleMLLearner.train_from_examples` |
+| **Evaluate accuracy** | Not yet a dedicated pipeline | Could use same JSONL + holdout or time-based split |
+| **Update thresholds** | Confidence thresholds are hardcoded (e.g. 0.6, 0.7) | `main.py` (e.g. intent_confidence &lt; 0.6 / 0.7) |
+| **Deploy locally** | ML learner saved as `data/training/ml_learner.pkl`, loaded on init | `SimpleMLLearner._load`, `model_path` |
 
 ---
 
-## Event-Driven Architecture
+## Gaps vs target architecture
 
-Everything communicates via events:
-- **State changes** → Events
-- **Observers** → Watch events
-- **Decide** → When to interrupt
-- **Notify** → Only when justified
+1. **Goal JSON from LLM**  
+   Goal is currently derived only from `GoalResolver` (user input + intent). A dedicated “LLM produces Goal JSON” step (target intent, target item, ask vs execute) is not implemented.
 
-**Example flow:**
-```
-Task takes >2min
-  → TaskObserver sees TASK_PROGRESS event
-  → Checks: Already notified? No
-  → Checks: Important enough? Yes
-  → observer.notify("Task taking longer than expected")
-  → ALICE speaks/displays message
-```
+2. **Explicit Policy module**  
+   “Policy decides execute/ask” is implicit in the main loop (plugin try → execute; low confidence → LLM/clarify). A separate Policy that consumes resolver output and returns execute vs ask would align with the diagram.
+
+3. **Offline loop automation**  
+   Training and model persistence exist; there is no scheduled “daily/weekly” job that (1) trains router + policy from logs, (2) evaluates accuracy, (3) updates thresholds, (4) deploys model file. Thresholds are fixed in code.
+
+4. **Router as explicit “tool/action” predictor**  
+   The router currently outputs intent (and entities); the decision to take the “tool path” is based on intent + confidence + plugin match. A single router that predicts (tool/action, confidence) and drives the “if confident → tool path” branch would match the diagram more directly.
 
 ---
 
-## What This Enables
+## Summary
 
-### Proactive ALICE:
-- "You usually check email now. 5 new messages waiting."
-- "Outlook has been open for 2 hours. Want me to close it?"
-- "Chrome using 4GB RAM. Should I suggest closing tabs?"
-- "You typically review notes on Sundays. Want a summary?"
+- **Runtime:** Router (intent + confidence) → confident → tool path (plugins, code, etc.); not confident → resolver (reference + goal) → implicit policy (execute vs LLM/ask) → verifier → logger. Existing pieces are mostly in place; the main gaps are LLM-produced Goal JSON and an explicit Policy module.
+- **Offline:** Training and local model deploy exist; missing pieces are automated evaluation, threshold updates from evaluation, and a scheduled training pipeline.
 
-### Smart Interruptions:
-- Won't spam (cooldowns)
-- Context-aware (user active vs idle)
-- Priority-filtered (only important stuff)
-- Learning (tracks acceptance rates)
-
-### Clean Architecture:
-- Planner doesn't execute
-- Executor doesn't plan
-- Observers don't act directly
-- Components communicate via events
-
----
-
-## Status: Gaps Closed ✓
-
-**Gap 1 - Anticipation:** ✓ Pattern learning + proactive suggestions  
-**Gap 2 - Separation:** ✓ TaskPlanner + PlanExecutor split  
-**Gap 3 - System Ownership:** ✓ SystemMonitor + continuous observation
-
----
-
-## Next Integration Step
-
-Connect to main ALICE:
-1. Initialize all systems on startup
-2. Wire pattern learner to action logging
-3. Integrate planner/executor into process_input()
-4. Start background monitors
-5. Set up observer notification callbacks
-
-This architecture is now **Jarvis-grade** - anticipatory, separated, and system-aware.
+This file can be updated as you add Goal JSON from LLM, a Policy module, and the full offline loop (evaluate → thresholds → deploy).
