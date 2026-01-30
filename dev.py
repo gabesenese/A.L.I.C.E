@@ -77,8 +77,15 @@ class ALICEReloader(FileSystemEventHandler):
         
         self.last_reload_time = current_time
         
-        file_path = Path(event.src_path).relative_to(Path.cwd())
-        logger.info(f"🔄 Code changed: {file_path}")
+        # event.src_path can be relative or absolute depending on OS/watchdog
+        src_path = Path(event.src_path)
+        if not src_path.is_absolute():
+            src_path = (Path.cwd() / src_path).resolve()
+        try:
+            file_path = src_path.relative_to(Path.cwd().resolve())
+        except ValueError:
+            file_path = Path(event.src_path)
+        logger.info(f"Code changed: {file_path}")
         
         # Trigger reload
         self.restart_callback()
@@ -87,10 +94,11 @@ class ALICEReloader(FileSystemEventHandler):
 class ALICERunner:
     """Manages ALICE process with auto-reload"""
     
-    def __init__(self, ui_mode='rich', voice_enabled=False, model='llama3.1:8b'):
+    def __init__(self, ui_mode='rich', voice_enabled=False, model='llama3.1:8b', show_thinking=True):
         self.ui_mode = ui_mode
         self.voice_enabled = voice_enabled
         self.model = model
+        self.show_thinking = show_thinking  # In dev mode, show A.L.I.C.E thinking steps
         
         self.process = None
         self.should_run = Event()
@@ -106,6 +114,10 @@ class ALICERunner:
         if self.voice_enabled:
             cmd.append('--voice')
         
+        # Dev mode: show A.L.I.C.E thinking (intent, plugins, verifier)
+        if getattr(self, 'show_thinking', True):
+            cmd.append('--debug')
+        
         return cmd
     
     def start_alice(self):
@@ -115,7 +127,7 @@ class ALICERunner:
             self.stop_alice()
             time.sleep(1)
         
-        logger.info(f"🚀 Starting ALICE (restart #{self.restart_count})...")
+        logger.info(f" Starting ALICE (restart #{self.restart_count})...")
         logger.info(f"   UI: {self.ui_mode}, Model: {self.model}, Voice: {self.voice_enabled}")
         
         cmd = self.build_command()
@@ -131,7 +143,7 @@ class ALICERunner:
             )
             
             self.restart_count += 1
-            logger.info("✓ ALICE running")
+            logger.info(" ALICE running")
             
         except Exception as e:
             logger.error(f"Failed to start ALICE: {e}")
@@ -197,7 +209,7 @@ class ALICERunner:
         self.stop_alice()
 
 
-def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch=True):
+def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch=True, show_thinking=True):
     """
     Run ALICE in development mode with auto-reload
     
@@ -206,6 +218,7 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
         voice_enabled: Enable voice
         model: LLM model
         watch: Enable file watching
+        show_thinking: Show A.L.I.C.E thinking steps (intent, plugins, verifier)
     """
     print("=" * 70)
     print("🔧 A.L.I.C.E - Development Mode")
@@ -214,13 +227,14 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
     print(f"Voice: {'Enabled' if voice_enabled else 'Disabled'}")
     print(f"Model: {model}")
     print(f"Auto-reload: {'Enabled' if watch else 'Disabled'}")
+    print(f"Thinking steps: {'On (--debug)' if show_thinking else 'Off'}")
     print()
     print("Press Ctrl+C to stop")
     print("=" * 70)
     print()
     
     # Create runner
-    runner = ALICERunner(ui_mode=ui_mode, voice_enabled=voice_enabled, model=model)
+    runner = ALICERunner(ui_mode=ui_mode, voice_enabled=voice_enabled, model=model, show_thinking=show_thinking)
     
     # Set up file watcher
     observer = None
@@ -235,7 +249,7 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
         for path in watch_paths:
             if os.path.exists(path):
                 observer.schedule(event_handler, path, recursive=True)
-                logger.info(f"👀 Watching: {path}")
+                logger.info(f" Watching: {path}")
         
         observer.start()
         logger.info("✓ File watcher started")
@@ -243,7 +257,7 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
     
     # Handle Ctrl+C gracefully
     def signal_handler(signum, frame):
-        logger.info("\n🛑 Shutdown signal received")
+        logger.info("\n Shutdown signal received")
         runner.shutdown()
         if observer:
             observer.stop()
@@ -312,11 +326,18 @@ Examples:
         help='Disable file watching (no auto-reload)'
     )
     
+    parser.add_argument(
+        '--no-thinking',
+        action='store_true',
+        help='Disable A.L.I.C.E thinking steps in dev mode'
+    )
+    
     args = parser.parse_args()
     
     run_dev_mode(
         ui_mode=args.ui,
         voice_enabled=args.voice,
         model=args.model,
-        watch=not args.no_watch
+        watch=not args.no_watch,
+        show_thinking=not args.no_thinking
     )
