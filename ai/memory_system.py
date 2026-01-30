@@ -410,7 +410,10 @@ class MemorySystem:
         if self._embedding_model is None:
             try:
                 from sentence_transformers import SentenceTransformer
-                self._embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+                import os
+                # Set longer timeout for model download
+                os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '60'
+                self._embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
                 logger.info("Embedding model loaded (sentence-transformers)")
             except ImportError:
                 logger.warning("[WARNING] sentence-transformers not installed. Using simple embeddings.")
@@ -418,6 +421,16 @@ class MemorySystem:
                 # Fallback to simple TF-IDF based embeddings
                 from sklearn.feature_extraction.text import TfidfVectorizer
                 self._embedding_model = TfidfVectorizer(max_features=384)
+            except Exception as e:
+                logger.warning(f"[WARNING] Failed to load sentence-transformers model: {e}")
+                logger.warning("   Falling back to simple TF-IDF embeddings.")
+                # Fallback to simple TF-IDF based embeddings
+                try:
+                    from sklearn.feature_extraction.text import TfidfVectorizer
+                    self._embedding_model = TfidfVectorizer(max_features=384)
+                except ImportError:
+                    logger.error("sklearn not available either. Embeddings will be disabled.")
+                    self._embedding_model = None
         
         return self._embedding_model
     
