@@ -292,14 +292,35 @@ class SemanticIntentClassifier:
         self._build_intent_hierarchy()
     
     def _load_model(self):
-        """Load the sentence transformer model"""
-        try:
-            logger.info(f"Loading semantic model: {self.model_name}")
-            self.model = SentenceTransformer(self.model_name)
-            logger.info("Semantic intent classifier loaded")
-        except Exception as e:
-            logger.error(f"Failed to load semantic model: {e}")
-            raise
+        """Load the sentence transformer model with timeout and retry logic"""
+        import time
+        max_retries = 3
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Loading semantic model: {self.model_name} (attempt {attempt + 1}/{max_retries})")
+                # Set longer timeout for model download
+                import os
+                os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '60'  # 60 seconds timeout
+                
+                self.model = SentenceTransformer(
+                    self.model_name,
+                    device='cpu'  # Explicitly use CPU to avoid GPU issues
+                )
+                logger.info("Semantic intent classifier loaded successfully")
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Failed to load semantic model (attempt {attempt + 1}): {e}")
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"Failed to load semantic model after {max_retries} attempts: {e}")
+                    logger.warning("Semantic intent classifier will be disabled. A.L.I.C.E will use pattern-based matching only.")
+                    self.model = None  # Set to None instead of raising
+                    return
     
     def _load_examples(self):
         """Load intent examples from file or create defaults"""
@@ -346,6 +367,9 @@ class SemanticIntentClassifier:
             
             IntentExample("delete a note", "notes", "notes", "delete"),
             IntentExample("remove this note", "notes", "notes", "delete"),
+            IntentExample("delete the grocery list", "notes", "notes", "delete"),
+            IntentExample("remove the grocery list", "notes", "notes", "delete"),
+            IntentExample("delete the shopping list", "notes", "notes", "delete"),
             
             # Email Plugin
             IntentExample("check my email", "email", "email", "list"),
@@ -449,12 +473,18 @@ class SemanticIntentClassifier:
             logger.warning("No examples to generate embeddings for")
             return
         
+        if self.model is None:
+            logger.warning("Model not available, skipping embedding generation")
+            self.example_embeddings = None
+            return
+        
         try:
             texts = [ex.text for ex in self.examples]
             self.example_embeddings = self.model.encode(texts, convert_to_numpy=True)
             logger.info(f"Generated embeddings for {len(texts)} examples")
         except Exception as e:
             logger.error(f"Failed to generate embeddings: {e}")
+            self.example_embeddings = None
     
     def _build_intent_hierarchy(self):
         """Build hierarchical intent structure"""
@@ -507,6 +537,10 @@ class SemanticIntentClassifier:
         
         if not self.examples or self.example_embeddings is None:
             logger.warning("No examples or embeddings available")
+            return []
+        
+        if self.model is None:
+            logger.debug("Semantic model not available, returning empty classification")
             return []
         
         try:
