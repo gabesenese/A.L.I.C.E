@@ -695,6 +695,10 @@ class NotesPlugin(PluginInterface):
         if re.search(r'add\s+.+\s+to\s+(?:the\s+)?(?:list|note)', command_lower):
             return True
         
+        # "delete/remove the X list" (e.g. "delete the grocery list") — notes are often called "lists"
+        if any(w in command_lower for w in ['delete', 'remove']) and 'list' in command_lower:
+            return True
+        
         # Check if command contains note-related keywords
         has_note_keyword = any(keyword in command_lower for keyword in note_keywords)
         has_action_keyword = any(keyword in command_lower for keyword in action_keywords)
@@ -738,13 +742,13 @@ class NotesPlugin(PluginInterface):
             elif any(word in command_lower for word in ['search', 'find']):
                 result = self._search_notes(command)
             
+            # Delete/remove note (check before list — "delete the grocery list" must not match list)
+            elif any(word in command_lower for word in ['delete', 'remove']):
+                result = self._delete_note(command)
+            
             # List/show notes (also handle "do i have notes")
             elif any(word in command_lower for word in ['list', 'show', 'all notes', 'my notes', 'do i have']):
                 result = self._list_notes(command)
-            
-            # Delete note
-            elif any(word in command_lower for word in ['delete', 'remove']):
-                result = self._delete_note(command)
             
             # Edit/update note
             elif any(word in command_lower for word in ['edit', 'update']):
@@ -754,8 +758,13 @@ class NotesPlugin(PluginInterface):
             elif 'pin' in command_lower:
                 result = self._pin_unpin_note(command)
             
-            # Archive/unarchive
-            elif 'archive' in command_lower:
+            # List archived notes (check before archive/unarchive action)
+            elif (any(word in command_lower for word in ['archived notes', 'show archived', 'list archived']) or
+                  re.search(r'what.*archived|archived.*what|show.*archived|list.*archived', command_lower)):
+                result = self._list_archived_notes()
+            
+            # Archive/unarchive action
+            elif 'archive' in command_lower or 'unarchive' in command_lower:
                 result = self._archive_unarchive_note(command)
             
             # Set priority
@@ -1098,6 +1107,45 @@ class NotesPlugin(PluginInterface):
             "notes": [note.to_dict() for note in notes]
         }
     
+    def _list_archived_notes(self) -> Dict[str, Any]:
+        """List all archived notes"""
+        archived_notes = [note for note in self.manager.notes.values() if note.archived]
+        
+        if not archived_notes:
+            return {
+                "success": True,
+                "message": "📦 You don't have any archived notes.",
+                "notes": []
+            }
+        
+        # Sort by updated date (most recent first)
+        archived_notes.sort(key=lambda x: x.updated_at, reverse=True)
+        
+        # Format output
+        notes_text = f"📦 You have {len(archived_notes)} archived note(s):\n\n"
+        for i, note in enumerate(archived_notes[:20], 1):  # Show max 20
+            tags_str = f" #{' #'.join(note.tags)}" if note.tags else ""
+            icon = "📝" if note.note_type == "general" else "✅" if note.note_type == "todo" else "💡" if note.note_type == "idea" else "👥"
+            notes_text += f"{i}. {icon} {note.title}{tags_str}\n"
+            # Show content preview if different from title
+            if note.content and note.content != note.title:
+                preview = note.content[:100].replace('\n', ' ')
+                if len(note.content) > 100:
+                    preview += '...'
+                notes_text += f"   {preview}\n"
+            notes_text += f"   📅 Archived: {note.updated_at[:10]}\n"
+        
+        if len(archived_notes) > 20:
+            notes_text += f"\n... and {len(archived_notes) - 20} more archived notes"
+        
+        notes_text += "\n\n💡 Tip: Use 'unarchive note called [title]' to restore a note."
+        
+        return {
+            "success": True,
+            "message": notes_text,
+            "notes": [note.to_dict() for note in archived_notes]
+        }
+    
     def _delete_note(self, command: str) -> Dict[str, Any]:
         """Delete/archive a note"""
         # Extract note identifier from command
@@ -1109,13 +1157,14 @@ class NotesPlugin(PluginInterface):
             note_id = self.last_note_id
             note_to_delete = self.manager.get_note(note_id)
         
-        # Pattern 2: "delete note called/titled/about X"
+        # Pattern 2: "delete note called/titled/about X" or "delete the X" (e.g. "delete the grocery list")
         else:
             patterns = [
                 r'delete\s+(?:note\s+)?(?:called|titled|named|about)\s+(.+)',
                 r'delete\s+(?:the\s+)?(.+?)\s+note',
                 r'remove\s+(?:note\s+)?(?:called|titled|named|about)\s+(.+)',
                 r'remove\s+(?:the\s+)?(.+?)\s+note',
+                r'(?:delete|remove)\s+(?:the\s+)?(.+)$',  # "delete the grocery list" -> title "grocery list"
             ]
             
             for pattern in patterns:
