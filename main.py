@@ -969,7 +969,7 @@ class ALICE:
                         entities=entities,
                         recent_topics=self.conversation_topics[-3:] if self.conversation_topics else [],
                         active_goal=None,
-                        world_state=self.world_state if hasattr(self, 'world_state') else None
+                        world_state=self.reasoning_engine if hasattr(self, 'reasoning_engine') else None
                     )
                     
                     # Check if conversational engine can handle it
@@ -1068,7 +1068,7 @@ class ALICE:
                     entities=entities or {},
                     recent_topics=self.conversation_topics[-5:] if self.conversation_topics else [],
                     active_goal=goal_res.goal.description if (goal_res and goal_res.goal) else None,
-                    world_state=self.world_state
+                    world_state=self.reasoning_engine
                 )
                 
                 if self.conversational_engine.can_handle(user_input, intent, conv_context):
