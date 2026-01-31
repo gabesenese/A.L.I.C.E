@@ -300,19 +300,19 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
                 return assistant_message
             else:
                 logger.error(f"LLM API error: {response.status_code} - {response.text}")
-                return "I'm having trouble processing that. Could you try again?"
+                raise Exception(f"LLM API error: {response.status_code}")
                 
         except requests.exceptions.Timeout:
             logger.error("Request timeout")
-            return "[TIMEOUT] Response took too long. Let me try a simpler approach..."
+            raise Exception("Request timeout - please try again")
         except requests.exceptions.ConnectionError:
             logger.error("[A.L.I.C.E.] Connection lost - attempting auto-restart...")
             if self._ensure_ollama_running():
                 return self.chat(user_input, use_history)  # Retry once
-            return "[A.L.I.C.E.] Service temporarily unavailable. Please try again."
+            raise Exception("Service temporarily unavailable - Ollama not running")
         except Exception as e:
             logger.error(f"Error in LLM chat: {e}")
-            return "I encountered an error. Please try again."
+            raise
     
     def stream_chat(self, user_input: str):
         """
