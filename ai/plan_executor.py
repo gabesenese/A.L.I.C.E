@@ -313,7 +313,7 @@ class PlanExecutor:
             events = params.get('events', [])
             
             if not events:
-                return "No events found."
+                return None  # Let LLM generate "no events" message
             
             formatted = []
             for event in events:
