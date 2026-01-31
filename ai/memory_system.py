@@ -400,10 +400,26 @@ class MemorySystem:
         # Embedding function (lightweight - can use sentence-transformers for better results)
         self._embedding_model = None
         
+        # Consolidation tracking
+        self.turns_since_consolidation = 0
+        self.consolidation_interval = 100  # Consolidate every N turns
+        
         # Load existing memories
         self._load_memories()
         
         logger.info("[OK] Memory System initialized with document ingestion")
+    
+    def periodic_consolidation_check(self):
+        """
+        Check if periodic consolidation is needed
+        Call this at the end of each conversation turn
+        """
+        self.turns_since_consolidation += 1
+        
+        if self.turns_since_consolidation >= self.consolidation_interval:
+            logger.info(f"⏰ Running periodic memory consolidation (after {self.turns_since_consolidation} turns)")
+            self.consolidate_memories(max_episodic=1000, auto_deduplicate=True)
+            self.turns_since_consolidation = 0
     
     def _get_embedding_model(self):
         """Lazy load embedding model"""
@@ -916,17 +932,138 @@ class MemorySystem:
                 logger.error(f"Error loading document registry: {e}")
                 self.document_registry = {}
     
-    def consolidate_memories(self, max_episodic: int = 1000):
+    def calculate_memory_importance(self, memory: MemoryEntry) -> float:
         """
-        Consolidate old episodic memories
-        Keep important ones, summarize or archive others
+        Calculate dynamic importance score for a memory
+        
+        Factors:
+        1. Access frequency (0-0.3)
+        2. Recency (0-0.3)
+        3. Base importance (0-0.4)
+        
+        Returns:
+            Importance score (0-1)
         """
+        # Access frequency score (more accessed = more important)
+        # Cap at 20 accesses for scoring
+        access_score = min(memory.access_count / 20.0, 1.0) * 0.3
+        
+        # Recency score (newer = more important)
+        try:
+            mem_time = datetime.fromisoformat(memory.timestamp)
+            age_days = (datetime.now() - mem_time).days
+            # Decay over 30 days
+            recency_score = max(0, (30 - age_days) / 30.0) * 0.3
+        except:
+            recency_score = 0.0
+        
+        # Base importance (set at creation)
+        base_score = memory.importance * 0.4
+        
+        return min(access_score + recency_score + base_score, 1.0)
+    
+    def deduplicate_memories(self, similarity_threshold: float = 0.95):
+        """
+        Remove duplicate memories based on semantic similarity
+        
+        Args:
+            similarity_threshold: Cosine similarity threshold for duplicates (0-1)
+        """
+        removed_count = 0
+        
+        for memory_list_name in ['episodic_memory', 'semantic_memory']:
+            memory_list = getattr(self, memory_list_name)
+            
+            if len(memory_list) < 2:
+                continue
+            
+            # Build similarity matrix
+            to_remove = set()
+            
+            for i in range(len(memory_list)):
+                if i in to_remove:
+                    continue
+                    
+                for j in range(i + 1, len(memory_list)):
+                    if j in to_remove:
+                        continue
+                    
+                    # Compare embeddings if available
+                    if memory_list[i].embedding and memory_list[j].embedding:
+                        similarity = self._cosine_similarity(
+                            memory_list[i].embedding,
+                            memory_list[j].embedding
+                        )
+                        
+                        if similarity >= similarity_threshold:
+                            # Keep the one with higher importance
+                            importance_i = self.calculate_memory_importance(memory_list[i])
+                            importance_j = self.calculate_memory_importance(memory_list[j])
+                            
+                            if importance_i >= importance_j:
+                                to_remove.add(j)
+                                # Merge access counts
+                                memory_list[i].access_count += memory_list[j].access_count
+                            else:
+                                to_remove.add(i)
+                                memory_list[j].access_count += memory_list[i].access_count
+                                break  # Move to next i
+            
+            # Remove duplicates
+            if to_remove:
+                indices_to_keep = [i for i in range(len(memory_list)) if i not in to_remove]
+                new_list = [memory_list[i] for i in indices_to_keep]
+                setattr(self, memory_list_name, new_list)
+                removed_count += len(to_remove)
+        
+        if removed_count > 0:
+            logger.info(f"🔄 Deduplicated memories: removed {removed_count} duplicates")
+            self._save_memories()
+        
+        return removed_count
+    
+    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """Calculate cosine similarity between two vectors"""
+        v1 = np.array(vec1)
+        v2 = np.array(vec2)
+        
+        dot_product = np.dot(v1, v2)
+        norm_v1 = np.linalg.norm(v1)
+        norm_v2 = np.linalg.norm(v2)
+        
+        if norm_v1 == 0 or norm_v2 == 0:
+            return 0.0
+        
+        return dot_product / (norm_v1 * norm_v2)
+    
+    def consolidate_memories(self, max_episodic: int = 1000, auto_deduplicate: bool = True):
+        """
+        Consolidate old episodic memories with importance scoring
+        
+        Args:
+            max_episodic: Maximum episodic memories to keep
+            auto_deduplicate: Automatically remove duplicates first
+        
+        Process:
+        1. Deduplicate memories (optional)
+        2. Recalculate importance scores
+        3. Keep top N by importance
+        4. Archive rest
+        """
+        if auto_deduplicate:
+            self.deduplicate_memories()
+        
         if len(self.episodic_memory) <= max_episodic:
+            logger.info(f"✅ Memory consolidation not needed ({len(self.episodic_memory)} < {max_episodic})")
             return
         
-        # Sort by importance and recency
+        # Recalculate importance for all episodic memories
+        for memory in self.episodic_memory:
+            memory.importance = self.calculate_memory_importance(memory)
+        
+        # Sort by importance
         self.episodic_memory.sort(
-            key=lambda m: (m.importance, m.timestamp),
+            key=lambda m: m.importance,
             reverse=True
         )
         
@@ -934,7 +1071,38 @@ class MemorySystem:
         archived = self.episodic_memory[max_episodic:]
         self.episodic_memory = self.episodic_memory[:max_episodic]
         
-        logger.info(f"🗂️ Consolidated memories: kept {max_episodic}, archived {len(archived)}")
+        # Save archived memories to separate file
+        self._save_archived_memories(archived)
+        
+        logger.info(f"🗂️ Consolidated memories: kept {max_episodic} (avg importance: {sum(m.importance for m in self.episodic_memory)/len(self.episodic_memory):.2f}), archived {len(archived)}")
+        
+        # Save updated memories
+        self._save_memories()
+    
+    def _save_archived_memories(self, archived: List[MemoryEntry]):
+        """Save archived memories to separate file"""
+        try:
+            archive_file = os.path.join(self.data_dir, "archived_memories.json")
+            
+            # Load existing archive if exists
+            existing_archive = []
+            if os.path.exists(archive_file):
+                try:
+                    with open(archive_file, 'r', encoding='utf-8') as f:
+                        existing_archive = json.load(f)
+                except:
+                    pass
+            
+            # Append new archived memories
+            new_archive = existing_archive + [asdict(m) for m in archived]
+            
+            # Save
+            with open(archive_file, 'w', encoding='utf-8') as f:
+                json.dump(new_archive, f, indent=2)
+            
+            logger.info(f"📦 Archived {len(archived)} memories to {archive_file}")
+        except Exception as e:
+            logger.error(f"Error archiving memories: {e}")
     
     def get_statistics(self) -> Dict[str, Any]:
         """Get memory system statistics"""

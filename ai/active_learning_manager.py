@@ -68,6 +68,7 @@ class LearningPattern:
     usage_count: int
     success_rate: float
     last_updated: str
+    validation_count: int = 1  # Number of times pattern was validated
 
 @dataclass
 class FeedbackEntry:
@@ -85,16 +86,28 @@ class FeedbackEntry:
 class ActiveLearningManager:
     """Manages active learning from user corrections and feedback"""
     
-    def __init__(self, data_dir: str = "memory"):
+    # Safety thresholds
+    MIN_EXAMPLES_TO_APPLY = 3  # Minimum corrections before applying pattern
+    MIN_CONFIDENCE_TO_APPLY = 0.7  # Minimum confidence to auto-apply
+    MIN_SUCCESS_RATE = 0.6  # Minimum success rate to keep pattern
+    
+    def __init__(self, data_dir: str = "memory", shadow_mode: bool = False):
         self.data_dir = data_dir
         self.corrections_file = os.path.join(data_dir, "corrections.json")
         self.patterns_file = os.path.join(data_dir, "learning_patterns.json")
         self.feedback_file = os.path.join(data_dir, "user_feedback.json")
+        self.pattern_versions_file = os.path.join(data_dir, "pattern_versions.json")
         
         # Learning data
         self.corrections: List[Correction] = []
         self.learning_patterns: List[LearningPattern] = []
         self.feedback_entries: List[FeedbackEntry] = []
+        
+        # Pattern versioning
+        self.pattern_versions: Dict[str, List[Dict]] = {}  # pattern_id -> list of versions
+        
+        # Shadow mode: log corrections but don't apply
+        self.shadow_mode = shadow_mode
         
         # Performance tracking
         self.performance_metrics = {
@@ -103,6 +116,9 @@ class ActiveLearningManager:
             'accuracy_improvement': 0.0,
             'user_satisfaction': 0.0
         }
+        
+        # Rollback capability
+        self.rollback_log = []
         
         # Load existing data
         self._load_data()
@@ -127,6 +143,11 @@ class ActiveLearningManager:
                 with open(self.feedback_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.feedback_entries = [FeedbackEntry(**item) for item in data]
+            
+            # Load pattern versions
+            if os.path.exists(self.pattern_versions_file):
+                with open(self.pattern_versions_file, 'r', encoding='utf-8') as f:
+                    self.pattern_versions = json.load(f)
                     
         except Exception as e:
             print(f"Warning: Could not load active learning data: {e}")
@@ -147,6 +168,10 @@ class ActiveLearningManager:
             # Save feedback
             with open(self.feedback_file, 'w', encoding='utf-8') as f:
                 json.dump([asdict(f) for f in self.feedback_entries], f, indent=2, ensure_ascii=False)
+            
+            # Save pattern versions
+            with open(self.pattern_versions_file, 'w', encoding='utf-8') as f:
+                json.dump(self.pattern_versions, f, indent=2, ensure_ascii=False)
                 
         except Exception as e:
             print(f"Error saving active learning data: {e}")
@@ -217,12 +242,126 @@ class ActiveLearningManager:
     
     def _analyze_new_correction(self, correction: Correction):
         """Analyze a new correction to potentially create learning patterns"""
+        # SAFETY: Only create patterns if we have enough examples
+        similar_corrections = self._count_similar_corrections(correction)
+        
+        if similar_corrections < self.MIN_EXAMPLES_TO_APPLY - 1:
+            print(f"⏳ Shadow mode: Need {self.MIN_EXAMPLES_TO_APPLY - similar_corrections - 1} more example(s) before creating pattern")
+            return
+        
         if correction.correction_type == CorrectionType.INTENT_CLASSIFICATION.value:
             self._analyze_intent_correction(correction)
         elif correction.correction_type == CorrectionType.ENTITY_EXTRACTION.value:
             self._analyze_entity_correction(correction)
         elif correction.correction_type == CorrectionType.RESPONSE_QUALITY.value:
             self._analyze_response_correction(correction)
+    
+    def _count_similar_corrections(self, correction: Correction) -> int:
+        """Count corrections of the same type with similar context"""
+        count = 0
+        for existing in self.corrections:
+            if existing.id != correction.id and \
+               existing.correction_type == correction.correction_type:
+                # Simple similarity check
+                if existing.original_output == correction.original_output and \
+                   existing.corrected_output == correction.corrected_output:
+                    count += 1
+        return count
+    
+    def should_apply_pattern(self, pattern: LearningPattern) -> bool:
+        """
+        Safety check: determine if a pattern should be applied
+        
+        Returns:
+            True if pattern passes all safety checks
+        """
+        # Shadow mode: never apply, just log
+        if self.shadow_mode:
+            print(f"🔍 Shadow mode: Would apply pattern {pattern.pattern_id}")
+            return False
+        
+        # Check minimum examples
+        if pattern.validation_count < self.MIN_EXAMPLES_TO_APPLY:
+            print(f"⚠️ Pattern {pattern.pattern_id} needs more examples ({pattern.validation_count}/{self.MIN_EXAMPLES_TO_APPLY})")
+            return False
+        
+        # Check confidence
+        if pattern.confidence < self.MIN_CONFIDENCE_TO_APPLY:
+            print(f"⚠️ Pattern {pattern.pattern_id} confidence too low ({pattern.confidence:.2f} < {self.MIN_CONFIDENCE_TO_APPLY})")
+            return False
+        
+        # Check success rate
+        if pattern.usage_count > 0 and pattern.success_rate < self.MIN_SUCCESS_RATE:
+            print(f"⚠️ Pattern {pattern.pattern_id} success rate too low ({pattern.success_rate:.2f} < {self.MIN_SUCCESS_RATE})")
+            return False
+        
+        return True
+    
+    def version_pattern(self, pattern: LearningPattern, changes: Dict[str, Any]):
+        """
+        Create new version of pattern (for rollback capability)
+        
+        Args:
+            pattern: Pattern to version
+            changes: Description of changes
+        """
+        if pattern.pattern_id not in self.pattern_versions:
+            self.pattern_versions[pattern.pattern_id] = []
+        
+        version = {
+            "version_number": len(self.pattern_versions[pattern.pattern_id]) + 1,
+            "timestamp": datetime.now().isoformat(),
+            "pattern_snapshot": asdict(pattern),
+            "changes": changes
+        }
+        
+        self.pattern_versions[pattern.pattern_id].append(version)
+        self._save_data()
+        
+        print(f"📝 Created version {version['version_number']} of pattern {pattern.pattern_id}")
+    
+    def rollback_pattern(self, pattern_id: str, version_number: int = None) -> bool:
+        """
+        Rollback pattern to previous version
+        
+        Args:
+            pattern_id: Pattern to rollback
+            version_number: Version to rollback to (default: previous version)
+        
+        Returns:
+            True if rollback successful
+        """
+        if pattern_id not in self.pattern_versions:
+            print(f"❌ No versions found for pattern {pattern_id}")
+            return False
+        
+        versions = self.pattern_versions[pattern_id]
+        if not versions:
+            print(f"❌ No versions found for pattern {pattern_id}")
+            return False
+        
+        # Default to previous version
+        if version_number is None:
+            version_number = len(versions) - 1
+        
+        if version_number < 1 or version_number > len(versions):
+            print(f"❌ Invalid version number {version_number}")
+            return False
+        
+        # Restore version
+        version_data = versions[version_number - 1]
+        restored_pattern = LearningPattern(**version_data["pattern_snapshot"])
+        
+        # Find and replace pattern
+        for i, pattern in enumerate(self.learning_patterns):
+            if pattern.pattern_id == pattern_id:
+                self.learning_patterns[i] = restored_pattern
+                print(f"✅ Rolled back pattern {pattern_id} to version {version_number}")
+                self._save_data()
+                return True
+        
+        print(f"❌ Pattern {pattern_id} not found in active patterns")
+        return False
     
     def _analyze_intent_correction(self, correction: Correction):
         """Analyze intent classification corrections"""
