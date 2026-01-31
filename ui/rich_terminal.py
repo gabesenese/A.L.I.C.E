@@ -33,11 +33,11 @@ class RichTerminalUI:
         
         # ASCII Art - align as one block so "justify center" doesn't shift each line
         ascii_lines = [
-            "    ___    __    ____  ________  ______",
-            "   /   |  / /   /  _/ / ____/   / ____/",
-            "  / /| | / /    / /  / /       / __/   ",
-            " / ___ |/ /____/ /_ / /____   / /___   ",
-            "/_/  |_/_____/___(_)_____/   /_____/   ",
+            "    ___    __    ____  _______  ______",
+            "   /   |  / /   /  _/ / ____/  / ____/",
+            "  / /| | / /    / /  / /      / __/   ",
+            " / ___ |/ /____/ /_ / /____  / /___   ",
+            "/_/  |_/_____/___(_)_____/  /_____/   ",
         ]
         # Same width for every line so the block stays rectangular
         art_width = max(len(line) for line in ascii_lines)
