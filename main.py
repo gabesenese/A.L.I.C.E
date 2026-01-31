@@ -1087,16 +1087,12 @@ class ALICE:
                 return weather_followup
             
             # 1.6. Reasoning engine - check for uncertainty and need for clarification
-            intent_confidence = getattr(nlp_result, 'intent_confidence', 0.7)
-            # Reasoning engine doesn't have reason_about_intent method in unified version
-            # Skip reasoning for now
-                # Update intent confidence from reasoning
-                    intent_confidence = reasoning.confidence
-                    self._think(f"Reasoning → adjusted confidence to {intent_confidence:.2f}")
+            # Reasoning engine in unified version doesn't have reason_about_intent method
+            # Skip this step for now (can be added later if needed)
             
             # 2. Advanced Context Processing (GLOBAL - for all interactions)
             context_resolved_input = user_input
-            if self.advanced_context:
+            if hasattr(self, 'context') and self.context:
                 # Process the turn and get any resolved references
                 turn = self.advanced_context.process_turn(
                     user_input=user_input,
