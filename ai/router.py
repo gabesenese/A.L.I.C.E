@@ -12,12 +12,16 @@ logger = logging.getLogger(__name__)
 
 
 class RoutingDecision(Enum):
-    """Explicit routing paths"""
-    CONVERSATION_ONLY = "conversation"  # Use conversational engine (no LLM)
-    TOOL_CALL = "tool"                  # Execute plugin/tool
-    LLM_GENERATION = "llm"              # Generate with LLM
-    HYBRID = "hybrid"                   # Tool + LLM formatting
-    ERROR = "error"                     # Routing failed
+    """
+    Explicit routing paths in strict priority order
+    Lower number = higher priority
+    """
+    SELF_REFLECTION = "self_reflection"  # Code introspection, training stats, system commands (priority 1)
+    CONVERSATIONAL = "conversational"    # Learned patterns, greetings, chitchat (priority 2)
+    TOOL_CALL = "tool"                   # Plugin/tool execution (priority 3)
+    RAG_ONLY = "rag_only"               # Knowledge base retrieval without generation (priority 4)
+    LLM_FALLBACK = "llm_fallback"       # LLM generation (last resort, priority 5)
+    ERROR = "error"                      # Routing failed
 
 
 @dataclass
@@ -36,15 +40,24 @@ class RouteResult:
 
 class RequestRouter:
     """
-    Deterministic router that decides how to handle user input
+    Deterministic router with strict priority ordering
     
-    Routing Logic:
-    1. Check if conversational engine can handle (greetings, small talk, etc.)
-    2. Check if a tool/plugin should be called based on intent
-    3. Fall back to LLM for complex generation
+    Routing Order (Priority):
+    1. SELF_REFLECTION: Code/training/system introspection
+    2. CONVERSATIONAL: Learned patterns from conversational engine
+    3. TOOL_CALL: Plugin execution with structured output
+    4. RAG_ONLY: Knowledge base retrieval without LLM generation
+    5. LLM_FALLBACK: LLM generation (last resort)
     
-    This separation makes the system testable and predictable.
+    This makes routing testable, predictable, and minimizes LLM dependency.
     """
+    
+    # Intents for self-reflection (highest priority)
+    SELF_REFLECTION_INTENTS = {
+        'code_request', 'code_analysis', 'training_status', 'system_info',
+        'performance_metrics', 'memory_stats', 'learning_stats',
+        'debug_mode', 'self_analysis'
+    }
     
     # Intents that conversational engine handles without LLM
     CONVERSATION_INTENTS = {
@@ -86,7 +99,12 @@ class RequestRouter:
         'document_ingest', 'document_query', 'document_list'
     }
     
-    # Intents that need LLM generation
+    # Intents that can use RAG without generation
+    RAG_INTENTS = {
+        'document_query', 'fact_lookup', 'definition', 'information_retrieval'
+    }
+    
+    # Intents that need LLM generation (last resort)
     LLM_INTENTS = {
         'question_answering', 'explanation', 'creative_writing',
         'summarization', 'translation', 'analysis', 'reasoning',
@@ -101,10 +119,11 @@ class RequestRouter:
     def __init__(self):
         """Initialize router"""
         self.routing_stats = {
-            'conversation': 0,
+            'self_reflection': 0,
+            'conversational': 0,
             'tool': 0,
-            'llm': 0,
-            'hybrid': 0,
+            'rag': 0,
+            'llm_fallback': 0,
             'error': 0
         }
     
@@ -116,7 +135,7 @@ class RequestRouter:
         context: Optional[Dict[str, Any]] = None
     ) -> RouteResult:
         """
-        Make routing decision based on intent and confidence
+        Make routing decision with strict priority ordering
         
         Args:
             intent: Detected intent from NLP
@@ -129,63 +148,69 @@ class RequestRouter:
         """
         context = context or {}
         
-        # State machine: CONVERSATION_ONLY → TOOL_CALL → LLM_FALLBACK
+        # Priority 1: SELF_REFLECTION (code, training, system)
+        if intent in self.SELF_REFLECTION_INTENTS:
+            self.routing_stats['self_reflection'] += 1
+            return RouteResult(
+                decision=RoutingDecision.SELF_REFLECTION,
+                confidence=1.0,  # Always high confidence for self-reflection
+                reasoning=f"Self-reflection intent: {intent}"
+            )
         
-        # State 1: CONVERSATION_ONLY
+        # Priority 2: CONVERSATIONAL (learned patterns)
         if intent in self.CONVERSATION_INTENTS:
             if confidence >= self.MIN_CONV_CONFIDENCE:
-                self.routing_stats['conversation'] += 1
+                self.routing_stats['conversational'] += 1
                 return RouteResult(
-                    decision=RoutingDecision.CONVERSATION_ONLY,
+                    decision=RoutingDecision.CONVERSATIONAL,
                     confidence=confidence,
-                    reasoning=f"High-confidence conversational intent: {intent}"
+                    reasoning=f"Conversational pattern: {intent}"
                 )
         
-        # State 2: TOOL_CALL
+        # Priority 3: TOOL_CALL (plugins with structured output)
         if intent in self.TOOL_INTENTS:
             tool_name = self._intent_to_tool(intent)
             
             if confidence >= self.MIN_TOOL_CONFIDENCE:
-                # Check if tool needs LLM for response formatting
-                needs_llm_formatting = self._tool_needs_llm(intent, entities)
-                
-                if needs_llm_formatting:
-                    self.routing_stats['hybrid'] += 1
-                    return RouteResult(
-                        decision=RoutingDecision.HYBRID,
-                        confidence=confidence,
-                        tool_name=tool_name,
-                        reasoning=f"Tool call with LLM formatting: {intent}",
-                        metadata={'format_with_llm': True}
-                    )
-                else:
-                    self.routing_stats['tool'] += 1
-                    return RouteResult(
-                        decision=RoutingDecision.TOOL_CALL,
-                        confidence=confidence,
-                        tool_name=tool_name,
-                        reasoning=f"Direct tool execution: {intent}"
-                    )
+                self.routing_stats['tool'] += 1
+                return RouteResult(
+                    decision=RoutingDecision.TOOL_CALL,
+                    confidence=confidence,
+                    tool_name=tool_name,
+                    reasoning=f"Tool execution: {intent}",
+                    metadata={'use_simple_formatter': True}  # Use rule-based formatter, not LLM
+                )
             else:
-                # Low confidence - ask for clarification via LLM
+                # Low confidence - ask user for clarification
                 logger.warning(f"Low confidence ({confidence:.2f}) for tool intent: {intent}")
         
-        # State 3: LLM_FALLBACK
-        if intent in self.LLM_INTENTS or confidence < self.MIN_TOOL_CONFIDENCE:
-            self.routing_stats['llm'] += 1
+        # Priority 4: RAG_ONLY (knowledge retrieval without generation)
+        if intent in self.RAG_INTENTS:
+            self.routing_stats['rag'] += 1
             return RouteResult(
-                decision=RoutingDecision.LLM_GENERATION,
+                decision=RoutingDecision.RAG_ONLY,
                 confidence=confidence,
-                reasoning=f"LLM generation for intent: {intent}"
+                reasoning=f"RAG retrieval: {intent}"
             )
         
-        # Unknown intent - default to LLM
-        logger.warning(f"Unknown intent: {intent}, falling back to LLM")
-        self.routing_stats['llm'] += 1
+        # Priority 5: LLM_FALLBACK (last resort)
+        if intent in self.LLM_INTENTS or confidence < self.MIN_TOOL_CONFIDENCE:
+            self.routing_stats['llm_fallback'] += 1
+            return RouteResult(
+                decision=RoutingDecision.LLM_FALLBACK,
+                confidence=confidence,
+                reasoning=f"LLM fallback for intent: {intent}",
+                metadata={'require_user_approval': True}  # Ask before calling LLM
+            )
+        
+        # Unknown intent - ask user what they want
+        logger.warning(f"Unknown intent: {intent}, cannot route")
+        self.routing_stats['error'] += 1
         return RouteResult(
-            decision=RoutingDecision.LLM_GENERATION,
-            confidence=0.5,
-            reasoning=f"Unknown intent fallback: {intent}"
+            decision=RoutingDecision.ERROR,
+            confidence=0.0,
+            reasoning=f"Unknown intent: {intent}",
+            metadata={'suggested_fallback': 'Ask user for clarification'}
         )
     
     def _intent_to_tool(self, intent: str) -> Optional[str]:
@@ -252,24 +277,6 @@ class RequestRouter:
         }
         return intent_tool_map.get(intent)
     
-    def _tool_needs_llm(self, intent: str, entities: Dict[str, Any]) -> bool:
-        """
-        Determine if tool result needs LLM formatting
-        
-        Some tools return structured data that needs natural language formatting.
-        Others can return user-ready responses directly.
-        """
-        # Tools that return structured data needing LLM formatting
-        llm_formatting_intents = {
-            'email_read', 'email_search',  # Email lists need formatting
-            'calendar_read',                # Event lists need formatting
-            'file_search',                  # Search results need formatting
-            'web_search', 'news_query',    # Search results need formatting
-            'weather_query',                # Weather data needs formatting
-            'document_query'                # RAG results need formatting
-        }
-        
-        return intent in llm_formatting_intents
     
     def get_stats(self) -> Dict[str, int]:
         """Get routing statistics"""

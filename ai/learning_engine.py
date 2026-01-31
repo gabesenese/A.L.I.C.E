@@ -241,8 +241,126 @@ class LearningEngine:
             'average_rating': float(avg_rating),
             'ready_for_finetuning': self.should_finetune(),
             'by_intent': self.stats.get('examples_by_intent', {}),
-            'quality_distribution': self.stats.get('quality_distribution', {})
+            'quality_distribution': self.stats.get('quality_distribution', {}),
+            'llm_calls_logged': self.stats.get('llm_calls_logged', 0)
         }
+    
+    def log_llm_call(
+        self,
+        user_input: str,
+        llm_response: str,
+        intent: Optional[str] = None,
+        context: Dict[str, Any] = None
+    ):
+        """
+        Log LLM call for pattern learning (gatekeeper function)
+        
+        This is called EVERY time LLM is used, so we can:
+        1. Track unhandled → LLM patterns
+        2. Auto-create deterministic patterns when threshold met
+        3. Suggest learning opportunities
+        """
+        # Collect as normal interaction
+        self.collect_interaction(
+            user_input=user_input,
+            assistant_response=llm_response,
+            intent=intent or 'llm_fallback',
+            quality_score=0.8  # LLM responses are generally good
+        )
+        
+        # Track LLM usage
+        self.stats['llm_calls_logged'] = self.stats.get('llm_calls_logged', 0) + 1
+        
+        # Check if this input has been asked before
+        similar_count = self._count_similar_inputs(user_input)
+        
+        if similar_count >= 3:
+            logger.info(f"Pattern opportunity: '{user_input[:50]}...' asked {similar_count} times - consider creating pattern")
+            return {
+                'should_create_pattern': True,
+                'similar_count': similar_count,
+                'suggested_response': llm_response
+            }
+        
+        return {
+            'should_create_pattern': False,
+            'similar_count': similar_count
+        }
+    
+    def _count_similar_inputs(self, user_input: str, threshold: float = 0.85) -> int:
+        """Count how many times similar input was asked"""
+        user_input_lower = user_input.lower().strip()
+        count = 0
+        
+        for ex in self.examples:
+            # Simple similarity check
+            ex_input_lower = ex.user_input.lower().strip()
+            
+            # Exact match
+            if ex_input_lower == user_input_lower:
+                count += 1
+            # Fuzzy match (simple word overlap)
+            elif self._fuzzy_match(ex_input_lower, user_input_lower) > threshold:
+                count += 1
+        
+        return count
+    
+    def _fuzzy_match(self, str1: str, str2: str) -> float:
+        """Simple fuzzy matching based on word overlap"""
+        words1 = set(str1.split())
+        words2 = set(str2.split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+        
+        return len(intersection) / len(union) if union else 0.0
+    
+    def suggest_pattern_creation(self, min_occurrences: int = 3) -> List[Dict[str, Any]]:
+        """
+        Suggest patterns that should be created based on repeated LLM calls
+        
+        Returns:
+            List of pattern suggestions with user_input, response, count
+        """
+        from collections import defaultdict
+        
+        # Group similar inputs
+        input_groups = defaultdict(list)
+        
+        for ex in self.examples:
+            # Normalize input
+            normalized = ex.user_input.lower().strip()
+            
+            # Find similar group
+            found_group = False
+            for key in input_groups:
+                if self._fuzzy_match(normalized, key) > 0.85:
+                    input_groups[key].append(ex)
+                    found_group = True
+                    break
+            
+            if not found_group:
+                input_groups[normalized].append(ex)
+        
+        # Find groups with enough occurrences
+        suggestions = []
+        for normalized_input, examples in input_groups.items():
+            if len(examples) >= min_occurrences:
+                # Get most common response
+                responses = [ex.assistant_response for ex in examples]
+                most_common_response = max(set(responses), key=responses.count)
+                
+                suggestions.append({
+                    'user_input': examples[0].user_input,  # Use first original form
+                    'suggested_response': most_common_response,
+                    'occurrence_count': len(examples),
+                    'should_learn': True
+                })
+        
+        return sorted(suggestions, key=lambda x: x['occurrence_count'], reverse=True)
     
     # --- Internal methods ---
     
