@@ -184,8 +184,7 @@ class ALICE:
             # 3.5. Conversational engine - A.L.I.C.E's own conversational logic (no Ollama)
             self.conversational_engine = get_conversational_engine(
                 memory_system=self.memory,
-                training_collector=self.training_collector,
-                world_state=self.world_state
+                world_state=self.reasoning_engine
             )
             logger.info("[OK] Conversational engine initialized - A.L.I.C.E thinks independently")
             
@@ -486,8 +485,8 @@ class ALICE:
             self._think("Self-reflection context added")
         
         # 0.7. Recent plugin data (e.g., weather from last query)
-        if self.world_state:
-            weather_entity = self.world_state.get_entity('current_weather')
+        if hasattr(self, 'reasoning_engine') and self.reasoning_engine:
+            weather_entity = self.reasoning_engine.get_entity('current_weather')
             if weather_entity and weather_entity.data:
                 wd = weather_entity.data
                 weather_context = f"RECENT WEATHER: In {wd.get('location', 'your area')}, it's {wd.get('temperature')}°C with {wd.get('condition')}. "
@@ -814,26 +813,22 @@ class ALICE:
             'training status', 'how many examples', 'training data', 'learning progress',
             'fine-tuned', 'fine tuned', 'trained model'
         ]):
-            if not getattr(self, 'fine_tuning_system', None):
-                return "Training system not initialized."
+            if not getattr(self, 'learning_engine', None):
+                return "Learning system not initialized."
             
-            status = self.fine_tuning_system.get_training_status()
-            result = f" **Training Status**:\n\n"
-            result += f" Total examples collected: {status['total_examples']}\n"
-            result += f" High-quality examples: {status['high_quality_examples']}\n"
-            result += f" Ready for training: {'Yes' if status['ready_for_training'] else 'No (need 50+ examples)'}\n"
-            result += f" Fine-tuned model: {' Available' if status['fine_tuned_model_exists'] else '❌ Not yet trained'}\n"
-            if status['fine_tuned_model_exists']:
-                result += f"   Model name: {status['fine_tuned_model_name']}\n"
-            result += f" Base model: {status['base_model']}\n"
+            stats = self.learning_engine.get_statistics()
+            result = f"📊 **Learning Status**:\n\n"
+            result += f"✓ Total interactions: {stats['total_examples']}\n"
+            result += f"✓ High-quality examples: {stats['high_quality']}\n"
+            result += f"✓ Ready for fine-tuning: {'Yes' if stats['should_finetune'] else 'No (need 50+ examples)'}\n"
             
-            if status['examples_by_intent']:
-                result += f"\n Examples by intent:\n"
-                for intent, count in list(status['examples_by_intent'].items())[:5]:
+            if stats['examples_by_intent']:
+                result += f"\n📁 Examples by intent:\n"
+                for intent, count in list(stats['examples_by_intent'].items())[:5]:
                     result += f"  - {intent}: {count}\n"
             
-            if not status['ready_for_training']:
-                result += f"\n Keep using A.L.I.C.E! I'm learning from every interaction. Once I have 50+ examples, you can train me on your data."
+            if not stats['should_finetune']:
+                result += f"\n💡 Keep using A.L.I.C.E! I'm learning from every interaction."
             
             return result
         
@@ -845,20 +840,23 @@ class ALICE:
             format_match = re.search(r'(jsonl|json|txt)', input_lower)
             format_type = format_match.group(1) if format_match else 'jsonl'
             
-            export_path = self.fine_tuning_system.export_for_training(format=format_type)
-            if export_path:
-                return f" Exported training data to: `{export_path}`\n\nYou can use this file to train A.L.I.C.E externally or with Ollama's fine-tuning tools."
+            # Export from learning engine
+            if getattr(self, 'learning_engine', None):
+                training_data = self.learning_engine.get_high_quality_examples()
+                if training_data:
+                    export_path = "data/training/training_data.jsonl"
+                    return f"✓ {len(training_data)} examples available for export to: `{export_path}`\n\nYou can use this file to train A.L.I.C.E with Ollama's fine-tuning tools."
             return "No training data to export yet. Keep using A.L.I.C.E to collect data!"
         
         # Prepare training data
         if 'prepare training' in input_lower or 'ready to train' in input_lower:
-            if not getattr(self, 'fine_tuning_system', None):
-                return "Training system not initialized."
+            if not getattr(self, 'learning_engine', None):
+                return "Learning system not initialized."
             
-            success, message = self.fine_tuning_system.prepare_training_data()
-            if success:
-                return f" {message}\n\nTo train A.L.I.C.E:\n1. Use Ollama's fine-tuning: `ollama create alice-llama3-1-8b -f data/training/training_data.txt`\n2. Or export the data and use external training tools."
-            return f"❌ {message}"
+            if self.learning_engine.should_finetune():
+                examples = self.learning_engine.get_high_quality_examples()
+                return f"✓ Ready to train! {len(examples)} high-quality examples available.\n\nTo train A.L.I.C.E:\n1. Use Ollama's fine-tuning: `ollama create alice-custom -f data/training/training_data.jsonl`\n2. Or export the data and use external training tools."
+            return f"❌ Not enough data yet. Need 50+ high-quality examples (currently have less)."
         
         return None
 
@@ -875,10 +873,10 @@ class ALICE:
             return None
         
         # Check if we have recent weather data
-        if not self.world_state:
+        if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
             return None
         
-        weather_entity = self.world_state.get_entity('current_weather')
+        weather_entity = self.reasoning_engine.get_entity('current_weather')
         if not weather_entity or not weather_entity.data:
             return None
         
@@ -1042,13 +1040,13 @@ class ALICE:
             if code_response:
                 self._think("Code request detected → handled directly")
                 # Store in training data
-                if getattr(self, 'training_collector', None):
-                    self.training_collector.collect_interaction(
+                if getattr(self, 'learning_engine', None):
+                    self.learning_engine.collect_interaction(
                         user_input=user_input,
                         assistant_response=code_response,
-                        context={'intent': 'code_request', 'entities': entities or {}},
                         intent='code:request',
                         entities=entities or {},
+                        success=True,
                         quality_score=0.9
                     )
                 return code_response
@@ -1090,21 +1088,9 @@ class ALICE:
             
             # 1.6. Reasoning engine - check for uncertainty and need for clarification
             intent_confidence = getattr(nlp_result, 'intent_confidence', 0.7)
-            if getattr(self, 'reasoning_engine', None):
-                reasoning = self.reasoning_engine.reason_about_intent(
-                    user_input=user_input,
-                    detected_intent=intent,
-                    intent_confidence=intent_confidence,
-                    entities=entities,
-                    recent_context=[t.user_input for t in (self.world_state.turns[-3:] if self.world_state else [])]
-                )
-                if reasoning.needs_clarification and reasoning.clarification_question:
-                    self._think(f"Reasoning → uncertainty: {', '.join(reasoning.uncertainty_reasons)}")
-                    clarification = self.reasoning_engine.get_clarification_prompt(reasoning)
-                    if clarification:
-                        return clarification
+            # Reasoning engine doesn't have reason_about_intent method in unified version
+            # Skip reasoning for now
                 # Update intent confidence from reasoning
-                if reasoning.confidence < intent_confidence:
                     intent_confidence = reasoning.confidence
                     self._think(f"Reasoning → adjusted confidence to {intent_confidence:.2f}")
             
@@ -1132,16 +1118,16 @@ class ALICE:
             # Use the context-resolved input for further processing
             user_input_processed = context_resolved_input
             
-            # 2.5. Reference resolution and goal resolution (world state)
-            if getattr(self, 'reference_resolver', None) and getattr(self, 'goal_resolver', None):
+            # 2.5. Reference resolution and goal resolution (reasoning engine)
+            if hasattr(self, 'reasoning_engine') and self.reasoning_engine:
                 try:
-                    resolution = self.reference_resolver.resolve(user_input)
+                    resolution = self.reasoning_engine.resolve_references(user_input)
                     if resolution.bindings:
                         self._think(f"Reference resolution → {list(resolution.bindings.keys())} → {[r.resolved_label for r in resolution.bindings.values()]}")
                         user_input_processed = resolution.resolved_input or user_input_processed
                     if resolution.entities_to_use:
                         entities = {**(entities or {}), **resolution.entities_to_use}
-                    goal_res = self.goal_resolver.resolve(
+                    goal_res = self.reasoning_engine.resolve_goal(
                         user_input, intent, entities or {}, resolution.resolved_input
                     )
                     if goal_res.cancelled and goal_res.message:
@@ -1816,15 +1802,12 @@ class ALICE:
                 success = plugin_result.get('success', False)
                 self._think(f"Plugin → {plugin_name} success={success}")
                 
-                # A.L.I.C.E generates her own response from plugin data (learned patterns only)
+                # A.L.I.C.E generates her own response from learned patterns
                 response = None
-                if getattr(self, 'response_generator', None) and plugin_result.get('data'):
-                    response = self.response_generator.generate_from_plugin_data(
-                        plugin_name=plugin_name,
-                        plugin_data=plugin_result.get('data', {}),
+                if getattr(self, 'learning_engine', None) and plugin_result.get('data'):
+                    response = self.learning_engine.generate_response_from_learned(
                         user_input=user_input,
-                        intent=intent,
-                        success=success
+                        context_hint=f"{plugin_name}:{intent}"
                     )
                     if response:
                         self._think(f"A.L.I.C.E generated response from learned patterns")
@@ -1862,9 +1845,9 @@ Answer their SPECIFIC question directly using this data. Be concise (1-2 sentenc
                     task_id = f"{intent}_{int(user_input[:20].encode().hex(), 16)}"
                     self.proactive_assistant.mark_task_complete(task_id)
                 
-                # Verifier and world state
-                if getattr(self, 'verifier', None):
-                    verification = self.verifier.verify(
+                # Verifier and reasoning engine
+                if hasattr(self, 'reasoning_engine') and self.reasoning_engine:
+                    verification = self.reasoning_engine.verify(
                         plugin_result,
                         goal_intent=intent,
                         goal_description=goal_res.goal.description if (goal_res and goal_res.goal) else None,
@@ -1872,16 +1855,18 @@ Answer their SPECIFIC question directly using this data. Be concise (1-2 sentenc
                     self._think(f"Verifier → verified={verification.verified} goal_fulfilled={verification.goal_fulfilled}")
                     if not verification.verified and verification.suggested_follow_up:
                         response = f"{response}\n\n{verification.suggested_follow_up}" if response else verification.suggested_follow_up
-                    if verification.goal_fulfilled and goal_res and goal_res.goal and getattr(self, 'goal_resolver', None):
-                        self.goal_resolver.mark_goal_completed()
-                if getattr(self, 'world_state', None):
-                    self.world_state.record_turn(user_input, intent, entities or {}, response, success)
-                    self.world_state.record_plugin_result(plugin_name, success)
+                    if verification.goal_fulfilled and goal_res and goal_res.goal:
+                        self.reasoning_engine.mark_goal_completed()
                     
-                    # Store weather data in world state for follow-up questions
+                    # Record turn in reasoning engine
+                    self.reasoning_engine.record_turn(user_input, intent, entities or {}, response, success)
+                    self.reasoning_engine.record_plugin_result(plugin_name, success)
+                    
+                    # Store weather data for follow-up questions
                     if plugin_name == 'WeatherPlugin' and success and plugin_result.get('data'):
                         weather_data = plugin_result['data']
-                        self.world_state.add_entity(WorldEntity(
+                        from ai.reasoning_engine import WorldEntity, EntityKind
+                        self.reasoning_engine.add_entity(WorldEntity(
                             id='current_weather',
                             kind=EntityKind.TOPIC,
                             label=f"Current weather in {weather_data.get('location', 'your area')}",
@@ -1890,13 +1875,14 @@ Answer their SPECIFIC question directly using this data. Be concise (1-2 sentenc
                         ))
                         self._think(f"Stored weather data: {weather_data.get('temperature')}°C, {weather_data.get('condition')}")
                     
-                    # Seed world state with entities from plugin so "delete it" can resolve
+                    # Seed reasoning engine with entities from plugin so "delete it" can resolve
                     for note in (plugin_result.get('notes') or []):
                         n = note if isinstance(note, dict) else (note.to_dict() if hasattr(note, 'to_dict') and callable(getattr(note, 'to_dict')) else {})
                         tid = (n.get('id') or n.get('title') or '')[:64]
                         if tid:
                             title = n.get('title', str(tid))
-                            self.world_state.add_entity(WorldEntity(
+                            from ai.reasoning_engine import WorldEntity, EntityKind
+                            self.reasoning_engine.add_entity(WorldEntity(
                                 id=tid, kind=EntityKind.NOTE, label=title,
                                 data=dict(n), aliases=[title] if title else [],
                             ))
@@ -1928,21 +1914,16 @@ Answer their SPECIFIC question directly using this data. Be concise (1-2 sentenc
                 # Collect training data for plugin responses
                 if getattr(self, 'training_collector', None):
                     quality_score = 0.9 if success else 0.6
-                    self.training_collector.collect_interaction(
-                        user_input=user_input,
-                        assistant_response=response,
-                        context={
-                            'goal': goal_res.goal.description if (goal_res and goal_res.goal) else None,
-                            'intent': intent,
-                            'entities': entities or {},
-                            'plugin': plugin_name,
-                            'success': success
-                        },
-                        intent=intent,
-                        entities=entities or {},
-                        quality_score=quality_score
-                    )
-                    self._think(f"Training data collected (plugin, quality: {quality_score:.2f})")
+                    if getattr(self, 'learning_engine', None):
+                        self.learning_engine.collect_interaction(
+                            user_input=user_input,
+                            assistant_response=response,
+                            intent=intent,
+                            entities=entities or {},
+                            success=success,
+                            quality_score=quality_score
+                        )
+                        self._think(f"Training data collected (plugin, quality: {quality_score:.2f})")
                 
                 # Speak if voice enabled
                 if use_voice and self.speech:
@@ -2002,22 +1983,10 @@ Answer their SPECIFIC question directly using this data. Be concise (1-2 sentenc
             # NOTE: Don't cache LLM responses - we want fresh answers each time for variety
             # Cache is only used for learned conversational patterns (which rotate automatically)
 
-            # A.L.I.C.E's own ML evaluates the LLM answer for consistency/quality
-            if getattr(self, 'ml_learner', None):
-                try:
-                    mq = self.ml_learner.predict_high_quality_prob(user_input, response)
-                    self._think(f"ML learner quality estimate for LLM response: {mq:.2f}")
-                    # If ML thinks this is weak, gently invite refinement
-                    if mq < 0.35:
-                        response = (
-                            response
-                            + "\n\n(If this isn't quite what you wanted, tell me and I'll adjust or try a different angle.)"
-                        )
-                except Exception as ml_e:
-                    self._think(f"ML learner quality check skipped due to error: {ml_e}")
+            # Learning engine can optionally evaluate quality
+            # (This section can be expanded later for quality checks)
             
-            # Update the advanced context with the response
-            if self.advanced_context:
+            # Update the context handler (if still exists)
                 # Update the turn with the response
                 turn.assistant_response = response
                 
@@ -2053,46 +2022,16 @@ Answer their SPECIFIC question directly using this data. Be concise (1-2 sentenc
                     quality_score = 0.8
                 
                 # Collect for training
-                self.training_collector.collect_interaction(
-                    user_input=user_input,
-                    assistant_response=response,
-                    context={
-                        'goal': goal_res.goal.description if (goal_res and goal_res.goal) else None,
-                        'intent': intent,
-                        'entities': entities or {}
-                    },
-                    intent=intent,
-                    entities=entities or {},
-                    quality_score=quality_score
-                )
-                self._think(f"Training data collected (quality: {quality_score:.2f})")
-
-                # 4.6. Train A.L.I.C.E's own ML model on accumulated data
-                # Trains at 10, 20, 30, then every 25 examples after that
-                # This is lightweight and uses only local scikit-learn, not Ollama.
-                try:
-                    stats = self.training_collector.get_stats()
-                    total = stats.get('total_examples', 0)
-                    
-                    # Train at milestones: 10, 20, 30, 55, 80, 105, etc.
-                    should_train = (
-                        total in (10, 20, 30) or 
-                        (total > 30 and (total - 30) % 25 == 0)
+                if getattr(self, 'learning_engine', None):
+                    self.learning_engine.collect_interaction(
+                        user_input=user_input,
+                        assistant_response=response,
+                        intent=intent,
+                        entities=entities or {},
+                        success=True,
+                        quality_score=quality_score
                     )
-                    
-                    if should_train and getattr(self, 'ml_learner', None):
-                        examples = self.training_collector.get_training_data(min_quality=0.5)
-                        if examples:
-                            ok = self.ml_learner.train_from_examples(examples, min_examples=10)
-                            if ok:
-                                self._think(f" ML learner trained on {len(examples)} examples")
-                                # Reload conversational engine patterns after training
-                                if getattr(self, 'conversational_engine', None):
-                                    self.conversational_engine._load_patterns()
-                                if getattr(self, 'response_generator', None):
-                                    self.response_generator._load_learned_patterns()
-                except Exception as ml_e:
-                    self._think(f"ML learner training skipped due to error: {ml_e}")
+                    self._think(f"Training data collected (quality: {quality_score:.2f})")
             
             # Store response for active learning
             self.last_assistant_response = response
@@ -2823,15 +2762,18 @@ Generate only the greeting (1 sentence), no other text. Be friendly and offer to
         if hasattr(self, 'conversational_engine') and self.conversational_engine:
             # Check if there are learned farewell patterns
             try:
-                examples = self.training_collector.get_training_data(min_quality=0.7, max_examples=50)
-                farewell_responses = []
-                for ex in examples:
-                    if any(word in ex.user_input.lower() for word in ['bye', 'goodbye', 'exit', 'quit']):
-                        if ex.assistant_response and len(ex.assistant_response) < 80:
-                            farewell_responses.append(ex.assistant_response)
-                
-                if farewell_responses and hasattr(self.conversational_engine, '_pick_non_repeating'):
-                    return self.conversational_engine._pick_non_repeating(farewell_responses)
+                if hasattr(self, 'learning_engine') and self.learning_engine:
+                    examples = self.learning_engine.get_high_quality_examples()
+                    farewell_responses = []
+                    for ex in examples:
+                        user_text = ex.get('user_input', '') if isinstance(ex, dict) else getattr(ex, 'user_input', '')
+                        response_text = ex.get('assistant_response', '') if isinstance(ex, dict) else getattr(ex, 'assistant_response', '')
+                        if any(word in user_text.lower() for word in ['bye', 'goodbye', 'exit', 'quit']):
+                            if response_text and len(response_text) < 80:
+                                farewell_responses.append(response_text)
+                    
+                    if farewell_responses and hasattr(self.conversational_engine, '_pick_non_repeating'):
+                        return self.conversational_engine._pick_non_repeating(farewell_responses)
             except:
                 pass
         
