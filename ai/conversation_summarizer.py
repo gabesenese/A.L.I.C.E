@@ -133,7 +133,7 @@ class ConversationSummarizer:
     def get_conversation_summary(self) -> str:
         """Get a formatted summary of the conversation"""
         if not self.current_session_turns and not self.conversation_summaries:
-            return "No conversation history available."
+            return None  # Let LLM generate "no history" message
         
         summary_parts = []
         
@@ -416,26 +416,10 @@ Summary:"""
         """Generate summary using rule-based approach"""
         
         if not turns:
-            return "No conversation content"
+            return None  # Let LLM generate empty content message
         
-        # Basic template-based summary
-        turn_count = len(turns)
-        duration = "brief" if turn_count < 10 else "extended"
-        
-        if topics:
-            topic_text = f"about {', '.join(topics[:3])}"
-        else:
-            topic_text = "on various topics"
-        
-        summary = f"User had {duration} conversation {topic_text} ({turn_count} exchanges)"
-        
-        # Add key outcome if available
-        if key_points:
-            last_point = key_points[-1]
-            if len(last_point) < 100:
-                summary += f". {last_point}"
-        
-        return summary
+        # Let LLM generate context-aware summaries instead of templates
+        return None
     
     def _generate_quick_summary(self, recent_turns: List[Dict]) -> str:
         """Generate quick summary of recent turns for context"""
