@@ -22,7 +22,6 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
 
 import sys
 import logging
-import random
 import re
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -38,8 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Import ALICE components
 from ai.nlp_processor import NLPProcessor
 from ai.llm_engine import LocalLLMEngine, LLMConfig
-from ai.context_manager import ContextManager
-from ai.advanced_context_handler import AdvancedContextHandler
+from ai.context_engine import get_context_engine
 from ai.memory_system import MemorySystem
 from ai.conversation_summarizer import ConversationSummarizer
 from ai.entity_relationship_tracker import EntityRelationshipTracker
@@ -65,24 +63,15 @@ from ai.pattern_learner import get_pattern_learner
 from ai.system_monitor import get_system_monitor
 from ai.task_planner import get_planner
 from ai.plan_executor import initialize_executor, get_executor
-from ai.world_state import get_world_state, WorldEntity, EntityKind
-from ai.reference_resolver import get_reference_resolver
-from ai.goal_resolver import get_goal_resolver
-from ai.verifier import get_verifier
+from ai.reasoning_engine import get_reasoning_engine, WorldEntity, EntityKind
 from ai.proactive_assistant import get_proactive_assistant
-from ai.reasoning_engine import get_reasoning_engine
 from ai.error_recovery import get_error_recovery
 from ai.smart_context_cache import get_context_cache
 from ai.adaptive_context_selector import get_context_selector
 from ai.predictive_prefetcher import get_prefetcher
 from ai.response_optimizer import get_response_optimizer
 from ai.self_reflection import get_self_reflection
-from ai.training_system import (
-    get_training_collector,
-    get_fine_tuning_system,
-    get_ml_learner,
-)
-from ai.response_generator import get_response_generator
+from ai.learning_engine import get_learning_engine
 from ai.conversational_engine import get_conversational_engine, ConversationalContext
 
 # Logging
@@ -129,6 +118,11 @@ class ALICE:
         self.last_entities = {}
         self.last_nlp_result = {}
         
+        # Session-level response cache for fast conversational responses
+        # Caches (input_normalized, intent) -> response for quick lookup
+        self._response_cache = {}
+        self._cache_max_size = 50  # Keep last 50 responses per session
+        
         # Conversation summarizer for intelligent context management
         self.summarizer = None  # Will be initialized after LLM engine
         
@@ -163,51 +157,25 @@ class ALICE:
             logger.info("Loading NLP processor...")
             self.nlp = NLPProcessor()
             
-            # 1.5. Advanced Context Handler (after NLP for embeddings)
-            logger.info("Loading advanced context handler...")
-            try:
-                # Try to use the same embeddings model as NLP processor
-                embeddings_model = getattr(self.nlp, 'embeddings_model', None)
-                self.advanced_context = AdvancedContextHandler(embeddings_model)
-            except Exception as e:
-                logger.warning(f"Advanced context handler without embeddings: {e}")
-                self.advanced_context = AdvancedContextHandler()
-            
-            # 2. Context Manager
-            logger.info("Loading context manager...")
-            self.context = ContextManager()
+            # 1.5. Unified Context Engine (combines context_manager + advanced_context_handler)
+            logger.info("Loading unified context engine...")
+            self.context = get_context_engine()
             self.context.user_prefs.name = user_name
             
-            # 2.5. World state, reference resolver, goal resolver, verifier
-            logger.info("Loading world state and resolvers...")
-            self.world_state = get_world_state(user_name)
-            self.reference_resolver = get_reference_resolver(self.world_state)
-            self.goal_resolver = get_goal_resolver(self.world_state)
-            self.verifier = get_verifier(self.world_state)
-            self.reasoning_engine = get_reasoning_engine(self.world_state)
+            # 2. Reasoning Engine (combines world_state + reference_resolver + goal_resolver + verifier)
+            logger.info("Loading reasoning engine...")
+            self.reasoning_engine = get_reasoning_engine(user_name)
             self.error_recovery = get_error_recovery()
             self.context_cache = get_context_cache()
             self.context_selector = get_context_selector()
-            self.prefetcher = get_prefetcher(self.world_state)
-            self.response_optimizer = get_response_optimizer(self.world_state)
+            self.prefetcher = get_prefetcher(self.reasoning_engine)
+            self.response_optimizer = get_response_optimizer(self.reasoning_engine)
             self.self_reflection = get_self_reflection()
-            logger.info("[OK] Self-reflection system initialized")
+            logger.info("[OK] Reasoning engine initialized - unified entity/goal/verification tracking")
             
-            # 2.9. Training System - collect data to train A.L.I.C.E on your interactions
-            self.training_collector = get_training_collector()
-            self.fine_tuning_system = get_fine_tuning_system(llm_model)
-            logger.info("[OK] Training system initialized - A.L.I.C.E will learn from your interactions")
-
-            # 2.10. A.L.I.C.E's own ML learner (independent of Ollama)
-            self.ml_learner = get_ml_learner()
-            logger.info("[OK] ML learner initialized - A.L.I.C.E now has her own machine learning model")
-            
-            # 2.11. Response generator - A.L.I.C.E generates her own responses from plugin data
-            self.response_generator = get_response_generator(
-                ml_learner=self.ml_learner,
-                training_collector=self.training_collector
-            )
-            logger.info("[OK] Response generator initialized - A.L.I.C.E creates her own responses")
+            # 2.9. Unified Learning Engine - collect and learn from interactions
+            self.learning_engine = get_learning_engine()
+            logger.info("[OK] Learning engine initialized - A.L.I.C.E will learn from your interactions")
             
             # 3. Memory System (needs to be before conversational engine)
             logger.info("Loading memory system...")
@@ -315,7 +283,7 @@ class ALICE:
                 if 'Notes' in name or isinstance(plugin, NotesPlugin):
                     notes_plugin = plugin
             self.proactive_assistant = get_proactive_assistant(
-                world_state=self.world_state,
+                world_state=self.reasoning_engine,
                 calendar_plugin=calendar_plugin,
                 notes_plugin=notes_plugin
             )
@@ -605,6 +573,59 @@ class ALICE:
         """Emit a thinking-step line when debug mode is on (dev mode)."""
         if getattr(self, 'debug', False):
             print("  💭 " + msg, flush=True)
+    
+    def _normalize_input(self, user_input: str) -> str:
+        """Normalize input for cache lookup (lowercase, strip punctuation)"""
+        import string
+        normalized = user_input.lower().strip()
+        # Remove trailing punctuation for cache matching
+        normalized = normalized.rstrip(string.punctuation)
+        return normalized
+    
+    def _cache_get(self, user_input: str, intent: str) -> Optional[str]:
+        """Get cached response if available"""
+        cache_key = (self._normalize_input(user_input), intent)
+        return self._response_cache.get(cache_key)
+    
+    def _cache_put(self, user_input: str, intent: str, response: str) -> None:
+        """Store response in cache"""
+        cache_key = (self._normalize_input(user_input), intent)
+        self._response_cache[cache_key] = response
+        
+        # Simple LRU: if cache gets too big, remove oldest entries
+        if len(self._response_cache) > self._cache_max_size:
+            # Remove first (oldest) item
+            oldest_key = next(iter(self._response_cache))
+            del self._response_cache[oldest_key]
+    
+    def _is_conversational_input(self, user_input: str, intent: str) -> bool:
+        """Check if this is a pure conversational input (no commands/actions)"""
+        input_lower = user_input.lower()
+        
+        # Short, conversational intents
+        conversational_intents = [
+            'conversation:general',
+            'conversation:ack',
+            'conversation:question',
+            'greeting',
+            'farewell'
+        ]
+        
+        # If not one of these intents, not pure conversation
+        if intent not in conversational_intents:
+            return False
+        
+        # Check for action words that would indicate this needs plugins
+        action_words = [
+            'open', 'launch', 'play', 'send', 'create', 'delete', 'search',
+            'show', 'list', 'check', 'email', 'note', 'calendar', 'music',
+            'weather', 'time', 'find', 'remind', 'file', 'document'
+        ]
+        
+        if any(word in input_lower for word in action_words):
+            return False
+        
+        return True
     
     def _should_reuse_goal_intent(self, user_input: str, goal_description: str) -> bool:
         """
@@ -910,6 +931,13 @@ class ALICE:
         try:
             logger.info(f"User: {user_input}")
             
+            # 0. Check for commands first (before any processing)
+            if user_input.startswith('/'):
+                # This is a command, not a conversational input
+                # Commands should be handled in the UI layer (run_interactive)
+                # If we get here, return a helpful message
+                return "Commands should be handled by the interface. Use /help to see available commands."
+            
             # 1. NLP Processing
             nlp_result = self.nlp.process(user_input)
             intent = nlp_result.intent
@@ -919,6 +947,67 @@ class ALICE:
             self._think(f"NLP → intent={intent!r} confidence={getattr(nlp_result, 'intent_confidence', '?')}")
             if entities:
                 self._think(f"     entities={str(entities)[:120]}...")
+            
+            # FAST PATH: Check cache and conversational shortcuts
+            intent_confidence = getattr(nlp_result, 'intent_confidence', 0.5)
+            
+            # 0.5 Check if cached response exists
+            cached_response = self._cache_get(user_input, intent)
+            if cached_response:
+                self._think("Cache hit → using stored response")
+                logger.info(f"A.L.I.C.E (cached): {cached_response[:100]}...")
+                return cached_response
+            
+            # 0.6 FAST CONVERSATIONAL PATH: If this is pure conversation, try that first
+            is_pure_conversation = self._is_conversational_input(user_input, intent)
+            if is_pure_conversation:
+                self._think("Fast path: pure conversation → trying conversational engine")
+                
+                # Try conversational engine first (no plugins, no LLM unless needed)
+                if hasattr(self, 'conversational_engine') and self.conversational_engine:
+                    context = ConversationalContext(
+                        user_input=user_input,
+                        intent=intent,
+                        entities=entities,
+                        recent_topics=self.conversation_topics[-3:] if self.conversation_topics else [],
+                        active_goal=None,
+                        world_state=self.world_state if hasattr(self, 'world_state') else None
+                    )
+                    
+                    # Check if conversational engine can handle it
+                    if self.conversational_engine.can_handle(user_input, intent, context):
+                        response = self.conversational_engine.generate_response(context)
+                        if response:
+                            self._think("Conversational engine → immediate response (learned pattern)")
+                            # Cache learned pattern responses (they have variation built-in)
+                            self._cache_put(user_input, intent, response)
+                            self._store_interaction(user_input, response, intent, entities)
+                            if use_voice and self.speech:
+                                self.speech.speak(response, blocking=False)
+                            logger.info(f"A.L.I.C.E: {response[:100]}...")
+                            return response
+                    else:
+                        self._think("Conversational engine → no learned pattern, will use LLM")
+
+                # If this is a greeting, respond directly via LLM and skip plugins
+                if intent == "greeting" and getattr(self, "llm", None):
+                    user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
+                    prompt = (
+                        f"The user said: {user_input!r}. "
+                        "Respond directly and briefly (under 18 words). "
+                        "If they asked how you are, answer that first. "
+                        "Do not mention being an AI or your name. "
+                        "Do not wrap the response in quotes. "
+                        f"If a name is available, you may include it: {user_name!r}."
+                    )
+                    response = self.llm.chat(prompt, use_history=False)
+                    if response:
+                        self._think("LLM → short greeting response")
+                        self._store_interaction(user_input, response, intent, entities)
+                        if use_voice and self.speech:
+                            self.speech.speak(response, blocking=False)
+                        logger.info(f"A.L.I.C.E: {response[:100]}...")
+                        return response
             
             # Store for active learning
             self.last_user_input = user_input
@@ -1702,11 +1791,14 @@ class ALICE:
                 and not any(w in user_input.lower() for w in _cmd_words)
                 and not active_goal  # Don't skip if there's an active goal
             )
-            if _is_short_followup:
-                self._think("Short follow-up (no command words, no goal) → skipping plugins, using LLM")
+            if _is_short_followup or is_pure_conversation:
+                if is_pure_conversation:
+                    self._think("Pure conversation → skipping plugins, using LLM")
+                else:
+                    self._think("Short follow-up (no command words, no goal) → skipping plugins, using LLM")
             else:
                 self._think(f"Trying plugins... (confidence: {intent_confidence:.2f}, goal: {active_goal.description[:30] if active_goal else 'none'}...)")
-            if not _is_short_followup:
+            if not _is_short_followup and not is_pure_conversation:
                 context_summary = self.context.get_context_summary()
                 # Enhance context with goal info (keep as dict for plugins)
                 if active_goal:
@@ -1737,15 +1829,21 @@ class ALICE:
                     if response:
                         self._think(f"A.L.I.C.E generated response from learned patterns")
                     else:
-                        self._think(f"No learned pattern → using Ollama to explain plugin data")
+                        self._think(f"No learned pattern → using Ollama to answer specific question")
                 
-                # If A.L.I.C.E has no learned pattern, use Ollama to explain the data
+                # If A.L.I.C.E has no learned pattern, use Ollama to answer the SPECIFIC question
+                # This ensures follow-up questions like "is it gonna snow?" get tailored answers
                 if not response:
-                    # Use Ollama to generate response from plugin data
+                    # Use Ollama to generate a targeted response to the user's specific question
                     plugin_data_str = str(plugin_result.get('data', {}))
-                    ollama_prompt = f"The {plugin_name} returned this data: {plugin_data_str}. Explain it naturally to the user in 1-2 sentences."
+                    # Ask Ollama to answer the user's specific question using the plugin data
+                    ollama_prompt = f"""You have this {plugin_name} data: {plugin_data_str}
+
+The user asked: "{user_input}"
+
+Answer their SPECIFIC question directly using this data. Be concise (1-2 sentences)."""
                     response = self.llm.chat(ollama_prompt, use_history=False)
-                    self._think("Ollama generated response from plugin data")
+                    self._think("Ollama generated targeted response to user's specific question")
                 
                 # Optimize plugin response
                 if getattr(self, 'response_optimizer', None):
@@ -1900,6 +1998,9 @@ class ALICE:
                         "goal": goal_res.goal.description if (goal_res and goal_res.goal) else None,
                     },
                 )
+            
+            # NOTE: Don't cache LLM responses - we want fresh answers each time for variety
+            # Cache is only used for learned conversational patterns (which rotate automatically)
 
             # A.L.I.C.E's own ML evaluates the LLM answer for consistency/quality
             if getattr(self, 'ml_learner', None):
@@ -1984,7 +2085,7 @@ class ALICE:
                         if examples:
                             ok = self.ml_learner.train_from_examples(examples, min_examples=10)
                             if ok:
-                                self._think(f"🧠 ML learner trained on {len(examples)} examples")
+                                self._think(f" ML learner trained on {len(examples)} examples")
                                 # Reload conversational engine patterns after training
                                 if getattr(self, 'conversational_engine', None):
                                     self.conversational_engine._load_patterns()
@@ -2573,7 +2674,7 @@ class ALICE:
             if self.summarizer:
                 try:
                     context_summary = self.summarizer.get_context_summary()
-                    print("\n🧠 Current Context:")
+                    print("\n Current Context:")
                     print("=" * 50)
                     print(context_summary)
                     print("=" * 50)
@@ -2664,76 +2765,93 @@ class ALICE:
             print("   Type /help for available commands")
     
     def _get_greeting(self) -> str:
-        """Get contextual greeting based on time of day"""
-        hour = datetime.now().hour
+        """Generate context-aware greeting using ALICE's conversational abilities"""
         name = self.context.user_prefs.name
+        hour = datetime.now().hour
         
+        # Determine time of day context
         if 5 <= hour < 12:
-            greetings = [
-                f"Morning, {name}. What are we working on today?",
-                f"Good morning, {name}. How can I help?",
-                f"Hey {name}, ready to get started?",
-                f"Morning! What's on your mind, {name}?",
-            ]
+            time_context = "morning"
         elif 12 <= hour < 17:
-            greetings = [
-                f"Hey {name}, what can I help with?",
-                f"Afternoon, {name}. What do you need?",
-                f"Hi {name}. What are you working on?",
-                f"Good afternoon, {name}. How's it going?",
-            ]
+            time_context = "afternoon"
         elif 17 <= hour < 22:
-            greetings = [
-                f"Evening, {name}. What can I do for you?",
-                f"Hey {name}, need a hand with something?",
-                f"Good evening, {name}. What's up?",
-                f"Hi {name}. What are we tackling tonight?",
-            ]
+            time_context = "evening"
         else:
-            greetings = [
-                f"Late night, {name}. What are you working on?",
-                f"Still up, {name}? How can I help?",
-                f"Hey {name}, burning the midnight oil?",
-                f"Evening, {name}. What do you need?",
-            ]
+            time_context = "late night"
         
-        return random.choice(greetings)
+        # Try conversational engine first (learned greetings)
+        if hasattr(self, 'conversational_engine') and self.conversational_engine:
+            # Use learned greeting patterns if available
+            if hasattr(self.conversational_engine, 'learned_greetings') and self.conversational_engine.learned_greetings:
+                if hasattr(self.conversational_engine, '_pick_non_repeating'):
+                    return self.conversational_engine._pick_non_repeating(self.conversational_engine.learned_greetings)
+        
+        # Fallback to LLM for natural greeting generation
+        prompt = f"""Generate a brief, natural greeting for the user who just started the session.
+Context:
+- User's name: {name}
+- Time of day: {time_context}
+- This is the opening greeting
+
+Generate only the greeting (1 sentence), no other text. Be friendly and offer to help."""
+        
+        try:
+            greeting = self.llm.chat(prompt, use_history=False)
+            # Clean up any extra formatting
+            greeting = greeting.strip().strip('"').strip("'")
+            return greeting
+        except Exception as e:
+            # Ultimate fallback
+            return f"Hey {name}, how can I help?"
     
     def _get_farewell(self) -> str:
-        """Get varied farewell message"""
+        """Generate context-aware farewell using ALICE's conversational abilities"""
         name = self.context.user_prefs.name
         hour = datetime.now().hour
         
+        # Determine time of day context
         if 5 <= hour < 12:
-            farewells = [
-                f"Have a great day, {name}!",
-                f"Good luck with everything today, {name}.",
-                f"See you later, {name}. Take care!",
-                f"Catch you later, {name}!",
-            ]
+            time_context = "morning/day"
         elif 12 <= hour < 17:
-            farewells = [
-                f"Have a good one, {name}!",
-                f"Take care, {name}.",
-                f"See you around, {name}!",
-                f"Later, {name}. Good luck with your projects!",
-            ]
+            time_context = "afternoon"
         elif 17 <= hour < 22:
-            farewells = [
-                f"Have a good evening, {name}!",
-                f"Take it easy, {name}.",
-                f"See you later, {name}!",
-                f"Good night, {name}. Hope you get some rest!",
-            ]
+            time_context = "evening"
         else:
-            farewells = [
-                f"Get some rest, {name}!",
-                f"Good night, {name}. Don't stay up too late!",
-                f"See you tomorrow, {name}!",
-                f"Take care, {name}. Sleep well!",
-            ]
+            time_context = "late night"
         
-        return random.choice(farewells)
+        # Try conversational engine first (learned farewells)
+        if hasattr(self, 'conversational_engine') and self.conversational_engine:
+            # Check if there are learned farewell patterns
+            try:
+                examples = self.training_collector.get_training_data(min_quality=0.7, max_examples=50)
+                farewell_responses = []
+                for ex in examples:
+                    if any(word in ex.user_input.lower() for word in ['bye', 'goodbye', 'exit', 'quit']):
+                        if ex.assistant_response and len(ex.assistant_response) < 80:
+                            farewell_responses.append(ex.assistant_response)
+                
+                if farewell_responses and hasattr(self.conversational_engine, '_pick_non_repeating'):
+                    return self.conversational_engine._pick_non_repeating(farewell_responses)
+            except:
+                pass
+        
+        # Fallback to LLM for natural farewell generation
+        prompt = f"""Generate a brief, natural farewell for the user.
+Context:
+- User's name: {name}
+- Time: {time_context}
+- The user is ending the session
+
+Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
+        
+        try:
+            farewell = self.llm.chat(prompt, use_history=False)
+            # Clean up any extra formatting
+            farewell = farewell.strip().strip('"').strip("'")
+            return farewell
+        except Exception as e:
+            # Ultimate fallback
+            return f"Take care, {name}!"
     
     def _handle_relationship_query(self, user_input: str, intent: str, entities: Dict[str, Any]) -> Optional[str]:
         """Handle relationship queries like 'who does John work for?' or 'tell me about Sarah'"""

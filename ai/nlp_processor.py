@@ -889,6 +889,11 @@ class NLPProcessor:
         
         # Fallback to simple keyword matching
         text_lower = text.lower()
+
+        # Greetings (high confidence)
+        greeting_words = ['hi', 'hey', 'hello', 'yo', 'sup', 'hiya']
+        if any(word in text_lower for word in greeting_words) and len(text_lower.split()) <= 4:
+            return 'greeting', 0.9
         
         # Simple intent mapping
         if any(word in text_lower for word in ['create', 'add', 'new']) and 'note' in text_lower:

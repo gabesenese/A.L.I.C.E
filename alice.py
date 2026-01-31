@@ -75,13 +75,14 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
                 continue
             
             # Handle special commands
-            if user_input == '/help':
-                ui.show_help()
-                continue
-            
             if user_input.startswith('/'):
-                # Let ALICE handle command
-                pass
+                if user_input == '/help':
+                    ui.show_help()
+                    continue
+                else:
+                    # Handle other commands through ALICE's command handler
+                    alice._handle_command(user_input)
+                    continue
             
             # Process input
             try:

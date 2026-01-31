@@ -37,7 +37,7 @@ class RichTerminalUI:
             "   /   |  / /   /  _/ / ____/  / ____/",
             "  / /| | / /    / /  / /      / __/   ",
             " / ___ |/ /____/ /_ / /____  / /___   ",
-            "/_/  |_/_____/___(_)_____/  /_____/   ",
+            "/_/  |_/_____/___/ /_____/  /_____/   ",
         ]
         # Same width for every line so the block stays rectangular
         art_width = max(len(line) for line in ascii_lines)
@@ -53,7 +53,7 @@ class RichTerminalUI:
         # Welcome panel - modern minimal design
         welcome_panel = Panel(
             Text(centered_block, style="bright_white", justify="left"),
-            title=f"[white]Welcome, {self.user_name}[/white]",
+            #title=f"[white]Welcome, {self.user_name}[/white]",
             border_style="dim white",
             box=box.ROUNDED
         )
@@ -71,7 +71,7 @@ class RichTerminalUI:
         else:
             time_greeting = "Good evening"
         
-        greeting_text = f"{time_greeting}, {self.user_name}! I'm A.L.I.C.E, your advanced AI assistant."
+        greeting_text = f"{time_greeting}, {self.user_name}!"
         self.console.print(greeting_text, style="white", justify="center")
         self.console.print()
         
