@@ -22,6 +22,8 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 
+logger = logging.getLogger(__name__)
+
 # Optional deep learning imports
 try:
     from sentence_transformers import SentenceTransformer
@@ -29,8 +31,6 @@ try:
 except ImportError:
     DEEP_LEARNING_AVAILABLE = False
     logger.warning("[ML] sentence-transformers not available, using traditional ML only")
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -484,4 +484,78 @@ def get_ml_learner() -> SimpleMLLearner:
     if _ml_learner is None:
         _ml_learner = SimpleMLLearner()
     return _ml_learner
+
+# Offline training loop (evaluate -> update threshold -> deploy)
+
+from .runtime_thresholds import get_thresholds, update_thresholds, get_goal_path_confidence, get_tool_path_confidence
+
+
+def run_offline_loop(
+        data_collector: Optional["TrainingDataCollector"] = None,
+        ml_learner: Optional["SimpleMLLearner"] = None,
+        min_examples: int = 20,
+) -> Dict[str, Any]:
+    """
+    Run the full offline loop: train from logs, evaluate accuracy, update thresholds, deploy model.
+
+    Returns:
+        Dict with keys: trained, intent_accuracy (if evaluable), thresholds_updated, model_saved.
+    """
+    from .runtime_thresholds import get_thresholds
+
+    data_collector = data_collector or TrainingDataCollector()
+    ml_learner = ml_learner or SimpleMLLearner()
+    examples = data_collector.get_training_data(min_quality=0.5)
+    result = {"trained": False, "intent_accuracy": None, "threshold_updated": False,  "model_saved": False}
+
+    if len(examples) < min_examples:
+        logger.info(f"[OfflineLoop] Not enough examples ({len(examples)}/{min_examples})")
+        return result
+
+    # 1) Train router/ML Learner from logs
+    trained = ml_learner.train_from_examples(examples, min_examples=min_examples)
+    result["trained"] = trained
+    if trained:
+        try:
+            save_data = {
+                "vectorizer": _ml_learner.vectorizer,
+                "model": ml_learner.model,
+            }
+            if hasattr(ml_learner, "deep_classifier"):
+                save_data["deep_classifier"] = ml_learner.deep_classifier
+            with open(ml_learner.model_path, "wb") as f:
+                pickle.dump(save_data, f)
+            result["model_saved"] = True
+        except Exception as e:
+            logger.warning(f"[OfflineLoop] Could not save model: {e}")
+
+    # 2) Evaluate accuracy (intent prediction from user_input if we have intent in examples)         
+    intent_correct = 0
+    intent_total = 0 
+    for ex in examples[-100:]:
+        if not ex.intent:
+            continue
+        intent_total += 1
+        # Simple check: ML Learner predicts high quality for this pair, we use intent as proxy for "correct path"
+        prob = ml_learner.predict_high_quality_prob(ex.user_input, ex.assistant_response)
+        if prob >= 0.5:
+            intent_correct += 1
+        if intent_total > 0:
+            result["intent_accuracy"] = intent_correct / intent_total
+
+    # 3) Update thresholds from evaluation ( optional: nudge the goal_path down if accuracy is high)
+    thresholds = get_thresholds()
+    if result.get("intent_accuracy") is not None:
+        acc = result["intent_accuracy"]
+        if acc >= 0.8 and thresholds.get("goal_path_confidence", 0.6) < 0.65:
+            update_thresholds({"goal_path_confidence": 0.65})
+            result["thresholds_updated"] = True
+        elif acc < 0.5 and thresholds.get("goal_path_confidence", 0.6) > 0.55:
+            update_thresholds({"goal_path_confidence": 0.55})
+            result["thresholds_updated"] = True
+
+    return result
+
+
+
 
