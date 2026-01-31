@@ -738,31 +738,31 @@ class MusicPlugin(PluginInterface):
     def handle_local_music_selection(self, selection: str) -> str:
         """Play the .mp3 file chosen by the user (by number)"""
         if not self.pending_local_selection:
-            return "No local music selection is pending. Say 'list my music' to see available files."
+            return None  # Let LLM generate this message
 
         try:
             index = int(selection.strip()) - 1
             if index < 0 or index >= len(self.pending_local_selection):
-                return f"Invalid selection. Please choose a number between 1 and {len(self.pending_local_selection)}."
+                return None  # Let LLM generate error message
             song = self.pending_local_selection[index]
             success = self.local_manager.play_file(song.uri)
             self.pending_local_selection = None
             if success:
-                return f"▶️ Playing '{song.title}' by {song.artist} from local files."
+                return None  # Let LLM generate confirmation
             else:
-                return f"❌ Failed to play '{song.title}'."
+                return None  # Let LLM generate error message
         except ValueError:
-            return "Please reply with a valid number."
+            return None  # Let LLM generate error message
 
     def prompt_local_music_selection(self) -> str:
         """List all .mp3 files and prompt user to choose one to play"""
         if not self.local_manager.is_initialized:
-            return "Local music playback is not available. Please install pygame and add music files to your Music folder."
+            return None  # Let LLM generate setup message
 
         # List all .mp3 files
         mp3_files = [song for song in self.local_manager.music_library if song.uri.lower().endswith('.mp3')]
         if not mp3_files:
-            return "No .mp3 files found in your music library. Add .mp3 files to ~/Music or ./music."
+            return None  # Let LLM generate "no files found" message
 
         # Store pending selection for next step
         self.pending_local_selection = mp3_files
@@ -851,9 +851,9 @@ class MusicPlugin(PluginInterface):
             # If user says cancel or exit
             if user_input.strip().lower() in {"cancel", "exit", "stop"}:
                 self.pending_local_selection = None
-                return "Local music selection cancelled."
+                return None  # Let LLM generate cancellation message
             # Otherwise, prompt again
-                return "Please reply with the number of the song you want to play, or say 'cancel' to exit."
+            return None  # Let LLM generate prompt for selection
 
         # If user asks to list local music
         if any(kw in user_input.lower() for kw in ["list my music", "show my music", "list mp3", "show mp3", "choose music", "choose song"]):
@@ -944,13 +944,13 @@ class MusicPlugin(PluginInterface):
         # Try resuming existing playback
         if self.spotify_manager.is_authenticated:
             if self.spotify_manager.resume_playback():
-                return "▶️ Resumed Spotify playback"
+                return None  # Let LLM generate confirmation
         
         if self.local_manager.is_initialized:
             if self.local_manager.resume():
-                return "▶️ Resumed local music playback"
+                return None  # Let LLM generate confirmation
         
-        return "🎵 Please specify what you'd like to play (e.g., 'play some jazz' or 'play The Beatles')"
+        return None  # Let LLM generate instruction
     
     def _handle_pause_request(self) -> str:
         """Handle pause requests"""
@@ -971,9 +971,9 @@ class MusicPlugin(PluginInterface):
             success_local = self.local_manager.pause()
         
         if success_desktop or success_spotify or success_local:
-            return "⏸️ Paused music playback"
+            return None  # Let LLM generate confirmation
         else:
-            return "❌ No active playback to pause"
+            return None  # Let LLM generate error message
     
     def _handle_resume_request(self) -> str:
         """Handle resume requests"""
@@ -987,9 +987,9 @@ class MusicPlugin(PluginInterface):
             success_local = self.local_manager.resume()
         
         if success_spotify or success_local:
-            return "▶️ Resumed music playback"
+            return None  # Let LLM generate confirmation
         else:
-            return "❌ No paused playback to resume"
+            return None  # Let LLM generate error message
     
     def _handle_stop_request(self) -> str:
         """Handle stop requests"""
@@ -1047,8 +1047,8 @@ class MusicPlugin(PluginInterface):
             volume = self._extract_volume_from_input(user_input)
         
         if volume is None:
-            return "🔊 Please specify a volume level (0-100), e.g., 'set volume to 50%'"
-        
+            return None  # Let LLM generate volume instruction
+
         success_spotify = False
         success_local = False
         
@@ -1059,9 +1059,9 @@ class MusicPlugin(PluginInterface):
             success_local = self.local_manager.set_volume(volume)
         
         if success_spotify or success_local:
-            return f"🔊 Set volume to {volume}%"
+            return None  # Let LLM generate confirmation
         else:
-            return "❌ Unable to set volume"
+            return None  # Let LLM generate error message
     
     def _handle_search_request(self, song: str, artist: str, album: str, user_input: str) -> str:
         """Handle music search requests"""
@@ -1070,7 +1070,7 @@ class MusicPlugin(PluginInterface):
             query = self._extract_search_terms(user_input)
         
         if not query:
-            return "🔍 Please specify what to search for"
+            return None  # Let LLM generate search instruction
         
         results = []
         
@@ -1213,17 +1213,14 @@ class MusicPlugin(PluginInterface):
     def _list_playlists(self) -> str:
         """List available playlists"""
         if not self.spotify_manager.is_authenticated:
-            return "🎵 Playlists require Spotify connection"
+            return None  # Let LLM handle connection message
         
         playlists = self.spotify_manager.get_user_playlists()
         if not playlists:
-            return "🎵 No playlists found"
+            return None  # Let LLM generate "no playlists" message
         
-        response = "🎵 Your playlists:\n"
-        for i, playlist in enumerate(playlists[:10], 1):
-            response += f"{i}. {playlist.name}\n"
-        
-        return response
+        # Let LLM generate the playlist listing response with plugin data
+        return None
     
     def _extract_search_terms(self, user_input: str) -> str:
         """Extract music search terms from user input"""
