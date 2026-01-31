@@ -9,6 +9,7 @@ import random
 from typing import Dict, Optional, Any, List
 from dataclasses import dataclass
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,10 +65,19 @@ class ConversationalEngine:
             
             # Extract greetings
             greeting_keywords = ['hi', 'hey', 'hello', 'yo', 'sup']
+            plugin_response_markers = ['°c', '°f', 'overcast', 'sunny', 'rain', 'temperature', ' in ', 'kitchener', 'toronto']
             for ex in examples:
-                if any(kw in ex.user_input.lower() for kw in greeting_keywords):
-                    if ex.assistant_response and len(ex.assistant_response) < 80:
-                        self.learned_greetings.append(ex.assistant_response)
+                inp = ex.user_input.lower().strip()
+                if len(inp.split()) > 4:
+                    continue
+                if not any(kw in inp for kw in greeting_keywords):
+                    continue
+                if not ex.assistant_response or len(ex.assistant_response) >= 80:
+                    continue
+                resp_lower = ex.assistant_response.lower()
+                if any(m in resp_lower for m in plugin_response_markers):
+                    continue
+                self.learned_greetings.append(ex.assistant_response)
             
             # Learn conversation style
             if examples:
@@ -81,6 +91,19 @@ class ConversationalEngine:
             
         except Exception as e:
             logger.debug(f"[ConvEngine] Could not load patterns: {e}")
+
+
+    def _pick_non_repeating(self, candidates: List[str]) -> str:
+        """Pick a response from candidates, preferring one not in recent_responses."""
+        if not candidates:
+            return ""
+        recent = getattr(self, "recent_responses", ()) or []
+        max_recent = getattr(self, "max_recent", 10)
+        not_recent = [c for c in candidates if c not in recent]
+        choice = random.choice(not_recent) if not_recent else random.choice(candidates)
+        recent.insert(0, choice)
+        self.recent_responses = recent[:max_recent]
+        return choice
     
     def can_handle(self, user_input: str, intent: str, context: ConversationalContext) -> bool:
         """
