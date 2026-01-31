@@ -28,6 +28,10 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from collections import defaultdict
 
+from ai.goal_from_llm import get_goal_from_llm, GoalJSON
+from ai.policy import get_policy_decision, PolicyDecision
+from ai.runtime_thresholds import get_tool_path_confidence, get_goal_path_confidence, get_ask_threshold
+
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -358,7 +362,7 @@ class ALICE:
         """
         priority_label = {
             EventPriority.LOW: "ℹ️",
-            EventPriority.NORMAL: "💡",
+            EventPriority.NORMAL: "",
             EventPriority.HIGH: "⚠️",
             EventPriority.CRITICAL: "🚨"
         }.get(priority, "•")
@@ -418,7 +422,7 @@ class ALICE:
             # Store pattern ID for tracking acceptance
             self._last_suggestion_pattern = pattern.pattern_id
             
-            return f"💡 {suggestion_text}"
+            return f" {suggestion_text}"
         
         return None
     
@@ -602,6 +606,21 @@ class ALICE:
         if getattr(self, 'debug', False):
             print("  💭 " + msg, flush=True)
     
+    def _should_reuse_goal_intent(self, user_input: str, goal_description: str) -> bool:
+        """
+        Check if current input is related enough to active goal to reuse its intent.
+        Uses word overlap (excluding stop words) to determine relevance.
+        """
+        if not (user_input and goal_description):
+            return True
+        stop = {"the", "a", "an", "is", "are", "was", "were", "you", "your", "me", "my", "how", "what", "who", "where", "when", "why", "outside", "hows", "from", "to", "and", "or", "but"}
+        a = set(w.lower() for w in user_input.split() if len(w) > 1 and w.lower() not in stop)
+        b = set(w.lower() for w in goal_description.split() if len(w) > 1 and w.lower() not in stop)
+        if not a:
+            return True
+        overlap = len(a & b) / len(a)
+        return overlap >= 0.15
+    
     def _handle_code_request(self, user_input: str, entities: Dict = None) -> Optional[str]:
         """Handle requests to read/analyze code - flexible and intelligent"""
         input_lower = user_input.lower()
@@ -617,7 +636,7 @@ class ALICE:
                     analysis = self.self_reflection.analyze_file(file_path)
                     if 'error' not in analysis:
                         suggestions = self.self_reflection.get_improvement_suggestions(file_path)
-                        result = f"📊 **Analysis of {analysis['name']}**:\n"
+                        result = f" **Analysis of {analysis['name']}**:\n"
                         result += f"- Lines: {analysis['lines']}\n"
                         result += f"- Type: {analysis['module_type']}\n"
                         if analysis.get('classes'):
@@ -625,7 +644,7 @@ class ALICE:
                         if analysis.get('functions'):
                             result += f"- Functions: {', '.join(analysis['functions'][:10])}\n"
                         if suggestions:
-                            result += f"\n💡 **Suggestions**:\n" + "\n".join(f"- {s}" for s in suggestions[:5])
+                            result += f"\n **Suggestions**:\n" + "\n".join(f"- {s}" for s in suggestions[:5])
                         self.last_code_file = None  # Clear after use
                         return result
                 else:
@@ -647,7 +666,7 @@ class ALICE:
         ]):
             # A.L.I.C.E understands: show means LIST the codebase
             files = self.self_reflection.list_codebase()
-            result = f"📁 **My codebase** ({len(files)} files):\n\n"
+            result = f" **My codebase** ({len(files)} files):\n\n"
             for f in files[:25]:
                 result += f"- `{f['path']}` ({f['module_type']})\n"
             if len(files) > 25:
@@ -721,7 +740,7 @@ class ALICE:
             
             if 'error' not in analysis:
                 suggestions = self.self_reflection.get_improvement_suggestions(file_path)
-                result = f"📊 **Analysis of {analysis['name']}**:\n"
+                result = f" **Analysis of {analysis['name']}**:\n"
                 result += f"- Lines: {analysis['lines']}\n"
                 result += f"- Type: {analysis['module_type']}\n"
                 if analysis.get('classes'):
@@ -729,7 +748,7 @@ class ALICE:
                 if analysis.get('functions'):
                     result += f"- Functions: {', '.join(analysis['functions'][:10])}\n"
                 if suggestions:
-                    result += f"\n💡 **Suggestions**:\n" + "\n".join(f"- {s}" for s in suggestions[:5])
+                    result += f"\n **Suggestions**:\n" + "\n".join(f"- {s}" for s in suggestions[:5])
                 return result
             # Analysis failed - show alternatives
             files = self.self_reflection.list_codebase()
@@ -741,7 +760,7 @@ class ALICE:
         # List codebase
         if any(word in input_lower for word in ['list files', 'show files', 'what files', 'codebase']):
             files = self.self_reflection.list_codebase()
-            result = f"📁 **Codebase Structure** ({len(files)} files):\n\n"
+            result = f" **Codebase Structure** ({len(files)} files):\n\n"
             for f in files[:20]:
                 result += f"- `{f['path']}` ({f['module_type']})\n"
             if len(files) > 20:
@@ -755,7 +774,7 @@ class ALICE:
                 query = match.group(1)
                 results = self.self_reflection.search_code(query)
                 if results:
-                    result = f"🔍 **Found '{query}' in {len(results)} file(s)**:\n\n"
+                    result = f" **Found '{query}' in {len(results)} file(s)**:\n\n"
                     for r in results[:5]:
                         result += f"**{r['file']}** ({r['match_count']} matches):\n"
                         for m in r['matches'][:2]:
@@ -778,22 +797,22 @@ class ALICE:
                 return "Training system not initialized."
             
             status = self.fine_tuning_system.get_training_status()
-            result = f"📊 **Training Status**:\n\n"
-            result += f"📝 Total examples collected: {status['total_examples']}\n"
-            result += f"⭐ High-quality examples: {status['high_quality_examples']}\n"
-            result += f"✅ Ready for training: {'Yes' if status['ready_for_training'] else 'No (need 50+ examples)'}\n"
-            result += f"🤖 Fine-tuned model: {'✅ Available' if status['fine_tuned_model_exists'] else '❌ Not yet trained'}\n"
+            result = f" **Training Status**:\n\n"
+            result += f" Total examples collected: {status['total_examples']}\n"
+            result += f" High-quality examples: {status['high_quality_examples']}\n"
+            result += f" Ready for training: {'Yes' if status['ready_for_training'] else 'No (need 50+ examples)'}\n"
+            result += f" Fine-tuned model: {' Available' if status['fine_tuned_model_exists'] else '❌ Not yet trained'}\n"
             if status['fine_tuned_model_exists']:
                 result += f"   Model name: {status['fine_tuned_model_name']}\n"
-            result += f"📚 Base model: {status['base_model']}\n"
+            result += f" Base model: {status['base_model']}\n"
             
             if status['examples_by_intent']:
-                result += f"\n📈 Examples by intent:\n"
+                result += f"\n Examples by intent:\n"
                 for intent, count in list(status['examples_by_intent'].items())[:5]:
                     result += f"  - {intent}: {count}\n"
             
             if not status['ready_for_training']:
-                result += f"\n💡 Keep using A.L.I.C.E! I'm learning from every interaction. Once I have 50+ examples, you can train me on your data."
+                result += f"\n Keep using A.L.I.C.E! I'm learning from every interaction. Once I have 50+ examples, you can train me on your data."
             
             return result
         
@@ -807,7 +826,7 @@ class ALICE:
             
             export_path = self.fine_tuning_system.export_for_training(format=format_type)
             if export_path:
-                return f"✅ Exported training data to: `{export_path}`\n\nYou can use this file to train A.L.I.C.E externally or with Ollama's fine-tuning tools."
+                return f" Exported training data to: `{export_path}`\n\nYou can use this file to train A.L.I.C.E externally or with Ollama's fine-tuning tools."
             return "No training data to export yet. Keep using A.L.I.C.E to collect data!"
         
         # Prepare training data
@@ -817,7 +836,7 @@ class ALICE:
             
             success, message = self.fine_tuning_system.prepare_training_data()
             if success:
-                return f"✅ {message}\n\nTo train A.L.I.C.E:\n1. Use Ollama's fine-tuning: `ollama create alice-llama3-1-8b -f data/training/training_data.txt`\n2. Or export the data and use external training tools."
+                return f" {message}\n\nTo train A.L.I.C.E:\n1. Use Ollama's fine-tuning: `ollama create alice-llama3-1-8b -f data/training/training_data.txt`\n2. Or export the data and use external training tools."
             return f"❌ {message}"
         
         return None
@@ -1669,12 +1688,14 @@ class ALICE:
             
             # If there's an active goal, use it to enhance intent understanding
             active_goal = goal_res.goal if goal_res else None
-            if active_goal and intent_confidence < 0.7:
-                # Low confidence but we have a goal - use goal intent to disambiguate
+            if active_goal and intent_confidence < 0.7 and self._should_reuse_goal_intent(user_input, active_goal.description):
                 self._think(f"Low confidence ({intent_confidence:.2f}) but active goal → using goal intent: {active_goal.intent}")
                 intent = active_goal.intent
                 entities = {**(entities if entities else {}), **(active_goal.entities if active_goal.entities else {})}
-                intent_confidence = 0.8  # Boost confidence when goal helps
+                intent_confidence = 0.8
+            else:
+                if active_goal and intent_confidence < 0.7 and not self._should_reuse_goal_intent(user_input, active_goal.description):
+                    self._think("Topic shift (low overlap with goal) → not reusing goal intent")    
             
             _is_short_followup = (
                 len(user_input.split()) <= 12
@@ -1801,7 +1822,7 @@ class ALICE:
                         if recovery_msg:
                             response = recovery_msg
                         if suggestion:
-                            response = f"{response}\n\n💡 {suggestion}"
+                            response = f"{response}\n\n {suggestion}"
                 
                 # Store interaction in memory
                 self._store_interaction(user_input, response, intent, entities)
@@ -2492,7 +2513,7 @@ class ALICE:
         
         elif cmd == '/memory':
             stats = self.memory.get_statistics()
-            print("\n📊 Memory Statistics:")
+            print("\n Memory Statistics:")
             for key, value in stats.items():
                 print(f"   {key}: {value}")
         
@@ -2504,7 +2525,7 @@ class ALICE:
                 print(f"   {status} {plugin['name']}: {plugin['description']}")
         
         elif cmd == '/status':
-            print("\n📊 System Status:")
+            print("\n System Status:")
             status = self.context.get_system_status()
             print(f"   LLM Model: {status.get('llm_model', 'N/A')}")
             print(f"   Voice: {'Enabled' if status.get('voice_enabled') else 'Disabled'}")
@@ -2539,7 +2560,7 @@ class ALICE:
             if self.summarizer:
                 try:
                     summary_text = self.summarizer.get_conversation_summary()
-                    print("\n📝 Conversation Summary:")
+                    print("\n Conversation Summary:")
                     print("=" * 50)
                     print(summary_text)
                     print("=" * 50)
@@ -2803,7 +2824,7 @@ class ALICE:
         parts = command.split(" ", 1)
         correction_type = parts[1] if len(parts) > 1 else ""
         
-        print(f"\n📝 Correction Mode")
+        print(f"\n Correction Mode")
         print("=" * 50)
         print(f"Last input: {self.last_user_input}")
         print(f"Last response: {self.last_assistant_response[:200]}...")
@@ -2831,7 +2852,7 @@ class ALICE:
                     f"User corrected intent from '{self.last_intent}' to '{new_intent}'",
                     {"original_nlp_result": self.last_nlp_result}
                 )
-                print(f"✅ Recorded intent correction: {self.last_intent} → {new_intent}")
+                print(f" Recorded intent correction: {self.last_intent} → {new_intent}")
         
         elif correction_type == "entity":
             print(f"Current entities: {self.last_entities}")
@@ -2848,7 +2869,7 @@ class ALICE:
                         "User corrected entity extraction",
                         {"original_nlp_result": self.last_nlp_result}
                     )
-                    print("✅ Recorded entity correction")
+                    print(" Recorded entity correction")
             except Exception as e:
                 print(f"[ERROR] Invalid entity format: {e}")
         
@@ -2864,7 +2885,7 @@ class ALICE:
                     "User provided better response",
                     {"intent": self.last_intent}
                 )
-                print("✅ Recorded response quality correction")
+                print(" Recorded response quality correction")
         
         elif correction_type == "sentiment":
             print(f"Current sentiment: {self.last_nlp_result.get('sentiment', {})}")
@@ -2878,7 +2899,7 @@ class ALICE:
                     f"User corrected sentiment to {new_sentiment}",
                     {"original_nlp_result": self.last_nlp_result}
                 )
-                print(f"✅ Recorded sentiment correction: {new_sentiment}")
+                print(f" Recorded sentiment correction: {new_sentiment}")
         
         elif correction_type == "factual":
             print("Describe the factual error:")
@@ -2893,7 +2914,7 @@ class ALICE:
                     f"User corrected factual error: {error_description}",
                     {"response": self.last_assistant_response}
                 )
-                print("✅ Recorded factual correction")
+                print(" Recorded factual correction")
         
         else:
             print(f"[ERROR] Unknown correction type: {correction_type}")
@@ -2912,7 +2933,7 @@ class ALICE:
         except ValueError:
             rating = None
         
-        print(f"\n📊 Feedback Mode")
+        print(f"\n Feedback Mode")
         print("=" * 50)
         print(f"Last input: {self.last_user_input}")
         print(f"Last response: {self.last_assistant_response[:200]}...")
@@ -2939,15 +2960,15 @@ class ALICE:
                 {"intent": self.last_intent, "entities": self.last_entities}
             )
             
-            print(f"✅ Thank you for the {rating}/5 rating!")
+            print(f"] Thank you for the {rating}/5 rating!")
             if suggestion:
-                print(f"💡 I'll work on: {suggestion}")
+                print(f" I'll work on: {suggestion}")
         else:
             print("[ERROR] Rating must be between 1 and 5")
     
     def _handle_learning_stats_command(self):
         """Handle learning statistics command"""
-        print(f"\n🧠 Active Learning Statistics")
+        print(f"\n Active Learning Statistics")
         print("=" * 50)
         
         try:
@@ -2967,7 +2988,7 @@ class ALICE:
             
             suggestions = self.learning_manager.suggest_improvements()
             if suggestions:
-                print("\n💡 Improvement suggestions:")
+                print("\n Improvement suggestions:")
                 for suggestion in suggestions:
                     print(f"   • {suggestion}")
             
@@ -2995,7 +3016,7 @@ class ALICE:
     
     def shutdown(self):
         """Gracefully shutdown ALICE"""
-        logger.info("🛑 Shutting down ALICE...")
+        logger.info(" Shutting down ALICE...")
         
         # Save conversation state
         self._save_conversation_state()
