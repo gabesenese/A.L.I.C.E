@@ -177,108 +177,34 @@ class ResponseGenerator:
         return ", ".join(parts) + "." if parts else None  # Return None if no data
     
     def _generate_maps_response(self, data: Dict[str, Any], user_input: str) -> Optional[str]:
-        """Generate maps/places response using learned patterns"""
-        place_type = data.get('place_type')
-        location = data.get('location')
-        places = data.get('places', [])
-        
-        if not places:
-            return f"No {place_type}s found nearby."
-        
-        # A.L.I.C.E constructs response from place data
-        is_brief = self.response_characteristics['avg_length'] < 40
-        
-        if len(places) == 1:
-            place = places[0]
-            if is_brief:
-                return f"{place['name']} - {place['distance_km']}km away."
-            return f"The nearest {place_type} is {place['name']}, about {place['distance_km']}km away."
-        else:
-            # Multiple places
-            nearest = places[0]
-            if is_brief:
-                return f"{nearest['name']} ({nearest['distance_km']}km). Found {len(places)} total."
-            
-            response = f"Nearest {place_type}: {nearest['name']}, {nearest['distance_km']}km away."
-            if len(places) > 1:
-                response += f" Found {len(places)} total"
-                if len(places) > 2:
-                    response += f" - next closest: {places[1]['name']} ({places[1]['distance_km']}km)"
-            return response + "."
+        """Generate maps response - ONLY from learned patterns"""
+        if self.learned_patterns.get('generic'):
+            return random.choice(self.learned_patterns['generic'])
+        return None
     
     def _generate_time_response(self, data: Dict[str, Any], user_input: str) -> Optional[str]:
-        """Generate time/date response using learned patterns ONLY"""
+        """Generate time response - ONLY from learned patterns"""
         if self.learned_patterns.get('time'):
-            # Learn from past time responses
-            learned = self.learned_patterns['time']
-            uses_its = any("it's" in r.lower() for r in learned)
-            
-            if 'date' in user_input.lower():
-                date_val = data.get('formatted_date')
-                return f"It's {date_val}." if (uses_its and date_val) else (f"{date_val}." if date_val else None)
-            else:
-                time_val = data.get('formatted_time')
-                return f"It's {time_val}." if (uses_its and time_val) else (f"{time_val}." if time_val else None)
-        
-        # No learned patterns - return data only
-        if 'date' in user_input.lower():
-            return data.get('formatted_date')
-        return data.get('formatted_time')
+            return random.choice(self.learned_patterns['time'])
+        return None
     
     def _generate_notes_response(self, data: Dict[str, Any], user_input: str, intent: str) -> Optional[str]:
-        """Generate notes response using learned patterns"""
-        action = data.get('action', 'unknown')
-        
-        # Learn confirmation style from past interactions
-        learned = self.learned_patterns.get('notes', [])
-        uses_got_it = any('got it' in r.lower() for r in learned) if learned else True
-        is_brief = self.response_characteristics['avg_length'] < 40
-        
-        if action == 'created':
-            note_title = data.get('note', {}).get('title', 'note')
-            if is_brief:
-                return f"Created '{note_title}'."
-            return f"Got it, created '{note_title}'." if uses_got_it else f"Created '{note_title}'."
-        elif action == 'listed':
-            notes = data.get('notes', [])
-            if not notes:
-                return "No notes yet." if is_brief else "You don't have any notes yet."
-            return f"{len(notes)} note(s)." if is_brief else f"You have {len(notes)} note(s)."
-        elif action == 'deleted':
-            return "Deleted." if is_brief else "Deleted that note."
-        elif action == 'archived':
-            return "Archived." if is_brief else "Archived it."
-        else:
-            return "Done."
+        """Generate notes response - ONLY from learned patterns"""
+        if self.learned_patterns.get('notes'):
+            return random.choice(self.learned_patterns['notes'])
+        return None
     
     def _generate_calendar_response(self, data: Dict[str, Any], user_input: str) -> Optional[str]:
-        """Generate calendar response using learned patterns"""
-        action = data.get('action', 'unknown')
-        is_brief = self.response_characteristics['avg_length'] < 40
-        
-        if action == 'event_created':
-            return "Added to calendar." if is_brief else "Added that to your calendar."
-        elif action == 'events_listed':
-            events = data.get('events', [])
-            if not events:
-                return "Calendar clear." if is_brief else "Your calendar is clear."
-            return f"{len(events)} event(s)." if is_brief else f"You have {len(events)} upcoming event(s)."
-        else:
-            return "Done." if is_brief else "Calendar updated."
+        """Generate calendar response - ONLY from learned patterns"""
+        if self.learned_patterns.get('calendar'):
+            return random.choice(self.learned_patterns['calendar'])
+        return None
     
     def _generate_music_response(self, data: Dict[str, Any], user_input: str) -> Optional[str]:
-        """Generate music response using learned patterns"""
-        action = data.get('action', 'unknown')
-        
-        if action == 'playing':
-            song = data.get('song', 'music')
-            return f"Playing {song}."
-        elif action == 'paused':
-            return "Paused."
-        elif action == 'stopped':
-            return "Stopped."
-        else:
-            return "Done."
+        """Generate music response - ONLY from learned patterns"""
+        if self.learned_patterns.get('music'):
+            return random.choice(self.learned_patterns['music'])
+        return None
     
     def _generate_generic_response(self, data: Dict[str, Any], user_input: str) -> Optional[str]:
         """Generate generic response - ONLY if we have learned patterns"""
