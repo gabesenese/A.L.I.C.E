@@ -715,8 +715,11 @@ class NotesPlugin(PluginInterface):
         if not command:
             return {
                 "success": False,
-                "response": "No command provided",
-                "message": "No command provided"
+                "response": None,
+                "data": {
+                    "error": "no_command",
+                    "message_code": "notes:no_command"
+                }
             }
         
         try:
