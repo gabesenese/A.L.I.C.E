@@ -28,7 +28,7 @@ from features.welcome import welcome_message, get_greeting, display_startup_info
 from main import ALICE
 
 
-def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False):
+def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False, privacy_mode=False):
     """Start A.L.I.C.E with Rich terminal UI"""
     try:
         from ui.rich_terminal import RichTerminalUI
@@ -52,7 +52,8 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
             voice_enabled=voice_enabled,
             llm_model=llm_model,
             user_name=user_name,
-            debug=debug
+            debug=debug,
+            privacy_mode=privacy_mode
         )
         if not debug:
             sys.stdout = old_stdout
@@ -61,6 +62,8 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
         ui.show_welcome()
         if debug:
             ui.print_info("Debug mode: A.L.I.C.E thinking steps will appear above each response.")
+        if privacy_mode:
+            ui.print_info("🔒 Privacy mode: Episodic memories will not be saved.")
         ui.print_info("")
         
         # Main interaction loop
@@ -99,7 +102,7 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
         ui.print_info("\nFor detailed error logs, run: python main.py")
 
 
-def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False):
+def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False, privacy_mode=False):
     """
     Start A.L.I.C.E with welcome screen (classic terminal mode)
     
@@ -108,6 +111,7 @@ def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel
         llm_model: LLM model to use
         user_name: User's name for personalization
         debug: Show thinking steps (used by dev.py)
+        privacy_mode: Disable episodic memory storage for privacy
     """
     # Clear screen for clean start
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -125,6 +129,8 @@ def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel
     display_startup_info()
     print()
     print("Initializing A.L.I.C.E systems...")
+    if privacy_mode:
+        print("🔒 Privacy mode: Episodic memories will not be saved.")
     print()
     
     # Initialize ALICE with stdout suppressed to avoid debug messages (unless debug)
@@ -140,7 +146,8 @@ def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel
             voice_enabled=voice_enabled,
             llm_model=llm_model,
             user_name=user_name,
-            debug=debug
+            debug=debug,
+            privacy_mode=privacy_mode
         )
         
         # Restore stdout
@@ -183,6 +190,7 @@ Examples:
   python alice.py --ui gui                  # Start with Tkinter GUI
   python alice.py --voice                   # Enable voice interaction
   python alice.py --model llama3.3:70b      # Specify LLM model
+  python alice.py --privacy-mode            # Run without saving episodic memories
   
 For debugging with full logs:
   python main.py
@@ -224,6 +232,12 @@ For debugging with full logs:
         help='Show A.L.I.C.E thinking steps (intent, plugins, verifier). Used by dev.py'
     )
     
+    parser.add_argument(
+        '--privacy-mode',
+        action='store_true',
+        help='Disable episodic memory storage for privacy (no conversation history saved)'
+    )
+    
     args = parser.parse_args()
     
     # Default user name
@@ -235,14 +249,16 @@ For debugging with full logs:
             voice_enabled=args.voice,
             llm_model=args.model,
             user_name=user_name,
-            debug=args.debug
+            debug=args.debug,
+            privacy_mode=args.privacy_mode
         )
     else:  # classic
         start_alice(
             voice_enabled=args.voice,
             llm_model=args.model,
             user_name=user_name,
-            debug=args.debug
+            debug=args.debug,
+            privacy_mode=args.privacy_mode
         )
 
 

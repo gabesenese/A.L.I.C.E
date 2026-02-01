@@ -95,10 +95,12 @@ class ALICE:
         voice_enabled: bool = False,
         llm_model: str = "llama3.1:8b",
         user_name: str = "User",
-        debug: bool = False
+        debug: bool = False,
+        privacy_mode: bool = False
     ):
         self.voice_enabled = voice_enabled
         self.debug = debug
+        self.privacy_mode = privacy_mode
         self.running = False
         
         # Conversation state for context-aware operations
@@ -2500,20 +2502,26 @@ class ALICE:
             
             self.context.update_conversation(user_input, response, intent, entity_list)
             
-            # Store in episodic memory with enhanced metadata
-            self.memory.store_memory(
-                content=f"User: {user_input} | Assistant: {response}",
-                memory_type="episodic",
-                context={
-                    "intent": intent,
-                    "entities": entities,
-                    "topics": self.conversation_topics[-3:],
-                    "has_email_context": bool(self.last_email_list),
-                    "pending_action": self.pending_action
-                },
-                importance=0.6,
-                tags=["conversation", intent]
-            )
+            # Store in episodic memory with enhanced metadata (unless privacy mode)
+            if not self.privacy_mode:
+                self.memory.store_memory(
+                    content=f"User: {user_input} | Assistant: {response}",
+                    memory_type="episodic",
+                    context={
+                        "intent": intent,
+                        "entities": entities,
+                        "topics": self.conversation_topics[-3:],
+                        "has_email_context": bool(self.last_email_list),
+                        "pending_action": self.pending_action
+                    },
+                    importance=0.6,
+                    tags=["conversation", intent]
+                )
+                
+                # Check if periodic consolidation is needed
+                self.memory.periodic_consolidation_check()
+            else:
+                logger.info("[PRIVACY] Episodic memory storage skipped (privacy mode enabled)")
             
         except Exception as e:
             logger.warning(f"[WARNING] Error storing interaction: {e}")
@@ -2659,6 +2667,11 @@ class ALICE:
             print("   /entities          - Show tracked entities")
             print("   /relationships     - Show entity relationships")
             print()
+            print("Memory Management:")
+            print("   /mem-list [type]   - List memories (types: episodic, semantic, procedural, document)")
+            print("   /mem-search <query>- Search memories by semantic similarity")
+            print("   /mem-delete <id>   - Delete a specific memory by ID")
+            print()
             print("Debug Commands:")
             print("   /correct [type]    - Correct A.L.I.C.E's last response")
             print("   /feedback [rating] - Rate A.L.I.C.E's last response (1-5)")
@@ -2696,11 +2709,14 @@ class ALICE:
             status = self.context.get_system_status()
             print(f"   LLM Model: {status.get('llm_model', 'N/A')}")
             print(f"   Voice: {'Enabled' if status.get('voice_enabled') else 'Disabled'}")
+            print(f"   Privacy Mode: {'Enabled' if self.privacy_mode else 'Disabled'}")
             print(f"   Plugins: {len(self.plugins.plugins)}")
             print(f"   Capabilities: {len(status.get('capabilities', []))}")
             
             memory_stats = self.memory.get_statistics()
             print(f"   Total Memories: {memory_stats['total_memories']}")
+            if self.privacy_mode:
+                print(f"   ⚠️  Episodic memory storage is DISABLED")
             
             # LLM Gateway Statistics
             if hasattr(self, 'llm_gateway') and self.llm_gateway:
@@ -2839,6 +2855,118 @@ class ALICE:
                     print(f"\n[ERROR] Failed to get relationships: {e}")
             else:
                 print("\n[ERROR] Entity relationship tracker not available")
+        
+        elif cmd.startswith('/mem-list'):
+            # List memories with optional filter by type
+            parts = command.split(maxsplit=1)
+            memory_type = parts[1].strip() if len(parts) > 1 else None
+            
+            if memory_type and memory_type not in ['episodic', 'semantic', 'procedural', 'document']:
+                print(f"\n[ERROR] Invalid memory type: {memory_type}")
+                print("   Valid types: episodic, semantic, procedural, document")
+                return
+            
+            memories = []
+            if not memory_type or memory_type == 'episodic':
+                memories.extend([('episodic', m) for m in self.memory.episodic_memory])
+            if not memory_type or memory_type == 'semantic':
+                memories.extend([('semantic', m) for m in self.memory.semantic_memory])
+            if not memory_type or memory_type == 'procedural':
+                memories.extend([('procedural', m) for m in self.memory.procedural_memory])
+            if not memory_type or memory_type == 'document':
+                memories.extend([('document', m) for m in self.memory.document_memory])
+            
+            # Sort by timestamp (most recent first)
+            memories.sort(key=lambda x: x[1].timestamp, reverse=True)
+            
+            title = f"{'All' if not memory_type else memory_type.title()} Memories"
+            print(f"\n🧠 {title}:")
+            print("=" * 70)
+            
+            if not memories:
+                print("   No memories found.")
+            else:
+                for i, (mem_type, mem) in enumerate(memories[:20], 1):  # Show max 20
+                    content_preview = mem.content[:60] + "..." if len(mem.content) > 60 else mem.content
+                    importance = "★" * int(mem.importance * 5)  # Convert to 0-5 stars
+                    print(f"   {i}. [{mem_type[:3].upper()}] {content_preview}")
+                    print(f"      ID: {mem.id} | Importance: {importance} | Access: {mem.access_count}x")
+                    print(f"      Tags: {', '.join(mem.tags) if mem.tags else 'none'}")
+                    print()
+                
+                if len(memories) > 20:
+                    print(f"   ... and {len(memories) - 20} more memories")
+            
+            print("=" * 70)
+        
+        elif cmd.startswith('/mem-search'):
+            # Search memories by content
+            parts = command.split(maxsplit=1)
+            if len(parts) < 2:
+                print("\n[ERROR] Usage: /mem-search <query>")
+                return
+            
+            query = parts[1].strip()
+            results = self.memory.recall_memory(query, top_k=10, min_similarity=0.5)
+            
+            print(f"\n🔍 Memory Search Results for: '{query}'")
+            print("=" * 70)
+            
+            if not results:
+                print("   No matching memories found.")
+            else:
+                for i, result in enumerate(results, 1):
+                    content_preview = result['content'][:60] + "..." if len(result['content']) > 60 else result['content']
+                    similarity = result['similarity']
+                    importance = "★" * int(result['importance'] * 5)
+                    
+                    print(f"   {i}. {content_preview}")
+                    print(f"      ID: {result['id']} | Type: {result['type']}")
+                    print(f"      Similarity: {similarity:.2f} | Importance: {importance}")
+                    print(f"      Tags: {', '.join(result['tags']) if result['tags'] else 'none'}")
+                    print()
+            
+            print("=" * 70)
+        
+        elif cmd.startswith('/mem-delete'):
+            # Delete memory by ID
+            parts = command.split(maxsplit=1)
+            if len(parts) < 2:
+                print("\n[ERROR] Usage: /mem-delete <memory_id>")
+                return
+            
+            memory_id = parts[1].strip()
+            
+            # Find and delete the memory
+            deleted = False
+            for memory_list in [self.memory.episodic_memory, self.memory.semantic_memory,
+                              self.memory.procedural_memory, self.memory.document_memory]:
+                for i, mem in enumerate(memory_list):
+                    if mem.id == memory_id:
+                        memory_type = mem.type
+                        content_preview = mem.content[:60] + "..." if len(mem.content) > 60 else mem.content
+                        
+                        # Remove from memory list
+                        memory_list.pop(i)
+                        
+                        # Remove from vector store
+                        self.memory.vector_store.delete(memory_id)
+                        
+                        # Save changes
+                        self.memory._save_memories()
+                        self.memory.vector_store.save(self.memory.vector_store_path)
+                        
+                        deleted = True
+                        print(f"\n✓ Deleted {memory_type} memory:")
+                        print(f"   ID: {memory_id}")
+                        print(f"   Content: {content_preview}")
+                        break
+                
+                if deleted:
+                    break
+            
+            if not deleted:
+                print(f"\n[ERROR] Memory not found: {memory_id}")
         
         elif cmd.startswith('/correct'):
             self._handle_correction_command(cmd)
