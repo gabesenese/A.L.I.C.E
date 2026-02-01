@@ -273,3 +273,30 @@ def configure_llm_policy(**kwargs):
     global _llm_policy_instance
     _llm_policy_instance = LLMPolicy(**kwargs)
     logger.info(f"LLM policy configured: {_llm_policy_instance.get_stats()}")
+
+
+def configure_minimal_policy():
+    """
+    Configure minimal LLM policy - Alice learns organically
+    
+    Minimal mode philosophy:
+    - Chitchat: Use learned patterns ONLY (no LLM)
+    - Tool formatting: Use simple formatters ONLY (no LLM)
+    - Generation: LLM allowed ONLY when user explicitly approves
+    - Learning: All LLM responses are learning opportunities
+    
+    This forces Alice to build her own conversational style
+    rather than relying on pre-programmed LLM responses.
+    """
+    global _llm_policy_instance
+    _llm_policy_instance = LLMPolicy(
+        max_calls_per_minute=5,               # Very restrictive rate limit
+        allow_llm_for_chitchat=False,         # Never use LLM for chitchat - learn patterns
+        allow_llm_for_tools=False,            # Never use LLM for tool formatting - use simple formatters
+        allow_llm_for_generation=True,        # Allow LLM for complex generation (with approval)
+        require_user_approval=True            # Always ask before calling LLM
+    )
+    logger.info("Minimal LLM policy activated - Alice will learn organically")
+    logger.info(f"Policy settings: {_llm_policy_instance.get_stats()}")
+    return _llm_policy_instance
+
