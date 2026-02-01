@@ -64,7 +64,8 @@ class RequestRouter:
     CONVERSATION_INTENTS = {
         'greeting', 'farewell', 'thanks', 'affirmation', 'negation',
         'praise', 'insult', 'small_talk', 'status_check', 'help',
-        'capabilities', 'joke', 'about_alice'
+        'capabilities', 'joke', 'about_alice', 'clarification_needed',
+        'vague_question', 'meta_question'
     }
     
     # Safety-flagged intents that always need review (goes to LLM for safety check)
@@ -121,8 +122,19 @@ class RequestRouter:
     }
     
     # Confidence thresholds
-    MIN_TOOL_CONFIDENCE = 0.6   # Minimum confidence to call a tool
+    MIN_TOOL_CONFIDENCE = 0.7   # Minimum confidence to call a tool (raised from 0.6)
     MIN_CONV_CONFIDENCE = 0.7   # Minimum confidence for conversational engine
+    CLARIFICATION_THRESHOLD = 0.75  # Below this, check for domain keywords
+    
+    # Domain keywords for intent validation
+    DOMAIN_KEYWORDS = {
+        'weather': {'weather', 'temperature', 'outside', 'today', 'tomorrow', 'forecast', 'rain', 'snow', 'sunny', 'cloudy', 'degrees', 'celsius', 'fahrenheit'},
+        'email': {'email', 'inbox', 'message', 'send', 'reply', 'compose', 'mail'},
+        'calendar': {'calendar', 'meeting', 'schedule', 'appointment', 'event', 'available', 'busy'},
+        'file': {'file', 'folder', 'directory', 'document', 'read', 'write', 'delete', 'move'},
+        'note': {'note', 'reminder', 'remember', 'write down'},
+        'music': {'music', 'song', 'play', 'pause', 'stop', 'audio', 'track'}
+    }
     
     def __init__(self):
         """Initialize router"""
@@ -142,6 +154,48 @@ class RequestRouter:
             self.event_bus = get_event_bus()
         except Exception as e:
             logger.debug(f"Event bus not available: {e}")
+    
+    def should_clarify(self, intent: str, confidence: float, entities: Dict[str, Any], user_text: str) -> bool:
+        """Check if we should ask for clarification instead of executing tool"""
+        # Always clarify if confidence is very low
+        if confidence < 0.7:
+            # Check if text has strong domain keywords
+            text_lower = user_text.lower()
+            
+            # Detect domain from intent
+            domain = None
+            if 'weather' in intent:
+                domain = 'weather'
+            elif 'email' in intent:
+                domain = 'email'
+            elif 'calendar' in intent or 'schedule' in intent or 'meeting' in intent:
+                domain = 'calendar'
+            elif 'file' in intent:
+                domain = 'file'
+            elif 'note' in intent:
+                domain = 'note'
+            elif 'music' in intent:
+                domain = 'music'
+            
+            # If we detected a domain, check for domain keywords
+            if domain and domain in self.DOMAIN_KEYWORDS:
+                keywords = self.DOMAIN_KEYWORDS[domain]
+                # If text contains at least 2 domain keywords, don't clarify
+                keyword_count = sum(1 for kw in keywords if kw in text_lower)
+                if keyword_count >= 2:
+                    return False
+            
+            # Check for vague patterns
+            vague_patterns = [
+                'question about', 'tell me about', 'what about',
+                'curious about', 'wondering about', 'ask you about',
+                'know about', 'information on', 'details on'
+            ]
+            
+            if any(pattern in text_lower for pattern in vague_patterns):
+                return True
+        
+        return False
     
     def _emit_routing_event(self, stage: str, decision: RoutingDecision, intent: str, confidence: float, metadata: Dict[str, Any] = None):
         """Emit routing event for metrics collection"""
@@ -173,7 +227,8 @@ class RequestRouter:
         intent: str,
         confidence: float,
         entities: Dict[str, Any],
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        user_text: str = ""
     ) -> RouteResult:
         """
         Make routing decision with strict priority ordering
@@ -183,6 +238,7 @@ class RequestRouter:
             confidence: Intent detection confidence (0-1)
             entities: Extracted entities
             context: Optional conversation context
+            user_text: Original user input text for clarification detection
             
         Returns:
             RouteResult with routing decision
@@ -221,6 +277,19 @@ class RequestRouter:
                 metadata={'safety_check': True, 'require_user_approval': True}
             )
         
+        # Priority 2.75: CLARIFICATION CHECK (before tools)
+        # Check if we should ask for clarification instead of executing tool
+        if intent in self.TOOL_INTENTS and user_text:
+            if self.should_clarify(intent, confidence, entities, user_text):
+                self.routing_stats['conversational'] += 1
+                self._emit_routing_event('conversational', RoutingDecision.CONVERSATIONAL, intent, confidence)
+                return RouteResult(
+                    decision=RoutingDecision.CONVERSATIONAL,
+                    confidence=1.0,
+                    reasoning="Vague question requires clarification",
+                    metadata={'clarification_needed': True, 'original_intent': intent}
+                )
+        
         # Priority 3: TOOL_CALL (plugins with structured output)
         if intent in self.TOOL_INTENTS:
             tool_name = self._intent_to_tool(intent)
@@ -236,8 +305,16 @@ class RequestRouter:
                     metadata={'use_simple_formatter': True}  # Use rule-based formatter, not LLM
                 )
             else:
-                # Low confidence - ask user for clarification
+                # Low confidence - route to conversational for clarification
                 logger.warning(f"Low confidence ({confidence:.2f}) for tool intent: {intent}")
+                self.routing_stats['conversational'] += 1
+                self._emit_routing_event('conversational', RoutingDecision.CONVERSATIONAL, intent, confidence)
+                return RouteResult(
+                    decision=RoutingDecision.CONVERSATIONAL,
+                    confidence=confidence,
+                    reasoning=f"Low confidence ({confidence:.2f}), requesting clarification",
+                    metadata={'clarification_needed': True, 'original_intent': intent}
+                )
         
         # Priority 4: RAG_ONLY (knowledge retrieval without generation)
         if intent in self.RAG_INTENTS:
