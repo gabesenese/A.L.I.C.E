@@ -19,6 +19,7 @@ class MapsPlugin:
     
     def __init__(self):
         self.name = "MapsPlugin"
+        self.version = "1.0.0"
         self.description = "Finds nearby places and provides location services"
         self.capabilities = ["nearby_places", "directions", "location_search"]
         self.enabled = True
@@ -26,6 +27,16 @@ class MapsPlugin:
     def initialize(self) -> bool:
         logger.info("🗺️ Maps plugin initialized")
         return True
+
+    def get_info(self) -> Dict[str, str]:
+        """Get plugin information"""
+        return {
+            "name": self.name,
+            "version": self.version,
+            "description": self.description,
+            "enabled": self.enabled,
+            "capabilities": self.capabilities
+        }
     
     def can_handle(self, intent: str, entities: Dict, query: str = None) -> bool:
         if query is None:
@@ -54,8 +65,11 @@ class MapsPlugin:
             if not user_city:
                 return {
                     "success": False,
-                    "response": "I need to know your location first. Where are you?",
-                    "data": {"error": "no_location"}
+                    "response": None,
+                    "data": {
+                        "error": "no_location",
+                        "message_code": "maps:no_location"
+                    }
                 }
             
             # Extract what they're looking for
@@ -65,8 +79,11 @@ class MapsPlugin:
             if not place_type:
                 return {
                     "success": False,
-                    "response": "What type of place are you looking for?",
-                    "data": {"error": "no_place_type"}
+                    "response": None,
+                    "data": {
+                        "error": "no_place_type",
+                        "message_code": "maps:no_place_type"
+                    }
                 }
             
             # Search for places using Overpass API (OpenStreetMap)
@@ -75,19 +92,25 @@ class MapsPlugin:
             if not places:
                 return {
                     "success": False,
-                    "response": f"I couldn't find any {place_type}s nearby in {user_city}. Try a different search term?",
-                    "data": {"place_type": place_type, "location": user_city}
+                    "response": None,
+                    "data": {
+                        "place_type": place_type,
+                        "location": user_city,
+                        "message_code": "maps:no_results"
+                    }
                 }
             
             # Return data for A.L.I.C.E to generate response
             return {
                 "success": True,
-                "response": f"Found {len(places)} {place_type}(s) near you.",  # Fallback
+                "response": None,
                 "data": {
                     "place_type": place_type,
                     "location": user_city,
                     "places": places[:5],  # Top 5 results
-                    "plugin_type": "maps"
+                    "plugin_type": "maps",
+                    "count": len(places),
+                    "message_code": "maps:found"
                 }
             }
             
@@ -95,8 +118,11 @@ class MapsPlugin:
             logger.error(f"Maps plugin error: {e}")
             return {
                 "success": False,
-                "response": "I had trouble searching for places right now.",
-                "data": {"error": str(e)}
+                "response": None,
+                "data": {
+                    "error": str(e),
+                    "message_code": "maps:error"
+                }
             }
     
     def _extract_place_type(self, query: str) -> Optional[str]:
