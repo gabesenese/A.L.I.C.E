@@ -907,12 +907,25 @@ class NLPProcessor:
         if any(phrase in text_lower for phrase in ['how are you', 'how are you doing', 'how is it going']):
             return 'status_inquiry', 0.85
 
+        # Vague patterns requiring clarification
+        vague_patterns = [
+            'who is he', 'who is she', 'who is that',  # Pronoun ref without context
+            'what is that', 'what about that',         # Ambiguous reference
+            'add this to', 'put this in',              # Action without object context
+            'what happened', 'what about',             # Vague temporal/domain
+            'how do i', 'how can i',                   # Generic how questions
+            'tell me about the', 'tell me about a',    # Ambiguous topic
+        ]
+        if any(pattern in text_lower for pattern in vague_patterns):
+            return 'vague_question', 0.75
+
         # Vague temporal question
-        if any(word in text_lower for word in ['yesterday', 'tomorrow', 'last week', 'last month', 'next week', 'next month']) and ("what about" in text_lower or "?" in text):
-            return 'vague_temporal_question', 0.6
+        if any(word in text_lower for word in ['yesterday', 'tomorrow', 'last week', 'last month', 'next week', 'next month']) and ("what about" in text_lower or "what" in text_lower or "?" in text):
+            return 'vague_temporal_question', 0.7
 
         # Schedule action without specifics
         if 'schedule' in text_lower and any(word in text_lower for word in ['yesterday', 'today', 'tomorrow', 'next week', 'next month']):
+
             return 'schedule_action', 0.7
 
         # Greetings (high confidence)
@@ -921,29 +934,46 @@ class NLPProcessor:
             return 'greeting', 0.9
 
         # System intents - check BEFORE time (system has "how's" pattern that could match time)
-        if 'system' in text_lower and ('status' in text_lower or 'doing' in text_lower or 'health' in text_lower):
-            return 'system:status', 0.85
-        if any(word in text_lower for word in ['cpu', 'memory', 'disk', 'battery']) and 'usage' in text_lower:
-            return 'system:status', 0.85
+        # Look for: "how's the system", "cpu", "memory", "battery", "disk usage"
+        if 'system' in text_lower and any(word in text_lower for word in ['status', 'doing', 'health', 'how']):
+            return 'system:status', 0.9
+        if any(word in text_lower for word in ['cpu', 'memory', 'disk', 'battery']) and any(word in text_lower for word in ['usage', 'available', 'how much', 'low', 'check']):
+            return 'system:status', 0.9
 
-        # Email intents - check for explicit email action words
-        if 'compose' in text_lower or 'draft' in text_lower or 'write' in text_lower:
-            if any(word in text_lower for word in ['email', 'mail', 'message']):
-                return 'email:compose', 0.85
-        if any(word in text_lower for word in ['delete', 'remove', 'trash']) and ('email' in text_lower or 'mail' in text_lower):
-            return 'email:delete', 0.85
-        if any(word in text_lower for word in ['search', 'find']) and any(word in text_lower for word in ['email', 'mail', 'from', 'inbox']):
-            return 'email:search', 0.8
-        if any(word in text_lower for word in ['read', 'open', 'show']) and any(word in text_lower for word in ['email', 'mail', 'first', 'message']):
-            return 'email:read', 0.8
+        # Email intents - VERY explicit: action word + email word
+        # Compose: "compose/draft/write + email/mail"
+        if any(word in text_lower for word in ['compose', 'draft', 'write', 'send']) and any(word in text_lower for word in ['email', 'mail', 'message', 'to']):
+            return 'email:compose', 0.9
+        # Delete: "delete/remove/trash + email/mail + (number/index/third/second/first)"
+        if any(word in text_lower for word in ['delete', 'remove', 'trash']) and any(word in text_lower for word in ['email', 'mail', 'message']):
+            return 'email:delete', 0.9
+        # Reply: "reply/respond to email/mail"
+        if any(word in text_lower for word in ['reply', 'respond']) and any(word in text_lower for word in ['email', 'mail', 'message']):
+            return 'email:reply', 0.85
+        # Search: "find/search + email/mail + (from/subject/sender)"
+        if any(word in text_lower for word in ['search', 'find', 'look for']) and any(word in text_lower for word in ['email', 'mail', 'inbox', 'message', 'from']):
+            return 'email:search', 0.85
+        # List: "show/list/recent + email(s)/mail(s)"
+        if any(word in text_lower for word in ['show', 'list', 'recent', 'latest']) and any(word in text_lower for word in ['email', 'emails', 'mail', 'mails', 'inbox']):
+            return 'email:list', 0.85
+        # Read: "read/open/display + email/mail/message + (first/last/index)"
+        if any(word in text_lower for word in ['read', 'open', 'display', 'view']) and any(word in text_lower for word in ['email', 'mail', 'message', 'first', 'last']):
+            return 'email:read', 0.85
 
-        # Notes intents - distinguish create vs search vs list
-        if any(word in text_lower for word in ['create', 'add', 'new']) and 'note' in text_lower:
-            return 'notes:create', 0.8
-        if 'find' in text_lower and 'note' in text_lower:
-            return 'notes:search', 0.8
-        if any(word in text_lower for word in ['show', 'list', 'all']) and 'note' in text_lower:
-            return 'notes:list', 0.8
+        # Notes intents - distinguish VERY clearly
+        # Create: "create/add/new + note(s)"
+        if any(word in text_lower for word in ['create', 'add', 'new', 'make', 'write']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
+            if 'about' in text_lower or 'on' in text_lower:  # Contextual clue
+                return 'notes:create', 0.9
+        # List: "show/list/all + note(s)"
+        if any(word in text_lower for word in ['show', 'list', 'display', 'all']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
+            return 'notes:list', 0.9
+        # Search: "find/search + note(s) + (about/on/by topic)"
+        if any(word in text_lower for word in ['find', 'search', 'look for', 'grep']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
+            return 'notes:search', 0.9
+        # Delete: "delete/remove/trash + note(s)"
+        if any(word in text_lower for word in ['delete', 'remove', 'trash', 'clear']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
+            return 'notes:delete', 0.85
 
         # Time intents - after system check to avoid confusion
         if any(phrase in text_lower for phrase in ['what time', 'current time', 'time is it', 'time now']) or text_lower.strip() == 'time':
