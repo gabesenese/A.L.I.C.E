@@ -1,6 +1,7 @@
 """
 Deterministic Request Router for A.L.I.C.E
 Implements explicit routing policy with testable state machine
+Emits events for metrics collection and reactive behavior
 """
 
 from enum import Enum
@@ -56,7 +57,7 @@ class RequestRouter:
     SELF_REFLECTION_INTENTS = {
         'code_request', 'code_analysis', 'training_status', 'system_info',
         'performance_metrics', 'memory_stats', 'learning_stats',
-        'debug_mode', 'self_analysis'
+        'debug_mode', 'self_analysis', 'system_status'
     }
     
     # Intents that conversational engine handles without LLM
@@ -64,6 +65,13 @@ class RequestRouter:
         'greeting', 'farewell', 'thanks', 'affirmation', 'negation',
         'praise', 'insult', 'small_talk', 'status_check', 'help',
         'capabilities', 'joke', 'about_alice'
+    }
+    
+    # Safety-flagged intents that always need review (goes to LLM for safety check)
+    SAFETY_CHECK_INTENTS = {
+        'file_delete_all', 'file_wipe', 'data_delete_all',
+        'system_shutdown', 'unsafe_system_command', 'deploy_command',
+        'data_wipe', 'privilege_escalation', 'unsafe_operation'
     }
     
     # Intents that require tool execution
@@ -81,7 +89,7 @@ class RequestRouter:
         'file_move', 'file_copy', 'directory_list',
         
         # System
-        'system_command', 'process_management', 'system_info',
+        'system_command', 'process_management',
         
         # Web
         'web_search', 'weather_query', 'news_query',
@@ -95,8 +103,8 @@ class RequestRouter:
         # Maps
         'location_query', 'directions_query', 'place_search',
         
-        # Documents
-        'document_ingest', 'document_query', 'document_list'
+        # Documents (document_list only - queries go to RAG)
+        'document_ingest', 'document_list'
     }
     
     # Intents that can use RAG without generation
@@ -126,6 +134,39 @@ class RequestRouter:
             'llm_fallback': 0,
             'error': 0
         }
+        
+        # Try to import event bus for event emission (optional)
+        self.event_bus = None
+        try:
+            from ai.event_bus import get_event_bus
+            self.event_bus = get_event_bus()
+        except Exception as e:
+            logger.debug(f"Event bus not available: {e}")
+    
+    def _emit_routing_event(self, stage: str, decision: RoutingDecision, intent: str, confidence: float, metadata: Dict[str, Any] = None):
+        """Emit routing event for metrics collection"""
+        if not self.event_bus:
+            return
+        
+        try:
+            # Emit custom routing event
+            event_data = {
+                'stage': stage,
+                'decision': decision.value,
+                'intent': intent,
+                'confidence': confidence,
+                'metadata': metadata or {}
+            }
+            
+            # Try to use custom event if available
+            if hasattr(self.event_bus, 'emit_routing_event'):
+                self.event_bus.emit_routing_event(stage, event_data)
+            else:
+                # Fallback: use generic custom event
+                if hasattr(self.event_bus, 'emit_custom'):
+                    self.event_bus.emit_custom(f'routing.{stage}', event_data)
+        except Exception as e:
+            logger.debug(f"Failed to emit routing event: {e}")
     
     def route(
         self,
@@ -151,6 +192,7 @@ class RequestRouter:
         # Priority 1: SELF_REFLECTION (code, training, system)
         if intent in self.SELF_REFLECTION_INTENTS:
             self.routing_stats['self_reflection'] += 1
+            self._emit_routing_event('self_reflection', RoutingDecision.SELF_REFLECTION, intent, 1.0)
             return RouteResult(
                 decision=RoutingDecision.SELF_REFLECTION,
                 confidence=1.0,  # Always high confidence for self-reflection
@@ -161,11 +203,23 @@ class RequestRouter:
         if intent in self.CONVERSATION_INTENTS:
             if confidence >= self.MIN_CONV_CONFIDENCE:
                 self.routing_stats['conversational'] += 1
+                self._emit_routing_event('conversational', RoutingDecision.CONVERSATIONAL, intent, confidence)
                 return RouteResult(
                     decision=RoutingDecision.CONVERSATIONAL,
                     confidence=confidence,
                     reasoning=f"Conversational pattern: {intent}"
                 )
+        
+        # Priority 2.5: SAFETY CHECK (potentially dangerous operations need review)
+        if intent in self.SAFETY_CHECK_INTENTS:
+            self.routing_stats['llm_fallback'] += 1
+            self._emit_routing_event('llm', RoutingDecision.LLM_FALLBACK, intent, 1.0)
+            return RouteResult(
+                decision=RoutingDecision.LLM_FALLBACK,
+                confidence=1.0,
+                reasoning=f"Safety-flagged operation requires review: {intent}",
+                metadata={'safety_check': True, 'require_user_approval': True}
+            )
         
         # Priority 3: TOOL_CALL (plugins with structured output)
         if intent in self.TOOL_INTENTS:
@@ -173,6 +227,7 @@ class RequestRouter:
             
             if confidence >= self.MIN_TOOL_CONFIDENCE:
                 self.routing_stats['tool'] += 1
+                self._emit_routing_event('tool', RoutingDecision.TOOL_CALL, intent, confidence, {'tool': tool_name})
                 return RouteResult(
                     decision=RoutingDecision.TOOL_CALL,
                     confidence=confidence,
@@ -187,6 +242,7 @@ class RequestRouter:
         # Priority 4: RAG_ONLY (knowledge retrieval without generation)
         if intent in self.RAG_INTENTS:
             self.routing_stats['rag'] += 1
+            self._emit_routing_event('rag', RoutingDecision.RAG_ONLY, intent, confidence)
             return RouteResult(
                 decision=RoutingDecision.RAG_ONLY,
                 confidence=confidence,
@@ -196,6 +252,7 @@ class RequestRouter:
         # Priority 5: LLM_FALLBACK (last resort)
         if intent in self.LLM_INTENTS or confidence < self.MIN_TOOL_CONFIDENCE:
             self.routing_stats['llm_fallback'] += 1
+            self._emit_routing_event('llm', RoutingDecision.LLM_FALLBACK, intent, confidence)
             return RouteResult(
                 decision=RoutingDecision.LLM_FALLBACK,
                 confidence=confidence,
@@ -206,6 +263,7 @@ class RequestRouter:
         # Unknown intent - ask user what they want
         logger.warning(f"Unknown intent: {intent}, cannot route")
         self.routing_stats['error'] += 1
+        self._emit_routing_event('error', RoutingDecision.ERROR, intent, 0.0)
         return RouteResult(
             decision=RoutingDecision.ERROR,
             confidence=0.0,
@@ -245,7 +303,6 @@ class RequestRouter:
             # System
             'system_command': 'system_control',
             'process_management': 'system_control',
-            'system_info': 'system_control',
             
             # Web
             'web_search': 'web_search',
@@ -270,9 +327,8 @@ class RequestRouter:
             'directions_query': 'maps',
             'place_search': 'maps',
             
-            # Documents
+            # Documents (document_query goes to RAG instead)
             'document_ingest': 'documents',
-            'document_query': 'documents',
             'document_list': 'documents'
         }
         return intent_tool_map.get(intent)

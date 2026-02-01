@@ -202,6 +202,55 @@ class EventBus:
                 "event_types": len(self._subscribers),
                 "event_counts": event_counts
             }
+    
+    def emit_custom(self, event_name: str, data: Dict[str, Any] = None, priority: EventPriority = EventPriority.NORMAL):
+        """
+        Emit a custom named event (for routing, metrics, etc.)
+        
+        Args:
+            event_name: Custom event name (e.g., 'routing.self_reflection')
+            data: Event data
+            priority: Event priority
+        """
+        # Call subscribers if any registered for this custom event
+        with self._lock:
+            subscribers = self._subscribers.get(event_name, [])
+        
+        for callback in subscribers:
+            try:
+                event = Event(
+                    event_type=EventType.USER_QUERY,  # Use generic type
+                    data={'event_name': event_name, **(data or {})},
+                    priority=priority
+                )
+                callback(event)
+            except Exception as e:
+                logger.error(f"Error calling subscriber for custom event {event_name}: {e}")
+    
+    def subscribe_to_custom(self, event_name: str, callback: Callable):
+        """
+        Subscribe to custom events
+        
+        Args:
+            event_name: Custom event name pattern
+            callback: Function to call when event occurs
+        """
+        with self._lock:
+            if event_name not in self._subscribers:
+                self._subscribers[event_name] = []
+            
+            if callback not in self._subscribers[event_name]:
+                self._subscribers[event_name].append(callback)
+    
+    def emit_routing_event(self, stage: str, data: Dict[str, Any]):
+        """
+        Emit a routing event for metrics collection
+        
+        Args:
+            stage: Routing stage (e.g., 'self_reflection', 'conversational', 'tool', 'rag', 'llm')
+            data: Routing decision data
+        """
+        self.emit_custom(f'routing.{stage}', data, priority=EventPriority.HIGH)
 
 
 # Global event bus instance
