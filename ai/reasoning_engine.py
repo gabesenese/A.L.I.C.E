@@ -179,7 +179,7 @@ class ReasoningEngine:
         ]
         self.SUCCESS_INDICATORS = [
             r"\b(?:done|completed|archived|deleted|created|added|sent)\b",
-            r"\b(?:ok|success|✓|✅)\b",
+            r"\b(?:ok|success)\b",
             r"^[\s\S]*\b(?:successfully|done)\b[\s\S]*$",
         ]
         
@@ -638,7 +638,11 @@ if __name__ == "__main__":
     print(f"Goal: {goal_res.goal.description if goal_res.goal else None}")
     
     # Test verification
-    plugin_result = {"success": True, "response": "Note deleted.", "message": "Done"}
+    plugin_result = {
+        "success": True,
+        "response": None,
+        "data": {"message_code": "notes:deleted"}
+    }
     verify_res = engine.verify(plugin_result, "note:delete", "delete the grocery list")
     print(f"Verified: {verify_res.verified}")
     
