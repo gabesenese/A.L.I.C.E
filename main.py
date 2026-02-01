@@ -213,9 +213,9 @@ class ALICE:
             )
             logger.info("[OK] LLM Gateway active - all calls now policy-gated")
             
-            # 4.5. Conversation Summarizer
+            # 4.5. Conversation Summarizer (now uses gateway for policy enforcement)
             logger.info("Loading conversation summarizer...")
-            self.summarizer = ConversationSummarizer(llm_engine=self.llm)
+            self.summarizer = ConversationSummarizer(llm_engine=self.llm, llm_gateway=self.llm_gateway)
             
             # 4.6. Entity Relationship Tracker
             logger.info("Loading entity relationship tracker...")
@@ -1108,10 +1108,14 @@ class ALICE:
                             flags=re.IGNORECASE
                         ).strip()
                         if not response:
-                            response = self.llm.chat(
-                                "Give a short greeting only. Do not comment on your wellbeing.",
-                                use_history=False
+                            # Retry via gateway without wellbeing
+                            retry_response = self.llm_gateway.request(
+                                prompt="Give a short greeting only. Do not comment on your wellbeing.",
+                                call_type=LLMCallType.CHITCHAT,
+                                use_history=False,
+                                user_input=user_input
                             )
+                            response = retry_response.response if retry_response.success else "Hi there!"
                     if response:
                         self._think("LLM → short greeting response")
                         self._store_interaction(user_input, response, intent, entities)
@@ -2646,7 +2650,7 @@ class ALICE:
             print("   /clear             - Clear conversation history")
             print("   /memory            - Show memory system statistics")
             print("   /plugins           - List all available plugins")
-            print("   /status            - Show system status and capabilities")
+            print("   /status            - Show system status, gateway stats, and LLM usage")
             print("   /location [City]   - Set or view your location")
             print("   /save              - Save current state manually")
             print("   /summary           - Get conversation summary")
@@ -2688,7 +2692,7 @@ class ALICE:
                 print(f"   {status} {plugin['name']}: {plugin['description']}")
         
         elif cmd == '/status':
-            print("\n System Status:")
+            print("\n🔧 System Status:")
             status = self.context.get_system_status()
             print(f"   LLM Model: {status.get('llm_model', 'N/A')}")
             print(f"   Voice: {'Enabled' if status.get('voice_enabled') else 'Disabled'}")
@@ -2697,6 +2701,29 @@ class ALICE:
             
             memory_stats = self.memory.get_statistics()
             print(f"   Total Memories: {memory_stats['total_memories']}")
+            
+            # LLM Gateway Statistics
+            if hasattr(self, 'llm_gateway') and self.llm_gateway:
+                print("\n📊 LLM Gateway Statistics:")
+                gateway_stats = self.llm_gateway.get_statistics()
+                print(f"   Total Requests: {gateway_stats['total_requests']}")
+                print(f"   ✓ Formatter Usage: {gateway_stats['formatter_calls']} ({gateway_stats.get('formatter_percentage', 0)}%)")
+                print(f"   🤖 LLM Calls: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_percentage', 0)}%)")
+                print(f"   ✗ Policy Denials: {gateway_stats['policy_denials']} ({gateway_stats.get('denial_percentage', 0)}%)")
+                
+                if gateway_stats['by_type']:
+                    print("\n   By Call Type:")
+                    for call_type, count in sorted(gateway_stats['by_type'].items(), key=lambda x: x[1], reverse=True):
+                        print(f"      {call_type}: {count}")
+            
+            # Conversational Engine Statistics
+            if hasattr(self, 'conversational_engine') and self.conversational_engine:
+                print("\n💬 Conversational Engine:")
+                if hasattr(self.conversational_engine, 'pattern_count'):
+                    print(f"   Learned Patterns: {self.conversational_engine.pattern_count}")
+                if hasattr(self.conversational_engine, 'learned_greetings'):
+                    print(f"   Learned Greetings: {len(self.conversational_engine.learned_greetings) if self.conversational_engine.learned_greetings else 0}")
+                print(f"   Status: Active")
         
         elif cmd.startswith('/location'):
             # Set location manually: /location City, Country

@@ -44,8 +44,9 @@ class ConversationSummarizer:
     - Memory-efficient summarization
     """
     
-    def __init__(self, llm_engine=None, data_dir: str = "data/context"):
-        self.llm_engine = llm_engine
+    def __init__(self, llm_engine=None, llm_gateway=None, data_dir: str = "data/context"):
+        self.llm_engine = llm_engine  # Kept for backward compatibility
+        self.llm_gateway = llm_gateway  # Preferred: use gateway for policy enforcement
         self.data_dir = data_dir
         os.makedirs(data_dir, exist_ok=True)
         
@@ -375,15 +376,15 @@ class ConversationSummarizer:
     def _generate_summary_text(self, turns: List[Dict], topics: List[str], key_points: List[str]) -> str:
         """Generate a natural language summary"""
         
-        if self.llm_engine:
-            # Use LLM for better summarization
+        if self.llm_gateway or self.llm_engine:
+            # Use gateway (preferred) or LLM engine for better summarization
             return self._llm_summarize(turns)
         else:
             # Fallback to rule-based summarization
             return self._rule_based_summarize(turns, topics, key_points)
     
     def _llm_summarize(self, turns: List[Dict]) -> str:
-        """Use LLM to generate conversation summary"""
+        """Use LLM gateway to generate conversation summary"""
         try:
             conversation_text = ""
             for i, turn in enumerate(turns):
@@ -399,7 +400,23 @@ class ConversationSummarizer:
 
 Summary:"""
             
-            summary = self.llm_engine.chat(summary_prompt, use_history=False)
+            # Try gateway first (enforces policy)
+            if self.llm_gateway:
+                from ai.llm_policy import LLMCallType
+                response = self.llm_gateway.request(
+                    prompt=summary_prompt,
+                    call_type=LLMCallType.GENERATION,
+                    use_history=False,
+                    user_input="conversation summary"
+                )
+                if response.success and response.response:
+                    summary = response.response
+                else:
+                    # Gateway denied - use rule-based fallback
+                    return self._rule_based_summarize(turns, [], [])
+            else:
+                # Fallback to direct LLM (legacy)
+                summary = self.llm_engine.chat(summary_prompt, use_history=False)
             
             # Clean and truncate summary
             summary = summary.strip()
