@@ -200,7 +200,7 @@ class ScenarioRunner:
 
         return "LLM_FALLBACK"
     
-    def _get_alice_response(self, user_input: str, route: str) -> str:
+    def _get_alice_response(self, user_input: str, route: str) -> tuple:
         """
         Get Alice's response for a given input and route
         
@@ -209,8 +209,10 @@ class ScenarioRunner:
             route: Determined route
         
         Returns:
-            Alice's response text
+            Tuple of (response_text, llm_used)
         """
+        llm_used = False
+        
         if route == "CONVERSATIONAL":
             # Process with NLP to get intent
             nlp_result = self.nlp.process(user_input)
@@ -228,28 +230,29 @@ class ScenarioRunner:
                 world_state=self.reasoning_engine
             )
             response = self.conversational_engine.generate_response(context)
-            return response or "I understand."
+            return response or "I understand.", llm_used
         
         elif route == "CLARIFICATION":
-            return "Could you clarify what you mean? I want to make sure I help you correctly."
+            return "Could you clarify what you mean? I want to make sure I help you correctly.", llm_used
         
         elif route == "TOOL":
-            return "I'll help you with that."
+            return "I'll help you with that.", llm_used
         
         elif route == "RAG":
-            return "Let me check my memory for that information."
+            return "Let me check my memory for that information.", llm_used
         
         else:  # LLM_FALLBACK
             # Use gateway which enforces policy
+            llm_used = True
             response = self.llm_gateway.request(
                 prompt=user_input,
                 call_type=LLMCallType.GENERATION,
                 user_input=user_input
             )
             if response.success:
-                return response.response
+                return response.response, llm_used
             else:
-                return "I'm not sure how to help with that."
+                return "I'm not sure how to help with that.", llm_used
     
     def run_scenario(self, scenario: Scenario) -> List[ScenarioResult]:
         """
@@ -279,11 +282,12 @@ class ScenarioRunner:
             # Determine route
             actual_route = self._determine_route(step.user_input, nlp_result)
             
-            # Get Alice's response
-            alice_response = self._get_alice_response(step.user_input, actual_route)
+            # Get Alice's response and track LLM usage
+            alice_response, llm_used = self._get_alice_response(step.user_input, actual_route)
             
             # Compare with teacher if enabled
             teacher_response = None
+            teacher_quality = None
             needs_learning = False
             
             if self.teacher:
@@ -293,6 +297,7 @@ class ScenarioRunner:
                     expected_route=step.expected_route.value
                 )
                 teacher_response = comparison.get("teacher_response")
+                teacher_quality = comparison.get("quality_score", 0)
                 
                 # Check if should flag for learning
                 needs_learning = self.teacher.should_flag_for_learning(
@@ -300,6 +305,10 @@ class ScenarioRunner:
                     expected_route=step.expected_route.value,
                     comparison=comparison
                 )
+            
+            # Determine success: route + intent match = success (or has teacher approval)
+            success = (actual_route == step.expected_route.value and 
+                      mapped_intent == step.expected_intent)
             
             # Create result
             result = ScenarioResult(
@@ -358,9 +367,9 @@ class ScenarioRunner:
             results = self.run_scenario(scenario)
             self.results.extend(results)
             
-            # Convert to training data
+            # Convert to training data with enhanced fields
             for result in results:
-                self.training_data.append({
+                training_item = {
                     "timestamp": datetime.now().isoformat(),
                     "scenario_name": scenario.name,
                     "user_input": result.step.user_input,
@@ -372,9 +381,13 @@ class ScenarioRunner:
                     "teacher_response": result.teacher_response,
                     "route_match": result.route_match,
                     "intent_match": result.intent_match,
+                    "success": result.route_match and result.intent_match,
                     "needs_learning": result.needs_learning,
-                    "domain": scenario.domain
-                })
+                    "confidence": result.confidence,
+                    "domain": scenario.domain,
+                    "llm_used": result.actual_route == "LLM_FALLBACK"
+                }
+                self.training_data.append(training_item)
     
     def save_results(self) -> None:
         """Save results to training data file and generate report"""
