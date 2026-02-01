@@ -323,7 +323,7 @@ class ActiveLearningManager:
         similar_corrections = self._count_similar_corrections(correction)
         
         if similar_corrections < self.MIN_EXAMPLES_TO_APPLY - 1:
-            print(f"⏳ Shadow mode: Need {self.MIN_EXAMPLES_TO_APPLY - similar_corrections - 1} more example(s) before creating pattern")
+            print(f"Shadow mode: Need {self.MIN_EXAMPLES_TO_APPLY - similar_corrections - 1} more example(s) before creating pattern")
             return
         
         if correction.correction_type == CorrectionType.INTENT_CLASSIFICATION.value:
@@ -339,10 +339,16 @@ class ActiveLearningManager:
         for existing in self.corrections:
             if existing.id != correction.id and \
                existing.correction_type == correction.correction_type:
-                # Simple similarity check
-                if existing.original_output == correction.original_output and \
-                   existing.corrected_output == correction.corrected_output:
-                    count += 1
+                # For intent corrections, count as similar if correcting TO the same intent
+                # (user is teaching the same lesson: multiple wrong intents → one right intent)
+                if correction.correction_type == CorrectionType.INTENT_CLASSIFICATION.value:
+                    if existing.corrected_output == correction.corrected_output:
+                        count += 1
+                else:
+                    # For other types, require exact match on both original and corrected
+                    if existing.original_output == correction.original_output and \
+                       existing.corrected_output == correction.corrected_output:
+                        count += 1
         return count
     
     def should_apply_pattern(self, pattern: LearningPattern) -> bool:
@@ -354,22 +360,22 @@ class ActiveLearningManager:
         """
         # Shadow mode: never apply, just log
         if self.shadow_mode:
-            print(f"🔍 Shadow mode: Would apply pattern {pattern.pattern_id}")
+            print(f" Shadow mode: Would apply pattern {pattern.pattern_id}")
             return False
         
         # Check minimum examples
         if pattern.validation_count < self.MIN_EXAMPLES_TO_APPLY:
-            print(f"⚠️ Pattern {pattern.pattern_id} needs more examples ({pattern.validation_count}/{self.MIN_EXAMPLES_TO_APPLY})")
+            print(f" Pattern {pattern.pattern_id} needs more examples ({pattern.validation_count}/{self.MIN_EXAMPLES_TO_APPLY})")
             return False
         
         # Check confidence
         if pattern.confidence < self.MIN_CONFIDENCE_TO_APPLY:
-            print(f"⚠️ Pattern {pattern.pattern_id} confidence too low ({pattern.confidence:.2f} < {self.MIN_CONFIDENCE_TO_APPLY})")
+            print(f" Pattern {pattern.pattern_id} confidence too low ({pattern.confidence:.2f} < {self.MIN_CONFIDENCE_TO_APPLY})")
             return False
         
         # Check success rate
         if pattern.usage_count > 0 and pattern.success_rate < self.MIN_SUCCESS_RATE:
-            print(f"⚠️ Pattern {pattern.pattern_id} success rate too low ({pattern.success_rate:.2f} < {self.MIN_SUCCESS_RATE})")
+            print(f" Pattern {pattern.pattern_id} success rate too low ({pattern.success_rate:.2f} < {self.MIN_SUCCESS_RATE})")
             return False
         
         return True
@@ -395,7 +401,7 @@ class ActiveLearningManager:
         self.pattern_versions[pattern.pattern_id].append(version)
         self._save_data()
         
-        print(f"📝 Created version {version['version_number']} of pattern {pattern.pattern_id}")
+        print(f"Created version {version['version_number']} of pattern {pattern.pattern_id}")
     
     def rollback_pattern(self, pattern_id: str, version_number: int = None) -> bool:
         """
@@ -409,12 +415,12 @@ class ActiveLearningManager:
             True if rollback successful
         """
         if pattern_id not in self.pattern_versions:
-            print(f"❌ No versions found for pattern {pattern_id}")
+            print(f" No versions found for pattern {pattern_id}")
             return False
         
         versions = self.pattern_versions[pattern_id]
         if not versions:
-            print(f"❌ No versions found for pattern {pattern_id}")
+            print(f" No versions found for pattern {pattern_id}")
             return False
         
         # Default to previous version
@@ -422,7 +428,7 @@ class ActiveLearningManager:
             version_number = len(versions) - 1
         
         if version_number < 1 or version_number > len(versions):
-            print(f"❌ Invalid version number {version_number}")
+            print(f" Invalid version number {version_number}")
             return False
         
         # Restore version
@@ -433,11 +439,11 @@ class ActiveLearningManager:
         for i, pattern in enumerate(self.learning_patterns):
             if pattern.pattern_id == pattern_id:
                 self.learning_patterns[i] = restored_pattern
-                print(f"✅ Rolled back pattern {pattern_id} to version {version_number}")
+                print(f" Rolled back pattern {pattern_id} to version {version_number}")
                 self._save_data()
                 return True
         
-        print(f"❌ Pattern {pattern_id} not found in active patterns")
+        print(f" Pattern {pattern_id} not found in active patterns")
         return False
     
     def _analyze_intent_correction(self, correction: Correction):
