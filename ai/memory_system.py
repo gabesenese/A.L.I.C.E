@@ -1148,10 +1148,18 @@ class MemorySystem:
                 with open(memories_path, 'r', encoding='utf-8') as f:
                     memories_data = json.load(f)
                 
-                self.episodic_memory = [MemoryEntry(**m) for m in memories_data.get("episodic", [])]
-                self.semantic_memory = [MemoryEntry(**m) for m in memories_data.get("semantic", [])]
-                self.procedural_memory = [MemoryEntry(**m) for m in memories_data.get("procedural", [])]
-                self.document_memory = [MemoryEntry(**m) for m in memories_data.get("document", [])]
+                # Handle both dict and list formats (backward compatibility)
+                if isinstance(memories_data, dict):
+                    self.episodic_memory = [MemoryEntry(**m) for m in memories_data.get("episodic", [])]
+                    self.semantic_memory = [MemoryEntry(**m) for m in memories_data.get("semantic", [])]
+                    self.procedural_memory = [MemoryEntry(**m) for m in memories_data.get("procedural", [])]
+                    self.document_memory = [MemoryEntry(**m) for m in memories_data.get("document", [])]
+                elif isinstance(memories_data, list):
+                    # Old format: just a list of memories, treat as episodic
+                    self.episodic_memory = [MemoryEntry(**m) if isinstance(m, dict) else m for m in memories_data]
+                    logger.info("[Memory] Loaded legacy format, converted to new structure")
+                else:
+                    logger.warning(f"[Memory] Unknown memories format: {type(memories_data)}")
                 
                 total_memories = len(self.episodic_memory) + len(self.semantic_memory) + len(self.procedural_memory) + len(self.document_memory)
                 logger.info(f"[OK] Loaded {total_memories} memories "
@@ -1255,7 +1263,7 @@ if __name__ == "__main__":
         print(context)
         
         # Statistics
-        print(f"\n📊 Memory Statistics:")
+        print(f"\n Memory Statistics:")
         stats = memory.get_statistics()
         for key, value in stats.items():
             print(f"   {key}: {value}")
