@@ -24,6 +24,16 @@ data/conversation_state.pkl
 data/**/*.json
 memory/*.json
 
+# Training and scenario runtime data
+data/memory/
+data/training/training_data.jsonl
+data/training/training_data.jsonl.bak
+data/context_state.pkl
+scenario_*.txt
+scenario_final.txt
+count_scenarios.py
+run_and_report_scenarios.py
+
 # Project 
 datasets/
 notes/
