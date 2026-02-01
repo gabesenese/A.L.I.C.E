@@ -654,14 +654,17 @@ class ALICE:
         Uses word overlap (excluding stop words) to determine relevance.
         """
         if not (user_input and goal_description):
-            return True
-        stop = {"the", "a", "an", "is", "are", "was", "were", "you", "your", "me", "my", "how", "what", "who", "where", "when", "why", "outside", "hows", "from", "to", "and", "or", "but"}
-        a = set(w.lower() for w in user_input.split() if len(w) > 1 and w.lower() not in stop)
-        b = set(w.lower() for w in goal_description.split() if len(w) > 1 and w.lower() not in stop)
-        if not a:
-            return True
+            return False  # Don't reuse if missing context
+        
+        stop = {"the", "a", "an", "is", "are", "was", "were", "you", "your", "me", "my", "how", "what", "who", "where", "when", "why", "outside", "hows", "from", "to", "and", "or", "but", "it", "its"}
+        a = set(w.lower() for w in user_input.split() if len(w) > 2 and w.lower() not in stop)
+        b = set(w.lower() for w in goal_description.split() if len(w) > 2 and w.lower() not in stop)
+        
+        if not a or not b:
+            return False  # Don't reuse if either has no meaningful words
+        
         overlap = len(a & b) / len(a)
-        return overlap >= 0.15
+        return overlap >= 0.3  # Increased threshold from 0.15 to 0.3 for better topic detection
     
     def _handle_code_request(self, user_input: str, entities: Dict = None) -> Optional[str]:
         """Handle requests to read/analyze code - flexible and intelligent with smart follow-up"""
