@@ -940,18 +940,18 @@ class ALICE:
                 return "Learning system not initialized."
             
             stats = self.learning_engine.get_statistics()
-            result = f"📊 **Learning Status**:\n\n"
-            result += f"✓ Total interactions: {stats['total_examples']}\n"
-            result += f"✓ High-quality examples: {stats['high_quality']}\n"
-            result += f"✓ Ready for fine-tuning: {'Yes' if stats['should_finetune'] else 'No (need 50+ examples)'}\n"
+            result = "[LEARNING] **Learning Status**:\n\n"
+            result += f"[OK] Total interactions: {stats['total_examples']}\n"
+            result += f"[OK] High-quality examples: {stats['high_quality']}\n"
+            result += f"[OK] Ready for fine-tuning: {'Yes' if stats['should_finetune'] else 'No (need 50+ examples)'}\n"
             
             if stats['examples_by_intent']:
-                result += f"\n📁 Examples by intent:\n"
+                result += "\n[DETAILS] Examples by intent:\n"
                 for intent, count in list(stats['examples_by_intent'].items())[:5]:
                     result += f"  - {intent}: {count}\n"
             
             if not stats['should_finetune']:
-                result += f"\n💡 Keep using A.L.I.C.E! I'm learning from every interaction."
+                result += "\n[INFO] Keep using A.L.I.C.E! I'm learning from every interaction."
             
             return result
         
@@ -968,7 +968,7 @@ class ALICE:
                 training_data = self.learning_engine.get_high_quality_examples()
                 if training_data:
                     export_path = "data/training/training_data.jsonl"
-                    return f"✓ {len(training_data)} examples available for export to: `{export_path}`\n\nYou can use this file to train A.L.I.C.E with Ollama's fine-tuning tools."
+                    return f"[OK] {len(training_data)} examples available for export to: `{export_path}`\n\nYou can use this file to train A.L.I.C.E with Ollama's fine-tuning tools."
             return "No training data to export yet. Keep using A.L.I.C.E to collect data!"
         
         # Prepare training data
@@ -978,8 +978,8 @@ class ALICE:
             
             if self.learning_engine.should_finetune():
                 examples = self.learning_engine.get_high_quality_examples()
-                return f"✓ Ready to train! {len(examples)} high-quality examples available.\n\nTo train A.L.I.C.E:\n1. Use Ollama's fine-tuning: `ollama create alice-custom -f data/training/training_data.jsonl`\n2. Or export the data and use external training tools."
-            return f"❌ Not enough data yet. Need 50+ high-quality examples (currently have less)."
+                return f"[OK] Ready to train! {len(examples)} high-quality examples available.\n\nTo train A.L.I.C.E:\n1. Use Ollama's fine-tuning: `ollama create alice-custom -f data/training/training_data.jsonl`\n2. Or export the data and use external training tools."
+            return "[ERROR] Not enough data yet. Need 50+ high-quality examples (currently have less)."
         
         return None
 
@@ -2784,7 +2784,7 @@ class ALICE:
                 print(f"   {status} {plugin['name']}: {plugin['description']}")
         
         elif cmd == '/status':
-            print("\n🔧 System Status:")
+            print("\n[STATUS] System Status:")
             status = self.context.get_system_status()
             print(f"   LLM Model: {status.get('llm_model', 'N/A')}")
             print(f"   Voice: {'Enabled' if status.get('voice_enabled') else 'Disabled'}")
@@ -3042,7 +3042,7 @@ class ALICE:
                         self.memory.vector_store.save(self.memory.vector_store_path)
                         
                         deleted = True
-                        print(f"\n✓ Deleted {memory_type} memory:")
+                        print(f"\n[OK] Deleted {memory_type} memory:")
                         print(f"   ID: {memory_id}")
                         print(f"   Content: {content_preview}")
                         break
@@ -3064,7 +3064,7 @@ class ALICE:
                     return
             
             stats = self.pattern_miner.get_pattern_stats()
-            print(f"\n\ud83d\udccb Pattern Learning System:")
+            print("\n[PATTERNS] Pattern Learning System:")
             print("=" * 70)
             print(f"   Total Proposals: {stats['total_proposals']}")
             print(f"   Pending Approval: {stats['pending_approval']}")
@@ -3092,7 +3092,7 @@ class ALICE:
                 if len(stats['pending_patterns']) > 5:
                     print(f"\n   ... and {len(stats['pending_patterns']) - 5} more pending patterns")
             else:
-                print("   \u2713 No pending patterns. All proposed patterns have been reviewed.")
+                print("   [OK] No pending patterns. All proposed patterns have been reviewed.")
             
             print("\n" + "=" * 70)
         
@@ -3110,7 +3110,7 @@ class ALICE:
                 self.pattern_miner = PatternMiner()
             
             if self.pattern_miner.approve_pattern(pattern_id):
-                print(f"\n\u2713 Pattern {pattern_id} approved and will be used for future interactions")
+                print(f"\n[OK] Pattern {pattern_id} approved and will be used for future interactions")
             else:
                 print(f"\n[ERROR] Pattern {pattern_id} not found")
         
