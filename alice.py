@@ -28,7 +28,7 @@ from features.welcome import welcome_message, get_greeting, display_startup_info
 from main import ALICE
 
 
-def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False, privacy_mode=False):
+def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False, privacy_mode=False, llm_policy="default"):
     """Start A.L.I.C.E with Rich terminal UI"""
     try:
         from ui.rich_terminal import RichTerminalUI
@@ -102,7 +102,7 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
         ui.print_info("\nFor detailed error logs, run: python main.py")
 
 
-def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False, privacy_mode=False):
+def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False, privacy_mode=False, llm_policy="default"):
     """
     Start A.L.I.C.E with welcome screen (classic terminal mode)
     
@@ -112,6 +112,7 @@ def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel
         user_name: User's name for personalization
         debug: Show thinking steps (used by dev.py)
         privacy_mode: Disable episodic memory storage for privacy
+        llm_policy: LLM policy mode (default/minimal/strict)
     """
     # Clear screen for clean start
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -147,7 +148,8 @@ def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel
             llm_model=llm_model,
             user_name=user_name,
             debug=debug,
-            privacy_mode=privacy_mode
+            privacy_mode=privacy_mode,
+            llm_policy=llm_policy
         )
         
         # Restore stdout
@@ -238,6 +240,14 @@ For debugging with full logs:
         help='Disable episodic memory storage for privacy (no conversation history saved)'
     )
     
+    parser.add_argument(
+        '--llm-policy',
+        type=str,
+        choices=['default', 'minimal', 'strict'],
+        default='default',
+        help='LLM policy: minimal (patterns only, no LLM for chitchat/tools), strict (no LLM at all), default (balanced)'
+    )
+    
     args = parser.parse_args()
     
     # Default user name
@@ -250,7 +260,8 @@ For debugging with full logs:
             llm_model=args.model,
             user_name=user_name,
             debug=args.debug,
-            privacy_mode=args.privacy_mode
+            privacy_mode=args.privacy_mode,
+            llm_policy=args.llm_policy
         )
     else:  # classic
         start_alice(
@@ -258,7 +269,8 @@ For debugging with full logs:
             llm_model=args.model,
             user_name=user_name,
             debug=args.debug,
-            privacy_mode=args.privacy_mode
+            privacy_mode=args.privacy_mode,
+            llm_policy=args.llm_policy
         )
 
 

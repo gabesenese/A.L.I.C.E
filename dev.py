@@ -94,11 +94,12 @@ class ALICEReloader(FileSystemEventHandler):
 class ALICERunner:
     """Manages ALICE process with auto-reload"""
     
-    def __init__(self, ui_mode='rich', voice_enabled=False, model='llama3.1:8b', show_thinking=True):
+    def __init__(self, ui_mode='rich', voice_enabled=False, model='llama3.1:8b', show_thinking=True, llm_policy='default'):
         self.ui_mode = ui_mode
         self.voice_enabled = voice_enabled
         self.model = model
         self.show_thinking = show_thinking  # In dev mode, show A.L.I.C.E thinking steps
+        self.llm_policy = llm_policy
         
         self.process = None
         self.should_run = Event()
@@ -113,6 +114,10 @@ class ALICERunner:
         
         if self.voice_enabled:
             cmd.append('--voice')
+        
+        # Add LLM policy flag
+        if self.llm_policy != 'default':
+            cmd.extend(['--llm-policy', self.llm_policy])
         
         # Dev mode: show A.L.I.C.E thinking (intent, plugins, verifier)
         if getattr(self, 'show_thinking', True):
@@ -209,7 +214,7 @@ class ALICERunner:
         self.stop_alice()
 
 
-def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch=True, show_thinking=True):
+def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch=True, show_thinking=True, llm_policy='default'):
     """
     Run ALICE in development mode with auto-reload
     
@@ -219,13 +224,15 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
         model: LLM model
         watch: Enable file watching
         show_thinking: Show A.L.I.C.E thinking steps (intent, plugins, verifier)
+        llm_policy: LLM policy mode (default/minimal/strict)
     """
     print("=" * 70)
-    print("🔧 A.L.I.C.E - Development Mode")
+    print("A.L.I.C.E - Development Mode")
     print("=" * 70)
     print(f"UI Mode: {ui_mode}")
     print(f"Voice: {'Enabled' if voice_enabled else 'Disabled'}")
     print(f"Model: {model}")
+    print(f"LLM Policy: {llm_policy}")
     print(f"Auto-reload: {'Enabled' if watch else 'Disabled'}")
     print(f"Thinking steps: {'On (--debug)' if show_thinking else 'Off'}")
     print()
@@ -234,7 +241,7 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
     print()
     
     # Create runner
-    runner = ALICERunner(ui_mode=ui_mode, voice_enabled=voice_enabled, model=model, show_thinking=show_thinking)
+    runner = ALICERunner(ui_mode=ui_mode, voice_enabled=voice_enabled, model=model, show_thinking=show_thinking, llm_policy=llm_policy)
     
     # Set up file watcher
     observer = None
@@ -332,6 +339,14 @@ Examples:
         help='Disable A.L.I.C.E thinking steps in dev mode'
     )
     
+    parser.add_argument(
+        '--llm-policy',
+        type=str,
+        choices=['default', 'minimal', 'strict'],
+        default='default',
+        help='LLM policy mode: minimal (patterns only), strict (no LLM), default (balanced)'
+    )
+    
     args = parser.parse_args()
     
     run_dev_mode(
@@ -339,5 +354,6 @@ Examples:
         voice_enabled=args.voice,
         model=args.model,
         watch=not args.no_watch,
-        show_thinking=not args.no_thinking
+        show_thinking=not args.no_thinking,
+        llm_policy=args.llm_policy
     )

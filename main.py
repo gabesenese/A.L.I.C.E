@@ -103,11 +103,13 @@ class ALICE:
         llm_model: str = "llama3.1:8b",
         user_name: str = "User",
         debug: bool = False,
-        privacy_mode: bool = False
+        privacy_mode: bool = False,
+        llm_policy: str = "default"
     ):
         self.voice_enabled = voice_enabled
         self.debug = debug
         self.privacy_mode = privacy_mode
+        self.llm_policy = llm_policy
         self.running = False
         
         # Conversation state for context-aware operations
@@ -221,6 +223,19 @@ class ALICE:
                 learning_engine=self.learning_engine
             )
             logger.info("[OK] LLM Gateway active - all calls now policy-gated")
+            
+            # 4.2. Configure LLM Policy based on startup flag
+            if self.llm_policy != "default":
+                logger.info(f"⚙️  Configuring LLM policy: {self.llm_policy}")
+                from ai.llm_policy import configure_minimal_policy
+                
+                if self.llm_policy == "minimal":
+                    configure_minimal_policy()
+                    logger.info("[OK] Minimal policy active - patterns-first, LLM only for generation")
+                elif self.llm_policy == "strict":
+                    # Strict mode: no LLM at all (future implementation)
+                    logger.warning("[WARNING] Strict policy not yet implemented - using minimal")
+                    configure_minimal_policy()
             
             # 4.5. Conversation Summarizer (now uses gateway for policy enforcement)
             logger.info("Loading conversation summarizer...")
