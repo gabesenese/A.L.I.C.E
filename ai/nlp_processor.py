@@ -917,14 +917,40 @@ class NLPProcessor:
         if any(word in text_lower for word in ['delete', 'remove']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
             return 'notes:delete', 0.85
 
-        # Greetings (high confidence)
+        # Thanks - check BEFORE greetings (to prevent "thanks" being matched by semantic classifier)
+        if any(phrase in text_lower for phrase in ['thanks', 'thank you', 'thx', 'thank', 'thanks for']):
+            return 'thanks', 0.9
+
+        # Status inquiry: "how are you", "how is alice", "how are you doing"
+        if any(phrase in text_lower for phrase in ['how are you', 'how are you doing', 'how is it going', 'how have you been']):
+            return 'status_inquiry', 0.85
+
+        # Greetings (high confidence) - must be after Thanks to not interfere
         greeting_words = ['hi', 'hey', 'hello', 'yo', 'sup', 'hiya']
         if any(word in text_lower for word in greeting_words) and len(text_lower.split()) <= 4:
             return 'greeting', 0.9
 
-        # Thanks
-        if any(phrase in text_lower for phrase in ['thanks', 'thank you', 'thx']):
-            return 'thanks', 0.9
+        # CLARIFICATION INTENTS (must run before semantic to catch vague patterns)
+        # Vague pronouns without context: "who is he/she", "what is that", "who is that"
+        if any(pattern in text_lower for pattern in ['who is he', 'who is she', 'who is that', 'what is that', 'who is that person']):
+            return 'vague_question', 0.8
+        
+        # Vague temporal questions: "what about yesterday/tomorrow", "what happened last week"
+        if any(word in text_lower for word in ['yesterday', 'tomorrow', 'last week', 'last month', 'next week', 'next month']) and ('what' in text_lower or 'when' in text_lower or 'what about' in text_lower or 'what happened' in text_lower):
+            return 'vague_temporal_question', 0.8
+        
+        # Vague requests without clear object: "add this to", "put this in", "do that thing", "can you do that thing"
+        if any(pattern in text_lower for pattern in ['add this to', 'put this in', 'do that thing', 'can you do that', 'that thing', 'this thing']):
+            return 'vague_request', 0.8
+        
+        # Schedule action without specifics
+        if 'schedule' in text_lower and any(word in text_lower for word in ['it', 'that', 'this']) and any(word in text_lower for word in ['for', 'at']):
+            return 'schedule_action', 0.8
+        
+        # Tell me about - ambiguous topic
+        if any(pattern in text_lower for pattern in ['tell me about the', 'tell me about a', 'about the sun', 'about the moon', 'about the']):
+            if len(text_lower.split()) <= 6:  # Short phrase = likely vague
+                return 'vague_question', 0.75
 
         # PHASE 2: Fallback to semantic classification
         # Try semantic classification for lower-confidence cases
