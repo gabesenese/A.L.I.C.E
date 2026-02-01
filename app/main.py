@@ -2862,7 +2862,6 @@ class ALICE:
             else:
                 current = self.context.user_prefs.location or "Not set"
                 print(f"\nCurrent location: {current}")
-                print("Usage: /location City, Country")
         
         elif cmd == '/save':
             self._save_conversation_state()
