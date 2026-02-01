@@ -1067,7 +1067,9 @@ class ALICE:
                             user_input=user_input,
                             intent=intent,
                             entities=entities,
-                            conversation_history=self.conversation_summary[-3:] if self.conversation_summary else []
+                            recent_topics=self.conversation_topics[-3:] if self.conversation_topics else [],
+                            active_goal=None,
+                            world_state=self.reasoning_engine if hasattr(self, 'reasoning_engine') else None
                         )
                         if self.conversational_engine.can_handle(user_input, intent, conv_context):
                             response = self.conversational_engine.generate_response(conv_context)
