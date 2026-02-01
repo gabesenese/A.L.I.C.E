@@ -535,7 +535,11 @@ class ALICE:
             goal_context = f"ACTIVE GOAL: The user is trying to {goal.description}. "
             goal_context += f"Intent: {goal.intent}. "
             if goal.entities:
-                goal_ents = ", ".join(f"{k}={v}" for k, v in list(goal.entities.items())[:3])
+                # Convert entity values to strings (might be Entity objects)
+                goal_ents = ", ".join(
+                    f"{k}={getattr(v, 'value', v) if hasattr(v, 'value') else str(v)}" 
+                    for k, v in list(goal.entities.items())[:3]
+                )
                 goal_context += f"Entities: {goal_ents}. "
             goal_context += "Use this goal to understand ambiguous inputs and guide your response to help complete this goal."
             context_parts.insert(0, goal_context)  # Put goal first - highest priority
@@ -3386,7 +3390,14 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         
         if correction_type == "intent":
             print(f"Current intent: {last_intent}")
-            new_intent = input("Correct intent: ").strip()
+            # If user already provided details after "/correct intent", use that
+            if ' ' in command and correction_type == "intent":
+                # Extract from command like "/correct intent The intent should be..."
+                remaining_text = command.split("intent", 1)[1].strip()
+                new_intent = remaining_text
+            else:
+                new_intent = input("Correct intent: ").strip()
+            
             if new_intent:
                 self.learning_manager.record_correction(
                     CorrectionType.INTENT_CLASSIFICATION,
