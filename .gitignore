@@ -225,3 +225,4 @@ app/data/**
 
 # Script runtime data
 scripts/data/
+docs

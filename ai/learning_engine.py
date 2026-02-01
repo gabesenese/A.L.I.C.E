@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, asdict, field
+from collections import defaultdict
 import threading
 
 import numpy as np
@@ -376,18 +377,21 @@ class LearningEngine:
         """Load all examples from disk"""
         if self.training_file.exists():
             try:
-                with open(self.training_file, 'r') as f:
+                with open(self.training_file, 'r', encoding='utf-8', errors='ignore') as f:
                     for line in f:
                         if line.strip():
-                            data = json.loads(line)
-                            # Backward compatibility: older entries may include 'feedback'
-                            # Map numeric feedback to user_rating if present, then drop the key
-                            if isinstance(data, dict) and "feedback" in data:
-                                if data.get("user_rating") is None:
-                                    data["user_rating"] = data.get("feedback")
-                                data.pop("feedback", None)
-                            example = TrainingExample(**data)
-                            self.examples.append(example)
+                            try:
+                                data = json.loads(line)
+                                # Backward compatibility: older entries may include 'feedback'
+                                # Map numeric feedback to user_rating if present, then drop the key
+                                if isinstance(data, dict) and "feedback" in data:
+                                    if data.get("user_rating") is None:
+                                        data["user_rating"] = data.get("feedback")
+                                    data.pop("feedback", None)
+                                example = TrainingExample(**data)
+                                self.examples.append(example)
+                            except (json.JSONDecodeError, TypeError, ValueError):
+                                pass  # Skip malformed lines
             except Exception as e:
                 logger.warning(f"[Learning] Error loading examples: {e}")
     
@@ -433,8 +437,344 @@ class LearningEngine:
         }
 
 
+class AutoCorrectionEngine:
+    """
+    Reads scenario logs and interaction logs, identifies mismatches,
+    and stores corrected entries for pattern learning
+    """
+    
+    DANGEROUS_DOMAINS = {'system', 'shell', 'code_execution', 'security', 'admin'}
+    
+    def __init__(self, project_root: Optional[Path] = None):
+        self.project_root = project_root or Path(__file__).resolve().parents[1]
+        self.data_dir = self.project_root / "data" / "training"
+        self.corrections_file = self.project_root / "memory" / "corrections.json"
+        self.corrections = self._load_corrections()
+        logger.info("[AutoCorrection] Engine initialized")
+    
+    def _load_corrections(self) -> List[Dict]:
+        """Load existing corrections"""
+        if self.corrections_file.exists():
+            try:
+                with open(self.corrections_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"[AutoCorrection] Error loading corrections: {e}")
+        return []
+    
+    def _save_corrections(self):
+        """Save corrections to disk"""
+        try:
+            with open(self.corrections_file, 'w') as f:
+                json.dump(self.corrections, f, indent=2)
+        except Exception as e:
+            logger.error(f"[AutoCorrection] Error saving corrections: {e}")
+    
+    def process_scenario_results(self, results: List[Dict]) -> Dict[str, Any]:
+        """
+        Process scenario results and create corrections for mismatches
+        
+        Args:
+            results: List of scenario results with expected vs actual intent/route
+        
+        Returns:
+            Summary of corrections made
+        """
+        corrections_added = 0
+        intent_mismatches = 0
+        route_mismatches = 0
+        
+        for result in results:
+            if not result.get('intent_match') or not result.get('route_match'):
+                correction = self._create_correction_from_mismatch(result)
+                if correction:
+                    self.corrections.append(correction)
+                    corrections_added += 1
+                    
+                    if not result.get('intent_match'):
+                        intent_mismatches += 1
+                    if not result.get('route_match'):
+                        route_mismatches += 1
+        
+        if corrections_added > 0:
+            self._save_corrections()
+            logger.info(f"[AutoCorrection] Added {corrections_added} corrections ({intent_mismatches} intent, {route_mismatches} route)")
+        
+        return {
+            'corrections_added': corrections_added,
+            'intent_mismatches': intent_mismatches,
+            'route_mismatches': route_mismatches
+        }
+    
+    def _create_correction_from_mismatch(self, result: Dict) -> Optional[Dict]:
+        """Create correction entry from scenario mismatch"""
+        try:
+            correction_type = []
+            if not result.get('intent_match'):
+                correction_type.append('intent')
+            if not result.get('route_match'):
+                correction_type.append('route')
+            
+            domain = result.get('domain', 'unknown')
+            
+            # Check if dangerous domain
+            if domain.lower() in self.DANGEROUS_DOMAINS:
+                logger.warning(f"[AutoCorrection] Skipping dangerous domain correction: {domain}")
+                return None
+            
+            correction = {
+                'id': f"auto_corr_{datetime.now().isoformat()}",
+                'timestamp': datetime.now().isoformat(),
+                'correction_type': '|'.join(correction_type),
+                'user_input': result.get('user_input', ''),
+                'expected_intent': result.get('expected_intent', ''),
+                'actual_intent': result.get('actual_intent', ''),
+                'expected_route': result.get('expected_route', ''),
+                'actual_route': result.get('actual_route', ''),
+                'domain': domain,
+                'source': 'auto_scenario',
+                'applied': False,
+                'validation_count': 1,
+                'confidence': result.get('confidence', 0.0)
+            }
+            
+            return correction
+        except Exception as e:
+            logger.warning(f"[AutoCorrection] Error creating correction: {e}")
+            return None
+    
+    def apply_corrections_to_thresholds(self) -> Dict[str, Any]:
+        """
+        Apply corrections to adjust NLP thresholds and rules
+        Only applies corrections that have been validated multiple times
+        """
+        MIN_VALIDATIONS = 3  # Require 3 consistent examples
+        
+        applied_count = 0
+        by_type = defaultdict(int)
+        
+        for correction in self.corrections:
+            if correction.get('applied'):
+                continue
+            
+            if correction.get('validation_count', 0) < MIN_VALIDATIONS:
+                continue
+            
+            domain = correction.get('domain', '').lower()
+            if domain in self.DANGEROUS_DOMAINS:
+                continue
+            
+            # Mark as applied
+            correction['applied'] = True
+            applied_count += 1
+            by_type[correction.get('correction_type')] += 1
+            
+            logger.info(
+                f"[AutoCorrection] Applying: {correction['user_input'][:30]}... "
+                f"({correction.get('correction_type')}) for {domain}"
+            )
+        
+        if applied_count > 0:
+            self._save_corrections()
+        
+        return {
+            'applied_count': applied_count,
+            'by_type': dict(by_type)
+        }
+
+
+class PatternPromotionEngine:
+    """
+    Scans training data for clusters of similar examples,
+    and auto-creates patterns when thresholds are met
+    """
+    
+    SAFE_DOMAINS = {'greeting', 'farewell', 'thanks', 'notes', 'weather', 'time', 'status_inquiry', 'help'}
+    DANGEROUS_DOMAINS = {'system', 'shell', 'code_execution', 'security', 'admin'}
+    MIN_CLUSTER_SIZE = 3
+    MIN_QUALITY_SCORE = 0.7
+    
+    def __init__(self, project_root: Optional[Path] = None):
+        self.project_root = project_root or Path(__file__).resolve().parents[1]
+        self.data_dir = self.project_root / "data" / "training"
+        self.learning_patterns_file = self.project_root / "memory" / "learning_patterns.json"
+        self.patterns_for_review_file = self.project_root / "memory" / "patterns_for_review.json"
+        self.learning_patterns = self._load_patterns()
+        self.patterns_for_review = self._load_review_patterns()
+        logger.info("[PatternPromotion] Engine initialized")
+    
+    def _load_patterns(self) -> Dict:
+        """Load existing learning patterns"""
+        if self.learning_patterns_file.exists():
+            try:
+                with open(self.learning_patterns_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"[PatternPromotion] Error loading patterns: {e}")
+        return {}
+    
+    def _load_review_patterns(self) -> List[Dict]:
+        """Load patterns pending review"""
+        if self.patterns_for_review_file.exists():
+            try:
+                with open(self.patterns_for_review_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    data = json.load(f)
+                    # Ensure it's a list
+                    if isinstance(data, dict):
+                        return list(data.values()) if data else []
+                    return data if isinstance(data, list) else []
+            except Exception as e:
+                logger.warning(f"[PatternPromotion] Error loading review patterns: {e}")
+        return []
+    
+    def _save_patterns(self):
+        """Save learning patterns"""
+        try:
+            with open(self.learning_patterns_file, 'w') as f:
+                json.dump(self.learning_patterns, f, indent=2)
+        except Exception as e:
+            logger.error(f"[PatternPromotion] Error saving patterns: {e}")
+    
+    def _save_review_patterns(self):
+        """Save patterns for review"""
+        try:
+            with open(self.patterns_for_review_file, 'w') as f:
+                json.dump(self.patterns_for_review, f, indent=2)
+        except Exception as e:
+            logger.error(f"[PatternPromotion] Error saving review patterns: {e}")
+    
+    def scan_and_promote(self) -> Dict[str, Any]:
+        """
+        Scan training data for pattern promotion opportunities
+        Returns summary of promoted/staged patterns
+        """
+        # Load training data
+        training_data = self._load_training_data()
+        
+        if not training_data:
+            logger.info("[PatternPromotion] No training data found")
+            return {'promoted': 0, 'staged_for_review': 0}
+        
+        # Cluster by intent
+        clusters = self._cluster_by_intent(training_data)
+        
+        promoted_count = 0
+        staged_count = 0
+        
+        for intent, examples in clusters.items():
+            if len(examples) >= self.MIN_CLUSTER_SIZE:
+                # Check if safe domain
+                is_safe = self._is_safe_domain(intent)
+                
+                if is_safe:
+                    # Auto-promote
+                    pattern = self._create_pattern_from_cluster(intent, examples)
+                    if pattern:
+                        self.learning_patterns[intent] = pattern
+                        promoted_count += 1
+                        logger.info(f"[PatternPromotion] Promoted pattern for: {intent}")
+                else:
+                    # Stage for review
+                    pattern = self._create_pattern_from_cluster(intent, examples)
+                    if pattern:
+                        pattern['requires_review'] = True
+                        self.patterns_for_review.append(pattern)
+                        staged_count += 1
+                        logger.info(f"[PatternPromotion] Staged for review: {intent}")
+        
+        if promoted_count > 0:
+            self._save_patterns()
+        if staged_count > 0:
+            self._save_review_patterns()
+        
+        return {
+            'promoted': promoted_count,
+            'staged_for_review': staged_count,
+            'total_clusters_found': len(clusters)
+        }
+    
+    def _load_training_data(self) -> List[Dict]:
+        """Load all training data from jsonl file"""
+        training_file = self.data_dir / "training_data.jsonl"
+        examples = []
+        
+        if training_file.exists():
+            try:
+                with open(training_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        if line.strip():
+                            try:
+                                data = json.loads(line)
+                                # Quality filter
+                                if data.get('quality_score', 0.0) >= self.MIN_QUALITY_SCORE:
+                                    examples.append(data)
+                            except json.JSONDecodeError:
+                                pass  # Skip malformed lines
+            except Exception as e:
+                logger.warning(f"[PatternPromotion] Error loading training data: {e}")
+        
+        return examples
+    
+    def _cluster_by_intent(self, examples: List[Dict]) -> Dict[str, List[Dict]]:
+        """Cluster training examples by intent"""
+        from collections import defaultdict
+        clusters = defaultdict(list)
+        
+        for ex in examples:
+            intent = ex.get('intent', 'unknown')
+            clusters[intent].append(ex)
+        
+        return dict(clusters)
+    
+    def _is_safe_domain(self, intent: str) -> bool:
+        """Check if intent is safe for auto-promotion"""
+        intent_lower = intent.lower()
+        
+        # Check against safe domains
+        for safe in self.SAFE_DOMAINS:
+            if safe in intent_lower:
+                return True
+        
+        # Check against dangerous domains
+        for dangerous in self.DANGEROUS_DOMAINS:
+            if dangerous in intent_lower:
+                return False
+        
+        # Default: stage for review if not explicitly safe
+        return False
+    
+    def _create_pattern_from_cluster(self, intent: str, examples: List[Dict]) -> Optional[Dict]:
+        """Create a pattern from a cluster of examples"""
+        try:
+            # Get most common response
+            responses = [ex.get('assistant_response', '') for ex in examples]
+            most_common_response = max(set(responses), key=responses.count)
+            
+            # Calculate confidence
+            quality_scores = [ex.get('quality_score', 0.7) for ex in examples]
+            avg_quality = np.mean(quality_scores) if quality_scores else 0.7
+            
+            pattern = {
+                'intent': intent,
+                'responses': [most_common_response],
+                'active': True,
+                'created_at': datetime.now().isoformat(),
+                'cluster_size': len(examples),
+                'avg_quality': float(avg_quality),
+                'source': 'auto_promotion',
+                'requires_review': False
+            }
+            
+            return pattern
+        except Exception as e:
+            logger.warning(f"[PatternPromotion] Error creating pattern: {e}")
+            return None
+
+
 # Singleton
 _learning_engine: Optional[LearningEngine] = None
+_auto_correction_engine: Optional[AutoCorrectionEngine] = None
+_pattern_promotion_engine: Optional[PatternPromotionEngine] = None
 
 
 def get_learning_engine(data_dir: str = "data/training") -> LearningEngine:
@@ -443,3 +783,19 @@ def get_learning_engine(data_dir: str = "data/training") -> LearningEngine:
     if _learning_engine is None:
         _learning_engine = LearningEngine(data_dir)
     return _learning_engine
+
+
+def get_auto_correction_engine(project_root: Optional[Path] = None) -> AutoCorrectionEngine:
+    """Get singleton auto-correction engine"""
+    global _auto_correction_engine
+    if _auto_correction_engine is None:
+        _auto_correction_engine = AutoCorrectionEngine(project_root)
+    return _auto_correction_engine
+
+
+def get_pattern_promotion_engine(project_root: Optional[Path] = None) -> PatternPromotionEngine:
+    """Get singleton pattern promotion engine"""
+    global _pattern_promotion_engine
+    if _pattern_promotion_engine is None:
+        _pattern_promotion_engine = PatternPromotionEngine(project_root)
+    return _pattern_promotion_engine
