@@ -56,6 +56,21 @@ def run_autonomous_nightly_training():
     }
     
     try:
+        # ===== PHASE -1: Auto-Generate Scenarios via Ollama =====
+        logger.info("\n[PHASE -1] Generating Scenarios (Ollama)")
+        logger.info("-" * 80)
+
+        try:
+            from ai.scenario_generator import generate_scenarios
+            generated = generate_scenarios(PROJECT_ROOT, count_per_domain=3)
+            logger.info(f"[PHASE -1] Generated {len(generated)} scenarios")
+            pipeline_stats['phases_completed'].append({
+                'name': 'scenario_generation',
+                'generated': len(generated)
+            })
+        except Exception as e:
+            logger.warning(f"[PHASE -1] Scenario generation skipped: {e}")
+
         # ===== PHASE 0: Run Scenario Simulations =====
         logger.info("\n[PHASE 0] Running Scenario Simulations")
         logger.info("-" * 80)
@@ -141,6 +156,30 @@ def run_autonomous_nightly_training():
             'corrections_added': correction_results['corrections_added'],
             'intent_mismatches': correction_results['intent_mismatches'],
             'route_mismatches': correction_results['route_mismatches']
+        })
+
+        # ===== PHASE 2B: Offline Error Learning =====
+        logger.info("\n[PHASE 2B] Offline Error Learning from Logs")
+        logger.info("-" * 80)
+
+        from ai.learning_engine import get_learning_engine
+
+        learning_engine = get_learning_engine()
+        offline_summary = learning_engine.run_offline_training()
+
+        logger.info(f"[PHASE 2B] Errors seen: {offline_summary['errors_seen']}")
+        logger.info(f"  - Corrections added: {offline_summary['corrections_added']}")
+        logger.info(f"  - Corrections updated: {offline_summary['corrections_updated']}")
+        logger.info(f"  - Corrections applied: {offline_summary['corrections_applied']}")
+        logger.info(f"  - Hard lessons: {offline_summary['hard_lessons']}")
+        logger.info(f"  - Hard lesson adjustments: {offline_summary['hard_lesson_adjustments']}")
+        logger.info(f"  - Promoted from errors: {offline_summary['promoted_from_errors']}")
+
+        pipeline_stats['phases_completed'].append({
+            'name': 'offline_error_learning',
+            'errors_seen': offline_summary['errors_seen'],
+            'corrections_added': offline_summary['corrections_added'],
+            'hard_lessons': offline_summary['hard_lessons']
         })
         
         # ===== PHASE 3: Autonomous Threshold Adjustment =====
