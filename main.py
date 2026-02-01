@@ -2092,19 +2092,24 @@ class ALICE:
                 goal_note = f"\n[Context: You're helping the user accomplish: {goal_res.goal.description}. Keep this goal in mind when responding.]"
                 llm_input = user_input_processed + goal_note
             
-            llm_response = self.llm_gateway.request(
-                prompt=llm_input,
-                call_type=LLMCallType.GENERATION,
-                use_history=True,
-                user_input=user_input,
-                context={'intent': intent, 'entities': entities, 'goal': goal_res.goal if goal_res else None}
-            )
+            try:
+                llm_response = self.llm_gateway.request(
+                    prompt=llm_input,
+                    call_type=LLMCallType.GENERATION,
+                    use_history=True,
+                    user_input=user_input,
+                    context={'intent': intent, 'entities': entities, 'goal': goal_res.goal if goal_res else None}
+                )
+                
+                if llm_response.success and llm_response.response:
+                    response = llm_response.response
+                else:
+                    # Gateway denied or error - provide fallback
+                    response = llm_response.response or "I don't have enough training data to answer that yet. Keep interacting with me so I can learn!"
             
-            if llm_response.success and llm_response.response:
-                response = llm_response.response
-            else:
-                # Gateway denied or error - provide fallback
-                response = llm_response.response or "I don't have enough training data to answer that yet. Keep interacting with me so I can learn!"
+            except Exception as e:
+                logger.error(f"LLM call failed: {e}")
+                response = "I'm having trouble connecting to my language model. Please make sure Ollama is running and try again."
             
             # Optimize response for clarity and user preference
             if getattr(self, 'response_optimizer', None):

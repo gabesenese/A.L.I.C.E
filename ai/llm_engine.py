@@ -38,7 +38,7 @@ class LLMConfig:
         base_url: str = "http://localhost:11434",
         temperature: float = 0.7,
         max_history: int = 30,  # Increased from 20 for better context retention
-        timeout: int = 120,
+        timeout: int = 30,  # Reduced from 120s to 30s for faster feedback
         use_fine_tuned: bool = True  # Use fine-tuned model if available
     ):
         self.model = model
