@@ -1136,7 +1136,12 @@ class ALICE:
                                 entities=entities or {},
                                 quality_score=0.95  # High quality - greetings are straightforward
                             )
-                            self._think("Greeting learned → will use cached version next time")
+                        
+                        # Add directly to conversational engine for immediate use
+                        if hasattr(self, 'conversational_engine') and self.conversational_engine:
+                            if response not in self.conversational_engine.learned_greetings:
+                                self.conversational_engine.learned_greetings.append(response)
+                                self._think("Greeting learned → will use cached version next time")
                         
                         self._store_interaction(user_input, response, intent, entities)
                         if use_voice and self.speech:
