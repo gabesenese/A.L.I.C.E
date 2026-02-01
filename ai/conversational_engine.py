@@ -8,6 +8,7 @@ import logging
 import random
 import json
 import os
+from pathlib import Path
 from typing import Dict, Optional, Any, List
 from dataclasses import dataclass
 
@@ -91,8 +92,9 @@ class ConversationalEngine:
     
     def _load_curated_patterns(self):
         """Load curated conversational patterns"""
-        curated_path = "memory/curated_patterns.json"
-        if not os.path.exists(curated_path):
+        project_root = Path(__file__).resolve().parents[1]
+        curated_path = project_root / "memory" / "curated_patterns.json"
+        if not curated_path.exists():
             logger.debug("No curated patterns found")
             return
         
@@ -137,6 +139,10 @@ class ConversationalEngine:
         Returns True ONLY if she has learned patterns or memories.
         """
         input_lower = user_input.lower()
+
+        # If we have curated/learned responses for this intent, handle it
+        if intent in self.learned_responses and self.learned_responses[intent]:
+            return True
         
         # Simple greetings - only if we have learned patterns
         if any(word in input_lower for word in ['hi', 'hey', 'hello', 'yo', 'sup']) and len(input_lower.split()) <= 4:
@@ -191,6 +197,11 @@ class ConversationalEngine:
         """
         user_input = context.user_input
         input_lower = user_input.lower().strip()
+        intent = context.intent
+
+        # Use curated/learned responses by intent first
+        if intent in self.learned_responses and self.learned_responses[intent]:
+            return self._pick_non_repeating(self.learned_responses[intent])
         
         # Greetings - Learn style, filter verbose responses
         greeting_words = ['hi', 'hey', 'hello', 'yo', 'sup']

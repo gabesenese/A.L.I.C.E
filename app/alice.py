@@ -8,6 +8,7 @@ For clean user experience with UI: python -m app.alice
 
 import os
 import sys
+from pathlib import Path
 import logging
 import argparse
 import threading
@@ -22,6 +23,11 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 logging.basicConfig(level=logging.ERROR, format='%(message)s')
 for logger_name in ['tensorflow', 'torch', 'sentence_transformers', 'transformers']:
     logging.getLogger(logger_name).setLevel(logging.ERROR)
+
+# Ensure project root is on sys.path when running as a script
+_project_root = Path(__file__).resolve().parents[1]
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 # Import after setting up environment
 from features.welcome import welcome_message, get_greeting, display_startup_info

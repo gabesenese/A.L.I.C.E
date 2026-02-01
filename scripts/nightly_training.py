@@ -16,13 +16,17 @@ from datetime import datetime
 from pathlib import Path
 
 # Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+TRAINING_DIR = PROJECT_ROOT / "data" / "training"
+TRAINING_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("data/training/nightly_training.log"),
+        logging.FileHandler(TRAINING_DIR / "nightly_training.log"),
         logging.StreamHandler()
     ]
 )

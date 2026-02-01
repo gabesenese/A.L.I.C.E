@@ -209,6 +209,7 @@ SETUP_INSTRUCTIONS.md
 .gitignore
 todo.md
 
+# Local runtime data (root data/)
 data/memory/memories.json
 data/context/user_prefs.json
 data/memory/vectors.pkl
@@ -218,6 +219,9 @@ data/training/training_data.jsonl
 data/training/ml_learner.pkl
 data/training/example_training_data.jsonl
 data/training/auto_generated.jsonl
-data/training/auto_generated.jsonl
-.gitignore
-data/training/auto_generated.jsonl
+
+# App runtime data
+app/data/**
+
+# Script runtime data
+scripts/data/

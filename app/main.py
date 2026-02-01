@@ -140,6 +140,7 @@ class ALICE:
         self.last_intent = ""
         self.last_entities = {}
         self.last_nlp_result = {}
+        self.last_interaction = None
         
         # Session-level response cache for fast conversational responses
         # Caches (input_normalized, intent) -> response for quick lookup
@@ -1155,8 +1156,11 @@ class ALICE:
                     if llm_response.success and llm_response.response:
                         response = llm_response.response
                     else:
-                        # Policy denied - use fallback
-                        response = llm_response.response or "Hi there!"
+                        # Policy denied or error - use safe greeting fallback
+                        if getattr(llm_response, "denied_by_policy", False):
+                            response = f"Hi {user_name}! How can I help?" if user_name else "Hi! How can I help?"
+                        else:
+                            response = llm_response.response or "Hi there!"
                     
                     if response and not asked_how:
                         response = re.sub(
@@ -1267,6 +1271,7 @@ class ALICE:
                     response = self.conversational_engine.generate_response(conv_context)
                     if response:
                         self._think("A.L.I.C.E responded from learned patterns (no Ollama)")
+                        self._store_interaction(user_input, response, intent, entities)
                         return response
                     else:
                         self._think("No learned patterns yet → will use Ollama")
@@ -2499,6 +2504,18 @@ class ALICE:
         entities: Dict
     ):
         """Store interaction in memory and context"""
+        # Update last interaction (for /correct and /feedback)
+        self.last_user_input = user_input
+        self.last_assistant_response = response
+        self.last_intent = intent
+        self.last_entities = entities or {}
+        self.last_interaction = {
+            "timestamp": datetime.now().isoformat(),
+            "user_input": user_input,
+            "assistant_response": response,
+            "intent": intent,
+            "entities": entities or {}
+        }
         try:
             # Process with unified context engine
             if self.context:
@@ -3337,7 +3354,14 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
     
     def _handle_correction_command(self, command: str):
         """Handle correction commands"""
-        if not self.last_user_input or not self.last_assistant_response:
+        last = self.last_interaction or {}
+        last_user_input = last.get("user_input") or self.last_user_input
+        last_response = last.get("assistant_response") or self.last_assistant_response
+        last_intent = last.get("intent") or self.last_intent
+        last_entities = last.get("entities") or self.last_entities
+        last_nlp_result = self.last_nlp_result
+
+        if not last_user_input or not last_response:
             print("\n[ERROR] No previous interaction to correct")
             return
         
@@ -3346,8 +3370,8 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         
         print(f"\n Correction Mode")
         print("=" * 50)
-        print(f"Last input: {self.last_user_input}")
-        print(f"Last response: {self.last_assistant_response[:200]}...")
+        print(f"Last input: {last_user_input}")
+        print(f"Last response: {last_response[:200]}...")
         print()
         
         if not correction_type:
@@ -3361,21 +3385,21 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             correction_type = input("Correction type: ").strip().lower()
         
         if correction_type == "intent":
-            print(f"Current intent: {self.last_intent}")
+            print(f"Current intent: {last_intent}")
             new_intent = input("Correct intent: ").strip()
             if new_intent:
                 self.learning_manager.record_correction(
                     CorrectionType.INTENT_CLASSIFICATION,
-                    self.last_user_input,
-                    self.last_intent,
+                    last_user_input,
+                    last_intent,
                     new_intent,
-                    f"User corrected intent from '{self.last_intent}' to '{new_intent}'",
-                    {"original_nlp_result": self.last_nlp_result}
+                    f"User corrected intent from '{last_intent}' to '{new_intent}'",
+                    {"original_nlp_result": last_nlp_result}
                 )
-                print(f" Recorded intent correction: {self.last_intent} → {new_intent}")
+                print(f" Recorded intent correction: {last_intent}  {new_intent}")
         
         elif correction_type == "entity":
-            print(f"Current entities: {self.last_entities}")
+            print(f"Current entities: {last_entities}")
             print("Enter correct entities (JSON format):")
             try:
                 new_entities_input = input("Correct entities: ").strip()
@@ -3383,11 +3407,11 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                     new_entities = eval(new_entities_input)  # Simple eval for demo
                     self.learning_manager.record_correction(
                         CorrectionType.ENTITY_EXTRACTION,
-                        self.last_user_input,
-                        self.last_entities,
+                        last_user_input,
+                        last_entities,
                         new_entities,
                         "User corrected entity extraction",
-                        {"original_nlp_result": self.last_nlp_result}
+                        {"original_nlp_result": last_nlp_result}
                     )
                     print(" Recorded entity correction")
             except Exception as e:
@@ -3399,25 +3423,25 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             if correct_response:
                 self.learning_manager.record_correction(
                     CorrectionType.RESPONSE_QUALITY,
-                    self.last_user_input,
-                    self.last_assistant_response,
+                    last_user_input,
+                    last_response,
                     correct_response,
                     "User provided better response",
-                    {"intent": self.last_intent}
+                    {"intent": last_intent}
                 )
                 print(" Recorded response quality correction")
         
         elif correction_type == "sentiment":
-            print(f"Current sentiment: {self.last_nlp_result.get('sentiment', {})}")
+            print(f"Current sentiment: {last_nlp_result.get('sentiment', {})}")
             new_sentiment = input("Correct sentiment (positive/negative/neutral): ").strip()
             if new_sentiment:
                 self.learning_manager.record_correction(
                     CorrectionType.SENTIMENT_ANALYSIS,
-                    self.last_user_input,
-                    self.last_nlp_result.get('sentiment'),
+                    last_user_input,
+                    last_nlp_result.get('sentiment'),
                     new_sentiment,
                     f"User corrected sentiment to {new_sentiment}",
-                    {"original_nlp_result": self.last_nlp_result}
+                    {"original_nlp_result": last_nlp_result}
                 )
                 print(f" Recorded sentiment correction: {new_sentiment}")
         
@@ -3428,11 +3452,11 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             if error_description and correct_fact:
                 self.learning_manager.record_correction(
                     CorrectionType.FACTUAL_ERROR,
-                    self.last_user_input,
+                    last_user_input,
                     error_description,
                     correct_fact,
                     f"User corrected factual error: {error_description}",
-                    {"response": self.last_assistant_response}
+                    {"response": last_response}
                 )
                 print(" Recorded factual correction")
         
@@ -3441,7 +3465,13 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
     
     def _handle_feedback_command(self, command: str):
         """Handle feedback commands"""
-        if not self.last_user_input or not self.last_assistant_response:
+        last = self.last_interaction or {}
+        last_user_input = last.get("user_input") or self.last_user_input
+        last_response = last.get("assistant_response") or self.last_assistant_response
+        last_intent = last.get("intent") or self.last_intent
+        last_entities = last.get("entities") or self.last_entities
+
+        if not last_user_input or not last_response:
             print("\n[ERROR] No previous interaction to rate")
             return
         
@@ -3455,8 +3485,8 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         
         print(f"\n Feedback Mode")
         print("=" * 50)
-        print(f"Last input: {self.last_user_input}")
-        print(f"Last response: {self.last_assistant_response[:200]}...")
+        print(f"Last input: {last_user_input}")
+        print(f"Last response: {last_response[:200]}...")
         print()
         
         if rating is None:
@@ -3472,12 +3502,12 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             
             self.learning_manager.record_feedback(
                 feedback_type,
-                self.last_user_input,
-                self.last_assistant_response,
+                last_user_input,
+                last_response,
                 rating,
                 comment,
                 suggestion,
-                {"intent": self.last_intent, "entities": self.last_entities}
+                {"intent": last_intent, "entities": last_entities}
             )
             
             print(f"] Thank you for the {rating}/5 rating!")
