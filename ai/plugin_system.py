@@ -270,7 +270,27 @@ class WeatherPlugin(PluginInterface):
         return True
     
     def can_handle(self, intent: str, entities: Dict) -> bool:
-        return intent == "weather" or "weather" in str(entities).lower()
+        intent_lower = (intent or "").lower()
+        return "weather" in intent_lower or intent == "weather" or "weather" in str(entities).lower()
+
+    def _is_forecast_request(self, intent: str, query: str, entities: Dict) -> bool:
+        intent_lower = (intent or "").lower()
+        query_lower = (query or "").lower()
+
+        if "forecast" in intent_lower:
+            return True
+
+        if any(phrase in query_lower for phrase in [
+            "forecast", "this week", "next week", "weekend", "7 day", "7-day",
+            "tomorrow", "next few days", "next 7 days"
+        ]):
+            return True
+
+        time_range_entities = entities.get("TIME_RANGE", []) if isinstance(entities, dict) else []
+        if time_range_entities:
+            return True
+
+        return False
     
     def _get_coordinates(self, location: str) -> Optional[tuple]:
         """Get lat/lon for a location using geocoding API"""
@@ -347,6 +367,12 @@ class WeatherPlugin(PluginInterface):
             
             lat, lon, location_name = coords
             
+            # Forecast or current
+            is_forecast = self._is_forecast_request(intent, query, entities)
+
+            if is_forecast:
+                return self._get_forecast(lat, lon, location_name)
+
             # Get weather from Open-Meteo (free, no API key needed)
             url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=celsius&wind_speed_unit=kmh"
             response = requests.get(url, timeout=5)
@@ -404,6 +430,75 @@ class WeatherPlugin(PluginInterface):
     
     def shutdown(self):
         logger.info("Weather plugin shutdown")
+
+    def _get_forecast(self, lat: float, lon: float, location_name: str) -> Dict:
+        """Fetch a 7-day forecast from Open-Meteo."""
+        try:
+            import requests
+
+            url = (
+                "https://api.open-meteo.com/v1/forecast"
+                f"?latitude={lat}&longitude={lon}"
+                "&daily=temperature_2m_max,temperature_2m_min,weather_code"
+                "&forecast_days=7&temperature_unit=celsius&timezone=auto"
+            )
+            response = requests.get(url, timeout=5)
+
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "error": "fetch_failed",
+                        "message_code": "weather:fetch_failed"
+                    }
+                }
+
+            data = response.json()
+            daily = data.get("daily", {})
+
+            weather_codes = {
+                0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
+                45: "foggy", 48: "foggy", 51: "light drizzle", 53: "drizzle", 55: "heavy drizzle",
+                61: "light rain", 63: "rain", 65: "heavy rain", 71: "light snow", 73: "snow", 75: "heavy snow",
+                80: "rain showers", 81: "rain showers", 82: "heavy rain showers", 95: "thunderstorm"
+            }
+
+            forecast = []
+            dates = daily.get("time", [])
+            maxes = daily.get("temperature_2m_max", [])
+            mins = daily.get("temperature_2m_min", [])
+            codes = daily.get("weather_code", [])
+
+            for i in range(min(len(dates), len(maxes), len(mins), len(codes))):
+                forecast.append({
+                    "date": dates[i],
+                    "high": maxes[i],
+                    "low": mins[i],
+                    "condition": weather_codes.get(codes[i], "unknown")
+                })
+
+            return {
+                "success": True,
+                "response": None,
+                "data": {
+                    "forecast": forecast,
+                    "location": location_name,
+                    "plugin_type": "weather",
+                    "message_code": "weather:forecast"
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Weather forecast error: {e}")
+            return {
+                "success": False,
+                "response": None,
+                "data": {
+                    "error": str(e),
+                    "message_code": "weather:error"
+                }
+            }
 
 
 class TimePlugin(PluginInterface):
