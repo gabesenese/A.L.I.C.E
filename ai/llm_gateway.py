@@ -72,16 +72,21 @@ class LLMGateway:
         self.policy = get_llm_policy()
         self.formatter_registry = FormatterRegistry()
         
-        # Statistics
+        # Advanced telemetry
         self.stats = {
             'total_requests': 0,
+            'self_handlers': 0,
+            'pattern_hits': 0,
+            'tool_calls': 0,
+            'rag_lookups': 0,
             'llm_calls': 0,
             'formatter_calls': 0,
             'policy_denials': 0,
-            'by_type': {}
+            'by_type': {},
+            'recent_requests': []  # Last 100 requests for analysis
         }
         
-        logger.info("[LLMGateway] Initialized - All LLM calls now gated")
+        logger.info("[LLMGateway] Initialized - All LLM calls now gated with advanced telemetry")
     
     def request(
         self,
@@ -284,26 +289,56 @@ Please provide a natural, concise response to the user based on this data.
 Be conversational and helpful. Don't mention the tool name or technical details."""
     
     def get_statistics(self) -> Dict[str, Any]:
-        """Get gateway statistics"""
+        """Get advanced gateway statistics with detailed routing breakdown"""
         total = self.stats['total_requests']
         if total == 0:
             return self.stats
         
-        return {
+        stats = {
             **self.stats,
+            'self_handler_percentage': round(100 * self.stats['self_handlers'] / total, 1),
+            'pattern_hit_percentage': round(100 * self.stats['pattern_hits'] / total, 1),
+            'tool_call_percentage': round(100 * self.stats['tool_calls'] / total, 1),
+            'rag_lookup_percentage': round(100 * self.stats['rag_lookups'] / total, 1),
+            'llm_fallback_percentage': round(100 * self.stats['llm_calls'] / total, 1),
             'formatter_percentage': round(100 * self.stats['formatter_calls'] / total, 1),
-            'llm_percentage': round(100 * self.stats['llm_calls'] / total, 1),
             'denial_percentage': round(100 * self.stats['policy_denials'] / total, 1)
         }
+        return stats
+    
+    def record_self_handler(self):
+        """Record request handled by self-handler (code execution, commands, etc)"""
+        self.stats['self_handlers'] += 1
+        self.stats['total_requests'] += 1
+    
+    def record_pattern_hit(self):
+        """Record that conversational engine used learned pattern"""
+        self.stats['pattern_hits'] += 1
+        self.stats['total_requests'] += 1
+    
+    def record_tool_call(self):
+        """Record that request was handled by tool/plugin"""
+        self.stats['tool_calls'] += 1
+        self.stats['total_requests'] += 1
+    
+    def record_rag_lookup(self):
+        """Record that request was answered via RAG/memory lookup"""
+        self.stats['rag_lookups'] += 1
+        self.stats['total_requests'] += 1
     
     def reset_statistics(self):
         """Reset gateway statistics"""
         self.stats = {
             'total_requests': 0,
+            'self_handlers': 0,
+            'pattern_hits': 0,
+            'tool_calls': 0,
+            'rag_lookups': 0,
             'llm_calls': 0,
             'formatter_calls': 0,
             'policy_denials': 0,
-            'by_type': {}
+            'by_type': {},
+            'recent_requests': []
         }
 
 

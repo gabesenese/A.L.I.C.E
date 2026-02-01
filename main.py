@@ -76,6 +76,13 @@ from ai.conversational_engine import get_conversational_engine, ConversationalCo
 from ai.llm_gateway import get_llm_gateway, LLMGateway
 from ai.llm_policy import LLMCallType
 
+# Advanced learning, testing, and telemetry
+from ai.pattern_miner import PatternMiner
+from ai.synthetic_corpus_generator import SyntheticCorpusGenerator
+from ai.multimodal_context import MultimodalContext
+from ai.lab_simulator import LabSimulator
+from ai.red_team_tester import RedTeamTester
+
 # Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -256,7 +263,33 @@ class ALICE:
                 logger.warning(f"[WARNING] Gmail not available: {e}")
                 self.gmail = None
             
-            # 9. Event-driven architecture
+            # 9. Advanced learning, testing, and telemetry systems
+            logger.info("Initializing advanced learning systems...")
+            try:
+                # Pattern miner for learning from logged interactions
+                self.pattern_miner = PatternMiner()
+                logger.info("[OK] Pattern miner ready - will detect learnable patterns")
+                
+                # Synthetic corpus generator for pre-training
+                self.synthetic_corpus_gen = SyntheticCorpusGenerator()
+                logger.info("[OK] Synthetic corpus generator ready")
+                
+                # Multimodal context for system-aware interactions
+                self.multimodal_context = MultimodalContext()
+                logger.info("[OK] Multimodal context capture enabled")
+                
+                # Lab simulator for stress testing
+                self.lab_simulator = LabSimulator()
+                logger.info("[OK] Lab simulator ready for scenario generation")
+                
+                # Red team tester for security validation
+                self.red_team_tester = RedTeamTester()
+                logger.info("[OK] Red team tester ready")
+                
+            except Exception as e:
+                logger.warning(f"[WARNING] Advanced learning systems initialization partial: {e}")
+            
+            # 9.5. Event-driven architecture
             logger.info("Initializing event-driven systems...")
             
             # Event bus
@@ -2701,6 +2734,7 @@ class ALICE:
             print("   /mem-list [type]   - List memories (types: episodic, semantic, procedural, document)")
             print("   /mem-search <query>- Search memories by semantic similarity")
             print("   /mem-delete <id>   - Delete a specific memory by ID")
+            print("   /patterns          - Show proposed patterns awaiting approval")
             print()
             print("Debug Commands:")
             print("   /correct [type]    - Correct A.L.I.C.E's last response")
@@ -2753,8 +2787,14 @@ class ALICE:
                 print("\n📊 LLM Gateway Statistics:")
                 gateway_stats = self.llm_gateway.get_statistics()
                 print(f"   Total Requests: {gateway_stats['total_requests']}")
-                print(f"   ✓ Formatter Usage: {gateway_stats['formatter_calls']} ({gateway_stats.get('formatter_percentage', 0)}%)")
-                print(f"   🤖 LLM Calls: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_percentage', 0)}%)")
+                
+                # Advanced breakdown
+                print(f"   ✓ Self Handlers: {gateway_stats['self_handlers']} ({gateway_stats.get('self_handler_percentage', 0)}%)")
+                print(f"   💡 Pattern Hits: {gateway_stats['pattern_hits']} ({gateway_stats.get('pattern_hit_percentage', 0)}%)")
+                print(f"   🔧 Tool Calls: {gateway_stats['tool_calls']} ({gateway_stats.get('tool_call_percentage', 0)}%)")
+                print(f"   🧠 RAG Lookups: {gateway_stats['rag_lookups']} ({gateway_stats.get('rag_lookup_percentage', 0)}%)")
+                print(f"   📝 Formatter Usage: {gateway_stats['formatter_calls']} ({gateway_stats.get('formatter_percentage', 0)}%)")
+                print(f"   🤖 LLM Fallback: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_fallback_percentage', 0)}%)")
                 print(f"   ✗ Policy Denials: {gateway_stats['policy_denials']} ({gateway_stats.get('denial_percentage', 0)}%)")
                 
                 if gateway_stats['by_type']:
@@ -2997,6 +3037,85 @@ class ALICE:
             
             if not deleted:
                 print(f"\n[ERROR] Memory not found: {memory_id}")
+        
+        elif cmd == '/patterns':
+            # Show proposed patterns awaiting approval
+            if not hasattr(self, 'pattern_miner'):
+                try:
+                    from ai.pattern_miner import PatternMiner
+                    self.pattern_miner = PatternMiner()
+                except Exception as e:
+                    print(f"\n[ERROR] Pattern miner not available: {e}")
+                    return
+            
+            stats = self.pattern_miner.get_pattern_stats()
+            print(f"\n\ud83d\udccb Pattern Learning System:")
+            print("=" * 70)
+            print(f"   Total Proposals: {stats['total_proposals']}")
+            print(f"   Pending Approval: {stats['pending_approval']}")
+            print(f"   Approved: {stats['approved']}")
+            print(f"   Rejected: {stats['rejected']}")
+            if stats['total_proposals'] > 0:
+                approval_rate = stats['approval_rate']
+                print(f"   Approval Rate: {approval_rate:.1%}")
+            
+            print()
+            
+            # Show pending patterns
+            if stats['pending_patterns']:
+                print("Pending Patterns Awaiting Your Approval:")
+                print("-" * 70)
+                for i, pattern in enumerate(stats['pending_patterns'][:5], 1):
+                    print(f"\n   {i}. [{pattern['intent']}] Pattern {pattern['id']}")
+                    print(f"      Examples: {pattern['example_inputs'][:2]}")
+                    print(f"      Template: {pattern['proposed_template'][:80]}...")
+                    print(f"      Cluster Size: {pattern['cluster_size']} similar interactions")
+                    print(f"      Confidence: {pattern['confidence']:.1%}")
+                    print(f"      Approve: /patterns approve {pattern['id']}")
+                    print(f"      Reject:  /patterns reject {pattern['id']}")
+                
+                if len(stats['pending_patterns']) > 5:
+                    print(f"\n   ... and {len(stats['pending_patterns']) - 5} more pending patterns")
+            else:
+                print("   \u2713 No pending patterns. All proposed patterns have been reviewed.")
+            
+            print("\n" + "=" * 70)
+        
+        elif cmd.startswith('/patterns approve'):
+            # Approve a specific pattern
+            parts = command.split(maxsplit=2)
+            if len(parts) < 3:
+                print("\n[ERROR] Usage: /patterns approve <pattern_id>")
+                return
+            
+            pattern_id = parts[2].strip()
+            
+            if not hasattr(self, 'pattern_miner'):
+                from ai.pattern_miner import PatternMiner
+                self.pattern_miner = PatternMiner()
+            
+            if self.pattern_miner.approve_pattern(pattern_id):
+                print(f"\n\u2713 Pattern {pattern_id} approved and will be used for future interactions")
+            else:
+                print(f"\n[ERROR] Pattern {pattern_id} not found")
+        
+        elif cmd.startswith('/patterns reject'):
+            # Reject a specific pattern
+            parts = command.split(maxsplit=2)
+            if len(parts) < 3:
+                print("\n[ERROR] Usage: /patterns reject <pattern_id>")
+                return
+            
+            pattern_id = parts[2].strip()
+            
+            if not hasattr(self, 'pattern_miner'):
+                from ai.pattern_miner import PatternMiner
+                self.pattern_miner = PatternMiner()
+            
+            if self.pattern_miner.reject_pattern(pattern_id):
+                print(f"\n\u2713 Pattern {pattern_id} rejected")
+            else:
+                print(f"\n[ERROR] Pattern {pattern_id} not found")
         
         elif cmd.startswith('/correct'):
             self._handle_correction_command(cmd)
