@@ -151,6 +151,83 @@ class ActiveLearningManager:
                     
         except Exception as e:
             print(f"Warning: Could not load active learning data: {e}")
+        
+        # Auto-import training data from scenarios on initialization
+        self._import_training_data()
+    
+    def _import_training_data(self):
+        """Import successful interactions from auto-generated training data"""
+        try:
+            training_file = os.path.join("data", "training", "auto_generated.jsonl")
+            if not os.path.exists(training_file):
+                return  # No training data yet
+            
+            # Track what we've already imported
+            existing_ids = {c.id for c in self.corrections}
+            domain_success_rates = defaultdict(list)
+            total_imported = 0
+            
+            with open(training_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        entry_id = f"training_{entry.get('user_input', '')}_{entry.get('timestamp', '')}"[:80]
+                        
+                        # Skip if already imported
+                        if entry_id in existing_ids:
+                            continue
+                        
+                        # Track domain success (use actual_intent for better classification)
+                        route_ok = entry.get('route_match', False)
+                        intent_ok = entry.get('intent_match', False)
+                        domain = entry.get('domain', 'general')
+                        
+                        # Record success/failure for domain metrics
+                        success_score = 1.0 if (route_ok and intent_ok) else (0.5 if route_ok else 0.0)
+                        domain_success_rates[domain].append(success_score)
+                        
+                        # Import ALL interactions as learning opportunities, not just successes
+                        correction_type = "intent_classification" if not intent_ok else "entity_extraction"
+                        
+                        correction = Correction(
+                            id=entry_id,
+                            timestamp=entry.get('timestamp', datetime.now().isoformat()),
+                            correction_type=correction_type,
+                            original_input=entry.get('user_input', ''),
+                            original_output={},  # Added missing field
+                            corrected_output={"actual_intent": entry.get('actual_intent', '')},
+                            user_feedback="Auto-imported from scenario",
+                            confidence_score=0.8,
+                            context={"domain": domain, "route_match": route_ok, "intent_match": intent_ok},
+                            applied=True
+                        )
+                        self.corrections.append(correction)
+                        existing_ids.add(entry_id)
+                        total_imported += 1
+                        
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        continue
+            
+            # Update performance metrics based on domain success rates
+            if domain_success_rates and total_imported > 0:
+                # Calculate overall success rate
+                all_scores = [s for scores in domain_success_rates.values() for s in scores]
+                if all_scores:
+                    avg_success = sum(all_scores) / len(all_scores)
+                    self.performance_metrics['user_satisfaction'] = min(avg_success, 1.0)
+                    self.performance_metrics['total_corrections'] += total_imported
+                    # Count "applied" as those that were correct
+                    correct_count = sum(1 for s in all_scores if s >= 0.5)
+                    self.performance_metrics['applied_corrections'] += correct_count
+                    
+            # Persist imported data back to disk
+            if total_imported > 0:
+                self._save_data()
+                    
+        except Exception as e:
+            pass  # Silently fail on import issues
     
     def _save_data(self):
         """Save learning data to disk"""
@@ -600,6 +677,21 @@ class ActiveLearningManager:
     
     def get_learning_stats(self) -> Dict[str, Any]:
         """Get statistics about learning progress"""
+        # Calculate average rating from feedback entries and scenario performance
+        avg_rating = 0.0
+        
+        # Prefer explicit feedback if available
+        if self.feedback_entries:
+            ratings = [f.user_rating for f in self.feedback_entries if hasattr(f, 'user_rating') and f.user_rating]
+            if ratings:
+                avg_rating = sum(ratings) / len(ratings)
+        
+        # If no explicit feedback, use performance metrics (user satisfaction is 0-1, convert to 1-5)
+        if avg_rating == 0.0:
+            user_satisfaction = self.performance_metrics.get('user_satisfaction', 0.0)
+            if user_satisfaction > 0:
+                avg_rating = user_satisfaction * 5.0
+        
         return {
             "total_corrections": len(self.corrections),
             "total_patterns": len(self.learning_patterns),
@@ -607,7 +699,7 @@ class ActiveLearningManager:
             "applied_patterns": len([p for p in self.learning_patterns if p.usage_count > 0]),
             "recent_corrections": len([c for c in self.corrections 
                                      if datetime.fromisoformat(c.timestamp) > datetime.now() - timedelta(days=7)]),
-            "average_user_rating": self.performance_metrics.get('user_satisfaction', 0.0) * 5,
+            "average_user_rating": avg_rating,
             "correction_types": Counter([c.correction_type for c in self.corrections]),
             "pattern_success_rates": {p.pattern_id: p.success_rate for p in self.learning_patterns}
         }

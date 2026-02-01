@@ -920,31 +920,38 @@ class NLPProcessor:
         if any(word in text_lower for word in greeting_words) and len(text_lower.split()) <= 4:
             return 'greeting', 0.9
 
-        # Email intents
-        if any(word in text_lower for word in ['compose', 'draft', 'send', 'write']) and any(word in text_lower for word in ['email', 'mail', 'message']):
-            return 'email:compose', 0.8
-        if any(word in text_lower for word in ['delete', 'remove', 'trash']) and 'email' in text_lower:
-            return 'email:delete', 0.8
-        if any(word in text_lower for word in ['read', 'open', 'show']) and any(word in text_lower for word in ['email', 'mail', 'message']):
-            return 'email:read', 0.7
-        if any(word in text_lower for word in ['search', 'find', 'from', 'subject']) and any(word in text_lower for word in ['email', 'mail', 'inbox']):
-            return 'email:search', 0.7
+        # System intents - check BEFORE time (system has "how's" pattern that could match time)
+        if 'system' in text_lower and ('status' in text_lower or 'doing' in text_lower or 'health' in text_lower):
+            return 'system:status', 0.85
+        if any(word in text_lower for word in ['cpu', 'memory', 'disk', 'battery']) and 'usage' in text_lower:
+            return 'system:status', 0.85
 
-        # Notes intents
-        if any(word in text_lower for word in ['create', 'add', 'new', 'remember', 'save']) and 'note' in text_lower:
-            return 'notes:create', 0.7
-        if any(word in text_lower for word in ['search', 'find']) and 'note' in text_lower:
-            return 'notes:search', 0.7
-        if any(word in text_lower for word in ['show', 'list']) and 'note' in text_lower:
-            return 'notes:list', 0.7
+        # Email intents - check for explicit email action words
+        if 'compose' in text_lower or 'draft' in text_lower or 'write' in text_lower:
+            if any(word in text_lower for word in ['email', 'mail', 'message']):
+                return 'email:compose', 0.85
+        if any(word in text_lower for word in ['delete', 'remove', 'trash']) and ('email' in text_lower or 'mail' in text_lower):
+            return 'email:delete', 0.85
+        if any(word in text_lower for word in ['search', 'find']) and any(word in text_lower for word in ['email', 'mail', 'from', 'inbox']):
+            return 'email:search', 0.8
+        if any(word in text_lower for word in ['read', 'open', 'show']) and any(word in text_lower for word in ['email', 'mail', 'first', 'message']):
+            return 'email:read', 0.8
 
-        # Time/weather/system intents
+        # Notes intents - distinguish create vs search vs list
+        if any(word in text_lower for word in ['create', 'add', 'new']) and 'note' in text_lower:
+            return 'notes:create', 0.8
+        if 'find' in text_lower and 'note' in text_lower:
+            return 'notes:search', 0.8
+        if any(word in text_lower for word in ['show', 'list', 'all']) and 'note' in text_lower:
+            return 'notes:list', 0.8
+
+        # Time intents - after system check to avoid confusion
         if any(phrase in text_lower for phrase in ['what time', 'current time', 'time is it', 'time now']) or text_lower.strip() == 'time':
             return 'time:current', 0.75
+        
+        # Weather intents
         if any(word in text_lower for word in ['weather', 'forecast', 'temperature', 'outside']):
             return 'weather:current', 0.75
-        if any(word in text_lower for word in ['system status', 'system health', 'cpu', 'memory usage', 'disk usage', 'battery']) or 'system' in text_lower:
-            return 'system:status', 0.75
 
         if 'play' in text_lower and any(word in text_lower for word in ['music', 'song']):
             return 'music:play', 0.7

@@ -160,9 +160,10 @@ class ScenarioRunner:
             "what about",
             "i have a question about",
             "can i ask you about",
-            "let me ask you about"
+            "let me ask you about",
+            "schedule it for"  # ambiguous schedule without what
         ]
-        if any(phrase in text_lower for phrase in vague_phrases) or "vague" in intent or "unclear" in intent or intent == "conversation:meta_question" or intent in ["schedule_action", "vague_temporal_question", "vague_question", "vague_request"]:
+        if any(phrase in text_lower for phrase in vague_phrases) or "vague" in intent or "unclear" in intent or intent == "conversation:meta_question" or intent in ["vague_temporal_question", "vague_question", "vague_request"]:
             return "CLARIFICATION"
 
         # Confidence-based clarification gate
