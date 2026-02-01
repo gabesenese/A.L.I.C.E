@@ -373,7 +373,7 @@ ENHANCED_EMAIL_SCENARIOS = [
         steps=[
             ScenarioStep(
                 user_input="reply to the last email",
-                expected_intent="read_email",
+                expected_intent="reply_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email"
             )
@@ -421,10 +421,10 @@ ENHANCED_NOTES_SCENARIOS = [
         steps=[
             ScenarioStep(
                 user_input="delete my old todo list",
-                expected_intent="search_notes",
+                expected_intent="delete_notes",
                 expected_route=ExpectedRoute.TOOL,
                 domain="notes",
-                notes="Should search for 'todo list' first, then delete"
+                notes="Should delete the todo list"
             )
         ],
         tags=["notes", "delete"]
