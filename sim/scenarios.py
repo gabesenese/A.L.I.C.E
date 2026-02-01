@@ -334,13 +334,248 @@ CLARIFICATION_SCENARIOS = [
 ]
 
 
+# Enhanced Email Scenarios (Delete, Compose Variations)
+ENHANCED_EMAIL_SCENARIOS = [
+    Scenario(
+        name="Delete Email by Index",
+        description="User wants to delete a specific email",
+        domain="email",
+        steps=[
+            ScenarioStep(
+                user_input="delete the second email",
+                expected_intent="delete_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email",
+                expected_entities={"index": 2}
+            )
+        ],
+        tags=["email", "delete"]
+    ),
+    Scenario(
+        name="Compose with Recipient",
+        description="User composes email to specific person",
+        domain="email",
+        steps=[
+            ScenarioStep(
+                user_input="send an email to alice@example.com",
+                expected_intent="compose_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email",
+                expected_entities={"recipient": "alice@example.com"}
+            )
+        ],
+        tags=["email", "compose"]
+    ),
+    Scenario(
+        name="Reply to Email",
+        description="User wants to reply to most recent email",
+        domain="email",
+        steps=[
+            ScenarioStep(
+                user_input="reply to the last email",
+                expected_intent="read_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email"
+            )
+        ],
+        tags=["email", "reply"]
+    )
+]
+
+
+# Enhanced Notes Scenarios (List, Search Variations)
+ENHANCED_NOTES_SCENARIOS = [
+    Scenario(
+        name="List All Notes",
+        description="User wants to see all their notes",
+        domain="notes",
+        steps=[
+            ScenarioStep(
+                user_input="show all my notes",
+                expected_intent="list_notes",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes"
+            )
+        ],
+        tags=["notes", "list"]
+    ),
+    Scenario(
+        name="Search Notes by Topic",
+        description="User searches notes for specific topic",
+        domain="notes",
+        steps=[
+            ScenarioStep(
+                user_input="find my notes about python",
+                expected_intent="search_notes",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes",
+                expected_entities={"query": "python"}
+            )
+        ],
+        tags=["notes", "search"]
+    ),
+    Scenario(
+        name="Delete Note",
+        description="User wants to delete a note",
+        domain="notes",
+        steps=[
+            ScenarioStep(
+                user_input="delete my old todo list",
+                expected_intent="search_notes",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes",
+                notes="Should search for 'todo list' first, then delete"
+            )
+        ],
+        tags=["notes", "delete"]
+    )
+]
+
+
+# Enhanced Clarification Scenarios (Multi-turn, Context)
+ENHANCED_CLARIFICATION_SCENARIOS = [
+    Scenario(
+        name="Ambiguous Command Without Context",
+        description="User asks unclear question needing domain clarification",
+        domain="clarification",
+        steps=[
+            ScenarioStep(
+                user_input="what happened last week?",
+                expected_intent="vague_temporal_question",
+                expected_route=ExpectedRoute.CLARIFICATION,
+                domain="clarification",
+                notes="Could be: emails, calendar, notes, or general info?"
+            )
+        ],
+        tags=["clarification", "temporal"]
+    ),
+    Scenario(
+        name="Pronoun Reference Without Context",
+        description="User uses pronoun but no prior context",
+        domain="clarification",
+        steps=[
+            ScenarioStep(
+                user_input="who is he?",
+                expected_intent="vague_question",
+                expected_route=ExpectedRoute.CLARIFICATION,
+                domain="clarification",
+                notes="No prior mention of 'he' in conversation"
+            )
+        ],
+        tags=["clarification", "pronoun"]
+    ),
+    Scenario(
+        name="Vague Action Request",
+        description="User asks to do something but what?",
+        domain="clarification",
+        steps=[
+            ScenarioStep(
+                user_input="add this to the list",
+                expected_intent="vague_request",
+                expected_route=ExpectedRoute.CLARIFICATION,
+                domain="clarification",
+                notes="No 'this' mentioned yet, which list?"
+            )
+        ],
+        tags=["clarification", "action"]
+    )
+]
+
+
+# Enhanced Weather Scenarios
+ENHANCED_WEATHER_SCENARIOS = [
+    Scenario(
+        name="Weather for Specific Location",
+        description="User asks weather for a specific place",
+        domain="weather",
+        steps=[
+            ScenarioStep(
+                user_input="what's the weather in tokyo?",
+                expected_intent="get_weather",
+                expected_route=ExpectedRoute.TOOL,
+                domain="weather",
+                expected_entities={"location": "tokyo"}
+            )
+        ],
+        tags=["weather", "location"]
+    ),
+    Scenario(
+        name="Weather Forecast",
+        description="User asks for weather forecast",
+        domain="weather",
+        steps=[
+            ScenarioStep(
+                user_input="will it rain tomorrow?",
+                expected_intent="get_weather",
+                expected_route=ExpectedRoute.TOOL,
+                domain="weather"
+            )
+        ],
+        tags=["weather", "forecast"]
+    )
+]
+
+
+# Enhanced System Scenarios
+ENHANCED_SYSTEM_SCENARIOS = [
+    Scenario(
+        name="CPU Usage Check",
+        description="User asks about system CPU usage",
+        domain="system",
+        steps=[
+            ScenarioStep(
+                user_input="what's my cpu usage?",
+                expected_intent="system_status",
+                expected_route=ExpectedRoute.CONVERSATIONAL,
+                domain="system"
+            )
+        ],
+        tags=["system", "cpu"]
+    ),
+    Scenario(
+        name="Memory Status",
+        description="User asks about available memory",
+        domain="system",
+        steps=[
+            ScenarioStep(
+                user_input="how much memory is available?",
+                expected_intent="system_status",
+                expected_route=ExpectedRoute.CONVERSATIONAL,
+                domain="system"
+            )
+        ],
+        tags=["system", "memory"]
+    ),
+    Scenario(
+        name="Battery Status",
+        description="User checks battery level",
+        domain="system",
+        steps=[
+            ScenarioStep(
+                user_input="is the battery low?",
+                expected_intent="system_status",
+                expected_route=ExpectedRoute.CONVERSATIONAL,
+                domain="system"
+            )
+        ],
+        tags=["system", "battery"]
+    )
+]
+
+
 # All scenarios combined
 ALL_SCENARIOS = (
     EMAIL_SCENARIOS +
+    ENHANCED_EMAIL_SCENARIOS +
     NOTES_SCENARIOS +
+    ENHANCED_NOTES_SCENARIOS +
     SYSTEM_SCENARIOS +
+    ENHANCED_SYSTEM_SCENARIOS +
     CONVERSATIONAL_SCENARIOS +
-    CLARIFICATION_SCENARIOS
+    CLARIFICATION_SCENARIOS +
+    ENHANCED_CLARIFICATION_SCENARIOS +
+    ENHANCED_WEATHER_SCENARIOS +
+    ENHANCED_SYSTEM_SCENARIOS
 )
 
 
