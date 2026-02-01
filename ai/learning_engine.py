@@ -380,6 +380,12 @@ class LearningEngine:
                     for line in f:
                         if line.strip():
                             data = json.loads(line)
+                            # Backward compatibility: older entries may include 'feedback'
+                            # Map numeric feedback to user_rating if present, then drop the key
+                            if isinstance(data, dict) and "feedback" in data:
+                                if data.get("user_rating") is None:
+                                    data["user_rating"] = data.get("feedback")
+                                data.pop("feedback", None)
                             example = TrainingExample(**data)
                             self.examples.append(example)
             except Exception as e:

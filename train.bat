@@ -48,3 +48,4 @@ echo.
 goto end
 
 :end
+if "%1"=="" pause
