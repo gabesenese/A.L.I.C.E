@@ -563,6 +563,158 @@ ENHANCED_SYSTEM_SCENARIOS = [
 ]
 
 
+# Multi-turn Context Scenarios - Testing follow-up questions and pronoun resolution
+MULTI_TURN_SCENARIOS = [
+    Scenario(
+        name="Email Reply Follow-up",
+        description="User asks to reply to an email, then asks to send it",
+        domain="email",
+        steps=[
+            ScenarioStep(
+                user_input="reply to the last email",
+                expected_intent="reply_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email"
+            ),
+            ScenarioStep(
+                user_input="send it",
+                expected_intent="compose_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email",
+                notes="Follow-up should understand 'it' refers to the reply"
+            )
+        ],
+        tags=["multi-turn", "email", "pronoun-resolution"]
+    ),
+    Scenario(
+        name="Note Delete Follow-up",
+        description="User asks to create a note, then delete it",
+        domain="notes",
+        steps=[
+            ScenarioStep(
+                user_input="create a note about my meeting",
+                expected_intent="create_note",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes"
+            ),
+            ScenarioStep(
+                user_input="actually delete it",
+                expected_intent="delete_notes",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes",
+                notes="Follow-up should understand 'it' refers to the note just created"
+            )
+        ],
+        tags=["multi-turn", "notes", "pronoun-resolution"]
+    ),
+    Scenario(
+        name="Search Email Then Reply",
+        description="User searches for emails, then replies to one",
+        domain="email",
+        steps=[
+            ScenarioStep(
+                user_input="search for emails from john",
+                expected_intent="search_emails",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email"
+            ),
+            ScenarioStep(
+                user_input="reply to the first one",
+                expected_intent="reply_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email",
+                notes="Follow-up should remember the search context"
+            )
+        ],
+        tags=["multi-turn", "email", "entity-tracking"]
+    ),
+    Scenario(
+        name="Clarification With Action",
+        description="User asks vague question, then clarifies with specific action",
+        domain="clarification",
+        steps=[
+            ScenarioStep(
+                user_input="can you do something with my emails?",
+                expected_intent="vague_request",
+                expected_route=ExpectedRoute.CLARIFICATION,
+                domain="clarification"
+            ),
+            ScenarioStep(
+                user_input="sort them by date",
+                expected_intent="vague_request",
+                expected_route=ExpectedRoute.CLARIFICATION,
+                domain="clarification",
+                notes="Follow-up clarifies the vague request with more context"
+            )
+        ],
+        tags=["multi-turn", "clarification", "follow-up"]
+    ),
+    Scenario(
+        name="Weather Then Schedule",
+        description="User asks about weather, then wants to plan something",
+        domain="weather",
+        steps=[
+            ScenarioStep(
+                user_input="what's the weather like tomorrow?",
+                expected_intent="get_weather",
+                expected_route=ExpectedRoute.TOOL,
+                domain="weather"
+            ),
+            ScenarioStep(
+                user_input="schedule a picnic if it's sunny",
+                expected_intent="schedule_action",
+                expected_route=ExpectedRoute.CLARIFICATION,
+                domain="weather",
+                notes="Follow-up connects weather info to scheduling decision"
+            )
+        ],
+        tags=["multi-turn", "weather", "conditional-action"]
+    ),
+    Scenario(
+        name="List Then Specific Read",
+        description="User lists emails, then wants to read a specific one",
+        domain="email",
+        steps=[
+            ScenarioStep(
+                user_input="show me my emails",
+                expected_intent="list_emails",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email"
+            ),
+            ScenarioStep(
+                user_input="read the second one",
+                expected_intent="read_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email",
+                notes="Follow-up references ordinal position from previous list"
+            )
+        ],
+        tags=["multi-turn", "email", "ordinal-reference"]
+    ),
+    Scenario(
+        name="Create Then List Notes",
+        description="User creates a note, then lists all notes",
+        domain="notes",
+        steps=[
+            ScenarioStep(
+                user_input="create a note called 'todo'",
+                expected_intent="create_note",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes"
+            ),
+            ScenarioStep(
+                user_input="show me all my notes",
+                expected_intent="list_notes",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes",
+                notes="Follow-up should see newly created note in context"
+            )
+        ],
+        tags=["multi-turn", "notes", "state-tracking"]
+    )
+]
+
+
 # All scenarios combined
 ALL_SCENARIOS = (
     EMAIL_SCENARIOS +
@@ -575,7 +727,8 @@ ALL_SCENARIOS = (
     CLARIFICATION_SCENARIOS +
     ENHANCED_CLARIFICATION_SCENARIOS +
     ENHANCED_WEATHER_SCENARIOS +
-    ENHANCED_SYSTEM_SCENARIOS
+    ENHANCED_SYSTEM_SCENARIOS +
+    MULTI_TURN_SCENARIOS
 )
 
 
@@ -587,6 +740,158 @@ def get_scenarios_by_domain(domain: str) -> List[Scenario]:
 def get_scenarios_by_tag(tag: str) -> List[Scenario]:
     """Get all scenarios with a specific tag"""
     return [s for s in ALL_SCENARIOS if tag in s.tags]
+
+
+# Multi-turn Context Scenarios - Testing follow-up questions and pronoun resolution
+MULTI_TURN_SCENARIOS = [
+    Scenario(
+        name="Email Reply Follow-up",
+        description="User asks to reply to an email, then asks to send it",
+        domain="email",
+        steps=[
+            ScenarioStep(
+                user_input="reply to the last email",
+                expected_intent="reply_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email"
+            ),
+            ScenarioStep(
+                user_input="send it",
+                expected_intent="compose_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email",
+                notes="Follow-up should understand 'it' refers to the reply"
+            )
+        ],
+        tags=["multi-turn", "email", "pronoun-resolution"]
+    ),
+    Scenario(
+        name="Note Delete Follow-up",
+        description="User asks to create a note, then delete it",
+        domain="notes",
+        steps=[
+            ScenarioStep(
+                user_input="create a note about my meeting",
+                expected_intent="create_note",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes"
+            ),
+            ScenarioStep(
+                user_input="actually delete it",
+                expected_intent="delete_notes",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes",
+                notes="Follow-up should understand 'it' refers to the note just created"
+            )
+        ],
+        tags=["multi-turn", "notes", "pronoun-resolution"]
+    ),
+    Scenario(
+        name="Search Email Then Reply",
+        description="User searches for emails, then replies to one",
+        domain="email",
+        steps=[
+            ScenarioStep(
+                user_input="search for emails from john",
+                expected_intent="search_emails",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email"
+            ),
+            ScenarioStep(
+                user_input="reply to the first one",
+                expected_intent="reply_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email",
+                notes="Follow-up should remember the search context"
+            )
+        ],
+        tags=["multi-turn", "email", "entity-tracking"]
+    ),
+    Scenario(
+        name="Clarification With Action",
+        description="User asks vague question, then clarifies with specific action",
+        domain="clarification",
+        steps=[
+            ScenarioStep(
+                user_input="can you do something with my emails?",
+                expected_intent="vague_request",
+                expected_route=ExpectedRoute.CLARIFICATION,
+                domain="clarification"
+            ),
+            ScenarioStep(
+                user_input="sort them by date",
+                expected_intent="vague_request",
+                expected_route=ExpectedRoute.CLARIFICATION,
+                domain="clarification",
+                notes="Follow-up clarifies the vague request with more context"
+            )
+        ],
+        tags=["multi-turn", "clarification", "follow-up"]
+    ),
+    Scenario(
+        name="Weather Then Schedule",
+        description="User asks about weather, then wants to plan something",
+        domain="weather",
+        steps=[
+            ScenarioStep(
+                user_input="what's the weather like tomorrow?",
+                expected_intent="get_weather",
+                expected_route=ExpectedRoute.TOOL,
+                domain="weather"
+            ),
+            ScenarioStep(
+                user_input="schedule a picnic if it's sunny",
+                expected_intent="schedule_action",
+                expected_route=ExpectedRoute.CLARIFICATION,
+                domain="weather",
+                notes="Follow-up connects weather info to scheduling decision"
+            )
+        ],
+        tags=["multi-turn", "weather", "conditional-action"]
+    ),
+    Scenario(
+        name="List Then Specific Read",
+        description="User lists emails, then wants to read a specific one",
+        domain="email",
+        steps=[
+            ScenarioStep(
+                user_input="show me my emails",
+                expected_intent="list_emails",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email"
+            ),
+            ScenarioStep(
+                user_input="read the second one",
+                expected_intent="read_email",
+                expected_route=ExpectedRoute.TOOL,
+                domain="email",
+                notes="Follow-up references ordinal position from previous list"
+            )
+        ],
+        tags=["multi-turn", "email", "ordinal-reference"]
+    ),
+    Scenario(
+        name="Create Then List Notes",
+        description="User creates a note, then lists all notes",
+        domain="notes",
+        steps=[
+            ScenarioStep(
+                user_input="create a note called 'todo'",
+                expected_intent="create_note",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes"
+            ),
+            ScenarioStep(
+                user_input="show me all my notes",
+                expected_intent="list_notes",
+                expected_route=ExpectedRoute.TOOL,
+                domain="notes",
+                notes="Follow-up should see newly created note in context"
+            )
+        ],
+        tags=["multi-turn", "notes", "state-tracking"]
+    )
+]
 
 
 def get_scenario_by_name(name: str) -> Optional[Scenario]:
