@@ -373,6 +373,56 @@ class AutonomousThresholdAdjuster:
         
         return summary
 
+    def apply_hard_lessons(self, hard_lessons: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Apply stronger adjustments for repeated error clusters."""
+        if not hard_lessons:
+            return {'hard_lessons': 0, 'adjustments_made': 0}
+
+        adjustments_made = 0
+
+        # Ensure required structures
+        if not isinstance(self.thresholds.get('domain_confidence'), dict):
+            self.thresholds['domain_confidence'] = {}
+        if not isinstance(self.thresholds.get('nlp_weights'), dict):
+            self.thresholds['nlp_weights'] = self._default_nlp_weights()
+
+        for lesson in hard_lessons:
+            domain = lesson.get('domain', 'unknown')
+            error_type = lesson.get('error_type', 'unknown')
+            count = lesson.get('count', 0)
+
+            if count < 5:
+                continue
+
+            old_conf = self.thresholds['domain_confidence'].get(domain, 1.0)
+            new_conf = max(0.3, old_conf - 0.1)
+            if new_conf != old_conf:
+                self.thresholds['domain_confidence'][domain] = new_conf
+                adjustments_made += 1
+
+            if domain in self.thresholds['nlp_weights']:
+                old_weight = self.thresholds['nlp_weights'][domain]
+                new_weight = max(0.5, old_weight - 0.1)
+                if new_weight != old_weight:
+                    self.thresholds['nlp_weights'][domain] = new_weight
+                    adjustments_made += 1
+
+            if error_type in {"wrong_route", "mis_intent"}:
+                old_threshold = self.thresholds.get('clarification_threshold', 0.7)
+                new_threshold = min(0.9, old_threshold + 0.02)
+                if new_threshold != old_threshold:
+                    self.thresholds['clarification_threshold'] = new_threshold
+                    adjustments_made += 1
+
+        if adjustments_made > 0:
+            self.thresholds['last_adjusted'] = datetime.now().isoformat()
+            self._save_thresholds()
+
+        return {
+            'hard_lessons': len(hard_lessons),
+            'adjustments_made': adjustments_made
+        }
+
 
 class RulesOptimizer:
     """
