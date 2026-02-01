@@ -157,7 +157,19 @@ python main.py --voice-only
 
 Custom configuration:
 ```bash
-python main.py --name "User" --model llama3.1:8b --voice
+python main.py --name "User" --model llama3.1:8b --voice --llm-policy minimal
+```
+
+### LLM Policy Options
+```bash
+# Minimal LLM usage (recommended for learning)
+python main.py --llm-policy minimal
+
+# Balanced (default production)
+python main.py --llm-policy balanced
+
+# Aggressive (highest quality, slowest)
+python main.py --llm-policy aggressive
 ```
 
 ### Available Commands
@@ -171,11 +183,13 @@ python main.py --name "User" --model llama3.1:8b --voice
 - `/entities` - Show tracked entities
 - `/plugins` - List available plugins
 - `/location` - Set or view your location
-- `/status` - Show system status
+- `/status` - Show system status (includes routing stats, LLM usage)
 - `/save` - Save current state
 - `/correct` - Correct last response
 - `/feedback` - Rate last response
-- `/learning` - Show learning statistics
+- `/learning` - Show learning statistics and pattern suggestions
+- `/policy` - Show current LLM policy settings
+- `/patterns` - Show learned conversation patterns
 - `exit` - End conversation
 
 ## Project Structure
@@ -183,66 +197,87 @@ python main.py --name "User" --model llama3.1:8b --voice
 ```
 A.L.I.C.E/
 ├── ai/
-│   ├── llm_engine.py                   # Ollama LLM integration (reasoning engine)
-│   ├── nlp_processor.py                # Advanced NLP with intent detection
-│   ├── intent_classifier.py            # Semantic intent classification
-│   ├── training_system.py              # ML training and data collection
-│   ├── response_generator.py           # ML-based response generation
-│   ├── response_optimizer.py           # Response refinement
-│   ├── context_manager.py              # Context and state management
-│   ├── advanced_context_handler.py     # Enhanced context tracking
-│   ├── memory_system.py                # Long-term memory with RAG
+│   ├── core.py                         # UNIFIED ENGINE INTERFACE (single import point)
+│   │
+│   ├── UNIFIED ENGINES:
+│   ├── context_engine.py               # Context + conversation state (replaces context_manager + advanced_context_handler)
+│   ├── reasoning_engine.py             # World state + goals + verification (replaces world_state + reference_resolver + goal_resolver + verifier)
+│   ├── learning_engine.py              # Pattern learning + training (replaces training_system + response_generator + ml_learner)
+│   │
+│   ├── ROUTING & POLICY:
+│   ├── router.py                       # Strict priority-based routing (SELF_REFLECTION → CONVERSATIONAL → TOOL → RAG → LLM)
+│   ├── llm_policy.py                   # LLM budget and approval controls
+│   ├── simple_formatters.py            # Tool output formatters (no LLM)
+│   ├── llm_context.py                  # Stable context schema for LLM
+│   │
+│   ├── INFRASTRUCTURE:
+│   ├── errors.py                       # Structured error types (NLPError, ToolError, LLMError, etc.)
+│   ├── service_degradation.py          # Graceful fallback when services down
+│   │
+│   ├── CORE SYSTEMS:
+│   ├── llm_engine.py                   # Ollama LLM integration
+│   ├── nlp_processor.py                # NLP with intent detection
+│   ├── memory_system.py                # Long-term memory with RAG, consolidation, deduplication
 │   ├── conversation_summarizer.py      # Conversation summarization
+│   ├── conversational_engine.py        # Learned conversation patterns
+│   │
+│   ├── LEARNING & TRACKING:
 │   ├── entity_relationship_tracker.py  # Entity & relationship tracking
-│   ├── active_learning_manager.py      # Continuous learning system
-│   ├── world_state.py                  # Global world state
-│   ├── goal_resolver.py                # Multi-turn goal tracking
-│   ├── reference_resolver.py           # Reference resolution
-│   ├── reasoning_engine.py             # Intent reasoning and disambiguation
-│   ├── verifier.py                     # Action verification
-│   ├── error_recovery.py               # Error handling and recovery
+│   ├── active_learning_manager.py      # Continuous learning with safety guardrails
+│   │
+│   ├── PLUGINS:
+│   ├── plugin_system.py                # Plugin architecture
+│   ├── calendar_plugin.py              # Google Calendar
+│   ├── email_plugin.py                 # Gmail
+│   ├── music_plugin.py                 # Music control
+│   ├── notes_plugin.py                 # Notes management
+│   ├── document_plugin.py              # Document RAG
+│   ├── maps_plugin.py                  # Maps and location
+│   │
+│   ├── ANTICIPATORY AI (EXPERIMENTAL):
+│   ├── event_bus.py                    # Event system
+│   ├── observers.py                    # Observer pattern
+│   ├── pattern_learner.py              # Behavioral patterns
+│   ├── system_monitor.py               # System monitoring
+│   ├── task_planner.py                 # Task planning
+│   ├── plan_executor.py                # Plan execution
+│   ├── proactive_assistant.py          # Proactive suggestions
+│   ├── error_recovery.py               # Error handling
 │   ├── smart_context_cache.py          # Context caching
 │   ├── adaptive_context_selector.py    # Context optimization
 │   ├── predictive_prefetcher.py        # Action prediction
-│   ├── self_reflection.py              # Code introspection
-│   ├── plugin_system.py                # Extensible plugin architecture
-│   ├── task_executor.py                # Task automation framework
-│   ├── task_planner.py                 # Task planning
-│   ├── plan_executor.py                # Plan execution
-│   ├── calendar_plugin.py              # Calendar integration
-│   ├── email_plugin.py                 # Email integration
-│   ├── music_plugin.py                 # Music control (Spotify)
-│   ├── notes_plugin.py                 # Notes management
-│   ├── document_plugin.py              # Document operations
-│   ├── maps_plugin.py                  # Location and maps services
-│   ├── event_bus.py                    # Event system
-│   ├── observers.py                    # Observer pattern
-│   ├── pattern_learner.py              # Behavioral pattern learning
-│   ├── system_monitor.py               # System monitoring
-│   ├── system_state.py                 # System state tracking
-│   └── proactive_assistant.py          # Proactive suggestions
+│   ├── response_optimizer.py           # Response refinement
+│   └── self_reflection.py              # Code introspection
+│
 ├── speech/
 │   ├── speech_engine.py       # Voice interaction system
 │   ├── audio_segmentation.py  # Audio processing
 │   └── phoneme_generation.py  # Speech synthesis
+│
 ├── ui/
 │   ├── rich_terminal.py       # Enhanced Rich terminal UI
 │   └── __init__.py            # UI package exports
+│
 ├── features/
 │   └── welcome.py             # Welcome messages & greetings
+│
 ├── data/
 │   ├── context/               # User context and preferences
 │   ├── memory/                # Long-term memory storage
+│   ├── training/              # Training data and learned patterns
 │   ├── notes/                 # User notes
 │   ├── entities.json          # Tracked entities
 │   └── relationships.json     # Entity relationships
+│
 ├── cred/
 │   ├── calendar_credentials.json  # Google Calendar credentials
 │   └── gmail_credentials.json     # Gmail credentials
+│
 ├── memory/
 │   ├── corrections.json       # User corrections
-│   ├── learning_patterns.json # Learning patterns
+│   ├── learning_patterns.json # Learning patterns (versioned)
 │   └── user_feedback.json     # User feedback data
+│
 ├── alice.py                   # Production interface (Rich UI)
 ├── main.py                    # Debug interface (full logs)
 ├── requirements.txt           # Python dependencies
@@ -250,24 +285,116 @@ A.L.I.C.E/
 └── LICENSE
 ```
 
+### Key Architecture Principles
+
+1. **Single Import Point**: Import from `ai.core` instead of individual modules
+2. **Unified Engines**: Three core engines handle all intelligence
+3. **Strict Routing**: Priority-based, LLM as last resort
+4. **Safe Learning**: Versioned patterns, shadow mode, minimum examples
+5. **Graceful Degradation**: System works even when services are down
+
 ## How It Works
 
-### 1. **Input Processing**
-User input → NLP Processor → Intent Detection + Entity Extraction
+### Strict Routing Order (LLM as Last Resort)
 
-### 2. **Context Enhancement**
-Current Input + Conversation History + Relevant Memories → Enhanced Context
+A.L.I.C.E uses a priority-based routing system to minimize LLM dependency and maximize speed:
 
-### 3. **Response Generation**
-- **Plugin Check**: Can a plugin handle this?
-  - Yes → Execute plugin
-  - No → Use LLM with RAG context
+```
+User Input → NLP Processing (intent + entities)
+    ↓
+Priority 1: SELF_REFLECTION
+    └─ Code introspection, training stats, system commands
+    └─ Handled directly without external calls
+    ↓
+Priority 2: CONVERSATIONAL (Learned Patterns)
+    └─ Greetings, farewells, chitchat, known patterns
+    └─ No LLM - uses learned responses from past interactions
+    ↓
+Priority 3: TOOL_CALL (Plugins)
+    └─ Email, calendar, weather, files, music, notes
+    └─ Structured output + simple formatter (NO LLM)
+    ↓
+Priority 4: RAG_ONLY (Knowledge Retrieval)
+    └─ Document queries, fact lookup
+    └─ Retrieval without generation
+    ↓
+Priority 5: LLM_FALLBACK (Last Resort)
+    └─ Complex questions, generation tasks
+    └─ Requires user approval: "I don't know this yet. Want me to look it up?"
+    └─ Logged for pattern learning
+```
 
-### 4. **Memory Storage**
-Interaction → Episodic Memory + Context Update → Save to Disk
+### Detailed Flow
 
-### 5. **Output**
-Text Response → (Optional) Voice Synthesis → User
+**1. Input Processing**
+```
+User Input → NLP Processor → Intent Detection + Entity Extraction
+```
+
+**2. Routing Decision**
+```
+Intent + Confidence → Router → Routing Decision (Priority 1-5)
+```
+
+**3. Context Building** (only if needed)
+```
+User Prefs + Recent History + Relevant Memories → Structured Context
+```
+
+**4. Response Generation**
+
+- **Priority 1-4**: Direct execution, no LLM
+  - Self-reflection: System introspection
+  - Conversational: Learned patterns
+  - Tools: Plugin execution + simple formatter
+  - RAG: Memory retrieval
+
+- **Priority 5**: LLM Fallback
+  - Check LLM policy (rate limit, approval)
+  - User approves → Call LLM
+  - Log to learning engine
+  - After 3+ similar calls → Auto-create pattern
+
+**5. Memory & Learning**
+```
+Every Interaction:
+  → Store in episodic memory
+  → Track entities and relationships
+  → Periodic consolidation (every 100 turns)
+  
+LLM Calls:
+  → Log for pattern learning
+  → Suggest pattern creation after 3+ occurrences
+  → Future calls use learned pattern (no LLM)
+```
+
+**6. Output**
+```
+Response → (Optional) Voice Synthesis → User
+```
+
+### LLM Policy Modes
+
+Control how much A.L.I.C.E relies on the LLM:
+
+```bash
+# Minimal (default): LLM only for complex tasks, requires approval
+python main.py --llm-policy minimal
+
+# Balanced: LLM for tools + generation, no approval needed
+python main.py --llm-policy balanced
+
+# Aggressive: LLM for everything, highest quality but slower
+python main.py --llm-policy aggressive
+```
+
+| Mode | Chitchat | Tool Formatting | Generation | User Approval | Rate Limit |
+|------|----------|-----------------|------------|---------------|------------|
+| minimal | Learned patterns only | Simple formatters | LLM allowed | Required | 5/min |
+| balanced | Learned patterns only | LLM allowed | LLM allowed | Not required | 15/min |
+| aggressive | LLM allowed | LLM allowed | LLM allowed | Not required | 30/min |
+
+**Recommended**: Start with `minimal` to build learned patterns, then switch to `balanced` for production use.
 
 ## Customization
 
