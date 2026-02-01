@@ -568,7 +568,14 @@ class ContextEngine:
         if intent:
             self.conv_state.last_intent = intent
         if entities:
-            self.conv_state.mentioned_entities.extend(entities)
+            normalized_entities = []
+            for item in entities:
+                if hasattr(item, "value"):
+                    normalized_entities.append(str(item.value))
+                else:
+                    normalized_entities.append(str(item))
+
+            self.conv_state.mentioned_entities.extend(normalized_entities)
             self.conv_state.mentioned_entities = list(set(self.conv_state.mentioned_entities[-20:]))
     
     def get_context_summary(self) -> Dict[str, Any]:

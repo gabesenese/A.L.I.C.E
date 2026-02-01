@@ -4,7 +4,7 @@ Converts structured tool output to natural language WITHOUT using LLM
 """
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class SimpleFormatter:
@@ -36,7 +36,7 @@ class WeatherFormatter(SimpleFormatter):
             return None
 
         if isinstance(data.get('forecast'), list):
-            return WeatherFormatter._format_forecast(data)
+            return WeatherFormatter._format_forecast(data, **kwargs)
         
         temp = data.get('temperature')
         condition = data.get('condition', 'unknown')
@@ -63,7 +63,7 @@ class WeatherFormatter(SimpleFormatter):
         return ". ".join(parts) + "."
 
     @staticmethod
-    def _format_forecast(data: Dict[str, Any]) -> Optional[str]:
+    def _format_forecast(data: Dict[str, Any], **kwargs) -> Optional[str]:
         """Format multi-day weather forecast data."""
         forecast = data.get('forecast', [])
         location = data.get('location', 'your location')
@@ -71,11 +71,19 @@ class WeatherFormatter(SimpleFormatter):
         if not forecast:
             return None
 
+        target_day = WeatherFormatter._extract_target_day(kwargs.get("entities"))
         days = forecast[:7]
-        # Build a compact 2-3 sentence summary
-        summary_lines = [f"Here's the forecast for {location}:"]
 
-        daily_parts = []
+        if target_day:
+            target_date = WeatherFormatter._weekday_to_date(target_day)
+            if target_date:
+                for day in days:
+                    if day.get('date') == target_date:
+                        return WeatherFormatter._format_single_day(location, day)
+
+        summary_lines = [f"7-day forecast for {location}:"]
+
+        daily_lines = []
         for day in days:
             date = day.get('date')
             high = day.get('high')
@@ -83,14 +91,71 @@ class WeatherFormatter(SimpleFormatter):
             condition = day.get('condition', 'unknown')
 
             if date and high is not None and low is not None:
-                daily_parts.append(f"{date}: {condition}, {low}–{high}°C")
+                daily_lines.append(f"• {date}: {condition}, {low}–{high}°C")
             elif date:
-                daily_parts.append(f"{date}: {condition}")
+                daily_lines.append(f"• {date}: {condition}")
 
-        if daily_parts:
-            summary_lines.append("; ".join(daily_parts))
+        if daily_lines:
+            summary_lines.extend(daily_lines)
 
-        return " ".join(summary_lines)
+        return "\n".join(summary_lines)
+
+    @staticmethod
+    def _format_single_day(location: str, day: Dict[str, Any]) -> str:
+        date = day.get('date')
+        high = day.get('high')
+        low = day.get('low')
+        condition = day.get('condition', 'unknown')
+
+        if date and high is not None and low is not None:
+            return f"Forecast for {location} on {date}: {condition}, {low}–{high}°C."
+        if date:
+            return f"Forecast for {location} on {date}: {condition}."
+        return f"Forecast for {location}: {condition}."
+
+    @staticmethod
+    def _extract_target_day(entities: Optional[Dict[str, Any]]) -> Optional[str]:
+        if not entities:
+            return None
+        time_entities = entities.get('TIME_RANGE')
+        if not time_entities:
+            return None
+        # Entities may be objects or strings, handle both
+        if isinstance(time_entities, str):
+            # Single string, return as-is
+            return time_entities.lower()
+        
+        for item in time_entities:
+            if item is None:
+                continue
+            if hasattr(item, 'normalized_value') and item.normalized_value:
+                return str(item.normalized_value).lower()
+            if hasattr(item, 'value'):
+                return str(item.value).lower()
+            if isinstance(item, str):
+                return item.lower()
+        return None
+
+    @staticmethod
+    def _weekday_to_date(weekday: str) -> Optional[str]:
+        weekdays = {
+            'monday': 0,
+            'tuesday': 1,
+            'wednesday': 2,
+            'thursday': 3,
+            'friday': 4,
+            'saturday': 5,
+            'sunday': 6
+        }
+        if weekday not in weekdays:
+            return None
+        today = datetime.now()
+        target = weekdays[weekday]
+        days_ahead = (target - today.weekday()) % 7
+        if days_ahead == 0:
+            days_ahead = 7
+        target_date = today + timedelta(days=days_ahead)
+        return target_date.strftime('%Y-%m-%d')
 
 
 class EmailFormatter(SimpleFormatter):

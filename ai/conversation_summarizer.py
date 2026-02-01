@@ -67,13 +67,20 @@ class ConversationSummarizer:
                  intent: Optional[str] = None, entities: Optional[List[str]] = None,
                  sentiment: Optional[str] = None):
         """Add a new conversation turn"""
+
+        normalized_entities = []
+        for item in (entities or []):
+            if hasattr(item, "value"):
+                normalized_entities.append(str(item.value))
+            else:
+                normalized_entities.append(str(item))
         
         turn = {
             "timestamp": datetime.now().isoformat(),
             "user_input": user_input,
             "assistant_response": assistant_response,
             "intent": intent,
-            "entities": entities or [],
+            "entities": normalized_entities,
             "sentiment": sentiment
         }
         

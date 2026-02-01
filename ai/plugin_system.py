@@ -511,7 +511,7 @@ class TimePlugin(PluginInterface):
         self.capabilities = ["time", "date", "calendar"]
     
     def initialize(self) -> bool:
-        logger.info("⏰ Time plugin initialized")
+        logger.info(" Time plugin initialized")
         return True
     
     def can_handle(self, intent: str, entities: Dict) -> bool:
@@ -546,7 +546,7 @@ class TimePlugin(PluginInterface):
         }
     
     def shutdown(self):
-        logger.info("⏰ Time plugin shutdown")
+        logger.info(" Time plugin shutdown")
 
 
 class FileOperationsPlugin(PluginInterface):
@@ -559,7 +559,7 @@ class FileOperationsPlugin(PluginInterface):
         self.capabilities = ["file_operations", "create_file", "read_file", "list_directory"]
     
     def initialize(self) -> bool:
-        logger.info("📁 File Operations plugin initialized")
+        logger.info(" File Operations plugin initialized")
         return True
     
     def can_handle(self, intent: str, entities: Dict) -> bool:
@@ -592,7 +592,7 @@ class FileOperationsPlugin(PluginInterface):
         }
     
     def shutdown(self):
-        logger.info("📁 File Operations plugin shutdown")
+        logger.info(" File Operations plugin shutdown")
 
 
 class SystemControlPlugin(PluginInterface):
@@ -609,7 +609,7 @@ class SystemControlPlugin(PluginInterface):
         from .task_executor import TaskExecutor
         self.task_executor = TaskExecutor(safe_mode=True)
         self._installed_apps = None  # Cache for installed apps
-        logger.info("⚙️ System Control plugin initialized")
+        logger.info(" System Control plugin initialized")
         return True
     
     def _get_installed_apps(self) -> Dict[str, str]:
@@ -834,7 +834,7 @@ class SystemControlPlugin(PluginInterface):
         }
     
     def shutdown(self):
-        logger.info("⚙️ System Control plugin shutdown")
+        logger.info(" System Control plugin shutdown")
 
 
 class WebSearchPlugin(PluginInterface):
@@ -847,7 +847,7 @@ class WebSearchPlugin(PluginInterface):
         self.capabilities = ["web_search", "browse", "lookup"]
     
     def initialize(self) -> bool:
-        logger.info("🌐 Web Search plugin initialized")
+        logger.info(" Web Search plugin initialized")
         return True
     
     def can_handle(self, intent: str, entities: Dict) -> bool:
@@ -870,7 +870,7 @@ class WebSearchPlugin(PluginInterface):
         }
     
     def shutdown(self):
-        logger.info("🌐 Web Search plugin shutdown")
+        logger.info(" Web Search plugin shutdown")
 
 
 # Example usage

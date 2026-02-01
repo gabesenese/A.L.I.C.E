@@ -14,6 +14,7 @@ Integrates all components:
 
 # Suppress warnings before importing other modules
 import os
+import json
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
@@ -25,6 +26,7 @@ import logging
 import re
 from typing import Optional, Dict, Any
 from datetime import datetime
+from pathlib import Path
 from collections import defaultdict
 
 from ai.goal_from_llm import get_goal_from_llm, GoalJSON
@@ -994,8 +996,108 @@ class ALICE:
         """
         Handle weather-related follow-ups using stored weather data.
         This is A.L.I.C.E's routing policy - no need to call Ollama for simple decisions.
+        
+        NOTE: This should be called REGARDLESS of intent, because weekday mentions
+        should ALWAYS trigger forecast follow-up if a forecast is in context.
         """
         input_lower = user_input.lower()
+
+        weekday_keywords = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        
+        # Check for weekday mentions (indicates a forecast follow-up like "is that wednesday?")
+        mentioned_day = None
+        for day in weekday_keywords:
+            if day in input_lower:
+                mentioned_day = day
+                break
+        
+        if mentioned_day:
+            self._think(f"Detected weekday mention: {mentioned_day} (intent was {intent})")
+            if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
+                self._think("Reasoning engine not available for weather follow-up")
+                return None
+            
+            # Try to get stored forecast data
+            forecast_entity = self.reasoning_engine.get_entity('weather_forecast')
+            if not forecast_entity:
+                self._think(f"No forecast entity found for '{mentioned_day}' follow-up - may be first weather query")
+                return None
+            
+            if not forecast_entity.data:
+                self._think(f"Forecast entity exists but has no data")
+                return None
+
+            forecast_data = forecast_entity.data
+            self._think(f"Using stored forecast data for {mentioned_day} query: {type(forecast_data)} with {len(forecast_data.get('forecast', []))} days")
+            
+            from ai.simple_formatters import WeatherFormatter
+            try:
+                result = WeatherFormatter.format(
+                    forecast_data,
+                    entities={'TIME_RANGE': [mentioned_day]}
+                )
+                if result:
+                    self._think(f"Forecast formatter returned: {result[:60]}...")
+                    logger.info(f"Weather follow-up (stored) → {result[:60]}...")
+                    return result
+                else:
+                    self._think(f"Formatter returned None for {mentioned_day}")
+                    return None
+            except Exception as e:
+                logger.error(f"Error formatting forecast for {mentioned_day}: {e}", exc_info=True)
+                self._think(f"Error formatting forecast: {e}")
+                return None
+        
+        # Check if this is explicitly a weather-related follow-up question without a specific weekday
+        # e.g., "will it rain tomorrow?" "is it going to snow?"
+        weather_question_indicators = [
+            'rain', 'snow', 'cold', 'warm', 'hot', 'freeze', 'umbrella', 'jacket',
+            'coat', 'layer', 'wear', 'bring', 'outside', 'go out', 'thunderstorm', 'hail'
+        ]
+        
+        # Only use as follow-up if we have a recent weather context
+        if any(keyword in input_lower for keyword in weather_question_indicators) and 'weather' not in intent.lower():
+            if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
+                return None
+            
+            # Check if we have recent weather data
+            weather_entity = self.reasoning_engine.get_entity('current_weather')
+            if not weather_entity or not weather_entity.data:
+                # Try forecast entity as fallback
+                weather_entity = self.reasoning_engine.get_entity('weather_forecast')
+                if not weather_entity or not weather_entity.data:
+                    return None
+            
+            # We have weather data! A.L.I.C.E answers directly using her own reasoning
+            wd = weather_entity.data
+            temp = wd.get('temperature')
+            condition = wd.get('condition', '').lower()
+            location = wd.get('location', 'your area')
+            
+            # A.L.I.C.E thinks about the question and weather data
+            if 'umbrella' in input_lower:
+                # Check for rain conditions
+                rainy = any(word in condition for word in ['rain', 'drizzle', 'shower', 'storm'])
+                if rainy:
+                    return f"Yes, bring an umbrella - it's {condition} in {location}."
+                else:
+                    return f"No need for an umbrella - it's {condition}, no rain expected."
+            
+            elif any(word in input_lower for word in ['jacket', 'coat', 'layer', 'wear']):
+                # Temperature-based clothing advice
+                if temp is None:
+                    return None
+                
+                if temp < -20:
+                    return f"Definitely wear heavy layers - it's {temp}°C in {location}. That's very cold!"
+                elif temp < 0:
+                    return f"Wear a warm coat and layers - it's {temp}°C in {location}."
+                elif temp < 10:
+                    return f"A light jacket should work - it's {temp}°C in {location}."
+                else:
+                    return f"It's mild ({temp}°C), no heavy coat needed in {location}."
+        
+        return None
         
         # Check if this is a weather-related question
         weather_keywords = ['umbrella', 'jacket', 'coat', 'layer', 'wear', 'bring', 'cold', 'warm', 'outside', 'go out']
@@ -2069,14 +2171,26 @@ class ALICE:
                     if plugin_name == 'WeatherPlugin' and success and plugin_result.get('data'):
                         weather_data = plugin_result['data']
                         from ai.reasoning_engine import WorldEntity, EntityKind
-                        self.reasoning_engine.add_entity(WorldEntity(
-                            id='current_weather',
-                            kind=EntityKind.TOPIC,
-                            label=f"Current weather in {weather_data.get('location', 'your area')}",
-                            data=weather_data,
-                            aliases=['weather', 'current weather', 'temperature', 'outside']
-                        ))
-                        self._think(f"Stored weather data: {weather_data.get('temperature')}°C, {weather_data.get('condition')}")
+                        message_code = weather_data.get('message_code')
+                        if message_code == 'weather:forecast':
+                            self._think(f"Storing weather forecast entity with {len(weather_data.get('forecast', []))} days")
+                            self.reasoning_engine.add_entity(WorldEntity(
+                                id='weather_forecast',
+                                kind=EntityKind.TOPIC,
+                                label=f"Weather forecast for {weather_data.get('location', 'your area')}",
+                                data=weather_data,
+                                aliases=['forecast', 'weather forecast', 'this week', 'next week', 'weekend']
+                            ))
+                            self._think(f"Weather forecast entity stored successfully")
+                        else:
+                            self.reasoning_engine.add_entity(WorldEntity(
+                                id='current_weather',
+                                kind=EntityKind.TOPIC,
+                                label=f"Current weather in {weather_data.get('location', 'your area')}",
+                                data=weather_data,
+                                aliases=['weather', 'current weather', 'temperature', 'outside']
+                            ))
+                            self._think(f"Stored weather data: {weather_data.get('temperature')}°C, {weather_data.get('condition')}")
                     
                     # Seed reasoning engine with entities from plugin so "delete it" can resolve
                     for note in (plugin_result.get('notes') or []):
@@ -2253,6 +2367,17 @@ class ALICE:
             
             # Store response for active learning
             self.last_assistant_response = response
+
+            # Log error-like responses for learning
+            if self._is_error_response(response):
+                self._log_error_interaction(
+                    user_input=user_input,
+                    intent=intent,
+                    entities=entities,
+                    response=response,
+                    error_type="bad_answer",
+                    actual_route="TOOL" if ("plugin_result" in locals() and plugin_result) else "LLM_FALLBACK"
+                )
             
             # Log action for pattern learning
             action = f"{intent}:{entities.get('topic', entities.get('query', 'general'))}"
@@ -2268,11 +2393,71 @@ class ALICE:
         except Exception as e:
             logger.error(f"[ERROR] Error processing input: {e}")
             error_response = "I apologize, but I encountered an error processing your request."
+
+            # Log processing exception for learning
+            self._log_error_interaction(
+                user_input=user_input,
+                intent=intent if 'intent' in locals() else "unknown",
+                entities=entities if 'entities' in locals() else {},
+                response=error_response,
+                error_type="exception",
+                actual_route="LLM_FALLBACK"
+            )
             
             if use_voice and self.speech:
                 self.speech.speak(error_response, blocking=False)
             
             return error_response
+
+    def _is_error_response(self, response: str) -> bool:
+        """Detect error-like responses that should be logged for learning."""
+        if not response:
+            return False
+        text = response.lower()
+        error_markers = [
+            "i apologize", "encountered an error", "error", "sorry",
+            "i don't know", "i do not know", "not learned", "still learning",
+            "i'm not sure", "cannot", "can't"
+        ]
+        return any(marker in text for marker in error_markers)
+
+    def _log_error_interaction(
+        self,
+        user_input: str,
+        intent: str,
+        entities: Dict[str, Any],
+        response: str,
+        error_type: str,
+        actual_route: str = "LLM_FALLBACK"
+    ) -> None:
+        """Log error interactions into training data for correction learning."""
+        try:
+            training_dir = Path("data/training")
+            training_dir.mkdir(parents=True, exist_ok=True)
+            output_file = training_dir / "auto_generated.jsonl"
+
+            domain = "unknown"
+            if intent and ":" in intent:
+                domain = intent.split(":", 1)[0]
+
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "user_input": user_input,
+                "actual_intent": intent,
+                "actual_route": actual_route,
+                "alice_response": response,
+                "success": False,
+                "success_flag": False,
+                "error_type": error_type,
+                "domain": domain,
+                "llm_used": actual_route == "LLM_FALLBACK"
+            }
+
+            with open(output_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(log_entry) + "\n")
+
+        except Exception as e:
+            logger.warning(f"[LOG] Failed to log error interaction: {e}")
     
     def _track_response_entities(self, response: str, intent: str):
         """Track entities mentioned in assistant responses"""
@@ -2537,9 +2722,16 @@ class ALICE:
                 if entities:
                     for entity_type, entity_values in entities.items():
                         if isinstance(entity_values, list):
-                            entity_list.extend(entity_values)
+                            for item in entity_values:
+                                if hasattr(item, "value"):
+                                    entity_list.append(str(item.value))
+                                else:
+                                    entity_list.append(str(item))
                         elif entity_values:
-                            entity_list.append(str(entity_values))
+                            if hasattr(entity_values, "value"):
+                                entity_list.append(str(entity_values.value))
+                            else:
+                                entity_list.append(str(entity_values))
                 
                 # Get sentiment from NLP result if available
                 sentiment = getattr(self, '_last_sentiment', None)
@@ -2599,7 +2791,17 @@ class ALICE:
             # Update context
             entity_list = []
             for entity_type, values in entities.items():
-                entity_list.extend(values)
+                if isinstance(values, list):
+                    for item in values:
+                        if hasattr(item, "value"):
+                            entity_list.append(str(item.value))
+                        else:
+                            entity_list.append(str(item))
+                else:
+                    if hasattr(values, "value"):
+                        entity_list.append(str(values.value))
+                    else:
+                        entity_list.append(str(values))
             
             self.context.update_conversation(user_input, response, intent, entity_list)
             

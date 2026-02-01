@@ -61,12 +61,15 @@ def run_autonomous_nightly_training():
         logger.info("-" * 80)
 
         try:
-            from ai.scenario_generator import generate_scenarios
+            from ai.scenario_generator import generate_scenarios, generate_scenarios_from_errors
             generated = generate_scenarios(PROJECT_ROOT, count_per_domain=3)
+            error_generated = generate_scenarios_from_errors(PROJECT_ROOT, max_scenarios=50)
             logger.info(f"[PHASE -1] Generated {len(generated)} scenarios")
+            logger.info(f"[PHASE -1] Generated {len(error_generated)} scenarios from errors")
             pipeline_stats['phases_completed'].append({
                 'name': 'scenario_generation',
-                'generated': len(generated)
+                'generated': len(generated),
+                'error_generated': len(error_generated)
             })
         except Exception as e:
             logger.warning(f"[PHASE -1] Scenario generation skipped: {e}")

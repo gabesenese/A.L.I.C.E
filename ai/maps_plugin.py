@@ -25,7 +25,7 @@ class MapsPlugin:
         self.enabled = True
     
     def initialize(self) -> bool:
-        logger.info("🗺️ Maps plugin initialized")
+        logger.info(" Maps plugin initialized")
         return True
 
     def get_info(self) -> Dict[str, str]:
@@ -245,4 +245,4 @@ class MapsPlugin:
         return km
     
     def shutdown(self):
-        logger.info("🗺️ Maps plugin shutdown")
+        logger.info(" Maps plugin shutdown")

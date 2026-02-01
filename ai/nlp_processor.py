@@ -1020,6 +1020,19 @@ class NLPProcessor:
         if any(phrase in text_lower for phrase in ['how are you', 'how are you doing', 'how is it going']):
             return 'status_inquiry', 0.85
 
+        # Weather intents - CHECK EARLY before vague patterns
+        # This ensures "is that wednesday?" triggers weather:forecast, not vague_question
+        forecast_phrases = [
+            'forecast', 'this week', 'next week', 'weekend', 'tomorrow',
+            '7 day', '7-day', 'next few days', 'next 7 days',
+            'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
+        ]
+        if any(phrase in text_lower for phrase in forecast_phrases):
+            return 'weather:forecast', 0.8
+
+        if any(word in text_lower for word in ['weather', 'temperature', 'outside']):
+            return 'weather:current', 0.75
+
         # Vague patterns requiring clarification
         vague_patterns = [
             'who is he', 'who is she', 'who is that',  # Pronoun ref without context
@@ -1031,52 +1044,6 @@ class NLPProcessor:
         ]
         if any(pattern in text_lower for pattern in vague_patterns):
             return 'vague_question', 0.75
-
-        # Vague temporal question
-        if any(word in text_lower for word in ['yesterday', 'tomorrow', 'last week', 'last month', 'next week', 'next month']) and ("what about" in text_lower or "what" in text_lower or "?" in text):
-            return 'vague_temporal_question', 0.7
-
-        # Schedule action without specifics
-        if 'schedule' in text_lower and any(word in text_lower for word in ['yesterday', 'today', 'tomorrow', 'next week', 'next month']):
-
-            return 'schedule_action', 0.7
-
-        # Notes intents - distinguish VERY clearly
-        # Create: "create/add/new + note(s)"
-        if any(word in text_lower for word in ['create', 'add', 'new', 'make', 'write']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
-            if 'about' in text_lower or 'on' in text_lower:  # Contextual clue
-                return 'notes:create', 0.9
-        # List: "show/list/all + note(s)"
-        if any(word in text_lower for word in ['show', 'list', 'display', 'all']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
-            return 'notes:list', 0.9
-        # Search: "find/search + note(s) + (about/on/by topic)"
-        if any(word in text_lower for word in ['find', 'search', 'look for', 'grep']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
-            return 'notes:search', 0.9
-        # Delete: "delete/remove/trash + note(s)"
-        if any(word in text_lower for word in ['delete', 'remove', 'trash', 'clear']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
-            return 'notes:delete', 0.85
-
-        # Time intents - after system check to avoid confusion
-        if any(phrase in text_lower for phrase in ['what time', 'current time', 'time is it', 'time now']) or text_lower.strip() == 'time':
-            return 'time:current', 0.75
-        
-        # Weather intents
-        forecast_phrases = [
-            'forecast', 'this week', 'next week', 'weekend', 'tomorrow',
-            '7 day', '7-day', 'next few days', 'next 7 days'
-        ]
-        if any(phrase in text_lower for phrase in forecast_phrases):
-            return 'weather:forecast', 0.8
-
-        if any(word in text_lower for word in ['weather', 'temperature', 'outside']):
-            return 'weather:current', 0.75
-
-        if 'play' in text_lower and any(word in text_lower for word in ['music', 'song']):
-            return 'music:play', 0.7
-        if any(word in text_lower for word in ['email', 'mail', 'gmail', 'inbox']):
-            return 'email:list', 0.6
-        if any(word in text_lower for word in ['calendar', 'event', 'schedule']):
-            return 'calendar:create', 0.6
         if '?' in text:
             return 'conversation:question', 0.5
 
@@ -1132,7 +1099,14 @@ class NLPProcessor:
             'next few days': 'next_few_days',
             'next 7 days': '7_days',
             '7 day': '7_days',
-            '7-day': '7_days'
+            '7-day': '7_days',
+            'monday': 'monday',
+            'tuesday': 'tuesday',
+            'wednesday': 'wednesday',
+            'thursday': 'thursday',
+            'friday': 'friday',
+            'saturday': 'saturday',
+            'sunday': 'sunday'
         }
 
         time_range_entities = []
