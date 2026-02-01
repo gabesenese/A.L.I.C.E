@@ -1,6 +1,10 @@
 # A.L.I.C.E (Artificial Linguistic Intelligence Computer Entity)
 
+**Version 1.0 - Self-Improving AI Architecture**
+
 A sophisticated AI personal assistant powered by advanced machine learning, natural language processing, and local LLM capabilities. Built to run on powerful systems with GPU acceleration for ChatGPT-level performance completely offline.
+
+**Key Innovation:** Alice learns autonomously from scenarios, logs, and background teacher comparison (Ollama), automatically adjusting routing thresholds, promoting patterns, and refining behavior without manual corrections.
 
 ## Features
 

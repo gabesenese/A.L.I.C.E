@@ -1,10 +1,38 @@
 # A.L.I.C.E Development Roadmap
 
-## Current Status: v2.0 - Advanced AI Assistant Complete
+## Current Status: v1.0 - Self-Improving AI Architecture Complete ✅
+
+**Architecture Freeze:** v1.0 marks feature-complete self-learning architecture. Future improvements come from:
+- Expanding scenarios in `scenarios/`
+- Collecting real-world usage data
+- Automatic threshold/pattern adjustments via `nightly_training_autonomous.py`
+- NOT from code refactoring or new architectural components
 
 ---
 
-## High Priority Features
+## v1.0 Architecture Components (COMPLETE)
+
+### Autonomous Learning System ✅
+- [x] **Scenario-driven learning** - Primary teacher via structured test cases
+- [x] **Automatic threshold adjustment** - Domain confidence, NLP weights adapt to error patterns
+- [x] **Background teacher comparison** - Ollama evaluates responses, generates quality scores
+- [x] **Pattern auto-promotion** - Successful behaviors become deterministic rules
+- [x] **7-phase nightly pipeline** - Scenarios → Teacher → Corrections → Thresholds → Rules → Patterns → ML → Report
+- [x] **ML model training** - Scikit-learn router & intent refiner trained on logs
+- [x] **Zero manual correction** - System improves from usage logs, not `/correct` commands
+
+### Core Intelligence ✅
+- [x] Implement proper RAG with document ingestion (✅ Multi-format support)
+- [x] Add conversation summarization for better context (✅ LLM-powered summarization)
+- [x] Improve intent classification with more categories (✅ 80+ comprehensive intents)
+- [x] Add entity relationship tracking (✅ Comprehensive relationship tracking)
+- [x] Implement active learning from user corrections (✅ Pattern learning + autonomous adjustment)
+
+---
+
+## High Priority - Data Collection & Refinement
+
+**Focus:** Run the system, collect data, let learning loops improve performance.
 
 ### Voice & Interaction
 - [ ] Improve wake word detection accuracy
@@ -12,13 +40,6 @@
 - [ ] Support for multiple languages (Spanish, French, etc.)
 - [ ] Voice emotion detection
 - [ ] Customizable wake words via config
-
-### Intelligence & Learning
-- [x] Implement proper RAG with document ingestion (✅ COMPLETED - Full multi-format support)
-- [x] Add conversation summarization for better context (✅ COMPLETED - LLM-powered summarization system)
-- [x] Improve intent classification with more categories (✅ COMPLETED - 80+ comprehensive intent categories)
-- [x] Add entity relationship tracking (✅ COMPLETED - Comprehensive relationship tracking system)
-- [x] Implement active learning from user corrections (✅ COMPLETED - Full correction tracking and pattern learning)
 
 ### Plugins & Integration
 - [x] Calendar plugin (Google Calendar, Outlook) (✅ COMPLETED - Google Calendar integration with natural language support)
