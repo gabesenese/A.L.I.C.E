@@ -1064,7 +1064,7 @@ class ALICE:
 
                 # If this is a greeting, respond directly via gateway
                 if intent == "greeting" and getattr(self, "llm_gateway", None):
-                    # Check conversational engine first
+                    # Check conversational engine first for learned greetings
                     if hasattr(self, 'conversational_engine') and self.conversational_engine:
                         conv_context = ConversationalContext(
                             user_input=user_input,
@@ -1076,42 +1076,16 @@ class ALICE:
                         )
                         if self.conversational_engine.can_handle(user_input, intent, conv_context):
                             response = self.conversational_engine.generate_response(conv_context)
-                            self._think("Greeting → using conversational engine (no LLM)")
-                            self._cache_put(user_input, intent, response)
-                            self._store_interaction(user_input, response, intent, entities)
-                            if use_voice and self.speech:
-                                self.speech.speak(response, blocking=False)
-                            logger.info(f"A.L.I.C.E: {response[:100]}...")
-                            return response
+                            if response:
+                                self._think("Greeting → using learned pattern (no LLM)")
+                                self._cache_put(user_input, intent, response)
+                                self._store_interaction(user_input, response, intent, entities)
+                                if use_voice and self.speech:
+                                    self.speech.speak(response, blocking=False)
+                                logger.info(f"A.L.I.C.E: {response[:100]}...")
+                                return response
                     
-                    # Simple greeting fallbacks (no LLM required)
-                    simple_greetings = {
-                        'hi': ['Hi there!', 'Hello!', 'Hey!'],
-                        'hello': ['Hello!', 'Hi!', 'Hey there!'],
-                        'hey': ['Hey!', 'Hi!', 'Hello!'],
-                        'good morning': ['Good morning!', 'Morning!'],
-                        'good afternoon': ['Good afternoon!', 'Hello!'],
-                        'good evening': ['Good evening!', 'Hello!'],
-                        'how are you': ["I'm doing well, thanks for asking!", "I'm great! How can I help you?"],
-                        "what's up": ["Not much, ready to help!", "All good here! What can I do for you?"],
-                        'howdy': ['Howdy!', 'Hello!']
-                    }
-                    
-                    # Check for simple greeting match
-                    user_input_lower = user_input.lower().strip('?!.,')
-                    for pattern, responses in simple_greetings.items():
-                        if pattern in user_input_lower or user_input_lower in pattern:
-                            import random
-                            response = random.choice(responses)
-                            self._think("Simple greeting → no LLM needed")
-                            self._cache_put(user_input, intent, response)
-                            self._store_interaction(user_input, response, intent, entities)
-                            if use_voice and self.speech:
-                                self.speech.speak(response, blocking=False)
-                            logger.info(f"A.L.I.C.E: {response[:100]}...")
-                            return response
-                    
-                    # Fallback to LLM gateway for complex greetings
+                    # No learned greeting - use LLM and learn from it
                     user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
                     asked_how = bool(re.search(r"\bhow\s+(are\s+you|are\s+things|have\s+you\s+been|do\s+you\s+do|is\s+it\s+going|is\s+your\s+day)\b|\bhow's\s+(it\s+going|your\s+day)\b", user_input, re.IGNORECASE))
                     prompt = (
@@ -1151,7 +1125,19 @@ class ALICE:
                             )
                             response = retry_response.response if retry_response.success else "Hi there!"
                     if response:
-                        self._think("LLM → short greeting response")
+                        self._think("LLM → greeting response (will be learned)")
+                        
+                        # Store as learned pattern for future use
+                        if getattr(self, 'learning_engine', None):
+                            self.learning_engine.collect_interaction(
+                                user_input=user_input,
+                                assistant_response=response,
+                                intent='greeting',
+                                entities=entities or {},
+                                quality_score=0.95  # High quality - greetings are straightforward
+                            )
+                            self._think("Greeting learned → will use cached version next time")
+                        
                         self._store_interaction(user_input, response, intent, entities)
                         if use_voice and self.speech:
                             self.speech.speak(response, blocking=False)
