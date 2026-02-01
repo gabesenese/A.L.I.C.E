@@ -8,6 +8,8 @@ intent detection, and generate training data.
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from enum import Enum
+import json
+from pathlib import Path
 
 
 class ExpectedRoute(Enum):
@@ -190,6 +192,36 @@ SYSTEM_SCENARIOS = [
             )
         ],
         tags=["weather", "system"]
+    ),
+    Scenario(
+        name="Weekly Forecast",
+        description="User wants this week's weather forecast",
+        domain="weather",
+        steps=[
+            ScenarioStep(
+                user_input="what is this week forecast ?",
+                expected_intent="get_weather_forecast",
+                expected_route=ExpectedRoute.TOOL,
+                domain="weather",
+                expected_entities={"time_range": "week"}
+            )
+        ],
+        tags=["weather", "forecast"]
+    ),
+    Scenario(
+        name="Weekend Forecast",
+        description="User wants weekend weather forecast",
+        domain="weather",
+        steps=[
+            ScenarioStep(
+                user_input="how will the weather be this weekend?",
+                expected_intent="get_weather_forecast",
+                expected_route=ExpectedRoute.TOOL,
+                domain="weather",
+                expected_entities={"time_range": "weekend"}
+            )
+        ],
+        tags=["weather", "forecast", "weekend"]
     ),
     Scenario(
         name="Check Time",
@@ -830,6 +862,50 @@ MEMORY_SCENARIOS = [
 ]
 
 
+def _load_generated_scenarios() -> List[Scenario]:
+    """Load Ollama-generated scenarios from scenarios/auto_generated.json."""
+    generated_file = Path(__file__).resolve().parents[1] / "auto_generated.json"
+    if not generated_file.exists():
+        return []
+
+    try:
+        with open(generated_file, 'r', encoding='utf-8', errors='ignore') as f:
+            payload = json.load(f)
+        scenario_defs = payload.get('scenarios', []) if isinstance(payload, dict) else payload
+    except Exception:
+        return []
+
+    scenarios = []
+    for s in scenario_defs:
+        try:
+            steps = []
+            for step in s.get('steps', []):
+                expected_route = ExpectedRoute(step.get('expected_route', 'TOOL'))
+                steps.append(ScenarioStep(
+                    user_input=step.get('user_input', ''),
+                    expected_intent=step.get('expected_intent', ''),
+                    expected_route=expected_route,
+                    domain=s.get('domain'),
+                    expected_entities=step.get('expected_entities', {}),
+                    notes=step.get('notes', '')
+                ))
+
+            scenarios.append(Scenario(
+                name=s.get('name', 'Generated Scenario'),
+                description=s.get('description', ''),
+                domain=s.get('domain', 'unknown'),
+                steps=steps,
+                tags=s.get('tags', ['generated'])
+            ))
+        except Exception:
+            continue
+
+    return scenarios
+
+
+# Generated scenarios
+GENERATED_SCENARIOS = _load_generated_scenarios()
+
 # All scenarios combined
 ALL_SCENARIOS = (
     EMAIL_SCENARIOS +
@@ -844,7 +920,8 @@ ALL_SCENARIOS = (
     ENHANCED_WEATHER_SCENARIOS +
     FILE_SCENARIOS +
     MEMORY_SCENARIOS +
-    MULTI_TURN_SCENARIOS
+    MULTI_TURN_SCENARIOS +
+    GENERATED_SCENARIOS
 )
 
 
