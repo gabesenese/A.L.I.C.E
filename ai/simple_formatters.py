@@ -34,6 +34,9 @@ class WeatherFormatter(SimpleFormatter):
         """
         if not isinstance(data, dict):
             return None
+
+        if isinstance(data.get('forecast'), list):
+            return WeatherFormatter._format_forecast(data)
         
         temp = data.get('temperature')
         condition = data.get('condition', 'unknown')
@@ -58,6 +61,36 @@ class WeatherFormatter(SimpleFormatter):
             return None
         
         return ". ".join(parts) + "."
+
+    @staticmethod
+    def _format_forecast(data: Dict[str, Any]) -> Optional[str]:
+        """Format multi-day weather forecast data."""
+        forecast = data.get('forecast', [])
+        location = data.get('location', 'your location')
+
+        if not forecast:
+            return None
+
+        days = forecast[:7]
+        # Build a compact 2-3 sentence summary
+        summary_lines = [f"Here's the forecast for {location}:"]
+
+        daily_parts = []
+        for day in days:
+            date = day.get('date')
+            high = day.get('high')
+            low = day.get('low')
+            condition = day.get('condition', 'unknown')
+
+            if date and high is not None and low is not None:
+                daily_parts.append(f"{date}: {condition}, {low}–{high}°C")
+            elif date:
+                daily_parts.append(f"{date}: {condition}")
+
+        if daily_parts:
+            summary_lines.append("; ".join(daily_parts))
+
+        return " ".join(summary_lines)
 
 
 class EmailFormatter(SimpleFormatter):
