@@ -52,6 +52,7 @@ INTENT_MAPPING = {
     "notes:list": "list_notes",
     # Weather/Time intents
     "weather:current": "get_weather",
+    "weather:forecast": "get_weather",
     "time:current": "get_time",
     # System intents
     "system:status": "system_status",
@@ -168,9 +169,9 @@ class ScenarioRunner:
 
         # Confidence-based clarification gate
         strong_domain_keywords = any(word in text_lower for word in [
-            "email", "mail", "inbox", "note", "notes", "weather", "forecast", "temperature",
+            "email", "mail", "inbox", "note", "notes", "weather", "forecast", "temperature", "rain", "snow", "sunny", "cloudy",
             "time", "clock", "system", "status", "cpu", "memory", "disk", "battery",
-            "calendar", "event", "schedule"
+            "calendar", "event", "schedule", "tomorrow", "today", "tonight"
         ])
         if confidence < 0.7 and not strong_domain_keywords:
             return "CLARIFICATION"
@@ -179,7 +180,7 @@ class ScenarioRunner:
         if intent in [
             "email:list", "email:search", "email:read", "email:delete", "email:compose",
             "notes:create", "notes:search", "notes:list",
-            "weather:current", "time:current"
+            "weather:current", "weather:forecast", "time:current"
         ]:
             return "TOOL"
 
