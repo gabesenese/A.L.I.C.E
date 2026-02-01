@@ -869,9 +869,65 @@ class NLPProcessor:
         return result
     
     def _detect_intent_semantic(self, text: str) -> Tuple[str, float]:
-        """Detect intent using semantic classifier (primary) or regex (fallback)"""
+        """Detect intent using explicit patterns (primary) then semantic classifier (fallback)"""
         
-        # Try semantic classification first
+        text_lower = text.lower()
+        
+        # PHASE 1: HIGH-CONFIDENCE EXPLICIT PATTERNS (these override semantic classification)
+        # System intents - check BEFORE time (system has "how's" pattern that could match time)
+        if 'system' in text_lower and any(word in text_lower for word in ['status', 'doing', 'health', 'how']):
+            return 'system:status', 0.9
+        # Resource check: "how is/is my + cpu/memory/disk/battery"
+        if any(word in text_lower for word in ['how is', 'is my', 'is the']) and any(word in text_lower for word in ['cpu', 'memory', 'disk', 'battery', 'gpu']):
+            return 'system:status', 0.9
+        if any(word in text_lower for word in ['cpu', 'memory', 'disk', 'battery']) and any(word in text_lower for word in ['usage', 'available', 'how much', 'low', 'check', 'is']):
+            return 'system:status', 0.9
+
+        # Email intents - VERY explicit: action word + email word (0.85-0.9 confidence)
+        # Compose: "compose/draft/write + email/mail"
+        if any(word in text_lower for word in ['compose', 'draft', 'write', 'send']) and any(word in text_lower for word in ['email', 'mail', 'message', 'to']):
+            return 'email:compose', 0.9
+        # Delete: "delete/remove/trash + email/mail"
+        if any(word in text_lower for word in ['delete', 'remove', 'trash']) and any(word in text_lower for word in ['email', 'mail', 'message']):
+            return 'email:delete', 0.9
+        # Reply: "reply/respond to email/mail"
+        if any(word in text_lower for word in ['reply', 'respond']) and any(word in text_lower for word in ['email', 'mail', 'message']):
+            return 'email:reply', 0.85
+        # Search: "find/search + email/mail + (from/subject/sender)"
+        if any(word in text_lower for word in ['search', 'find', 'look for']) and any(word in text_lower for word in ['email', 'mail', 'inbox', 'message', 'from']):
+            return 'email:search', 0.85
+        # List: "show/list/recent + email(s)/mail(s)"
+        if any(word in text_lower for word in ['show', 'list', 'recent', 'latest']) and any(word in text_lower for word in ['email', 'emails', 'mail', 'mails', 'inbox']):
+            return 'email:list', 0.85
+        # Read: "read/open/display + email/mail/message + (first/last/index)"
+        if any(word in text_lower for word in ['read', 'open', 'display', 'view']) and any(word in text_lower for word in ['email', 'mail', 'message', 'first', 'last']):
+            return 'email:read', 0.85
+
+        # Notes intents - distinguish VERY clearly
+        # Create: "create/add/new + note(s)"
+        if any(word in text_lower for word in ['create', 'add', 'new', 'make', 'write']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
+            return 'notes:create', 0.9
+        # List: "show/list + note(s)"
+        if any(word in text_lower for word in ['show', 'list', 'display', 'see']) and any(word in text_lower for word in ['note', 'notes', 'all notes']):
+            return 'notes:list', 0.9
+        # Search: "find/search + note(s)"
+        if any(word in text_lower for word in ['find', 'search']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
+            return 'notes:search', 0.9
+        # Delete: "delete/remove + note(s)"
+        if any(word in text_lower for word in ['delete', 'remove']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
+            return 'notes:delete', 0.85
+
+        # Greetings (high confidence)
+        greeting_words = ['hi', 'hey', 'hello', 'yo', 'sup', 'hiya']
+        if any(word in text_lower for word in greeting_words) and len(text_lower.split()) <= 4:
+            return 'greeting', 0.9
+
+        # Thanks
+        if any(phrase in text_lower for phrase in ['thanks', 'thank you', 'thx']):
+            return 'thanks', 0.9
+
+        # PHASE 2: Fallback to semantic classification
+        # Try semantic classification for lower-confidence cases
         if self.semantic_classifier:
             try:
                 result = self.semantic_classifier.get_plugin_action(text, threshold=0.4)
@@ -887,8 +943,7 @@ class NLPProcessor:
             except Exception as e:
                 logger.warning(f"[WARN] Semantic classification failed: {e}")
         
-        # Fallback to simple keyword matching
-        text_lower = text.lower()
+        # PHASE 3: Additional fallback patterns
 
         # Clarification/meta-question cues
         if any(phrase in text_lower for phrase in [
@@ -927,38 +982,6 @@ class NLPProcessor:
         if 'schedule' in text_lower and any(word in text_lower for word in ['yesterday', 'today', 'tomorrow', 'next week', 'next month']):
 
             return 'schedule_action', 0.7
-
-        # Greetings (high confidence)
-        greeting_words = ['hi', 'hey', 'hello', 'yo', 'sup', 'hiya']
-        if any(word in text_lower for word in greeting_words) and len(text_lower.split()) <= 4:
-            return 'greeting', 0.9
-
-        # System intents - check BEFORE time (system has "how's" pattern that could match time)
-        # Look for: "how's the system", "cpu", "memory", "battery", "disk usage"
-        if 'system' in text_lower and any(word in text_lower for word in ['status', 'doing', 'health', 'how']):
-            return 'system:status', 0.9
-        if any(word in text_lower for word in ['cpu', 'memory', 'disk', 'battery']) and any(word in text_lower for word in ['usage', 'available', 'how much', 'low', 'check']):
-            return 'system:status', 0.9
-
-        # Email intents - VERY explicit: action word + email word
-        # Compose: "compose/draft/write + email/mail"
-        if any(word in text_lower for word in ['compose', 'draft', 'write', 'send']) and any(word in text_lower for word in ['email', 'mail', 'message', 'to']):
-            return 'email:compose', 0.9
-        # Delete: "delete/remove/trash + email/mail + (number/index/third/second/first)"
-        if any(word in text_lower for word in ['delete', 'remove', 'trash']) and any(word in text_lower for word in ['email', 'mail', 'message']):
-            return 'email:delete', 0.9
-        # Reply: "reply/respond to email/mail"
-        if any(word in text_lower for word in ['reply', 'respond']) and any(word in text_lower for word in ['email', 'mail', 'message']):
-            return 'email:reply', 0.85
-        # Search: "find/search + email/mail + (from/subject/sender)"
-        if any(word in text_lower for word in ['search', 'find', 'look for']) and any(word in text_lower for word in ['email', 'mail', 'inbox', 'message', 'from']):
-            return 'email:search', 0.85
-        # List: "show/list/recent + email(s)/mail(s)"
-        if any(word in text_lower for word in ['show', 'list', 'recent', 'latest']) and any(word in text_lower for word in ['email', 'emails', 'mail', 'mails', 'inbox']):
-            return 'email:list', 0.85
-        # Read: "read/open/display + email/mail/message + (first/last/index)"
-        if any(word in text_lower for word in ['read', 'open', 'display', 'view']) and any(word in text_lower for word in ['email', 'mail', 'message', 'first', 'last']):
-            return 'email:read', 0.85
 
         # Notes intents - distinguish VERY clearly
         # Create: "create/add/new + note(s)"
