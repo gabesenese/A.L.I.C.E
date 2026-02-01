@@ -12,6 +12,8 @@ All code should call LLMGateway.request() instead of llm.chat() directly.
 """
 
 import logging
+import json
+import os
 from typing import Optional, Dict, Any, Callable
 from datetime import datetime
 from dataclasses import dataclass
@@ -20,6 +22,10 @@ from ai.llm_policy import get_llm_policy, LLMCallType
 from ai.simple_formatters import FormatterRegistry
 
 logger = logging.getLogger(__name__)
+
+
+# Path to logged interactions file
+LOGGED_INTERACTIONS_PATH = "data/training/logged_interactions.jsonl"
 
 
 @dataclass
@@ -157,6 +163,16 @@ class LLMGateway:
             self.policy.record_call(call_type, user_input, response)
             self.stats['llm_calls'] += 1
             
+            # Log LLM fallback to JSONL file for training
+            if call_type == LLMCallType.FALLBACK:
+                self._log_llm_fallback(
+                    user_input=user_input,
+                    intent=context.get('intent', 'unknown') if context else 'unknown',
+                    entities=context.get('entities', {}) if context else {},
+                    context_snapshot=context or {},
+                    llm_response=response
+                )
+            
             # Log to learning engine if available
             if self.learning_engine and user_input:
                 self.learning_engine.collect_interaction(
@@ -204,6 +220,54 @@ class LLMGateway:
             logger.debug(f"[LLMGateway] Formatter failed for {tool_name}: {e}")
             return None
     
+    def _log_llm_fallback(
+        self,
+        user_input: str,
+        intent: str,
+        entities: Dict[str, Any],
+        context_snapshot: Dict[str, Any],
+        llm_response: str
+    ):
+        """
+        Log LLM fallback calls to JSONL file for pattern mining
+        
+        This data will be used for identifying patterns to learn,
+        PEFT/instruction tuning, and understanding knowledge gaps.
+        
+        Args:
+            user_input: User input text
+            intent: Detected intent
+            entities: Extracted entities
+            context_snapshot: Current context
+            llm_response: LLM response text
+        """
+        try:
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(LOGGED_INTERACTIONS_PATH), exist_ok=True)
+            
+            # Create log entry
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "user_input": user_input,
+                "intent": intent,
+                "entities": entities,
+                "context": {
+                    k: v for k, v in context_snapshot.items()
+                    if k not in ['llm_engine', 'memory_system', 'plugin_manager']
+                },
+                "llm_response": llm_response,
+                "call_type": "LLM_FALLBACK"
+            }
+            
+            # Append to JSONL file
+            with open(LOGGED_INTERACTIONS_PATH, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(log_entry) + '\n')
+            
+            logger.debug(f"[LLMGateway] Logged LLM fallback: {user_input[:50]}...")
+        
+        except Exception as e:
+            logger.error(f"[LLMGateway] Failed to log LLM fallback: {e}")
+    
     def _get_policy_fallback(self, call_type: LLMCallType, reason: str) -> str:
         """
         Get appropriate fallback message when LLM denied by policy
@@ -216,19 +280,19 @@ class LLMGateway:
             User-friendly fallback message
         """
         if call_type == LLMCallType.CHITCHAT:
-            return "I don't have a learned response for that yet. Keep chatting with me so I can learn!"
+            return "I do not have a learned response for that yet. Keep chatting with me so I can learn!"
         
         elif call_type == LLMCallType.TOOL_FORMATTING:
-            return "I have the information but can't format it right now. Here's the raw data."
+            return "I have the information but cannot format it right now. Here is the raw data."
         
         elif call_type == LLMCallType.GENERATION:
-            return "I need more training data before I can help with that. Try asking something I've learned!"
+            return "I need more training data before I can help with that. Try asking something I have learned!"
         
         elif call_type == LLMCallType.CLARIFICATION:
-            return "Could you rephrase that? I'm not sure I understand."
+            return "Could you rephrase that? I am not sure I understand."
         
         else:
-            return f"I can't process that request right now. ({reason})"
+            return f"I cannot process that request right now. ({reason})"
     
     def format_tool_result(
         self,
@@ -280,13 +344,13 @@ class LLMGateway:
         user_input: str
     ) -> str:
         """Build LLM prompt for formatting tool output"""
-        return f"""The user asked: "{user_input}"
+        return f'''The user asked: "{user_input}"
 
 The {tool_name} tool returned this data:
 {data}
 
 Please provide a natural, concise response to the user based on this data.
-Be conversational and helpful. Don't mention the tool name or technical details."""
+Be conversational and helpful. Do not mention the tool name or technical details.'''
     
     def get_statistics(self) -> Dict[str, Any]:
         """Get advanced gateway statistics with detailed routing breakdown"""
