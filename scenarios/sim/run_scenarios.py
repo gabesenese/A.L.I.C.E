@@ -54,7 +54,7 @@ INTENT_MAPPING = {
     "notes:list": "list_notes",
     # Weather/Time intents
     "weather:current": "get_weather",
-    "weather:forecast": "get_weather",
+    "weather:forecast": "get_weather_forecast",
     "time:current": "get_time",
     # System intents
     "system:status": "system_status",
@@ -338,6 +338,19 @@ class ScenarioRunner:
                     logger.info(f"    [LEARNING] Flagged for learning")
         
         return scenario_results
+
+    def _derive_error_type(self, result: ScenarioResult) -> str:
+        """Derive a simple error type classification for training logs."""
+        if result.route_match and result.intent_match:
+            return "bad_answer" if result.needs_learning else "none"
+
+        if not result.intent_match:
+            return "mis_intent"
+
+        if not result.route_match:
+            return "wrong_route"
+
+        return "unknown"
     
     def run_all(
         self,
@@ -369,6 +382,7 @@ class ScenarioRunner:
             
             # Convert to training data with enhanced fields
             for result in results:
+                error_type = self._derive_error_type(result)
                 training_item = {
                     "timestamp": datetime.now().isoformat(),
                     "scenario_name": scenario.name,
@@ -377,11 +391,14 @@ class ScenarioRunner:
                     "actual_intent": result.actual_intent,
                     "expected_route": result.step.expected_route.value,
                     "actual_route": result.actual_route,
+                    "route": result.actual_route,
                     "alice_response": result.actual_response,
                     "teacher_response": result.teacher_response,
                     "route_match": result.route_match,
                     "intent_match": result.intent_match,
                     "success": result.route_match and result.intent_match,
+                    "success_flag": result.route_match and result.intent_match,
+                    "error_type": error_type,
                     "needs_learning": result.needs_learning,
                     "confidence": result.confidence,
                     "domain": scenario.domain,
