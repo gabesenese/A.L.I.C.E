@@ -64,7 +64,7 @@ def run_nightly_training():
         # Save results
         runner.save_results()
         
-        logger.info(f"✓ Scenario simulations complete: {len(runner.results)} steps")
+        logger.info(f"OK: Scenario simulations complete: {len(runner.results)} steps")
         
         # Convert results to format for automated training pipeline
         scenario_results = []
@@ -92,6 +92,86 @@ def run_nightly_training():
         pipeline = AutomatedTrainingPipeline()
         pipeline_results = pipeline.run_full_pipeline(scenario_results)
         
+        # Phase 3b: Train ML models on the data we just collected
+        logger.info("\n[PHASE 3b] Training Machine Learning Models")
+        logger.info("-" * 80)
+        
+        from ai.ml_models import (
+            get_router_classifier,
+            get_intent_refiner,
+            get_pattern_clusterer
+        )
+        
+        try:
+            # Load training logs
+            training_file = PROJECT_ROOT / "data" / "training" / "training_data.jsonl"
+            if training_file.exists():
+                training_logs = []
+                with open(training_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        if line.strip():
+                            try:
+                                training_logs.append(json.loads(line))
+                            except:
+                                pass
+                
+                if training_logs:
+                    # Train router classifier
+                    router = get_router_classifier()
+                    router_data = [
+                        {
+                            'user_input': log.get('user_input', ''),
+                            'intent': log.get('actual_intent', ''),
+                            'confidence': log.get('confidence', 0.5),
+                            'has_domain_keywords': any(
+                                kw in log.get('user_input', '').lower()
+                                for kw in ['email', 'weather', 'notes', 'calendar', 'time']
+                            ),
+                            'has_vague_pattern': 'vague' in log.get('actual_intent', '').lower(),
+                            'actual_route': log.get('actual_route', 'LLM_FALLBACK')
+                        }
+                        for log in training_logs[-1000:]  # Use last 1000 examples
+                    ]
+                    if router_data:
+                        trained = router.train(router_data)
+                        if trained:
+                            logger.info(f"[ML] Router classifier trained on {len(router_data)} examples")
+                        else:
+                            logger.info("[ML] Router classifier skipped (insufficient class diversity)")
+                    
+                    # Train intent refiner
+                    refiner = get_intent_refiner()
+                    corrections_file = PROJECT_ROOT / "memory" / "corrections.json"
+                    if corrections_file.exists():
+                        with open(corrections_file, 'r') as f:
+                            corrections = json.load(f)
+                        correction_data = [
+                            {
+                                'user_input': c.get('user_input', ''),
+                                'original_intent': c.get('actual_intent', ''),
+                                'corrected_intent': c.get('expected_intent', ''),
+                                'confidence': c.get('confidence', 0.5)
+                            }
+                            for c in corrections
+                            if c.get('correction_type') and 'intent' in c.get('correction_type', '')
+                        ]
+                        if correction_data:
+                            refiner.train(correction_data)
+                            logger.info(f"[ML] Intent refiner trained on {len(correction_data)} corrections")
+                    
+                    # Train pattern clusterer on fallback interactions
+                    clusterer = get_pattern_clusterer()
+                    fallback_logs = [
+                        log for log in training_logs
+                        if log.get('actual_route') == 'LLM_FALLBACK'
+                    ]
+                    if len(fallback_logs) >= 10:
+                        clusterer.train(fallback_logs[-500:])
+                        logger.info(f"[ML] Pattern clusterer trained on {len(fallback_logs)} fallback interactions")
+        
+        except Exception as e:
+            logger.warning(f"[ML Training] Error training ML models: {e}")
+        
         # Phase 4: Analyze real interaction fallbacks (if using LLM)
         logger.info("\n[PHASE 4] Analyzing Real Interaction Fallbacks")
         logger.info("-" * 80)
@@ -109,7 +189,7 @@ def run_nightly_training():
             # Auto-learn high-confidence patterns
             learned_count = teacher.auto_learn_high_confidence(suggestions)
             
-            logger.info(f"✓ Auto-learned {learned_count} patterns from real interactions")
+            logger.info(f"OK: Auto-learned {learned_count} patterns from real interactions")
         except Exception as e:
             logger.warning(f"[Note] Real interaction analysis skipped: {e}")
             learned_count = 0
@@ -127,7 +207,7 @@ def run_nightly_training():
         logger.info(f"\nReal Interaction Analysis:")
         logger.info(f"  - Patterns auto-learned: {learned_count}")
         logger.info("=" * 80)
-        logger.info(f"✓ Nightly training complete at: {datetime.now().isoformat()}")
+        logger.info(f"OK: Nightly training complete at: {datetime.now().isoformat()}")
         logger.info("=" * 80)
         
         return True

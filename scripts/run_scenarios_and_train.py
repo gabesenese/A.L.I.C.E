@@ -70,7 +70,7 @@ def run_scenarios(policy: str = "minimal", domains: List[str] = None) -> List[Di
         # This looks for JSON output from the scenario runner
         scenario_results = _extract_scenario_results(result.stdout + result.stderr)
         
-        logger.info(f"✓ Scenarios completed: {len(scenario_results)} steps executed")
+        logger.info(f"OK: Scenarios completed: {len(scenario_results)} steps executed")
         return scenario_results
     
     except subprocess.TimeoutExpired:

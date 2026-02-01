@@ -87,10 +87,10 @@ class AutomatedTrainingPipeline:
             
             if is_good_outcome:
                 good_outcomes += 1
-                logger.info(f"✓ Good outcome: '{user_input[:40]}...' ({intent})")
+                logger.info(f"OK: Good outcome: '{user_input[:40]}...' ({intent})")
             else:
                 learning_opportunities += 1
-                logger.info(f"→ Learning opportunity: '{user_input[:40]}...' (expected: {result.get('expected_intent')})")
+                logger.info(f"LEARN: '{user_input[:40]}...' (expected: {result.get('expected_intent')})")
         
         summary = {
             'good_outcomes': good_outcomes,
@@ -196,10 +196,10 @@ class AutomatedTrainingPipeline:
         report.append(f"  Total intent clusters found: {promo['total_clusters_found']}")
         
         report.append("\n[SAFETY & CONTROL]")
-        report.append("  ✓ No patterns auto-promoted for dangerous domains")
-        report.append("  ✓ Manual /feedback, /correct, /patterns commands still available")
-        report.append("  ✓ All changes logged and reversible")
-        report.append("  ✓ Corrections require validation_count >= 3 to apply")
+        report.append("  OK: No patterns auto-promoted for dangerous domains")
+        report.append("  OK: Manual /feedback, /correct, /patterns commands still available")
+        report.append("  OK: All changes logged and reversible")
+        report.append("  OK: Corrections require validation_count >= 3 to apply")
         
         report.append("\n" + "=" * 70)
         return "\n".join(report)
