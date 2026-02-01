@@ -47,9 +47,10 @@ class PatternPromoter:
         Initialize pattern promoter
         
         Args:
-            min_frequency: Minimum times pattern must appear
-            min_teacher_consistency: Minimum consistency in teacher responses
-            min_alice_agreement: Minimum agreement between Alice and teacher
+            min_frequency: Minimum times pattern must appear (default 3)
+            min_teacher_consistency: Minimum consistency in teacher responses (default 0.8 = 80%)
+                This actually measures: how often teacher provides a response at all
+            min_alice_agreement: Minimum agreement between Alice and teacher (default 0.7 = 70%)
         """
         self.min_frequency = min_frequency
         self.min_teacher_consistency = min_teacher_consistency
@@ -268,31 +269,32 @@ class PatternPromoter:
             if frequency < self.min_frequency:
                 continue
             
-            # Calculate teacher consistency (how similar teacher responses are)
-            teacher_responses = data["teacher_responses"]
-            unique_teacher_responses = len(set(
-                self._normalize_input(r) for r in teacher_responses if r
-            ))
-            teacher_consistency = 1.0 - (unique_teacher_responses - 1) / max(frequency, 1)
+            # Calculate teacher response rate (how often teacher has response)
+            teacher_response_rate = sum(
+                1 for tr in data["teacher_responses"] if tr
+            ) / frequency if frequency > 0 else 0.0
             
-            if teacher_consistency < self.min_teacher_consistency:
+            # We require that teacher responded often enough (at least min_teacher_consistency %)
+            if teacher_response_rate < self.min_teacher_consistency:
                 continue
             
-            # Calculate Alice agreement (how often Alice matches teacher)
-            alice_agreement = sum(
-                1 for tr, ar in zip(teacher_responses, data["alice_responses"])
-                if self._normalize_input(tr) == self._normalize_input(ar)
-            ) / frequency
+            # Calculate route and intent agreement (how often scenarios got it right)
+            correct_routes = sum(data["route_matches"])
+            correct_intents = sum(data["intent_matches"])
+            route_agreement = correct_routes / frequency if frequency > 0 else 0.0
+            intent_agreement = correct_intents / frequency if frequency > 0 else 0.0
             
-            # Note: For learning, we want LOW agreement (Alice needs to learn)
-            # But we also want HIGH teacher consistency (teacher knows what's right)
+            # Require reasonable agreement (at least min_alice_agreement %)
+            avg_agreement = (route_agreement + intent_agreement) / 2
+            if avg_agreement < self.min_alice_agreement:
+                continue
             
             # Detect variable slots
             variable_slots = self._detect_variable_slots(data["inputs"])
             
             # Create response template
             response_template = self._create_response_template(
-                teacher_responses, variable_slots
+                data["teacher_responses"], variable_slots
             )
             
             # Use most common normalized input as pattern
@@ -312,8 +314,8 @@ class PatternPromoter:
                 domain=domain,
                 response_template=response_template,
                 frequency=frequency,
-                teacher_consistency=teacher_consistency,
-                alice_agreement=alice_agreement,
+                teacher_consistency=teacher_response_rate,
+                alice_agreement=avg_agreement,
                 variable_slots=variable_slots,
                 examples=data["inputs"][:5]  # Keep first 5 examples
             )
@@ -359,12 +361,23 @@ class PatternPromoter:
         if patterns_file.exists():
             with open(patterns_file) as f:
                 patterns_data = json.load(f)
+                # Normalize to dict format if it's a list
+                if isinstance(patterns_data, list):
+                    patterns_data = {
+                        "version": "1.0",
+                        "last_updated": datetime.now().isoformat(),
+                        "patterns": patterns_data
+                    }
         else:
             patterns_data = {
                 "version": "1.0",
                 "last_updated": datetime.now().isoformat(),
                 "patterns": []
             }
+        
+        # Ensure patterns key exists
+        if "patterns" not in patterns_data:
+            patterns_data["patterns"] = []
         
         # Add auto-apply candidates
         promoted_count = 0
