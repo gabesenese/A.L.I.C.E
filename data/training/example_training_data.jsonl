@@ -1,0 +1,42 @@
+{"user_input": "hi", "intent": "greeting", "entities": {}, "response": "Hello! How can I help you?", "success": true, "timestamp": "2026-01-31T00:00:00Z"}
+{"user_input": "hey alice", "intent": "greeting", "entities": {}, "response": "Hi there!", "success": true, "timestamp": "2026-01-31T00:01:00Z"}
+{"user_input": "hello", "intent": "greeting", "entities": {}, "response": "Hey! What can I do for you?", "success": true, "timestamp": "2026-01-31T00:02:00Z"}
+{"user_input": "good morning", "intent": "greeting", "entities": {}, "response": "Good morning!", "success": true, "timestamp": "2026-01-31T00:03:00Z"}
+{"user_input": "thanks", "intent": "thanks", "entities": {}, "response": "You're welcome!", "success": true, "timestamp": "2026-01-31T00:04:00Z"}
+{"user_input": "thank you", "intent": "thanks", "entities": {}, "response": "Happy to help!", "success": true, "timestamp": "2026-01-31T00:05:00Z"}
+{"user_input": "appreciate it", "intent": "thanks", "entities": {}, "response": "Anytime!", "success": true, "timestamp": "2026-01-31T00:06:00Z"}
+{"user_input": "bye", "intent": "farewell", "entities": {}, "response": "Goodbye!", "success": true, "timestamp": "2026-01-31T00:07:00Z"}
+{"user_input": "see you later", "intent": "farewell", "entities": {}, "response": "See you!", "success": true, "timestamp": "2026-01-31T00:08:00Z"}
+{"user_input": "goodnight", "intent": "farewell", "entities": {}, "response": "Goodnight!", "success": true, "timestamp": "2026-01-31T00:09:00Z"}
+{"user_input": "what can you do", "intent": "help", "entities": {}, "response": "I can help with email, calendar, notes, files, weather, and more. Just ask!", "success": true, "timestamp": "2026-01-31T00:10:00Z"}
+{"user_input": "help", "intent": "help", "entities": {}, "response": "I can check email, manage your calendar, take notes, search files, get weather, and answer questions. What do you need?", "success": true, "timestamp": "2026-01-31T00:11:00Z"}
+{"user_input": "what are your capabilities", "intent": "help", "entities": {}, "response": "I can help with emails, calendar events, notes, file operations, weather queries, and general questions. Try me!", "success": true, "timestamp": "2026-01-31T00:12:00Z"}
+{"user_input": "i have a question about something", "intent": "vague_question", "entities": {}, "response": "What specifically would you like to know?", "success": true, "timestamp": "2026-01-31T00:13:00Z"}
+{"user_input": "tell me about weather", "intent": "vague_question", "entities": {}, "response": "What location's weather would you like to know about?", "success": true, "timestamp": "2026-01-31T00:14:00Z"}
+{"user_input": "what about my calendar", "intent": "vague_question", "entities": {}, "response": "Would you like to see today's events, upcoming events, or create a new one?", "success": true, "timestamp": "2026-01-31T00:15:00Z"}
+{"user_input": "i wanted to ask about files", "intent": "vague_question", "entities": {}, "response": "What would you like to do with files? Search, read, or list them?", "success": true, "timestamp": "2026-01-31T00:16:00Z"}
+{"user_input": "how are you", "intent": "status_check", "entities": {}, "response": "I'm running smoothly! How can I help you today?", "success": true, "timestamp": "2026-01-31T00:17:00Z"}
+{"user_input": "status", "intent": "status_check", "entities": {}, "response": "All systems operational!", "success": true, "timestamp": "2026-01-31T00:18:00Z"}
+{"user_input": "are you there", "intent": "status_check", "entities": {}, "response": "I'm here and ready!", "success": true, "timestamp": "2026-01-31T00:19:00Z"}
+{"user_input": "yes", "intent": "affirmation", "entities": {}, "response": "Got it!", "success": true, "timestamp": "2026-01-31T00:20:00Z"}
+{"user_input": "ok", "intent": "affirmation", "entities": {}, "response": "Understood.", "success": true, "timestamp": "2026-01-31T00:21:00Z"}
+{"user_input": "sure", "intent": "affirmation", "entities": {}, "response": "Okay!", "success": true, "timestamp": "2026-01-31T00:22:00Z"}
+{"user_input": "no", "intent": "negation", "entities": {}, "response": "Okay, cancelled.", "success": true, "timestamp": "2026-01-31T00:23:00Z"}
+{"user_input": "cancel", "intent": "negation", "entities": {}, "response": "Cancelled.", "success": true, "timestamp": "2026-01-31T00:24:00Z"}
+{"user_input": "never mind", "intent": "negation", "entities": {}, "response": "No problem.", "success": true, "timestamp": "2026-01-31T00:25:00Z"}
+{"user_input": "can you help me", "intent": "capability_question", "entities": {}, "response": "Of course! What do you need help with?", "success": true, "timestamp": "2026-01-31T00:26:00Z"}
+{"user_input": "are you able to check my email", "intent": "capability_question", "entities": {"action": "check email"}, "response": "Yes, I can check your email. Would you like me to do that now?", "success": true, "timestamp": "2026-01-31T00:27:00Z"}
+{"user_input": "do you know how to search files", "intent": "capability_question", "entities": {"action": "search files"}, "response": "Yes, I can search files. What are you looking for?", "success": true, "timestamp": "2026-01-31T00:28:00Z"}
+{"user_input": "can i ask you something", "intent": "meta_question", "entities": {}, "response": "Sure, what's your question?", "success": true, "timestamp": "2026-01-31T00:29:00Z"}
+{"user_input": "quick question", "intent": "meta_question", "entities": {}, "response": "Go ahead!", "success": true, "timestamp": "2026-01-31T00:30:00Z"}
+{"user_input": "what's the weather", "intent": "weather_query", "entities": {"location": "current"}, "response": "Checking the weather for your location...", "success": true, "timestamp": "2026-01-31T00:31:00Z"}
+{"user_input": "what time is it", "intent": "time_query", "entities": {}, "response": "The current time is 12:00 PM.", "success": true, "timestamp": "2026-01-31T00:32:00Z"}
+{"user_input": "check my email", "intent": "email_read", "entities": {}, "response": "Checking your inbox...", "success": true, "timestamp": "2026-01-31T00:33:00Z"}
+{"user_input": "show me my calendar", "intent": "calendar_read", "entities": {}, "response": "Looking at your calendar...", "success": true, "timestamp": "2026-01-31T00:34:00Z"}
+{"user_input": "create a note", "intent": "note_create", "entities": {}, "response": "What would you like the note to say?", "success": true, "timestamp": "2026-01-31T00:35:00Z"}
+{"user_input": "search for documents", "intent": "file_search", "entities": {"file_type": "documents"}, "response": "Searching for documents...", "success": true, "timestamp": "2026-01-31T00:36:00Z"}
+{"user_input": "play some music", "intent": "music_play", "entities": {}, "response": "What would you like to listen to?", "success": true, "timestamp": "2026-01-31T00:37:00Z"}
+{"user_input": "remind me to call john", "intent": "reminder_create", "entities": {"task": "call john"}, "response": "When should I remind you?", "success": true, "timestamp": "2026-01-31T00:38:00Z"}
+{"user_input": "what's my schedule for today", "intent": "calendar_read", "entities": {"timeframe": "today"}, "response": "Checking today's schedule...", "success": true, "timestamp": "2026-01-31T00:39:00Z"}
+{"user_input": "send an email to sarah", "intent": "email_send", "entities": {"recipient": "sarah"}, "response": "What would you like to say to Sarah?", "success": true, "timestamp": "2026-01-31T00:40:00Z"}
+
