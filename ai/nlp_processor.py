@@ -1061,7 +1061,14 @@ class NLPProcessor:
             return 'time:current', 0.75
         
         # Weather intents
-        if any(word in text_lower for word in ['weather', 'forecast', 'temperature', 'outside']):
+        forecast_phrases = [
+            'forecast', 'this week', 'next week', 'weekend', 'tomorrow',
+            '7 day', '7-day', 'next few days', 'next 7 days'
+        ]
+        if any(phrase in text_lower for phrase in forecast_phrases):
+            return 'weather:forecast', 0.8
+
+        if any(word in text_lower for word in ['weather', 'temperature', 'outside']):
             return 'weather:current', 0.75
 
         if 'play' in text_lower and any(word in text_lower for word in ['music', 'song']):
@@ -1085,6 +1092,7 @@ class NLPProcessor:
                 return self._entity_cache[cache_key]
         
         entities = {}
+        text_lower = text.lower()
         
         # Domain-specific entities (custom NER)
         domain_entities = self.domain_ner.extract(text)
@@ -1114,6 +1122,31 @@ class NLPProcessor:
             
             if entity_list:
                 entities[entity_type] = entity_list
+
+        # Time range entities (for forecast queries)
+        time_range_patterns = {
+            'this week': 'week',
+            'next week': 'next_week',
+            'weekend': 'weekend',
+            'tomorrow': 'tomorrow',
+            'next few days': 'next_few_days',
+            'next 7 days': '7_days',
+            '7 day': '7_days',
+            '7-day': '7_days'
+        }
+
+        time_range_entities = []
+        for phrase, normalized in time_range_patterns.items():
+            if phrase in text_lower:
+                time_range_entities.append(Entity(
+                    type='TIME_RANGE',
+                    value=phrase,
+                    confidence=0.85,
+                    normalized_value=normalized
+                ))
+
+        if time_range_entities:
+            entities['TIME_RANGE'] = time_range_entities
         
         # Cache result
         with self._cache_lock:
