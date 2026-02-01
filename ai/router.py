@@ -93,7 +93,7 @@ class RequestRouter:
         'system_command', 'process_management',
         
         # Web
-        'web_search', 'weather_query', 'news_query',
+        'web_search', 'weather_query', 'weather:current', 'weather:forecast', 'news_query',
         
         # Music
         'music_play', 'music_pause', 'music_stop', 'music_search',
@@ -384,6 +384,8 @@ class RequestRouter:
             # Web
             'web_search': 'web_search',
             'weather_query': 'weather',
+            'weather:current': 'weather',
+            'weather:forecast': 'weather',
             'news_query': 'web_search',
             
             # Music
