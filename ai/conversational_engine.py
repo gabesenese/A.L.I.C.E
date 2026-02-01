@@ -118,21 +118,7 @@ class ConversationalEngine:
             logger.info(f"Loaded {len(data.get('patterns', []))} curated patterns")
         except Exception as e:
             logger.error(f"Failed to load curated patterns: {e}")
-            
-            # Learn conversation style
-            if examples:
-                all_responses = [ex.assistant_response for ex in examples if ex.assistant_response]
-                if all_responses:
-                    avg_len = sum(len(r) for r in all_responses) / len(all_responses)
-                    self.conversation_style['length'] = 'short' if avg_len < 40 else 'long' if avg_len > 100 else 'medium'
-                    self.conversation_style['uses_questions'] = sum(1 for r in all_responses if '?' in r) > len(all_responses) * 0.3
-            
-            logger.info(f"[ConvEngine] Loaded {len(self.learned_greetings)} learned greetings")
-            
-        except Exception as e:
-            logger.debug(f"[ConvEngine] Could not load patterns: {e}")
-
-
+    
     def _pick_non_repeating(self, candidates: List[str]) -> str:
         """Pick a response from candidates, preferring one not in recent_responses."""
         if not candidates:
