@@ -166,6 +166,104 @@ class LearningEngine:
             
             # Learn pattern immediately
             self._learn_pattern(example)
+
+    def run_offline_training(self, max_entries: int = 500) -> Dict[str, Any]:
+        """
+        Offline pass over recent logs to convert mistakes into corrections
+        and promote safer patterns.
+        """
+        project_root = Path(__file__).resolve().parents[1]
+        log_path = project_root / "data" / "training" / "auto_generated.jsonl"
+
+        correction_engine = get_auto_correction_engine(project_root)
+        error_summary = correction_engine.process_error_logs(log_path, max_entries=max_entries)
+        applied_summary = correction_engine.apply_corrections_to_thresholds()
+
+        error_entries = self._load_error_entries(log_path)
+        hard_lessons = self._extract_hard_lessons(error_entries)
+
+        hard_lesson_summary = {}
+        if hard_lessons:
+            try:
+                from ai.autonomous_adjuster import create_autonomous_adjuster
+                adjuster = create_autonomous_adjuster(project_root)
+                hard_lesson_summary = adjuster.apply_hard_lessons(hard_lessons)
+            except Exception as e:
+                logger.warning(f"[Learning] Hard lesson adjustment failed: {e}")
+
+        # Promote corrected mistakes into training data for pattern learning
+        promoted_from_errors = 0
+        for correction in error_summary.get('new_corrections', []):
+            corrected_response = correction.get('teacher_response') or ""
+            if not corrected_response:
+                continue
+            self.collect_interaction(
+                user_input=correction.get('user_input', ''),
+                assistant_response=corrected_response,
+                intent=correction.get('expected_intent', None),
+                entities={},
+                quality_score=0.9,
+                user_rating=None
+            )
+            promoted_from_errors += 1
+
+        return {
+            'errors_seen': error_summary.get('errors_seen', 0),
+            'corrections_added': error_summary.get('corrections_added', 0),
+            'corrections_updated': error_summary.get('corrections_updated', 0),
+            'corrections_applied': applied_summary.get('applied_count', 0),
+            'hard_lessons': hard_lesson_summary.get('hard_lessons', 0),
+            'hard_lesson_adjustments': hard_lesson_summary.get('adjustments_made', 0),
+            'promoted_from_errors': promoted_from_errors
+        }
+
+    def _load_error_entries(self, log_path: Path) -> List[Dict[str, Any]]:
+        """Load failed interactions from training logs."""
+        entries: List[Dict[str, Any]] = []
+        if not log_path.exists():
+            return entries
+
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    success_flag = entry.get('success_flag', entry.get('success', True))
+                    if success_flag:
+                        continue
+
+                    entries.append(entry)
+        except Exception as e:
+            logger.warning(f"[Learning] Failed to load error entries: {e}")
+
+        return entries
+
+    def _extract_hard_lessons(self, error_entries: List[Dict[str, Any]], min_count: int = 5) -> List[Dict[str, Any]]:
+        """Group repeated errors into hard lessons."""
+        counts: Dict[Tuple[str, str, str], int] = defaultdict(int)
+
+        for entry in error_entries:
+            domain = entry.get('domain', 'unknown')
+            intent = entry.get('expected_intent') or entry.get('actual_intent') or 'unknown'
+            error_type = entry.get('error_type') or 'unknown'
+            counts[(domain, intent, error_type)] += 1
+
+        hard_lessons = []
+        for (domain, intent, error_type), count in counts.items():
+            if count >= min_count:
+                hard_lessons.append({
+                    'domain': domain,
+                    'intent': intent,
+                    'error_type': error_type,
+                    'count': count
+                })
+
+        return hard_lessons
     
     def _learn_pattern(self, example: TrainingExample):
         """Learn a single pattern"""
@@ -548,6 +646,86 @@ class AutoCorrectionEngine:
             'intent_mismatches': intent_mismatches,
             'route_mismatches': route_mismatches
         }
+
+    def process_error_logs(self, log_path: Path, max_entries: int = 500) -> Dict[str, Any]:
+        """
+        Process error logs (success_flag=False) and create corrections.
+
+        Args:
+            log_path: Path to jsonl training log
+            max_entries: Max corrections to add/update in this pass
+
+        Returns:
+            Summary of corrections processed
+        """
+        if not log_path.exists():
+            return {
+                'errors_seen': 0,
+                'corrections_added': 0,
+                'corrections_updated': 0,
+                'used_expected': 0,
+                'teacher_judged': 0,
+                'new_corrections': []
+            }
+
+        errors_seen = 0
+        corrections_added = 0
+        corrections_updated = 0
+        used_expected = 0
+        teacher_judged = 0
+        new_corrections = []
+
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    success_flag = entry.get('success_flag', entry.get('success', True))
+                    if success_flag:
+                        continue
+
+                    errors_seen += 1
+                    correction = self._create_correction_from_log(entry)
+                    if not correction:
+                        continue
+
+                    existing = self._find_existing_correction(correction)
+                    if existing:
+                        existing['validation_count'] = existing.get('validation_count', 1) + 1
+                        existing['last_seen'] = datetime.now().isoformat()
+                        corrections_updated += 1
+                    else:
+                        self.corrections.append(correction)
+                        new_corrections.append(correction)
+                        corrections_added += 1
+
+                    if correction.get('source') == 'teacher_judge':
+                        teacher_judged += 1
+                    else:
+                        used_expected += 1
+
+                    if (corrections_added + corrections_updated) >= max_entries:
+                        break
+
+        except Exception as e:
+            logger.warning(f"[AutoCorrection] Error processing logs: {e}")
+
+        if corrections_added > 0 or corrections_updated > 0:
+            self._save_corrections()
+
+        return {
+            'errors_seen': errors_seen,
+            'corrections_added': corrections_added,
+            'corrections_updated': corrections_updated,
+            'used_expected': used_expected,
+            'teacher_judged': teacher_judged,
+            'new_corrections': new_corrections
+        }
     
     def _create_correction_from_mismatch(self, result: Dict) -> Optional[Dict]:
         """Create correction entry from scenario mismatch"""
@@ -584,6 +762,105 @@ class AutoCorrectionEngine:
             return correction
         except Exception as e:
             logger.warning(f"[AutoCorrection] Error creating correction: {e}")
+            return None
+
+    def _create_correction_from_log(self, entry: Dict[str, Any]) -> Optional[Dict]:
+        """Create correction from a training log entry."""
+        try:
+            expected_intent = entry.get('expected_intent')
+            expected_route = entry.get('expected_route')
+            domain = entry.get('domain', 'unknown')
+
+            if domain.lower() in self.DANGEROUS_DOMAINS:
+                return None
+
+            judged = None
+            if not expected_intent or not expected_route:
+                judged = self._judge_with_teacher(entry)
+                if not judged:
+                    return None
+                expected_intent = judged.get('expected_intent')
+                expected_route = judged.get('expected_route')
+
+            if not expected_intent or not expected_route:
+                return None
+
+            correction = {
+                'id': f"auto_log_corr_{datetime.now().isoformat()}",
+                'timestamp': datetime.now().isoformat(),
+                'correction_type': entry.get('error_type', self._infer_error_type(entry)),
+                'user_input': entry.get('user_input', ''),
+                'expected_intent': expected_intent,
+                'actual_intent': entry.get('actual_intent', ''),
+                'expected_route': expected_route,
+                'actual_route': entry.get('actual_route', ''),
+                'domain': domain,
+                'source': 'teacher_judge' if judged else 'log_expected',
+                'applied': False,
+                'validation_count': 1,
+                'confidence': entry.get('confidence', 0.0),
+                'teacher_response': entry.get('teacher_response') or (judged.get('response') if judged else None)
+            }
+
+            return correction
+        except Exception as e:
+            logger.warning(f"[AutoCorrection] Error creating log correction: {e}")
+            return None
+
+    def _infer_error_type(self, entry: Dict[str, Any]) -> str:
+        if entry.get('intent_match') is False:
+            return 'mis_intent'
+        if entry.get('route_match') is False:
+            return 'wrong_route'
+        return 'bad_answer'
+
+    def _find_existing_correction(self, correction: Dict[str, Any]) -> Optional[Dict]:
+        """Find existing correction by key fields."""
+        for existing in self.corrections:
+            if (
+                existing.get('user_input') == correction.get('user_input') and
+                existing.get('expected_intent') == correction.get('expected_intent') and
+                existing.get('expected_route') == correction.get('expected_route')
+            ):
+                return existing
+        return None
+
+    def _judge_with_teacher(self, entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Ask LLM teacher to suggest expected intent/route for a failed input."""
+        try:
+            from ai.llm_engine import LLMConfig, LocalLLMEngine
+
+            llm = LocalLLMEngine(LLMConfig(model="llama3.1:8b"))
+            user_input = entry.get('user_input', '')
+            actual_intent = entry.get('actual_intent', '')
+            actual_route = entry.get('actual_route', '')
+
+            prompt = (
+                "You are a strict routing judge. Given the user input and the model's wrong output, "
+                "suggest the correct intent and route. Return ONLY valid JSON in this format: "
+                "{\"expected_intent\": \"...\", \"expected_route\": \"...\", \"response\": \"...\"}.\n\n"
+                f"User input: {user_input}\n"
+                f"Actual intent: {actual_intent}\n"
+                f"Actual route: {actual_route}\n"
+                "Valid routes: CONVERSATIONAL, TOOL, CLARIFICATION, RAG, LLM_FALLBACK."
+            )
+
+            raw = llm.chat(user_input=prompt, use_history=False)
+            if not raw:
+                return None
+
+            if isinstance(raw, dict):
+                return raw
+
+            if isinstance(raw, str):
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError:
+                    return None
+
+            return None
+        except Exception as e:
+            logger.warning(f"[AutoCorrection] Teacher judge failed: {e}")
             return None
     
     def apply_corrections_to_thresholds(self) -> Dict[str, Any]:
