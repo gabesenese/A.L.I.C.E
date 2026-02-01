@@ -177,3 +177,8 @@
 
 
 
+
+# Notes Feb 1 - 2026 
+- Print functions are using hard-coded answers, alice should have to come up with a proper print message according to the case
+
+
