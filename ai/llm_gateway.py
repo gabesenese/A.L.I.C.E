@@ -280,19 +280,20 @@ class LLMGateway:
             User-friendly fallback message
         """
         if call_type == LLMCallType.CHITCHAT:
-            return "I do not have a learned response for that yet. Keep chatting with me so I can learn!"
+            # Better message: offer to learn, don't just say "not learned yet"
+            return "I'm still learning that one. Keep talking with me and I'll pick it up!"
         
         elif call_type == LLMCallType.TOOL_FORMATTING:
-            return "I have the information but cannot format it right now. Here is the raw data."
+            return "I have the information but need to format it better. Here is what I found:"
         
         elif call_type == LLMCallType.GENERATION:
-            return "I need more training data before I can help with that. Try asking something I have learned!"
+            return "I need more examples of that to answer confidently. Try asking something I've learned!"
         
         elif call_type == LLMCallType.CLARIFICATION:
-            return "Could you rephrase that? I am not sure I understand."
+            return "Could you rephrase that? I'm not quite sure what you mean."
         
         else:
-            return f"I cannot process that request right now. ({reason})"
+            return f"Let me think about that. Could you give me more context?"
     
     def format_tool_result(
         self,
