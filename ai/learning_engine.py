@@ -14,6 +14,7 @@ import os
 import json
 import logging
 import pickle
+import importlib
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 from pathlib import Path
@@ -21,20 +22,51 @@ from dataclasses import dataclass, asdict, field
 from collections import defaultdict
 import threading
 
-import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics.pairwise import cosine_similarity
-
 logger = logging.getLogger(__name__)
 
-# Optional deep learning imports
-try:
-    from sentence_transformers import SentenceTransformer
-    DEEP_LEARNING_AVAILABLE = True
-except ImportError:
-    DEEP_LEARNING_AVAILABLE = False
-    logger.warning("[Learning] sentence-transformers not available, using traditional ML")
+np = None
+TfidfVectorizer = None
+LogisticRegression = None
+cosine_similarity = None
+SentenceTransformer = None
+_DEPS_LOADED = False
+
+
+def _load_optional_deps() -> None:
+    global _DEPS_LOADED, np, TfidfVectorizer, LogisticRegression, cosine_similarity, SentenceTransformer
+    if _DEPS_LOADED:
+        return
+    try:
+        np = importlib.import_module("numpy")
+    except ImportError:  # pragma: no cover
+        np = None
+    try:
+        sklearn_text = importlib.import_module("sklearn.feature_extraction.text")
+        sklearn_linear = importlib.import_module("sklearn.linear_model")
+        sklearn_pairwise = importlib.import_module("sklearn.metrics.pairwise")
+        TfidfVectorizer = sklearn_text.TfidfVectorizer
+        LogisticRegression = sklearn_linear.LogisticRegression
+        cosine_similarity = sklearn_pairwise.cosine_similarity
+    except ImportError:  # pragma: no cover
+        TfidfVectorizer = None
+        LogisticRegression = None
+        cosine_similarity = None
+    try:
+        st_mod = importlib.import_module("sentence_transformers")
+        SentenceTransformer = st_mod.SentenceTransformer
+    except ImportError:  # pragma: no cover
+        SentenceTransformer = None
+    _DEPS_LOADED = True
+
+
+def _ml_available() -> bool:
+    _load_optional_deps()
+    return np is not None and TfidfVectorizer is not None and LogisticRegression is not None and cosine_similarity is not None
+
+
+def _dl_available() -> bool:
+    _load_optional_deps()
+    return SentenceTransformer is not None
 
 
 @dataclass
@@ -62,27 +94,33 @@ class LearningEngine:
     def __init__(self, data_dir: str = "data/training"):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Storage
         self.training_file = self.data_dir / "training_data.jsonl"
         self.stats_file = self.data_dir / "training_stats.json"
         self.patterns_file = self.data_dir / "learned_patterns.pkl"
         self.embeddings_file = self.data_dir / "embeddings.pkl"
-        
+
         # In-memory
         self.examples = []  # All examples
         self.patterns = {}  # input_hash → learned response
         self.embeddings = None
-        self.vectorizer = TfidfVectorizer(analyzer='char', ngram_range=(2, 3), max_features=200)
-        self.classifier = LogisticRegression(max_iter=1000, random_state=42)
+
+        if _ml_available():
+            self.vectorizer = TfidfVectorizer(analyzer='char', ngram_range=(2, 3), max_features=200)
+            self.classifier = LogisticRegression(max_iter=1000, random_state=42)
+        else:
+            self.vectorizer = None
+            self.classifier = None
+            logger.warning("[Learning] ML dependencies missing; similarity search disabled")
+
+        if not _dl_available():
+            logger.warning("[Learning] sentence-transformers not available, using traditional ML")
+
         self.stats = self._load_stats()
-        
         self._lock = threading.RLock()
-        
-        # Load existing data
-        self._load_patterns()
         self._load_examples()
-        
+
         logger.info(f"[Learning] Engine initialized with {len(self.examples)} examples")
     
     def collect_interaction(
@@ -142,6 +180,8 @@ class LearningEngine:
     
     def get_similar_examples(self, user_input: str, top_k: int = 3) -> List[TrainingExample]:
         """Find similar examples using TF-IDF similarity"""
+        if not _ml_available():
+            return []
         if len(self.examples) < 2:
             return []
         
@@ -211,7 +251,6 @@ class LearningEngine:
         min_quality: float = 0.7,
         max_examples: Optional[int] = None
     ) -> List[TrainingExample]:
-        """Get training examples above quality threshold"""
         filtered = [ex for ex in self.examples if ex.quality_score >= min_quality]
         
         if max_examples:
@@ -233,7 +272,11 @@ class LearningEngine:
         """Get learning statistics"""
         high_quality = len([ex for ex in self.examples if ex.quality_score >= 0.8])
         user_rated = len([ex for ex in self.examples if ex.user_rating is not None])
-        avg_rating = np.mean([ex.user_rating for ex in self.examples if ex.user_rating]) if user_rated > 0 else 0
+        if user_rated > 0:
+            ratings = [ex.user_rating for ex in self.examples if ex.user_rating]
+            avg_rating = (sum(ratings) / len(ratings)) if ratings else 0
+        else:
+            avg_rating = 0
         
         return {
             'total_examples': len(self.examples),
@@ -752,7 +795,7 @@ class PatternPromotionEngine:
             
             # Calculate confidence
             quality_scores = [ex.get('quality_score', 0.7) for ex in examples]
-            avg_quality = np.mean(quality_scores) if quality_scores else 0.7
+            avg_quality = (sum(quality_scores) / len(quality_scores)) if quality_scores else 0.7
             
             pattern = {
                 'intent': intent,
