@@ -32,7 +32,7 @@ from ai.context_engine import get_context_engine
 from ai.memory_system import MemorySystem
 from ai.reasoning_engine import get_reasoning_engine
 from ai.learning_engine import get_learning_engine
-from ai.llm_policy import configure_minimal_policy, get_llm_policy
+from ai.llm_policy import configure_minimal_policy, get_llm_policy, LLMCallType
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -106,40 +106,37 @@ class ScenarioRunner:
         self.results: List[ScenarioResult] = []
         self.training_data: List[Dict[str, Any]] = []
     
-    def _determine_route(self, user_input: str, nlp_result: Dict[str, Any]) -> str:
+    def _determine_route(self, user_input: str, nlp_result) -> str:
         """
         Determine Alice's routing decision for input
         
         Args:
             user_input: User's input text
-            nlp_result: NLP processing result
+            nlp_result: NLP processing result (ProcessedQuery object)
         
         Returns:
             Route name (CONVERSATIONAL/TOOL/RAG/LLM_FALLBACK/CLARIFICATION)
         """
-        # Check conversational engine first
-        conv_response = self.conversational_engine.process(
-            user_input=user_input,
-            context={"nlp_result": nlp_result}
-        )
-        
-        if conv_response and conv_response.get("handled"):
-            return "CONVERSATIONAL"
+        # Get intent
+        intent = nlp_result.intent if hasattr(nlp_result, 'intent') else "unknown"
         
         # Check for clarification need (vague patterns)
-        intent = nlp_result.get("intent", "unknown")
         if "vague" in intent or "unclear" in intent:
             return "CLARIFICATION"
         
         # Check if it's a tool request
-        if intent in ["list_emails", "search_emails", "read_email", "delete_email",
-                      "create_note", "search_notes", "list_notes",
-                      "get_weather", "get_time"]:
+        if intent in ["email:list", "email:search", "email:read", "email:delete",
+                      "notes:create", "notes:search", "notes:list",
+                      "weather", "time"]:
             return "TOOL"
         
         # Check for RAG/memory queries
         if "remember" in user_input.lower() or "recall" in user_input.lower():
             return "RAG"
+        
+        # Check if conversational engine can handle it
+        if self.conversational_engine.can_handle(user_input, intent, None):
+            return "CONVERSATIONAL"
         
         # Default to LLM fallback
         return "LLM_FALLBACK"
@@ -156,30 +153,44 @@ class ScenarioRunner:
             Alice's response text
         """
         if route == "CONVERSATIONAL":
+            # Process with NLP to get intent
             nlp_result = self.nlp.process(user_input)
-            conv_result = self.conversational_engine.process(
+            intent = nlp_result.intent if hasattr(nlp_result, 'intent') else "unknown"
+            entities = nlp_result.entities if hasattr(nlp_result, 'entities') else {}
+            
+            # Try to generate from conversational engine
+            from ai.conversational_engine import ConversationalContext
+            context = ConversationalContext(
                 user_input=user_input,
-                context={"nlp_result": nlp_result}
+                intent=intent,
+                entities=entities,
+                recent_topics=[],
+                active_goal=None,
+                world_state=self.reasoning_engine
             )
-            return conv_result.get("response", "I understand.")
+            response = self.conversational_engine.generate_response(context)
+            return response or "I understand."
         
         elif route == "CLARIFICATION":
             return "Could you clarify what you mean? I want to make sure I help you correctly."
         
         elif route == "TOOL":
-            return "I'll help you with that." # Placeholder - actual tool would be called
+            return "I'll help you with that."
         
         elif route == "RAG":
             return "Let me check my memory for that information."
         
         else:  # LLM_FALLBACK
             # Use gateway which enforces policy
-            response = self.llm_gateway.chat_completion(
-                messages=[{"role": "user", "content": user_input}],
-                call_type="fallback",
-                context={"route": route}
+            response = self.llm_gateway.request(
+                prompt=user_input,
+                call_type=LLMCallType.GENERATION,
+                user_input=user_input
             )
-            return response.get("content", "I'm not sure how to help with that.")
+            if response.success:
+                return response.response
+            else:
+                return "I'm not sure how to help with that."
     
     def run_scenario(self, scenario: Scenario) -> List[ScenarioResult]:
         """
@@ -201,7 +212,7 @@ class ScenarioRunner:
             
             # Process with NLP
             nlp_result = self.nlp.process(step.user_input)
-            actual_intent = nlp_result.get("intent", "unknown")
+            actual_intent = nlp_result.intent if hasattr(nlp_result, 'intent') else "unknown"
             
             # Determine route
             actual_route = self._determine_route(step.user_input, nlp_result)
@@ -238,7 +249,7 @@ class ScenarioRunner:
                 route_match=(actual_route == step.expected_route.value),
                 intent_match=(actual_intent == step.expected_intent),
                 needs_learning=needs_learning,
-                confidence=nlp_result.get("confidence", 0.0)
+                confidence=nlp_result.intent_confidence if hasattr(nlp_result, 'intent_confidence') else 0.0
             )
             
             scenario_results.append(result)
