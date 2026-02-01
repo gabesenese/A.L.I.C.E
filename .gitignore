@@ -226,3 +226,7 @@ app/data/**
 # Script runtime data
 scripts/data/
 docs
+docs/roadmap.md
+
+# Memory Data
+memory
