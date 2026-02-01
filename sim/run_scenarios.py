@@ -58,10 +58,15 @@ INTENT_MAPPING = {
     # Conversational intents
     "greeting": "greeting",
     "farewell": "thanks",
+    "thanks": "thanks",
+    "status_inquiry": "status_inquiry",
     "conversation:question": "vague_question",
+    "conversation:meta_question": "vague_question",
     "conversation:status": "status_inquiry",
     # Clarification triggers
     "clarification:needed": "vague_question",
+    "schedule_action": "schedule_action",
+    "vague_temporal_question": "vague_temporal_question",
 }
 
 
@@ -144,28 +149,51 @@ class ScenarioRunner:
         Returns:
             Route name (CONVERSATIONAL/TOOL/RAG/LLM_FALLBACK/CLARIFICATION)
         """
-        # Get intent
         intent = nlp_result.intent if hasattr(nlp_result, 'intent') else "unknown"
-        
-        # Check for clarification need (vague patterns)
-        if "vague" in intent or "unclear" in intent:
+        confidence = nlp_result.intent_confidence if hasattr(nlp_result, 'intent_confidence') else 0.0
+        text_lower = user_input.lower()
+
+        # Clarification patterns (vague or meta questions)
+        vague_phrases = [
+            "tell me about",
+            "can you do that",
+            "what about",
+            "i have a question about",
+            "can i ask you about",
+            "let me ask you about"
+        ]
+        if any(phrase in text_lower for phrase in vague_phrases) or "vague" in intent or "unclear" in intent or intent == "conversation:meta_question" or intent in ["schedule_action", "vague_temporal_question", "vague_question", "vague_request"]:
             return "CLARIFICATION"
-        
-        # Check if it's a tool request
-        if intent in ["email:list", "email:search", "email:read", "email:delete",
-                      "notes:create", "notes:search", "notes:list",
-                      "weather", "time"]:
+
+        # Confidence-based clarification gate
+        strong_domain_keywords = any(word in text_lower for word in [
+            "email", "mail", "inbox", "note", "notes", "weather", "forecast", "temperature",
+            "time", "clock", "system", "status", "cpu", "memory", "disk", "battery",
+            "calendar", "event", "schedule"
+        ])
+        if confidence < 0.7 and not strong_domain_keywords:
+            return "CLARIFICATION"
+
+        # Tool requests
+        if intent in [
+            "email:list", "email:search", "email:read", "email:delete", "email:compose",
+            "notes:create", "notes:search", "notes:list",
+            "weather:current", "time:current"
+        ]:
             return "TOOL"
-        
+
+        # System status
+        if intent == "system:status":
+            return "CONVERSATIONAL"
+
         # Check for RAG/memory queries
-        if "remember" in user_input.lower() or "recall" in user_input.lower():
+        if "remember" in text_lower or "recall" in text_lower:
             return "RAG"
-        
-        # Check if conversational engine can handle it
+
+        # Conversational engine
         if self.conversational_engine.can_handle(user_input, intent, None):
             return "CONVERSATIONAL"
-        
-        # Default to LLM fallback
+
         return "LLM_FALLBACK"
     
     def _get_alice_response(self, user_input: str, route: str) -> str:

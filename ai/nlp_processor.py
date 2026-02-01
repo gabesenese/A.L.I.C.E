@@ -647,7 +647,7 @@ class CoreferenceResolver:
                         count=1,
                         flags=re.IGNORECASE
                     )
-                    logger.info(f"🔗 Resolved '{pronoun}' -> '{replacement}'")
+                    logger.info(f"[COREF] Resolved '{pronoun}' -> '{replacement}'")
         
         return resolved_text
     
@@ -688,7 +688,7 @@ class EmotionDetector:
         'angry': ['angry', 'mad', 'pissed', 'furious', 'annoyed', 'irritated'],
         'excited': ['excited', 'awesome', 'amazing', 'great', 'fantastic', 'wonderful'],
         'worried': ['worried', 'concerned', 'anxious', 'nervous', 'stressed'],
-        'confused': ['confused', 'lost', 'unclear', 'dont understand', 'help'],
+        'confused': ['confused', 'lost', 'unclear', 'dont understand'],
         'satisfied': ['thanks', 'thank you', 'perfect', 'exactly', 'good'],
         'frustrated': ['not working', 'broken', 'frustrated', 'cant', 'wont', 'doesnt work'],
     }
@@ -890,25 +890,71 @@ class NLPProcessor:
         # Fallback to simple keyword matching
         text_lower = text.lower()
 
+        # Clarification/meta-question cues
+        if any(phrase in text_lower for phrase in [
+            'can i ask you something about',
+            'i have a question about',
+            'let me ask you about',
+            'can i ask you about'
+        ]):
+            return 'conversation:meta_question', 0.8
+
+        # Thanks
+        if any(phrase in text_lower for phrase in ['thanks', 'thank you', 'thx']):
+            return 'thanks', 0.9
+
+        # Status inquiry
+        if any(phrase in text_lower for phrase in ['how are you', 'how are you doing', 'how is it going']):
+            return 'status_inquiry', 0.85
+
+        # Vague temporal question
+        if any(word in text_lower for word in ['yesterday', 'tomorrow', 'last week', 'last month', 'next week', 'next month']) and ("what about" in text_lower or "?" in text):
+            return 'vague_temporal_question', 0.6
+
+        # Schedule action without specifics
+        if 'schedule' in text_lower and any(word in text_lower for word in ['yesterday', 'today', 'tomorrow', 'next week', 'next month']):
+            return 'schedule_action', 0.7
+
         # Greetings (high confidence)
         greeting_words = ['hi', 'hey', 'hello', 'yo', 'sup', 'hiya']
         if any(word in text_lower for word in greeting_words) and len(text_lower.split()) <= 4:
             return 'greeting', 0.9
-        
-        # Simple intent mapping
-        if any(word in text_lower for word in ['create', 'add', 'new']) and 'note' in text_lower:
+
+        # Email intents
+        if any(word in text_lower for word in ['compose', 'draft', 'send', 'write']) and any(word in text_lower for word in ['email', 'mail', 'message']):
+            return 'email:compose', 0.8
+        if any(word in text_lower for word in ['delete', 'remove', 'trash']) and 'email' in text_lower:
+            return 'email:delete', 0.8
+        if any(word in text_lower for word in ['read', 'open', 'show']) and any(word in text_lower for word in ['email', 'mail', 'message']):
+            return 'email:read', 0.7
+        if any(word in text_lower for word in ['search', 'find', 'from', 'subject']) and any(word in text_lower for word in ['email', 'mail', 'inbox']):
+            return 'email:search', 0.7
+
+        # Notes intents
+        if any(word in text_lower for word in ['create', 'add', 'new', 'remember', 'save']) and 'note' in text_lower:
             return 'notes:create', 0.7
-        elif any(word in text_lower for word in ['search', 'find', 'show', 'list']) and 'note' in text_lower:
+        if any(word in text_lower for word in ['search', 'find']) and 'note' in text_lower:
             return 'notes:search', 0.7
-        elif 'play' in text_lower and any(word in text_lower for word in ['music', 'song']):
+        if any(word in text_lower for word in ['show', 'list']) and 'note' in text_lower:
+            return 'notes:list', 0.7
+
+        # Time/weather/system intents
+        if any(phrase in text_lower for phrase in ['what time', 'current time', 'time is it', 'time now']) or text_lower.strip() == 'time':
+            return 'time:current', 0.75
+        if any(word in text_lower for word in ['weather', 'forecast', 'temperature', 'outside']):
+            return 'weather:current', 0.75
+        if any(word in text_lower for word in ['system status', 'system health', 'cpu', 'memory usage', 'disk usage', 'battery']) or 'system' in text_lower:
+            return 'system:status', 0.75
+
+        if 'play' in text_lower and any(word in text_lower for word in ['music', 'song']):
             return 'music:play', 0.7
-        elif any(word in text_lower for word in ['email', 'mail', 'gmail']):
+        if any(word in text_lower for word in ['email', 'mail', 'gmail', 'inbox']):
             return 'email:list', 0.6
-        elif any(word in text_lower for word in ['calendar', 'event', 'schedule']):
+        if any(word in text_lower for word in ['calendar', 'event', 'schedule']):
             return 'calendar:create', 0.6
-        elif '?' in text:
+        if '?' in text:
             return 'conversation:question', 0.5
-        
+
         return 'conversation:general', 0.3
     
     def _extract_all_entities(self, text: str) -> Dict[str, List[Entity]]:
@@ -1022,7 +1068,7 @@ class NLPProcessor:
     def reset_context(self):
         """Reset conversation context"""
         self.context = ConversationContext()
-        logger.info("🔄 Conversation context reset")
+        logger.info("[OK] Conversation context reset")
 
 
 # ============================================================================

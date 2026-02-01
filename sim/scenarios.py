@@ -69,7 +69,7 @@ EMAIL_SCENARIOS = [
                 domain="email"
             ),
             ScenarioStep(
-                user_input="show the first one",
+                user_input="read the first email",
                 expected_intent="read_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
