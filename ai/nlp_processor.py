@@ -17,6 +17,7 @@ Features:
 
 import re
 import logging
+import importlib
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -24,14 +25,39 @@ from collections import defaultdict, deque
 import threading
 
 # Core NLP libraries
-from nltk import word_tokenize
-from nltk.sentiment import SentimentIntensityAnalyzer
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+try:
+    nltk_mod = importlib.import_module("nltk")
+    sentiment_mod = importlib.import_module("nltk.sentiment")
+    word_tokenize = nltk_mod.word_tokenize
+    SentimentIntensityAnalyzer = sentiment_mod.SentimentIntensityAnalyzer
+except ImportError:  # pragma: no cover
+    def word_tokenize(text: str):
+        return text.split()
+    SentimentIntensityAnalyzer = None
+    logging.warning("[WARN] NLTK not available. Using basic tokenization and neutral sentiment.")
+
+try:
+    sklearn_text = importlib.import_module("sklearn.feature_extraction.text")
+    sklearn_pairwise = importlib.import_module("sklearn.metrics.pairwise")
+    TfidfVectorizer = sklearn_text.TfidfVectorizer
+    cosine_similarity = sklearn_pairwise.cosine_similarity
+except ImportError:  # pragma: no cover
+    TfidfVectorizer = None
+    cosine_similarity = None
 
 # Advanced temporal parsing
-import dateparser
-from parsedatetime import Calendar
+try:
+    dateparser = importlib.import_module("dateparser")
+except ImportError:  # pragma: no cover
+    dateparser = None
+    logging.warning("[WARN] dateparser not available. Temporal parsing will be limited.")
+
+try:
+    parsedatetime_mod = importlib.import_module("parsedatetime")
+    Calendar = parsedatetime_mod.Calendar
+except ImportError:  # pragma: no cover
+    Calendar = None
+    logging.warning("[WARN] parsedatetime not available. Temporal parsing will be limited.")
 
 # Semantic intent classification
 try:
@@ -485,7 +511,7 @@ class TemporalParser:
     """
     
     def __init__(self):
-        self.cal = Calendar()
+        self.cal = Calendar() if Calendar is not None else None
         
         # Time of day mappings
         self.time_of_day = {
@@ -504,14 +530,16 @@ class TemporalParser:
         raw_text = ""
         
         # Try dateparser first (most comprehensive)
-        parsed_date = dateparser.parse(
-            text,
-            settings={
-                'PREFER_DATES_FROM': 'future',
-                'RETURN_AS_TIMEZONE_AWARE': False,
-                'RELATIVE_BASE': datetime.now()
-            }
-        )
+        parsed_date = None
+        if dateparser is not None:
+            parsed_date = dateparser.parse(
+                text,
+                settings={
+                    'PREFER_DATES_FROM': 'future',
+                    'RETURN_AS_TIMEZONE_AWARE': False,
+                    'RELATIVE_BASE': datetime.now()
+                }
+            )
         
         if parsed_date:
             result['date'] = parsed_date.strftime('%Y-%m-%d')
@@ -520,13 +548,14 @@ class TemporalParser:
             raw_text = text
         else:
             # Try parsedatetime for relative expressions
-            time_struct, parse_status = self.cal.parse(text)
-            if parse_status > 0:
-                parsed_dt = datetime(*time_struct[:6])
-                result['date'] = parsed_dt.strftime('%Y-%m-%d')
-                result['time'] = parsed_dt.strftime('%H:%M')
-                confidence = 0.8
-                raw_text = text
+            if self.cal is not None:
+                time_struct, parse_status = self.cal.parse(text)
+                if parse_status > 0:
+                    parsed_dt = datetime(*time_struct[:6])
+                    result['date'] = parsed_dt.strftime('%Y-%m-%d')
+                    result['time'] = parsed_dt.strftime('%H:%M')
+                    confidence = 0.8
+                    raw_text = text
         
         # Check for time of day keywords
         text_lower = text.lower()
@@ -763,8 +792,8 @@ class NLPProcessor:
         self._initialized = True
         
         # Core components
-        self.sentiment_analyzer = SentimentIntensityAnalyzer()
-        self.vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
+        self.sentiment_analyzer = SentimentIntensityAnalyzer() if SentimentIntensityAnalyzer else None
+        self.vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2)) if TfidfVectorizer else None
         
         # Advanced components
         self.temporal_parser = TemporalParser()
@@ -828,9 +857,12 @@ class NLPProcessor:
         slots = self.slot_filler.extract_slots(clean_text, intent, entities)
         
         # Step 5: Sentiment analysis
-        sentiment = self.sentiment_analyzer.polarity_scores(clean_text)
-        compound = sentiment.get('compound', 0)
-        sentiment['category'] = 'positive' if compound >= 0.05 else ('negative' if compound <= -0.05 else 'neutral')
+        if self.sentiment_analyzer is not None:
+            sentiment = self.sentiment_analyzer.polarity_scores(clean_text)
+            compound = sentiment.get('compound', 0)
+            sentiment['category'] = 'positive' if compound >= 0.05 else ('negative' if compound <= -0.05 else 'neutral')
+        else:
+            sentiment = {'compound': 0.0, 'pos': 0.0, 'neu': 1.0, 'neg': 0.0, 'category': 'neutral'}
         
         # Step 6: Emotion detection
         emotions = self.emotion_detector.detect_emotions(clean_text, sentiment)

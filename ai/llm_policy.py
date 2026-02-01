@@ -163,11 +163,11 @@ class LLMPolicy:
     def _get_approval_message(self, call_type: LLMCallType, user_input: str) -> str:
         """Generate user approval message"""
         messages = {
-            LLMCallType.CHITCHAT: "I don't have a learned response for that. Should I use AI to generate one?",
-            LLMCallType.TOOL_FORMATTING: "I have the data but need AI to format it nicely. Proceed?",
-            LLMCallType.GENERATION: "I don't know this yet. Want me to look it up with AI?",
-            LLMCallType.CLARIFICATION: "I need AI help to understand that. Proceed?",
-            LLMCallType.FALLBACK: "I need AI assistance. Should I call it?"
+            LLMCallType.CHITCHAT: "I don't have a learned response for that. Would you like me to use AI to answer it? (This helps me learn!)",
+            LLMCallType.TOOL_FORMATTING: "I have the information but need to format it nicely. Proceed with AI help?",
+            LLMCallType.GENERATION: "That's something new for me. Want me to look it up with AI?",
+            LLMCallType.CLARIFICATION: "I need a bit of AI help to understand that. Should I proceed?",
+            LLMCallType.FALLBACK: "I need AI assistance for this one. Proceed?"
         }
         return messages.get(call_type, "Should I use AI for this?")
     

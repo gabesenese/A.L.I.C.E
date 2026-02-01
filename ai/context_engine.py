@@ -43,7 +43,13 @@ class UserPreferences:
     def _detect_location(self):
         """Auto-detect user location using IP geolocation"""
         try:
-            import requests
+            try:
+                import importlib
+                requests = importlib.import_module("requests")
+            except ImportError:  # pragma: no cover
+                logger.warning("requests not available; skipping IP-based location detection")
+                self._set_unknown_location()
+                return
             logger.info("Attempting to detect location...")
             response = requests.get('http://ip-api.com/json/', timeout=5)
             if response.status_code == 200:
