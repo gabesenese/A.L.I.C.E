@@ -111,6 +111,14 @@ class ALICE:
         self.referenced_items = {}  # Track items user has referenced (emails, files, etc.)
         self.conversation_topics = []  # Track topics discussed in this session
         
+        # Code introspection context tracking (smart follow-up handling)
+        self.code_context = {
+            'last_files_shown': [],  # List of file paths recently shown
+            'last_action': None,     # 'list', 'analyze', 'read', 'summary'
+            'timestamp': None,       # When context was created
+            'file_count': 0          # Number of files in last result
+        }
+        
         # Active learning tracking
         self.last_user_input = ""
         self.last_assistant_response = ""
@@ -161,6 +169,8 @@ class ALICE:
             logger.info("Loading unified context engine...")
             self.context = get_context_engine()
             self.context.user_prefs.name = user_name
+            # Backward compatibility: older code paths reference advanced_context
+            self.advanced_context = self.context
             
             # 2. Reasoning Engine (combines world_state + reference_resolver + goal_resolver + verifier)
             logger.info("Loading reasoning engine...")
@@ -642,9 +652,32 @@ class ALICE:
         return overlap >= 0.15
     
     def _handle_code_request(self, user_input: str, entities: Dict = None) -> Optional[str]:
-        """Handle requests to read/analyze code - flexible and intelligent"""
+        """Handle requests to read/analyze code - flexible and intelligent with smart follow-up"""
         input_lower = user_input.lower()
         entities = entities or {}
+        
+        # Smart follow-up detection: user asking for summaries after listing files
+        if self.code_context.get('last_action') == 'list' and self.code_context.get('last_files_shown'):
+            # Check for summary requests
+            if any(phrase in input_lower for phrase in [
+                'summarize', 'summary', 'describe', 'what does', 'what do they do',
+                'each file', 'all files', 'tell me about', 'explain'
+            ]):
+                files = self.code_context['last_files_shown']
+                logger.info(f"[SmartFollow] Detected summary request for {len(files)} files")
+                
+                # Generate summaries using advanced batch processing
+                summaries = self.self_reflection.batch_summarize_files(files, parallel=True)
+                
+                result = f" **File Summaries** ({len(summaries)} files):\n\n"
+                for path, summary in summaries.items():
+                    result += f"{summary}\n\n"
+                
+                # Update context
+                self.code_context['last_action'] = 'summary'
+                self.code_context['timestamp'] = datetime.now()
+                
+                return result
         
         # Check if this is a follow-up to previous code request
         if hasattr(self, 'last_code_file') and self.last_code_file:
@@ -653,16 +686,21 @@ class ALICE:
                 file_path = self.last_code_file
                 
                 if 'analyze' in input_lower or input_lower in ('analyze it',):
-                    analysis = self.self_reflection.analyze_file(file_path)
+                    analysis = self.self_reflection.analyze_file_advanced(file_path)
                     if 'error' not in analysis:
                         suggestions = self.self_reflection.get_improvement_suggestions(file_path)
                         result = f" **Analysis of {analysis['name']}**:\n"
                         result += f"- Lines: {analysis['lines']}\n"
                         result += f"- Type: {analysis['module_type']}\n"
+                        if analysis.get('purpose'):
+                            result += f"- Purpose: {analysis['purpose']}\n"
                         if analysis.get('classes'):
-                            result += f"- Classes: {', '.join(analysis['classes'][:5])}\n"
+                            class_names = [c['name'] if isinstance(c, dict) else c for c in analysis['classes'][:5]]
+                            result += f"- Classes: {', '.join(class_names)}\n"
                         if analysis.get('functions'):
                             result += f"- Functions: {', '.join(analysis['functions'][:10])}\n"
+                        if analysis.get('dependencies'):
+                            result += f"- Dependencies: {', '.join(analysis['dependencies'][:5])}\n"
                         if suggestions:
                             result += f"\n **Suggestions**:\n" + "\n".join(f"- {s}" for s in suggestions[:5])
                         self.last_code_file = None  # Clear after use
@@ -682,10 +720,19 @@ class ALICE:
         if not has_py_file and any(phrase in input_lower for phrase in [
             'show me your code', 'show me code', 'show your code', 'show code',
             'show me all', 'see your code', 'see code', 'read your code', 'read code',
-            'your internal code', 'internal code', 'your codebase', 'show me internal'
+            'your internal code', 'internal code', 'your codebase', 'show me internal',
+            'get all the information from your internal code'
         ]):
             # A.L.I.C.E understands: show means LIST the codebase
             files = self.self_reflection.list_codebase()
+            
+            # Store context for smart follow-up
+            file_paths = [f['path'] for f in files]
+            self.code_context['last_files_shown'] = file_paths
+            self.code_context['last_action'] = 'list'
+            self.code_context['timestamp'] = datetime.now()
+            self.code_context['file_count'] = len(files)
+            
             result = f" **My codebase** ({len(files)} files):\n\n"
             for f in files[:25]:
                 result += f"- `{f['path']}` ({f['module_type']})\n"
@@ -751,10 +798,10 @@ class ALICE:
         if 'analyze' in input_lower and has_py_file:
             file_path = py_file_match.group(1).strip("'\"")
             # Try direct path first
-            analysis = self.self_reflection.analyze_file(file_path)
+            analysis = self.self_reflection.analyze_file_advanced(file_path)
             if 'error' in analysis and not file_path.startswith('ai/') and not file_path.startswith('ai\\'):
                 # Try with ai/ prefix
-                analysis = self.self_reflection.analyze_file(f'ai/{file_path}')
+                analysis = self.self_reflection.analyze_file_advanced(f'ai/{file_path}')
                 if 'error' not in analysis:
                     file_path = f'ai/{file_path}'
             
@@ -763,10 +810,15 @@ class ALICE:
                 result = f" **Analysis of {analysis['name']}**:\n"
                 result += f"- Lines: {analysis['lines']}\n"
                 result += f"- Type: {analysis['module_type']}\n"
+                if analysis.get('purpose'):
+                    result += f"- Purpose: {analysis['purpose']}\n"
                 if analysis.get('classes'):
-                    result += f"- Classes: {', '.join(analysis['classes'][:5])}\n"
+                    class_names = [c['name'] if isinstance(c, dict) else c for c in analysis['classes'][:5]]
+                    result += f"- Classes: {', '.join(class_names)}\n"
                 if analysis.get('functions'):
                     result += f"- Functions: {', '.join(analysis['functions'][:10])}\n"
+                if analysis.get('dependencies'):
+                    result += f"- Dependencies: {', '.join(analysis['dependencies'][:5])}\n"
                 if suggestions:
                     result += f"\n **Suggestions**:\n" + "\n".join(f"- {s}" for s in suggestions[:5])
                 return result
@@ -780,6 +832,14 @@ class ALICE:
         # List codebase
         if any(word in input_lower for word in ['list files', 'show files', 'what files', 'codebase']):
             files = self.self_reflection.list_codebase()
+            
+            # Store context
+            file_paths = [f['path'] for f in files]
+            self.code_context['last_files_shown'] = file_paths
+            self.code_context['last_action'] = 'list'
+            self.code_context['timestamp'] = datetime.now()
+            self.code_context['file_count'] = len(files)
+            
             result = f" **Codebase Structure** ({len(files)} files):\n\n"
             for f in files[:20]:
                 result += f"- `{f['path']}` ({f['module_type']})\n"
@@ -990,15 +1050,28 @@ class ALICE:
                 # If this is a greeting, respond directly via LLM and skip plugins
                 if intent == "greeting" and getattr(self, "llm", None):
                     user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
+                    asked_how = bool(re.search(r"\bhow\s+(are\s+you|are\s+things|have\s+you\s+been|do\s+you\s+do|is\s+it\s+going|is\s+your\s+day)\b|\bhow's\s+(it\s+going|your\s+day)\b", user_input, re.IGNORECASE))
                     prompt = (
                         f"The user said: {user_input!r}. "
                         "Respond directly and briefly (under 18 words). "
-                        "If they asked how you are, answer that first. "
                         "Do not mention being an AI or your name. "
                         "Do not wrap the response in quotes. "
+                        "Only comment on your wellbeing if the user explicitly asked. "
                         f"If a name is available, you may include it: {user_name!r}."
                     )
                     response = self.llm.chat(prompt, use_history=False)
+                    if response and not asked_how:
+                        response = re.sub(
+                            r"\b(I\s*'m|I\s+am)\s+(doing\s+)?(well|good|great|fine)\b[.!]*\s*",
+                            "",
+                            response,
+                            flags=re.IGNORECASE
+                        ).strip()
+                        if not response:
+                            response = self.llm.chat(
+                                "Give a short greeting only. Do not comment on your wellbeing.",
+                                use_history=False
+                            )
                     if response:
                         self._think("LLM → short greeting response")
                         self._store_interaction(user_input, response, intent, entities)
@@ -1046,7 +1119,6 @@ class ALICE:
                         assistant_response=code_response,
                         intent='code:request',
                         entities=entities or {},
-                        success=True,
                         quality_score=0.9
                     )
                 return code_response
@@ -1094,7 +1166,7 @@ class ALICE:
             context_resolved_input = user_input
             if hasattr(self, 'context') and self.context:
                 # Process the turn and get any resolved references
-                turn = self.advanced_context.process_turn(
+                turn = self.context.process_turn(
                     user_input=user_input,
                     assistant_response="",  # Will be filled later
                     intent=intent,
@@ -1104,7 +1176,7 @@ class ALICE:
                 # Apply any coreference resolutions to improve understanding
                 if turn.entities_resolved:
                     for reference, entity_id in turn.entities_resolved.items():
-                        entity = self.advanced_context.entities.get(entity_id)
+                        entity = self.context.entities.get(entity_id)
                         if entity:
                             # Create more explicit version of input for better processing
                             entity_desc = f"{entity.entity_type} '{entity.data.get('subject', entity.data.get('name', entity_id))}'"
@@ -1820,7 +1892,7 @@ class ALICE:
 
 The user asked: "{user_input}"
 
-Answer their SPECIFIC question directly using this data. Be concise (1-2 sentences)."""
+Use the data to answer the user's request. If a message_code or error is present, respond appropriately and ask for only the missing info. Be concise (1-2 sentences)."""
                     response = self.llm.chat(ollama_prompt, use_history=False)
                     self._think("Ollama generated targeted response to user's specific question")
                 
@@ -1916,7 +1988,6 @@ Answer their SPECIFIC question directly using this data. Be concise (1-2 sentenc
                             assistant_response=response,
                             intent=intent,
                             entities=entities or {},
-                            success=success,
                             quality_score=quality_score
                         )
                         self._think(f"Training data collected (plugin, quality: {quality_score:.2f})")
@@ -2024,7 +2095,6 @@ Answer their SPECIFIC question directly using this data. Be concise (1-2 sentenc
                         assistant_response=response,
                         intent=intent,
                         entities=entities or {},
-                        success=True,
                         quality_score=quality_score
                     )
                     self._think(f"Training data collected (quality: {quality_score:.2f})")
@@ -2269,10 +2339,10 @@ Answer their SPECIFIC question directly using this data. Be concise (1-2 sentenc
             with open(state_file, 'wb') as f:
                 pickle.dump(state, f)
             
-            # Save advanced context state if available
-            if self.advanced_context:
-                advanced_state_file = "data/advanced_context_state.pkl"
-                self.advanced_context.save_state(advanced_state_file)
+            # Save context state if available
+            if self.context:
+                context_state_file = "data/context_state.pkl"
+                self.context.save_state(context_state_file)
             
             logger.info("[OK] Conversation state saved")
         except Exception as e:
@@ -2287,9 +2357,9 @@ Answer their SPECIFIC question directly using this data. Be concise (1-2 sentenc
     ):
         """Store interaction in memory and context"""
         try:
-            # Process with advanced context handler
-            if self.advanced_context:
-                turn = self.advanced_context.process_turn(
+            # Process with unified context engine
+            if self.context:
+                turn = self.context.process_turn(
                     user_input=user_input,
                     assistant_response=response,
                     intent=intent,
