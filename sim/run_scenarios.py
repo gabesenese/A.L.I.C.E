@@ -38,6 +38,33 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# Intent mapping from NLP output to scenario expectations
+INTENT_MAPPING = {
+    # Email intents
+    "email:list": "list_emails",
+    "email:read": "read_email",
+    "email:search": "search_emails",
+    "email:compose": "compose_email",
+    "email:delete": "delete_email",
+    # Notes intents
+    "notes:create": "create_note",
+    "notes:search": "search_notes",
+    "notes:list": "list_notes",
+    # Weather/Time intents
+    "weather:current": "get_weather",
+    "time:current": "get_time",
+    # System intents
+    "system:status": "system_status",
+    # Conversational intents
+    "greeting": "greeting",
+    "farewell": "thanks",
+    "conversation:question": "vague_question",
+    "conversation:status": "status_inquiry",
+    # Clarification triggers
+    "clarification:needed": "vague_question",
+}
+
+
 class ScenarioRunner:
     """
     Runs conversation scenarios against Alice and generates training data
@@ -214,6 +241,9 @@ class ScenarioRunner:
             nlp_result = self.nlp.process(step.user_input)
             actual_intent = nlp_result.intent if hasattr(nlp_result, 'intent') else "unknown"
             
+            # Map intent from NLP output to scenario expectation format
+            mapped_intent = INTENT_MAPPING.get(actual_intent, actual_intent)
+            
             # Determine route
             actual_route = self._determine_route(step.user_input, nlp_result)
             
@@ -247,7 +277,7 @@ class ScenarioRunner:
                 actual_response=alice_response,
                 teacher_response=teacher_response,
                 route_match=(actual_route == step.expected_route.value),
-                intent_match=(actual_intent == step.expected_intent),
+                intent_match=(mapped_intent == step.expected_intent),
                 needs_learning=needs_learning,
                 confidence=nlp_result.intent_confidence if hasattr(nlp_result, 'intent_confidence') else 0.0
             )
@@ -258,7 +288,7 @@ class ScenarioRunner:
             route_status = "✓" if result.route_match else "✗"
             intent_status = "✓" if result.intent_match else "✗"
             logger.info(f"    Route: {route_status} {actual_route} (expected: {step.expected_route.value})")
-            logger.info(f"    Intent: {intent_status} {actual_intent} (expected: {step.expected_intent})")
+            logger.info(f"    Intent: {intent_status} {mapped_intent} (expected: {step.expected_intent})")
             logger.info(f"    Alice: {alice_response[:80]}...")
             
             if teacher_response:

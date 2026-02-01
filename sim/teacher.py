@@ -63,7 +63,7 @@ class TeacherMode:
         """
         try:
             # Build prompt with context if provided
-            prompt = f"User input: {user_input}"
+            prompt = f"{TEACHER_SYSTEM_PROMPT}\n\nUser input: {user_input}"
             
             if context:
                 if "domain" in context:
@@ -71,17 +71,11 @@ class TeacherMode:
                 if "previous_exchange" in context:
                     prompt = f"Context: {context['previous_exchange']}\n{prompt}"
             
-            # Get teacher response
-            response = self.llm.chat(
-                messages=[
-                    {"role": "system", "content": TEACHER_SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3  # Lower temperature for more consistent teaching
-            )
+            # Get teacher response using correct API
+            response = self.llm.chat(user_input=prompt, use_history=False)
             
-            if response and "content" in response:
-                return response["content"].strip()
+            if response:
+                return response.strip()
             
             return None
             
