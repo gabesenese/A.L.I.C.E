@@ -192,6 +192,15 @@ class LLMPolicy:
         if len(self.call_history) > 100:
             self.call_history = self.call_history[-100:]
     
+    def record_call(
+        self,
+        call_type: LLMCallType,
+        user_input: str,
+        llm_response: str
+    ):
+        """Alias for record_llm_call (simplified interface for gateway)"""
+        self.record_llm_call(call_type, user_input, llm_response, approved_by_user=False)
+    
     def get_recent_calls(self, minutes: int = 60) -> list[LLMCallRecord]:
         """Get LLM calls from last N minutes"""
         cutoff = datetime.now() - timedelta(minutes=minutes)

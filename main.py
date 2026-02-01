@@ -73,6 +73,8 @@ from ai.response_optimizer import get_response_optimizer
 from ai.self_reflection import get_self_reflection
 from ai.learning_engine import get_learning_engine
 from ai.conversational_engine import get_conversational_engine, ConversationalContext
+from ai.llm_gateway import get_llm_gateway, LLMGateway
+from ai.llm_policy import LLMCallType
 
 # Logging
 logging.basicConfig(
@@ -199,9 +201,17 @@ class ALICE:
             logger.info("[OK] Conversational engine initialized - A.L.I.C.E thinks independently")
             
             # 4. LLM Engine
-            logger.info(" Loading LLM engine...")
+            logger.info("🤖 Loading LLM engine...")
             llm_config = LLMConfig(model=llm_model)
             self.llm = LocalLLMEngine(llm_config)
+            
+            # 4.1. LLM Gateway - Single entry point for all LLM calls
+            logger.info("🚪 Initializing LLM Gateway with policy enforcement...")
+            self.llm_gateway = get_llm_gateway(
+                llm_engine=self.llm,
+                learning_engine=self.learning_engine
+            )
+            logger.info("[OK] LLM Gateway active - all calls now policy-gated")
             
             # 4.5. Conversation Summarizer
             logger.info("Loading conversation summarizer...")
@@ -1047,8 +1057,27 @@ class ALICE:
                     else:
                         self._think("Conversational engine → no learned pattern, will use LLM")
 
-                # If this is a greeting, respond directly via LLM and skip plugins
-                if intent == "greeting" and getattr(self, "llm", None):
+                # If this is a greeting, respond directly via gateway
+                if intent == "greeting" and getattr(self, "llm_gateway", None):
+                    # Check conversational engine first
+                    if hasattr(self, 'conversational_engine') and self.conversational_engine:
+                        conv_context = ConversationalContext(
+                            user_input=user_input,
+                            intent=intent,
+                            entities=entities,
+                            conversation_history=self.conversation_summary[-3:] if self.conversation_summary else []
+                        )
+                        if self.conversational_engine.can_handle(user_input, intent, conv_context):
+                            response = self.conversational_engine.generate_response(conv_context)
+                            self._think("Greeting → using conversational engine (no LLM)")
+                            self._cache_put(user_input, intent, response)
+                            self._store_interaction(user_input, response, intent, entities)
+                            if use_voice and self.speech:
+                                self.speech.speak(response, blocking=False)
+                            logger.info(f"A.L.I.C.E: {response[:100]}...")
+                            return response
+                    
+                    # Fallback to LLM gateway
                     user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
                     asked_how = bool(re.search(r"\bhow\s+(are\s+you|are\s+things|have\s+you\s+been|do\s+you\s+do|is\s+it\s+going|is\s+your\s+day)\b|\bhow's\s+(it\s+going|your\s+day)\b", user_input, re.IGNORECASE))
                     prompt = (
@@ -1059,7 +1088,18 @@ class ALICE:
                         "Only comment on your wellbeing if the user explicitly asked. "
                         f"If a name is available, you may include it: {user_name!r}."
                     )
-                    response = self.llm.chat(prompt, use_history=False)
+                    llm_response = self.llm_gateway.request(
+                        prompt=prompt,
+                        call_type=LLMCallType.CHITCHAT,
+                        use_history=False,
+                        user_input=user_input
+                    )
+                    if llm_response.success and llm_response.response:
+                        response = llm_response.response
+                    else:
+                        # Policy denied - use fallback
+                        response = llm_response.response or "Hi there!"
+                    
                     if response and not asked_how:
                         response = re.sub(
                             r"\b(I\s*'m|I\s+am)\s+(doing\s+)?(well|good|great|fine)\b[.!]*\s*",
@@ -1882,19 +1922,24 @@ class ALICE:
                     else:
                         self._think(f"No learned pattern → using Ollama to answer specific question")
                 
-                # If A.L.I.C.E has no learned pattern, use Ollama to answer the SPECIFIC question
+                # If A.L.I.C.E has no learned pattern, use gateway to answer the SPECIFIC question
                 # This ensures follow-up questions like "is it gonna snow?" get tailored answers
                 if not response:
-                    # Use Ollama to generate a targeted response to the user's specific question
-                    plugin_data_str = str(plugin_result.get('data', {}))
-                    # Ask Ollama to answer the user's specific question using the plugin data
-                    ollama_prompt = f"""You have this {plugin_name} data: {plugin_data_str}
-
-The user asked: "{user_input}"
-
-Use the data to answer the user's request. If a message_code or error is present, respond appropriately and ask for only the missing info. Be concise (1-2 sentences)."""
-                    response = self.llm.chat(ollama_prompt, use_history=False)
-                    self._think("Ollama generated targeted response to user's specific question")
+                    # Use gateway to format plugin result or generate targeted response
+                    if hasattr(self, 'llm_gateway') and self.llm_gateway:
+                        # Try formatter first via gateway
+                        response = self.llm_gateway.format_tool_result(
+                            tool_name=plugin_name,
+                            data=plugin_result.get('data', {}),
+                            user_input=user_input,
+                            context={'intent': intent, 'entities': entities}
+                        )
+                        self._think("Gateway formatted response (formatter or LLM)")
+                    else:
+                        # Fallback if gateway not available
+                        plugin_data_str = str(plugin_result.get('data', {}))
+                        response = f"Result: {plugin_data_str[:500]}"
+                        self._think("No gateway - using raw data")
                 
                 # Optimize plugin response
                 if getattr(self, 'response_optimizer', None):
@@ -2007,7 +2052,7 @@ Use the data to answer the user's request. If a message_code or error is present
                 if relationship_response:
                     return relationship_response
             
-            # 3. Use Ollama only for complex knowledge/reasoning (last resort)
+            # 3. Use Gateway for complex knowledge/reasoning (last resort)
             self._think("A.L.I.C.E needs Ollama for complex reasoning/knowledge...")
             # Build enhanced context with smart caching and adaptive selection, including goal
             enhanced_context = self._build_llm_context(user_input_processed, intent, entities, goal_res)
@@ -2026,7 +2071,7 @@ Use the data to answer the user's request. If a message_code or error is present
                     "content": f"Context: {enhanced_context}"
                 })
             
-            # Get LLM response using the context-resolved input
+            # Get LLM response via gateway using the context-resolved input
             # Enhance user input with goal context if available
             llm_input = user_input_processed
             if goal_res and goal_res.goal:
@@ -2034,7 +2079,19 @@ Use the data to answer the user's request. If a message_code or error is present
                 goal_note = f"\n[Context: You're helping the user accomplish: {goal_res.goal.description}. Keep this goal in mind when responding.]"
                 llm_input = user_input_processed + goal_note
             
-            response = self.llm.chat(llm_input, use_history=True)
+            llm_response = self.llm_gateway.request(
+                prompt=llm_input,
+                call_type=LLMCallType.GENERATION,
+                use_history=True,
+                user_input=user_input,
+                context={'intent': intent, 'entities': entities, 'goal': goal_res.goal if goal_res else None}
+            )
+            
+            if llm_response.success and llm_response.response:
+                response = llm_response.response
+            else:
+                # Gateway denied or error - provide fallback
+                response = llm_response.response or "I don't have enough training data to answer that yet. Keep interacting with me so I can learn!"
             
             # Optimize response for clarity and user preference
             if getattr(self, 'response_optimizer', None):
@@ -2791,7 +2848,7 @@ Use the data to answer the user's request. If a message_code or error is present
                 if hasattr(self.conversational_engine, '_pick_non_repeating'):
                     return self.conversational_engine._pick_non_repeating(self.conversational_engine.learned_greetings)
         
-        # Fallback to LLM for natural greeting generation
+        # Fallback to Gateway for natural greeting generation
         prompt = f"""Generate a brief, natural greeting for the user who just started the session.
 Context:
 - User's name: {name}
@@ -2801,10 +2858,18 @@ Context:
 Generate only the greeting (1 sentence), no other text. Be friendly and offer to help."""
         
         try:
-            greeting = self.llm.chat(prompt, use_history=False)
-            # Clean up any extra formatting
-            greeting = greeting.strip().strip('"').strip("'")
-            return greeting
+            llm_response = self.llm_gateway.request(
+                prompt=prompt,
+                call_type=LLMCallType.CHITCHAT,
+                use_history=False,
+                user_input="greeting"
+            )
+            if llm_response.success and llm_response.response:
+                greeting = llm_response.response.strip().strip('"').strip("'")
+                return greeting
+            else:
+                # Policy denied - use simple greeting
+                return f"Hey {name}, how can I help?"
         except Exception as e:
             # Ultimate fallback
             return f"Hey {name}, how can I help?"
@@ -2843,7 +2908,7 @@ Generate only the greeting (1 sentence), no other text. Be friendly and offer to
             except:
                 pass
         
-        # Fallback to LLM for natural farewell generation
+        # Fallback to Gateway for natural farewell generation
         prompt = f"""Generate a brief, natural farewell for the user.
 Context:
 - User's name: {name}
@@ -2853,10 +2918,18 @@ Context:
 Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         
         try:
-            farewell = self.llm.chat(prompt, use_history=False)
-            # Clean up any extra formatting
-            farewell = farewell.strip().strip('"').strip("'")
-            return farewell
+            llm_response = self.llm_gateway.request(
+                prompt=prompt,
+                call_type=LLMCallType.CHITCHAT,
+                use_history=False,
+                user_input="farewell"
+            )
+            if llm_response.success and llm_response.response:
+                farewell = llm_response.response.strip().strip('"').strip("'")
+                return farewell
+            else:
+                # Policy denied - use simple farewell
+                return f"Take care, {name}!"
         except Exception as e:
             # Ultimate fallback
             return f"Take care, {name}!"
