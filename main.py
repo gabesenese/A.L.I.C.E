@@ -1922,8 +1922,7 @@ class ALICE:
                 response = None
                 if getattr(self, 'learning_engine', None) and plugin_result.get('data'):
                     response = self.learning_engine.generate_response_from_learned(
-                        user_input=user_input,
-                        context_hint=f"{plugin_name}:{intent}"
+                        user_input=user_input
                     )
                     if response:
                         self._think(f"A.L.I.C.E generated response from learned patterns")
