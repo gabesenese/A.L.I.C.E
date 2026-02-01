@@ -324,8 +324,12 @@ class WeatherPlugin(PluginInterface):
             if not location:
                 logger.warning("Weather plugin - No location available")
                 return {
-                    "success": True,  # Changed to True so LLM doesn't try to answer
-                    "response": "I don't have your location set yet. You can either tell me the city (e.g., 'weather in Rio de Janeiro') or set your location with /location City, Country"
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "error": "no_location",
+                        "message_code": "weather:no_location"
+                    }
                 }
             
             # Get coordinates for location
@@ -333,7 +337,12 @@ class WeatherPlugin(PluginInterface):
             if not coords:
                 return {
                     "success": False,
-                    "response": f"Sorry, I couldn't find '{location}'. Could you be more specific with the city name?"
+                    "response": None,
+                    "data": {
+                        "error": "unknown_location",
+                        "location": location,
+                        "message_code": "weather:unknown_location"
+                    }
                 }
             
             lat, lon, location_name = coords
@@ -361,27 +370,36 @@ class WeatherPlugin(PluginInterface):
                 
                 return {
                     "success": True,
-                    "response": f"In {location_name}, it's currently {temp}°C with {condition}. Humidity is {humidity}% and wind speed is {wind} km/h.",  # Fallback
+                    "response": None,
                     "data": {
                         "temperature": temp,
                         "condition": condition,
                         "humidity": humidity,
                         "wind_speed": wind,
                         "location": location_name,
-                        "plugin_type": "weather"
+                        "plugin_type": "weather",
+                        "message_code": "weather:current"
                     }
                 }
             else:
                 return {
                     "success": False,
-                    "response": "Sorry, I couldn't fetch the weather data right now. Try again in a moment."
+                    "response": None,
+                    "data": {
+                        "error": "fetch_failed",
+                        "message_code": "weather:fetch_failed"
+                    }
                 }
                 
         except Exception as e:
             logger.error(f"Weather plugin error: {e}")
             return {
                 "success": False,
-                "response": "I'm having trouble getting weather information right now."
+                "response": None,
+                "data": {
+                    "error": str(e),
+                    "message_code": "weather:error"
+                }
             }
     
     def shutdown(self):
@@ -638,61 +656,86 @@ class SystemControlPlugin(PluginInterface):
                         if result.success:
                             return {
                                 "success": True,
-                                "response": f"Opened {app_name} successfully!",
-                                "data": {"action": "app_launch", "app": app_path}
+                                "response": None,
+                                "data": {
+                                    "action": "app_launch",
+                                    "app": app_path,
+                                    "app_name": app_name,
+                                    "message_code": "system:app_opened"
+                                }
                             }
                         else:
                             return {
                                 "success": False,
-                                "response": f"Found {app_name} but failed to launch it. {result.error or 'Launch failed.'}",
-                                "data": {"action": "app_launch_failed", "app": app_path, "error": result.error}
+                                "response": None,
+                                "data": {
+                                    "action": "app_launch_failed",
+                                    "app": app_path,
+                                    "app_name": app_name,
+                                    "error": result.error or "launch_failed",
+                                    "message_code": "system:app_launch_failed"
+                                }
                             }
                     else:
                         return {
                             "success": False,
-                            "response": "Task executor not available for launching applications.",
-                            "data": {"action": "app_launch_failed"}
+                            "response": None,
+                            "data": {
+                                "action": "app_launch_failed",
+                                "error": "executor_unavailable",
+                                "message_code": "system:executor_unavailable"
+                            }
                         }
                 else:
                     # App not found - provide helpful message
                     return {
                         "success": False,
-                        "response": f"'{app_name}' is not installed on this computer or I couldn't find it. Make sure the application is installed and try using its exact name.",
-                        "data": {"action": "app_not_found", "app": app_name}
+                        "response": None,
+                        "data": {
+                            "action": "app_not_found",
+                            "app": app_name,
+                            "message_code": "system:app_not_found"
+                        }
                     }
             else:
                 return {
                     "success": False,
-                    "response": "I need to know which application to open. Try 'open [app name]'",
-                    "data": {"action": "app_launch_help"}
+                    "response": None,
+                    "data": {
+                        "action": "app_launch_help",
+                        "message_code": "system:app_name_missing"
+                    }
                 }
         
         # Handle volume controls
         elif "volume" in query_lower:
             if "up" in query_lower or "increase" in query_lower:
                 action = "volume_up"
-                response = "Volume increased by 10%"
+                message_code = "system:volume_up"
             elif "down" in query_lower or "decrease" in query_lower:
                 action = "volume_down"
-                response = "Volume decreased by 10%"
+                message_code = "system:volume_down"
             else:
                 action = "volume_status"
-                response = "Current volume is at 70%"
+                message_code = "system:volume_status"
         
         # Handle brightness
         elif "brightness" in query_lower:
             action = "brightness_adjust"
-            response = "Brightness adjusted"
+            message_code = "system:brightness_adjust"
         
         # Default fallback
         else:
             action = "unknown"
-            response = "I can control volume, brightness, launch applications, and manage system settings."
+            message_code = "system:help"
         
         return {
             "success": True,
-            "response": response,
-            "data": {"action": action}
+            "response": None,
+            "data": {
+                "action": action,
+                "message_code": message_code
+            }
         }
     
     def shutdown(self):
