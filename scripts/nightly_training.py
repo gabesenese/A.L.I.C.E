@@ -43,7 +43,7 @@ def run_nightly_training():
         logger.info("\n[STEP 1] Running Scenario Simulations")
         logger.info("-" * 80)
         
-        from sim.run_scenarios import ScenarioRunner
+        from scenarios.sim.run_scenarios import ScenarioRunner
         
         runner = ScenarioRunner(
             llm_policy="minimal",  # Use minimal policy to test pattern-first approach

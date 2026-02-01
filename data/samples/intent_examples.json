@@ -1,0 +1,611 @@
+[
+  {
+    "text": "create a note",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "make a note",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "add a note about the meeting",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "write down this idea",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "remember this for later",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "jot this down",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "how many notes do i have",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "count",
+    "confidence": 1.0
+  },
+  {
+    "text": "count my notes",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "count",
+    "confidence": 1.0
+  },
+  {
+    "text": "number of notes",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "count",
+    "confidence": 1.0
+  },
+  {
+    "text": "show me note statistics",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "count",
+    "confidence": 1.0
+  },
+  {
+    "text": "do i have any notes",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "count",
+    "confidence": 1.0
+  },
+  {
+    "text": "list my notes",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "show all notes",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "show me my notes",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "what notes do i have",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "display my notes",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "search my notes",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "search",
+    "confidence": 1.0
+  },
+  {
+    "text": "find notes about work",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "search",
+    "confidence": 1.0
+  },
+  {
+    "text": "look for notes",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "search",
+    "confidence": 1.0
+  },
+  {
+    "text": "delete a note",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "delete",
+    "confidence": 1.0
+  },
+  {
+    "text": "remove this note",
+    "intent": "notes",
+    "plugin": "notes",
+    "action": "delete",
+    "confidence": 1.0
+  },
+  {
+    "text": "check my email",
+    "intent": "email",
+    "plugin": "email",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "show my emails",
+    "intent": "email",
+    "plugin": "email",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "what emails do i have",
+    "intent": "email",
+    "plugin": "email",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "list my inbox",
+    "intent": "email",
+    "plugin": "email",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "show inbox",
+    "intent": "email",
+    "plugin": "email",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "any new emails",
+    "intent": "email",
+    "plugin": "email",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "how many emails",
+    "intent": "email",
+    "plugin": "email",
+    "action": "count",
+    "confidence": 1.0
+  },
+  {
+    "text": "how many unread emails",
+    "intent": "email",
+    "plugin": "email",
+    "action": "count_unread",
+    "confidence": 1.0
+  },
+  {
+    "text": "unread count",
+    "intent": "email",
+    "plugin": "email",
+    "action": "count_unread",
+    "confidence": 1.0
+  },
+  {
+    "text": "read my latest email",
+    "intent": "email",
+    "plugin": "email",
+    "action": "read",
+    "confidence": 1.0
+  },
+  {
+    "text": "open the first email",
+    "intent": "email",
+    "plugin": "email",
+    "action": "read",
+    "confidence": 1.0
+  },
+  {
+    "text": "show me the latest message",
+    "intent": "email",
+    "plugin": "email",
+    "action": "read",
+    "confidence": 1.0
+  },
+  {
+    "text": "send an email",
+    "intent": "email",
+    "plugin": "email",
+    "action": "compose",
+    "confidence": 1.0
+  },
+  {
+    "text": "write an email",
+    "intent": "email",
+    "plugin": "email",
+    "action": "compose",
+    "confidence": 1.0
+  },
+  {
+    "text": "compose a message",
+    "intent": "email",
+    "plugin": "email",
+    "action": "compose",
+    "confidence": 1.0
+  },
+  {
+    "text": "search for emails from john",
+    "intent": "email",
+    "plugin": "email",
+    "action": "search",
+    "confidence": 1.0
+  },
+  {
+    "text": "find emails about the project",
+    "intent": "email",
+    "plugin": "email",
+    "action": "search",
+    "confidence": 1.0
+  },
+  {
+    "text": "play some music",
+    "intent": "music",
+    "plugin": "music",
+    "action": "play",
+    "confidence": 1.0
+  },
+  {
+    "text": "play a song",
+    "intent": "music",
+    "plugin": "music",
+    "action": "play",
+    "confidence": 1.0
+  },
+  {
+    "text": "start playing music",
+    "intent": "music",
+    "plugin": "music",
+    "action": "play",
+    "confidence": 1.0
+  },
+  {
+    "text": "i want to listen to music",
+    "intent": "music",
+    "plugin": "music",
+    "action": "play",
+    "confidence": 1.0
+  },
+  {
+    "text": "play something",
+    "intent": "music",
+    "plugin": "music",
+    "action": "play",
+    "confidence": 1.0
+  },
+  {
+    "text": "pause the music",
+    "intent": "music",
+    "plugin": "music",
+    "action": "pause",
+    "confidence": 1.0
+  },
+  {
+    "text": "stop playing",
+    "intent": "music",
+    "plugin": "music",
+    "action": "pause",
+    "confidence": 1.0
+  },
+  {
+    "text": "pause this",
+    "intent": "music",
+    "plugin": "music",
+    "action": "pause",
+    "confidence": 1.0
+  },
+  {
+    "text": "what's playing",
+    "intent": "music",
+    "plugin": "music",
+    "action": "status",
+    "confidence": 1.0
+  },
+  {
+    "text": "what song is this",
+    "intent": "music",
+    "plugin": "music",
+    "action": "status",
+    "confidence": 1.0
+  },
+  {
+    "text": "current song",
+    "intent": "music",
+    "plugin": "music",
+    "action": "status",
+    "confidence": 1.0
+  },
+  {
+    "text": "what am i listening to",
+    "intent": "music",
+    "plugin": "music",
+    "action": "status",
+    "confidence": 1.0
+  },
+  {
+    "text": "next song",
+    "intent": "music",
+    "plugin": "music",
+    "action": "next",
+    "confidence": 1.0
+  },
+  {
+    "text": "skip this",
+    "intent": "music",
+    "plugin": "music",
+    "action": "next",
+    "confidence": 1.0
+  },
+  {
+    "text": "play next",
+    "intent": "music",
+    "plugin": "music",
+    "action": "next",
+    "confidence": 1.0
+  },
+  {
+    "text": "previous song",
+    "intent": "music",
+    "plugin": "music",
+    "action": "previous",
+    "confidence": 1.0
+  },
+  {
+    "text": "go back",
+    "intent": "music",
+    "plugin": "music",
+    "action": "previous",
+    "confidence": 1.0
+  },
+  {
+    "text": "last track",
+    "intent": "music",
+    "plugin": "music",
+    "action": "previous",
+    "confidence": 1.0
+  },
+  {
+    "text": "turn up the volume",
+    "intent": "music",
+    "plugin": "music",
+    "action": "volume_up",
+    "confidence": 1.0
+  },
+  {
+    "text": "louder",
+    "intent": "music",
+    "plugin": "music",
+    "action": "volume_up",
+    "confidence": 1.0
+  },
+  {
+    "text": "turn down the volume",
+    "intent": "music",
+    "plugin": "music",
+    "action": "volume_down",
+    "confidence": 1.0
+  },
+  {
+    "text": "quieter",
+    "intent": "music",
+    "plugin": "music",
+    "action": "volume_down",
+    "confidence": 1.0
+  },
+  {
+    "text": "what's on my calendar",
+    "intent": "calendar",
+    "plugin": "calendar",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "show my schedule",
+    "intent": "calendar",
+    "plugin": "calendar",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "what do i have today",
+    "intent": "calendar",
+    "plugin": "calendar",
+    "action": "list_today",
+    "confidence": 1.0
+  },
+  {
+    "text": "any meetings today",
+    "intent": "calendar",
+    "plugin": "calendar",
+    "action": "list_today",
+    "confidence": 1.0
+  },
+  {
+    "text": "what's my schedule for tomorrow",
+    "intent": "calendar",
+    "plugin": "calendar",
+    "action": "list_tomorrow",
+    "confidence": 1.0
+  },
+  {
+    "text": "add an event",
+    "intent": "calendar",
+    "plugin": "calendar",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "schedule a meeting",
+    "intent": "calendar",
+    "plugin": "calendar",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "create an appointment",
+    "intent": "calendar",
+    "plugin": "calendar",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "open a document",
+    "intent": "document",
+    "plugin": "document",
+    "action": "open",
+    "confidence": 1.0
+  },
+  {
+    "text": "find my documents",
+    "intent": "document",
+    "plugin": "document",
+    "action": "search",
+    "confidence": 1.0
+  },
+  {
+    "text": "search for files",
+    "intent": "document",
+    "plugin": "document",
+    "action": "search",
+    "confidence": 1.0
+  },
+  {
+    "text": "recent documents",
+    "intent": "document",
+    "plugin": "document",
+    "action": "list_recent",
+    "confidence": 1.0
+  },
+  {
+    "text": "add a task",
+    "intent": "task",
+    "plugin": "notes",
+    "action": "create_task",
+    "confidence": 1.0
+  },
+  {
+    "text": "create a todo",
+    "intent": "task",
+    "plugin": "notes",
+    "action": "create_task",
+    "confidence": 1.0
+  },
+  {
+    "text": "add to my todo list",
+    "intent": "task",
+    "plugin": "notes",
+    "action": "create_task",
+    "confidence": 1.0
+  },
+  {
+    "text": "what are my tasks",
+    "intent": "task",
+    "plugin": "notes",
+    "action": "list_tasks",
+    "confidence": 1.0
+  },
+  {
+    "text": "what's the weather",
+    "intent": "weather",
+    "plugin": "weather",
+    "action": "current",
+    "confidence": 1.0
+  },
+  {
+    "text": "how's the weather today",
+    "intent": "weather",
+    "plugin": "weather",
+    "action": "current",
+    "confidence": 1.0
+  },
+  {
+    "text": "is it going to rain",
+    "intent": "weather",
+    "plugin": "weather",
+    "action": "forecast",
+    "confidence": 1.0
+  },
+  {
+    "text": "weather forecast",
+    "intent": "weather",
+    "plugin": "weather",
+    "action": "forecast",
+    "confidence": 1.0
+  },
+  {
+    "text": "what time is it",
+    "intent": "time",
+    "plugin": "time",
+    "action": "current",
+    "confidence": 1.0
+  },
+  {
+    "text": "what's the date",
+    "intent": "time",
+    "plugin": "time",
+    "action": "date",
+    "confidence": 1.0
+  },
+  {
+    "text": "what day is it",
+    "intent": "time",
+    "plugin": "time",
+    "action": "day",
+    "confidence": 1.0
+  },
+  {
+    "text": "tell me about this",
+    "intent": "question",
+    "plugin": "general",
+    "action": "explain",
+    "confidence": 1.0
+  },
+  {
+    "text": "what is this",
+    "intent": "question",
+    "plugin": "general",
+    "action": "define",
+    "confidence": 1.0
+  },
+  {
+    "text": "explain this to me",
+    "intent": "question",
+    "plugin": "general",
+    "action": "explain",
+    "confidence": 1.0
+  },
+  {
+    "text": "help me understand",
+    "intent": "question",
+    "plugin": "general",
+    "action": "explain",
+    "confidence": 1.0
+  }
+]

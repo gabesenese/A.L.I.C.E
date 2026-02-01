@@ -12,10 +12,8 @@ __pycache__/
 *.db 
 
 # Credentials (NEVER commit these!)
-gmail_credentials.json
-gmail_token.pickle
-calendar_credentials.json
-calendar_token.pickle
+config/cred/*.json
+config/cred/*.pickle
 
 # Conversation state (personal data)
 data/conversation_state.pkl
@@ -23,6 +21,8 @@ data/conversation_state.pkl
 # Data files (JSON data, not config)
 data/**/*.json
 memory/*.json
+!data/samples/
+!data/samples/**/*.json
 
 # Training and scenario runtime data
 data/memory/
@@ -30,10 +30,9 @@ data/training/training_data.jsonl
 data/training/training_data.jsonl.bak
 data/training/auto_generated.jsonl
 data/context_state.pkl
+data/training/reports/
 scenario_*.txt
 scenario_final.txt
-count_scenarios.py
-run_and_report_scenarios.py
 
 # Project 
 datasets/
@@ -208,7 +207,6 @@ cython_debug/
 #.idea/
 SETUP_INSTRUCTIONS.md
 .gitignore
-config.json.template
 todo.md
 
 data/memory/memories.json

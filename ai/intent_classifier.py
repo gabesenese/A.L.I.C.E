@@ -252,7 +252,7 @@ class SemanticIntentClassifier:
     Maps user input to plugin actions without regex patterns
     """
     
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", examples_file: str = "data/intent_examples.json",
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", examples_file: str = "data/samples/intent_examples.json",
                  use_cache: bool = True, use_calibration: bool = True):
         """
         Initialize the semantic intent classifier

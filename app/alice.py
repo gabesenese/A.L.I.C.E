@@ -2,8 +2,8 @@
 A.L.I.C.E - Production Interface
 Clean, user-facing version with multiple UI options
 
-For debugging with full logs, use: python main.py
-For clean user experience with UI: python alice.py
+For debugging with full logs, use: python -m app.main
+For clean user experience with UI: python -m app.alice
 """
 
 import os
@@ -25,7 +25,7 @@ for logger_name in ['tensorflow', 'torch', 'sentence_transformers', 'transformer
 
 # Import after setting up environment
 from features.welcome import welcome_message, get_greeting, display_startup_info
-from main import ALICE
+from app.main import ALICE
 
 
 def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False, privacy_mode=False, llm_policy="default"):

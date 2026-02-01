@@ -1,4 +1,5 @@
 @echo off
+cd /d %~dp0\..
 REM Quick training commands for A.L.I.C.E
 
 if "%1"=="" goto help
@@ -12,7 +13,7 @@ goto help
 :scenarios
 echo.
 echo Running scenario simulations...
-python -m sim.run_scenarios --policy minimal
+python -m scenarios.sim.run_scenarios --policy minimal
 goto end
 
 :promote

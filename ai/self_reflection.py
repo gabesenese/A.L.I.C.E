@@ -70,7 +70,7 @@ class SelfReflectionSystem:
         self.allowed_extensions = {'.py', '.md', '.txt', '.json', '.yaml', '.yml'}
         self.ignored_patterns = {
             '__pycache__', '.pyc', '.git', 'node_modules',
-            'venv', 'env', '.venv', 'data/', 'memory/', 'cred/',
+            'venv', 'env', '.venv', 'data/', 'memory/', 'config/cred/',
             '.pytest_cache', '.mypy_cache'
         }
         

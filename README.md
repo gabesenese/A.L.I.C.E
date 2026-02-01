@@ -121,55 +121,55 @@ python -c "from sentence_transformers import SentenceTransformer; SentenceTransf
 ### 🌟 Production Mode (Enhanced Terminal)
 **For regular use with Rich terminal UI and minimal logs:**
 ```bash
-python alice.py
+python -m app.alice
 ```
 
 With options:
 ```bash
 # Classic terminal mode (no Rich formatting)
-python alice.py --ui classic
+python -m app.alice --ui classic
 
 # Rich terminal mode (default)
-python alice.py --ui rich
+python -m app.alice --ui rich
 
 # Enable voice interaction
-python alice.py --voice
+python -m app.alice --voice
 
 # Specify LLM model
-python alice.py --model llama3.1:8b
+python -m app.alice --model llama3.1:8b
 ```
 
 ### 🔧 Debug Mode (Full Logs)
 **For development and troubleshooting:**
 ```bash
-python main.py
+python -m app.main
 ```
 
 With voice support:
 ```bash
-python main.py --voice
+python -m app.main --voice
 ```
 
 Voice-only mode (wake word activation):
 ```bash
-python main.py --voice-only
+python -m app.main --voice-only
 ```
 
 Custom configuration:
 ```bash
-python main.py --name "User" --model llama3.1:8b --voice --llm-policy minimal
+python -m app.main --name "User" --model llama3.1:8b --voice --llm-policy minimal
 ```
 
 ### LLM Policy Options
 ```bash
 # Minimal LLM usage (recommended for learning)
-python main.py --llm-policy minimal
+python -m app.main --llm-policy minimal
 
 # Balanced (default production)
-python main.py --llm-policy balanced
+python -m app.main --llm-policy balanced
 
 # Aggressive (highest quality, slowest)
-python main.py --llm-policy aggressive
+python -m app.main --llm-policy aggressive
 ```
 
 ### Available Commands
@@ -269,17 +269,18 @@ A.L.I.C.E/
 │   ├── entities.json          # Tracked entities
 │   └── relationships.json     # Entity relationships
 │
-├── cred/
-│   ├── calendar_credentials.json  # Google Calendar credentials
-│   └── gmail_credentials.json     # Gmail credentials
+├── config/
+│   ├── config.json.template   # Configuration template
+│   └── cred/                  # Local credentials (ignored)
 │
 ├── memory/
 │   ├── corrections.json       # User corrections
 │   ├── learning_patterns.json # Learning patterns (versioned)
 │   └── user_feedback.json     # User feedback data
 │
-├── alice.py                   # Production interface (Rich UI)
-├── main.py                    # Debug interface (full logs)
+├── app/
+│   ├── alice.py               # Production interface (Rich UI)
+│   └── main.py                # Debug interface (full logs)
 ├── requirements.txt           # Python dependencies
 ├── README.md                  # This file
 └── LICENSE
@@ -379,13 +380,13 @@ Control how much A.L.I.C.E relies on the LLM:
 
 ```bash
 # Minimal (default): LLM only for complex tasks, requires approval
-python main.py --llm-policy minimal
+python -m app.main --llm-policy minimal
 
 # Balanced: LLM for tools + generation, no approval needed
-python main.py --llm-policy balanced
+python -m app.main --llm-policy balanced
 
 # Aggressive: LLM for everything, highest quality but slower
-python main.py --llm-policy aggressive
+python -m app.main --llm-policy aggressive
 ```
 
 | Mode | Chitchat | Tool Formatting | Generation | User Approval | Rate Limit |
@@ -450,7 +451,7 @@ pm.register_plugin(MyCustomPlugin())
 ollama pull llama3.2:3b
 
 # Run ALICE with the smaller model
-python alice.py --model llama3.2:3b
+python -m app.alice --model llama3.2:3b
 ```
 
 **Model Recommendations by RAM:**

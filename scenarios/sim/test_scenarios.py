@@ -5,9 +5,11 @@ Quick test of the simulation system
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SIM_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(SIM_DIR))
+sys.path.insert(0, PROJECT_ROOT)
 
-from sim.scenarios import (
+from .scenarios import (
     ALL_SCENARIOS, 
     get_scenarios_by_domain,
     get_scenarios_by_tag,

@@ -294,7 +294,7 @@ class SpotifyManager:
     def __init__(self):
         self.spotify = None
         self.is_authenticated = False
-        self.credentials_path = "cred/spotify_credentials.json"
+        self.credentials_path = "config/cred/spotify_credentials.json"
         self.setup_spotify()
     
     def setup_spotify(self) -> bool:
@@ -326,7 +326,7 @@ class SpotifyManager:
                 client_secret=client_secret,
                 redirect_uri=redirect_uri,
                 scope="user-read-playback-state,user-modify-playback-state,user-read-currently-playing,playlist-read-private,playlist-read-collaborative,user-library-read",
-                cache_path="cred/spotify_token.cache"
+                cache_path="config/cred/spotify_token.cache"
             )
             
             self.spotify = spotipy.Spotify(auth_manager=auth_manager)

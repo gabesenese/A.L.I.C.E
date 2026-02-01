@@ -44,7 +44,7 @@ class ALICEReloader(FileSystemEventHandler):
             '.git',
             'data/',
             'memory/',
-            'cred/',
+            'config/cred/',
             '.md',
             '.txt',
             '.json'
@@ -251,7 +251,7 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
         
         # Watch main directories
         watch_paths = ['ai/', 'speech/', 'ui/', 'features/', 'self_learning/']
-        watch_paths.append('.')  # Watch root for alice.py, main.py
+        watch_paths.append('.')  # Watch root for app/alice.py, app/main.py
         
         for path in watch_paths:
             if os.path.exists(path):

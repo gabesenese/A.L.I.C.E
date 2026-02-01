@@ -31,8 +31,10 @@ from ai.goal_from_llm import get_goal_from_llm, GoalJSON
 from ai.policy import get_policy_decision, PolicyDecision
 from ai.runtime_thresholds import get_tool_path_confidence, get_goal_path_confidence, get_ask_threshold
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add project root to path
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(APP_DIR)
+sys.path.insert(0, PROJECT_ROOT)
 
 # Import ALICE components
 from ai.nlp_processor import NLPProcessor

@@ -1,4 +1,5 @@
 @echo off
+cd /d %~dp0\..
 REM A.L.I.C.E Installation Script for Windows
 REM Run this script to set up A.L.I.C.E on your system
 
@@ -89,11 +90,11 @@ echo ===========================================================================
 echo.
 echo Next steps:
 echo 1. Make sure Ollama is running: ollama serve
-echo 2. Start A.L.I.C.E: python main.py --name "Your Name"
+echo 2. Start A.L.I.C.E: python -m app.main --name "Your Name"
 echo.
 echo Optional:
-echo - Enable voice: python main.py --voice --name "Your Name"
-echo - Voice only: python main.py --voice-only --name "Your Name"
+echo - Enable voice: python -m app.main --voice --name "Your Name"
+echo - Voice only: python -m app.main --voice-only --name "Your Name"
 echo.
 echo Documentation:
 echo - Quick Start: QUICK_START.md

@@ -33,8 +33,8 @@ class GmailPlugin:
     
     def _authenticate(self):
         """Authenticate with Gmail API using OAuth2"""
-        token_path = 'cred/gmail_token.pickle'
-        creds_path = 'cred/gmail_credentials.json'
+        token_path = 'config/cred/gmail_token.pickle'
+        creds_path = 'config/cred/gmail_credentials.json'
         
         # Load saved credentials
         if os.path.exists(token_path):

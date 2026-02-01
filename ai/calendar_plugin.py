@@ -73,8 +73,8 @@ class CalendarPlugin(PluginInterface):
         ]
         
         # Credentials and service
-        self.credentials_file = "cred/calendar_credentials.json"
-        self.token_file = "cred/calendar_token.pickle"
+        self.credentials_file = "config/cred/calendar_credentials.json"
+        self.token_file = "config/cred/calendar_token.pickle"
         self.service = None
         self.user_timezone = "America/Toronto"  # Default, can be configured
         
@@ -226,7 +226,7 @@ class CalendarPlugin(PluginInterface):
             'response': "Calendar is not set up yet. Please add your Google Calendar credentials to enable calendar features.",
             'data': {
                 'setup_required': True,
-                'instructions': "Add calendar_credentials.json to the cred/ folder and restart A.L.I.C.E"
+                'instructions': "Add calendar_credentials.json to the config/cred folder and restart A.L.I.C.E"
             }
         }
 

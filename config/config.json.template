@@ -1,0 +1,49 @@
+{
+  "user": {
+    "name": "User",
+    "location": null,
+    "timezone": null,
+    "preferred_voice": "default",
+    "language": "en-US"
+  },
+  "llm": {
+    "model": "llama3.3:70b",
+    "base_url": "http://localhost:11434",
+    "temperature": 0.7,
+    "max_history": 20,
+    "timeout": 120
+  },
+  "speech": {
+    "enabled": false,
+    "wake_words": ["alice", "hey alice", "ok alice"],
+    "stt_engine": "google",
+    "tts_engine": "pyttsx3",
+    "listening_timeout": 5,
+    "phrase_timeout": 3
+  },
+  "memory": {
+    "max_episodic": 1000,
+    "embedding_model": "all-MiniLM-L6-v2",
+    "enable_rag": true,
+    "similarity_threshold": 0.5
+  },
+  "plugins": {
+    "enabled": ["WeatherPlugin", "TimePlugin", "FileOperationsPlugin", "SystemControlPlugin", "WebSearchPlugin"]
+  },
+  "task_executor": {
+    "safe_mode": true,
+    "allow_system_commands": true,
+    "max_command_timeout": 30
+  },
+  "context": {
+    "proactive_suggestions": true,
+    "verbose_mode": false,
+    "auto_save": true,
+    "save_interval": 300
+  },
+  "advanced": {
+    "debug_mode": false,
+    "log_level": "INFO",
+    "enable_telemetry": false
+  }
+}

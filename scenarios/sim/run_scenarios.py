@@ -14,14 +14,16 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 import argparse
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path
+SIM_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(SIM_DIR))
+sys.path.insert(0, PROJECT_ROOT)
 
-from sim.scenarios import (
+from .scenarios import (
     Scenario, ScenarioStep, ScenarioResult, ExpectedRoute,
     ALL_SCENARIOS, get_scenarios_by_domain, get_scenarios_by_tag
 )
-from sim.teacher import TeacherMode
+from .teacher import TeacherMode
 
 # Import Alice components (without full initialization)
 from ai.nlp_processor import NLPProcessor
