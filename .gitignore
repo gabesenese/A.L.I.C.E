@@ -28,6 +28,7 @@ memory/*.json
 data/memory/
 data/training/training_data.jsonl
 data/training/training_data.jsonl.bak
+data/training/auto_generated.jsonl
 data/context_state.pkl
 scenario_*.txt
 scenario_final.txt
@@ -221,3 +222,4 @@ data/training/example_training_data.jsonl
 data/training/auto_generated.jsonl
 data/training/auto_generated.jsonl
 .gitignore
+data/training/auto_generated.jsonl
