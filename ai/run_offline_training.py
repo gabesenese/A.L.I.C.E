@@ -18,13 +18,13 @@ if __name__ == "__main__":
     teacher = TeacherLoop()
     
     # Analyze LLM fallbacks from the last 24 hours
-    print("\n📊 Analyzing LLM fallbacks from logged interactions...")
+    print("[ANALYSIS] Analyzing LLM fallbacks from logged interactions...")
     suggestions = teacher.analyze_fallbacks(lookback_hours=24)
     
-    print(f"\n✅ Found {len(suggestions)} learning opportunities")
+    print(f"[OK] Found {len(suggestions)} learning opportunities")
     
     if suggestions:
-        print("\n📝 Pattern Suggestions:")
+        print("\n[SUGGESTIONS] Pattern Suggestions:")
         for i, suggestion in enumerate(suggestions, 1):
             print(f"\n{i}. Pattern: '{suggestion.normalized_input}'")
             print(f"   Frequency: {suggestion.frequency} times")
@@ -32,9 +32,9 @@ if __name__ == "__main__":
             print(f"   Response: '{suggestion.response[:80]}...'")
     
     # Auto-learn high-confidence patterns
-    print("\n🤖 Auto-learning high-confidence patterns...")
+    print("\n[AUTO-LEARN] Auto-learning high-confidence patterns...")
     learned_count = teacher.auto_learn_high_confidence(suggestions)
     
-    print(f"\n✨ Auto-learned {learned_count} new patterns")
-    print("\n💾 Suggestions saved to: data/training/teacher_suggestions.json")
+    print(f"\n[OK] Auto-learned {learned_count} new patterns")
+    print("\n[SAVED] Suggestions saved to: data/training/teacher_suggestions.json")
     print("\nOffline training complete!")

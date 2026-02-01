@@ -351,7 +351,7 @@ class PatternPromoter:
         promoted_count = 0
         
         if auto_apply and auto_candidates:
-            logger.info(f"\n🤖 Auto-promoting {len(auto_candidates)} high-confidence patterns")
+            logger.info(f"\n[AUTO-PROMOTE] Auto-promoting {len(auto_candidates)} high-confidence patterns")
             
             for candidate in auto_candidates:
                 pattern_entry = {
@@ -372,11 +372,11 @@ class PatternPromoter:
                 patterns_data["patterns"].append(pattern_entry)
                 promoted_count += 1
                 
-                logger.info(f"  ✓ {candidate.normalized_input} (freq={candidate.frequency}, consistency={candidate.teacher_consistency:.1%})")
+                logger.info(f"  [OK] {candidate.normalized_input} (freq={candidate.frequency}, consistency={candidate.teacher_consistency:.1%})")
         
         # Save manual review candidates
         if manual_candidates:
-            logger.info(f"\n📋 {len(manual_candidates)} patterns need manual review")
+            logger.info(f"\n[REVIEW] {len(manual_candidates)} patterns need manual review")
             
             review_file = Path("memory/patterns_for_review.json")
             review_data = {
@@ -387,7 +387,7 @@ class PatternPromoter:
             with open(review_file, "w") as f:
                 json.dump(review_data, f, indent=2)
             
-            logger.info(f"  💾 Saved to {review_file}")
+            logger.info(f"  [SAVED] Saved to {review_file}")
         
         # Update patterns file
         patterns_data["last_updated"] = datetime.now().isoformat()
@@ -395,7 +395,7 @@ class PatternPromoter:
         with open(patterns_file, "w") as f:
             json.dump(patterns_data, f, indent=2)
         
-        logger.info(f"\n✅ Promoted {promoted_count} patterns to {patterns_file}")
+        logger.info(f"\n[OK] Promoted {promoted_count} patterns to {patterns_file}")
         
         return promoted_count
 
@@ -446,7 +446,7 @@ def main():
     logger.info(f"\n📊 Analyzing simulation logs: {log_file}")
     
     candidates = promoter.analyze_logs(log_file)
-    logger.info(f"✓ Found {len(candidates)} pattern candidates")
+    logger.info(f"[OK] Found {len(candidates)} pattern candidates")
     
     if candidates:
         # Show summary
@@ -465,7 +465,7 @@ def main():
             auto_apply=not args.no_auto_apply
         )
         
-        logger.info(f"\n🎉 Pattern promotion complete! Promoted {promoted} patterns.")
+        logger.info(f"\n[OK] Pattern promotion complete! Promoted {promoted} patterns.")
     else:
         logger.info("\nNo patterns meet promotion criteria.")
 

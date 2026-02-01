@@ -75,7 +75,7 @@ class ScenarioRunner:
         # Configure policy first
         if llm_policy == "minimal":
             configure_minimal_policy()
-            logger.info("✓ Minimal policy configured")
+            logger.info("[OK] Minimal policy configured")
         
         self.nlp = NLPProcessor()
         self.context = get_context_engine()
@@ -100,7 +100,7 @@ class ScenarioRunner:
         # Teacher mode
         self.teacher = TeacherMode(model=llm_model) if use_teacher else None
         
-        logger.info("✓ Core components ready\n")
+        logger.info("[OK] Core components ready\n")
         
         # Results storage
         self.results: List[ScenarioResult] = []
@@ -191,7 +191,7 @@ class ScenarioRunner:
         Returns:
             List of results for each step
         """
-        logger.info(f"\n📋 Running scenario: {scenario.name}")
+        logger.info(f"\n[SCENARIO] Running scenario: {scenario.name}")
         logger.info(f"   {scenario.description}")
         
         scenario_results = []
@@ -253,7 +253,7 @@ class ScenarioRunner:
             if teacher_response:
                 logger.info(f"    Teacher: {teacher_response[:80]}...")
                 if needs_learning:
-                    logger.info(f"    🎓 Flagged for learning")
+                    logger.info(f"    [LEARNING] Flagged for learning")
         
         return scenario_results
     
@@ -278,7 +278,7 @@ class ScenarioRunner:
         if tags:
             scenarios = [s for s in scenarios if any(tag in s.tags for tag in tags)]
         
-        logger.info(f"\n🚀 Running {len(scenarios)} scenarios...\n")
+        logger.info(f"\n[RUN] Running {len(scenarios)} scenarios...\n")
         
         # Run each scenario
         for scenario in scenarios:
@@ -315,7 +315,7 @@ class ScenarioRunner:
             for item in self.training_data:
                 f.write(json.dumps(item) + "\n")
         
-        logger.info(f"\n💾 Saved {len(self.training_data)} interactions to {output_file}")
+        logger.info(f"\n[SAVED] Saved {len(self.training_data)} interactions to {output_file}")
         
         # Generate report
         self._generate_report()
@@ -332,7 +332,7 @@ class ScenarioRunner:
         needs_learning = sum(1 for r in self.results if r.needs_learning)
         
         logger.info("\n" + "=" * 70)
-        logger.info("📊 SCENARIO RUNNER REPORT")
+        logger.info("[REPORT] SCENARIO RUNNER REPORT")
         logger.info("=" * 70)
         logger.info(f"Total Steps: {total}")
         logger.info(f"Route Accuracy: {route_matches}/{total} ({route_matches/total*100:.1f}%)")

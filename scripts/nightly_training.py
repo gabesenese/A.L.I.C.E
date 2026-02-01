@@ -33,14 +33,14 @@ def run_nightly_training():
     """Execute the complete nightly training pipeline"""
     
     logger.info("=" * 80)
-    logger.info("🌙 A.L.I.C.E NIGHTLY TRAINING PIPELINE")
+    logger.info("[NIGHTLY] A.L.I.C.E NIGHTLY TRAINING PIPELINE")
     logger.info("=" * 80)
     logger.info(f"Started at: {datetime.now().isoformat()}")
     logger.info("=" * 80)
     
     try:
         # Step 1: Run scenario simulations
-        logger.info("\n📋 STEP 1: Running Scenario Simulations")
+        logger.info("\n[STEP 1] Running Scenario Simulations")
         logger.info("-" * 80)
         
         from sim.run_scenarios import ScenarioRunner
@@ -56,10 +56,10 @@ def run_nightly_training():
         # Save results
         runner.save_results()
         
-        logger.info("✅ Scenario simulations complete")
+        logger.info(f"[OK] Scenario simulations complete")
         
         # Step 2: Promote patterns from logs
-        logger.info("\n🎓 STEP 2: Promoting Patterns from Simulation Logs")
+        logger.info("\n[STEP 2] Promoting Patterns from Simulation Logs")
         logger.info("-" * 80)
         
         from ai.promote_patterns import PatternPromoter
@@ -82,10 +82,10 @@ def run_nightly_training():
             auto_apply=True  # Auto-promote high-confidence patterns
         )
         
-        logger.info(f"✅ Pattern promotion complete ({promoted_count} patterns promoted)")
+        logger.info(f"[OK] Pattern promotion complete ({promoted_count} patterns promoted)")
         
         # Step 3: Analyze LLM fallbacks from real interactions (if any)
-        logger.info("\n🔍 STEP 3: Analyzing Real Interaction Fallbacks")
+        logger.info("\n[STEP 3] Analyzing Real Interaction Fallbacks")
         logger.info("-" * 80)
         
         from ai.teacher_loop import TeacherLoop
@@ -100,10 +100,10 @@ def run_nightly_training():
         # Auto-learn high-confidence patterns
         learned_count = teacher.auto_learn_high_confidence(suggestions)
         
-        logger.info(f"✅ Auto-learned {learned_count} patterns from real interactions")
+        logger.info(f"[OK] Auto-learned {learned_count} patterns from real interactions")
         
         # Step 4: Generate summary report
-        logger.info("\n📊 STEP 4: Training Summary")
+        logger.info("\n[STEP 4] Training Summary")
         logger.info("=" * 80)
         logger.info(f"Simulation Results:")
         logger.info(f"  - Scenarios Run: {len(runner.results)} steps")
@@ -113,13 +113,13 @@ def run_nightly_training():
         logger.info(f"  - LLM Fallbacks Found: {len(suggestions)}")
         logger.info(f"  - Patterns Auto-Learned: {learned_count}")
         logger.info("=" * 80)
-        logger.info(f"✅ Nightly training complete at: {datetime.now().isoformat()}")
+        logger.info(f"[OK] Nightly training complete at: {datetime.now().isoformat()}")
         logger.info("=" * 80)
         
         return True
         
     except Exception as e:
-        logger.error(f"❌ Nightly training failed: {e}", exc_info=True)
+        logger.error(f"[ERROR] Nightly training failed: {e}", exc_info=True)
         return False
 
 
