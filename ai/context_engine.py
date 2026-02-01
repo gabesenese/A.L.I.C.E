@@ -218,7 +218,7 @@ class ContextEngine:
                 with open(prefs_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.user_prefs = UserPreferences(**data)
-                logger.info(f"📂 Loaded preferences for {self.user_prefs.name}")
+                logger.info(f"Loaded preferences for {self.user_prefs.name}")
             
             memory_path = os.path.join(self.data_dir, "semantic_memory.pkl")
             if os.path.exists(memory_path):
@@ -774,10 +774,10 @@ if __name__ == "__main__":
         )
         
         summary = ctx.get_context_summary()
-        print(f"\n📊 Context Summary:")
+        print(f"\nContext Summary:")
         for key, value in summary.items():
             print(f"   {key}: {value}")
         
-        print(f"\n🎭 Personalization: {ctx.get_personalization_context()}")
+        print(f"\nPersonalization: {ctx.get_personalization_context()}")
     
     print("\n[OK] Context Engine working correctly")
