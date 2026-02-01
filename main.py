@@ -1084,7 +1084,34 @@ class ALICE:
                             logger.info(f"A.L.I.C.E: {response[:100]}...")
                             return response
                     
-                    # Fallback to LLM gateway
+                    # Simple greeting fallbacks (no LLM required)
+                    simple_greetings = {
+                        'hi': ['Hi there!', 'Hello!', 'Hey!'],
+                        'hello': ['Hello!', 'Hi!', 'Hey there!'],
+                        'hey': ['Hey!', 'Hi!', 'Hello!'],
+                        'good morning': ['Good morning!', 'Morning!'],
+                        'good afternoon': ['Good afternoon!', 'Hello!'],
+                        'good evening': ['Good evening!', 'Hello!'],
+                        'how are you': ["I'm doing well, thanks for asking!", "I'm great! How can I help you?"],
+                        "what's up": ["Not much, ready to help!", "All good here! What can I do for you?"],
+                        'howdy': ['Howdy!', 'Hello!']
+                    }
+                    
+                    # Check for simple greeting match
+                    user_input_lower = user_input.lower().strip('?!.,')
+                    for pattern, responses in simple_greetings.items():
+                        if pattern in user_input_lower or user_input_lower in pattern:
+                            import random
+                            response = random.choice(responses)
+                            self._think("Simple greeting → no LLM needed")
+                            self._cache_put(user_input, intent, response)
+                            self._store_interaction(user_input, response, intent, entities)
+                            if use_voice and self.speech:
+                                self.speech.speak(response, blocking=False)
+                            logger.info(f"A.L.I.C.E: {response[:100]}...")
+                            return response
+                    
+                    # Fallback to LLM gateway for complex greetings
                     user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
                     asked_how = bool(re.search(r"\bhow\s+(are\s+you|are\s+things|have\s+you\s+been|do\s+you\s+do|is\s+it\s+going|is\s+your\s+day)\b|\bhow's\s+(it\s+going|your\s+day)\b", user_input, re.IGNORECASE))
                     prompt = (
