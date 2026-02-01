@@ -13,6 +13,7 @@ import os
 import json
 import logging
 import pickle
+import importlib
 from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime
 from dataclasses import dataclass, asdict
@@ -146,7 +147,7 @@ class DocumentProcessor:
     def _extract_text_from_pdf(self, file_path: Path) -> str:
         """Extract text from PDF file"""
         try:
-            import PyPDF2
+            PyPDF2 = importlib.import_module("PyPDF2")
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 text = ""
@@ -160,7 +161,8 @@ class DocumentProcessor:
     def _extract_text_from_docx(self, file_path: Path) -> str:
         """Extract text from DOCX file"""
         try:
-            from docx import Document
+            docx = importlib.import_module("docx")
+            Document = docx.Document
             doc = Document(file_path)
             text = ""
             for paragraph in doc.paragraphs:
@@ -173,7 +175,8 @@ class DocumentProcessor:
     def _extract_text_from_html(self, file_path: Path) -> str:
         """Extract text from HTML file"""
         try:
-            from bs4 import BeautifulSoup
+            bs4 = importlib.import_module("bs4")
+            BeautifulSoup = bs4.BeautifulSoup
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             soup = BeautifulSoup(content, 'html.parser')
@@ -425,7 +428,8 @@ class MemorySystem:
         """Lazy load embedding model"""
         if self._embedding_model is None:
             try:
-                from sentence_transformers import SentenceTransformer
+                sentence_transformers = importlib.import_module("sentence_transformers")
+                SentenceTransformer = sentence_transformers.SentenceTransformer
                 import os
                 # Set longer timeout for model download
                 os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '60'

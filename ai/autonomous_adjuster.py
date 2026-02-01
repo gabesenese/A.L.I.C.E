@@ -483,6 +483,7 @@ class RulesOptimizer:
             return {}
         
         confusion_pairs = self.analyze_confusion_patterns(training_log)
+        sorted_pairs = sorted(confusion_pairs.items(), key=lambda x: x[1], reverse=True)
         suggestions = self.generate_rule_suggestions(confusion_pairs)
         
         self.rules['confusion_pairs'] = confusion_pairs
@@ -493,7 +494,7 @@ class RulesOptimizer:
         
         return {
             'confusion_pairs': len(confusion_pairs),
-            'top_confusion': sorted_pairs[0] if confusion_pairs else None,
+            'top_confusion': sorted_pairs[0] if sorted_pairs else None,
             'optimization_suggestions': suggestions
         }
 
