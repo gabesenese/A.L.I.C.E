@@ -1934,9 +1934,12 @@ class ALICE:
                 if not response:
                     # Use gateway to format plugin result or generate targeted response
                     if hasattr(self, 'llm_gateway') and self.llm_gateway:
+                        # Normalize plugin name for formatter (e.g., 'WeatherPlugin' -> 'weather')
+                        formatter_name = plugin_name.lower().replace('plugin', '').strip()
+                        
                         # Try formatter first via gateway
                         response = self.llm_gateway.format_tool_result(
-                            tool_name=plugin_name,
+                            tool_name=formatter_name,
                             data=plugin_result.get('data', {}),
                             user_input=user_input,
                             context={'intent': intent, 'entities': entities}
