@@ -125,28 +125,6 @@
 
 ---
 
-## Documentation Needs
-
-- [ ] API documentation for plugin developers
-- [ ] Video tutorials for setup
-- [ ] Plugin development guide with examples
-- [ ] Architecture deep-dive documentation
-- [ ] Troubleshooting guide expansion
-
----
-
-## Community & Distribution
-
-- [ ] Create GitHub repository
-- [ ] Set up issue tracking
-- [ ] Contribution guidelines
-- [ ] Discord/forum community
-- [ ] PyPI package distribution
-- [ ] Docker container for easy deployment
-- [ ] Homebrew/Chocolatey packages
-
----
-
 ## Security & Privacy
 
 - [ ] End-to-end encryption for stored data
