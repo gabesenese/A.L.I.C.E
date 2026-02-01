@@ -78,14 +78,22 @@ class DocumentPlugin(PluginInterface):
             else:
                 return {
                     "success": False,
-                    "response": "I can help you with:\n- Ingest documents: 'ingest document from [path]'\n- Search documents: 'search documents for [query]'\n- List documents: 'list my documents'\n\nWhat would you like to do?"
+                    "response": None,
+                    "data": {
+                        "error": "unknown_request",
+                        "message_code": "docs:help"
+                    }
                 }
                 
         except Exception as e:
             logger.error(f"Document plugin execution error: {e}")
             return {
                 "success": False,
-                "response": f"Sorry, I encountered an error while processing your document request: {str(e)}"
+                "response": None,
+                "data": {
+                    "error": str(e),
+                    "message_code": "docs:execute_error"
+                }
             }
     
     def _handle_document_ingestion(self, query: str, entities: Dict) -> Dict[str, Any]:
@@ -96,8 +104,12 @@ class DocumentPlugin(PluginInterface):
             
             if not file_path:
                 return {
-                    "success": True,
-                    "response": "Please specify the document path. For example:\n- 'ingest document from C:\\Documents\\file.pdf'\n- 'add document C:\\path\\to\\file.txt'\n- 'process document /home/user/document.md'"
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "error": "no_path",
+                        "message_code": "docs:need_path"
+                    }
                 }
             
             path = Path(file_path)
@@ -108,31 +120,54 @@ class DocumentPlugin(PluginInterface):
                 if success:
                     return {
                         "success": True,
-                        "response": f"✅ Successfully ingested document: {path.name}\nThe document is now searchable in my knowledge base."
+                        "response": None,
+                        "data": {
+                            "file": path.name,
+                            "message_code": "docs:ingest_file_success"
+                        }
                     }
                 else:
                     return {
                         "success": False,
-                        "response": f"❌ Failed to ingest document: {path.name}\nPlease check if the file exists and is in a supported format (PDF, DOCX, TXT, MD, HTML, JSON, CSV)."
+                        "response": None,
+                        "data": {
+                            "file": path.name,
+                            "error": "ingest_failed",
+                            "message_code": "docs:ingest_file_failed"
+                        }
                     }
                     
             elif path.is_dir():
                 count = self.memory_system.ingest_directory(path)
                 return {
                     "success": True,
-                    "response": f"✅ Successfully ingested {count} documents from: {path.name}\nAll documents are now searchable in my knowledge base."
+                    "response": None,
+                    "data": {
+                        "directory": path.name,
+                        "count": count,
+                        "message_code": "docs:ingest_dir_success"
+                    }
                 }
             else:
                 return {
                     "success": False,
-                    "response": f"❌ Path not found: {file_path}\nPlease check the path and try again."
+                    "response": None,
+                    "data": {
+                        "path": file_path,
+                        "error": "path_not_found",
+                        "message_code": "docs:path_not_found"
+                    }
                 }
                 
         except Exception as e:
             logger.error(f"Document ingestion error: {e}")
             return {
                 "success": False,
-                "response": f"❌ Error ingesting document: {str(e)}"
+                "response": None,
+                "data": {
+                    "error": str(e),
+                    "message_code": "docs:ingest_error"
+                }
             }
     
     def _handle_document_search(self, query: str, entities: Dict) -> Dict[str, Any]:
@@ -143,8 +178,12 @@ class DocumentPlugin(PluginInterface):
             
             if not search_terms:
                 return {
-                    "success": True,
-                    "response": "Please specify what you'd like to search for. For example:\n- 'search documents for artificial intelligence'\n- 'find in documents python tutorial'\n- 'search files for project requirements'"
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "error": "no_query",
+                        "message_code": "docs:need_search_terms"
+                    }
                 }
             
             # Perform document search
@@ -152,12 +191,17 @@ class DocumentPlugin(PluginInterface):
             
             if not results:
                 return {
-                    "success": True,
-                    "response": f"No documents found matching '{search_terms}'. Try different keywords or ingest more documents."
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "query": search_terms,
+                        "error": "no_results",
+                        "message_code": "docs:search_no_results"
+                    }
                 }
             
-            # Format results
-            response = f"🔍 Found {len(results)} relevant document(s) for '{search_terms}':\n\n"
+            # Format results into structured data for LLM
+            formatted_results = []
             for i, result in enumerate(results, 1):
                 # Get source file and chunk info from memory entry ID
                 memory_id = result.get('id', '')
@@ -178,19 +222,34 @@ class DocumentPlugin(PluginInterface):
                         except ValueError:
                             pass
                 
-                response += f"{i}. **{source_file}** (chunk {chunk_index + 1}, similarity: {similarity:.2f})\n"
-                response += f"   {content_preview}\n\n"
+                formatted_results.append({
+                    "index": i,
+                    "source_file": source_file,
+                    "chunk_index": chunk_index + 1,
+                    "similarity": round(similarity, 2),
+                    "preview": content_preview
+                })
             
             return {
                 "success": True,
-                "response": response
+                "response": None,
+                "data": {
+                    "query": search_terms,
+                    "count": len(formatted_results),
+                    "results": formatted_results,
+                    "message_code": "docs:search_results"
+                }
             }
             
         except Exception as e:
             logger.error(f"Document search error: {e}")
             return {
                 "success": False,
-                "response": f"❌ Error searching documents: {str(e)}"
+                "response": None,
+                "data": {
+                    "error": str(e),
+                    "message_code": "docs:search_error"
+                }
             }
     
     def _handle_list_documents(self) -> Dict[str, Any]:
@@ -200,26 +259,42 @@ class DocumentPlugin(PluginInterface):
             
             if not documents:
                 return {
-                    "success": True,
-                    "response": "No documents have been ingested yet. Use 'ingest document' to add documents to my knowledge base."
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "error": "no_documents",
+                        "message_code": "docs:no_documents"
+                    }
                 }
-            
-            response = f"📚 I have {len(documents)} document(s) in my knowledge base:\n\n"
+            formatted_docs = []
             for doc in documents:
-                response += f"• **{doc['filename']}** ({doc['file_type'].upper()})\n"
-                response += f"  - {doc['chunks']} chunks, {doc['size_mb']:.2f} MB\n"
-                response += f"  - Added: {doc['ingested_at']}\n\n"
+                formatted_docs.append({
+                    "filename": doc.get('filename'),
+                    "file_type": doc.get('file_type'),
+                    "chunks": doc.get('chunks'),
+                    "size_mb": doc.get('size_mb'),
+                    "ingested_at": doc.get('ingested_at')
+                })
             
             return {
                 "success": True,
-                "response": response
+                "response": None,
+                "data": {
+                    "count": len(formatted_docs),
+                    "documents": formatted_docs,
+                    "message_code": "docs:list"
+                }
             }
             
         except Exception as e:
             logger.error(f"List documents error: {e}")
             return {
                 "success": False,
-                "response": f"❌ Error listing documents: {str(e)}"
+                "response": None,
+                "data": {
+                    "error": str(e),
+                    "message_code": "docs:list_error"
+                }
             }
     
     def _handle_document_question(self, query: str, entities: Dict) -> Dict[str, Any]:
@@ -231,7 +306,11 @@ class DocumentPlugin(PluginInterface):
             if not results:
                 return {
                     "success": False,
-                    "response": "I couldn't find relevant information in my document knowledge base. Try ingesting more documents or ask a different question."
+                    "response": None,
+                    "data": {
+                        "error": "no_relevant_info",
+                        "message_code": "docs:no_relevant_info"
+                    }
                 }
             
             # Create context from document results
@@ -249,15 +328,23 @@ class DocumentPlugin(PluginInterface):
             
             return {
                 "success": True,
-                "response": context,
-                "data": {"rag_context": True}
+                "response": None,
+                "data": {
+                    "rag_context": True,
+                    "rag_context_text": context,
+                    "message_code": "docs:rag_context"
+                }
             }
             
         except Exception as e:
             logger.error(f"Document question error: {e}")
             return {
                 "success": False,
-                "response": f"❌ Error processing question: {str(e)}"
+                "response": None,
+                "data": {
+                    "error": str(e),
+                    "message_code": "docs:question_error"
+                }
             }
     
     def _extract_file_path(self, query: str) -> Optional[str]:
