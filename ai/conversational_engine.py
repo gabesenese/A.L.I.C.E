@@ -6,6 +6,8 @@ Does NOT use Ollama - this is A.L.I.C.E thinking and responding on her own.
 
 import logging
 import random
+import json
+import os
 from typing import Dict, Optional, Any, List
 from dataclasses import dataclass
 
@@ -56,7 +58,11 @@ class ConversationalEngine:
         self._load_patterns()
     
     def _load_patterns(self):
-        """Load conversational patterns from training data"""
+        """Load conversational patterns from training data and curated patterns"""
+        # First, load curated patterns
+        self._load_curated_patterns()
+        
+        # Then augment with learned patterns from training data
         if not self.training_collector:
             return
         
@@ -77,7 +83,41 @@ class ConversationalEngine:
                 resp_lower = ex.assistant_response.lower()
                 if any(m in resp_lower for m in plugin_response_markers):
                     continue
-                self.learned_greetings.append(ex.assistant_response)
+                # Only add if not already in learned greetings (from curated)
+                if ex.assistant_response not in self.learned_greetings:
+                    self.learned_greetings.append(ex.assistant_response)
+        except Exception as e:
+            logger.debug(f"Could not load training patterns: {e}")
+    
+    def _load_curated_patterns(self):
+        """Load curated conversational patterns"""
+        curated_path = "memory/curated_patterns.json"
+        if not os.path.exists(curated_path):
+            logger.debug("No curated patterns found")
+            return
+        
+        try:
+            with open(curated_path, 'r') as f:
+                data = json.load(f)
+            
+            for pattern in data.get('patterns', []):
+                pattern_type = pattern.get('pattern_type')
+                response = pattern.get('response')
+                intent = pattern.get('intent', pattern_type)
+                
+                # Store responses by pattern type
+                if pattern_type == 'greeting' and response:
+                    self.learned_greetings.append(response)
+                
+                # Store all patterns in learned_responses by intent
+                if intent and response:
+                    if intent not in self.learned_responses:
+                        self.learned_responses[intent] = []
+                    self.learned_responses[intent].append(response)
+            
+            logger.info(f"Loaded {len(data.get('patterns', []))} curated patterns")
+        except Exception as e:
+            logger.error(f"Failed to load curated patterns: {e}")
             
             # Learn conversation style
             if examples:
