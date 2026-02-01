@@ -130,7 +130,7 @@ class LLMGateway:
             formatter_result = self._try_formatter(tool_name, tool_data, context or {})
             if formatter_result:
                 self.stats['formatter_calls'] += 1
-                logger.info(f"[LLMGateway] ✓ Formatted {tool_name} without LLM")
+                logger.info(f"[LLMGateway] [OK] Formatted {tool_name} without LLM")
                 return LLMResponse(
                     success=True,
                     response=formatter_result,
@@ -143,7 +143,7 @@ class LLMGateway:
         
         if not allowed:
             self.stats['policy_denials'] += 1
-            logger.warning(f"[LLMGateway] ✗ LLM call denied: {reason}")
+            logger.warning(f"[LLMGateway] [DENIED] LLM call denied: {reason}")
             
             # Return appropriate fallback message
             fallback = self._get_policy_fallback(call_type, reason)
@@ -156,7 +156,7 @@ class LLMGateway:
         
         # Step 3: Call LLM
         try:
-            logger.info(f"[LLMGateway] → LLM call ({call_type.value})")
+            logger.info(f"[LLMGateway] [CALL] LLM call ({call_type.value})")
             response = self.llm.chat(prompt, use_history=use_history)
             
             # Record successful call
@@ -182,7 +182,7 @@ class LLMGateway:
                     quality_score=0.8  # Default quality for LLM responses
                 )
             
-            logger.info(f"[LLMGateway] ✓ LLM responded ({len(response)} chars)")
+            logger.info(f"[LLMGateway] [OK] LLM responded ({len(response)} chars)")
             return LLMResponse(
                 success=True,
                 response=response,
@@ -190,7 +190,7 @@ class LLMGateway:
             )
         
         except Exception as e:
-            logger.error(f"[LLMGateway] ✗ LLM error: {e}")
+            logger.error(f"[LLMGateway] [ERROR] LLM error: {e}")
             return LLMResponse(
                 success=False,
                 error=str(e),

@@ -208,3 +208,6 @@ data/advanced_context_state.pkl
 data/training/training_data.jsonl
 data/training/ml_learner.pkl
 data/training/example_training_data.jsonl
+data/training/auto_generated.jsonl
+data/training/auto_generated.jsonl
+.gitignore

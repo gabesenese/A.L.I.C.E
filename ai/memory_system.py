@@ -368,7 +368,7 @@ class VectorStore:
             self.ids = data['ids']
             self.vectors = [np.array(v) for v in data['vectors']]
             self.metadata = data['metadata']
-            logger.info(f"📂 Vector store loaded ({len(self.ids)} vectors)")
+            logger.info(f"[OK] Vector store loaded ({len(self.ids)} vectors)")
 
 
 class MemorySystem:
@@ -1054,7 +1054,7 @@ class MemorySystem:
             self.deduplicate_memories()
         
         if len(self.episodic_memory) <= max_episodic:
-            logger.info(f"✅ Memory consolidation not needed ({len(self.episodic_memory)} < {max_episodic})")
+            logger.info(f"[OK] Memory consolidation not needed ({len(self.episodic_memory)} < {max_episodic})")
             return
         
         # Recalculate importance for all episodic memories
@@ -1074,7 +1074,7 @@ class MemorySystem:
         # Save archived memories to separate file
         self._save_archived_memories(archived)
         
-        logger.info(f"🗂️ Consolidated memories: kept {max_episodic} (avg importance: {sum(m.importance for m in self.episodic_memory)/len(self.episodic_memory):.2f}), archived {len(archived)}")
+        logger.info(f"[OK] Consolidated memories: kept {max_episodic} (avg importance: {sum(m.importance for m in self.episodic_memory)/len(self.episodic_memory):.2f}), archived {len(archived)}")
         
         # Save updated memories
         self._save_memories()
@@ -1100,7 +1100,7 @@ class MemorySystem:
             with open(archive_file, 'w', encoding='utf-8') as f:
                 json.dump(new_archive, f, indent=2)
             
-            logger.info(f"📦 Archived {len(archived)} memories to {archive_file}")
+            logger.info(f"[OK] Archived {len(archived)} memories to {archive_file}")
         except Exception as e:
             logger.error(f"Error archiving memories: {e}")
     
@@ -1154,7 +1154,7 @@ class MemorySystem:
                 self.document_memory = [MemoryEntry(**m) for m in memories_data.get("document", [])]
                 
                 total_memories = len(self.episodic_memory) + len(self.semantic_memory) + len(self.procedural_memory) + len(self.document_memory)
-                logger.info(f"📂 Loaded {total_memories} memories "
+                logger.info(f"[OK] Loaded {total_memories} memories "
                           f"({len(self.episodic_memory)} episodic, "
                           f"{len(self.semantic_memory)} semantic, "
                           f"{len(self.procedural_memory)} procedural, "
@@ -1228,7 +1228,7 @@ if __name__ == "__main__":
             tags=["python", "tutorial", "setup"]
         )
         
-        print(f"✅ Stored memories\n")
+        print("[OK] Stored memories\n")
         
         # Recall memories
         print("🔍 Testing memory recall...")

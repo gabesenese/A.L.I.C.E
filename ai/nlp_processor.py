@@ -39,7 +39,7 @@ try:
     SEMANTIC_CLASSIFIER_AVAILABLE = True
 except ImportError:
     SEMANTIC_CLASSIFIER_AVAILABLE = False
-    logging.warning("⚠️ Semantic intent classifier not available. Using fallback patterns.")
+    logging.warning("[WARN] Semantic intent classifier not available. Using fallback patterns.")
 
 logger = logging.getLogger(__name__)
 
@@ -781,15 +781,15 @@ class NLPProcessor:
         if SEMANTIC_CLASSIFIER_AVAILABLE:
             try:
                 self.semantic_classifier = get_intent_classifier()
-                logger.info("✅ Semantic intent classifier loaded")
+                logger.info("[OK] Semantic intent classifier loaded")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to load semantic classifier: {e}")
+                logger.warning(f"[WARN] Failed to load semantic classifier: {e}")
         
         # Cache for performance
         self._entity_cache = {}
         self._cache_lock = threading.Lock()
         
-        logger.info("🧠 NLPProcessor initialized with advanced semantic understanding")
+        logger.info("[OK] NLPProcessor initialized with advanced semantic understanding")
     
     def process(self, text: str, use_context: bool = True) -> ProcessedQuery:
         """
@@ -864,7 +864,7 @@ class NLPProcessor:
         if use_context:
             self._update_context(result)
         
-        logger.info(f"🎯 Intent: {intent} ({intent_confidence:.2f}) | Slots: {len(slots)} | Emotions: {emotions} | Urgency: {urgency}")
+        logger.info(f"[NLP] Intent: {intent} ({intent_confidence:.2f}) | Slots: {len(slots)} | Emotions: {emotions} | Urgency: {urgency}")
         
         return result
     
@@ -882,10 +882,10 @@ class NLPProcessor:
                     intent = f"{plugin}:{action}"
                     confidence = result.get('confidence', 0.0)
                     
-                    logger.debug(f"✨ Semantic intent: {intent} ({confidence:.3f})")
+                    logger.debug(f"[NLP] Semantic intent: {intent} ({confidence:.3f})")
                     return intent, confidence
             except Exception as e:
-                logger.warning(f"⚠️ Semantic classification failed: {e}")
+                logger.warning(f"[WARN] Semantic classification failed: {e}")
         
         # Fallback to simple keyword matching
         text_lower = text.lower()

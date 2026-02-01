@@ -285,8 +285,8 @@ class ScenarioRunner:
             scenario_results.append(result)
             
             # Log result
-            route_status = "✓" if result.route_match else "✗"
-            intent_status = "✓" if result.intent_match else "✗"
+            route_status = "OK" if result.route_match else "ERR"
+            intent_status = "OK" if result.intent_match else "ERR"
             logger.info(f"    Route: {route_status} {actual_route} (expected: {step.expected_route.value})")
             logger.info(f"    Intent: {intent_status} {mapped_intent} (expected: {step.expected_intent})")
             logger.info(f"    Alice: {alice_response[:80]}...")

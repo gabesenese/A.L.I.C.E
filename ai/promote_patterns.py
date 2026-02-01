@@ -70,11 +70,21 @@ class PatternPromoter:
             try:
                 with open(patterns_file) as f:
                     data = json.load(f)
-                    for pattern in data.get("patterns", []):
-                        # Use normalized input as key
-                        normalized = self._normalize_input(pattern.get("pattern", ""))
-                        if normalized:
-                            existing.add(normalized)
+                    # Handle both dict and list formats
+                    patterns_list = []
+                    if isinstance(data, dict):
+                        # If it's a dict with 'patterns' key or 'value' key
+                        patterns_list = data.get("patterns", data.get("value", []))
+                    elif isinstance(data, list):
+                        # If it's directly a list
+                        patterns_list = data
+                    
+                    for pattern in patterns_list:
+                        if isinstance(pattern, dict):
+                            # Use normalized input as key
+                            normalized = self._normalize_input(pattern.get("pattern", ""))
+                            if normalized:
+                                existing.add(normalized)
             except Exception as e:
                 logger.warning(f"Error loading existing patterns: {e}")
         
@@ -89,12 +99,21 @@ class PatternPromoter:
             try:
                 with open(feedback_file) as f:
                     data = json.load(f)
-                    for item in data.get("feedback", []):
-                        if item.get("type") == "negative":
-                            user_input = item.get("user_input", "")
-                            normalized = self._normalize_input(user_input)
-                            if normalized:
-                                negative.add(normalized)
+                    # Handle both dict and list formats
+                    feedback_list = []
+                    if isinstance(data, dict):
+                        feedback_list = data.get("feedback", data.get("value", []))
+                    elif isinstance(data, list):
+                        feedback_list = data
+                    
+                    for item in feedback_list:
+                        if isinstance(item, dict):
+                            # Filter by negative type if applicable
+                            if item.get("type") == "negative" or "negative" not in str(item):
+                                user_input = item.get("user_input", "")
+                                normalized = self._normalize_input(user_input)
+                                if normalized:
+                                    negative.add(normalized)
             except Exception as e:
                 logger.warning(f"Error loading negative feedback: {e}")
         
