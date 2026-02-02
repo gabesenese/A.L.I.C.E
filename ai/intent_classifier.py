@@ -335,6 +335,27 @@ class SemanticIntentClassifier:
                 self._create_default_examples()
         else:
             self._create_default_examples()
+        
+        # Load learned corrections from training data
+        self._load_learned_corrections()
+    
+    def _load_learned_corrections(self):
+        """Load learned corrections from training data to improve classification"""
+        try:
+            corrections_file = Path("memory/curated_patterns.json")
+            if corrections_file.exists():
+                with open(corrections_file, 'r', encoding='utf-8') as f:
+                    patterns = json.load(f)
+                    
+                if isinstance(patterns, dict) and 'corrections' in patterns:
+                    for correction in patterns['corrections']:
+                        # Add corrected examples to training set
+                        if all(k in correction for k in ['user_input', 'expected_intent', 'expected_route']):\n                            intent_parts = correction['expected_route'].split(':') if ':' in correction['expected_route'] else [correction['expected_route'], 'action']
+                            plugin = intent_parts[0].lower()
+                            action = intent_parts[1].lower() if len(intent_parts) > 1 else 'action'
+                            intent = correction['expected_intent']
+                            
+                            # Add as high-confidence training example\n                            ex = IntentExample(\n                                text=correction['user_input'],\n                                intent=intent,\n                                plugin=plugin,\n                                action=action,\n                                confidence=0.95  # High confidence for learned patterns\n                            )\n                            # Avoid duplicates\n                            if not any(e.text.lower() == ex.text.lower() for e in self.examples):\n                                self.examples.append(ex)\n                    \n                    logger.info(f"Loaded {len(patterns.get('corrections', []))} learned corrections into classifier")\n        except Exception as e:\n            logger.debug(f"Could not load learned corrections: {e}")
     
     def _create_default_examples(self):
         """Create default intent examples covering common use cases"""

@@ -18,10 +18,12 @@ Features:
 import re
 import logging
 import importlib
+import json
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
+from pathlib import Path
 import threading
 
 # Core NLP libraries
@@ -814,9 +816,35 @@ class NLPProcessor:
             except Exception as e:
                 logger.warning(f"[WARN] Failed to load semantic classifier: {e}")
         
+        # Load learned corrections into pattern matching
+        self.learned_corrections = self._load_learned_corrections()
+        
         # Cache for performance
         self._entity_cache = {}
         self._cache_lock = threading.Lock()
+    
+    def _load_learned_corrections(self) -> Dict[str, str]:
+        """Load learned corrections to override pattern matching"""
+        try:
+            corrections_file = Path("memory/curated_patterns.json")
+            if corrections_file.exists():
+                with open(corrections_file, 'r', encoding='utf-8') as f:
+                    patterns = json.load(f)
+                
+                if isinstance(patterns, dict) and 'corrections' in patterns:
+                    learned = {}
+                    for correction in patterns['corrections']:
+                        if 'user_input' in correction and 'expected_intent' in correction:
+                            # Map user input to learned intent for fast override
+                            learned[correction['user_input'].lower()] = correction['expected_intent']
+                    
+                    if learned:
+                        logger.info(f"Loaded {len(learned)} learned corrections into NLP processor")
+                    return learned
+        except Exception as e:
+            logger.debug(f"Could not load learned corrections: {e}")
+        
+        return {}
         
         logger.info("[OK] NLPProcessor initialized with advanced semantic understanding")
     
@@ -825,31 +853,41 @@ class NLPProcessor:
         Complete NLP processing pipeline
         
         Steps:
-        1. Resolve coreferences (if context enabled)
-        2. Detect intent (semantic-first, regex fallback)
-        3. Extract entities (domain-specific + general)
-        4. Fill slots (structured data extraction)
-        5. Analyze sentiment & emotions
-        6. Detect urgency
-        7. Extract keywords
-        8. Update conversation context
+        1. Check learned corrections (HIGHEST PRIORITY)
+        2. Resolve coreferences (if context enabled)
+        3. Detect intent (semantic-first, regex fallback)
+        4. Extract entities (domain-specific + general)
+        5. Fill slots (structured data extraction)
+        6. Analyze sentiment & emotions
+        7. Detect urgency
+        8. Extract keywords
+        9. Update conversation context
         """
         
-        # Step 1: Coreference resolution
-        if use_context:
-            resolved_text = self.coref_resolver.resolve(text, self.context)
+        # Step 0: Check learned corrections FIRST (highest priority)
+        if self.learned_corrections and text.lower() in self.learned_corrections:
+            learned_intent = self.learned_corrections[text.lower()]
+            logger.info(f"[LEARNED] Using correction for '{text}' -> {learned_intent}")
+            intent = learned_intent
+            intent_confidence = 0.95  # High confidence for learned patterns
         else:
-            resolved_text = text
+            # Step 1: Coreference resolution
+            if use_context:
+                resolved_text = self.coref_resolver.resolve(text, self.context)
+            else:
+                resolved_text = text
+            
+            # Clean text
+            clean_text = self._clean_text(resolved_text)
+            
+            # Tokenize
+            tokens = word_tokenize(clean_text.lower())
+            
+            # Step 2: Intent detection (SEMANTIC-FIRST!)
+            intent, intent_confidence = self._detect_intent_semantic(clean_text)
         
-        # Clean text
-        clean_text = self._clean_text(resolved_text)
-        
-        # Tokenize
-        tokens = word_tokenize(clean_text.lower())
-        
-        # Step 2: Intent detection (SEMANTIC-FIRST!)
-        intent, intent_confidence = self._detect_intent_semantic(clean_text)
-        
+        # Continue with rest of processing
+
         # Step 3: Entity extraction
         entities = self._extract_all_entities(clean_text)
         
