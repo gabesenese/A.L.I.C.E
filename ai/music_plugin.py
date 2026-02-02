@@ -790,6 +790,7 @@ class MusicPlugin(PluginInterface):
         self.desktop_spotify = DesktopSpotifyController()  # Desktop control (no API)
         self.local_manager = LocalMusicManager()
         self.current_source = "auto"  # "youtube", "spotify", "local", or "auto"
+        self.pending_local_selection = None  # Initialize pending selection for local music
         
         # Music-related intents this plugin can handle
         self.supported_intents = {
