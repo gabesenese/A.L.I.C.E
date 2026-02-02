@@ -42,25 +42,25 @@ class WeatherFormatter(SimpleFormatter):
         condition = data.get('condition', 'unknown')
         location = data.get('location', 'your location')
         humidity = data.get('humidity')
-        
+
         parts = []
-        
-        # Temperature
-        if temp is not None:
-            parts.append(f"The temperature in {location} is {temp} degrees")
-        
-        # Condition
-        if condition and condition != 'unknown':
-            parts.append(f"with {condition}")
-        
+
+        # Temperature and condition
+        if temp is not None and condition and condition != 'unknown':
+            parts.append(f"Weather in {location}: {condition}, {temp}°C")
+        elif temp is not None:
+            parts.append(f"Temperature in {location}: {temp}°C")
+        elif condition and condition != 'unknown':
+            parts.append(f"Weather in {location}: {condition}")
+
         # Humidity
         if humidity is not None:
-            parts.append(f"Humidity is {humidity}%")
-        
+            parts.append(f"Humidity: {humidity}%")
+
         if not parts:
             return None
-        
-        return ". ".join(parts) + "."
+
+        return "\n".join(parts)
 
     @staticmethod
     def _format_forecast(data: Dict[str, Any], **kwargs) -> Optional[str]:
@@ -91,9 +91,9 @@ class WeatherFormatter(SimpleFormatter):
             condition = day.get('condition', 'unknown')
 
             if date and high is not None and low is not None:
-                daily_lines.append(f"• {date}: {condition}, {low}–{high}°C")
+                daily_lines.append(f"{date}: {condition}, {low}–{high}°C")
             elif date:
-                daily_lines.append(f"• {date}: {condition}")
+                daily_lines.append(f"{date}: {condition}")
 
         if daily_lines:
             summary_lines.extend(daily_lines)
@@ -108,10 +108,10 @@ class WeatherFormatter(SimpleFormatter):
         condition = day.get('condition', 'unknown')
 
         if date and high is not None and low is not None:
-            return f"Forecast for {location} on {date}: {condition}, {low}–{high}°C."
+            return f"{location} on {date}: {condition}, {low}–{high}°C"
         if date:
-            return f"Forecast for {location} on {date}: {condition}."
-        return f"Forecast for {location}: {condition}."
+            return f"{location} on {date}: {condition}"
+        return f"{location}: {condition}"
 
     @staticmethod
     def _extract_target_day(entities: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -173,31 +173,33 @@ class EmailFormatter(SimpleFormatter):
         ]
         """
         if isinstance(data, list):
-            return EmailFormatter._format_email_list(data)
+            # If user requests latest N emails, limit to 5 by default
+            limit = kwargs.get('limit', 5)
+            return EmailFormatter._format_email_list(data, limit=limit)
         elif isinstance(data, dict):
             return EmailFormatter._format_single_email(data)
         return None
     
     @staticmethod
-    def _format_email_list(emails: List[Dict]) -> str:
-        """Format list of emails"""
+    def _format_email_list(emails: List[Dict], limit: int = 5) -> str:
+        """Format list of emails, showing up to 'limit' emails."""
         if not emails:
             return "No emails found."
-        
+
         count = len(emails)
         unread_count = sum(1 for e in emails if e.get('unread', False))
-        
-        lines = [f"You have {count} email(s)" + (f", {unread_count} unread" if unread_count > 0 else "") + ":"]
-        
-        for i, email in enumerate(emails[:10], 1):  # Limit to 10
+
+        lines = [f"Showing your latest {min(count, limit)} of {count} email(s)" + (f", {unread_count} unread" if unread_count > 0 else "") + ":"]
+
+        for i, email in enumerate(emails[:limit], 1):
             sender = email.get('from', 'Unknown')
             subject = email.get('subject', 'No subject')
             unread_mark = " [UNREAD]" if email.get('unread') else ""
             lines.append(f"{i}. From {sender}: {subject}{unread_mark}")
-        
-        if count > 10:
-            lines.append(f"... and {count - 10} more")
-        
+
+        if count > limit:
+            lines.append(f"... and {count - limit} more")
+
         return "\n".join(lines)
     
     @staticmethod

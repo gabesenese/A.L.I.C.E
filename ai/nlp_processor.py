@@ -931,8 +931,8 @@ class NLPProcessor:
         # List: "show/list/recent + email(s)/mail(s)"
         if any(word in text_lower for word in ['show', 'list', 'recent', 'latest']) and any(word in text_lower for word in ['email', 'emails', 'mail', 'mails', 'inbox']):
             return 'email:list', 0.85
-        # Read: "read/open/display + email/mail/message + (first/last/index)"
-        if any(word in text_lower for word in ['read', 'open', 'display', 'view']) and any(word in text_lower for word in ['email', 'mail', 'message', 'first', 'last']):
+        # Read: "read/open/display + email(s)/mail/message + optional (first/last/latest/number)"
+        if any(word in text_lower for word in ['read', 'open', 'display', 'view']) and any(word in text_lower for word in ['email', 'emails', 'mail', 'message']):
             return 'email:read', 0.85
 
         # Notes intents - distinguish VERY clearly

@@ -384,8 +384,12 @@ class SemanticIntentClassifier:
             IntentExample("unread count", "email", "email", "count_unread"),
             
             IntentExample("read my latest email", "email", "email", "read"),
+            IntentExample("read my latest 5 emails", "email", "email", "read"),
+            IntentExample("can you read my latest emails", "email", "email", "read"),
+            IntentExample("show me my latest emails", "email", "email", "read"),
             IntentExample("open the first email", "email", "email", "read"),
             IntentExample("show me the latest message", "email", "email", "read"),
+            IntentExample("read the latest 10 emails", "email", "email", "read"),
             
             IntentExample("send an email", "email", "email", "compose"),
             IntentExample("write an email", "email", "email", "compose"),
