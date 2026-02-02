@@ -2373,13 +2373,14 @@ class ALICE:
             self.last_assistant_response = response
 
             # Log error-like responses for learning
-            if self._is_error_response(response):
+            expected_domain = intent.split(':')[0] if ':' in intent else intent
+            if self._is_error_response(response, expected_domain):
                 self._log_error_interaction(
                     user_input=user_input,
                     intent=intent,
                     entities=entities,
                     response=response,
-                    error_type="bad_answer",
+                    error_type="bad_answer" if any(marker in response.lower() for marker in ["i apologize", "error", "sorry"]) else "wrong_domain",
                     actual_route="TOOL" if ("plugin_result" in locals() and plugin_result) else "LLM_FALLBACK"
                 )
             
@@ -2413,7 +2414,7 @@ class ALICE:
             
             return error_response
 
-    def _is_error_response(self, response: str) -> bool:
+    def _is_error_response(self, response: str, expected_domain: str = None) -> bool:
         """Detect error-like responses that should be logged for learning."""
         if not response:
             return False
@@ -2423,7 +2424,26 @@ class ALICE:
             "i don't know", "i do not know", "not learned", "still learning",
             "i'm not sure", "cannot", "can't"
         ]
-        return any(marker in text for marker in error_markers)
+        has_error = any(marker in text for marker in error_markers)
+        
+        # Also detect wrong-domain responses (e.g., weather response to email query)
+        if not has_error and expected_domain:
+            domain_indicators = {
+                'email': ['from', 'subject', 'inbox', 'message', 'sent'],
+                'weather': ['temperature', 'forecast', '°c', 'celsius', 'condition', 'humidity'],
+                'notes': ['note', 'saved', 'created', 'added', 'reminder'],
+                'music': ['playing', 'artist', 'album', 'track', 'music'],
+                'calendar': ['meeting', 'event', 'appointment', 'schedule', 'time']
+            }
+            
+            expected_indicators = domain_indicators.get(expected_domain, [])
+            if expected_indicators and not any(ind in text for ind in expected_indicators):
+                # Check if response has OTHER domain's indicators
+                for domain, indicators in domain_indicators.items():
+                    if domain != expected_domain and any(ind in text for ind in indicators):
+                        return True  # Wrong domain detected
+        
+        return has_error
 
     def _log_error_interaction(
         self,
