@@ -217,12 +217,12 @@ class ALICE:
             logger.info("[OK] Conversational engine initialized - A.L.I.C.E thinks independently")
             
             # 4. LLM Engine
-            logger.info("🤖 Loading LLM engine...")
+            logger.info(" Loading LLM engine...")
             llm_config = LLMConfig(model=llm_model)
             self.llm = LocalLLMEngine(llm_config)
             
             # 4.1. LLM Gateway - Single entry point for all LLM calls
-            logger.info("🚪 Initializing LLM Gateway with policy enforcement...")
+            logger.info(" Initializing LLM Gateway with policy enforcement...")
             self.llm_gateway = get_llm_gateway(
                 llm_engine=self.llm,
                 learning_engine=self.learning_engine
@@ -795,6 +795,10 @@ class ALICE:
             'your internal code', 'internal code', 'your codebase', 'show me internal',
             'get all the information from your internal code'
         ]):
+            # EXCLUDE notes-related queries (they should be handled by notes plugin)
+            if any(word in input_lower for word in ['note', 'notes', 'memo']):
+                return None  # Let notes plugin handle it
+            
             # A.L.I.C.E understands: show means LIST the codebase
             files = self.self_reflection.list_codebase()
             
@@ -3034,12 +3038,12 @@ class ALICE:
                 print(f"   🔧 Tool Calls: {gateway_stats['tool_calls']} ({gateway_stats.get('tool_call_percentage', 0)}%)")
                 print(f"   🧠 RAG Lookups: {gateway_stats['rag_lookups']} ({gateway_stats.get('rag_lookup_percentage', 0)}%)")
                 print(f"   📝 Formatter Usage: {gateway_stats['formatter_calls']} ({gateway_stats.get('formatter_percentage', 0)}%)")
-                print(f"   🤖 LLM Fallback: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_fallback_percentage', 0)}%)")
+                print(f"    LLM Fallback: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_fallback_percentage', 0)}%)")
                 print(f"   ✗ Policy Denials: {gateway_stats['policy_denials']} ({gateway_stats.get('denial_percentage', 0)}%)")
                 
                 if gateway_stats['by_type']:
                     print("\n   By Call Type:")
-                    for call_type, count in sorted(gateway_stats['by_type'].items(), key=lambda x: x[1], reverse=True):
+                    for cal_type, count in sorted(gateway_stats['by_type'].items(), key=lambda x: x[1], reverse=True):
                         print(f"      {call_type}: {count}")
             
             # Conversational Engine Statistics
