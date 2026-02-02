@@ -342,6 +342,50 @@ class SemanticIntentClassifier:
     def _load_learned_corrections(self):
         """Load learned corrections from training data to improve classification"""
         try:
+            from pathlib import Path
+            corrections_file = Path("memory/curated_patterns.json")
+            if corrections_file.exists():
+                with open(corrections_file, 'r', encoding='utf-8') as f:
+                    patterns = json.load(f)
+                
+                if isinstance(patterns, dict) and 'corrections' in patterns:
+                    count = 0
+                    for correction in patterns['corrections']:
+                        if all(k in correction for k in ['user_input', 'expected_intent', 'expected_route']):
+                            try:
+                                intent_parts = correction['expected_route'].split(':')
+                                if len(intent_parts) < 2:
+                                    intent_parts = [correction['expected_route'], 'action']
+                                
+                                plugin = intent_parts[0].lower()
+                                action = intent_parts[1].lower()
+                                intent = correction['expected_intent']
+                                
+                                ex = IntentExample(
+                                    text=correction['user_input'],
+                                    intent=intent,
+                                    plugin=plugin,
+                                    action=action,
+                                    confidence=0.95
+                                )
+                                
+                                if not any(e.text.lower() == ex.text.lower() for e in self.examples):
+                                    self.examples.append(ex)
+                                    count += 1
+                            except Exception as e:
+                                logger.debug(f"Failed to load correction: {e}")
+                    
+                    if count > 0:
+                        logger.info(f"Loaded {count} learned corrections into classifier")
+        except Exception as e:
+            logger.debug(f"Could not load learned corrections: {e}")
+        
+        # Load learned corrections from training data
+        self._load_learned_corrections()
+    
+    def _load_learned_corrections(self):
+        """Load learned corrections from training data to improve classification"""
+        try:
             corrections_file = Path("memory/curated_patterns.json")
             if corrections_file.exists():
                 with open(corrections_file, 'r', encoding='utf-8') as f:
