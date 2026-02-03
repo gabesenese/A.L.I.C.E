@@ -24,6 +24,7 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
 import sys
 import logging
 import re
+import html
 from typing import Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -1445,7 +1446,7 @@ class ALICE:
                     # Graceful degradation - continue without resolution
             
             # 3. General Entity Detection (for non-email interactions)
-            if self.advanced_context and intent != "email":
+            if self.advanced_context and not (intent and intent.startswith("email")):
                 self._detect_general_entities(user_input, intent, entities)
             
             # Handle pending multi-step actions
@@ -1583,6 +1584,7 @@ class ALICE:
                     elif 'read' in query_lower or 'open' in query_lower:
                         if self.gmail:
                             content = self.gmail.get_email_content(email['id'])
+                            content = self._clean_email_body(content)
                             
                             response = f"Email #{email_num}:\n\n"
                             response += f"From: {email['from']}\n"
@@ -1609,7 +1611,7 @@ class ALICE:
                     return f"I only showed you {len(self.last_email_list)} emails. Please choose a number between 1 and {len(self.last_email_list)}."
             
             # Handle email intents with Gmail plugin
-            if intent == "email":
+            if intent and intent.startswith("email"):
                 if not self.gmail:
                     return "Gmail isn't set up yet. I'll need OAuth credentials to access your email. Want me to walk you through the setup?"
                 
@@ -1715,6 +1717,7 @@ class ALICE:
                         
                         email = emails[0]
                         content = self.gmail.get_email_content(email['id'])
+                        content = self._clean_email_body(content)
                         
                         # Store in context for potential follow-up actions (delete, archive, etc.)
                         self.last_email_list = emails
@@ -2444,6 +2447,42 @@ class ALICE:
                         return True  # Wrong domain detected
         
         return has_error
+
+    def _clean_email_body(self, body: str) -> str:
+        if not body:
+            return ""
+        try:
+            body = html.unescape(body)
+            # Remove style/script blocks before stripping tags
+            body = re.sub(r"<style[\s\S]*?>[\s\S]*?</style>", "", body, flags=re.IGNORECASE)
+            body = re.sub(r"<script[\s\S]*?>[\s\S]*?</script>", "", body, flags=re.IGNORECASE)
+            body = re.sub(r"<\s*br\s*/?>", "\n", body, flags=re.IGNORECASE)
+            body = re.sub(r"</p\s*>", "\n\n", body, flags=re.IGNORECASE)
+            body = re.sub(r"<[^>]+>", "", body)
+
+            # Normalize whitespace
+            body = re.sub(r"\n{3,}", "\n\n", body)
+            body = re.sub(r"[ \t]{2,}", " ", body)
+
+            # Drop CSS-like lines
+            cleaned_lines = []
+            for line in body.splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                # Skip CSS selectors/blocks and property lines
+                if "{" in stripped or "}" in stripped:
+                    continue
+                if re.match(r"^[\w\-]+\s*:\s*[^;]+;?\s*$", stripped):
+                    continue
+                # Skip single-number or very short noise lines
+                if re.match(r"^\d+$", stripped):
+                    continue
+                cleaned_lines.append(stripped)
+
+            return "\n".join(cleaned_lines).strip()
+        except Exception:
+            return body
 
     def _log_error_interaction(
         self,

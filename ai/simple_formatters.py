@@ -205,19 +205,34 @@ class EmailFormatter(SimpleFormatter):
     @staticmethod
     def _format_single_email(email: Dict) -> str:
         """Format single email"""
+        import html
+        import re
+
         sender = email.get('from', 'Unknown')
         subject = email.get('subject', 'No subject')
         date = email.get('date', 'Unknown date')
         body = email.get('body', '')
-        
+
+        # Strip HTML if present and normalize whitespace
+        if body:
+            body = html.unescape(body)
+            body = re.sub(r"<\s*br\s*/?>", "\n", body, flags=re.IGNORECASE)
+            body = re.sub(r"</p\s*>", "\n\n", body, flags=re.IGNORECASE)
+            body = re.sub(r"<[^>]+>", "", body)
+            body = re.sub(r"\n{3,}", "\n\n", body)
+            body = re.sub(r"[ \t]{2,}", " ", body)
+            body = body.strip()
+
+        preview = body[:500] + ("..." if len(body) > 500 else "")
+
         lines = [
             f"From: {sender}",
             f"Subject: {subject}",
             f"Date: {date}",
             "",
-            body[:500] + ("..." if len(body) > 500 else "")
+            preview if preview else "(No content)"
         ]
-        
+
         return "\n".join(lines)
 
 
