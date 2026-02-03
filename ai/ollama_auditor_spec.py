@@ -120,7 +120,7 @@ AUDIT_DIMENSIONS = {
                 5: "Perfect accuracy + edge cases covered"
             }
         ),
-        ScoringDimension.DEPTH: DimensionRubric(
+        ScoringDimension.REASONING: DimensionRubric(
             dimension=ScoringDimension.REASONING,
             description="Analysis goes deep enough",
             scale=5,
