@@ -30,6 +30,10 @@ def main():
     # Step 1: Initialize Alice and LLM
     print("\n[1/3] Initializing ALICE and LLM...")
     try:
+        import os
+        # Disable semantic classifier download on network issues
+        os.environ['ALICE_DISABLE_SEMANTIC_CLASSIFIER'] = '1'
+        
         from app.alice import ALICE
         from ai.llm_engine import LocalLLMEngine, LLMConfig
         

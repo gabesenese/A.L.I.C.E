@@ -57,7 +57,15 @@ class LLMConfig:
         
         try:
             import requests
-            response = requests.get(f"{self.base_url}/api/tags", timeout=2)
+            from requests.adapters import HTTPAdapter
+            from requests.packages.urllib3.util.retry import Retry
+            
+            session = requests.Session()
+            retry = Retry(connect=1, backoff_factor=0)
+            adapter = HTTPAdapter(max_retries=retry)
+            session.mount("http://", adapter)
+            
+            response = session.get(f"{self.base_url}/api/tags", timeout=0.5)
             if response.status_code == 200:
                 models = response.json().get('models', [])
                 fine_tuned_name = f"alice-{self.model.replace(':', '-')}"
@@ -67,7 +75,7 @@ class LLMConfig:
                         self._fine_tuned_model = model_name
                         logger.info(f"[LLM] Using fine-tuned model: {model_name}")
                         return
-        except Exception:
+        except (requests.RequestException, Exception):
             pass
         
         logger.info(f"[LLM] Using base model: {self.model} (fine-tuned not found)")

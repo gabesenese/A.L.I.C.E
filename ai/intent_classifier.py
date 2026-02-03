@@ -294,6 +294,14 @@ class SemanticIntentClassifier:
     def _load_model(self):
         """Load the sentence transformer model with timeout and retry logic"""
         import time
+        import os
+        
+        # Check if disabled
+        if os.environ.get('ALICE_DISABLE_SEMANTIC_CLASSIFIER'):
+            logger.info("Semantic classifier disabled via environment variable")
+            self.model = None
+            return
+        
         max_retries = 3
         retry_delay = 2
         
@@ -301,7 +309,6 @@ class SemanticIntentClassifier:
             try:
                 logger.info(f"Loading semantic model: {self.model_name} (attempt {attempt + 1}/{max_retries})")
                 # Set longer timeout for model download
-                import os
                 os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '60'  # 60 seconds timeout
                 
                 self.model = SentenceTransformer(
