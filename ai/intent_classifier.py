@@ -337,7 +337,13 @@ class SemanticIntentClassifier:
             self._create_default_examples()
         
         # Load learned corrections from training data
-        self._load_learned_corrections()
+        if hasattr(self, '_load_learned_corrections'):
+            self._load_learned_corrections()
+    
+    def _load_learned_corrections(self):
+        """Load learned corrections from training data (stub for semantic classifier)"""
+        # Semantic classifier doesn't use learned corrections same way as pattern-based
+        pass
     
     def _create_default_examples(self):
         """Create default intent examples covering common use cases"""

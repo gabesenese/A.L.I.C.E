@@ -31,10 +31,10 @@ def main():
     print("\n[1/3] Initializing ALICE and LLM...")
     try:
         from app.alice import ALICE
-        from ai.llm_engine import LocalLLMEngine
+        from ai.llm_engine import LocalLLMEngine, LLMConfig
         
         alice = ALICE(debug=False)
-        llm = LocalLLMEngine(model="llama3.1:8b")
+        llm = LocalLLMEngine(config=LLMConfig(model="llama3.1:8b"))
         print("✓ Alice initialized")
         print("✓ LLM engine ready")
     except Exception as e:

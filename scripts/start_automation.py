@@ -29,7 +29,7 @@ def main():
     print("\n[1/2] Initializing components...")
     try:
         from app.alice import ALICE
-        from ai.llm_engine import LocalLLMEngine
+        from ai.llm_engine import LocalLLMEngine, LLMConfig
         from ai.ollama_teacher import create_teacher
         from ai.ollama_auditor import create_auditor
         from ai.ollama_scorer import create_scorer
@@ -39,7 +39,7 @@ def main():
         from ai.audit_config_optimizer import create_optimizer
         
         alice = ALICE(debug=False)
-        llm = LocalLLMEngine(model="llama3.1:8b")
+        llm = LocalLLMEngine(config=LLMConfig(model="llama3.1:8b"))
         
         scheduler = create_scheduler(
             alice,
