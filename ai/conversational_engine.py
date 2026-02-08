@@ -146,7 +146,10 @@ class ConversationalEngine:
 
         # Meta questions - ALWAYS handle if we have curated patterns
         if any(phrase in input_lower for phrase in [
-            'who created', 'who made', 'who built', 'who are you', 'what are you',
+            'who created', 'who made', 'who built',
+            'who are you', 'what are you',
+            'who is alice', 'who is a.l.i.c.e', 'what is alice', 'what is a.l.i.c.e',
+            'who\'s alice', 'what\'s alice',
             'how do you work', 'what can you do', 'capabilities'
         ]):
             # Check if we have curated meta responses
@@ -196,6 +199,14 @@ class ConversationalEngine:
         if 'who created' in input_lower or 'who made' in input_lower or 'who built' in input_lower:
             if 'meta_who_created' in self.learned_responses:
                 return self._pick_non_repeating(self.learned_responses['meta_who_created'])
+
+        # Self-identity questions: "who is alice?", "what is alice?", "who's alice?"
+        if any(phrase in input_lower for phrase in [
+            'who is alice', 'who is a.l.i.c.e', 'what is alice', 'what is a.l.i.c.e',
+            'who\'s alice', 'what\'s alice'
+        ]):
+            if 'meta_what_are_you' in self.learned_responses:
+                return self._pick_non_repeating(self.learned_responses['meta_what_are_you'])
 
         if 'who are you' in input_lower:
             if 'meta_what_are_you' in self.learned_responses:

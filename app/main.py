@@ -3546,30 +3546,47 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
     def _handle_relationship_query(self, user_input: str, intent: str, entities: Dict[str, Any]) -> Optional[str]:
         """Handle relationship queries like 'who does John work for?' or 'tell me about Sarah'"""
         query_lower = user_input.lower()
-        
-        # Patterns for relationship queries
-        relationship_query_patterns = [
-            r'who does (\w+) work (?:for|with)',
-            r'where does (\w+) live',
-            r'who is (\w+)(?:\s+to\s+(\w+))?',
-            r'tell me about (\w+)',
-            r'what do you know about (\w+)',
-            r"(\w+)(?:'s)?\s+(?:relationship|connection)\s+(?:with|to)\s+(\w+)",
-            r'how are (\w+) and (\w+) (?:related|connected)',
-            r'(\w+) and (\w+) relationship',
+
+        # Technical domain exclusions - don't treat these as relationship queries
+        technical_domains = [
+            'neural', 'network', 'algorithm', 'memory', 'consolidation', 'gated', 'recall',
+            'learning', 'machine', 'deep', 'training', 'model', 'data', 'code', 'function',
+            'class', 'method', 'python', 'javascript', 'api', 'database', 'server', 'client',
+            'formula', 'equation', 'math', 'science', 'physics', 'chemistry', 'biology',
+            'weather', 'temperature', 'climate', 'file', 'folder', 'directory', 'system'
         ]
-        
-        for pattern in relationship_query_patterns:
+
+        # Self-reference exclusions - these should go to conversational engine
+        self_references = ['alice', 'a.l.i.c.e', 'a l i c e', 'you', 'yourself']
+
+        # ONLY match specific relationship patterns - not general knowledge queries
+        # Explicit relationship patterns (high confidence these are about entity relationships)
+        specific_relationship_patterns = [
+            r'who does (\w+) work (?:for|with)',  # "who does John work for"
+            r'where does (\w+) live',  # "where does Sarah live"
+            r"(\w+)(?:'s)?\s+(?:relationship|connection)\s+(?:with|to)\s+(\w+)",  # "John's relationship with Mary"
+            r'how are (\w+) and (\w+) (?:related|connected)',  # "how are John and Mary related"
+            r'(\w+) and (\w+) relationship',  # "John and Mary relationship"
+        ]
+
+        for pattern in specific_relationship_patterns:
             match = re.search(pattern, query_lower)
             if match:
                 entity_name = match.group(1)
                 second_entity = match.group(2) if len(match.groups()) > 1 and match.group(2) else None
-                
+
+                # Skip if technical domain or self-reference
+                if entity_name in technical_domains or entity_name in self_references:
+                    continue
+                if second_entity and (second_entity in technical_domains or second_entity in self_references):
+                    continue
+
                 # Get relationships for the entity
                 relationships = self.relationship_tracker.get_entity_relationships(entity_name)
-                
+
                 if not relationships:
-                    return f"I don't have any information about relationships involving {entity_name.title()}."
+                    # Don't return error for specific patterns - just skip to LLM
+                    continue
                 
                 # Format relationships
                 response_parts = [f"Here's what I know about {entity_name.title()}:"]
