@@ -23,13 +23,13 @@ def test_audit_components():
         from ai.ollama_teaching_spec import TEACHING_VECTORS, get_domain_vectors
         
         domains = list(TEACHING_VECTORS.keys())
-        print(f"✓ Loaded {len(domains)} domains: {', '.join(domains)}")
+        print(f"[OK] Loaded {len(domains)} domains: {', '.join(domains)}")
         
         for domain in domains[:2]:
             vectors = get_domain_vectors(domain)
             print(f"  - {domain}: {len(vectors)} skills")
     except Exception as e:
-        print(f"✗ Failed: {e}")
+        print(f"[FAIL] {e}")
         return False
     
     # Test 2: Auditor spec
@@ -38,13 +38,13 @@ def test_audit_components():
         from ai.ollama_auditor_spec import AUDIT_DIMENSIONS, ScoringDimension
         
         domains_audited = list(AUDIT_DIMENSIONS.keys())
-        print(f"✓ Loaded {len(domains_audited)} audited domains: {', '.join(domains_audited)}")
+        print(f"[OK] Loaded {len(domains_audited)} audited domains: {', '.join(domains_audited)}")
         
         for domain in domains_audited[:2]:
             dims = AUDIT_DIMENSIONS[domain]
             print(f"  - {domain}: {len(dims)} dimensions")
     except Exception as e:
-        print(f"✗ Failed: {e}")
+        print(f"[FAIL] {e}")
         return False
     
     # Test 3: Scorer
@@ -53,10 +53,10 @@ def test_audit_components():
         from ai.ollama_scorer import create_scorer
         
         scorer = create_scorer()
-        print(f"✓ Scorer initialized")
+        print(f"[OK] Scorer initialized")
         print(f"  Signals created: 0")
     except Exception as e:
-        print(f"✗ Failed: {e}")
+        print(f"[FAIL] {e}")
         return False
     
     # Test 4: Feedback injector
@@ -65,10 +65,10 @@ def test_audit_components():
         from ai.ollama_feedback_injector import create_injector
         
         injector = create_injector()
-        print(f"✓ Feedback injector initialized")
+        print(f"[OK] Feedback injector initialized")
         print(f"  Feedback log: data/training/audit_feedback.jsonl")
     except Exception as e:
-        print(f"✗ Failed: {e}")
+        print(f"[FAIL] {e}")
         return False
     
     # Test 5: Metric tracker
@@ -77,14 +77,14 @@ def test_audit_components():
         from ai.metric_tracker import create_tracker
         
         tracker = create_tracker()
-        print(f"✓ Metric tracker initialized")
+        print(f"[OK] Metric tracker initialized")
         print(f"  Metrics file: data/training/metrics/domain_metrics.jsonl")
     except Exception as e:
-        print(f"✗ Failed: {e}")
+        print(f"[FAIL] {e}")
         return False
     
     print("\n" + "="*70)
-    print("✓ ALL AUDIT COMPONENTS FUNCTIONAL")
+    print("[OK] ALL AUDIT COMPONENTS FUNCTIONAL")
     print("="*70)
     
     print("\nNEXT STEPS:")

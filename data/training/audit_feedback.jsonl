@@ -1,0 +1,60 @@
+{"query": "Will it rain tomorrow in New York City?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:49:17.937268"}
+{"query": "Is there a heat advisory for my area today?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:49:23.430827"}
+{"query": "Here are two programming questions that cover different areas:", "domain": "code", "score": 4.0, "signal_type": "positive", "timestamp": "2026-02-04T19:49:28.912016"}
+{"query": "1. \"I have a recursive function in my code that's causing a stack overflow error, how can I optimize it to run without running out of memory?\"", "domain": "code", "score": 4.0, "signal_type": "positive", "timestamp": "2026-02-04T19:49:34.261200"}
+{"query": "What's been the highlight of your week so far?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:49:39.849151"}
+{"query": "Do you have any fun plans or events coming up outside of work?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:49:45.351003"}
+{"query": "What is the expected high temperature in New York City tomorrow?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:50:59.461974"}
+{"query": "How can I plan a beach vacation to Hawaii with the best chance of clear skies?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:51:05.225616"}
+{"query": "Here are two different programming questions:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:51:10.356094"}
+{"query": "1. I'm encountering a runtime error with my Python script when trying to access a nested dictionary key - how can I debug this issue?", "domain": "code", "score": 4.0, "signal_type": "positive", "timestamp": "2026-02-04T19:51:15.689147"}
+{"query": "What's been the most interesting thing you've learned on the job lately?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:51:21.529919"}
+{"query": "Do you have any fun plans for the weekend?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:51:26.980904"}
+{"query": "What are the chances of rain on my camping trip tomorrow?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:51:45.616454"}
+{"query": "How do I check the air quality index in my area today?", "domain": "weather", "score": 4.0, "signal_type": "positive", "timestamp": "2026-02-04T19:51:51.003909"}
+{"query": "Here are two different programming questions:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:51:56.340183"}
+{"query": "1. I'm experiencing a segmentation fault when trying to access the nth element of my array, but only on the 10th iteration of my loop - what could be causing this?", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:52:02.011265"}
+{"query": "How was your weekend?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:52:07.799777"}
+{"query": "Do you have any fun plans for your next day off?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:52:13.372299"}
+{"query": "What's the chance of rain on Saturday in New York City?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:52:31.903421"}
+{"query": "How do I track severe thunderstorms in my area using Google Maps?", "domain": "weather", "score": 4.0, "signal_type": "positive", "timestamp": "2026-02-04T19:52:37.466637"}
+{"query": "Here are two programming questions that cover different areas:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:52:43.108747"}
+{"query": "1. I've been experiencing a segmentation fault in my C++ program when trying to access an array out of bounds, but the code seems correct. Can you help me understand why this is happening?", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:52:48.712782"}
+{"query": "What's been the highlight of your week so far?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:52:54.401304"}
+{"query": "How do you like to spend your free time outside of work?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:53:00.397334"}
+{"query": "Will it rain tomorrow in New York City?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:53:16.232030"}
+{"query": "What's the current air quality index in Los Angeles?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:53:22.265704"}
+{"query": "Here are two different programming questions that someone might ask an AI:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:53:27.656320"}
+{"query": "What is causing a null pointer exception in this Java code: `if (list.isEmpty()) return; else System.out.println(list.get(0));`", "domain": "code", "score": 4.0, "signal_type": "positive", "timestamp": "2026-02-04T19:53:32.879063"}
+{"query": "What's been the highlight of your week so far?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:53:38.599262"}
+{"query": "How do you like working on Fridays compared to other days?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:53:44.027260"}
+{"query": "Will it rain on my wedding day tomorrow?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:53:59.389439"}
+{"query": "How much sunlight can I expect during a hike at 3pm in June?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:54:05.171404"}
+{"query": "Here are two different programming questions:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:54:10.443677"}
+{"query": "What is the most common type of error that can occur when using nested try-except blocks in Python and how can I prevent it?", "domain": "code", "score": 4.0, "signal_type": "positive", "timestamp": "2026-02-04T19:54:15.774278"}
+{"query": "How was your weekend?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:54:21.261435"}
+{"query": "Do you have any fun plans for the upcoming holidays?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:54:27.068516"}
+{"query": "Will it rain tomorrow?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:56:28.071958"}
+{"query": "What's the best time to plant tomatoes in my area based on current temperature?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:56:33.502954"}
+{"query": "Here are two different programming questions:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:56:38.742571"}
+{"query": "1. I'm getting a runtime error in my Python code that says \"TypeError: unsupported operand type(s) for +: 'int' and 'str'\", but I've checked the types of all variables involved - what could be causing this issue?", "domain": "code", "score": 4.0, "signal_type": "positive", "timestamp": "2026-02-04T19:56:43.979854"}
+{"query": "What's been the most interesting thing you've learned on the job so far?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:56:49.532547"}
+{"query": "Do you have any fun plans for the weekend?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T19:56:55.151544"}
+{"query": "What is the forecast for New York City tomorrow morning?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T20:05:34.278776"}
+{"query": "How do I check if there's a tornado warning in my area?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T20:05:39.781464"}
+{"query": "Here are two different programming questions that cover various areas:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T20:05:45.205186"}
+{"query": "1. How can I identify and debug a memory leak in my Python program?", "domain": "code", "score": 4.0, "signal_type": "positive", "timestamp": "2026-02-04T20:05:50.776016"}
+{"query": "How was your weekend?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T20:05:56.330080"}
+{"query": "Did you have any fun plans or trips coming up in the next few months?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T20:06:02.105991"}
+{"query": "What is the chance of rain today in New York City?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T21:06:25.417544"}
+{"query": "How can I track a thunderstorm that's headed towards my location?", "domain": "weather", "score": 4.0, "signal_type": "positive", "timestamp": "2026-02-04T21:06:31.774056"}
+{"query": "Here are two programming questions that cover different areas:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T21:06:38.500511"}
+{"query": "1. My program is intermittently crashing with a \"Segmentation Fault\" error when trying to access a large array. Can you help me identify the potential bug and suggest ways to debug it?", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T21:06:45.550944"}
+{"query": "What's been the most interesting thing that's happened since I left on vacation?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T21:06:52.430466"}
+{"query": "How do you think our team can improve our workflow for next quarter?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T21:06:59.387692"}
+{"query": "What's the current humidity level in New York City?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T22:07:17.155784"}
+{"query": "Is it safe to travel to Miami tomorrow given the forecast?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T22:07:22.966539"}
+{"query": "Here are two different programming questions:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T22:07:28.385009"}
+{"query": "1. I've identified a memory leak in my code that's causing it to consume increasing amounts of RAM over time, but I'm not sure where the leak is occurring - can you help me analyze the stack trace and point out the issue?", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T22:07:34.165457"}
+{"query": "What's been the most interesting project you've worked on recently?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T22:07:39.610069"}
+{"query": "How do you like working with our team, what are some things that make it enjoyable?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T22:07:45.170139"}

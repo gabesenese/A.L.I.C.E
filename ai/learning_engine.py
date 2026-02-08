@@ -52,8 +52,12 @@ def _load_optional_deps() -> None:
         LogisticRegression = None
         cosine_similarity = None
     try:
-        st_mod = importlib.import_module("sentence_transformers")
-        SentenceTransformer = st_mod.SentenceTransformer
+        # Skip if disabled via env var to avoid network timeout/import issues
+        if os.environ.get('ALICE_DISABLE_SEMANTIC_CLASSIFIER'):
+            SentenceTransformer = None
+        else:
+            st_mod = importlib.import_module("sentence_transformers")
+            SentenceTransformer = st_mod.SentenceTransformer
     except ImportError:  # pragma: no cover
         SentenceTransformer = None
     _DEPS_LOADED = True
@@ -928,7 +932,12 @@ class PatternPromotionEngine:
         if self.learning_patterns_file.exists():
             try:
                 with open(self.learning_patterns_file, 'r') as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    # Ensure it's a dict (not a list)
+                    if isinstance(data, list):
+                        logger.warning(f"[PatternPromotion] learning_patterns.json contains array, converting to dict")
+                        return {}
+                    return data if isinstance(data, dict) else {}
             except Exception as e:
                 logger.warning(f"[PatternPromotion] Error loading patterns: {e}")
         return {}

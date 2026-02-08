@@ -109,21 +109,30 @@ def main():
     
     print("\nTO STOP SCHEDULER:")
     print("  - Kill this process (Ctrl+C)")
-    print("  - Or call: scheduler.stop_scheduler()")
+    print("  - Run: taskkill /F /IM python.exe (to kill all Python processes)")
     
     print("\n" + "="*70 + "\n")
     
-    # Keep running
+    # Keep running - scheduler is daemon thread
+    # Ignore Ctrl+C since we're running in background
+    import signal
+    import time
+    
+    def ignore_signal(signum, frame):
+        # Ignore Ctrl+C in background mode
+        pass
+    
+    signal.signal(signal.SIGINT, ignore_signal)
+    
+    print("✓ Scheduler running in background. Process will continue until killed.\n")
+    
+    # Daemon thread will keep running
     try:
-        import time
-        print("✓ Scheduler running in background. Press Ctrl+C to stop.\n")
         while True:
-            time.sleep(60)
-    except KeyboardInterrupt:
-        print("\n\nStopping scheduler...")
-        scheduler.stop_scheduler()
-        print("✓ Scheduler stopped")
-        return True
+            time.sleep(3600)  # Sleep for 1 hour at a time
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
 
 
 if __name__ == "__main__":

@@ -209,6 +209,10 @@ SETUP_INSTRUCTIONS.md
 .gitignore
 todo.md
 
+
+# notes files
+md
+
 # Local runtime data (root data/)
 data/memory/memories.json
 data/context/user_prefs.json
@@ -232,3 +236,9 @@ docs/roadmap.md
 memory
 COMPLETION_REPORT.md
 data/context_state.pkl
+integration_test_output.txt
+.gitignore
+learning_cycle_output.txt
+nightly_training_output.txt
+NUL
+tmpclaude*
