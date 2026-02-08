@@ -153,8 +153,8 @@ class ALICEReloader(FileSystemEventHandler):
         except (ValueError, OSError):
             file_path = src_path.name
 
-        logger.info(f"📝 Code changed: {file_path}")
-        logger.info("🔄 Reloading A.L.I.C.E...")
+        logger.info(f"Code changed: {file_path}")
+        logger.info("Reloading A.L.I.C.E...")
 
         # Trigger reload
         self.restart_callback()
@@ -200,11 +200,11 @@ class ALICERunner:
     def start_alice(self):
         """Start ALICE process"""
         if self.process and self.process.poll() is None:
-            logger.info("🛑 Stopping existing ALICE instance...")
+            logger.info("Stopping existing ALICE instance...")
             self.stop_alice()
             time.sleep(1)
 
-        logger.info(f"🚀 Starting ALICE (restart #{self.restart_count})...")
+        logger.info(f"Starting ALICE (restart #{self.restart_count})...")
         logger.info(f"   Model: {self.model}, Voice: {self.voice_enabled}")
 
         cmd = self.build_command()
@@ -220,7 +220,7 @@ class ALICERunner:
             )
 
             self.restart_count += 1
-            logger.info("✓ ALICE running")
+            logger.info("ALICE running")
 
         except Exception as e:
             logger.error(f"Failed to start ALICE: {e}")
@@ -283,7 +283,7 @@ class ALICERunner:
                 if self.restart_requested.is_set():
                     logger.debug("Processing restart request...")
                     self.restart_requested.clear()
-                    logger.info("⏸️  Stopping for reload...")
+                    logger.info("Stopping for reload...")
                     self.stop_alice()
                     time.sleep(0.5)
                     self.start_alice()
@@ -295,7 +295,7 @@ class ALICERunner:
     
     def shutdown(self):
         """Shutdown runner"""
-        logger.info("🛑 Shutting down...")
+        logger.info("Shutting down...")
         self.should_run.clear()
         self.stop_alice()
 
@@ -344,17 +344,17 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
         watch_paths = ['ai/', 'app/', 'speech/', 'ui/', 'features/', 'self_learning/', 'plugins/']
         watch_paths.append('.')  # Watch root for alice.py and other root files
 
-        logger.info("⚙️  Setting up file watcher...")
+        logger.info("Setting up file watcher...")
         watched_count = 0
         for path in watch_paths:
             if os.path.exists(path):
                 observer.schedule(event_handler, path, recursive=True)
-                logger.info(f"   📁 {path}")
+                logger.info(f"   {path}")
                 watched_count += 1
 
         if watched_count > 0:
             observer.start()
-            logger.info(f"✓ File watcher active ({watched_count} directories)")
+            logger.info(f"File watcher active ({watched_count} directories)")
             logger.info(f"   Auto-reload enabled for .py files")
             logger.info(f"   Startup grace period: {event_handler.startup_grace_period}s")
         else:
@@ -364,7 +364,7 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
     
     # Handle Ctrl+C gracefully
     def signal_handler(signum, frame):
-        logger.info("\n🛑 Shutdown signal received")
+        logger.info("\nShutdown signal received")
         runner.shutdown()
         if observer:
             observer.stop()
@@ -382,7 +382,7 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
         while runner_thread.is_alive():
             runner_thread.join(timeout=1)
     except KeyboardInterrupt:
-        logger.info("\n⌨️  Keyboard interrupt")
+        logger.info("\nKeyboard interrupt")
         runner.shutdown()
     finally:
         if observer:

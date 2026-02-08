@@ -418,7 +418,7 @@ class OSArchitectureValidator:
         print("-" * 70)
         
         for result in self.results:
-            status = "✓ PASS" if result.passed else "✗ FAIL"
+            status = "PASS" if result.passed else "FAIL"
             print(f"{status}: {result.test_name}")
             if not result.passed:
                 print(f"  Expected: {result.expected}")

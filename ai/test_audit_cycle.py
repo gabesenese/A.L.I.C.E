@@ -161,7 +161,7 @@ def test_full_audit_pipeline(
             logger.warning(f"  - {error}")
     
     logger.info("="*60)
-    logger.info("✓ Pipeline test complete")
+    logger.info("Pipeline test complete")
     logger.info("="*60 + "\n")
     
     # Save test results

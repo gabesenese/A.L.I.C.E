@@ -13,9 +13,9 @@ logging.getLogger('ai').setLevel(logging.WARNING)
 logging.getLogger('app.main').setLevel(logging.WARNING)
 
 # Initialize Alice
-print('\n🚀 Initializing A.L.I.C.E...')
+print('\nInitializing A.L.I.C.E...')
 alice = ALICE(debug=False)
-print('✓ A.L.I.C.E ready!\n')
+print('A.L.I.C.E ready!\n')
 
 # Test 1: Ask for forecast
 print('═' * 70)
@@ -38,7 +38,7 @@ print(f'Response:\n{response2}\n')
 
 # Verify it's different from current weather
 if 'wednesday' in response2.lower() or '2026-02-' in response2:
-    print('✓ SUCCESS: Response mentions Wednesday or has a date (forecast returned!)')
+    print('SUCCESS: Response mentions Wednesday or has a date (forecast returned!)')
 else:
     print('⚠ Response may not be from forecast data')
 
@@ -70,5 +70,5 @@ for test_input in test_inputs:
     print()
 
 print('═' * 70)
-print('✓ Test completed')
+print('Test completed')
 print('═' * 70)

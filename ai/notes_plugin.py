@@ -89,7 +89,7 @@ class Note:
         pin_str = "📌 " if self.pinned else ""
         priority_icons = {"low": "🔵", "medium": "🟡", "high": "🟠", "urgent": "🔴"}
         priority_str = f"{priority_icons.get(self.priority, '')} " if self.priority != "medium" else ""
-        return f"{pin_str}{priority_str}📝 {self.title}{tags_str}\n{self.content}"
+        return f"{pin_str}{priority_str}{self.title}{tags_str}\n{self.content}"
     
     def matches_keyword(self, keyword: str) -> bool:
         """Check if note contains keyword"""
@@ -1087,10 +1087,10 @@ class NotesPlugin(PluginInterface):
             }
         
         # Format output
-        notes_text = f"📚 You have {len(notes)} note(s):\n\n"
+        notes_text = f"You have {len(notes)} note(s):\n\n"
         for i, note in enumerate(notes[:20], 1):  # Show max 20
             tags_str = f" #{' #'.join(note.tags)}" if note.tags else ""
-            icon = "📝" if note.note_type == "general" else "✅" if note.note_type == "todo" else "💡" if note.note_type == "idea" else "👥"
+            icon = "" if note.note_type == "general" else "✅" if note.note_type == "todo" else "💡" if note.note_type == "idea" else "👥"
             notes_text += f"{i}. {icon} {note.title}{tags_str}\n"
             # Show content preview if different from title
             if note.content and note.content != note.title:
@@ -1127,7 +1127,7 @@ class NotesPlugin(PluginInterface):
         notes_text = f"📦 You have {len(archived_notes)} archived note(s):\n\n"
         for i, note in enumerate(archived_notes[:20], 1):  # Show max 20
             tags_str = f" #{' #'.join(note.tags)}" if note.tags else ""
-            icon = "📝" if note.note_type == "general" else "✅" if note.note_type == "todo" else "💡" if note.note_type == "idea" else "👥"
+            icon = "" if note.note_type == "general" else "✅" if note.note_type == "todo" else "💡" if note.note_type == "idea" else "👥"
             notes_text += f"{i}. {icon} {note.title}{tags_str}\n"
             # Show content preview if different from title
             if note.content and note.content != note.title:
@@ -1286,7 +1286,7 @@ class NotesPlugin(PluginInterface):
                 "tags": []
             }
         
-        tags_text = f"🏷️ All tags ({len(tags)}):\n"
+        tags_text = f"🏷All tags ({len(tags)}):\n"
         tags_text += ', '.join(f"#{tag}" for tag in tags)
         
         return {
@@ -1497,7 +1497,7 @@ class NotesPlugin(PluginInterface):
                 "notes": []
             }
         
-        notes_text = f"⚠️ You have {len(overdue)} overdue note(s):\n\n"
+        notes_text = f"⚠You have {len(overdue)} overdue note(s):\n\n"
         for i, note in enumerate(overdue, 1):
             tags_str = f" #{' #'.join(note.tags)}" if note.tags else ""
             notes_text += f"{i}. {note.title}{tags_str}\n"
@@ -1523,7 +1523,7 @@ class NotesPlugin(PluginInterface):
         
         # Build response
         message = f"📊 **Note Statistics**\n\n"
-        message += f"   📝 Total active notes: {total_count}\n"
+        message += f"   Total active notes: {total_count}\n"
         
         if todos > 0:
             message += f"   ✅ To-do notes: {todos}\n"
@@ -1539,7 +1539,7 @@ class NotesPlugin(PluginInterface):
         # Add tag count
         all_tags = self.manager.get_all_tags()
         if all_tags:
-            message += f"\n   🏷️ Total tags: {len(all_tags)}\n"
+            message += f"\n   🏷Total tags: {len(all_tags)}\n"
         
         return {
             "success": True,
@@ -1576,7 +1576,7 @@ class NotesPlugin(PluginInterface):
         # Sort by count (most used first)
         sorted_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
         
-        message = f"🏷️ **All Tags** ({len(tags)} total)\n\n"
+        message = f"🏷**All Tags** ({len(tags)} total)\n\n"
         for tag, count in sorted_tags:
             message += f"   #{tag} ({count} note{'s' if count != 1 else ''})\n"
         

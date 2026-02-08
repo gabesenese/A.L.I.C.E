@@ -110,7 +110,7 @@ class ConfigOptimizer:
                     'reason': f'{domain} improved by {improvement:.2f}, ready for harder cases'
                 }
                 suggestions['explanation'].append(
-                    f"✓ {domain} improved well (+{improvement:.2f}). Increase query complexity."
+                    f"{domain} improved well (+{improvement:.2f}). Increase query complexity."
                 )
             
             elif improvement < 0.0:
@@ -121,7 +121,7 @@ class ConfigOptimizer:
                     'reason': f'{domain} did not improve, needs different approach'
                 }
                 suggestions['explanation'].append(
-                    f"✗ {domain} did not improve. Use remedial training."
+                    f"{domain} did not improve. Use remedial training."
                 )
             
             else:
@@ -150,10 +150,10 @@ class ConfigOptimizer:
             suggestions['explanation'].append("\n💪 Strong overall improvement. Continue current strategy.")
         elif suggestions['overall_improvement'] > 0.0:
             suggestions['overall_assessment'] = 'positive'
-            suggestions['explanation'].append("\n✓ Positive improvement. Maintain current strategy.")
+            suggestions['explanation'].append("\nPositive improvement. Maintain current strategy.")
         elif suggestions['overall_improvement'] == 0:
             suggestions['overall_assessment'] = 'stagnant'
-            suggestions['explanation'].append("\n⚠️ No improvement. Consider adjusting training approach.")
+            suggestions['explanation'].append("\n⚠No improvement. Consider adjusting training approach.")
         else:
             suggestions['overall_assessment'] = 'negative'
             suggestions['explanation'].append("\n⛔ Performance declined. Review training data quality.")

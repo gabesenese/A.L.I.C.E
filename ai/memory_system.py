@@ -1021,7 +1021,7 @@ class MemorySystem:
                 removed_count += len(to_remove)
         
         if removed_count > 0:
-            logger.info(f"🔄 Deduplicated memories: removed {removed_count} duplicates")
+            logger.info(f"Deduplicated memories: removed {removed_count} duplicates")
             self._save_memories()
         
         return removed_count

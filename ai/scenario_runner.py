@@ -83,7 +83,7 @@ class ScenarioRunner:
                 all_success = False
             
             # Log turn result
-            status = "✓" if result.success else "✗"
+            status = "" if result.success else ""
             logger.info(f"  Turn {turn_index + 1} {status}: {result.user_input[:50]}...")
             logger.info(f"    Intent: {result.detected_intent} (expected: {result.expected_intent})")
             if result.expected_tool:

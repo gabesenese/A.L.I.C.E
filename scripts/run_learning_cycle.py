@@ -53,8 +53,8 @@ def run_learning_cycle():
         alice = ALICE(debug=False)
         llm = LocalLLMEngine(config=LLMConfig(model="llama3.1:8b"))
         
-        print("  ✓ Alice initialized")
-        print("  ✓ LLM initialized")
+        print("  Alice initialized")
+        print("  LLM initialized")
         
         # Step 2: Generate test queries
         print("\n[2/5] Generating test queries...")
@@ -81,14 +81,14 @@ def run_learning_cycle():
                     try:
                         queries = teacher.generate_test_queries(domain, skill, count=2)
                         test_queries.extend([(q, domain) for q in queries])
-                        print(f"  ✓ {domain}/{skill}: generated {len(queries)} queries")
+                        print(f"  {domain}/{skill}: generated {len(queries)} queries")
                     except Exception as e:
                         print(f"  ⚠ {domain}/{skill}: {str(e)[:60]}")
             except Exception as e:
                 print(f"  ⚠ {domain}: {str(e)[:60]}")
         
         if not test_queries:
-            print("  ✗ No test queries generated. Check LLM connection.")
+            print("  No test queries generated. Check LLM connection.")
             return False
         
         print(f"\n  Total: {len(test_queries)} test queries")
@@ -126,7 +126,7 @@ def run_learning_cycle():
                 })
                 
             except Exception as e:
-                print(f"       ✗ Error: {e}")
+                print(f"       Error: {e}")
                 continue
         
         # Step 4: Extract training signals
@@ -169,8 +169,8 @@ def run_learning_cycle():
             for signal in signals:
                 f.write(json.dumps(signal) + "\n")
         
-        print(f"  ✓ Stored {len(signals)} feedback signals")
-        print(f"  ✓ File: data/training/audit_feedback.jsonl")
+        print(f"  Stored {len(signals)} feedback signals")
+        print(f"  File: data/training/audit_feedback.jsonl")
         
         # Summary
         print("\n" + "="*70)
@@ -182,15 +182,15 @@ def run_learning_cycle():
         negative = len([s for s in signals if s["signal_type"] == "negative"])
         
         print(f"\nResults:")
-        print(f"  ✓ Positive signals:     {positive}")
+        print(f"  Positive signals:     {positive}")
         print(f"  ⚠ Improvement needed:   {improvement}")
-        print(f"  ✗ Negative signals:     {negative}")
+        print(f"  Negative signals:     {negative}")
         
         avg_score = sum(s["score"] for s in signals) / len(signals) if signals else 0
         print(f"\n  Average Score: {avg_score:.2f}/5.0")
         
         if positive + improvement > negative:
-            print(f"\n  Status: IMPROVING ✓ - Alice is learning!")
+            print(f"\n  Status: IMPROVING - Alice is learning!")
         else:
             print(f"\n  Status: NEEDS WORK - More training required")
         
@@ -202,7 +202,7 @@ def run_learning_cycle():
         return True
         
     except Exception as e:
-        print(f"\n✗ ERROR: {e}")
+        print(f"\nERROR: {e}")
         import traceback
         traceback.print_exc()
         return False

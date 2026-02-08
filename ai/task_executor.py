@@ -101,7 +101,7 @@ class TaskExecutor:
             )
         
         try:
-            logger.info(f"⚙️ Executing command: {command}")
+            logger.info(f"Executing command: {command}")
             
             result = subprocess.run(
                 command,
@@ -415,7 +415,7 @@ class TaskExecutor:
         """
         results = []
         
-        logger.info(f"🔄 Starting workflow: {workflow_name}")
+        logger.info(f"Starting workflow: {workflow_name}")
         
         for i, task in enumerate(tasks, 1):
             task_type = task.get("type")

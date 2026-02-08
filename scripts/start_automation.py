@@ -52,17 +52,17 @@ def main():
         
         optimizer = create_optimizer()
         
-        print("✓ ALICE initialized")
-        print("✓ LLM engine ready")
-        print("✓ Teacher (query generator) ready")
-        print("✓ Auditor (grader) ready")
-        print("✓ Scorer (signal generator) ready")
-        print("✓ Injector (training pipeline) ready")
-        print("✓ Tracker (metrics) ready")
-        print("✓ Optimizer (auto-tune) ready")
+        print("ALICE initialized")
+        print("LLM engine ready")
+        print("Teacher (query generator) ready")
+        print("Auditor (grader) ready")
+        print("Scorer (signal generator) ready")
+        print("Injector (training pipeline) ready")
+        print("Tracker (metrics) ready")
+        print("Optimizer (auto-tune) ready")
     
     except Exception as e:
-        print(f"✗ Failed to initialize: {e}")
+        print(f"Failed to initialize: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -72,7 +72,7 @@ def main():
     try:
         schedule_thread = scheduler.start_scheduler(hour=2, minute=0)
         
-        print("✓ Scheduler started")
+        print("Scheduler started")
         print("\nCONFIGURATION:")
         status = scheduler.scheduler.get_status()
         print(f"  - Status: Running")
@@ -81,13 +81,13 @@ def main():
         print(f"  - Next run: {status['next_run']}")
         
     except Exception as e:
-        print(f"✗ Failed to start scheduler: {e}")
+        print(f"Failed to start scheduler: {e}")
         import traceback
         traceback.print_exc()
         return False
     
     print("\n" + "="*70)
-    print("✓ AUTOMATION STARTED")
+    print("AUTOMATION STARTED")
     print("="*70)
     
     print("\nWHAT HAPPENS NIGHTLY (2 AM):")
@@ -124,7 +124,7 @@ def main():
     
     signal.signal(signal.SIGINT, ignore_signal)
     
-    print("✓ Scheduler running in background. Process will continue until killed.\n")
+    print("Scheduler running in background. Process will continue until killed.\n")
     
     # Daemon thread will keep running
     try:

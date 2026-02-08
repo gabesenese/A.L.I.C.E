@@ -93,7 +93,7 @@ def test_clarification_gate():
         )
         
         # Check result
-        status = "✓ PASS" if result == expected_clarify else "✗ FAIL"
+        status = "PASS" if result == expected_clarify else "FAIL"
         if result == expected_clarify:
             passed += 1
         else:
@@ -171,7 +171,7 @@ def test_routing_priority():
         
         # Check result
         decision_name = result.decision.value.upper()
-        status = "✓ PASS" if decision_name == expected_decision else "✗ FAIL"
+        status = "PASS" if decision_name == expected_decision else "FAIL"
         if decision_name == expected_decision:
             passed += 1
         else:
@@ -209,9 +209,9 @@ if __name__ == "__main__":
     print()
     print("=" * 80)
     if test1_passed and test2_passed:
-        print("✓ ALL TESTS PASSED!")
+        print("ALL TESTS PASSED!")
     else:
-        print("✗ SOME TESTS FAILED")
+        print("SOME TESTS FAILED")
     print("=" * 80)
     print()
     

@@ -251,7 +251,7 @@ class GoalTracker:
         
         goal.add_tool_call(tool_call)
         
-        status_str = "✓" if status == ToolCallStatus.SUCCESS else "✗"
+        status_str = "" if status == ToolCallStatus.SUCCESS else ""
         logger.info(f"[GoalTracker] Tool call {status_str}: {tool_name}.{action} (in goal {goal_id})")
     
     def complete_goal(self, goal_id: str, success: bool):

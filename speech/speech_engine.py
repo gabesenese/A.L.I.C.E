@@ -85,7 +85,7 @@ class SpeechEngine:
             try:
                 import speech_recognition as sr
                 self._microphone = sr.Microphone()
-                logger.info("🎙️ Microphone initialized")
+                logger.info("🎙Microphone initialized")
             except ImportError:
                 logger.error("❌ speech_recognition not installed")
         return self._microphone
@@ -127,7 +127,7 @@ class SpeechEngine:
             blocking: Wait for speech to finish
         """
         if not self.tts_engine:
-            logger.warning("⚠️ TTS engine not available")
+            logger.warning("⚠TTS engine not available")
             print(f"ALICE: {text}")  # Fallback to print
             return
         
@@ -206,7 +206,7 @@ class SpeechEngine:
                 logger.error(f"❌ Speech recognition service error: {sr_error}")
                 return None
             elif "WaitTimeoutError" in error_name:
-                logger.debug("⏱️ Listening timeout")
+                logger.debug("⏱Listening timeout")
                 return None
             else:
                 logger.error(f"❌ Speech recognition error: {sr_error}")
@@ -245,7 +245,7 @@ class SpeechEngine:
                                 break
                         
                 except KeyboardInterrupt:
-                    logger.info("⏹️ Stopping wake word detection")
+                    logger.info("⏹Stopping wake word detection")
                     self.is_listening = False
                     break
                 except Exception as e:
@@ -255,7 +255,7 @@ class SpeechEngine:
         if background:
             self.listen_thread = threading.Thread(target=wake_word_loop, daemon=True)
             self.listen_thread.start()
-            logger.info("🎙️ Wake word detection started in background")
+            logger.info("🎙Wake word detection started in background")
         else:
             wake_word_loop()
     
@@ -264,7 +264,7 @@ class SpeechEngine:
         self.is_listening = False
         if self.listen_thread:
             self.listen_thread.join(timeout=2)
-        logger.info("⏹️ Stopped listening")
+        logger.info("⏹Stopped listening")
     
     def test_audio(self):
         """Test audio input/output"""
@@ -296,7 +296,7 @@ class SpeechEngine:
                     self.tts_engine.setProperty('voice', voice.id)
                     logger.info(f"🎭 Voice changed to: {voice.name}")
                     return True
-            logger.warning(f"⚠️ Voice '{voice_name}' not found")
+            logger.warning(f"⚠Voice '{voice_name}' not found")
         return False
     
     def list_voices(self):
@@ -307,7 +307,7 @@ class SpeechEngine:
             for i, voice in enumerate(voices):
                 print(f"  {i+1}. {voice.name} ({voice.id})")
         else:
-            logger.warning("⚠️ TTS engine not available")
+            logger.warning("⚠TTS engine not available")
     
     def save_audio(self, text: str, filename: str):
         """Save speech to audio file"""
@@ -368,7 +368,7 @@ if __name__ == "__main__":
             try:
                 speech.listen_for_wake_word(handle_command, background=False)
             except KeyboardInterrupt:
-                print("\n⏹️ Stopped")
+                print("\n⏹Stopped")
         
         elif choice == "2":
             print("\n🎤 Listening... (speak now)")

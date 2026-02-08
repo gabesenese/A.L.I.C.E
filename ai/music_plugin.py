@@ -1000,7 +1000,7 @@ class MusicPlugin(PluginInterface):
         if self.local_manager.is_initialized:
             success_local = self.local_manager.stop()
         
-        return "⏹️ Stopped music playback"
+        return "⏹Stopped music playback"
     
     def _handle_next_request(self) -> str:
         """Handle next track requests"""
@@ -1016,7 +1016,7 @@ class MusicPlugin(PluginInterface):
             success_spotify = self.spotify_manager.next_track()
         
         if success_desktop or success_spotify:
-            return "⏭️ Skipped to next track"
+            return "⏭Skipped to next track"
         
         return "❌ Next track control available with Spotify desktop app or Web API"
     
@@ -1034,7 +1034,7 @@ class MusicPlugin(PluginInterface):
             success_spotify = self.spotify_manager.previous_track()
         
         if success_desktop or success_spotify:
-            return "⏮️ Went to previous track"
+            return "⏮Went to previous track"
         
         return "❌ Previous track control available with Spotify desktop app or Web API"
     
@@ -1154,15 +1154,15 @@ class MusicPlugin(PluginInterface):
         if self.youtube_controller.is_available and (prefer_youtube or self.current_source in ["youtube", "auto"]):
             if song and artist:
                 if self.youtube_controller.play_specific_song(song, artist):
-                    return f"▶️ Opening '{song}' by {artist} on YouTube Music"
+                    return f"▶Opening '{song}' by {artist} on YouTube Music"
             else:
                 if self.youtube_controller.search_and_play(query):
-                    return f"▶️ Searching for '{query}' on YouTube Music"
+                    return f"▶Searching for '{query}' on YouTube Music"
         
         # Try desktop Spotify second (if running and not preferring YouTube)
         if not prefer_youtube and self.desktop_spotify.is_available and self.desktop_spotify.is_spotify_running():
             if self.desktop_spotify.search_and_play(query):
-                return f"▶️ Searching and playing '{query}' on Spotify desktop"
+                return f"▶Searching and playing '{query}' on Spotify desktop"
         
         # Try Spotify Web API if available
         if not prefer_youtube and self.spotify_manager.is_authenticated and self.current_source in ["spotify", "auto"]:
@@ -1170,7 +1170,7 @@ class MusicPlugin(PluginInterface):
             if results:
                 song_result = results[0]
                 if self.spotify_manager.play_track(song_result.uri):
-                    return f"▶️ Playing '{song_result.title}' by {song_result.artist} on Spotify"
+                    return f"▶Playing '{song_result.title}' by {song_result.artist} on Spotify"
         
         # Try local files
         if self.local_manager.is_initialized and self.current_source in ["local", "auto"]:
@@ -1178,7 +1178,7 @@ class MusicPlugin(PluginInterface):
             if results:
                 song_result = results[0]
                 if self.local_manager.play_file(song_result.uri):
-                    return f"▶️ Playing '{song_result.title}' by {song_result.artist} from local files"
+                    return f"▶Playing '{song_result.title}' by {song_result.artist} from local files"
         
         # Fallback: Open YouTube Music even if something failed
         if self.youtube_controller.is_available:
@@ -1204,7 +1204,7 @@ class MusicPlugin(PluginInterface):
                     tracks = self.spotify_manager.get_playlist_tracks(playlist.uri)
                     if tracks:
                         if self.spotify_manager.play_track(tracks[0].uri):
-                            return f"▶️ Playing playlist '{playlist.name}' ({len(tracks)} songs)"
+                            return f"▶Playing playlist '{playlist.name}' ({len(tracks)} songs)"
         
         return f"❌ Playlist '{playlist_name}' not found"
     

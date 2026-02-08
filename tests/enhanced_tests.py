@@ -58,7 +58,7 @@ def test_intent(category, query, expected_keywords=None, test_type="standard"):
         if expected_keywords:
             found_keywords = sum(1 for kw in expected_keywords if kw.lower() in response.lower())
             if found_keywords < len(expected_keywords) * 0.5:
-                print(f"   ⚠️  PARTIAL: Missing keywords in: {response[:60]}")
+                print(f"   ⚠PARTIAL: Missing keywords in: {response[:60]}")
                 test_results[f"{category}_tests"].append({
                     "query": query,
                     "response": response,
@@ -162,7 +162,7 @@ multiturn_scenarios = [
 ]
 
 for scenario in multiturn_scenarios:
-    print(f"\n🔄 Scenario: {scenario['name']}")
+    print(f"\nScenario: {scenario['name']}")
     print("-" * 40)
     
     scenario_passed = True
@@ -184,7 +184,7 @@ for scenario in multiturn_scenarios:
                 if found_keywords >= len(keywords) * 0.5:
                     print(f"    ✅ PASS")
                 else:
-                    print(f"    ⚠️  PARTIAL")
+                    print(f"    ⚠PARTIAL")
                     scenario_passed = False
                     
         except Exception as e:
@@ -242,4 +242,4 @@ with open(results_file, 'w') as f:
         }
     }, f, indent=2)
 
-print(f"✓ Results saved to: {results_file}\n")
+print(f"Results saved to: {results_file}\n")

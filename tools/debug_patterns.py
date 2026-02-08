@@ -79,7 +79,7 @@ for (intent, domain), data in groups.items():
         continue
     
     # CANDIDATE!
-    print(f"  ✓ ({intent}, {domain}): frequency={frequency}")
+    print(f"  ({intent}, {domain}): frequency={frequency}")
     print(f"    teacher_response_rate={teacher_response_rate:.1%}")
     print(f"    route_agreement={route_agreement:.1%}, intent_agreement={intent_agreement:.1%}")
     print(f"    avg_agreement={avg_agreement:.1%}")

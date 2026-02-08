@@ -7,7 +7,7 @@ Creates training data so Alice can improve from mistakes
 import json
 from pathlib import Path
 
-print("📚 Generating learning scenarios from test errors...\n")
+print("Generating learning scenarios from test errors...\n")
 
 error_file = Path("data/training/comprehensive_test_errors.jsonl")
 scenario_file = Path("data/training/auto_generated_corrections.jsonl")
@@ -72,7 +72,7 @@ if scenarios:
         for scenario in scenarios:
             f.write(json.dumps(scenario) + '\n')
     
-    print(f"✓ Saved to {scenario_file}\n")
+    print(f"Saved to {scenario_file}\n")
     
     # Also add to error log for scenario generator
     error_log = Path("data/training/auto_generated.jsonl")
@@ -82,6 +82,6 @@ if scenarios:
         for error in errors:
             f.write(json.dumps(error) + '\n')
     
-    print(f"✓ Added to error log: {error_log}\n")
+    print(f"Added to error log: {error_log}\n")
 
-print("✓ Learning scenarios ready for next training cycle!")
+print("Learning scenarios ready for next training cycle!")

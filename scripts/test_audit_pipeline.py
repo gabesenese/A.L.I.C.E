@@ -39,10 +39,10 @@ def main():
         
         alice = ALICE(debug=False)
         llm = LocalLLMEngine(config=LLMConfig(model="llama3.1:8b"))
-        print("✓ Alice initialized")
-        print("✓ LLM engine ready")
+        print("Alice initialized")
+        print("LLM engine ready")
     except Exception as e:
-        print(f"✗ Failed to initialize: {e}")
+        print(f"Failed to initialize: {e}")
         return False
     
     # Step 2: Run test pipeline
@@ -60,17 +60,17 @@ def main():
         )
         
         if results['status'] != 'complete':
-            print(f"✗ Test failed: {results.get('status')}")
+            print(f"Test failed: {results.get('status')}")
             return False
         
-        print(f"✓ Pipeline test complete")
+        print(f"Pipeline test complete")
         print(f"  - Domains tested: {results['domains_tested']}")
         print(f"  - Total queries: {results['total_queries']}")
         print(f"  - Total audits: {results['total_audits']}")
         print(f"  - Signals generated: {results['total_signals']}")
     
     except Exception as e:
-        print(f"✗ Pipeline test failed: {e}")
+        print(f"Pipeline test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -100,16 +100,16 @@ def main():
             print("\n" + "="*70)
             print("OUTPUT ARTIFACTS")
             print("="*70)
-            print(f"✓ Test results: data/training/test_results.json")
-            print(f"✓ Feedback log: data/training/audit_feedback.jsonl")
-            print(f"✓ Domain datasets: data/training/{{domain}}_feedback.json")
+            print(f"Test results: data/training/test_results.json")
+            print(f"Feedback log: data/training/audit_feedback.jsonl")
+            print(f"Domain datasets: data/training/{{domain}}_feedback.json")
             
     except Exception as e:
-        print(f"✗ Failed to show results: {e}")
+        print(f"Failed to show results: {e}")
         return False
     
     print("\n" + "="*70)
-    print("✓ PIPELINE TEST SUCCESSFUL")
+    print("PIPELINE TEST SUCCESSFUL")
     print("="*70)
     
     print("\nNEXT STEPS:")

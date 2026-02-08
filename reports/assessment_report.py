@@ -28,7 +28,7 @@ for key, value in test_results.items():
     print(f"  {key}: {value}")
 
 # ===== DOMAIN BREAKDOWN =====
-print("\n✓ PASSING DOMAINS (8/8):")
+print("\nPASSING DOMAINS (8/8):")
 print("-" * 80)
 
 passing = [
@@ -42,7 +42,7 @@ passing = [
 ]
 
 for domain, count, details in passing:
-    print(f"  ✓ {domain:.<25} {count} tests - {details}")
+    print(f"  {domain:.<25} {count} tests - {details}")
 
 # ===== FAILING DOMAINS =====
 print("\n⚠ ISSUES IDENTIFIED (2):")
@@ -81,10 +81,10 @@ improvements = [
 ]
 
 for name, desc in improvements:
-    print(f"  ✓ {name:.<30} {desc}")
+    print(f"  {name:.<30} {desc}")
 
 # ===== LEARNING INTEGRATION =====
-print("\n📚 LEARNING INTEGRATION:")
+print("\nLEARNING INTEGRATION:")
 print("-" * 80)
 
 error_file = Path("data/training/comprehensive_test_errors.jsonl")
@@ -93,7 +93,7 @@ scenarios_file = Path("data/training/auto_generated_corrections.jsonl")
 if error_file.exists():
     with open(error_file, 'r') as f:
         error_count = len([line for line in f if line.strip()])
-    print(f"  ✓ Captured {error_count} errors for learning scenarios")
+    print(f"  Captured {error_count} errors for learning scenarios")
     
     # Show error details
     with open(error_file, 'r') as f:
@@ -106,7 +106,7 @@ if error_file.exists():
 if scenarios_file.exists():
     with open(scenarios_file, 'r') as f:
         scenario_count = len([line for line in f if line.strip()])
-    print(f"\n  ✓ Generated {scenario_count} correction scenarios")
+    print(f"\n  Generated {scenario_count} correction scenarios")
 
 # ===== RECOMMENDATIONS =====
 print("\n💡 RECOMMENDATIONS FOR NEXT ITERATION:")
@@ -140,15 +140,14 @@ knowledge_areas = [
 ]
 
 for area, capability in knowledge_areas:
-    print(f"  ✓ {area:.<20} {capability}")
+    print(f"  {area:.<20} {capability}")
 
 # ===== FINAL STATUS =====
 print("\n🎯 FINAL STATUS:")
 print("-" * 80)
 
 print(f"""
-  Alice's Knowledge Base: OPERATIONAL ✓
-  - 92% test pass rate across 8 domains
+  Alice's Knowledge Base: OPERATIONAL - 92% test pass rate across 8 domains
   - 23/25 critical knowledge tests passing
   - 2 minor music plugin issues identified and queued for fixing
   - Error-driven learning system active
@@ -162,4 +161,4 @@ print(f"""
 """)
 
 print("=" * 80)
-print("✓ Assessment complete - Alice is learning!\n")
+print("Assessment complete - Alice is learning!\n")

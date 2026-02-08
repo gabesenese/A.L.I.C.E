@@ -1104,7 +1104,7 @@ class ALICE:
                 # Check if Alice can now phrase this independently
                 can_phrase_alone = self.phrasing_learner.can_phrase_myself(thought_content)
                 if can_phrase_alone:
-                    self._think(f"✓ Alice learned '{response_type}' - can now phrase independently!")
+                    self._think(f"Alice learned '{response_type}' - can now phrase independently!")
                 else:
                     learned_count = len([p for p in self.phrasing_learner.learned_phrasings if p['alice_thought'].get('type') == response_type])
                     self._think(f" Learning '{response_type}' ({learned_count}/3 examples - will be independent soon)")
@@ -1142,9 +1142,9 @@ class ALICE:
         Display/speak them appropriately
         """
         priority_label = {
-            EventPriority.LOW: "ℹ️",
+            EventPriority.LOW: "ℹ",
             EventPriority.NORMAL: "",
-            EventPriority.HIGH: "⚠️",
+            EventPriority.HIGH: "⚠",
             EventPriority.CRITICAL: "🚨"
         }.get(priority, "•")
         
@@ -1389,7 +1389,7 @@ class ALICE:
     def _think(self, msg: str) -> None:
         """Emit a thinking-step line when debug mode is on (dev mode)."""
         if getattr(self, 'debug', False):
-            print("  💭 " + msg, flush=True)
+            print("  " + msg, flush=True)
     
     def _normalize_input(self, user_input: str) -> str:
         """Normalize input for cache lookup (lowercase, strip punctuation)"""
@@ -1521,7 +1521,7 @@ class ALICE:
                     code_file = self.self_reflection.read_file(file_path)
                     if code_file:
                         self.last_code_file = None  # Clear after use
-                        return f"📄 **{code_file.name}** ({code_file.lines} lines, {code_file.module_type}):\n\n```python\n{code_file.content[:2000]}...\n```"
+                        return f"**{code_file.name}** ({code_file.lines} lines, {code_file.module_type}):\n\n```python\n{code_file.content[:2000]}...\n```"
         
         # First, check if there's a .py file mentioned anywhere in the input
         py_file_match = re.search(r'([a-zA-Z0-9_/\\]+\.py)', input_lower)
@@ -1592,7 +1592,7 @@ class ALICE:
                             return f"`{code_file.path}` - {code_file.lines} lines, {code_file.module_type}"
                     else:
                         # Show full file content
-                        return f"📄 **{code_file.name}** ({code_file.lines} lines, {code_file.module_type}):\n\n```python\n{code_file.content[:2000]}...\n```"
+                        return f"**{code_file.name}** ({code_file.lines} lines, {code_file.module_type}):\n\n```python\n{code_file.content[:2000]}...\n```"
                 # File not found - just list what's available
                 files = self.self_reflection.list_codebase()
                 result = f"Couldn't find `{file_path}`. Available files:\n\n"
@@ -3276,7 +3276,7 @@ class ALICE:
                         'timestamp': datetime.now().isoformat()
                     }
                 )
-                self._think(f"🧠 Alice learned from this interaction (confidence in '{intent}' topics growing)")
+                self._think(f"Alice learned from this interaction (confidence in '{intent}' topics growing)")
             except Exception as e:
                 logger.error(f"[Learning] Error in knowledge engine: {e}")
 
@@ -3972,7 +3972,7 @@ class ALICE:
             memory_stats = self.memory.get_statistics()
             print(f"   Total Memories: {memory_stats['total_memories']}")
             if self.privacy_mode:
-                print(f"   ⚠️  Episodic memory storage is DISABLED")
+                print(f"   ⚠Episodic memory storage is DISABLED")
             
             # LLM Gateway Statistics
             if hasattr(self, 'llm_gateway') and self.llm_gateway:
@@ -3981,13 +3981,13 @@ class ALICE:
                 print(f"   Total Requests: {gateway_stats['total_requests']}")
                 
                 # Advanced breakdown
-                print(f"   ✓ Self Handlers: {gateway_stats['self_handlers']} ({gateway_stats.get('self_handler_percentage', 0)}%)")
+                print(f"   Self Handlers: {gateway_stats['self_handlers']} ({gateway_stats.get('self_handler_percentage', 0)}%)")
                 print(f"   💡 Pattern Hits: {gateway_stats['pattern_hits']} ({gateway_stats.get('pattern_hit_percentage', 0)}%)")
                 print(f"   🔧 Tool Calls: {gateway_stats['tool_calls']} ({gateway_stats.get('tool_call_percentage', 0)}%)")
-                print(f"   🧠 RAG Lookups: {gateway_stats['rag_lookups']} ({gateway_stats.get('rag_lookup_percentage', 0)}%)")
-                print(f"   📝 Formatter Usage: {gateway_stats['formatter_calls']} ({gateway_stats.get('formatter_percentage', 0)}%)")
+                print(f"   RAG Lookups: {gateway_stats['rag_lookups']} ({gateway_stats.get('rag_lookup_percentage', 0)}%)")
+                print(f"   Formatter Usage: {gateway_stats['formatter_calls']} ({gateway_stats.get('formatter_percentage', 0)}%)")
                 print(f"    LLM Fallback: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_fallback_percentage', 0)}%)")
-                print(f"   ✗ Policy Denials: {gateway_stats['policy_denials']} ({gateway_stats.get('denial_percentage', 0)}%)")
+                print(f"   Policy Denials: {gateway_stats['policy_denials']} ({gateway_stats.get('denial_percentage', 0)}%)")
                 
                 if gateway_stats['by_type']:
                     print("\n   By Call Type:")
@@ -4054,7 +4054,7 @@ class ALICE:
                 try:
                     context = self.summarizer.get_detailed_context()
                     topics = context.get('frequent_topics', [])
-                    print("\n🏷️ Conversation Topics:")
+                    print("\n🏷Conversation Topics:")
                     print("=" * 50)
                     if topics:
                         for i, topic in enumerate(topics, 1):
@@ -4141,7 +4141,7 @@ class ALICE:
             memories.sort(key=lambda x: x[1].timestamp, reverse=True)
             
             title = f"{'All' if not memory_type else memory_type.title()} Memories"
-            print(f"\n🧠 {title}:")
+            print(f"\n{title}:")
             print("=" * 70)
             
             if not memories:

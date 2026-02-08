@@ -288,11 +288,11 @@ print("""
    → Total: typically 150-600ms per query
 
 3. WHAT'S WORKING NOW
-   ✓ Intent classification
-   ✓ Context retrieval  
-   ✓ Response generation (with LLM)
-   ✓ Memory storage
-   ✓ Audit pipeline (teaching→grading→scoring)
+   Intent classification
+   Context retrieval  
+   Response generation (with LLM)
+   Memory storage
+   Audit pipeline (teaching→grading→scoring)
 
 4. WHAT NEEDS ATTENTION
    ⚠ Ollama network dependency (can fail/timeout)

@@ -251,7 +251,7 @@ class PluginManager:
         """Disable a plugin"""
         if plugin_name in self.plugins:
             self.plugins[plugin_name].enabled = False
-            logger.info(f"⏸️ Plugin disabled: {plugin_name}")
+            logger.info(f"Plugin disabled: {plugin_name}")
 
 
 # Example Plugins

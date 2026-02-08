@@ -16,7 +16,7 @@ logging.getLogger('app.main').setLevel(logging.ERROR)
 logging.getLogger('sentence_transformers').setLevel(logging.ERROR)
 
 # Initialize
-print('\n🚀 Starting comprehensive Alice knowledge test...\n')
+print('\nStarting comprehensive Alice knowledge test...\n')
 alice = ALICE(debug=False)
 
 # Test scenarios across different domains
@@ -80,7 +80,7 @@ for category, query in tests:
             "cannot", "can't", "unknown", "not sure how", "didn't understand"
         ])
         
-        status = "❌ ERROR" if is_error else "✓ OK"
+        status = "❌ ERROR" if is_error else "OK"
         print(f"{status} | {category:.<40} | {response[:80]}")
         
         results.append({
@@ -130,6 +130,6 @@ if errors:
         for error in errors:
             f.write(json.dumps(error) + '\n')
     
-    print(f"✓ Saved to {error_file}")
+    print(f"Saved to {error_file}")
 
-print("\n✓ Test complete!\n")
+print("\nTest complete!\n")
