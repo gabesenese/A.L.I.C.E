@@ -246,9 +246,6 @@ class DesktopSpotifyController:
         return False
 
 # Import the proper plugin interface
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ai.plugin_system import PluginInterface
 
 @dataclass
