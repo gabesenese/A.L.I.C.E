@@ -25,7 +25,6 @@ from dataclasses import dataclass, asdict, field
 from collections import defaultdict, deque
 import threading
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -302,6 +301,9 @@ class SemanticIntentClassifier:
             self.model = None
             return
         
+        # Import only if needed
+        from sentence_transformers import SentenceTransformer
+        
         max_retries = 3
         retry_delay = 2
         
@@ -482,6 +484,53 @@ class SemanticIntentClassifier:
             IntentExample("what is this", "question", "general", "define"),
             IntentExample("explain this to me", "question", "general", "explain"),
             IntentExample("help me understand", "question", "general", "explain"),
+
+            # File Operations Plugin
+            IntentExample("create a file called test.txt", "file", "file_operations", "create"),
+            IntentExample("make a new file named data.json", "file", "file_operations", "create"),
+            IntentExample("create document.docx", "file", "file_operations", "create"),
+
+            IntentExample("read the file config.json", "file", "file_operations", "read"),
+            IntentExample("show me what's in report.txt", "file", "file_operations", "read"),
+            IntentExample("open data.csv", "file", "file_operations", "read"),
+            IntentExample("read notes.txt", "file", "file_operations", "read"),
+
+            IntentExample("delete the file test.txt", "file", "file_operations", "delete"),
+            IntentExample("remove old_data.json", "file", "file_operations", "delete"),
+            IntentExample("get rid of temp.log", "file", "file_operations", "delete"),
+
+            IntentExample("move file.txt to backup folder", "file", "file_operations", "move"),
+            IntentExample("move notes.txt to archive", "file", "file_operations", "move"),
+            IntentExample("copy report.pdf to documents", "file", "file_operations", "copy"),
+            IntentExample("rename document.txt to final_report.txt", "file", "file_operations", "move"),
+
+            IntentExample("list files in downloads", "file", "file_operations", "list"),
+            IntentExample("show me files in this directory", "file", "file_operations", "list"),
+            IntentExample("list all files", "file", "file_operations", "list"),
+
+            IntentExample("search for python files", "file", "file_operations", "search"),
+            IntentExample("find all pdf files", "file", "file_operations", "search"),
+
+            # Memory/RAG Plugin
+            IntentExample("remember that I prefer coffee over tea", "memory", "memory", "store"),
+            IntentExample("save this: my favorite color is blue", "memory", "memory", "store"),
+            IntentExample("keep in mind that I work from 9 to 5", "memory", "memory", "store"),
+            IntentExample("remember I like working out at 6am", "memory", "memory", "store"),
+            IntentExample("remember my birthday is March 15th", "memory", "memory", "store"),
+
+            IntentExample("what do you remember about my preferences", "memory", "memory", "recall"),
+            IntentExample("what did I tell you about my morning routine", "memory", "memory", "recall"),
+            IntentExample("do you remember what I said about coffee", "memory", "memory", "recall"),
+            IntentExample("what do you know about my schedule", "memory", "memory", "recall"),
+
+            IntentExample("search our previous conversations about work", "memory", "memory", "search"),
+            IntentExample("find what we discussed about the project", "memory", "memory", "search"),
+            IntentExample("look up our conversation history about meetings", "memory", "memory", "search"),
+            IntentExample("what did we talk about yesterday", "memory", "memory", "search"),
+            IntentExample("find our conversation about the budget", "memory", "memory", "search"),
+
+            IntentExample("forget my coffee preference", "memory", "memory", "delete"),
+            IntentExample("clear what you know about my schedule", "memory", "memory", "delete"),
         ]
         
         self.examples = default_examples
