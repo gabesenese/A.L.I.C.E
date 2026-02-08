@@ -102,15 +102,26 @@ class WeatherFormatter(SimpleFormatter):
 
     @staticmethod
     def _format_single_day(location: str, day: Dict[str, Any]) -> str:
-        date = day.get('date')
+        """Format a single day's forecast with improved readability"""
+        date_str = day.get('date')
         high = day.get('high')
         low = day.get('low')
         condition = day.get('condition', 'unknown')
 
-        if date and high is not None and low is not None:
-            return f"{location} on {date}: {condition}, {low}–{high}°C"
-        if date:
-            return f"{location} on {date}: {condition}"
+        # Convert date to more readable format
+        day_name = ""
+        if date_str:
+            try:
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                # Format: "Monday, February 9"
+                day_name = date_obj.strftime('%A, %B %d').replace(' 0', ' ')
+            except:
+                day_name = date_str
+
+        if day_name and high is not None and low is not None:
+            return f"{location} on {day_name}: {condition}, low {int(low)}°C, high {int(high)}°C"
+        if day_name:
+            return f"{location} on {day_name}: {condition}"
         return f"{location}: {condition}"
 
     @staticmethod

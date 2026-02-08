@@ -304,24 +304,28 @@ class LLMGateway:
     ) -> str:
         """
         Format tool output (tries formatter first, falls back to LLM if allowed)
-        
+
         Args:
             tool_name: Name of the tool
             data: Tool output data
             user_input: Original user input
             context: Additional context
-        
+
         Returns:
             Formatted response string
         """
-        # Try formatter first
-        formatted = self._try_formatter(tool_name, data, context or {})
-        if formatted:
-            return formatted
-        
-        # Formatter failed - try LLM if policy allows
+        # Check if the question requires contextual interpretation
+        needs_llm_interpretation = self._needs_contextual_answer(user_input, tool_name)
+
+        # Try formatter first (unless question clearly needs LLM interpretation)
+        if not needs_llm_interpretation:
+            formatted = self._try_formatter(tool_name, data, context or {})
+            if formatted:
+                return formatted
+
+        # Formatter failed or question needs interpretation - try LLM if policy allows
         prompt = self._build_tool_format_prompt(tool_name, data, user_input)
-        
+
         response = self.request(
             prompt=prompt,
             call_type=LLMCallType.TOOL_FORMATTING,
@@ -330,13 +334,49 @@ class LLMGateway:
             tool_name=tool_name,
             tool_data=data
         )
-        
+
         if response.success and response.response:
             return response.response
-        
+
+        # LLM failed - try formatter as last resort
+        if needs_llm_interpretation:
+            formatted = self._try_formatter(tool_name, data, context or {})
+            if formatted:
+                return formatted
+
         # Both failed - return raw data
         logger.warning(f"[LLMGateway] Both formatter and LLM failed for {tool_name}")
         return f"Result: {str(data)[:500]}"
+
+    def _needs_contextual_answer(self, user_input: str, tool_name: str) -> bool:
+        """Check if the question requires LLM interpretation beyond simple formatting"""
+        if not user_input:
+            return False
+
+        user_lower = user_input.lower()
+
+        # Questions asking for advice/recommendations based on data
+        advice_keywords = [
+            'should i', 'should we', 'do i need', 'do we need',
+            'would you recommend', 'is it good', 'is it bad',
+            'what should', 'what would you', 'recommend',
+            'advise', 'suggest', 'think i should'
+        ]
+
+        if any(keyword in user_lower for keyword in advice_keywords):
+            return True
+
+        # Weather-specific: clothing/activity questions
+        if tool_name == 'weather':
+            weather_advice_keywords = [
+                'wear', 'bring', 'jacket', 'umbrella', 'coat',
+                'layer', 'dress', 'clothes', 'clothing',
+                'go outside', 'go for', 'safe to', 'good for'
+            ]
+            if any(keyword in user_lower for keyword in weather_advice_keywords):
+                return True
+
+        return False
     
     def _build_tool_format_prompt(
         self,
