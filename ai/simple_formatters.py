@@ -85,15 +85,25 @@ class WeatherFormatter(SimpleFormatter):
 
         daily_lines = []
         for day in days:
-            date = day.get('date')
+            date_str = day.get('date')
             high = day.get('high')
             low = day.get('low')
             condition = day.get('condition', 'unknown')
 
-            if date and high is not None and low is not None:
-                daily_lines.append(f"{date}: {condition}, {low}–{high}°C")
-            elif date:
-                daily_lines.append(f"{date}: {condition}")
+            # Format date nicely
+            day_name = ""
+            if date_str:
+                try:
+                    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                    # Format: "Monday, February 9"
+                    day_name = date_obj.strftime('%A, %B %d').replace(' 0', ' ')
+                except:
+                    day_name = date_str
+
+            if day_name and high is not None and low is not None:
+                daily_lines.append(f"{day_name}: {condition}, low {int(low)}°C, high {int(high)}°C")
+            elif day_name:
+                daily_lines.append(f"{day_name}: {condition}")
 
         if daily_lines:
             summary_lines.extend(daily_lines)
