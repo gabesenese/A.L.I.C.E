@@ -607,5 +607,124 @@
     "plugin": "general",
     "action": "explain",
     "confidence": 1.0
+  },
+  {
+    "text": "create a file called test.txt",
+    "intent": "file",
+    "plugin": "file_operations",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "make a new file named data.json",
+    "intent": "file",
+    "plugin": "file_operations",
+    "action": "create",
+    "confidence": 1.0
+  },
+  {
+    "text": "read the file config.json",
+    "intent": "file",
+    "plugin": "file_operations",
+    "action": "read",
+    "confidence": 1.0
+  },
+  {
+    "text": "open data.csv",
+    "intent": "file",
+    "plugin": "file_operations",
+    "action": "read",
+    "confidence": 1.0
+  },
+  {
+    "text": "delete the file test.txt",
+    "intent": "file",
+    "plugin": "file_operations",
+    "action": "delete",
+    "confidence": 1.0
+  },
+  {
+    "text": "remove old_data.json",
+    "intent": "file",
+    "plugin": "file_operations",
+    "action": "delete",
+    "confidence": 1.0
+  },
+  {
+    "text": "move file.txt to backup",
+    "intent": "file",
+    "plugin": "file_operations",
+    "action": "move",
+    "confidence": 1.0
+  },
+  {
+    "text": "rename document.txt to report.txt",
+    "intent": "file",
+    "plugin": "file_operations",
+    "action": "move",
+    "confidence": 1.0
+  },
+  {
+    "text": "list files in this directory",
+    "intent": "file",
+    "plugin": "file_operations",
+    "action": "list",
+    "confidence": 1.0
+  },
+  {
+    "text": "search for python files",
+    "intent": "file",
+    "plugin": "file_operations",
+    "action": "search",
+    "confidence": 1.0
+  },
+  {
+    "text": "remember that I prefer coffee",
+    "intent": "memory",
+    "plugin": "memory",
+    "action": "store",
+    "confidence": 1.0
+  },
+  {
+    "text": "remember I like working out at 6am",
+    "intent": "memory",
+    "plugin": "memory",
+    "action": "store",
+    "confidence": 1.0
+  },
+  {
+    "text": "what do you remember about my preferences",
+    "intent": "memory",
+    "plugin": "memory",
+    "action": "recall",
+    "confidence": 1.0
+  },
+  {
+    "text": "do you remember what I said about coffee",
+    "intent": "memory",
+    "plugin": "memory",
+    "action": "recall",
+    "confidence": 1.0
+  },
+  {
+    "text": "search our previous conversations about work",
+    "intent": "memory",
+    "plugin": "memory",
+    "action": "search",
+    "confidence": 1.0
+  },
+  {
+    "text": "what did we talk about yesterday",
+    "intent": "memory",
+    "plugin": "memory",
+    "action": "search",
+    "confidence": 1.0
+  },
+  {
+    "text": "forget my coffee preference",
+    "intent": "memory",
+    "plugin": "memory",
+    "action": "delete",
+    "confidence": 1.0
   }
 ]
