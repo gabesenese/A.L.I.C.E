@@ -29,13 +29,13 @@ class RichTerminalUI:
         self.colors = {
             'user': 'bright_blue',           # Electric blue for user messages
             'assistant': 'bright_white',      # Bright white for Alice
-            'accent': 'gold1',                # Gold for accents/links (tech feel)
+            'accent': 'grey70',               # Grey for accents/links (terminal feel)
             'success': 'bright_green',        # Success messages
             'error': 'bright_red',            # Errors
             'warning': 'yellow1',             # Warnings
-            'info': 'grey70',                 # Info/secondary text
-            'border': 'gold1',                # Gold panel borders
-            'dim_border': 'grey50',           # Subtle dark borders
+            'info': 'grey50',                 # Info/secondary text
+            'border': 'grey50',               # Grey panel borders
+            'dim_border': 'grey35',           # Subtle dark borders
         }
 
         # Time-based greeting variations (won't repeat in same session)
