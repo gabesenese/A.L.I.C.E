@@ -80,30 +80,39 @@ class RequestRouter:
         # Email
         'email_read', 'email_send', 'email_compose', 'email_reply',
         'email_search', 'email_delete', 'email_archive',
-        
+
         # Calendar
         'calendar_create', 'calendar_read', 'calendar_update', 'calendar_delete',
         'schedule_meeting', 'check_availability',
-        
+
         # Files
         'file_read', 'file_write', 'file_search', 'file_delete',
-        'file_move', 'file_copy', 'directory_list',
-        
+        'file_move', 'file_copy', 'directory_list', 'file_create',
+        # File operations (plugin:action format)
+        'file_operations:create', 'file_operations:read', 'file_operations:write',
+        'file_operations:delete', 'file_operations:move', 'file_operations:copy',
+        'file_operations:list', 'file_operations:search',
+        'create_file', 'read_file', 'delete_file', 'move_file', 'list_files',
+
+        # Memory operations
+        'memory:store', 'memory:recall', 'memory:search', 'memory:delete',
+        'store_preference', 'recall_memory', 'search_memory', 'delete_memory',
+
         # System
         'system_command', 'process_management',
-        
+
         # Web
         'web_search', 'weather_query', 'weather:current', 'weather:forecast', 'news_query',
-        
+
         # Music
         'music_play', 'music_pause', 'music_stop', 'music_search',
-        
+
         # Notes
         'note_create', 'note_read', 'note_search', 'note_update', 'note_delete',
-        
+
         # Maps
         'location_query', 'directions_query', 'place_search',
-        
+
         # Documents (document_list only - queries go to RAG)
         'document_ingest', 'document_list'
     }
@@ -131,8 +140,10 @@ class RequestRouter:
         'weather': {'weather', 'temperature', 'outside', 'today', 'tomorrow', 'forecast', 'rain', 'snow', 'sunny', 'cloudy', 'degrees', 'celsius', 'fahrenheit'},
         'email': {'email', 'inbox', 'message', 'send', 'reply', 'compose', 'mail'},
         'calendar': {'calendar', 'meeting', 'schedule', 'appointment', 'event', 'available', 'busy'},
-        'file': {'file', 'folder', 'directory', 'document', 'read', 'write', 'delete', 'move'},
-        'note': {'note', 'reminder', 'remember', 'write down'},
+        'file': {'file', 'folder', 'directory', 'document', 'read', 'write', 'delete', 'move', 'create', 'open', 'list', 'search', 'rename', 'copy'},
+        'file_operations': {'file', 'folder', 'directory', 'document', 'read', 'write', 'delete', 'move', 'create', 'open', 'list', 'search', 'rename', 'copy'},
+        'memory': {'remember', 'recall', 'forget', 'memory', 'preference', 'conversation', 'discussed', 'talked', 'mentioned', 'know', 'told'},
+        'note': {'note', 'reminder', 'write down'},
         'music': {'music', 'song', 'play', 'pause', 'stop', 'audio', 'track'}
     }
     
@@ -170,8 +181,10 @@ class RequestRouter:
                 domain = 'email'
             elif 'calendar' in intent or 'schedule' in intent or 'meeting' in intent:
                 domain = 'calendar'
-            elif 'file' in intent:
-                domain = 'file'
+            elif 'file_operations' in intent or 'file' in intent:
+                domain = 'file_operations'
+            elif 'memory' in intent:
+                domain = 'memory'
             elif 'note' in intent:
                 domain = 'note'
             elif 'music' in intent:
@@ -293,7 +306,7 @@ class RequestRouter:
         # Priority 3: TOOL_CALL (plugins with structured output)
         if intent in self.TOOL_INTENTS:
             tool_name = self._intent_to_tool(intent)
-            
+
             if confidence >= self.MIN_TOOL_CONFIDENCE:
                 self.routing_stats['tool'] += 1
                 self._emit_routing_event('tool', RoutingDecision.TOOL_CALL, intent, confidence, {'tool': tool_name})
@@ -376,7 +389,32 @@ class RequestRouter:
             'file_move': 'file_operations',
             'file_copy': 'file_operations',
             'directory_list': 'file_operations',
-            
+            'file_create': 'file_operations',
+            'create_file': 'file_operations',
+            'read_file': 'file_operations',
+            'delete_file': 'file_operations',
+            'move_file': 'file_operations',
+            'list_files': 'file_operations',
+            # File operations plugin:action format
+            'file_operations:create': 'file_operations',
+            'file_operations:read': 'file_operations',
+            'file_operations:write': 'file_operations',
+            'file_operations:delete': 'file_operations',
+            'file_operations:move': 'file_operations',
+            'file_operations:copy': 'file_operations',
+            'file_operations:list': 'file_operations',
+            'file_operations:search': 'file_operations',
+
+            # Memory operations
+            'memory:store': 'memory',
+            'memory:recall': 'memory',
+            'memory:search': 'memory',
+            'memory:delete': 'memory',
+            'store_preference': 'memory',
+            'recall_memory': 'memory',
+            'search_memory': 'memory',
+            'delete_memory': 'memory',
+
             # System
             'system_command': 'system_control',
             'process_management': 'system_control',
