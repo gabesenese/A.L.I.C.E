@@ -82,6 +82,7 @@ from ai.learning_engine import get_learning_engine
 from ai.conversational_engine import get_conversational_engine, ConversationalContext
 from ai.llm_gateway import get_llm_gateway, LLMGateway
 from ai.llm_policy import LLMCallType
+from ai.phrasing_learner import PhrasingLearner
 
 # Advanced learning, testing, and telemetry
 from ai.pattern_miner import PatternMiner
@@ -218,7 +219,17 @@ class ALICE:
                 world_state=self.reasoning_engine
             )
             logger.info("[OK] Conversational engine initialized - A.L.I.C.E thinks independently")
-            
+
+            # 3.6. Phrasing Learner - Progressive independence from Ollama
+            logger.info("Loading phrasing learner...")
+            self.phrasing_learner = PhrasingLearner(storage_path="data/learned_phrasings.jsonl")
+            logger.info("[OK] Phrasing learner ready - Alice will learn from Ollama and become independent")
+
+            # 3.7. Capability Registry - Alice knows what she can do (in code, not prompts)
+            logger.info("Initializing capability registry...")
+            self._init_capabilities_registry()
+            logger.info("[OK] Capability registry ready - Alice knows her own capabilities")
+
             # 4. LLM Engine
             logger.info(" Loading LLM engine...")
             llm_config = LLMConfig(model=llm_model)
@@ -383,7 +394,679 @@ class ALICE:
         except Exception as e:
             logger.error(f"[ERROR] Initialization failed: {e}")
             raise
-    
+
+    def _init_capabilities_registry(self):
+        """
+        Alice knows what she can do - in CODE, not prompts.
+        This is programmatic self-awareness of her capabilities.
+        """
+        self.capabilities = {
+            'codebase_access': {
+                'available': True,
+                'type': 'read-only',
+                'scope': ['ai/', 'app/', 'features/', 'plugins/', 'speech/', 'ui/', 'self_learning/'],
+                'operations': ['list', 'read', 'search', 'analyze'],
+                'description': "I can read and analyze my own Python codebase across all directories",
+                'examples': [
+                    "list files in ai directory",
+                    "read llm_engine.py",
+                    "search for 'reasoning' in codebase"
+                ]
+            },
+            'email_access': {
+                'available': self.gmail is not None if hasattr(self, 'gmail') else False,
+                'type': 'read-write',
+                'provider': 'Gmail',
+                'operations': ['read', 'send', 'search', 'delete', 'compose'],
+                'description': "I can read, send, and manage your Gmail emails",
+                'examples': [
+                    "read my emails",
+                    "send email to john@example.com",
+                    "search emails from Alice"
+                ]
+            },
+            'calendar': {
+                'available': True,
+                'operations': ['create', 'read', 'update', 'delete'],
+                'description': "I can manage your calendar events",
+                'examples': [
+                    "what's on my calendar today",
+                    "add meeting at 3pm",
+                    "show tomorrow's schedule"
+                ]
+            },
+            'weather': {
+                'available': True,
+                'operations': ['get_current', 'get_forecast'],
+                'description': "I can check weather conditions and forecasts",
+                'examples': [
+                    "what's the weather",
+                    "weather forecast for tomorrow",
+                    "will it rain today"
+                ]
+            },
+            'file_operations': {
+                'available': True,
+                'operations': ['read', 'write', 'list', 'search'],
+                'description': "I can manage files on your system",
+                'examples': [
+                    "create a file named notes.txt",
+                    "read document.txt",
+                    "list files in downloads"
+                ]
+            },
+            'notes': {
+                'available': True,
+                'operations': ['create', 'read', 'update', 'delete', 'search'],
+                'description': "I can take and manage notes for you",
+                'examples': [
+                    "take a note: meeting at 3pm",
+                    "show my notes",
+                    "search notes for 'project'"
+                ]
+            },
+            'music': {
+                'available': True,
+                'operations': ['play', 'pause', 'next', 'previous', 'search'],
+                'description': "I can control music playback",
+                'examples': [
+                    "play some music",
+                    "pause music",
+                    "play Imagine Dragons"
+                ]
+            },
+            'maps': {
+                'available': True,
+                'operations': ['get_directions', 'search_location'],
+                'description': "I can provide directions and location information",
+                'examples': [
+                    "directions to the airport",
+                    "where is the nearest coffee shop",
+                    "how do I get to Times Square"
+                ]
+            },
+            'time': {
+                'available': True,
+                'operations': ['get_time', 'get_date', 'set_timer', 'set_reminder'],
+                'description': "I can tell time and set timers/reminders",
+                'examples': [
+                    "what time is it",
+                    "what's today's date",
+                    "set a timer for 10 minutes"
+                ]
+            },
+            'web_search': {
+                'available': True,
+                'operations': ['search'],
+                'description': "I can search the web for information",
+                'examples': [
+                    "search for Python tutorials",
+                    "look up quantum physics",
+                    "find news about AI"
+                ]
+            },
+            'memory': {
+                'available': True,
+                'operations': ['store', 'recall', 'search'],
+                'description': "I maintain memory of our conversations and can recall information",
+                'examples': [
+                    "remember my favorite color is blue",
+                    "what did I tell you about my project",
+                    "do you remember my birthday"
+                ]
+            },
+            'reasoning': {
+                'available': True,
+                'operations': ['analyze', 'solve', 'debug', 'explain'],
+                'description': "I can reason about problems and provide logical analysis",
+                'examples': [
+                    "help me debug this code",
+                    "explain how neural networks work",
+                    "analyze this situation"
+                ]
+            },
+            'self_reflection': {
+                'available': True,
+                'operations': ['read_own_code', 'analyze_capabilities', 'explain_architecture'],
+                'description': "I can read and understand my own source code",
+                'examples': [
+                    "how do you process natural language",
+                   "explain your memory system",
+                    "what's in your reasoning engine"
+                ]
+            }
+        }
+
+    def _select_tone(self, intent: str, context: Any, user_input: str) -> str:
+        """
+        Alice's personality is CODED here.
+        She decides her own tone based on the situation.
+        This is Alice's emotional intelligence - coded, not prompted.
+
+        Args:
+            intent: The classified intent
+            context: Conversational context
+            user_input: Original user input
+
+        Returns:
+            Tone identifier for phrasing
+        """
+        # Alice's core personality (consistent and reliable)
+        base_tone = "warm and helpful"
+
+        # Adjust based on context (Alice's situational awareness)
+        if intent.startswith('error:') or intent.startswith('problem:'):
+            return "professional and supportive"
+
+        elif user_input.isupper() or user_input.count('!') > 2:
+            # User seems upset or excited - de-escalate with calm tone
+            return "calm and understanding"
+
+        elif intent.startswith('casual:') or intent in ['greeting', 'chitchat', 'farewell']:
+            return "casual and friendly"
+
+        elif intent.startswith('technical:') or intent.startswith('code:'):
+            return "professional and precise"
+
+        elif intent.startswith('creative:') or 'write' in intent or 'create' in intent:
+            return "enthusiastic and supportive"
+
+        else:
+            return base_tone
+
+    def _formulate_response(
+        self,
+        user_input: str,
+        intent: str,
+        entities: Dict[str, Any],
+        context: Any
+    ) -> Dict[str, Any]:
+        """
+        Alice's core intelligence formulates a structured response.
+        This is WHERE ALICE THINKS - using her coded logic, not LLM delegation.
+
+        Process:
+        1. Understand what user wants (reasoning)
+        2. Check Alice's knowledge/memory
+        3. Decide response type and content
+        4. Return structured thought (not natural language yet)
+
+        Args:
+            user_input: User's message
+            intent: Classified intent
+            entities: Extracted entities
+            context: Conversational context (can have plugin_data)
+
+        Returns:
+            Structured response dict with:
+            - type: Response type (capability_answer, knowledge_answer, etc.)
+            - content: Main content/data
+            - reasoning: Chain of reasoning (optional)
+            - confidence: Confidence score
+        """
+        # Step 0: Check if plugin provided data - formulate based on that + user question
+        plugin_data = getattr(context, 'plugin_data', None) if hasattr(context, 'plugin_data') else context.get('plugin_data') if isinstance(context, dict) else None
+
+        if plugin_data:
+            # Alice analyzes plugin data in context of user's question
+            return self._formulate_from_plugin_data(user_input, intent, entities, plugin_data)
+
+        # Step 0.5: Self-analysis requests - Alice should read her own code and formulate real insights
+        input_lower = user_input.lower()
+        self_analysis_phrases = [
+            'go through your code', 'analyze your code', 'review your code',
+            'look at your code', 'read your code', 'check your code',
+            'analyze yourself', 'review yourself', 'improvements',
+            'what can we improve', 'what can you improve', 'suggest improvements'
+        ]
+
+        # Check if this is a comprehensive self-analysis request
+        if any(phrase in input_lower for phrase in self_analysis_phrases):
+            # This should trigger actual code reading, not LLM hallucination
+            return {
+                'type': 'self_analysis_needed',
+                'query': user_input,
+                'confidence': 0.9
+            }
+
+        # Step 1: Check if Alice can handle this with her own knowledge
+        # Capability questions - Alice knows her own capabilities from registry
+        if 'capability' in intent or any(phrase in user_input.lower() for phrase in [
+            'can you', 'do you have access', 'are you able to', 'can you access'
+        ]):
+            # Extract what capability is being asked about
+            capability_key = self._identify_capability_from_input(user_input)
+
+            if capability_key and capability_key in self.capabilities:
+                capability = self.capabilities[capability_key]
+                return {
+                    'type': 'capability_answer',
+                    'can_do': capability['available'],
+                    'details': capability.get('description', ''),
+                    'operations': capability.get('operations', []),
+                    'examples': capability.get('examples', []),
+                    'confidence': 0.95
+                }
+
+        # Step 2: Check Alice's memory for relevant information
+        try:
+            relevant_memories = self.memory.recall_relevant(user_input, top_k=3)
+        except:
+            relevant_memories = []
+
+        # Step 3: Knowledge questions - Alice might need to query her knowledge tool
+        if intent.startswith('question:') and 'knowledge' in intent:
+            return {
+                'type': 'knowledge_query_needed',
+                'query': user_input,
+                'confidence': 0.7
+            }
+
+        # Step 4: Reasoning/analysis tasks - Alice uses her reasoning engine
+        if intent.startswith('reasoning:') or intent.startswith('analyze:'):
+            reasoning_chain = self._apply_reasoning(user_input, entities, context)
+            return {
+                'type': 'reasoning_result',
+                'conclusion': reasoning_chain[-1] if reasoning_chain else "Analysis complete",
+                'reasoning': reasoning_chain,
+                'confidence': 0.8
+            }
+
+        # Step 5: General conversational response
+        return {
+            'type': 'general_response',
+            'content': user_input,  # Will be processed by conversational engine
+            'memories': relevant_memories,
+            'confidence': 0.6
+        }
+
+    def _formulate_from_plugin_data(
+        self,
+        user_input: str,
+        intent: str,
+        entities: Dict[str, Any],
+        plugin_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Alice formulates an intelligent response based on plugin data + user's question.
+        This is Alice THINKING about the data, not just formatting it.
+
+        Example:
+        - User: "should I wear a layer?"
+        - Plugin: {temperature: -19.2, condition: "clear"}
+        - Alice thinks: "Very cold → yes, definitely wear layers"
+        - Returns: {type: 'weather_advice', ...}
+
+        Args:
+            user_input: User's original question
+            intent: Classified intent
+            entities: Extracted entities
+            plugin_data: Data from plugin execution
+
+        Returns:
+            Structured thought about how to answer based on data
+        """
+        input_lower = user_input.lower()
+
+        # Weather-related formulations
+        if intent.startswith('weather'):
+            temp = plugin_data.get('temperature')
+            condition = plugin_data.get('condition', '').lower()
+            location = plugin_data.get('location', '')
+
+            # User asking about clothing/layers/what to wear
+            if any(word in input_lower for word in ['wear', 'layer', 'coat', 'jacket', 'dress', 'clothing', 'bring']):
+                if temp is not None:
+                    # Alice's reasoning about clothing
+                    if temp < -15:
+                        advice = "definitely wear multiple layers"
+                        reason = "it's extremely cold"
+                    elif temp < 0:
+                        advice = "yes, wear layers"
+                        reason = "it's well below freezing"
+                    elif temp < 10:
+                        advice = "a light jacket would be good"
+                        reason = "it's chilly"
+                    elif temp < 20:
+                        advice = "light clothing should be fine"
+                        reason = "it's mild"
+                    else:
+                        advice = "light clothing is perfect"
+                        reason = "it's warm"
+
+                    return {
+                        'type': 'weather_advice',
+                        'advice': advice,
+                        'reason': reason,
+                        'temperature': temp,
+                        'condition': condition,
+                        'location': location,
+                        'confidence': 0.95
+                    }
+
+            # User asking about specific conditions (rain, snow, etc.)
+            elif any(word in input_lower for word in ['rain', 'snow', 'storm', 'sunny', 'cloud']):
+                # Check if question word suggests yes/no answer
+                is_question = any(word in input_lower for word in ['will', 'is', 'going to', 'gonna'])
+
+                if is_question:
+                    # Alice provides yes/no answer with reasoning
+                    if 'rain' in input_lower:
+                        will_rain = 'rain' in condition or 'drizzle' in condition or 'shower' in condition
+                        return {
+                            'type': 'weather_prediction',
+                            'answer': 'yes' if will_rain else 'no',
+                            'condition': condition,
+                            'location': location,
+                            'confidence': 0.9
+                        }
+                    elif 'snow' in input_lower:
+                        will_snow = 'snow' in condition
+                        return {
+                            'type': 'weather_prediction',
+                            'answer': 'yes' if will_snow else 'no',
+                            'condition': condition,
+                            'location': location,
+                            'confidence': 0.9
+                        }
+
+            # General weather query - provide comprehensive info
+            return {
+                'type': 'weather_report',
+                'temperature': temp,
+                'condition': condition,
+                'location': location,
+                'full_data': plugin_data,
+                'confidence': 0.9
+            }
+
+        # Note/file operations
+        elif intent.startswith('note') or intent.startswith('file'):
+            operation = plugin_data.get('operation', 'unknown')
+            success = plugin_data.get('success', False)
+
+            if success:
+                return {
+                    'type': 'operation_success',
+                    'operation': operation,
+                    'details': plugin_data.get('message', ''),
+                    'confidence': 0.95
+                }
+            else:
+                return {
+                    'type': 'operation_failure',
+                    'operation': operation,
+                    'error': plugin_data.get('error', 'Operation failed'),
+                    'confidence': 0.9
+                }
+
+        # Calendar events
+        elif intent.startswith('calendar') or intent.startswith('schedule'):
+            events = plugin_data.get('events', [])
+            if events:
+                return {
+                    'type': 'calendar_info',
+                    'event_count': len(events),
+                    'events': events,
+                    'confidence': 0.95
+                }
+
+        # Generic plugin response - Alice provides what she can
+        return {
+            'type': 'plugin_result',
+            'data': plugin_data,
+            'confidence': 0.7
+        }
+
+    def _apply_reasoning(
+        self,
+        user_input: str,
+        entities: Dict[str, Any],
+        context: Any
+    ) -> list:
+        """
+        Alice's reasoning logic (coded, not delegated to LLM).
+        Returns chain of reasoning steps.
+
+        Args:
+            user_input: User's message
+            entities: Extracted entities
+            context: Conversational context
+
+        Returns:
+            List of reasoning steps
+        """
+        reasoning_chain = []
+
+        # Example: Debugging logic
+        if 'debug' in user_input.lower() or 'error' in user_input.lower():
+            reasoning_chain.append("User needs debugging help")
+            reasoning_chain.append(f"Looking for error patterns in context")
+
+            # Alice would apply her debugging rules here
+            reasoning_chain.append("Analyzing recent conversation for code context")
+
+        # Example: Explanation logic
+        elif 'how' in user_input.lower() or 'why' in user_input.lower():
+            reasoning_chain.append("User wants an explanation")
+            reasoning_chain.append("Need to provide logical breakdown")
+
+        # Default: general analysis
+        else:
+            reasoning_chain.append("Analyzing user request")
+            reasoning_chain.append("Formulating response based on context")
+
+        return reasoning_chain
+
+    def _identify_capability_from_input(self, user_input: str) -> Optional[str]:
+        """
+        Identify which capability the user is asking about.
+
+        Args:
+            user_input: User's message
+
+        Returns:
+            Capability key or None
+        """
+        input_lower = user_input.lower()
+
+        # Map input patterns to capability keys
+        capability_patterns = {
+            'codebase_access': ['code', 'codebase', 'source', 'file', 'python'],
+            'email_access': ['email', 'gmail', 'mail', 'inbox'],
+            'calendar': ['calendar', 'schedule', 'event', 'meeting'],
+            'weather': ['weather', 'forecast', 'temperature'],
+            'file_operations': ['file', 'document', 'folder'],
+            'notes': ['note', 'notes'],
+            'music': ['music', 'song', 'play'],
+            'maps': ['directions', 'map', 'location', 'navigate'],
+            'time': ['time', 'date', 'timer', 'reminder'],
+            'web_search': ['search', 'look up', 'find'],
+            'memory': ['remember', 'recall', 'memory'],
+            'reasoning': ['analyze', 'think', 'reason', 'debug'],
+            'self_reflection': ['how do you', 'explain your', 'your system']
+        }
+
+        # Find best match
+        for capability_key, patterns in capability_patterns.items():
+            if any(pattern in input_lower for pattern in patterns):
+                return capability_key
+
+        return None
+
+    def _generate_natural_response(
+        self,
+        alice_response: Dict[str, Any],
+        tone: str,
+        context: Any,
+        user_input: str
+    ) -> str:
+        """
+        Generate natural language response with progressive learning.
+        This is the LEARNING LOOP - Alice becomes independent over time.
+
+        Process:
+        1. Alice has formulated her structured response
+        2. Alice selects the tone
+        3. Alice checks: Can I phrase this myself? (learned enough?)
+        4. If YES: Alice phrases it independently (fast, no LLM!)
+        5. If NO: Alice asks Ollama, then LEARNS from it (child→parent)
+
+        Args:
+            alice_response: Alice's formulated thought (from _formulate_response)
+            tone: Selected tone (from _select_tone)
+            context: Conversational context
+            user_input: Original user input
+
+        Returns:
+            Natural language response ready for user
+        """
+        # Extract the content type and data
+        response_type = alice_response.get('type')
+        content = alice_response.get('content') or alice_response
+
+        # Step 1: Can Alice phrase this herself? (Check if learned)
+        if self.phrasing_learner.can_phrase_myself(alice_response, tone):
+            # Alice has learned this pattern! Phrase it independently
+            natural_response = self.phrasing_learner.phrase_myself(alice_response, tone)
+            logger.info(f"[ALICE] Phrased '{response_type}' independently (learned pattern, confidence high)")
+            logger.info("[Learning Progress] Alice is becoming more independent!")
+            return natural_response
+
+        # Step 2: Not confident yet - Alice asks Ollama for help (child asks parent)
+        logger.info(f"[ALICE] Need Ollama's help to phrase '{response_type}' (learning in progress...)")
+
+        # Prepare content for phrasing based on response type
+        if response_type == 'capability_answer':
+            can_do = alice_response.get('can_do', False)
+            details = alice_response.get('details', '')
+            operations = alice_response.get('operations', [])
+            thought_content = {
+                'type': 'capability_answer',
+                'can_do': can_do,
+                'details': details,
+                'operations': operations
+            }
+            content_str = f"I {'can' if can_do else 'cannot'} do this. Details: {details}"
+
+        elif response_type == 'weather_advice':
+            advice = alice_response.get('advice', '')
+            reason = alice_response.get('reason', '')
+            temp = alice_response.get('temperature')
+            thought_content = alice_response
+            content_str = f"{advice.capitalize()} because {reason}. It's {temp}°C outside."
+
+        elif response_type == 'weather_prediction':
+            answer = alice_response.get('answer', '').capitalize()
+            condition = alice_response.get('condition', '')
+            thought_content = alice_response
+            content_str = f"{answer}, current condition is {condition}."
+
+        elif response_type == 'weather_report':
+            temp = alice_response.get('temperature')
+            condition = alice_response.get('condition', '')
+            location = alice_response.get('location', '')
+            thought_content = alice_response
+            content_str = f"Weather in {location}: {condition}, {temp}°C"
+
+        elif response_type == 'operation_success':
+            operation = alice_response.get('operation', 'operation')
+            details = alice_response.get('details', '')
+            thought_content = alice_response
+            content_str = f"Successfully completed {operation}. {details}"
+
+        elif response_type == 'operation_failure':
+            operation = alice_response.get('operation', 'operation')
+            error = alice_response.get('error', '')
+            thought_content = alice_response
+            content_str = f"Could not complete {operation}. Error: {error}"
+
+        elif response_type == 'code_explanation':
+            file_name = alice_response.get('file_name', 'file')
+            file_path = alice_response.get('file_path', '')
+            lines = alice_response.get('lines', 0)
+            module_type = alice_response.get('module_type', 'code')
+            content_preview = alice_response.get('content_preview', '')
+            thought_content = alice_response
+            content_str = f"The file {file_name} is a {module_type} file with {lines} lines. It contains: {content_preview[:200]}"
+
+        elif response_type == 'self_analysis':
+            total_files = alice_response.get('total_files', 0)
+            analyzed_files = alice_response.get('analyzed_files', [])
+            architecture_points = alice_response.get('architecture_points', [])
+            thought_content = alice_response
+
+            # Build content string from actual code structure
+            analysis_str = f"I have {total_files} Python files in my codebase. "
+            analysis_str += f"I analyzed {len(analyzed_files)} key architectural files:\n\n"
+
+            for file_info in analyzed_files:
+                analysis_str += f"- {file_info['path']}: {file_info['lines']} lines, "
+                if file_info.get('classes'):
+                    analysis_str += f"{len(file_info['classes'])} classes, "
+                if file_info.get('functions'):
+                    analysis_str += f"{len(file_info['functions'])} functions"
+                analysis_str += "\n"
+
+            analysis_str += f"\nMy architecture includes:\n"
+            for point in architecture_points:
+                analysis_str += f"- {point}\n"
+
+            content_str = analysis_str
+
+        elif response_type == 'reasoning_result':
+            conclusion = alice_response.get('conclusion', '')
+            thought_content = {
+                'type': 'reasoning_result',
+                'conclusion': conclusion
+            }
+            content_str = f"Conclusion: {conclusion}"
+
+        else:
+            # General response
+            thought_content = alice_response
+            content_str = str(content)
+
+        # Step 3: Ask Ollama to phrase it (using PHRASE_RESPONSE call)
+        try:
+            phrasing_context = {
+                'alice_thought': content_str,
+                'tone': tone,
+                'user_name': self.context.user_prefs.name
+            }
+
+            llm_response = self.llm_gateway.request(
+                prompt=content_str,
+                call_type=LLMCallType.PHRASE_RESPONSE,
+                context=phrasing_context,
+                user_input=user_input
+            )
+
+            if llm_response.success and llm_response.response:
+                natural_response = llm_response.response
+
+                # Step 4: LEARN from Ollama's phrasing (child observes parent)
+                self.phrasing_learner.record_phrasing(
+                    alice_thought=thought_content,
+                    ollama_phrasing=natural_response,
+                    context={
+                        'tone': tone,
+                        'intent': context.current_intent if hasattr(context, 'current_intent') else 'unknown',
+                        'user_input': user_input
+                    }
+                )
+                logger.info(f"[Learning] Recorded Ollama's phrasing - Alice is learning '{response_type}' pattern")
+
+                return natural_response
+            else:
+                # Ollama failed - fallback to simple response
+                logger.warning("[ALICE] Ollama phrasing failed, using simple fallback")
+                return content_str
+
+        except Exception as e:
+            logger.error(f"[ALICE] Error in phrasing: {e}")
+            return content_str
+
     def _register_plugins(self):
         """Register all available plugins"""
         # Register NotesPlugin early to ensure it handles note commands before calendar
@@ -791,89 +1474,80 @@ class ALICE:
         # First, check if there's a .py file mentioned anywhere in the input
         py_file_match = re.search(r'([a-zA-Z0-9_/\\]+\.py)', input_lower)
         has_py_file = py_file_match is not None
-        
-        # General questions about code access - SHOW don't tell
+
+        # Only handle EXPLICIT requests to show/list code files
+        # Questions about capabilities should go to LLM for natural responses
         if not has_py_file and any(phrase in input_lower for phrase in [
             'show me your code', 'show me code', 'show your code', 'show code',
-            'show me all', 'see your code', 'see code', 'read your code', 'read code',
-            'your internal code', 'internal code', 'your codebase', 'show me internal',
-            'get all the information from your internal code'
+            'show me all', 'your codebase', 'show me internal',
+            'list files', 'show files', 'what files', 'list your code'
         ]):
             # EXCLUDE notes-related queries (they should be handled by notes plugin)
             if any(word in input_lower for word in ['note', 'notes', 'memo']):
                 return None  # Let notes plugin handle it
-            
+
             # A.L.I.C.E understands: show means LIST the codebase
             files = self.self_reflection.list_codebase()
-            
+
             # Store context for smart follow-up
             file_paths = [f['path'] for f in files]
             self.code_context['last_files_shown'] = file_paths
             self.code_context['last_action'] = 'list'
             self.code_context['timestamp'] = datetime.now()
             self.code_context['file_count'] = len(files)
-            
+
             result = f" **My codebase** ({len(files)} files):\n\n"
             for f in files[:25]:
                 result += f"- `{f['path']}` ({f['module_type']})\n"
             if len(files) > 25:
                 result += f"\n... and {len(files) - 25} more files. Ask me about any file to see its details."
             return result
-        
-        # Simple capability check (when not asking to "show")
-        if not has_py_file and any(phrase in input_lower for phrase in [
-            'access to your code', 'access to code', 'have access to code',
-            'can you see', 'do you have access', 'do you know your code'
-        ]):
-            # Brief confirmation
-            return "Yes, I have read-only access to my codebase. Which file would you like to see?"
-        
-        # If a .py file is mentioned, extract it
+
+        # Read file request - flexible matching for EXPLICIT read/show commands
         if has_py_file:
             file_path = py_file_match.group(1).strip("'\"")
-            
-            # Check if asking about file visibility (e.g., "can you see alice.py?")
-            if any(word in input_lower for word in ['see', 'can you', 'do you have', 'access']):
+
+            # Only handle explicit "read" or "show" or "summarize" commands, not questions
+            if any(word in input_lower for word in ['read', 'show', 'summarize', 'summary', 'tell me about', 'what does']):
                 code_file = self.self_reflection.read_file(file_path)
-                if not code_file and not file_path.startswith('ai/') and not file_path.startswith('ai\\'):
-                    code_file = self.self_reflection.read_file(f'ai/{file_path}')
-                    if code_file:
-                        file_path = f'ai/{file_path}'
                 if code_file:
-                    self.last_code_file = file_path  # Store for follow-up
-                    # Just show the summary - no questions
-                    return f"`{file_path}` - {code_file.lines} lines, {code_file.module_type}"
+                    # Return the file content or explanation based on request
+                    if 'summarize' in input_lower or 'summary' in input_lower or 'tell me about' in input_lower or 'what does' in input_lower:
+                        # Alice formulates an answer about the file
+                        alice_formulation = {
+                            'type': 'code_explanation',
+                            'file_name': code_file.name,
+                            'file_path': code_file.path,
+                            'lines': code_file.lines,
+                            'module_type': code_file.module_type,
+                            'content_preview': code_file.content[:500],  # First 500 chars for context
+                            'confidence': 0.9
+                        }
+
+                        # Alice analyzes what the code does
+                        try:
+                            tone = self._select_tone('code:explanation', None, user_input)
+                            response = self._generate_natural_response(
+                                alice_response=alice_formulation,
+                                tone=tone,
+                                context={},
+                                user_input=user_input
+                            )
+                            return response
+                        except Exception as e:
+                            logger.error(f"Error generating code explanation: {e}")
+                            # Fallback: just show metadata
+                            return f"`{code_file.path}` - {code_file.lines} lines, {code_file.module_type}"
+                    else:
+                        # Show full file content
+                        return f"📄 **{code_file.name}** ({code_file.lines} lines, {code_file.module_type}):\n\n```python\n{code_file.content[:2000]}...\n```"
                 # File not found - just list what's available
                 files = self.self_reflection.list_codebase()
                 result = f"Couldn't find `{file_path}`. Available files:\n\n"
                 for f in files[:15]:
                     result += f"- `{f['path']}`\n"
                 return result
-        
-        # Read file request - flexible matching
-        read_patterns = [
-            r'(?:read|show)\s+(?:file|code)\s+(?:called|named)?\s*([^\s]+\.py)',  # "read file main.py"
-            r'(?:read|show)\s+([^\s]+\.py)',  # "read main.py"
-            r'([^\s]+\.py)\s*(?:file|code)',  # "main.py file"
-        ]
-        for pattern in read_patterns:
-            match = re.search(pattern, input_lower)
-            if match:
-                file_path = match.group(1)
-                # Try direct path first
-                code_file = self.self_reflection.read_file(file_path)
-                if not code_file and not file_path.startswith('ai/') and not file_path.startswith('ai\\'):
-                    # Try with ai/ prefix
-                    code_file = self.self_reflection.read_file(f'ai/{file_path}')
-                if code_file:
-                    return f"📄 **{code_file.name}** ({code_file.lines} lines, {code_file.module_type}):\n\n```python\n{code_file.content[:2000]}...\n```"
-                # File not found - show alternatives
-                files = self.self_reflection.list_codebase()
-                result = f"Not found: `{file_path}`\n\n"
-                for f in files[:15]:
-                    result += f"- `{f['path']}`\n"
-                return result
-        
+
         # Analyze file - intelligent matching (if "analyze" keyword and .py file exist, analyze it)
         if 'analyze' in input_lower and has_py_file:
             file_path = py_file_match.group(1).strip("'\"")
@@ -2109,40 +2783,112 @@ class ALICE:
                 plugin_name = plugin_result.get('plugin', 'Unknown')
                 success = plugin_result.get('success', False)
                 self._think(f"Plugin → {plugin_name} success={success}")
-                
-                # A.L.I.C.E generates her own response from learned patterns
+
+                # Tool-based architecture: Alice formulates response, then phrases it
                 response = None
-                if getattr(self, 'learning_engine', None) and plugin_result.get('data'):
-                    response = self.learning_engine.generate_response_from_learned(
-                        user_input=user_input
+
+                # Step 1: Alice formulates her response based on plugin data
+                alice_formulation = self._formulate_response(
+                    user_input=user_input,
+                    intent=intent,
+                    entities=entities,
+                    context=ConversationalContext(
+                        user_input=user_input,
+                        intent=intent,
+                        entities=entities,
+                        recent_topics=self.conversation_topics[-3:] if self.conversation_topics else [],
+                        active_goal=goal_res.goal if goal_res else None,
+                        world_state=self.reasoning_engine if hasattr(self, 'reasoning_engine') else None,
+                        plugin_data=plugin_result.get('data', {})  # Include plugin data
                     )
-                    if response:
-                        self._think(f"A.L.I.C.E generated response from learned patterns")
-                    else:
-                        self._think(f"No learned pattern → using Ollama to answer specific question")
-                
-                # If A.L.I.C.E has no learned pattern, use gateway to answer the SPECIFIC question
-                # This ensures follow-up questions like "is it gonna snow?" get tailored answers
+                )
+
+                # Step 1.5: Handle self-analysis requests - Alice actually reads her code
+                if alice_formulation and alice_formulation.get('type') == 'self_analysis_needed':
+                    self._think("Self-analysis requested → reading actual codebase")
+
+                    # Alice reads her own code
+                    files = self.self_reflection.list_codebase()
+
+                    # Analyze key architectural files
+                    key_files = [
+                        'app/main.py',
+                        'ai/conversational_engine.py',
+                        'ai/llm_engine.py',
+                        'ai/phrasing_learner.py',
+                        'ai/self_reflection.py'
+                    ]
+
+                    analysis_results = []
+                    for file_path in key_files:
+                        try:
+                            file_info = self.self_reflection.analyze_file_advanced(file_path)
+                            if 'error' not in file_info:
+                                analysis_results.append({
+                                    'path': file_path,
+                                    'lines': file_info.get('lines', 0),
+                                    'type': file_info.get('module_type', 'unknown'),
+                                    'classes': file_info.get('classes', [])[:3],  # Top 3 classes
+                                    'functions': file_info.get('functions', [])[:5]  # Top 5 functions
+                                })
+                        except Exception as e:
+                            logger.debug(f"Could not analyze {file_path}: {e}")
+
+                    # Formulate actual insights based on real code structure
+                    alice_formulation = {
+                        'type': 'self_analysis',
+                        'total_files': len(files),
+                        'analyzed_files': analysis_results,
+                        'architecture_points': [
+                            'Tool-based architecture with PhrasingLearner for progressive independence',
+                            'Conversational engine handles pattern-based responses without LLM',
+                            'Self-reflection system for code awareness',
+                            'Plugin system for extensible capabilities',
+                            'LLM gateway abstracts Ollama interactions'
+                        ],
+                        'confidence': 0.95
+                    }
+
+                # Step 2: Alice selects tone based on context
+                tone = self._select_tone(intent, context, user_input)
+
+                # Step 3: Generate natural response (with learning)
+                if alice_formulation and alice_formulation.get('type') != 'general_response':
+                    # Alice has a structured response - use learning loop
+                    try:
+                        response = self._generate_natural_response(
+                            alice_response=alice_formulation,
+                            tone=tone,
+                            context=ConversationalContext(
+                                user_input=user_input,
+                                intent=intent,
+                                entities=entities,
+                                recent_topics=self.conversation_topics[-3:] if self.conversation_topics else [],
+                                active_goal=goal_res.goal if goal_res else None,
+                                world_state=self.reasoning_engine if hasattr(self, 'reasoning_engine') else None
+                            ),
+                            user_input=user_input
+                        )
+                        self._think("Alice formulated and phrased response using tool-based architecture")
+                    except Exception as e:
+                        logger.error(f"Error in tool-based response generation: {e}")
+                        response = None
+
+                # Fallback: Use gateway formatting if formulation didn't produce response
                 if not response:
-                    # Use gateway to format plugin result or generate targeted response
+                    self._think("Formulation failed → using gateway formatter as fallback")
                     if hasattr(self, 'llm_gateway') and self.llm_gateway:
-                        # Normalize plugin name for formatter (e.g., 'WeatherPlugin' -> 'weather')
                         formatter_name = plugin_name.lower().replace('plugin', '').strip()
-                        
-                        # Try formatter first via gateway
                         response = self.llm_gateway.format_tool_result(
                             tool_name=formatter_name,
                             data=plugin_result.get('data', {}),
                             user_input=user_input,
                             context={'intent': intent, 'entities': entities}
                         )
-                        self._think("Gateway formatted response (formatter or LLM)")
                     else:
-                        # Fallback if gateway not available
                         plugin_data_str = str(plugin_result.get('data', {}))
                         response = f"Result: {plugin_data_str[:500]}"
-                        self._think("No gateway - using raw data")
-                
+
                 # Optimize plugin response
                 if getattr(self, 'response_optimizer', None):
                     response = self.response_optimizer.optimize(response, intent, {"plugin": plugin_name})
@@ -2259,7 +3005,77 @@ class ALICE:
             
             # 3. If plugin couldn't handle or failed, use LLM with context
             self._think("No plugin match → using LLM with context")
-            
+
+            # Check for self-analysis requests BEFORE falling through to LLM
+            input_lower = user_input.lower()
+            if any(phrase in input_lower for phrase in [
+                'go through your code', 'analyze your code', 'review your code',
+                'look at your code', 'read your code', 'check your code',
+                'analyze yourself', 'review yourself', 'improvements',
+                'what can we improve', 'what can you improve', 'suggest improvements'
+            ]):
+                self._think("Self-analysis requested → reading actual codebase")
+
+                # Alice reads her own code
+                files = self.self_reflection.list_codebase()
+
+                # Analyze key architectural files
+                key_files = [
+                    'app/main.py',
+                    'ai/conversational_engine.py',
+                    'ai/llm_engine.py',
+                    'ai/phrasing_learner.py',
+                    'ai/self_reflection.py'
+                ]
+
+                analysis_results = []
+                for file_path in key_files:
+                    try:
+                        file_info = self.self_reflection.analyze_file_advanced(file_path)
+                        if 'error' not in file_info:
+                            analysis_results.append({
+                                'path': file_path,
+                                'lines': file_info.get('lines', 0),
+                                'type': file_info.get('module_type', 'unknown'),
+                                'classes': file_info.get('classes', [])[:3],
+                                'functions': file_info.get('functions', [])[:5]
+                            })
+                    except Exception as e:
+                        logger.debug(f"Could not analyze {file_path}: {e}")
+
+                # Formulate actual insights
+                alice_formulation = {
+                    'type': 'self_analysis',
+                    'total_files': len(files),
+                    'analyzed_files': analysis_results,
+                    'architecture_points': [
+                        'Tool-based architecture with PhrasingLearner for progressive independence',
+                        'Conversational engine handles pattern-based responses without LLM',
+                        'Self-reflection system for code awareness',
+                        'Plugin system for extensible capabilities',
+                        'LLM gateway abstracts Ollama interactions'
+                    ],
+                    'confidence': 0.95
+                }
+
+                # Use learning loop to phrase naturally
+                tone = self._select_tone(intent, context, user_input)
+                response = self._generate_natural_response(
+                    alice_response=alice_formulation,
+                    tone=tone,
+                    context=ConversationalContext(
+                        user_input=user_input,
+                        intent=intent,
+                        entities=entities,
+                        recent_topics=self.conversation_topics[-3:] if self.conversation_topics else [],
+                        active_goal=goal_res.goal if goal_res else None,
+                        world_state=self.reasoning_engine if hasattr(self, 'reasoning_engine') else None
+                    ),
+                    user_input=user_input
+                )
+
+                return response
+
             # Handle relationship queries before LLM generation
             if self.relationship_tracker:
                 relationship_response = self._handle_relationship_query(user_input, intent, entities)
