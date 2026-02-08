@@ -25,17 +25,17 @@ class RichTerminalUI:
         self.conversation_history = []
         self.used_greetings = set()  # Track used greetings to avoid repeats
 
-        # Modern color scheme
+        # Futuristic tech color scheme - sleek and modern
         self.colors = {
-            'user': 'bright_cyan',           # Bright cyan for user messages
+            'user': 'bright_blue',           # Electric blue for user messages
             'assistant': 'bright_white',      # Bright white for Alice
-            'accent': 'cyan',                 # Cyan for accents/links
+            'accent': 'gold1',                # Gold for accents/links (tech feel)
             'success': 'bright_green',        # Success messages
             'error': 'bright_red',            # Errors
-            'warning': 'bright_yellow',       # Warnings
-            'info': 'dim white',              # Info/secondary text
-            'border': 'cyan',                 # Panel borders
-            'dim_border': 'dim cyan',         # Subtle borders
+            'warning': 'yellow1',             # Warnings
+            'info': 'grey70',                 # Info/secondary text
+            'border': 'gold1',                # Gold panel borders
+            'dim_border': 'grey50',           # Subtle dark borders
         }
 
         # Time-based greeting variations (won't repeat in same session)
@@ -155,12 +155,12 @@ class RichTerminalUI:
         self.console.print(greeting_text, style=self.colors['assistant'], justify="center")
         self.console.print()
 
-        # Info panel - sleek modern design with cyan accent
+        # Info panel - sleek futuristic design
         current_time = datetime.now()
-        info_text = f"""[dim white]A.L.I.C.E[/dim white] [dim]·[/dim] [{self.colors['info']}]Advanced Linguistic Intelligence Computer Entity[/{self.colors['info']}]
-[{self.colors['info']}]{current_time.strftime('%A, %B %d, %Y')} • {current_time.strftime('%I:%M %p')}[/{self.colors['info']}]
+        info_text = f"""[{self.colors['accent']}]A.L.I.C.E[/{self.colors['accent']}] [{self.colors['info']}]>>[/{self.colors['info']}] Advanced Linguistic Intelligence Computer Entity
+[{self.colors['info']}]{current_time.strftime('%A, %B %d, %Y')} | {current_time.strftime('%H:%M:%S')}[/{self.colors['info']}]
 
-Ready! Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for available commands
+System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for available commands
 """
 
         info_panel = Panel(
@@ -172,8 +172,8 @@ Ready! Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for availab
         self.console.print()
 
     def show_loading(self, message="Initializing A.L.I.C.E systems"):
-        """Show loading animation"""
-        with self.console.status(f"[{self.colors['accent']}]{message}...", spinner="dots") as status:
+        """Show loading animation with tech-style spinner"""
+        with self.console.status(f"[{self.colors['accent']}]{message}...", spinner="arc") as status:
             time.sleep(2)  # Simulated loading delay
 
     def print_user_input(self, text):
