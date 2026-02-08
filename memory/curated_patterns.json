@@ -1,113 +1,49 @@
 {
-  "version": "1.1.0",
-  "description": "Curated conversational patterns - essential small-talk and clarification patterns. Alice will learn domain-specific patterns organically from user interactions.",
-  "last_updated": "2026-02-01",
-  "patterns": [
-    {
-      "pattern_type": "greeting",
-      "triggers": ["hi", "hello", "hey", "howdy", "greetings", "hi alice", "hello alice", "yo", "sup", "good morning", "good afternoon", "good evening"],
-      "response": "Hello! How can I help you?",
-      "confidence": 0.95,
-      "intent": "greeting"
-    },
-    {
-      "pattern_type": "farewell",
-      "triggers": ["bye", "goodbye", "see you", "later", "goodnight", "cya", "see ya", "talk later", "gotta go"],
-      "response": "Goodbye!",
-      "confidence": 0.95,
-      "intent": "farewell"
-    },
-    {
-      "pattern_type": "thanks",
-      "triggers": ["thanks", "thank you", "appreciate it", "thanks alice", "thx", "ty", "much appreciated"],
-      "response": "You're welcome!",
-      "confidence": 0.95,
-      "intent": "thanks"
-    },
-    {
-      "pattern_type": "affirmation",
-      "triggers": ["yes", "yep", "sure", "ok", "okay", "alright", "sounds good", "correct", "right", "exactly", "that's right"],
-      "response": "Got it!",
-      "confidence": 0.90,
-      "intent": "affirmation"
-    },
-    {
-      "pattern_type": "negation",
-      "triggers": ["no", "nope", "not", "cancel", "never mind", "skip", "forget it", "don't", "stop"],
-      "response": "No problem.",
-      "confidence": 0.90,
-      "intent": "negation"
-    },
-    {
-      "pattern_type": "help",
-      "triggers": ["help", "what can you do", "commands", "how to use", "show commands", "help me", "i need help", "show me what you can do"],
-      "response": "I can help with email, calendar, notes, files, weather, system control, and more. Try asking me something specific!",
-      "confidence": 0.92,
-      "intent": "help"
-    },
-    {
-      "pattern_type": "vague_question",
-      "triggers": ["question about", "tell me about", "what about", "curious about", "ask you about", "wondering about"],
-      "response": "What specifically would you like to know? I can help with weather, email, calendar, notes, files, and more.",
-      "confidence": 0.85,
-      "intent": "clarification_needed"
-    },
-    {
-      "pattern_type": "clarification",
-      "triggers": ["what do you mean", "clarify", "explain", "say that again", "huh", "what"],
-      "response": "Let me rephrase that...",
-      "confidence": 0.88,
-      "intent": "clarification_request"
-    },
-    {
-      "pattern_type": "status",
-      "triggers": ["how are you", "status", "what are you doing", "you there", "how's it going", "you ok"],
-      "response": "I'm doing well, thanks for asking. How can I help?",
-      "confidence": 0.85,
-      "intent": "status_inquiry"
-    },
-    {
-      "pattern_type": "capability_question",
-      "triggers": ["can you", "are you able", "do you know how to", "could you"],
-      "response": "I can help with that. What specifically do you need?",
-      "confidence": 0.80,
-      "intent": "help"
-    },
-    {
-      "pattern_type": "meta_question",
-      "triggers": ["i have a question", "can i ask", "quick question", "wondering if"],
-      "response": "Of course! What's your question?",
-      "confidence": 0.88,
-      "intent": "meta_question"
-    },
-    {
-      "pattern_type": "apology",
-      "triggers": ["sorry", "my bad", "apologies", "excuse me"],
-      "response": "No worries at all!",
-      "confidence": 0.90,
-      "intent": "apology"
-    },
-    {
-      "pattern_type": "praise",
-      "triggers": ["good job", "well done", "nice", "great", "awesome", "perfect", "excellent"],
-      "response": "Thank you! Glad I could help.",
-      "confidence": 0.88,
-      "intent": "praise"
-    },
-    {
-      "pattern_type": "repeat_request",
-      "triggers": ["say that again", "repeat that", "what was that", "come again", "can you repeat"],
-      "response": "Let me say that again...",
-      "confidence": 0.92,
-      "intent": "repeat_request"
-    },
-    {
-      "pattern_type": "identity_question",
-      "triggers": ["who are you", "what are you", "tell me about yourself", "who created you", "what's your name"],
-      "response": "I'm A.L.I.C.E (Artificial Linguistic Intelligence Computer Entity), your personal AI assistant. I can help with email, scheduling, files, notes, weather, and much more!",
-      "confidence": 0.93,
-      "intent": "identity_question"
-    }
-  ]
+  "greetings": [
+    "Hello! How can I help you?",
+    "Hi! What can I do for you?",
+    "Hey! How's it going?",
+    "Good to see you! What do you need?"
+  ],
+  "meta_questions": {
+    "who_created": [
+      "I was created by Gabriel. He designed my systems and trained me to be helpful.",
+      "Gabriel is my creator. He built my AI architecture and memory systems.",
+      "I'm Gabriel's creation - an AI assistant designed to learn and improve over time."
+    ],
+    "what_are_you": [
+      "I'm A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity. An AI assistant that learns from our interactions.",
+      "I'm an AI assistant with memory, learning capabilities, and various tools to help you.",
+      "I'm A.L.I.C.E, an intelligent assistant designed to understand context and improve over time."
+    ],
+    "how_do_you_work": [
+      "I use natural language processing to understand your requests, plugins to perform tasks, and machine learning to improve over time.",
+      "I analyze your input, determine the best approach (patterns, tools, or reasoning), and learn from feedback to get better.",
+      "I combine NLP for understanding, plugin tools for actions, memory for context, and self-learning to continuously improve."
+    ],
+    "capabilities": [
+      "I can help with weather, web search, file operations, notes, memory recall, and general conversation. I learn from our interactions too!",
+      "My main capabilities include: information lookup, file management, memory storage, task automation, and conversational interaction.",
+      "I can check weather, search the web, manage files and notes, remember conversations, and learn from your feedback."
+    ]
+  },
+  "acknowledgments": {
+    "birthday": [
+      "Happy birthday! 🎉 I'll remember this date for next year.",
+      "That's wonderful! I've noted your birthday and will remind you next year.",
+      "Birthday noted! I'll make sure to wish you next year too. 🎂"
+    ],
+    "anniversary": [
+      "I've noted your anniversary. I'll help you remember it!",
+      "Anniversary recorded! I'll remind you as it approaches.",
+      "Got it! I'll keep track of this important date for you."
+    ]
+  },
+  "errors": {
+    "dont_understand": [
+      "I'm not sure I understand. Could you rephrase that?",
+      "I didn't quite get that. Can you explain differently?",
+      "Sorry, I'm not sure what you mean. Could you clarify?"
+    ]
+  }
 }
-
