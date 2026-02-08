@@ -173,7 +173,11 @@ class ScenarioRunner:
         strong_domain_keywords = any(word in text_lower for word in [
             "email", "mail", "inbox", "note", "notes", "weather", "forecast", "temperature", "rain", "snow", "sunny", "cloudy",
             "time", "clock", "system", "status", "cpu", "memory", "disk", "battery",
-            "calendar", "event", "schedule", "tomorrow", "today", "tonight"
+            "calendar", "event", "schedule", "tomorrow", "today", "tonight",
+            # File operation keywords
+            "file", "folder", "directory", "create", "read", "open", "delete", "remove", "move", "rename", "list", "show", "contents",
+            # Memory operation keywords
+            "remember", "recall", "forget", "preference"
         ])
         if confidence < 0.7 and not strong_domain_keywords:
             return "CLARIFICATION"
@@ -182,7 +186,14 @@ class ScenarioRunner:
         if intent in [
             "email:list", "email:search", "email:read", "email:delete", "email:compose",
             "notes:create", "notes:search", "notes:list",
-            "weather:current", "weather:forecast", "time:current"
+            "weather:current", "weather:forecast", "time:current",
+            # File operations
+            "file_operations:create", "file_operations:read", "file_operations:write",
+            "file_operations:delete", "file_operations:move", "file_operations:copy",
+            "file_operations:list", "file_operations:search",
+            "create_file", "read_file", "delete_file", "move_file", "list_files",
+            # Memory operations - STORE operations go to TOOL
+            "memory:store", "memory:delete", "store_preference", "delete_memory"
         ]:
             return "TOOL"
 
@@ -190,8 +201,8 @@ class ScenarioRunner:
         if intent == "system:status":
             return "CONVERSATIONAL"
 
-        # Check for RAG/memory queries
-        if "remember" in text_lower or "recall" in text_lower:
+        # Check for RAG/memory queries (recall, search)
+        if "remember" in text_lower or "recall" in text_lower or intent in ["memory:recall", "memory:search", "recall_memory", "search_memory"]:
             return "RAG"
 
         # Conversational engine
