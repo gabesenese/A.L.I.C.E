@@ -225,7 +225,14 @@ class ALICE:
             self.phrasing_learner = PhrasingLearner(storage_path="data/learned_phrasings.jsonl")
             logger.info("[OK] Phrasing learner ready - Alice will learn from Ollama and become independent")
 
-            # 3.7. Capability Registry - Alice knows what she can do (in code, not prompts)
+            # 3.7. Knowledge Engine - Alice's own intelligence and learning
+            logger.info("Initializing knowledge engine...")
+            from ai.knowledge_engine import KnowledgeEngine
+            self.knowledge_engine = KnowledgeEngine(storage_path="data/knowledge")
+            stats = self.knowledge_engine.get_stats()
+            logger.info(f"[OK] Knowledge engine ready - Alice has learned {stats['total_entities']} entities, {stats['total_relationships']} relationships")
+
+            # 3.8. Capability Registry - Alice knows what she can do (in code, not prompts)
             logger.info("Initializing capability registry...")
             self._init_capabilities_registry()
             logger.info("[OK] Capability registry ready - Alice knows her own capabilities")
@@ -245,7 +252,7 @@ class ALICE:
             
             # 4.2. Configure LLM Policy based on startup flag
             if self.llm_policy != "default":
-                logger.info(f"⚙️  Configuring LLM policy: {self.llm_policy}")
+                logger.info(f"  Configuring LLM policy: {self.llm_policy}")
                 from ai.llm_policy import configure_minimal_policy
                 
                 if self.llm_policy == "minimal":
@@ -629,8 +636,20 @@ class ALICE:
                 'confidence': 0.9
             }
 
-        # Step 1: Check if Alice can handle this with her own knowledge
-        # Capability questions - Alice knows her own capabilities from registry
+        # Step 1: Check if Alice can answer from her own knowledge
+        # Alice's knowledge engine - learns from every interaction
+        can_answer, confidence = self.knowledge_engine.can_answer_independently(user_input, intent)
+        if can_answer and confidence > 0.7:
+            # Alice knows this! Answer from her own knowledge
+            return {
+                'type': 'knowledge_answer',
+                'question': user_input,
+                'intent': intent,
+                'confidence': confidence,
+                'source': 'alice_knowledge'  # Alice's own learning, not Ollama
+            }
+
+        # Step 2: Capability questions - Alice knows her own capabilities from registry
         if 'capability' in intent or any(phrase in user_input.lower() for phrase in [
             'can you', 'do you have access', 'are you able to', 'can you access'
         ]):
@@ -1014,6 +1033,32 @@ class ALICE:
 
             content_str = analysis_str
 
+        elif response_type == 'knowledge_answer':
+            # Alice answering from her OWN learned knowledge
+            question = alice_response.get('question', '')
+            intent = alice_response.get('intent', '')
+            confidence = alice_response.get('confidence', 0.5)
+            thought_content = alice_response
+
+            # Query knowledge engine for the answer
+            # This pulls from Alice's learned entities, relationships, and patterns
+            entities = [e for e in self.knowledge_engine.entities.values() if e.name.lower() in question.lower()]
+            relationships = []
+            for entity in entities:
+                relationships.extend(self.knowledge_engine.get_relationships_for_entity(entity.name))
+
+            # Build answer from Alice's knowledge
+            if entities:
+                entity_info = ", ".join([f"{e.name} ({e.type})" for e in entities[:3]])
+                content_str = f"From my knowledge: {entity_info}"
+                if relationships:
+                    rel_info = relationships[0]
+                    content_str += f". {rel_info['subject']} {rel_info['predicate']} {rel_info['object']}"
+            else:
+                # Alice has topical confidence but needs to articulate it
+                topic = intent.split(':')[0] if ':' in intent else intent
+                content_str = f"Based on what I've learned about {topic}, I can help with {question}"
+
         elif response_type == 'reasoning_result':
             conclusion = alice_response.get('conclusion', '')
             thought_content = {
@@ -1055,7 +1100,14 @@ class ALICE:
                         'user_input': user_input
                     }
                 )
-                logger.info(f"[Learning] Recorded Ollama's phrasing - Alice is learning '{response_type}' pattern")
+
+                # Check if Alice can now phrase this independently
+                can_phrase_alone = self.phrasing_learner.can_phrase_myself(thought_content)
+                if can_phrase_alone:
+                    self._think(f"✓ Alice learned '{response_type}' - can now phrase independently!")
+                else:
+                    learned_count = len([p for p in self.phrasing_learner.learned_phrasings if p['alice_thought'].get('type') == response_type])
+                    self._think(f" Learning '{response_type}' ({learned_count}/3 examples - will be independent soon)")
 
                 return natural_response
             else:
@@ -3209,11 +3261,29 @@ class ALICE:
             # Log action for pattern learning
             action = f"{intent}:{entities.get('topic', entities.get('query', 'general'))}"
             self._log_action_for_learning(action)
-            
+
+            # ALICE'S COMPREHENSIVE LEARNING - Learn from EVERY interaction
+            # This is where Alice builds her own intelligence
+            try:
+                self.knowledge_engine.learn_from_interaction(
+                    user_input=user_input,
+                    alice_response=response,
+                    intent=intent,
+                    entities=entities or {},
+                    context={
+                        'quality_score': quality_score if 'quality_score' in locals() else 0.5,
+                        'route': 'TOOL' if ('plugin_result' in locals() and plugin_result) else 'LLM',
+                        'timestamp': datetime.now().isoformat()
+                    }
+                )
+                self._think(f"🧠 Alice learned from this interaction (confidence in '{intent}' topics growing)")
+            except Exception as e:
+                logger.error(f"[Learning] Error in knowledge engine: {e}")
+
             # 5. Speak if voice enabled
             if use_voice and self.speech:
                 self.speech.speak(response, blocking=False)
-            
+
             logger.info(f"A.L.I.C.E: {response[:100]}...")
             return response
             
