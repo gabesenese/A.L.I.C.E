@@ -50,8 +50,10 @@ from ai.active_learning_manager import ActiveLearningManager, CorrectionType, Fe
 from ai.email_plugin import GmailPlugin
 from ai.plugin_system import (
     PluginManager, WeatherPlugin, TimePlugin,
-    FileOperationsPlugin, SystemControlPlugin, WebSearchPlugin
+    SystemControlPlugin, WebSearchPlugin
 )
+from ai.file_operations_plugin import FileOperationsPlugin
+from ai.memory_plugin import MemoryPlugin
 from ai.document_plugin import DocumentPlugin
 from ai.calendar_plugin import CalendarPlugin
 from ai.music_plugin import MusicPlugin
@@ -390,12 +392,13 @@ class ALICE:
         self.plugins.register_plugin(MapsPlugin())
         self.plugins.register_plugin(TimePlugin())
         self.plugins.register_plugin(FileOperationsPlugin())
+        self.plugins.register_plugin(MemoryPlugin(self.memory))  # Pass existing memory system
         self.plugins.register_plugin(SystemControlPlugin())
         self.plugins.register_plugin(WebSearchPlugin())
         self.plugins.register_plugin(DocumentPlugin())
         self.plugins.register_plugin(CalendarPlugin())
         self.plugins.register_plugin(MusicPlugin())
-        
+
         logger.info(f"[OK] Registered {len(self.plugins.plugins)} plugins")
     
     def _handle_observer_notification(self, message: str, priority: EventPriority):
