@@ -9,6 +9,7 @@ Advanced Features:
 - Batch processing for multi-file operations
 - Semantic similarity for purpose extraction
 - Dependency graph analysis
+- Full codebase access (all directories: ai, app, features, plugins, speech, ui, self_learning)
 """
 
 import os
@@ -132,11 +133,11 @@ class SelfReflectionSystem:
     def read_file(self, file_path: str, max_lines: int = 1000) -> Optional[CodeFile]:
         """
         Read a code file (read-only)
-        
+
         Args:
             file_path: Relative or absolute path to file
             max_lines: Maximum lines to read (for large files)
-        
+
         Returns:
             CodeFile object or None if not accessible
         """
@@ -146,25 +147,50 @@ class SelfReflectionSystem:
                 full_path = Path(file_path)
             else:
                 full_path = self.base_path / file_path
-            
+
             full_path = full_path.resolve()
-            
+
             # Security check
             if not self._is_allowed_file(full_path):
                 logger.warning(f"[SelfReflection] Access denied to: {file_path}")
                 return None
-            
+
             if not full_path.exists():
-                return None
-            
+                # Try searching all directories for the filename
+                filename = os.path.basename(file_path)
+                search_dirs = ['ai', 'app', 'features', 'plugins', 'speech', 'ui', 'self_learning', '.']
+
+                for search_dir in search_dirs:
+                    if search_dir == '.':
+                        # Search root
+                        candidate = self.base_path / filename
+                    else:
+                        # Search recursively in directory
+                        dir_path = self.base_path / search_dir
+                        if not dir_path.exists():
+                            continue
+                        candidates = list(dir_path.rglob(filename))
+                        if candidates:
+                            candidate = candidates[0]
+                        else:
+                            continue
+
+                    if candidate.exists() and self._is_allowed_file(candidate):
+                        full_path = candidate.resolve()
+                        logger.debug(f"[SelfReflection] Found {filename} at {full_path}")
+                        break
+                else:
+                    # Still not found
+                    return None
+
             # Read file
             with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
                 lines = f.readlines()
-            
+
             content = ''.join(lines[:max_lines])
             if len(lines) > max_lines:
                 content += f"\n... ({len(lines) - max_lines} more lines truncated)"
-            
+
             return CodeFile(
                 path=str(full_path.relative_to(self.base_path)),
                 name=full_path.name,
@@ -177,97 +203,137 @@ class SelfReflectionSystem:
             logger.error(f"[SelfReflection] Error reading file {file_path}: {e}")
             return None
     
-    def list_codebase(self, directory: str = "ai", pattern: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_codebase(self, directory: Optional[str] = None, pattern: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         List files in codebase
-        
+
         Args:
-            directory: Subdirectory to list (relative to base_path)
+            directory: Specific subdirectory to list (if None, scans all code directories)
             pattern: Optional pattern to filter files (e.g., "*plugin*.py")
-        
+
         Returns:
             List of file info dictionaries
         """
         try:
-            dir_path = self.base_path / directory
-            if not dir_path.exists() or not dir_path.is_dir():
-                return []
-            
             files = []
-            for file_path in dir_path.rglob(pattern or "*.py"):
-                if self._is_allowed_file(file_path):
-                    rel_path = file_path.relative_to(self.base_path)
-                    files.append({
-                        'path': str(rel_path),
-                        'name': file_path.name,
-                        'size': file_path.stat().st_size,
-                        'module_type': self._classify_module(file_path),
-                        'language': file_path.suffix[1:] if file_path.suffix else 'text'
-                    })
-            
+
+            # If no directory specified, scan all relevant directories
+            if directory is None:
+                directories = ['ai', 'app', 'features', 'plugins', 'speech', 'ui', 'self_learning']
+                # Also include root-level Python files (alice.py, etc.)
+                root_files = list(self.base_path.glob("*.py"))
+                for root_file in root_files:
+                    if self._is_allowed_file(root_file):
+                        rel_path = root_file.relative_to(self.base_path)
+                        files.append({
+                            'path': str(rel_path),
+                            'name': root_file.name,
+                            'size': root_file.stat().st_size,
+                            'module_type': self._classify_module(root_file),
+                            'language': root_file.suffix[1:] if root_file.suffix else 'text'
+                        })
+            else:
+                directories = [directory]
+
+            # Scan each directory
+            for dir_name in directories:
+                dir_path = self.base_path / dir_name
+                if not dir_path.exists() or not dir_path.is_dir():
+                    continue
+
+                for file_path in dir_path.rglob(pattern or "*.py"):
+                    if self._is_allowed_file(file_path):
+                        rel_path = file_path.relative_to(self.base_path)
+                        files.append({
+                            'path': str(rel_path),
+                            'name': file_path.name,
+                            'size': file_path.stat().st_size,
+                            'module_type': self._classify_module(file_path),
+                            'language': file_path.suffix[1:] if file_path.suffix else 'text'
+                        })
+
             return sorted(files, key=lambda x: x['path'])
         except Exception as e:
             logger.error(f"[SelfReflection] Error listing codebase: {e}")
             return []
     
-    def search_code(self, query: str, directory: str = "ai", max_results: int = 10) -> List[Dict[str, Any]]:
+    def search_code(self, query: str, directory: Optional[str] = None, max_results: int = 10) -> List[Dict[str, Any]]:
         """
         Search for text in codebase
-        
+
         Args:
             query: Text to search for
-            directory: Directory to search in
+            directory: Specific directory to search (if None, searches all code directories)
             max_results: Maximum number of results
-        
+
         Returns:
             List of matches with context
         """
         results = []
         query_lower = query.lower()
-        
+
         try:
-            dir_path = self.base_path / directory
-            if not dir_path.exists():
-                return []
-            
-            for file_path in dir_path.rglob("*.py"):
-                if not self._is_allowed_file(file_path):
-                    continue
-                
-                try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        lines = f.readlines()
-                    
-                    matches = []
-                    for i, line in enumerate(lines, 1):
-                        if query_lower in line.lower():
-                            # Get context (2 lines before and after)
-                            start = max(0, i - 3)
-                            end = min(len(lines), i + 2)
-                            context = ''.join(lines[start:end])
-                            
-                            matches.append({
-                                'line': i,
-                                'content': line.strip(),
-                                'context': context
+            # If no directory specified, search all relevant directories
+            if directory is None:
+                directories = ['ai', 'app', 'features', 'plugins', 'speech', 'ui', 'self_learning']
+                search_paths = []
+                for dir_name in directories:
+                    dir_path = self.base_path / dir_name
+                    if dir_path.exists():
+                        search_paths.append(dir_path)
+                # Also search root-level files
+                search_paths.append(self.base_path)
+            else:
+                dir_path = self.base_path / directory
+                if not dir_path.exists():
+                    return []
+                search_paths = [dir_path]
+
+            for search_path in search_paths:
+                # Use glob for root, rglob for directories
+                if search_path == self.base_path:
+                    file_pattern = search_path.glob("*.py")
+                else:
+                    file_pattern = search_path.rglob("*.py")
+
+                for file_path in file_pattern:
+                    if not self._is_allowed_file(file_path):
+                        continue
+
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            lines = f.readlines()
+
+                        matches = []
+                        for i, line in enumerate(lines, 1):
+                            if query_lower in line.lower():
+                                # Get context (2 lines before and after)
+                                start = max(0, i - 3)
+                                end = min(len(lines), i + 2)
+                                context = ''.join(lines[start:end])
+
+                                matches.append({
+                                    'line': i,
+                                    'content': line.strip(),
+                                    'context': context
+                                })
+
+                        if matches:
+                            rel_path = file_path.relative_to(self.base_path)
+                            results.append({
+                                'file': str(rel_path),
+                                'matches': matches[:5],  # Max 5 matches per file
+                                'match_count': len(matches)
                             })
-                    
-                    if matches:
-                        rel_path = file_path.relative_to(self.base_path)
-                        results.append({
-                            'file': str(rel_path),
-                            'matches': matches[:5],  # Max 5 matches per file
-                            'match_count': len(matches)
-                        })
-                        
-                        if len(results) >= max_results:
-                            break
-                except Exception:
-                    continue
-        
+
+                            if len(results) >= max_results:
+                                return results
+                    except Exception:
+                        continue
+
         except Exception as e:
             logger.error(f"[SelfReflection] Error searching code: {e}")
-        
+
         return results
     
     def _compute_file_hash(self, file_path: Path) -> str:

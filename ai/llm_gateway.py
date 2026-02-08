@@ -154,11 +154,43 @@ class LLMGateway:
                 policy_reason=reason
             )
         
-        # Step 3: Call LLM
+        # Step 3: Route to appropriate LLM method based on call type
         try:
             logger.info(f"[LLMGateway] [CALL] LLM call ({call_type.value})")
-            response = self.llm.chat(prompt, use_history=use_history)
-            
+
+            # Tool-based routing: Alice uses Ollama as a tool
+            if call_type == LLMCallType.QUERY_KNOWLEDGE:
+                # Alice asks Ollama for factual knowledge
+                question = prompt if prompt else user_input
+                response = self.llm.query_knowledge(question)
+
+            elif call_type == LLMCallType.PARSE_INPUT:
+                # Alice asks Ollama to parse complex input
+                input_to_parse = context.get('input_to_parse', user_input) if context else user_input
+                parsed_result = self.llm.parse_complex_input(input_to_parse)
+                response = json.dumps(parsed_result, indent=2)  # Return as formatted JSON
+
+            elif call_type == LLMCallType.PHRASE_RESPONSE:
+                # Alice asks Ollama to phrase her structured thought
+                alice_thought = context.get('alice_thought', prompt) if context else prompt
+                tone = context.get('tone', 'warm and helpful') if context else 'warm and helpful'
+                phrasing_context = {
+                    'user_name': context.get('user_name', 'the user') if context else 'the user'
+                }
+                response = self.llm.phrase_with_tone(alice_thought, tone, phrasing_context)
+
+            elif call_type == LLMCallType.AUDIT_LOGIC:
+                # Alice asks Ollama to verify her reasoning
+                logic_chain = context.get('logic_chain', [prompt]) if context else [prompt]
+                if not isinstance(logic_chain, list):
+                    logic_chain = [logic_chain]
+                audit_result = self.llm.audit_logic(logic_chain)
+                response = json.dumps(audit_result, indent=2)  # Return as formatted JSON
+
+            else:
+                # Legacy call types - use old chat() method
+                response = self.llm.chat(prompt, use_history=use_history)
+
             # Record successful call
             self.policy.record_call(call_type, user_input, response)
             self.stats['llm_calls'] += 1

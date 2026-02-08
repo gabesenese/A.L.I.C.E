@@ -300,7 +300,7 @@ print("""
    ⚠ No real performance metrics dashboard
    ⚠ Training feedback not automated yet
 
-5. NEXT ACTIONS (Stark Priority)
+5. NEXT ACTIONS (High Priority)
    A. Cut modules: Keep only 15 core, deprecate rest
    B. Profile everything: Know exactly where time goes
    C. Add monitoring: Real-time latency/quality metrics

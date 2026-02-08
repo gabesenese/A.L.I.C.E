@@ -140,40 +140,26 @@ class ConversationalEngine:
     def can_handle(self, user_input: str, intent: str, context: ConversationalContext) -> bool:
         """
         Check if A.L.I.C.E can handle this conversationally without Ollama.
-        Returns True if she has curated patterns, learned patterns, or memories.
+        Returns True ONLY for very simple, repetitive patterns where LLM would be overkill.
+        Most questions should go to LLM for natural, contextual responses.
         """
         input_lower = user_input.lower().strip()
 
-        # Meta questions - ALWAYS handle if we have curated patterns
-        if any(phrase in input_lower for phrase in [
-            'who created', 'who made', 'who built',
-            'who are you', 'what are you',
-            'who is alice', 'who is a.l.i.c.e', 'what is alice', 'what is a.l.i.c.e',
-            'who\'s alice', 'what\'s alice',
-            'how do you work', 'what can you do', 'capabilities'
-        ]):
-            # Check if we have curated meta responses
-            meta_keys = [k for k in self.learned_responses.keys() if k.startswith('meta_')]
-            if meta_keys:
-                return True  # We have curated meta answers
-
-        # Personal events (birthday, anniversary) - ALWAYS handle
-        if any(word in input_lower for word in ['birthday', 'anniversary']):
-            if any(k.startswith('ack_') for k in self.learned_responses.keys()):
-                return True  # We have acknowledgment patterns
-
-        # Simple greetings - only if we have learned patterns
+        # ONLY handle simple greetings - let LLM handle everything else
         if any(word in input_lower for word in ['hi', 'hey', 'hello', 'yo', 'sup']) and len(input_lower.split()) <= 4:
             # Must be primarily a greeting, not a question
             if '?' not in input_lower and len(self.learned_greetings) > 0:
                 return True
 
-        # If we have curated/learned responses for this intent, handle it
-        if intent in self.learned_responses and self.learned_responses[intent]:
-            return True
+        # Personal events acknowledgment (birthday, anniversary) - these are simple confirmations
+        if any(word in input_lower for word in ['birthday', 'anniversary']):
+            # Only if it's a statement like "my birthday is..." not a question
+            if '?' not in input_lower and any(word in input_lower for word in ['my', 'is', 'on']):
+                if any(k.startswith('ack_') for k in self.learned_responses.keys()):
+                    return True
 
-        # Thanks/appreciation - only if we have learned patterns
-        if 'thank' in input_lower or input_lower in ('thanks', 'thx', 'ty', 'thank you'):
+        # Simple thanks - only if we have learned patterns
+        if input_lower in ('thanks', 'thx', 'ty', 'thank you'):
             if self.training_collector:
                 try:
                     examples = self.training_collector.get_training_data(min_quality=0.7, max_examples=30)
@@ -183,49 +169,31 @@ class ConversationalEngine:
                     pass
             return False
 
-        # Otherwise, needs Ollama for reasoning
+        # Everything else (questions, technical queries, identity, etc.) goes to LLM
         return False
     
     def generate_response(self, context: ConversationalContext) -> Optional[str]:
         """
-        Generate A.L.I.C.E's response from curated patterns, learned patterns, or memory.
-        Returns None if no pattern exists (then Ollama will be used).
+        Generate A.L.I.C.E's response from learned patterns.
+        Only handles simple, repetitive cases. Returns None for everything else (goes to LLM).
         """
         user_input = context.user_input
         input_lower = user_input.lower().strip()
-        intent = context.intent
 
-        # META QUESTIONS - Handle identity/capability questions
-        if 'who created' in input_lower or 'who made' in input_lower or 'who built' in input_lower:
-            if 'meta_who_created' in self.learned_responses:
-                return self._pick_non_repeating(self.learned_responses['meta_who_created'])
+        # GREETINGS - Brief and friendly
+        greeting_words = ['hi', 'hey', 'hello', 'yo', 'sup']
+        if any(word in input_lower for word in greeting_words) and len(input_lower.split()) <= 4:
+            # Don't treat questions as greetings
+            if '?' not in input_lower:
+                if self.learned_greetings:
+                    # Prefer brief greetings
+                    brief_greetings = [g for g in self.learned_greetings if len(g) < 60]
+                    if brief_greetings:
+                        return self._pick_non_repeating(brief_greetings)
+                    return self._pick_non_repeating(self.learned_greetings)
 
-        # Self-identity questions: "who is alice?", "what is alice?", "who's alice?"
-        if any(phrase in input_lower for phrase in [
-            'who is alice', 'who is a.l.i.c.e', 'what is alice', 'what is a.l.i.c.e',
-            'who\'s alice', 'what\'s alice'
-        ]):
-            if 'meta_what_are_you' in self.learned_responses:
-                return self._pick_non_repeating(self.learned_responses['meta_what_are_you'])
-
-        if 'who are you' in input_lower:
-            if 'meta_what_are_you' in self.learned_responses:
-                return self._pick_non_repeating(self.learned_responses['meta_what_are_you'])
-
-        if 'what are you' in input_lower:
-            if 'meta_what_are_you' in self.learned_responses:
-                return self._pick_non_repeating(self.learned_responses['meta_what_are_you'])
-
-        if 'how do you work' in input_lower:
-            if 'meta_how_do_you_work' in self.learned_responses:
-                return self._pick_non_repeating(self.learned_responses['meta_how_do_you_work'])
-
-        if any(phrase in input_lower for phrase in ['what can you do', 'your capabilities', 'what are your capabilities']):
-            if 'meta_capabilities' in self.learned_responses:
-                return self._pick_non_repeating(self.learned_responses['meta_capabilities'])
-
-        # PERSONAL EVENTS - Detect and acknowledge birthday/anniversary
-        if 'birthday' in input_lower:
+        # PERSONAL EVENTS - Detect and acknowledge birthday/anniversary statements
+        if 'birthday' in input_lower and '?' not in input_lower:
             # Try to detect and store the event
             try:
                 from features.personal_events import PersonalEventsDetector, PersonalEventsStorage
@@ -243,7 +211,7 @@ class ConversationalEngine:
             except Exception as e:
                 logger.error(f"Error detecting birthday: {e}")
 
-        if 'anniversary' in input_lower:
+        if 'anniversary' in input_lower and '?' not in input_lower:
             try:
                 from features.personal_events import PersonalEventsDetector, PersonalEventsStorage
                 detector = PersonalEventsDetector(user_name=context.world_state.user_name if context.world_state else "User")
@@ -259,24 +227,8 @@ class ConversationalEngine:
             except Exception as e:
                 logger.error(f"Error detecting anniversary: {e}")
 
-        # Use curated/learned responses by intent
-        if intent in self.learned_responses and self.learned_responses[intent]:
-            return self._pick_non_repeating(self.learned_responses[intent])
-
-        # GREETINGS - Brief and friendly
-        greeting_words = ['hi', 'hey', 'hello', 'yo', 'sup']
-        if any(word in input_lower for word in greeting_words) and len(input_lower.split()) <= 4:
-            # Don't treat questions as greetings
-            if '?' not in input_lower:
-                if self.learned_greetings:
-                    # Prefer brief greetings
-                    brief_greetings = [g for g in self.learned_greetings if len(g) < 60]
-                    if brief_greetings:
-                        return self._pick_non_repeating(brief_greetings)
-                    return self._pick_non_repeating(self.learned_greetings)
-
         # THANKS - Learned patterns only
-        if 'thank' in input_lower or input_lower in ('thanks', 'thx', 'ty', 'thank you'):
+        if input_lower in ('thanks', 'thx', 'ty', 'thank you'):
             if self.training_collector:
                 try:
                     examples = self.training_collector.get_training_data(min_quality=0.7, max_examples=30)
@@ -290,7 +242,7 @@ class ConversationalEngine:
                 except:
                     pass
 
-        # No learned pattern - use Ollama
+        # No learned pattern - use LLM for natural response generation
         return None
 
 

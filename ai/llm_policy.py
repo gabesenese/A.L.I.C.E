@@ -13,12 +13,21 @@ logger = logging.getLogger(__name__)
 
 
 class LLMCallType(Enum):
-    """Types of LLM calls"""
-    CHITCHAT = "chitchat"           # Casual conversation
-    TOOL_FORMATTING = "tool_format" # Formatting tool output
-    GENERATION = "generation"       # Creative/complex generation
-    CLARIFICATION = "clarification" # Asking for clarification
-    FALLBACK = "fallback"          # Last resort fallback
+    """
+    Types of LLM calls - Tool-Based Architecture
+    Ollama is a TOOL Alice uses, not Alice herself
+    """
+    QUERY_KNOWLEDGE = "query_knowledge"     # Alice asks Ollama for factual information
+    PARSE_INPUT = "parse_input"             # Alice asks Ollama to parse complex natural language
+    PHRASE_RESPONSE = "phrase_response"     # Alice asks Ollama to phrase her thought naturally
+    AUDIT_LOGIC = "audit_logic"             # Alice asks Ollama to verify her reasoning
+
+    # Legacy types (deprecated - will be removed)
+    CHITCHAT = "chitchat"                   # DEPRECATED: Use learned patterns instead
+    TOOL_FORMATTING = "tool_format"         # DEPRECATED: Use phrase_response
+    GENERATION = "generation"               # DEPRECATED: Use formulation → phrasing pattern
+    CLARIFICATION = "clarification"         # DEPRECATED: Use parse_input
+    FALLBACK = "fallback"                   # DEPRECATED: Alice should always formulate first
 
 
 @dataclass
@@ -83,11 +92,11 @@ class LLMPolicy:
     ) -> tuple[bool, str]:
         """
         Check if LLM call is allowed by policy
-        
+
         Args:
             call_type: Type of LLM call
             user_input: User input that triggered the call
-        
+
         Returns:
             (allowed, reason) tuple
         """
@@ -96,25 +105,30 @@ class LLMPolicy:
         if (now - self.last_minute_reset).total_seconds() >= 60:
             self.calls_this_minute = 0
             self.last_minute_reset = now
-        
+
         # Check rate limit
         if self.calls_this_minute >= self.max_calls_per_minute:
             self.denied_calls += 1
             return False, f"Rate limit exceeded ({self.max_calls_per_minute} calls/min)"
-        
-        # Check type-specific policies
+
+        # New tool-based call types are always allowed (Alice decides when to use tools)
+        if call_type in [LLMCallType.QUERY_KNOWLEDGE, LLMCallType.PARSE_INPUT,
+                        LLMCallType.PHRASE_RESPONSE, LLMCallType.AUDIT_LOGIC]:
+            return True, "Allowed - Alice is using Ollama as a tool"
+
+        # Legacy type checks (for backward compatibility during transition)
         if call_type == LLMCallType.CHITCHAT and not self.allow_llm_for_chitchat:
             self.denied_calls += 1
             return False, "LLM disabled for chitchat - use learned patterns"
-        
+
         if call_type == LLMCallType.TOOL_FORMATTING and not self.allow_llm_for_tools:
             self.denied_calls += 1
             return False, "LLM disabled for tool formatting - use simple formatter"
-        
+
         if call_type == LLMCallType.GENERATION and not self.allow_llm_for_generation:
             self.denied_calls += 1
             return False, "LLM disabled for generation"
-        
+
         # All checks passed
         return True, "Allowed"
     
@@ -163,6 +177,13 @@ class LLMPolicy:
     def _get_approval_message(self, call_type: LLMCallType, user_input: str) -> str:
         """Generate user approval message"""
         messages = {
+            # New tool-based call types
+            LLMCallType.QUERY_KNOWLEDGE: "I need to query my knowledge base for factual information. Proceed?",
+            LLMCallType.PARSE_INPUT: "I need help parsing this complex input. Proceed with analysis?",
+            LLMCallType.PHRASE_RESPONSE: "I've formulated my response and need to phrase it naturally. Proceed?",
+            LLMCallType.AUDIT_LOGIC: "I want to verify my reasoning logic. Proceed with audit?",
+
+            # Legacy types (backward compatibility)
             LLMCallType.CHITCHAT: "I don't have a learned response for that. Would you like me to use AI to answer it? (This helps me learn!)",
             LLMCallType.TOOL_FORMATTING: "I have the information but need to format it nicely. Proceed with AI help?",
             LLMCallType.GENERATION: "That's something new for me. Want me to look it up with AI?",

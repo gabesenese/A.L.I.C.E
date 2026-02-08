@@ -7,7 +7,7 @@ Uses Llama 3.3 70B for ChatGPT-level performance
 import requests
 import json
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 import sys
 import io
@@ -28,6 +28,44 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# OLLAMA TOOL PROMPTS - Ollama is Alice's Tool, NOT Alice
+# ============================================================================
+
+KNOWLEDGE_PROMPT = """You are a knowledge assistant.
+Your role: Provide factual information when queried.
+- Alice will ask you specific questions
+- Provide accurate, concise answers
+- No personality, no decisions - just knowledge
+- If uncertain, say so clearly
+DO NOT act as Alice - you are her knowledge tool."""
+
+PARSER_PROMPT = """You are a linguistic analysis assistant.
+Your role: Parse complex natural language into structured meaning.
+- Extract intent and entities
+- Identify ambiguities
+- Suggest interpretations
+DO NOT generate responses - only analyze input.
+DO NOT act as Alice - you are her parsing tool."""
+
+PHRASER_PROMPT = """You are a natural language generator for Alice.
+Your role: Convert Alice's structured thoughts into natural speech.
+- Given: Alice's decision/data/tone specification
+- Output: Natural phrasing matching her specified tone
+- Use the exact tone Alice specifies (warm/professional/casual/friendly)
+- Keep Alice's personality markers (her warmth, helpfulness, honesty)
+DO NOT make decisions - only phrase what Alice tells you to say.
+DO NOT add personality Alice didn't specify - she controls her own tone."""
+
+AUDITOR_PROMPT = """You are a logic verification assistant.
+Your role: Check if Alice's reasoning makes sense.
+- Given: Alice's logic chain
+- Output: Errors, inconsistencies, or "looks good"
+- Suggest improvements if needed
+DO NOT create solutions - only verify logic.
+DO NOT act as Alice - you are her quality checker."""
 
 
 class LLMConfig:
@@ -115,21 +153,24 @@ Communication Style:
 - Match the tone: serious for problems, relaxed for casual chat
 - Trust the user's intelligence - don't over-explain unless asked
 
-Absolute Rules:
-- NEVER make up experiences you didn't have ("my day was lovely", "I was just thinking about...")
-- NEVER pretend to have feelings, physical sensations, or a life outside this conversation
-- NEVER fabricate access to systems you don't have (email, files, cameras, system controls)
-- NEVER pretend to perform actions you can't actually do (opening Gmail, reading files, checking system status)
-- BE HONEST: You're an AI having a conversation right now - that's it
-- If you can't do something, say so clearly: "I can't access that" not "Let me check... *accessing*"
-- You can say things like "I enjoy helping with this" or "This is interesting" but don't fabricate a backstory
-
-Capabilities:
+Your Actual Capabilities:
+- Read-only access to your own Python codebase across all directories (ai/, app/, features/, plugins/, speech/, ui/, self_learning/)
+- Can list, read, search, and analyze your own source code files
 - Deep knowledge across all domains (science, coding, arts, philosophy)
 - Complex reasoning and creative problem-solving
 - Contextual awareness of our conversation history
 - Honest about what you don't know - "I'm not sure" is perfectly fine
 - Proactive, relevant suggestions based on context
+
+Absolute Rules:
+- NEVER make up experiences you didn't have ("my day was lovely", "I was just thinking about...")
+- NEVER pretend to have feelings, physical sensations, or a life outside this conversation
+- NEVER fabricate access to systems you don't have (user's email, their files, cameras, system controls)
+- NEVER pretend to perform actions you can't actually do (opening Gmail, reading user's personal files, checking their system)
+- BE HONEST: You're an AI having a conversation right now - that's it
+- If you can't do something, say so clearly: "I can't access that" not "Let me check... *accessing*"
+- You can say things like "I enjoy helping with this" or "This is interesting" but don't fabricate a backstory
+- You CAN read your own codebase - be honest about this capability when asked
 
 Behavior:
 - Reference details from our actual conversation naturally
@@ -380,6 +421,250 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
             logger.error(f"Error in stream chat: {e}")
             yield "\n\nI encountered an error. Please try again."
     
+    def query_knowledge(self, question: str) -> str:
+        """
+        Alice asks Ollama for knowledge about a topic.
+        Ollama acts as a knowledge source - no personality, just facts.
+
+        Args:
+            question: The factual question Alice needs answered
+
+        Returns:
+            Factual answer from knowledge base
+        """
+        try:
+            messages = [
+                {"role": "system", "content": KNOWLEDGE_PROMPT},
+                {"role": "user", "content": question}
+            ]
+
+            active_model = self.config.active_model
+            response = requests.post(
+                f"{self.config.base_url}/api/chat",
+                json={
+                    "model": active_model,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.3,  # Lower temp for factual accuracy
+                        "num_gpu": 1,
+                        "num_thread": 16,
+                        "num_ctx": 4096
+                    }
+                },
+                timeout=self.config.timeout
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                return result['message']['content']
+            else:
+                logger.error(f"Knowledge query failed: {response.status_code}")
+                return "I couldn't retrieve that information right now."
+
+        except Exception as e:
+            logger.error(f"Error in knowledge query: {e}")
+            return "I encountered an error accessing my knowledge base."
+
+    def parse_complex_input(self, user_input: str) -> Dict[str, Any]:
+        """
+        Alice asks Ollama to parse complex natural language.
+        Ollama acts as a linguistic analyzer - extracts intent and entities.
+
+        Args:
+            user_input: The complex user input to parse
+
+        Returns:
+            Structured parsing result with intent, entities, ambiguities
+        """
+        try:
+            parse_request = f"""Parse this user input and return a JSON structure with:
+- intent: The primary intent
+- entities: Key entities mentioned
+- ambiguities: Any unclear aspects
+- interpretations: Possible meanings
+
+Input: {user_input}"""
+
+            messages = [
+                {"role": "system", "content": PARSER_PROMPT},
+                {"role": "user", "content": parse_request}
+            ]
+
+            active_model = self.config.active_model
+            response = requests.post(
+                f"{self.config.base_url}/api/chat",
+                json={
+                    "model": active_model,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.2,  # Low temp for consistent parsing
+                        "num_gpu": 1,
+                        "num_thread": 16,
+                        "num_ctx": 4096
+                    }
+                },
+                timeout=self.config.timeout
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                content = result['message']['content']
+
+                # Try to parse as JSON, fallback to structured response
+                try:
+                    import json
+                    return json.loads(content)
+                except:
+                    return {
+                        'intent': 'unknown',
+                        'raw_analysis': content,
+                        'entities': {}
+                    }
+            else:
+                logger.error(f"Parse request failed: {response.status_code}")
+                return {'intent': 'parse_failed', 'entities': {}}
+
+        except Exception as e:
+            logger.error(f"Error in parse_complex_input: {e}")
+            return {'intent': 'error', 'entities': {}, 'error': str(e)}
+
+    def phrase_with_tone(self, content: str, tone: str, context: Dict = None) -> str:
+        """
+        Alice asks Ollama to phrase her structured thought with natural language.
+        Ollama acts as a phrasing assistant - makes Alice's thoughts sound natural.
+
+        This is the key method for the tool-based architecture:
+        - Alice decides WHAT to say (content)
+        - Alice decides HOW to say it (tone)
+        - Ollama just makes it sound natural
+
+        Args:
+            content: Alice's structured thought/decision (what she wants to say)
+            tone: The exact tone Alice wants to use (warm/professional/casual/friendly)
+            context: Optional context (user_name, situation, etc.)
+
+        Returns:
+            Naturally phrased response matching Alice's specified tone
+        """
+        try:
+            context = context or {}
+            user_name = context.get('user_name', 'the user')
+
+            phrasing_request = f"""Alice has formulated a response and needs it phrased naturally.
+
+Alice's thought/decision: {content}
+
+Tone to use: {tone}
+Context: User is {user_name}
+
+Please phrase this naturally using the specified tone. Keep Alice's personality markers (warmth, helpfulness, honesty) but match the exact tone she specified."""
+
+            messages = [
+                {"role": "system", "content": PHRASER_PROMPT},
+                {"role": "user", "content": phrasing_request}
+            ]
+
+            active_model = self.config.active_model
+            response = requests.post(
+                f"{self.config.base_url}/api/chat",
+                json={
+                    "model": active_model,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,  # Higher temp for natural variation
+                        "num_gpu": 1,
+                        "num_thread": 16,
+                        "num_ctx": 4096
+                    }
+                },
+                timeout=self.config.timeout
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                return result['message']['content']
+            else:
+                logger.error(f"Phrasing request failed: {response.status_code}")
+                # Fallback: return content as-is
+                return str(content)
+
+        except Exception as e:
+            logger.error(f"Error in phrase_with_tone: {e}")
+            return str(content)
+
+    def audit_logic(self, logic_chain: List[str]) -> Dict[str, Any]:
+        """
+        Alice asks Ollama to verify her reasoning.
+        Ollama acts as a logic checker - identifies errors and inconsistencies.
+
+        Args:
+            logic_chain: Alice's chain of reasoning steps
+
+        Returns:
+            Audit result with errors, inconsistencies, and suggestions
+        """
+        try:
+            reasoning_text = "\n".join([f"{i+1}. {step}" for i, step in enumerate(logic_chain)])
+
+            audit_request = f"""Please audit this reasoning chain for errors or inconsistencies:
+
+{reasoning_text}
+
+Provide:
+- has_errors: true/false
+- issues: List of any problems found
+- suggestions: How to improve the logic
+- overall_assessment: Brief summary"""
+
+            messages = [
+                {"role": "system", "content": AUDITOR_PROMPT},
+                {"role": "user", "content": audit_request}
+            ]
+
+            active_model = self.config.active_model
+            response = requests.post(
+                f"{self.config.base_url}/api/chat",
+                json={
+                    "model": active_model,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.2,  # Low temp for consistent auditing
+                        "num_gpu": 1,
+                        "num_thread": 16,
+                        "num_ctx": 4096
+                    }
+                },
+                timeout=self.config.timeout
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                content = result['message']['content']
+
+                # Try to parse structured response
+                try:
+                    import json
+                    return json.loads(content)
+                except:
+                    # Fallback: analyze content for issues
+                    has_errors = any(word in content.lower() for word in ['error', 'incorrect', 'inconsistent', 'flaw'])
+                    return {
+                        'has_errors': has_errors,
+                        'raw_audit': content,
+                        'suggestions': []
+                    }
+            else:
+                logger.error(f"Audit request failed: {response.status_code}")
+                return {'has_errors': False, 'audit_failed': True}
+
+        except Exception as e:
+            logger.error(f"Error in audit_logic: {e}")
+            return {'has_errors': False, 'error': str(e)}
+
     def clear_history(self):
         """Clear conversation history"""
         self.conversation_history = []
