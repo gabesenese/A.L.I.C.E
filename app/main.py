@@ -4093,7 +4093,7 @@ class ALICE:
             if self.relationship_tracker:
                 try:
                     stats = self.relationship_tracker.get_statistics()
-                    print("\n🔗 Entity Relationships:")
+                    print("\nEntity Relationships:")
                     print("=" * 50)
                     print(f"Total relationships: {stats['total_relationships']}")
                     

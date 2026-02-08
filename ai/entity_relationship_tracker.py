@@ -158,7 +158,7 @@ class EntityRelationshipTracker:
         # Load existing data
         self._load_data()
         
-        logger.info(f"🔗 Entity Relationship Tracker initialized with {len(self.entities)} entities and {len(self.relationships)} relationships")
+        logger.info(f"Entity Relationship Tracker initialized with {len(self.entities)} entities and {len(self.relationships)} relationships")
     
     def _build_relationship_patterns(self) -> Dict[str, List[Tuple[str, float]]]:
         """Build patterns for extracting relationships from text"""
@@ -347,7 +347,7 @@ class EntityRelationshipTracker:
             self.relationships.append(relationship)
         
         self._save_data()
-        logger.info(f"🔗 Added relationship: {source} {relationship_type} {target} (confidence: {confidence:.2f})")
+        logger.info(f"Added relationship: {source} {relationship_type} {target} (confidence: {confidence:.2f})")
     
     def _find_relationship(self, source: str, target: str, relationship_type: str) -> Optional[EntityRelationship]:
         """Find existing relationship"""
