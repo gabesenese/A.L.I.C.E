@@ -68,6 +68,36 @@ class MemoryPlugin(PluginInterface):
         """Cleanup when plugin is disabled"""
         logger.info("Shutting down Memory Plugin")
 
+    def can_handle(self, intent: str, entities: Dict) -> bool:
+        """Check if this plugin can handle the given intent"""
+        # Check if intent matches memory operations
+        memory_intents = [
+            'memory:store', 'memory:recall', 'memory:search', 'memory:delete',
+            'store_preference', 'recall_memory', 'search_memory', 'delete_memory'
+        ]
+        return intent in memory_intents
+
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
+        """Execute memory operation based on intent"""
+        try:
+            # Use the existing handle_request method
+            result = self.handle_request(intent, entities, context)
+
+            # Ensure result has required fields
+            if 'success' not in result:
+                result['success'] = result.get('status') == 'success'
+            if 'response' not in result:
+                result['response'] = result.get('message', 'Operation completed')
+
+            return result
+        except Exception as e:
+            logger.error(f"Error executing memory operation: {e}")
+            return {
+                'success': False,
+                'response': f"Error: {str(e)}",
+                'error': str(e)
+            }
+
     def get_name(self) -> str:
         return self.name
 

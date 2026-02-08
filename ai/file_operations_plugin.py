@@ -70,6 +70,40 @@ class FileOperationsPlugin(PluginInterface):
         """Cleanup when plugin is disabled"""
         logger.info("Shutting down File Operations Plugin")
 
+    def can_handle(self, intent: str, entities: Dict) -> bool:
+        """Check if this plugin can handle the given intent"""
+        # Check if intent matches file operations
+        file_intents = [
+            'file_operations:create', 'file_operations:read', 'file_operations:write',
+            'file_operations:delete', 'file_operations:move', 'file_operations:copy',
+            'file_operations:list', 'file_operations:search',
+            'create_file', 'read_file', 'delete_file', 'move_file',
+            'copy_file', 'list_files', 'search_files', 'file_create',
+            'file_read', 'file_write', 'file_delete', 'file_move', 'file_copy'
+        ]
+        return intent in file_intents
+
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
+        """Execute file operation based on intent"""
+        try:
+            # Use the existing handle_request method
+            result = self.handle_request(intent, entities, context)
+
+            # Ensure result has required fields
+            if 'success' not in result:
+                result['success'] = result.get('status') == 'success'
+            if 'response' not in result:
+                result['response'] = result.get('message', 'Operation completed')
+
+            return result
+        except Exception as e:
+            logger.error(f"Error executing file operation: {e}")
+            return {
+                'success': False,
+                'response': f"Error: {str(e)}",
+                'error': str(e)
+            }
+
     def get_name(self) -> str:
         return self.name
 
