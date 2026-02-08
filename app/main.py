@@ -3605,20 +3605,30 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                 return "\n".join(response_parts)
         
         # Check if user is asking for general relationship information
-        if any(word in query_lower for word in ['relationships', 'connections', 'network']):
+        # More specific matching to avoid false positives with technical terms (e.g., "neural networks")
+        relationship_info_keywords = [
+            'relationship', 'relationships',  # Plural and singular
+            'connection between', 'connections between',
+            'entity network', 'entity connections',
+            'show relationships', 'show connections',
+            'tracked relationships', 'tracked connections'
+        ]
+
+        # Only trigger if explicitly asking about relationship tracking, not technical terms
+        if any(keyword in query_lower for keyword in relationship_info_keywords):
             stats = self.relationship_tracker.get_statistics()
             if stats['total_relationships'] == 0:
                 return "I haven't tracked any entity relationships yet. Have a conversation mentioning people, places, or things and I'll start building a relationship map!"
-            
+
             response_parts = [
                 f"I've tracked {stats['total_relationships']} relationships between {stats['total_entities']} entities.",
             ]
-            
+
             if stats['most_connected_entities']:
                 response_parts.append("\nMost connected entities:")
                 for entity, count in stats['most_connected_entities'][:3]:
                     response_parts.append(f"• {entity.title()}: {count} connections")
-            
+
             return "\n".join(response_parts)
         
         return None
