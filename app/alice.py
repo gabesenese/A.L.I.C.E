@@ -30,7 +30,6 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 # Import after setting up environment
-from features.welcome import welcome_message, get_greeting, display_startup_info
 from app.main import ALICE
 
 
@@ -108,84 +107,6 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
         ui.print_info("\nFor detailed error logs, run: python main.py")
 
 
-def start_alice(voice_enabled=False, llm_model="llama3.1:8b", user_name="Gabriel", debug=False, privacy_mode=False, llm_policy="default"):
-    """
-    Start A.L.I.C.E with welcome screen (classic terminal mode)
-    
-    Args:
-        voice_enabled: Enable voice interaction
-        llm_model: LLM model to use
-        user_name: User's name for personalization
-        debug: Show thinking steps (used by dev.py)
-        privacy_mode: Disable episodic memory storage for privacy
-        llm_policy: LLM policy mode (default/minimal/strict)
-    """
-    # Clear screen for clean start
-    os.system('cls' if os.name == 'nt' else 'clear')
-    
-    # Display welcome banner
-    welcome_message(user_name, show_ascii=True)
-    print()
-    
-    # Display greeting (simple, no animation to avoid glitches)
-    greeting = get_greeting(user_name)
-    print(greeting)
-    print()
-    
-    # Display startup info
-    display_startup_info()
-    print()
-    print("Initializing A.L.I.C.E systems...")
-    if privacy_mode:
-        print("🔒 Privacy mode: Episodic memories will not be saved.")
-    print()
-    
-    # Initialize ALICE with stdout suppressed to avoid debug messages (unless debug)
-    import io
-    
-    try:
-        # Redirect stdout to suppress initialization messages (unless debug)
-        old_stdout = sys.stdout
-        if not debug:
-            sys.stdout = io.StringIO()
-        
-        alice = ALICE(
-            voice_enabled=voice_enabled,
-            llm_model=llm_model,
-            user_name=user_name,
-            debug=debug,
-            privacy_mode=privacy_mode,
-            llm_policy=llm_policy
-        )
-        
-        # Restore stdout
-        if not debug:
-            sys.stdout = old_stdout
-        if debug:
-            print("Debug mode: A.L.I.C.E thinking steps will appear above each response.\n")
-        
-        # Clear the console completely for a fresh start
-        os.system('cls' if os.name == 'nt' else 'clear')
-        
-        # Show welcome banner again with clean screen
-        welcome_message(user_name, show_ascii=True)
-        print()
-        print(get_greeting(user_name))
-        print()
-        print("Ready! Type /help for available commands")
-        print()
-        
-        # Start interactive mode (skip welcome since we already showed it)
-        alice.run_interactive(skip_welcome=True)
-        
-    except KeyboardInterrupt:
-        print("\n\nGoodbye! A.L.I.C.E shutting down...")
-    except Exception as e:
-        print(f"\n[ERROR] Error starting A.L.I.C.E: {e}")
-        print("\nFor detailed error logs, run: python main.py")
-        sys.exit(1)
-
-
 def main():
     """Main entry point with argument parsing"""
     parser = argparse.ArgumentParser(
@@ -193,26 +114,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python alice.py                           # Start with classic terminal (default: Gabriel)
-  python alice.py --ui rich                 # Start with Rich terminal UI
-  python alice.py --ui gui                  # Start with Tkinter GUI
+  python alice.py                           # Start A.L.I.C.E (default: Gabriel)
   python alice.py --voice                   # Enable voice interaction
   python alice.py --model llama3.3:70b      # Specify LLM model
   python alice.py --privacy-mode            # Run without saving episodic memories
-  
+
 For debugging with full logs:
   python main.py
         """
     )
-    
-    parser.add_argument(
-        '--ui',
-        type=str,
-        choices=['classic', 'rich'],
-        default='rich',
-        help='UI mode: classic (standard terminal), rich (enhanced terminal with panels)'
-    )
-    
+
     # Commented out --name option, using Gabriel as default
     # parser.add_argument(
     #     '--name',
@@ -220,32 +131,32 @@ For debugging with full logs:
     #     default='Gabriel',
     #     help='Your name for personalization (default: Gabriel)'
     # )
-    
+
     parser.add_argument(
         '--voice',
         action='store_true',
         help='Enable voice interaction (speech-to-text and text-to-speech)'
     )
-    
+
     parser.add_argument(
         '--model',
         type=str,
         default='llama3.1:8b',
         help='LLM model to use (default: llama3.1:8b)'
     )
-    
+
     parser.add_argument(
         '--debug',
         action='store_true',
         help='Show A.L.I.C.E thinking steps (intent, plugins, verifier). Used by dev.py'
     )
-    
+
     parser.add_argument(
         '--privacy-mode',
         action='store_true',
         help='Disable episodic memory storage for privacy (no conversation history saved)'
     )
-    
+
     parser.add_argument(
         '--llm-policy',
         type=str,
@@ -253,31 +164,21 @@ For debugging with full logs:
         default='default',
         help='LLM policy: minimal (patterns only, no LLM for chitchat/tools), strict (no LLM at all), default (balanced)'
     )
-    
+
     args = parser.parse_args()
-    
+
     # Default user name
     user_name = "Gabriel"
-    
-    # Start A.L.I.C.E with selected UI
-    if args.ui == 'rich':
-        start_alice_rich(
-            voice_enabled=args.voice,
-            llm_model=args.model,
-            user_name=user_name,
-            debug=args.debug,
-            privacy_mode=args.privacy_mode,
-            llm_policy=args.llm_policy
-        )
-    else:  # classic
-        start_alice(
-            voice_enabled=args.voice,
-            llm_model=args.model,
-            user_name=user_name,
-            debug=args.debug,
-            privacy_mode=args.privacy_mode,
-            llm_policy=args.llm_policy
-        )
+
+    # Start A.L.I.C.E with Rich UI
+    start_alice_rich(
+        voice_enabled=args.voice,
+        llm_model=args.model,
+        user_name=user_name,
+        debug=args.debug,
+        privacy_mode=args.privacy_mode,
+        llm_policy=args.llm_policy
+    )
 
 
 if __name__ == "__main__":

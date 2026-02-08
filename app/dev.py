@@ -93,48 +93,47 @@ class ALICEReloader(FileSystemEventHandler):
 
 class ALICERunner:
     """Manages ALICE process with auto-reload"""
-    
-    def __init__(self, ui_mode='rich', voice_enabled=False, model='llama3.1:8b', show_thinking=True, llm_policy='default'):
-        self.ui_mode = ui_mode
+
+    def __init__(self, voice_enabled=False, model='llama3.1:8b', show_thinking=True, llm_policy='default'):
         self.voice_enabled = voice_enabled
         self.model = model
         self.show_thinking = show_thinking  # In dev mode, show A.L.I.C.E thinking steps
         self.llm_policy = llm_policy
-        
+
         self.process = None
         self.should_run = Event()
         self.should_run.set()
-        
+
         self.restart_requested = Event()
         self.restart_count = 0
-        
+
     def build_command(self):
         """Build ALICE command"""
-        cmd = [sys.executable, 'alice.py', '--ui', self.ui_mode, '--model', self.model]
-        
+        cmd = [sys.executable, 'alice.py', '--model', self.model]
+
         if self.voice_enabled:
             cmd.append('--voice')
-        
+
         # Add LLM policy flag
         if self.llm_policy != 'default':
             cmd.extend(['--llm-policy', self.llm_policy])
-        
+
         # Dev mode: show A.L.I.C.E thinking (intent, plugins, verifier)
         if getattr(self, 'show_thinking', True):
             cmd.append('--debug')
-        
+
         return cmd
-    
+
     def start_alice(self):
         """Start ALICE process"""
         if self.process and self.process.poll() is None:
             logger.info("Stopping existing ALICE instance...")
             self.stop_alice()
             time.sleep(1)
-        
+
         logger.info(f" Starting ALICE (restart #{self.restart_count})...")
-        logger.info(f"   UI: {self.ui_mode}, Model: {self.model}, Voice: {self.voice_enabled}")
-        
+        logger.info(f"   Model: {self.model}, Voice: {self.voice_enabled}")
+
         cmd = self.build_command()
         
         try:
@@ -214,12 +213,11 @@ class ALICERunner:
         self.stop_alice()
 
 
-def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch=True, show_thinking=True, llm_policy='default'):
+def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thinking=True, llm_policy='default'):
     """
     Run ALICE in development mode with auto-reload
-    
+
     Args:
-        ui_mode: UI mode (rich or classic)
         voice_enabled: Enable voice
         model: LLM model
         watch: Enable file watching
@@ -229,7 +227,6 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
     print("=" * 70)
     print("A.L.I.C.E - Development Mode")
     print("=" * 70)
-    print(f"UI Mode: {ui_mode}")
     print(f"Voice: {'Enabled' if voice_enabled else 'Disabled'}")
     print(f"Model: {model}")
     print(f"LLM Policy: {llm_policy}")
@@ -239,9 +236,9 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
     print("Press Ctrl+C to stop")
     print("=" * 70)
     print()
-    
+
     # Create runner
-    runner = ALICERunner(ui_mode=ui_mode, voice_enabled=voice_enabled, model=model, show_thinking=show_thinking, llm_policy=llm_policy)
+    runner = ALICERunner(voice_enabled=voice_enabled, model=model, show_thinking=show_thinking, llm_policy=llm_policy)
     
     # Set up file watcher
     observer = None
@@ -292,53 +289,44 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(
         description="Run A.L.I.C.E in development mode with auto-reload",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python dev.py                    # Run with defaults (Rich UI, auto-reload)
-  python dev.py --ui classic       # Use classic terminal UI
+  python dev.py                    # Run with defaults (auto-reload)
   python dev.py --voice            # Enable voice mode
   python dev.py --no-watch         # Disable auto-reload
   python dev.py --model llama3.2:3b  # Use different model
         """
     )
-    
-    parser.add_argument(
-        '--ui',
-        type=str,
-        choices=['classic', 'rich'],
-        default='rich',
-        help='UI mode (default: rich)'
-    )
-    
+
     parser.add_argument(
         '--voice',
         action='store_true',
         help='Enable voice interaction'
     )
-    
+
     parser.add_argument(
         '--model',
         type=str,
         default='llama3.1:8b',
         help='LLM model to use (default: llama3.1:8b)'
     )
-    
+
     parser.add_argument(
         '--no-watch',
         action='store_true',
         help='Disable file watching (no auto-reload)'
     )
-    
+
     parser.add_argument(
         '--no-thinking',
         action='store_true',
         help='Disable A.L.I.C.E thinking steps in dev mode'
     )
-    
+
     parser.add_argument(
         '--llm-policy',
         type=str,
@@ -346,11 +334,10 @@ Examples:
         default='default',
         help='LLM policy mode: minimal (patterns only), strict (no LLM), default (balanced)'
     )
-    
+
     args = parser.parse_args()
-    
+
     run_dev_mode(
-        ui_mode=args.ui,
         voice_enabled=args.voice,
         model=args.model,
         watch=not args.no_watch,
