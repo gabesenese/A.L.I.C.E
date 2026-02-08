@@ -250,8 +250,8 @@ def run_dev_mode(ui_mode='rich', voice_enabled=False, model='llama3.1:8b', watch
         observer = Observer()
         
         # Watch main directories
-        watch_paths = ['ai/', 'speech/', 'ui/', 'features/', 'self_learning/']
-        watch_paths.append('.')  # Watch root for app/alice.py, app/main.py
+        watch_paths = ['ai/', 'app/', 'speech/', 'ui/', 'features/', 'self_learning/']
+        watch_paths.append('.')  # Watch root for alice.py and other root files
         
         for path in watch_paths:
             if os.path.exists(path):
