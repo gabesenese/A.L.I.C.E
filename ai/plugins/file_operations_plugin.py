@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # Import the proper plugin interface
-from ai.plugin_system import PluginInterface
+from ai.plugins.plugin_system import PluginInterface
 
 
 class FileOperationsPlugin(PluginInterface):

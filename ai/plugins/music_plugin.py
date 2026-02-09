@@ -246,7 +246,7 @@ class DesktopSpotifyController:
         return False
 
 # Import the proper plugin interface
-from ai.plugin_system import PluginInterface
+from ai.plugins.plugin_system import PluginInterface
 
 @dataclass
 class Song:

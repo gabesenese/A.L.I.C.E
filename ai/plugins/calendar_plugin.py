@@ -37,7 +37,7 @@ except ImportError:
     print("Warning: Google Calendar dependencies not available. Run: pip install google-auth google-auth-oauthlib google-api-python-client")
     GOOGLE_AVAILABLE = False
 
-from ai.plugin_system import PluginInterface
+from ai.plugins.plugin_system import PluginInterface
 import logging
 
 logger = logging.getLogger(__name__)

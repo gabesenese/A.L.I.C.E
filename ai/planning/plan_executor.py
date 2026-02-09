@@ -9,8 +9,8 @@ import logging
 import re
 
 from .task_planner import ExecutionPlan, PlanStep, StepStatus, PlanStatus
-from .event_bus import get_event_bus, EventType, EventPriority
-from .system_state import get_state_tracker
+from ai.infrastructure.event_bus import get_event_bus, EventType, EventPriority
+from ai.infrastructure.system_state import get_state_tracker
 
 logger = logging.getLogger(__name__)
 

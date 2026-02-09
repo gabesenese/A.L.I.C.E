@@ -18,8 +18,8 @@ from typing import Optional, Dict, Any, Callable
 from datetime import datetime
 from dataclasses import dataclass
 
-from ai.llm_policy import get_llm_policy, LLMCallType
-from ai.simple_formatters import FormatterRegistry
+from ai.core.llm_policy import get_llm_policy, LLMCallType
+from ai.models.simple_formatters import FormatterRegistry
 
 logger = logging.getLogger(__name__)
 

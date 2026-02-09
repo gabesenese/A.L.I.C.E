@@ -606,7 +606,7 @@ class SystemControlPlugin(PluginInterface):
         self.task_executor = None
     
     def initialize(self) -> bool:
-        from .task_executor import TaskExecutor
+        from ai.planning.task_executor import TaskExecutor
         self.task_executor = TaskExecutor(safe_mode=True)
         self._installed_apps = None  # Cache for installed apps
         logger.info(" System Control plugin initialized")

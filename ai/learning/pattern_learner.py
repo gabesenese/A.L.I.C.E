@@ -10,7 +10,7 @@ from collections import defaultdict
 import json
 import logging
 
-from .event_bus import get_event_bus, EventType, EventPriority
+from ai.infrastructure.event_bus import get_event_bus, EventType, EventPriority
 
 logger = logging.getLogger(__name__)
 

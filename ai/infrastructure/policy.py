@@ -7,7 +7,7 @@ import logging
 from typing import Optional
 from dataclasses import dataclass
 
-from .goal_from_llm import GoalJSON
+from ai.planning.goal_from_llm import GoalJSON
 
 logger = logging.getLogger(__name__)
 

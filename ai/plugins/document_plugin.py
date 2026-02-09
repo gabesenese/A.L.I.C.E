@@ -6,8 +6,8 @@ Handles document ingestion, searching, and management
 import logging
 from typing import Dict, List, Optional, Any
 from pathlib import Path
-from ai.plugin_system import PluginInterface
-from ai.memory_system import MemorySystem
+from ai.plugins.plugin_system import PluginInterface
+from ai.memory.memory_system import MemorySystem
 
 logger = logging.getLogger(__name__)
 

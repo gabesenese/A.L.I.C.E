@@ -30,9 +30,9 @@ from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
 
-from ai.goal_from_llm import get_goal_from_llm, GoalJSON
-from ai.policy import get_policy_decision, PolicyDecision
-from ai.runtime_thresholds import get_tool_path_confidence, get_goal_path_confidence, get_ask_threshold
+from ai.planning.goal_from_llm import get_goal_from_llm, GoalJSON
+from ai.infrastructure.policy import get_policy_decision, PolicyDecision
+from ai.optimization.runtime_thresholds import get_tool_path_confidence, get_goal_path_confidence, get_ask_threshold
 
 # Add project root to path
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -40,56 +40,54 @@ PROJECT_ROOT = os.path.dirname(APP_DIR)
 sys.path.insert(0, PROJECT_ROOT)
 
 # Import ALICE components
-from ai.nlp_processor import NLPProcessor
-from ai.llm_engine import LocalLLMEngine, LLMConfig
-from ai.context_engine import get_context_engine
-from ai.memory_system import MemorySystem
-from ai.conversation_summarizer import ConversationSummarizer
-from ai.entity_relationship_tracker import EntityRelationshipTracker
-from ai.active_learning_manager import ActiveLearningManager, CorrectionType, FeedbackType
-from ai.email_plugin import GmailPlugin
-from ai.plugin_system import (
+from ai.core.nlp_processor import NLPProcessor
+from ai.core.llm_engine import LocalLLMEngine, LLMConfig
+from ai.memory.context_engine import get_context_engine
+from ai.memory.memory_system import MemorySystem
+from ai.memory.conversation_summarizer import ConversationSummarizer
+from ai.models.entity_relationship_tracker import EntityRelationshipTracker
+from ai.learning.active_learning_manager import ActiveLearningManager, CorrectionType, FeedbackType
+from ai.plugins.email_plugin import GmailPlugin
+from ai.plugins.plugin_system import (
     PluginManager, WeatherPlugin, TimePlugin,
     SystemControlPlugin, WebSearchPlugin
 )
-from ai.file_operations_plugin import FileOperationsPlugin
-from ai.memory_plugin import MemoryPlugin
-from ai.document_plugin import DocumentPlugin
-from ai.calendar_plugin import CalendarPlugin
-from ai.music_plugin import MusicPlugin
-from ai.notes_plugin import NotesPlugin
-from ai.maps_plugin import MapsPlugin
-from ai.task_executor import TaskExecutor
+from ai.plugins.file_operations_plugin import FileOperationsPlugin
+from ai.plugins.memory_plugin import MemoryPlugin
+from ai.plugins.document_plugin import DocumentPlugin
+from ai.plugins.calendar_plugin import CalendarPlugin
+from ai.plugins.music_plugin import MusicPlugin
+from ai.plugins.notes_plugin import NotesPlugin
+from ai.plugins.maps_plugin import MapsPlugin
+from ai.planning.task_executor import TaskExecutor
 from speech.speech_engine import SpeechEngine, SpeechConfig
 
 # New anticipatory AI systems
-from ai.event_bus import get_event_bus, EventType, EventPriority
-from ai.system_state import get_state_tracker, SystemStatus
-from ai.observers import get_observer_manager
-from ai.pattern_learner import get_pattern_learner
-from ai.system_monitor import get_system_monitor
-from ai.task_planner import get_planner
-from ai.plan_executor import initialize_executor, get_executor
-from ai.reasoning_engine import get_reasoning_engine, WorldEntity, EntityKind
-from ai.proactive_assistant import get_proactive_assistant
-from ai.error_recovery import get_error_recovery
-from ai.smart_context_cache import get_context_cache
-from ai.adaptive_context_selector import get_context_selector
-from ai.predictive_prefetcher import get_prefetcher
-from ai.response_optimizer import get_response_optimizer
-from ai.self_reflection import get_self_reflection
-from ai.learning_engine import get_learning_engine
-from ai.conversational_engine import get_conversational_engine, ConversationalContext
-from ai.llm_gateway import get_llm_gateway, LLMGateway
-from ai.llm_policy import LLMCallType
-from ai.phrasing_learner import PhrasingLearner
+from ai.infrastructure.event_bus import get_event_bus, EventType, EventPriority
+from ai.infrastructure.system_state import get_state_tracker, SystemStatus
+from ai.infrastructure.observers import get_observer_manager
+from ai.learning.pattern_learner import get_pattern_learner
+from ai.optimization.system_monitor import get_system_monitor
+from ai.planning.task_planner import get_planner
+from ai.planning.plan_executor import initialize_executor, get_executor
+from ai.core.reasoning_engine import get_reasoning_engine, WorldEntity, EntityKind
+from ai.planning.proactive_assistant import get_proactive_assistant
+from ai.infrastructure.error_recovery import get_error_recovery
+from ai.memory.smart_context_cache import get_context_cache
+from ai.memory.adaptive_context_selector import get_context_selector
+from ai.memory.predictive_prefetcher import get_prefetcher
+from ai.optimization.response_optimizer import get_response_optimizer
+from ai.learning.self_reflection import get_self_reflection
+from ai.learning.learning_engine import get_learning_engine
+from ai.core.conversational_engine import get_conversational_engine, ConversationalContext
+from ai.core.llm_gateway import get_llm_gateway, LLMGateway
+from ai.core.llm_policy import LLMCallType
+from ai.learning.phrasing_learner import PhrasingLearner
 
 # Advanced learning, testing, and telemetry
-from ai.pattern_miner import PatternMiner
-from ai.synthetic_corpus_generator import SyntheticCorpusGenerator
-from ai.multimodal_context import MultimodalContext
-from ai.lab_simulator import LabSimulator
-from ai.red_team_tester import RedTeamTester
+from ai.learning.pattern_miner import PatternMiner
+from ai.training.synthetic_corpus_generator import SyntheticCorpusGenerator
+from ai.memory.multimodal_context import MultimodalContext
 
 # Logging
 logging.basicConfig(
@@ -227,7 +225,7 @@ class ALICE:
 
             # 3.7. Knowledge Engine - Alice's own intelligence and learning
             logger.info("Initializing knowledge engine...")
-            from ai.knowledge_engine import KnowledgeEngine
+            from ai.core.knowledge_engine import KnowledgeEngine
             self.knowledge_engine = KnowledgeEngine(storage_path="data/knowledge")
             stats = self.knowledge_engine.get_stats()
             logger.info(f"[OK] Knowledge engine ready - Alice has learned {stats['total_entities']} entities, {stats['total_relationships']} relationships")

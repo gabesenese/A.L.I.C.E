@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # Import the proper plugin interface
-from ai.plugin_system import PluginInterface
-from ai.memory_system import MemorySystem
+from ai.plugins.plugin_system import PluginInterface
+from ai.memory.memory_system import MemorySystem
 
 
 class MemoryPlugin(PluginInterface):
