@@ -1600,34 +1600,92 @@ class ALICE:
             file_path = py_file_match.group(1).strip("'\"")
 
             # Only handle explicit "read" or "show" or "summarize" commands, not questions
-            if any(word in input_lower for word in ['read', 'show', 'summarize', 'summary', 'tell me about', 'what does']):
+            if any(word in input_lower for word in ['read', 'show', 'summarize', 'summary', 'tell me about', 'what does', 'describe']):
                 code_file = self.self_reflection.read_file(file_path)
                 if code_file:
                     # Return the file content or explanation based on request
-                    if 'summarize' in input_lower or 'summary' in input_lower or 'tell me about' in input_lower or 'what does' in input_lower:
-                        # Alice formulates an answer about the file
-                        alice_formulation = {
-                            'type': 'code_explanation',
-                            'file_name': code_file.name,
-                            'file_path': code_file.path,
-                            'lines': code_file.lines,
-                            'module_type': code_file.module_type,
-                            'content_preview': code_file.content[:500],  # First 500 chars for context
-                            'confidence': 0.9
-                        }
-
-                        # Alice analyzes what the code does
+                    if 'summarize' in input_lower or 'summary' in input_lower or 'tell me about' in input_lower or 'what does' in input_lower or 'describe' in input_lower:
+                        # USE CODE ANALYZER - Actually parse the file instead of guessing
                         try:
-                            tone = self._select_tone('code:explanation', None, user_input)
-                            response = self._generate_natural_response(
-                                alice_response=alice_formulation,
-                                tone=tone,
-                                context={},
-                                user_input=user_input
-                            )
-                            return response
+                            from ai.core.code_intelligence import get_code_analyzer
+                            from ai.core.fact_checker import get_fact_checker
+
+                            analyzer = get_code_analyzer()
+                            fact_checker = get_fact_checker()
+
+                            # Analyze the Python code with AST parsing
+                            analysis = analyzer.analyze_python_code(code_file.content)
+
+                            if analysis.get('valid'):
+                                # Build factual response from actual code analysis
+                                result = f"**{code_file.name}** ({code_file.lines} lines)\n\n"
+
+                                # Module docstring
+                                if analysis.get('docstrings'):
+                                    result += f"{analysis['docstrings'][0]}\n\n"
+
+                                # Functions
+                                if analysis.get('functions'):
+                                    result += f"**Functions** ({len(analysis['functions'])}):\n"
+                                    for func in analysis['functions'][:10]:
+                                        args_str = ', '.join(func['args'])
+                                        result += f"- `{func['name']}({args_str})` - {func['lines']} lines"
+                                        if func.get('docstring'):
+                                            doc_preview = func['docstring'].split('\n')[0][:80]
+                                            result += f": {doc_preview}"
+                                        result += f" (complexity: {func['complexity']})\n"
+                                    if len(analysis['functions']) > 10:
+                                        result += f"  ... and {len(analysis['functions']) - 10} more\n"
+                                    result += "\n"
+
+                                # Classes
+                                if analysis.get('classes'):
+                                    result += f"**Classes** ({len(analysis['classes'])}):\n"
+                                    for cls in analysis['classes'][:5]:
+                                        result += f"- `{cls['name']}`"
+                                        if cls.get('bases'):
+                                            result += f" (extends {', '.join(cls['bases'])})"
+                                        result += f" - {cls['method_count']} methods\n"
+                                        if cls.get('docstring'):
+                                            doc_preview = cls['docstring'].split('\n')[0][:80]
+                                            result += f"  {doc_preview}\n"
+                                    if len(analysis['classes']) > 5:
+                                        result += f"  ... and {len(analysis['classes']) - 5} more\n"
+                                    result += "\n"
+
+                                # Imports
+                                if analysis.get('imports'):
+                                    result += f"**Dependencies**: {', '.join(analysis['imports'][:8])}\n"
+                                    if len(analysis['imports']) > 8:
+                                        result += f"  ... and {len(analysis['imports']) - 8} more\n"
+                                    result += "\n"
+
+                                # Code quality metrics
+                                metrics = analysis.get('metrics', {})
+                                if metrics:
+                                    result += f"**Metrics**:\n"
+                                    result += f"- Code quality score: {analysis.get('quality_score', 0.0):.2f}/1.0\n"
+                                    result += f"- Average complexity: {metrics.get('avg_complexity', 0):.1f}\n"
+                                    result += f"- Documentation ratio: {metrics.get('doc_ratio', 0):.0%}\n"
+
+                                # Design patterns
+                                if analysis.get('patterns'):
+                                    result += f"\n**Design Patterns**: {', '.join(analysis['patterns'])}\n"
+
+                                # Improvement suggestions
+                                suggestions = analyzer.suggest_improvements(analysis)
+                                if suggestions:
+                                    result += f"\n**Suggestions**:\n"
+                                    for suggestion in suggestions[:3]:
+                                        result += f"- {suggestion}\n"
+
+                                return result
+                            else:
+                                # Not valid Python or analysis failed
+                                return f"`{code_file.path}` - {code_file.lines} lines, {code_file.module_type}\n\nNote: Could not perform detailed analysis (syntax error or non-Python file)"
+
                         except Exception as e:
-                            logger.error(f"Error generating code explanation: {e}")
+                            logger.error(f"Error in code analysis: {e}")
                             # Fallback: just show metadata
                             return f"`{code_file.path}` - {code_file.lines} lines, {code_file.module_type}"
                     else:
