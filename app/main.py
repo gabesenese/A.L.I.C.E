@@ -230,7 +230,49 @@ class ALICE:
             stats = self.knowledge_engine.get_stats()
             logger.info(f"[OK] Knowledge engine ready - Alice has learned {stats['total_entities']} entities, {stats['total_relationships']} relationships")
 
-            # 3.8. Capability Registry - Alice knows what she can do (in code, not prompts)
+            # 3.8. Conversation Context Manager - Multi-turn conversation tracking
+            logger.info("Initializing conversation context manager...")
+            from ai.memory.conversation_context import get_context_manager
+            self.conversation_context = get_context_manager(max_turns=50, context_window=10)
+            logger.info("[OK] Conversation context manager ready - Alice can now track 'it', 'that', and conversation flow")
+
+            # 3.9. User Profile Engine - Deep user modeling and preference learning
+            logger.info("Initializing user profile engine...")
+            from ai.learning.user_profile_engine import get_profile_engine
+            self.user_profile = get_profile_engine(storage_path="data/user_profiles")
+            profile_summary = self.user_profile.get_profile_summary()
+            logger.info(f"[OK] User profile loaded - {profile_summary.get('interactions', 0)} interactions, learning preferences")
+
+            # 3.10. Persistent Goal System - Long-running goals across sessions
+            logger.info("Initializing persistent goal system...")
+            from ai.planning.persistent_goals import get_goal_system
+            self.goal_system = get_goal_system(storage_path="data/goals")
+            active_goals = self.goal_system.get_active_goals()
+            logger.info(f"[OK] Goal system ready - {len(active_goals)} active goals")
+
+            # Resume goals from previous session
+            if active_goals:
+                logger.info(f"Resuming {len(active_goals)} goals from previous session")
+                for goal in active_goals[:3]:
+                    logger.info(f"  - {goal.title} ({int(goal.progress * 100)}% complete)")
+
+            # 3.11. Proactive Intelligence Loop - Background monitoring and insights
+            logger.info("Initializing proactive intelligence...")
+            from ai.planning.proactive_intelligence import get_proactive_intelligence
+            self.proactive_intelligence = get_proactive_intelligence(check_interval=60)
+
+            # Inject dependencies
+            self.proactive_intelligence.inject_dependencies(
+                goal_system=self.goal_system,
+                profile_engine=self.user_profile,
+                context_manager=self.conversation_context
+            )
+
+            # Start proactive loop
+            self.proactive_intelligence.start()
+            logger.info("[OK] Proactive intelligence active - Alice will monitor and help proactively")
+
+            # 3.12. Capability Registry - Alice knows what she can do (in code, not prompts)
             logger.info("Initializing capability registry...")
             self._init_capabilities_registry()
             logger.info("[OK] Capability registry ready - Alice knows her own capabilities")
@@ -1905,10 +1947,27 @@ class ALICE:
             intent = nlp_result.intent
             entities = nlp_result.entities
             sentiment = nlp_result.sentiment
-            
+
             self._think(f"NLP → intent={intent!r} confidence={getattr(nlp_result, 'intent_confidence', '?')}")
             if entities:
                 self._think(f"     entities={str(entities)[:120]}...")
+
+            # 1.5. Reference Resolution - Handle "it", "that", "them", etc.
+            if hasattr(self, 'conversation_context'):
+                # Check for pronouns that need resolution
+                pronouns = ['it', 'that', 'this', 'them', 'he', 'she', 'they']
+                words = user_input.lower().split()
+
+                for pronoun in pronouns:
+                    if pronoun in words:
+                        resolved = self.conversation_context.resolve_reference(pronoun)
+                        if resolved:
+                            self._think(f"Reference resolution: '{pronoun}' → '{resolved}'")
+                            # Add resolved entity to entities dict
+                            if 'resolved_reference' not in entities:
+                                entities['resolved_reference'] = resolved
+                        break
+
             
             # FAST PATH: Check cache and conversational shortcuts
             intent_confidence = getattr(nlp_result, 'intent_confidence', 0.5)
@@ -3277,6 +3336,40 @@ class ALICE:
                 self._think(f"Alice learned from this interaction (confidence in '{intent}' topics growing)")
             except Exception as e:
                 logger.error(f"[Learning] Error in knowledge engine: {e}")
+
+            # FOUNDATIONAL SYSTEMS - Track conversation and learn user preferences
+            try:
+                # Conversation Context - Track this turn for reference resolution
+                if hasattr(self, 'conversation_context'):
+                    topics = [intent] if intent else []
+                    self.conversation_context.add_turn(
+                        user_input=user_input,
+                        alice_response=response,
+                        intent=intent,
+                        entities=entities or {},
+                        topics=topics,
+                        sentiment=sentiment
+                    )
+
+                # User Profile - Learn from this interaction
+                if hasattr(self, 'user_profile'):
+                    feedback = 'neutral'
+                    if 'quality_score' in locals() and quality_score:
+                        if quality_score > 0.7:
+                            feedback = 'positive'
+                        elif quality_score < 0.3:
+                            feedback = 'negative'
+
+                    self.user_profile.record_interaction(
+                        user_input=user_input,
+                        alice_response=response,
+                        intent=intent,
+                        entities=entities or {},
+                        feedback=feedback
+                    )
+
+            except Exception as e:
+                logger.error(f"[Foundational Systems] Error: {e}")
 
             # 5. Speak if voice enabled
             if use_voice and self.speech:
