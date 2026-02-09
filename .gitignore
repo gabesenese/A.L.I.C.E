@@ -235,8 +235,8 @@ docs/roadmap.md
 # Documentation (personal notes - roadmap only)
 roadmap.md
 
-# Memory Data
-memory
+# Memory Data (runtime data only, not code)
+data/memory/
 COMPLETION_REPORT.md
 data/context_state.pkl
 integration_test_output.txt
