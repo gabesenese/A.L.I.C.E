@@ -226,6 +226,7 @@ data/training/auto_generated.jsonl
 
 # App runtime data
 app/data/**
+app/memory/
 
 # Script runtime data
 scripts/data/
