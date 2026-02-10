@@ -319,3 +319,7 @@ def get_recovery_system(
             max_replans=max_replans
         )
     return _recovery_system
+
+
+# Alias for consistency with other modules
+get_error_recovery = get_recovery_system
