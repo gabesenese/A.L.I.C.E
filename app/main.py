@@ -272,7 +272,32 @@ class ALICE:
             self.proactive_intelligence.start()
             logger.info("[OK] Proactive intelligence active - Alice will monitor and help proactively")
 
-            # 3.12. Capability Registry - Alice knows what she can do (in code, not prompts)
+            # 3.12. Autonomous Agent System - Multi-step goal execution
+            logger.info("Initializing autonomous agent system...")
+            from ai.planning.autonomous_agent import get_autonomous_agent
+            from ai.planning.autonomous_execution_loop import get_execution_loop
+            from ai.planning.error_recovery import get_error_recovery
+
+            self.autonomous_agent = get_autonomous_agent()
+            self.error_recovery = get_error_recovery()
+            self.execution_loop = get_execution_loop()
+
+            # Inject dependencies into autonomous agent
+            self.autonomous_agent.inject_dependencies(
+                goal_system=self.goal_system,
+                llm_engine=None,  # Will be set after LLM engine loads
+                error_recovery=self.error_recovery
+            )
+
+            # Inject dependencies into execution loop
+            self.execution_loop.inject_dependencies(
+                goal_system=self.goal_system,
+                autonomous_agent=self.autonomous_agent
+            )
+
+            logger.info("[OK] Autonomous agent ready - Alice can work on multi-step goals independently")
+
+            # 3.13. Capability Registry - Alice knows what she can do (in code, not prompts)
             logger.info("Initializing capability registry...")
             self._init_capabilities_registry()
             logger.info("[OK] Capability registry ready - Alice knows her own capabilities")
@@ -281,7 +306,11 @@ class ALICE:
             logger.info(" Loading LLM engine...")
             llm_config = LLMConfig(model=llm_model)
             self.llm = LocalLLMEngine(llm_config)
-            
+
+            # Inject LLM engine into autonomous agent now that it's loaded
+            if hasattr(self, 'autonomous_agent'):
+                self.autonomous_agent.llm_engine = self.llm
+
             # 4.1. LLM Gateway - Single entry point for all LLM calls
             logger.info(" Initializing LLM Gateway with policy enforcement...")
             self.llm_gateway = get_llm_gateway(
@@ -4077,6 +4106,14 @@ class ALICE:
             print("   /mem-delete <id>   - Delete a specific memory by ID")
             print("   /patterns          - Show proposed patterns awaiting approval")
             print()
+            print("Autonomous Mode:")
+            print("   /autonomous start  - Start autonomous goal execution")
+            print("   /autonomous stop   - Stop autonomous execution")
+            print("   /autonomous pause  - Pause autonomous execution")
+            print("   /autonomous resume - Resume autonomous execution")
+            print("   /autonomous status - Show autonomous mode status")
+            print("   /goals             - List all active and completed goals")
+            print()
             print("Debug Commands:")
             print("   /correct [type]    - Correct A.L.I.C.E's last response")
             print("   /feedback [rating] - Rate A.L.I.C.E's last response (1-5)")
@@ -4465,7 +4502,13 @@ class ALICE:
         
         elif cmd == '/learning':
             self._handle_learning_stats_command()
-        
+
+        elif cmd.startswith('/autonomous'):
+            self._handle_autonomous_command(command)
+
+        elif cmd == '/goals':
+            self._handle_goals_command()
+
         else:
             print(f"\n[ERROR] Unknown command: {command}")
             print("   Type /help for available commands")
@@ -4886,7 +4929,107 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             
         except Exception as e:
             print(f"[ERROR] Failed to get learning statistics: {e}")
-    
+
+    def _handle_autonomous_command(self, command: str):
+        """Handle autonomous mode commands"""
+        if not hasattr(self, 'execution_loop') or not self.execution_loop:
+            print("\n[ERROR] Autonomous agent system not available")
+            return
+
+        parts = command.lower().split()
+        if len(parts) < 2:
+            print("\n[ERROR] Usage: /autonomous [start|stop|pause|resume|status]")
+            return
+
+        subcommand = parts[1]
+
+        if subcommand == 'start':
+            if not self.execution_loop.is_running():
+                self.execution_loop.start()
+                print("\n[OK] Autonomous mode started - Alice will work on active goals independently")
+            else:
+                print("\n[INFO] Autonomous mode is already running")
+
+        elif subcommand == 'stop':
+            if self.execution_loop.is_running():
+                self.execution_loop.stop()
+                print("\n[OK] Autonomous mode stopped")
+            else:
+                print("\n[INFO] Autonomous mode is not running")
+
+        elif subcommand == 'pause':
+            self.execution_loop.pause()
+            print("\n[OK] Autonomous execution paused")
+
+        elif subcommand == 'resume':
+            self.execution_loop.resume()
+            print("\n[OK] Autonomous execution resumed")
+
+        elif subcommand == 'status':
+            is_running = self.execution_loop.is_running()
+            is_paused = self.execution_loop.paused
+            active_goals = self.goal_system.get_active_goals() if hasattr(self, 'goal_system') else []
+
+            print("\n Autonomous Agent Status:")
+            print("=" * 50)
+            print(f"   Running: {'Yes' if is_running else 'No'}")
+            print(f"   Paused: {'Yes' if is_paused else 'No'}")
+            print(f"   Active Goals: {len(active_goals)}")
+
+            if active_goals:
+                print("\n   Current Goals:")
+                for goal in active_goals[:3]:
+                    print(f"   - {goal.title} ({int(goal.progress * 100)}% complete)")
+                    next_step = goal.get_next_step()
+                    if next_step:
+                        print(f"     Next: {next_step.description}")
+
+            print("=" * 50)
+
+        else:
+            print(f"\n[ERROR] Unknown subcommand: {subcommand}")
+            print("   Usage: /autonomous [start|stop|pause|resume|status]")
+
+    def _handle_goals_command(self):
+        """Handle goals list command"""
+        if not hasattr(self, 'goal_system') or not self.goal_system:
+            print("\n[ERROR] Goal system not available")
+            return
+
+        active_goals = self.goal_system.get_active_goals()
+        completed_goals = self.goal_system.get_completed_goals()
+
+        print("\n Active Goals:")
+        print("=" * 70)
+
+        if active_goals:
+            for i, goal in enumerate(active_goals, 1):
+                print(f"\n{i}. {goal.title} (ID: {goal.id})")
+                print(f"   Status: {goal.status}")
+                print(f"   Progress: {int(goal.progress * 100)}%")
+                print(f"   Created: {goal.created_at.strftime('%Y-%m-%d %H:%M')}")
+
+                if goal.deadline:
+                    print(f"   Deadline: {goal.deadline.strftime('%Y-%m-%d')}")
+
+                total_steps = len(goal.steps)
+                completed_steps = sum(1 for s in goal.steps if s.status == 'completed')
+                print(f"   Steps: {completed_steps}/{total_steps} completed")
+
+                next_step = goal.get_next_step()
+                if next_step:
+                    print(f"   Next: {next_step.description}")
+
+        else:
+            print("   No active goals")
+
+        if completed_goals:
+            print(f"\n Completed Goals: {len(completed_goals)}")
+            for goal in completed_goals[:3]:
+                print(f"   - {goal.title} (completed {goal.updated_at.strftime('%Y-%m-%d')})")
+
+        print("=" * 70)
+
     def _format_learning_guidance(self, guidance: Dict[str, Any]) -> str:
         """Format learning guidance for LLM context"""
         guidance_parts = ["Learning guidance:"]
@@ -4935,7 +5078,15 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if getattr(self, 'proactive_assistant', None):
             self.proactive_assistant.stop()
             logger.info("[OK] Proactive assistant stopped")
-        
+
+        if hasattr(self, 'proactive_intelligence') and self.proactive_intelligence:
+            self.proactive_intelligence.stop()
+            logger.info("[OK] Proactive intelligence stopped")
+
+        if hasattr(self, 'execution_loop') and self.execution_loop:
+            self.execution_loop.stop()
+            logger.info("[OK] Autonomous execution loop stopped")
+
         # Stop voice if active
         if self.speech:
             self.speech.stop_listening()
