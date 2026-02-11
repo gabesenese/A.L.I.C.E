@@ -25,6 +25,7 @@ class ConversationalContext:
     recent_topics: List[str]
     active_goal: Optional[str]
     world_state: Optional[Any]
+    plugin_data: Optional[Dict[str, Any]] = None
 
 
 class ConversationalEngine:
