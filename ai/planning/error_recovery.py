@@ -321,5 +321,9 @@ def get_recovery_system(
     return _recovery_system
 
 
-# Alias for consistency with other modules
-get_error_recovery = get_recovery_system
+def get_error_recovery(
+    max_retries: int = 3,
+    max_replans: int = 2
+) -> ErrorRecoverySystem:
+    """Alias for get_recovery_system - for consistency with other modules"""
+    return get_recovery_system(max_retries=max_retries, max_replans=max_replans)
