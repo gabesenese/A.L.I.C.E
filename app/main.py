@@ -274,23 +274,16 @@ class ALICE:
 
             # 3.12. Autonomous Agent System - Multi-step goal execution
             logger.info("Initializing autonomous agent system...")
-            from ai.planning.autonomous_agent import get_autonomous_agent
-            from ai.planning.autonomous_execution_loop import get_execution_loop
-            from ai.planning.error_recovery import get_error_recovery
+            from ai.planning.autonomous_agent import AutonomousAgent
+            from ai.planning.autonomous_execution_loop import AutonomousExecutionLoop
 
-            self.autonomous_agent = get_autonomous_agent()
-            self.error_recovery = get_error_recovery()
-            self.execution_loop = get_execution_loop()
-
-            # Inject dependencies into autonomous agent
-            self.autonomous_agent.inject_dependencies(
+            self.autonomous_agent = AutonomousAgent(
                 goal_system=self.goal_system,
                 llm_engine=None,  # Will be set after LLM engine loads
-                error_recovery=self.error_recovery
+                plugin_system=self.plugins if hasattr(self, 'plugins') else None
             )
 
-            # Inject dependencies into execution loop
-            self.execution_loop.inject_dependencies(
+            self.execution_loop = AutonomousExecutionLoop(
                 goal_system=self.goal_system,
                 autonomous_agent=self.autonomous_agent
             )
