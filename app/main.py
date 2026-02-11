@@ -1164,7 +1164,7 @@ class ALICE:
                 )
 
                 # Check if Alice can now phrase this independently
-                can_phrase_alone = self.phrasing_learner.can_phrase_myself(thought_content)
+                can_phrase_alone = self.phrasing_learner.can_phrase_myself(thought_content, tone)
                 if can_phrase_alone:
                     self._think(f"Alice learned '{response_type}' - can now phrase independently!")
                 else:
