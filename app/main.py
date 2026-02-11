@@ -2976,20 +2976,23 @@ class ALICE:
                 # Tool-based architecture: Alice formulates response, then phrases it
                 response = None
 
+                # Create conversational context for this interaction
+                context = ConversationalContext(
+                    user_input=user_input,
+                    intent=intent,
+                    entities=entities,
+                    recent_topics=self.conversation_topics[-3:] if self.conversation_topics else [],
+                    active_goal=goal_res.goal if goal_res else None,
+                    world_state=self.reasoning_engine if hasattr(self, 'reasoning_engine') else None,
+                    plugin_data=plugin_result.get('data', {})  # Include plugin data
+                )
+
                 # Step 1: Alice formulates her response based on plugin data
                 alice_formulation = self._formulate_response(
                     user_input=user_input,
                     intent=intent,
                     entities=entities,
-                    context=ConversationalContext(
-                        user_input=user_input,
-                        intent=intent,
-                        entities=entities,
-                        recent_topics=self.conversation_topics[-3:] if self.conversation_topics else [],
-                        active_goal=goal_res.goal if goal_res else None,
-                        world_state=self.reasoning_engine if hasattr(self, 'reasoning_engine') else None,
-                        plugin_data=plugin_result.get('data', {})  # Include plugin data
-                    )
+                    context=context
                 )
 
                 # Step 1.5: Handle self-analysis requests - Alice actually reads her code
@@ -3115,7 +3118,7 @@ class ALICE:
                     # Store weather data for follow-up questions
                     if plugin_name == 'WeatherPlugin' and success and plugin_result.get('data'):
                         weather_data = plugin_result['data']
-                        from ai.reasoning_engine import WorldEntity, EntityKind
+                        from ai.core.reasoning_engine import WorldEntity, EntityKind
                         message_code = weather_data.get('message_code')
                         if message_code == 'weather:forecast':
                             self._think(f"Storing weather forecast entity with {len(weather_data.get('forecast', []))} days")
@@ -3143,7 +3146,7 @@ class ALICE:
                         tid = (n.get('id') or n.get('title') or '')[:64]
                         if tid:
                             title = n.get('title', str(tid))
-                            from ai.reasoning_engine import WorldEntity, EntityKind
+                            from ai.core.reasoning_engine import WorldEntity, EntityKind
                             self.reasoning_engine.add_entity(WorldEntity(
                                 id=tid, kind=EntityKind.NOTE, label=title,
                                 data=dict(n), aliases=[title] if title else [],
@@ -3459,7 +3462,9 @@ class ALICE:
             return response
             
         except Exception as e:
+            import traceback
             logger.error(f"[ERROR] Error processing input: {e}")
+            logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
             error_response = "I apologize, but I encountered an error processing your request."
 
             # Log processing exception for learning
