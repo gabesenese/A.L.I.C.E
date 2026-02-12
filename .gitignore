@@ -19,6 +19,7 @@ config/cred/*.pickle
 
 # Conversation state (personal data)
 data/conversation_state.pkl
+data/learned_phrasings.jsonl
 
 # Data files (JSON data, not config)
 data/**/*.json
