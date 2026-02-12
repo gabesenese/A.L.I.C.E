@@ -182,7 +182,9 @@ class ALICERunner:
 
     def build_command(self):
         """Build ALICE command"""
-        cmd = [sys.executable, 'alice.py', '--model', self.model]
+        # Get the path to alice.py (in the app directory)
+        alice_script = Path(__file__).parent / 'alice.py'
+        cmd = [sys.executable, str(alice_script), '--model', self.model]
 
         if self.voice_enabled:
             cmd.append('--voice')
