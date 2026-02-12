@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Add parent directory to path
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Go up 2 levels: automation -> scripts -> project root
 sys.path.insert(0, str(PROJECT_ROOT))
 
 TRAINING_DIR = PROJECT_ROOT / "data" / "training"
