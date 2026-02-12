@@ -1168,7 +1168,11 @@ class ALICE:
                 if can_phrase_alone:
                     self._think(f"Alice learned '{response_type}' - can now phrase independently!")
                 else:
-                    learned_count = len([p for p in self.phrasing_learner.learned_phrasings if p['alice_thought'].get('type') == response_type])
+                    # Count learned examples for this response type
+                    learned_count = 0
+                    if hasattr(self.phrasing_learner, 'learned_patterns'):
+                        for pattern_examples in self.phrasing_learner.learned_patterns.values():
+                            learned_count += sum(1 for p in pattern_examples if p.get('alice_thought', {}).get('type') == response_type)
                     self._think(f" Learning '{response_type}' ({learned_count}/3 examples - will be independent soon)")
 
                 return natural_response
