@@ -335,24 +335,30 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
 
     # Create runner
     runner = ALICERunner(voice_enabled=voice_enabled, model=model, show_thinking=show_thinking, llm_policy=llm_policy)
-    
+
     # Set up file watcher
     observer = None
     if watch:
         event_handler = ALICEReloader(restart_callback=runner.request_restart)
         observer = Observer()
 
-        # Watch main directories
-        watch_paths = ['ai/', 'app/', 'speech/', 'ui/', 'features/', 'self_learning/', 'plugins/']
-        watch_paths.append('.')  # Watch root for alice.py and other root files
+        # Get project root (one level up from app/)
+        project_root = Path(__file__).parent.parent
+
+        # Watch main directories (relative to project root)
+        watch_dirs = ['ai', 'app', 'speech', 'ui', 'features', 'self_learning', 'plugins']
 
         logger.info("Setting up file watcher...")
+        logger.info(f"Project root: {project_root}")
         watched_count = 0
-        for path in watch_paths:
-            if os.path.exists(path):
-                observer.schedule(event_handler, path, recursive=True)
-                logger.info(f"   {path}")
+        for dir_name in watch_dirs:
+            watch_path = project_root / dir_name
+            if watch_path.exists():
+                observer.schedule(event_handler, str(watch_path), recursive=True)
+                logger.info(f"   Watching: {dir_name}/")
                 watched_count += 1
+            else:
+                logger.debug(f"   Skipping (not found): {dir_name}/")
 
         if watched_count > 0:
             observer.start()
