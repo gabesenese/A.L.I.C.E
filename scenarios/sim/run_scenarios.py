@@ -26,15 +26,15 @@ from .scenarios import (
 from .teacher import TeacherMode
 
 # Import Alice components (without full initialization)
-from ai.nlp_processor import NLPProcessor
-from ai.conversational_engine import get_conversational_engine
-from ai.llm_gateway import get_llm_gateway
+from ai.core.nlp_processor import NLPProcessor
+from ai.core.conversational_engine import get_conversational_engine
+from ai.core.llm_gateway import get_llm_gateway
 from ai.core.llm_engine import LocalLLMEngine, LLMConfig
-from ai.context_engine import get_context_engine
-from ai.memory_system import MemorySystem
-from ai.reasoning_engine import get_reasoning_engine
-from ai.learning_engine import get_learning_engine
-from ai.llm_policy import configure_minimal_policy, get_llm_policy, LLMCallType
+from ai.memory.context_engine import get_context_engine
+from ai.memory.memory_system import MemorySystem
+from ai.core.reasoning_engine import get_reasoning_engine
+from ai.learning.learning_engine import get_learning_engine
+from ai.core.llm_policy import configure_minimal_policy, get_llm_policy, LLMCallType
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
