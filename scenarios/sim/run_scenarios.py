@@ -29,7 +29,7 @@ from .teacher import TeacherMode
 from ai.nlp_processor import NLPProcessor
 from ai.conversational_engine import get_conversational_engine
 from ai.llm_gateway import get_llm_gateway
-from ai.llm_engine import LocalLLMEngine, LLMConfig
+from ai.core.llm_engine import LocalLLMEngine, LLMConfig
 from ai.context_engine import get_context_engine
 from ai.memory_system import MemorySystem
 from ai.reasoning_engine import get_reasoning_engine

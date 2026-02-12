@@ -8,7 +8,7 @@ enabling automated learning from discrepancies.
 import json
 import logging
 from typing import Optional, Dict, Any
-from ai.llm_engine import LocalLLMEngine, LLMConfig
+from ai.core.llm_engine import LocalLLMEngine, LLMConfig
 
 logger = logging.getLogger(__name__)
 
