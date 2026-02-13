@@ -84,6 +84,10 @@ from ai.core.llm_gateway import get_llm_gateway, LLMGateway
 from ai.core.llm_policy import LLMCallType
 from ai.learning.phrasing_learner import PhrasingLearner
 
+# Continuous learning system
+from ai.learning.realtime_logger import get_realtime_logger
+from ai.learning.continuous_learning import get_continuous_learning_loop
+
 # Advanced learning, testing, and telemetry
 from ai.learning.pattern_miner import PatternMiner
 from ai.training.synthetic_corpus_generator import SyntheticCorpusGenerator
@@ -206,7 +210,18 @@ class ALICE:
             # 2.9. Unified Learning Engine - collect and learn from interactions
             self.learning_engine = get_learning_engine()
             logger.info("[OK] Learning engine initialized - A.L.I.C.E will learn from your interactions")
-            
+
+            # 2.9.1. Real-time Continuous Learning System
+            logger.info("Initializing continuous learning system...")
+            self.realtime_logger = get_realtime_logger()
+            self.continuous_learning = get_continuous_learning_loop(
+                learning_engine=self.learning_engine,
+                realtime_logger=self.realtime_logger,
+                check_interval_hours=6,
+                auto_start=True
+            )
+            logger.info("[OK] Continuous learning active - Alice learns 24/7 from real-time errors")
+
             # 3. Memory System (needs to be before conversational engine)
             logger.info("Loading memory system...")
             self.memory = MemorySystem()
@@ -3462,6 +3477,17 @@ class ALICE:
             if use_voice and self.speech:
                 self.speech.speak(response, blocking=False)
 
+            # Log successful interaction to real-time learning
+            if hasattr(self, 'realtime_logger'):
+                self.realtime_logger.log_success(
+                    event_type='successful_response',
+                    user_input=user_input,
+                    alice_response=response,
+                    intent=intent,
+                    route=selected_plugin if 'selected_plugin' in locals() else 'unknown',
+                    confidence=confidence if 'confidence' in locals() else 0.0
+                )
+
             logger.info(f"A.L.I.C.E: {response[:100]}...")
             return response
             
@@ -3469,6 +3495,20 @@ class ALICE:
             import traceback
             logger.error(f"[ERROR] Error processing input: {e}")
             logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
+
+            # Log to real-time learning system
+            if hasattr(self, 'realtime_logger'):
+                self.realtime_logger.log_error(
+                    error_type='processing_error',
+                    user_input=user_input,
+                    expected=None,
+                    actual=str(e),
+                    intent=intent if 'intent' in locals() else 'unknown',
+                    entities=entities if 'entities' in locals() else {},
+                    context={'traceback': traceback.format_exc()},
+                    severity='critical'
+                )
+
             error_response = "I apologize, but I encountered an error processing your request."
 
             # Log processing exception for learning
@@ -4120,6 +4160,7 @@ class ALICE:
             print("   /correct [type]    - Correct A.L.I.C.E's last response")
             print("   /feedback [rating] - Rate A.L.I.C.E's last response (1-5)")
             print("   /learning          - Show active learning statistics")
+            print("   /realtime-status   - Show continuous learning metrics and velocity")
             print("   exit               - End conversation and exit")
         
         elif cmd == '/voice':
@@ -4504,6 +4545,9 @@ class ALICE:
         
         elif cmd == '/learning':
             self._handle_learning_stats_command()
+
+        elif cmd == '/realtime-status':
+            self._handle_realtime_status_command()
 
         elif cmd.startswith('/autonomous'):
             self._handle_autonomous_command(command)
@@ -4932,6 +4976,56 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         except Exception as e:
             print(f"[ERROR] Failed to get learning statistics: {e}")
 
+    def _handle_realtime_status_command(self):
+        """Handle real-time learning status command"""
+        print(f"\n Continuous Learning Status")
+        print("=" * 50)
+
+        try:
+            if not hasattr(self, 'continuous_learning') or not self.continuous_learning:
+                print("[ERROR] Continuous learning not initialized")
+                return
+
+            if not hasattr(self, 'realtime_logger') or not self.realtime_logger:
+                print("[ERROR] Real-time logger not initialized")
+                return
+
+            status = self.continuous_learning.get_status()
+            velocity = self.realtime_logger.get_learning_velocity()
+
+            print(f"Learning Loop:")
+            print(f"   Running: {'Yes' if status['running'] else 'No'}")
+            print(f"   Paused: {'Yes' if status['paused'] else 'No'}")
+            print(f"   Check Interval: {status['check_interval_hours']} hours")
+            print(f"   Last Run: {status['last_run'] or 'Never'}")
+            print(f"   Cycles Completed: {status['cycles_completed']}")
+            print(f"   Total Corrections Applied: {status['total_corrections_applied']}")
+
+            print(f"\nLearning Velocity:")
+            print(f"   Total Errors: {velocity['total_errors']}")
+            print(f"   Total Successes: {velocity['total_successes']}")
+            print(f"   Success Rate: {velocity['success_rate']:.1%}")
+            print(f"   Trend: {velocity['trend'].replace('_', ' ').title()}")
+
+            if velocity['errors_per_hour']:
+                recent_errors = velocity['errors_per_hour'][-5:]
+                print(f"\n   Recent Error Rate (last {len(recent_errors)} hours):")
+                for hour_data in recent_errors:
+                    print(f"      {hour_data['hour']}: {hour_data['count']} errors")
+
+            recent_errors = self.realtime_logger.get_recent_errors(count=5)
+            if recent_errors:
+                print(f"\n   Recent Errors:")
+                for err in recent_errors[-3:]:
+                    print(f"      [{err['error_type']}] {err['user_input'][:50]}...")
+
+            print("=" * 50)
+
+        except Exception as e:
+            print(f"[ERROR] Failed to get real-time status: {e}")
+            import traceback
+            traceback.print_exc()
+
     def _handle_autonomous_command(self, command: str):
         """Handle autonomous mode commands"""
         if not hasattr(self, 'execution_loop') or not self.execution_loop:
@@ -5052,7 +5146,12 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
     def shutdown(self):
         """Gracefully shutdown ALICE"""
         logger.info(" Shutting down ALICE...")
-        
+
+        # Stop continuous learning
+        if hasattr(self, 'continuous_learning'):
+            self.continuous_learning.stop()
+            logger.info("[OK] Continuous learning stopped")
+
         # Save conversation state
         self._save_conversation_state()
         
