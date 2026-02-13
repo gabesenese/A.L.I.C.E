@@ -84,6 +84,11 @@ class AsyncEvaluationWrapper:
             if not self.ollama_evaluator:
                 return
 
+            # Small delay to avoid resource contention with main response
+            # Ensures Ollama isn't hit by two requests simultaneously
+            import time
+            time.sleep(2)
+
             # Ollama evaluates (this is slow, but user already has response)
             evaluation = self.ollama_evaluator.evaluate_response(
                 user_input=task['user_input'],
