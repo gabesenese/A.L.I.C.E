@@ -21,8 +21,22 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 from threading import Lock
-import fcntl
 import os
+import sys
+
+# Platform-specific file locking
+if sys.platform == 'win32':
+    import msvcrt
+    HAS_FCNTL = False
+    HAS_MSVCRT = True
+else:
+    try:
+        import fcntl
+        HAS_FCNTL = True
+        HAS_MSVCRT = False
+    except ImportError:
+        HAS_FCNTL = False
+        HAS_MSVCRT = False
 
 logger = logging.getLogger(__name__)
 
@@ -162,25 +176,38 @@ class RealtimeLearningLogger:
         self._update_metrics('success')
 
     def _write_to_log(self, log_file: Path, data: Dict):
-        """Write to log with file locking for concurrent access"""
+        """Write to log with platform-independent file locking for concurrent access"""
         try:
             with self.write_lock:
                 with open(log_file, 'a', encoding='utf-8') as f:
-                    # Try to acquire exclusive lock (non-blocking)
-                    try:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    except (IOError, OSError):
-                        # On Windows, flock might not work - just proceed
-                        pass
+                    # Platform-specific file locking
+                    if HAS_FCNTL:
+                        # Unix/Linux/Mac file locking
+                        try:
+                            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except (IOError, OSError):
+                            pass
+                    elif HAS_MSVCRT:
+                        # Windows file locking
+                        try:
+                            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                        except (IOError, OSError):
+                            pass
 
                     f.write(json.dumps(data) + '\n')
                     f.flush()
 
                     # Release lock
-                    try:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                    except (IOError, OSError):
-                        pass
+                    if HAS_FCNTL:
+                        try:
+                            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                        except (IOError, OSError):
+                            pass
+                    elif HAS_MSVCRT:
+                        try:
+                            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                        except (IOError, OSError):
+                            pass
         except Exception as e:
             logger.error(f"[RealtimeLogger] Error writing to log: {e}")
 
