@@ -198,7 +198,7 @@ Response:"""
 
             result = self.llm_gateway.request(
                 prompt=prompt,
-                call_type=LLMCallType.RESPONSE_GENERATION,
+                call_type=LLMCallType.PHRASE_RESPONSE,
                 use_history=False,
                 user_input=user_input
             )

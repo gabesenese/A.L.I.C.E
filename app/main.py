@@ -3035,6 +3035,7 @@ class ALICE:
 
                 # Tool-based architecture: Alice formulates response, then phrases it
                 response = None
+                alice_formulation = None  # Initialize to prevent UnboundLocalError
 
                 # Create conversational context for this interaction
                 context = ConversationalContext(
