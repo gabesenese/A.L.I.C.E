@@ -229,9 +229,9 @@ class ScenarioRunner:
             nlp_result = self.nlp.process(user_input)
             intent = nlp_result.intent if hasattr(nlp_result, 'intent') else "unknown"
             entities = nlp_result.entities if hasattr(nlp_result, 'entities') else {}
-            
+
             # Try to generate from conversational engine
-            from ai.conversational_engine import ConversationalContext
+            from ai.core.conversational_engine import ConversationalContext
             context = ConversationalContext(
                 user_input=user_input,
                 intent=intent,
