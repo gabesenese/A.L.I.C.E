@@ -209,7 +209,7 @@ class AutonomousThresholdAdjuster:
         for domain, error_stats in domain_errors.items():
             error_rate = error_stats['error_rate']
             
-            # High errors → lower confidence (be more cautious)
+            # High errors -> lower confidence (be more cautious)
             if error_rate > self.HIGH_ERROR_THRESHOLD:
                 old_confidence = self.thresholds['domain_confidence'].get(domain, 1.0)
                 new_confidence = max(0.3, old_confidence - 0.15)  # Never go below 0.3
@@ -225,9 +225,9 @@ class AutonomousThresholdAdjuster:
                     f"Domain '{domain}': Lowered confidence from {old_confidence:.2f} to {new_confidence:.2f} (error rate {error_rate:.1%})"
                 )
                 
-                logger.info(f"[AutonomousAdjuster] {domain}: Error rate {error_rate:.1%} → lowering confidence")
+                logger.info(f"[AutonomousAdjuster] {domain}: Error rate {error_rate:.1%} -> lowering confidence")
             
-            # Low errors → can be more confident
+            # Low errors -> can be more confident
             elif error_rate < self.LOW_ERROR_THRESHOLD:
                 old_confidence = self.thresholds['domain_confidence'].get(domain, 1.0)
                 new_confidence = min(1.0, old_confidence + 0.1)
@@ -244,7 +244,7 @@ class AutonomousThresholdAdjuster:
                         f"Domain '{domain}': Raised confidence from {old_confidence:.2f} to {new_confidence:.2f} (error rate {error_rate:.1%})"
                     )
                     
-                    logger.info(f"[AutonomousAdjuster] {domain}: Error rate {error_rate:.1%} → raising confidence")
+                    logger.info(f"[AutonomousAdjuster] {domain}: Error rate {error_rate:.1%} -> raising confidence")
             
             # Update NLP weights based on route error rate
             if domain in self.thresholds['nlp_weights']:
@@ -448,7 +448,7 @@ class RulesOptimizer:
                 logger.warning(f"[RulesOptimizer] Error loading rules: {e}")
         
         return {
-            'confusion_pairs': {},  # intent_A → intent_B: count
+            'confusion_pairs': {},  # intent_A -> intent_B: count
             'optimized_keywords': {},
             'last_updated': None
         }
