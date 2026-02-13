@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from ai.llm_engine import LLMConfig, LocalLLMEngine
+from ai.core.llm_engine import LLMConfig, LocalLLMEngine
 
 logger = logging.getLogger(__name__)
 

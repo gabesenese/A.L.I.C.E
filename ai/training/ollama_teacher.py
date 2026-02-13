@@ -7,7 +7,7 @@ import json
 import logging
 from typing import List, Dict, Any
 from ai.ollama_teaching_spec import TEACHING_VECTORS, TeachingVector
-from ai.llm_engine import LocalLLMEngine
+from ai.core.llm_engine import LocalLLMEngine
 
 logger = logging.getLogger(__name__)
 

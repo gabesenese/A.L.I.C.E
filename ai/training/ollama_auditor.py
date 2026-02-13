@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Dict, Any, Tuple
 from ai.ollama_auditor_spec import AUDIT_DIMENSIONS, ScoringDimension, DimensionRubric
-from ai.llm_engine import LocalLLMEngine
+from ai.core.llm_engine import LocalLLMEngine
 
 logger = logging.getLogger(__name__)
 

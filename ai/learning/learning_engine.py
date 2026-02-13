@@ -832,7 +832,7 @@ class AutoCorrectionEngine:
     def _judge_with_teacher(self, entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Ask LLM teacher to suggest expected intent/route for a failed input."""
         try:
-            from ai.llm_engine import LLMConfig, LocalLLMEngine
+            from ai.core.llm_engine import LLMConfig, LocalLLMEngine
 
             llm = LocalLLMEngine(LLMConfig(model="llama3.1:8b"))
             user_input = entry.get('user_input', '')

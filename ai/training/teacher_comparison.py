@@ -42,7 +42,7 @@ class OllamaTeacherComparison:
         self.ollama = None
         self.llm_engine = None
         try:
-            from ai.llm_engine import LocalLLMEngine, LLMConfig
+            from ai.core.llm_engine import LocalLLMEngine, LLMConfig
             config = LLMConfig(model="llama3.1:8b")
             self.llm_engine = LocalLLMEngine(config)
             logger.info("[TeacherComparison] Ollama LLM Engine initialized")
