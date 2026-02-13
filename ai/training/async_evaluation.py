@@ -116,17 +116,22 @@ class AsyncEvaluationWrapper:
             if not self.response_formulator:
                 return
 
-            # Learn from Ollama's suggestion
-            self.response_formulator.phrasing_learner.learn_from_example(
-                alice_thought={
-                    "type": task['action'],
-                    "data": task['data']
-                },
-                ollama_phrasing=evaluation.suggested_improvement,
-                tone="helpful"
-            )
+            # Learn from Ollama's suggestion using correct PhrasingLearner API
+            if hasattr(self.response_formulator, 'phrasing_learner'):
+                self.response_formulator.phrasing_learner.record_phrasing(
+                    alice_thought={
+                        "type": task['action'],
+                        "data": task['data']
+                    },
+                    ollama_phrasing=evaluation.suggested_improvement,
+                    context={
+                        "tone": "helpful",
+                        "user_input": task['user_input'],
+                        "timestamp": task['timestamp']
+                    }
+                )
 
-            logger.debug(f"[AsyncEval] Learned correction for {task['action']}")
+                logger.debug(f"[AsyncEval] Learned correction for {task['action']}")
 
         except Exception as e:
             logger.error(f"[AsyncEval] Error applying learning: {e}")
