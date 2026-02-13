@@ -96,7 +96,7 @@ def run_nightly_training():
         logger.info("\n[PHASE 3b] Training Machine Learning Models")
         logger.info("-" * 80)
         
-        from ai.ml_models import (
+        from ai.models.ml_models import (
             get_router_classifier,
             get_intent_refiner,
             get_pattern_clusterer
@@ -176,7 +176,7 @@ def run_nightly_training():
         logger.info("\n[PHASE 4] Analyzing Real Interaction Fallbacks")
         logger.info("-" * 80)
         
-        from ai.teacher_loop import TeacherLoop
+        from ai.training.teacher_loop import TeacherLoop
         
         try:
             teacher = TeacherLoop()

@@ -61,7 +61,7 @@ def run_autonomous_nightly_training():
         logger.info("-" * 80)
 
         try:
-            from ai.scenario_generator import generate_scenarios, generate_scenarios_from_errors
+            from ai.training.scenario_generator import generate_scenarios, generate_scenarios_from_errors
             generated = generate_scenarios(PROJECT_ROOT, count_per_domain=3)
             error_generated = generate_scenarios_from_errors(PROJECT_ROOT, max_scenarios=50)
             logger.info(f"[PHASE -1] Generated {len(generated)} scenarios")
@@ -102,7 +102,7 @@ def run_autonomous_nightly_training():
         logger.info("\n[PHASE 1] Comparing Alice Responses to Teacher (Ollama)")
         logger.info("-" * 80)
         
-        from ai.teacher_comparison import create_teacher_comparison
+        from ai.training.teacher_comparison import create_teacher_comparison
         
         teacher_comp = create_teacher_comparison(PROJECT_ROOT)
         
@@ -128,7 +128,7 @@ def run_autonomous_nightly_training():
         logger.info("\n[PHASE 2] Creating Auto-Corrections from Mismatches")
         logger.info("-" * 80)
         
-        from ai.learning_engine import AutoCorrectionEngine
+        from ai.learning.learning_engine import AutoCorrectionEngine
         
         correction_engine = AutoCorrectionEngine(PROJECT_ROOT)
         
@@ -165,7 +165,7 @@ def run_autonomous_nightly_training():
         logger.info("\n[PHASE 2B] Offline Error Learning from Logs")
         logger.info("-" * 80)
 
-        from ai.learning_engine import get_learning_engine
+        from ai.learning.learning_engine import get_learning_engine
 
         learning_engine = get_learning_engine()
         offline_summary = learning_engine.run_offline_training()
@@ -189,7 +189,7 @@ def run_autonomous_nightly_training():
         logger.info("\n[PHASE 3] Adjusting Routing & NLP Thresholds Autonomously")
         logger.info("-" * 80)
         
-        from ai.autonomous_adjuster import create_autonomous_adjuster
+        from ai.optimization.autonomous_adjuster import create_autonomous_adjuster
         
         adjuster = create_autonomous_adjuster(PROJECT_ROOT)
         adjustment_summary = adjuster.run_full_adjustment_cycle()
@@ -216,7 +216,7 @@ def run_autonomous_nightly_training():
         logger.info("\n[PHASE 4] Optimizing NLP Rules for Confusion Patterns")
         logger.info("-" * 80)
         
-        from ai.autonomous_adjuster import create_rules_optimizer
+        from ai.optimization.autonomous_adjuster import create_rules_optimizer
         
         rules_opt = create_rules_optimizer(PROJECT_ROOT)
         rules_summary = rules_opt.run_optimization_cycle()
@@ -239,7 +239,7 @@ def run_autonomous_nightly_training():
         logger.info("\n[PHASE 5] Auto-Promoting Safe Patterns")
         logger.info("-" * 80)
         
-        from ai.learning_engine import PatternPromotionEngine
+        from ai.learning.learning_engine import PatternPromotionEngine
         
         pattern_engine = PatternPromotionEngine(PROJECT_ROOT)
         promotion_results = pattern_engine.scan_and_promote()
@@ -263,7 +263,7 @@ def run_autonomous_nightly_training():
         logger.info("\n[PHASE 6] Training Machine Learning Models")
         logger.info("-" * 80)
         
-        from ai.ml_models import (
+        from ai.models.ml_models import (
             get_router_classifier,
             get_intent_refiner
         )
