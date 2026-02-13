@@ -89,6 +89,11 @@ from ai.core.response_formulator import get_response_formulator
 from ai.learning.realtime_logger import get_realtime_logger
 from ai.learning.continuous_learning import get_continuous_learning_loop
 
+# Automated learning system (Ollama-driven)
+from ai.training.ollama_evaluator import get_ollama_evaluator
+from ai.training.autolearn import get_autolearn
+from ai.training.async_evaluation import get_async_evaluator
+
 # Advanced learning, testing, and telemetry
 from ai.learning.pattern_miner import PatternMiner
 from ai.training.synthetic_corpus_generator import SyntheticCorpusGenerator
@@ -239,15 +244,6 @@ class ALICE:
             self.phrasing_learner = PhrasingLearner(storage_path="data/learned_phrasings.jsonl")
             logger.info("[OK] Phrasing learner ready - Alice will learn from Ollama and become independent")
 
-            # 3.6.1. Response Formulator - Transform plugin data into natural responses
-            logger.info("Initializing response formulator...")
-            self.response_formulator = get_response_formulator(
-                phrasing_learner=self.phrasing_learner,
-                llm_gateway=self.llm_gateway
-            )
-            stats = self.response_formulator.get_stats()
-            logger.info(f"[OK] Response formulator ready - Alice can independently formulate {stats['independent_actions']}/{stats['total_templates']} action types")
-
             # 3.7. Knowledge Engine - Alice's own intelligence and learning
             logger.info("Initializing knowledge engine...")
             from ai.core.knowledge_engine import KnowledgeEngine
@@ -336,6 +332,41 @@ class ALICE:
                 learning_engine=self.learning_engine
             )
             logger.info("[OK] LLM Gateway active - all calls now policy-gated")
+
+            # 4.1.1. Response Formulator - Transform plugin data into natural responses
+            logger.info("Initializing response formulator...")
+            self.response_formulator = get_response_formulator(
+                phrasing_learner=self.phrasing_learner,
+                llm_gateway=self.llm_gateway
+            )
+            stats = self.response_formulator.get_stats()
+            logger.info(f"[OK] Response formulator ready - Alice can independently formulate {stats['independent_actions']}/{stats['total_templates']} action types")
+
+            # 4.1.2. Automated Learning System - Ollama evaluates, Alice learns
+            logger.info("Initializing automated learning system...")
+
+            # Ollama Evaluator - scores every response 0-100
+            self.ollama_evaluator = get_ollama_evaluator(llm_engine=self.llm)
+            logger.info("[OK] Ollama evaluator ready - automated feedback active")
+
+            # Async Evaluation Wrapper - non-blocking evaluation
+            self.async_evaluator = get_async_evaluator(
+                ollama_evaluator=self.ollama_evaluator,
+                response_formulator=self.response_formulator,
+                realtime_logger=self.realtime_logger
+            )
+            logger.info("[OK] Async evaluator ready - user experience won't be blocked")
+
+            # AutoLearn - 6-hour automated learning cycles
+            self.autolearn = get_autolearn(
+                ollama_evaluator=self.ollama_evaluator,
+                learning_engine=self.learning_engine,
+                response_formulator=self.response_formulator,
+                realtime_logger=self.realtime_logger,
+                check_interval_hours=6,
+                auto_start=True
+            )
+            logger.info("[OK] AutoLearn active - Alice will improve every 6 hours automatically")
             
             # 4.2. Configure LLM Policy based on startup flag
             if self.llm_policy != "default":
@@ -3517,6 +3548,27 @@ class ALICE:
                     confidence=confidence if 'confidence' in locals() else 0.0
                 )
 
+            # Queue async evaluation (non-blocking - user gets response immediately)
+            if hasattr(self, 'async_evaluator') and self.async_evaluator:
+                # Build plugin result structure for evaluation
+                eval_plugin_result = plugin_result if 'plugin_result' in locals() and plugin_result else {
+                    'action': intent if 'intent' in locals() else 'unknown',
+                    'data': entities if 'entities' in locals() else {},
+                    'success': True
+                }
+
+                # Queue for async evaluation (happens in background after response returned)
+                try:
+                    alice_confidence = confidence if 'confidence' in locals() else getattr(nlp_result, 'intent_confidence', 0.5) if 'nlp_result' in locals() else 0.5
+                    self.async_evaluator.queue_evaluation(
+                        user_input=user_input,
+                        alice_response=response,
+                        plugin_result=eval_plugin_result,
+                        alice_confidence=alice_confidence
+                    )
+                except Exception as e:
+                    logger.debug(f"[AsyncEval] Could not queue evaluation: {e}")
+
             logger.info(f"A.L.I.C.E: {response[:100]}...")
             return response
             
@@ -4061,6 +4113,7 @@ class ALICE:
             print()
             print("Debug Commands:")
             print("   /correct   - Correct my last response")
+            print("   /autolearn - Show automated learning audit report")
             
             # Proactive morning briefing
             if getattr(self, 'proactive_assistant', None):
@@ -4191,6 +4244,7 @@ class ALICE:
             print("   /learning          - Show active learning statistics")
             print("   /realtime-status   - Show continuous learning metrics and velocity")
             print("   /formulation       - Show response formulation learning progress")
+            print("   /autolearn [days]  - Show automated learning audit report (default: 7 days)")
             print("   exit               - End conversation and exit")
         
         elif cmd == '/voice':
@@ -4581,6 +4635,9 @@ class ALICE:
 
         elif cmd == '/formulation':
             self._handle_formulation_status_command()
+
+        elif cmd == '/autolearn' or cmd.startswith('/autolearn '):
+            self._handle_autolearn_command(command)
 
         elif cmd.startswith('/autonomous'):
             self._handle_autonomous_command(command)
@@ -5103,6 +5160,103 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
         except Exception as e:
             print(f"[ERROR] Failed to get formulation status: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _handle_autolearn_command(self, command: str):
+        """Handle automated learning audit command"""
+        print(f"\n Automated Learning Audit Report")
+        print("=" * 70)
+
+        try:
+            if not hasattr(self, 'autolearn') or not self.autolearn:
+                print("[ERROR] AutoLearn system not initialized")
+                return
+
+            # Parse days parameter (default 7)
+            days = 7
+            parts = command.strip().split()
+            if len(parts) > 1:
+                try:
+                    days = int(parts[1])
+                except ValueError:
+                    print(f"[WARNING] Invalid days parameter, using default: 7")
+
+            # Get performance report
+            report = self.autolearn.get_performance_report(days=days)
+
+            if 'error' in report:
+                print(f"[ERROR] {report['error']}")
+                return
+
+            # Display overall statistics
+            overall = report['overall_stats']
+            print(f"\n Period: Last {report['period_days']} days")
+            print(f"\nOverall Performance:")
+            print(f"   Total Evaluations: {overall['total']}")
+            print(f"   Average Score: {overall['average_score']}/100")
+            print(f"   Passing Rate: {overall['passing_rate']}% (score >= 85)")
+            print(f"   Failing Rate: {overall['failing_rate']}% (score < 70)")
+            if overall.get('critical_failures', 0) > 0:
+                print(f"   Critical Failures: {overall['critical_failures']} (score < 50)")
+
+            # AutoLearn statistics
+            autolearn_stats = report['autolearn_stats']
+            print(f"\nAutoLearn Activity:")
+            print(f"   Cycles Run: {autolearn_stats['cycles_run']}")
+            print(f"   Total Improvements: {autolearn_stats['total_improvements']}")
+            print(f"   Last Run: {autolearn_stats['last_run'] or 'Never'}")
+
+            # Performance by action type
+            if overall.get('by_action'):
+                print(f"\nPerformance by Action Type:")
+                sorted_actions = sorted(
+                    overall['by_action'].items(),
+                    key=lambda x: x[1]['avg_score'],
+                    reverse=True
+                )
+                for action, stats in sorted_actions[:10]:
+                    print(f"   {action}:")
+                    print(f"      Count: {stats['count']}")
+                    print(f"      Avg Score: {stats['avg_score']:.1f}/100")
+                    print(f"      Range: {stats['min_score']}-{stats['max_score']}")
+                if len(sorted_actions) > 10:
+                    print(f"   ... and {len(sorted_actions) - 10} more action types")
+
+            # Problem areas
+            problem_areas = report.get('problem_areas', {})
+            if problem_areas:
+                print(f"\nProblem Areas (score < 70):")
+                sorted_problems = sorted(
+                    problem_areas.items(),
+                    key=lambda x: x[1]['avg_score']
+                )
+                for action, data in sorted_problems[:5]:
+                    print(f"\n   {action}:")
+                    print(f"      Failures: {data['count']}")
+                    print(f"      Avg Score: {data['avg_score']:.1f}/100")
+
+                    # Show example failure
+                    if data.get('examples'):
+                        example = data['examples'][0]
+                        print(f"      Example Issue:")
+                        print(f"         Input: {example['input'][:60]}...")
+                        print(f"         Response: {example['response'][:60]}...")
+                        print(f"         Score: {example['score']}/100")
+                        print(f"         Issue: {example['issue'][:80]}...")
+
+            # Recommendation
+            print(f"\nRecommendation:")
+            print(f"   {report['recommendation']}")
+
+            print("\n" + "=" * 70)
+            print("\n   Note: Ollama automatically evaluates every response.")
+            print("   AutoLearn runs every 6 hours to apply improvements.")
+            print("   User only audits these aggregated metrics weekly.")
+            print("=" * 70)
+
+        except Exception as e:
+            print(f"[ERROR] Failed to get autolearn report: {e}")
             import traceback
             traceback.print_exc()
 
