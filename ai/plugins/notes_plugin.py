@@ -1150,12 +1150,18 @@ class NotesPlugin(PluginInterface):
     
     def _delete_note(self, command: str) -> Dict[str, Any]:
         """Delete/archive a note"""
+        command_lower = command.lower()
+
+        # Pattern 0: "delete all notes" or "delete any notes" - bulk delete
+        if re.search(r'delete\s+(?:all|any|every)\s+(?:my\s+)?notes?', command_lower):
+            return self._delete_all_notes()
+
         # Extract note identifier from command
         note_to_delete = None
         note_id = None
-        
+
         # Pattern 1: "delete last note"
-        if 'last' in command.lower() and self.last_note_id:
+        if 'last' in command_lower and self.last_note_id:
             note_id = self.last_note_id
             note_to_delete = self.manager.get_note(note_id)
         
@@ -1197,7 +1203,29 @@ class NotesPlugin(PluginInterface):
                 "success": False,
                 "message": f"❌ Failed to archive note: {note_to_delete.title}"
             }
-    
+
+    def _delete_all_notes(self) -> Dict[str, Any]:
+        """Delete/archive all active notes"""
+        active_notes = [note for note in self.manager.notes.values() if not note.archived]
+
+        if not active_notes:
+            return {
+                "success": True,
+                "message": "You don't have any active notes to delete."
+            }
+
+        count = len(active_notes)
+
+        # Archive all active notes
+        for note in active_notes:
+            self.manager.archive_note(note.id)
+
+        return {
+            "success": True,
+            "message": f"✅ Archived {count} note{'s' if count != 1 else ''}.\n(Notes are archived, not permanently deleted. Use 'show archived notes' to view them or 'unarchive' to restore them)",
+            "count": count
+        }
+
     def _edit_note(self, command: str) -> Dict[str, Any]:
         """Edit a note"""
         note_to_edit = None
