@@ -117,10 +117,10 @@ class OllamaEvaluator:
 
         # Get Ollama's evaluation
         try:
-            raw_evaluation = self.llm.query(
-                prompt=prompt,
-                temperature=0.3,  # Low temperature for consistent evaluation
-                max_tokens=500
+            # Use chat with no history for stateless evaluation
+            raw_evaluation = self.llm.chat(
+                user_input=prompt,
+                use_history=False
             )
 
             # Parse evaluation
