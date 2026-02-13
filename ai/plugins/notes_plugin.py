@@ -909,11 +909,19 @@ class NotesPlugin(PluginInterface):
         # Track last created note for context
         self.last_note_id = note.id
         self.last_note_title = note.title
-        
+
         return {
             "success": True,
-            "message": f"= Note created: {note.title}",
-            "note": note.to_dict()
+            "action": "create_note",
+            "data": {
+                "title": note.title,
+                "note_type": note.note_type,
+                "tags": tags,
+                "category": category,
+                "priority": priority,
+                "note_id": note.id
+            },
+            "formulate": True
         }
     
     def _add_to_note(self, command: str) -> Dict[str, Any]:
@@ -1020,25 +1028,25 @@ class NotesPlugin(PluginInterface):
         if not results:
             return {
                 "success": True,
-                "message": f"No notes found matching '{query}'",
-                "notes": []
+                "action": "search_notes_empty",
+                "data": {
+                    "query": query,
+                    "count": 0,
+                    "found": False
+                },
+                "formulate": True
             }
-        
-        # Format results
-        notes_text = f"Found {len(results)} note(s):\n\n"
-        for i, note in enumerate(results[:10], 1):  # Show max 10 results
-            tags_str = f" #{' #'.join(note.tags)}" if note.tags else ""
-            notes_text += f"{i}. {note.title}{tags_str}\n"
-            notes_text += f"   {note.content[:100]}{'...' if len(note.content) > 100 else ''}\n"
-            notes_text += f"   📅 {note.updated_at[:10]}\n\n"
-        
-        if len(results) > 10:
-            notes_text += f"... and {len(results) - 10} more notes"
-        
+
         return {
             "success": True,
-            "message": notes_text,
-            "notes": [note.to_dict() for note in results]
+            "action": "search_notes",
+            "data": {
+                "query": query,
+                "count": len(results),
+                "found": True,
+                "results": [{"title": n.title, "tags": n.tags} for n in results[:10]]
+            },
+            "formulate": True
         }
     
     def _search_by_date_keywords(self, command: str) -> List[Note]:
@@ -1211,7 +1219,12 @@ class NotesPlugin(PluginInterface):
         if not active_notes:
             return {
                 "success": True,
-                "message": "You don't have any active notes to delete."
+                "action": "delete_notes_empty",
+                "data": {
+                    "count": 0,
+                    "had_notes": False
+                },
+                "formulate": True
             }
 
         count = len(active_notes)
@@ -1222,8 +1235,14 @@ class NotesPlugin(PluginInterface):
 
         return {
             "success": True,
-            "message": f"✅ Archived {count} note{'s' if count != 1 else ''}.\n(Notes are archived, not permanently deleted. Use 'show archived notes' to view them or 'unarchive' to restore them)",
-            "count": count
+            "action": "delete_notes",
+            "data": {
+                "count": count,
+                "archived": True,
+                "permanent": False,
+                "restorable": True
+            },
+            "formulate": True
         }
 
     def _edit_note(self, command: str) -> Dict[str, Any]:
@@ -1566,22 +1585,20 @@ class NotesPlugin(PluginInterface):
         
         # Add tag count
         all_tags = self.manager.get_all_tags()
-        if all_tags:
-            message += f"\n   🏷Total tags: {len(all_tags)}\n"
-        
+
         return {
             "success": True,
-            "message": message,
-            "count": total_count,
-            "stats": {
+            "action": "count_notes",
+            "data": {
                 "total": total_count,
                 "todos": todos,
                 "ideas": ideas,
                 "meetings": meetings,
                 "pinned": pinned,
                 "archived": archived,
-                "tags": len(all_tags)
-            }
+                "tags_count": len(all_tags)
+            },
+            "formulate": True
         }
     
     def _show_tags(self) -> Dict[str, Any]:
