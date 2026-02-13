@@ -83,6 +83,7 @@ from ai.core.conversational_engine import get_conversational_engine, Conversatio
 from ai.core.llm_gateway import get_llm_gateway, LLMGateway
 from ai.core.llm_policy import LLMCallType
 from ai.learning.phrasing_learner import PhrasingLearner
+from ai.core.response_formulator import get_response_formulator
 
 # Continuous learning system
 from ai.learning.realtime_logger import get_realtime_logger
@@ -237,6 +238,15 @@ class ALICE:
             logger.info("Loading phrasing learner...")
             self.phrasing_learner = PhrasingLearner(storage_path="data/learned_phrasings.jsonl")
             logger.info("[OK] Phrasing learner ready - Alice will learn from Ollama and become independent")
+
+            # 3.6.1. Response Formulator - Transform plugin data into natural responses
+            logger.info("Initializing response formulator...")
+            self.response_formulator = get_response_formulator(
+                phrasing_learner=self.phrasing_learner,
+                llm_gateway=self.llm_gateway
+            )
+            stats = self.response_formulator.get_stats()
+            logger.info(f"[OK] Response formulator ready - Alice can independently formulate {stats['independent_actions']}/{stats['total_templates']} action types")
 
             # 3.7. Knowledge Engine - Alice's own intelligence and learning
             logger.info("Initializing knowledge engine...")
@@ -3003,11 +3013,30 @@ class ALICE:
                     recent_topics=self.conversation_topics[-3:] if self.conversation_topics else [],
                     active_goal=goal_res.goal if goal_res else None,
                     world_state=self.reasoning_engine if hasattr(self, 'reasoning_engine') else None,
-                    plugin_data=plugin_result.get('data', {})  # Include plugin data
+                    plugin_data=plugin_result.get('data', {})
                 )
 
-                # Step 1: Alice formulates her response based on plugin data
-                alice_formulation = self._formulate_response(
+                # NEW: Check if plugin wants Alice to formulate response from data
+                if plugin_result.get('formulate', False) and hasattr(self, 'response_formulator'):
+                    self._think(f"Plugin requested formulation → Alice will learn to respond")
+                    try:
+                        tone = self._select_tone(intent, context, user_input)
+                        response = self.response_formulator.formulate_response(
+                            action=plugin_result.get('action', intent),
+                            data=plugin_result.get('data', {}),
+                            success=success,
+                            user_input=user_input,
+                            tone=tone
+                        )
+                        self._think(f"Alice formulated response from plugin data")
+                    except Exception as e:
+                        logger.error(f"Error in response formulation: {e}")
+                        response = None
+
+                # Existing flow: Formulate response if not already done
+                if not response:
+                    # Step 1: Alice formulates her response based on plugin data
+                    alice_formulation = self._formulate_response(
                     user_input=user_input,
                     intent=intent,
                     entities=entities,
@@ -4161,6 +4190,7 @@ class ALICE:
             print("   /feedback [rating] - Rate A.L.I.C.E's last response (1-5)")
             print("   /learning          - Show active learning statistics")
             print("   /realtime-status   - Show continuous learning metrics and velocity")
+            print("   /formulation       - Show response formulation learning progress")
             print("   exit               - End conversation and exit")
         
         elif cmd == '/voice':
@@ -4548,6 +4578,9 @@ class ALICE:
 
         elif cmd == '/realtime-status':
             self._handle_realtime_status_command()
+
+        elif cmd == '/formulation':
+            self._handle_formulation_status_command()
 
         elif cmd.startswith('/autonomous'):
             self._handle_autonomous_command(command)
@@ -5023,6 +5056,53 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
         except Exception as e:
             print(f"[ERROR] Failed to get real-time status: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _handle_formulation_status_command(self):
+        """Handle formulation learning status command"""
+        print(f"\n Response Formulation Learning")
+        print("=" * 50)
+
+        try:
+            if not hasattr(self, 'response_formulator') or not self.response_formulator:
+                print("[ERROR] Response formulator not initialized")
+                return
+
+            stats = self.response_formulator.get_stats()
+
+            print(f"Learning Progress:")
+            print(f"   Total Templates: {stats['total_templates']}")
+            print(f"   Independent Actions: {stats['independent_actions']}")
+            print(f"   Progress: {stats['learning_progress']}")
+
+            if stats['independent_actions'] > 0:
+                independence_rate = stats['independent_actions'] / stats['total_templates'] * 100 if stats['total_templates'] > 0 else 0
+                print(f"   Independence Rate: {independence_rate:.1f}%")
+
+                print(f"\nActions Alice Can Formulate Independently:")
+                for action in list(self.response_formulator.independent_actions)[:10]:
+                    print(f"   - {action}")
+                if len(self.response_formulator.independent_actions) > 10:
+                    remaining = len(self.response_formulator.independent_actions) - 10
+                    print(f"   ... and {remaining} more")
+
+            if stats['total_templates'] > stats['independent_actions']:
+                print(f"\nStill Learning:")
+                learning_actions = set(self.response_formulator.templates.keys()) - self.response_formulator.independent_actions
+                for action in list(learning_actions)[:5]:
+                    print(f"   - {action}")
+                if len(learning_actions) > 5:
+                    remaining = len(learning_actions) - 5
+                    print(f"   ... and {remaining} more")
+
+            print("\n   Tip: Alice learns by seeing examples. After 3 similar")
+            print("        formulations, she can phrase independently!")
+
+            print("=" * 50)
+
+        except Exception as e:
+            print(f"[ERROR] Failed to get formulation status: {e}")
             import traceback
             traceback.print_exc()
 
