@@ -249,3 +249,4 @@ learning_cycle_output.txt
 nightly_training_output.txt
 NUL
 tmpclaude*
+scripts/automation/data/training/

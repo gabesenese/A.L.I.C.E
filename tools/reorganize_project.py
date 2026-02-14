@@ -11,7 +11,7 @@ from pathlib import Path
 # Current root
 ROOT = Path("c:/Users/Gabriel/Desktop/dev/A.L.I.C.E")
 
-# New structure (Stark-level organization)
+# New structure
 REORGANIZATION = {
     # Core AI - The brain
     "ai/core/": [

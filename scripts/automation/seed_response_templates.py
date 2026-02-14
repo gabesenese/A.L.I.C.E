@@ -34,7 +34,7 @@ def seed_templates():
         ],
         formulation_rules=[
             "Mention the note title",
-            "Be concise",
+            "Be concise", 
             "Confirm the action"
         ]
     )
@@ -84,13 +84,28 @@ def seed_templates():
         ]
     )
 
+    formulator.add_template(
+        action="set_priority",
+        example_data={"note_title": "meeting", "priority": "high", "note_id": "abc123"},
+        example_phrasings=[
+            "Set priority to high for 'meeting'.",
+            "I marked 'meeting' as high priority.",
+            "Done. 'meeting' is now high priority.",
+        ],
+        formulation_rules=[
+            "State the new priority level",
+            "Mention the note title",
+            "Confirm the action was completed"
+        ]
+    )
+
     # Weather plugin templates
     formulator.add_template(
         action="weather_current",
-        example_data={"location": "Seattle", "temp": 65, "condition": "Cloudy", "unit": "F"},
+        example_data={"location": "Seattle", "temp": 65, "condition": "Cloudy", "unit": "C"},
         example_phrasings=[
-            "It's 65°F and cloudy in Seattle right now.",
-            "Current weather in Seattle: 65°F, cloudy conditions.",
+            "It's 65°C and cloudy in Seattle right now.",
+            "Current weather in Seattle: 65°C, cloudy conditions.",
             "In Seattle, it's 65 degrees and cloudy.",
         ],
         formulation_rules=[

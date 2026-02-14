@@ -770,7 +770,7 @@ class NotesPlugin(PluginInterface):
                 result = self._archive_unarchive_note(command)
             
             # Set priority
-            elif 'priority' in command_lower or any(word in command_lower for word in ['urgent', 'important']):
+            elif 'priority' in command_lower or any(word in command_lower for word in ['urgent', 'urgency', 'important']):
                 result = self._set_priority(command)
             
             # Set category
@@ -1456,8 +1456,9 @@ class NotesPlugin(PluginInterface):
         # Find the note
         note_id = None
         note = None
-        
-        if 'last' in command.lower() and self.last_note_id:
+
+        # Check for references to the last/recent note
+        if any(word in command.lower() for word in ['last', 'this', 'that', 'it', 'the note']) and self.last_note_id:
             note_id = self.last_note_id
             note = self.manager.get_note(note_id)
         else:
@@ -1479,18 +1480,29 @@ class NotesPlugin(PluginInterface):
         if not note:
             return {
                 "success": False,
+                "action": "set_priority",
+                "data": {},
+                "formulate": True,
                 "message": "I couldn't identify which note to set priority for."
             }
-        
+
         if self.manager.set_priority(note_id, priority):
-            priority_icons = {"low": "🔵", "medium": "🟡", "high": "🟠", "urgent": "🔴"}
             return {
                 "success": True,
-                "message": f"✅ Set priority to {priority_icons[priority]} {priority} for: {note.title}"
+                "action": "set_priority",
+                "data": {
+                    "note_title": note.title,
+                    "priority": priority,
+                    "note_id": note_id
+                },
+                "formulate": True
             }
         return {
             "success": False,
-            "message": "❌ Failed to set priority"
+            "action": "set_priority",
+            "data": {},
+            "formulate": True,
+            "message": "Failed to set priority"
         }
     
     def _set_category(self, command: str) -> Dict[str, Any]:

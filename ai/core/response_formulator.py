@@ -176,22 +176,17 @@ class ResponseFormulator:
                 examples_text += f"{i}. {example}\n"
 
         # Build prompt for LLM
-        prompt = f"""The user said: "{user_input}"
+        prompt = f"""User: "{user_input}"
 
-Action performed: {action}
+Action: {action}
 Success: {success}
 Data: {json.dumps(data, indent=2)}
 
 {examples_text}
 
-Formulate a natural, {tone} response for Alice saying what was done.
-- Be concise (1-2 sentences)
-- Be specific using the data
-- Match Alice's personality
-- Don't use emojis
-- Don't repeat the user's exact words
+Generate a {tone} response (1-2 sentences). Be specific, don't use emojis, match Alice's personality.
 
-Response:"""
+IMPORTANT: Output ONLY the response text, nothing else. No meta-commentary, no quotes, no explanations."""
 
         try:
             from ai.core.llm_policy import LLMCallType
