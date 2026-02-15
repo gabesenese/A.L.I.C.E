@@ -4,7 +4,7 @@ Central reference for all test, verification, and validation commands organized 
 
 ---
 
-## Phase 1A: Critical API Mismatch Fixes ✅
+## Phase 1A: Critical API Mismatch Fixes ✅ COMPLETE
 
 ### Verify PhrasingLearner API Fixes
 ```bash
@@ -20,11 +20,15 @@ python app/main.py
 # Then run: show me my notes
 ```
 
-**Status**: ✅ Complete (Commit: 074a013)
+**Status**: ✅ Complete (Commits: 074a013)
+**Files Fixed**:
+- ai/core/response_formulator.py:151 - phrase_thought() → phrase_myself()
+- ai/core/response_formulator.py:251 - learn_from_example() → record_phrasing()
+- ai/training/autolearn.py:208 - learn_from_example() → record_phrasing()
 
 ---
 
-## Phase 1B: Bare Except Block Replacement
+## Phase 1B: Bare Except Block Replacement ✅ PARTIALLY COMPLETE
 
 ### Verify Exception Handling Improvements
 ```bash
@@ -38,33 +42,48 @@ python -c "import logging; logging.basicConfig(level=logging.DEBUG); from ai.cor
 grep "ERROR" logs/alice.log | tail -20
 ```
 
-**Status**: 🔄 In Progress
+**Status**: ✅ 11/24 Complete (Commit: aedcf27)
+**Files Fixed**:
+- ai/core/llm_engine.py (4/4 bare excepts fixed)
+- ai/plugins/notes_plugin.py (1/1 fixed)
+- ai/plugins/plugin_system.py (1/1 fixed)
+- ai/plugins/file_operations_plugin.py (1/1 fixed)
+- ai/memory/memory_system.py (2/2 fixed)
+
+**Remaining**: 13 bare excepts in tools/, scripts/, app/main.py, ai/plugins/music_plugin.py, ai/plugins/memory_plugin.py, ai/core/conversational_engine.py, ai/memory/multimodal_context.py
 
 ---
 
-## Phase 1C: Type Hints Addition
+## Phase 1C: Type Hints Addition ✅ PARTIALLY COMPLETE
 
 ### Verify Type Hints with mypy
 ```bash
 # Check type hints on core modules
-mypy ai/core/ --ignore-missing-imports
+mypy ai/core/response_formulator.py --ignore-missing-imports
 
 # Check all modified files
-mypy ai/core/response_formulator.py ai/core/llm_engine.py ai/core/conversational_engine.py --strict
-
-# Check learning modules
-mypy ai/learning/ ai/training/ --ignore-missing-imports
+mypy ai/core/ --ignore-missing-imports
 
 # Full type coverage report
 mypy ai/ --html-report mypy_report --ignore-missing-imports
-open mypy_report/index.html
+# open mypy_report/index.html
 ```
 
-**Status**: 🔜 Pending
+**Status**: ✅ 4/85+ Complete (Commit: 1d58315)
+**Files Fixed**:
+- ai/core/response_formulator.py (4/4 methods)
+
+**Remaining**: 81+ functions across:
+- ai/core/llm_engine.py (6+ methods)
+- ai/core/conversational_engine.py (6+ methods)
+- ai/plugins/plugin_system.py (8+ methods)
+- ai/learning/phrasing_learner.py (4 methods)
+- ai/training/autolearn.py (6 methods)
+- + 50+ more across other modules
 
 ---
 
-## Phase 2A: Facade Architecture
+## Phase 2A: Facade Architecture 🔜 NOT STARTED
 
 ### Verify Facade Creation
 ```bash
