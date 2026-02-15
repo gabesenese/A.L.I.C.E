@@ -205,13 +205,13 @@ class AutoLearn:
                     # Learn from Ollama's suggestion
                     if failure.suggested_improvement and self.response_formulator:
                         # Add as learned example
-                        self.response_formulator.phrasing_learner.learn_from_example(
+                        self.response_formulator.phrasing_learner.record_phrasing(
                             alice_thought={
                                 "type": action_type,
                                 "data": failure.expected_data
                             },
                             ollama_phrasing=failure.suggested_improvement,
-                            tone="helpful"
+                            context={'tone': 'helpful'}
                         )
                         improvements += 1
 

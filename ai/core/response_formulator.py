@@ -148,7 +148,7 @@ class ResponseFormulator:
 
         # Try to phrase it using learned patterns
         try:
-            response = self.phrasing_learner.phrase_thought(thought, tone=tone)
+            response = self.phrasing_learner.phrase_myself(thought, tone=tone)
             if response and response != "":
                 return response
         except Exception as e:
@@ -248,10 +248,10 @@ IMPORTANT: Output ONLY the response text, nothing else. No meta-commentary, no q
         }
 
         try:
-            self.phrasing_learner.learn_from_example(
+            self.phrasing_learner.record_phrasing(
                 alice_thought=thought,
                 ollama_phrasing=response,
-                tone=tone
+                context={'tone': tone}
             )
 
             # Check if Alice has learned enough to be independent
