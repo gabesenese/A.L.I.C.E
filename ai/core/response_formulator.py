@@ -60,7 +60,7 @@ class ResponseFormulator:
         self.independent_actions = set()
         self._load_independence_data()
 
-    def _load_templates(self):
+    def _load_templates(self) -> None:
         """Load response templates from storage"""
         template_file = self.storage_path / "templates.json"
         if template_file.exists():
@@ -78,7 +78,7 @@ class ResponseFormulator:
             except Exception as e:
                 logger.error(f"Error loading response templates: {e}")
 
-    def _load_independence_data(self):
+    def _load_independence_data(self) -> None:
         """Load actions Alice can formulate independently"""
         independence_file = self.storage_path / "independence.json"
         if independence_file.exists():
@@ -262,7 +262,7 @@ IMPORTANT: Output ONLY the response text, nothing else. No meta-commentary, no q
         except Exception as e:
             logger.debug(f"Could not learn formulation: {e}")
 
-    def _save_independence_data(self):
+    def _save_independence_data(self) -> None:
         """Save actions Alice can formulate independently"""
         independence_file = self.storage_path / "independence.json"
         try:
@@ -289,7 +289,7 @@ IMPORTANT: Output ONLY the response text, nothing else. No meta-commentary, no q
         )
         self._save_templates()
 
-    def _save_templates(self):
+    def _save_templates(self) -> None:
         """Save response templates to storage"""
         template_file = self.storage_path / "templates.json"
         try:
