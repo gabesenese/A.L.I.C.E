@@ -38,7 +38,7 @@ class PersistenceManager:
             with open(self.memory_file, 'wb') as f:
                 pickle.dump(memories, f)
             logger.info(f"Saved {len(memories)} memories to {self.memory_file}")
-           return True
+            return True
         except (OSError, pickle.PickleError) as e:
             logger.error(f"Failed to save memories: {e}")
             return False

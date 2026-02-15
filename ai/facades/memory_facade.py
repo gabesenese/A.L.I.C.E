@@ -234,7 +234,7 @@ class MemoryFacade:
                 file_path=file_path,
                 metadata=metadata or {}
             )
-       except Exception as e:
+        except Exception as e:
             logger.error(f"Failed to add document: {e}")
             return False
 

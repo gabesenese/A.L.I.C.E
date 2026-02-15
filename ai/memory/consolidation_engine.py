@@ -111,7 +111,7 @@ class ConsolidationEngine:
 
             duplicates_to_remove = set()
 
-           for i, mem1 in enumerate(memories_with_embeddings):
+            for i, mem1 in enumerate(memories_with_embeddings):
                 if mem1.id in duplicates_to_remove:
                     continue
 
