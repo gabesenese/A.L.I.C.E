@@ -54,7 +54,7 @@ def get_tool_path_confidence() -> float:
     return get_thresholds().get("tool_path_confidence", DEFAULT_THRESHOLDS["tool_path_confidence"])
 
 def get_goal_path_confidence() -> float:
-    return get_thresholds.get("goal_path_confidence", DEFAULT_THRESHOLDS["goal_path_confidence"])
+    return get_thresholds().get("goal_path_confidence", DEFAULT_THRESHOLDS["goal_path_confidence"])
 
 def get_ask_threshold() -> float:
     return get_thresholds().get("ask_threshold", DEFAULT_THRESHOLDS["ask_threshold"])
