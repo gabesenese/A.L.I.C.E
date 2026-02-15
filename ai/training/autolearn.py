@@ -64,7 +64,7 @@ class AutoLearn:
 
         logger.info(f"AutoLearn initialized - will run every {check_interval_hours} hours")
 
-    def start(self):
+    def start(self) -> None:
         """Start the automated learning loop"""
         if self.running:
             logger.warning("AutoLearn already running")
@@ -76,24 +76,24 @@ class AutoLearn:
         self.thread.start()
         logger.info("AutoLearn started - automated improvement active")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the automated learning loop"""
         self.running = False
         if self.thread:
             self.thread.join(timeout=5)
         logger.info("AutoLearn stopped")
 
-    def pause(self):
+    def pause(self) -> None:
         """Pause learning temporarily"""
         self.paused = True
         logger.info("AutoLearn paused")
 
-    def resume(self):
+    def resume(self) -> None:
         """Resume learning"""
         self.paused = False
         logger.info("AutoLearn resumed")
 
-    def _run_loop(self):
+    def _run_loop(self) -> None:
         """Main loop - runs continuously in background"""
         logger.info("[AutoLearn] Loop started")
 
@@ -109,7 +109,7 @@ class AutoLearn:
                 logger.error(f"[AutoLearn] Error in loop: {e}", exc_info=True)
                 time.sleep(300)  # Sleep 5 minutes on error
 
-    def _process_learning_cycle(self):
+    def _process_learning_cycle(self) -> None:
         """
         Process one learning cycle:
         1. Analyze recent evaluations from Ollama
@@ -272,7 +272,7 @@ class AutoLearn:
 
         return reinforcements
 
-    def _finalize_cycle(self, stats: Dict[str, Any]):
+    def _finalize_cycle(self, stats: Dict[str, Any]) -> None:
         """Finalize cycle and save metrics"""
         self.cycles_completed += 1
         self.last_run = datetime.now().isoformat()

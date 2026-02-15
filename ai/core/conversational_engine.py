@@ -38,7 +38,7 @@ class ConversationalEngine:
     NO Ollama calls - this is pure A.L.I.C.E.
     """
     
-    def __init__(self, memory_system=None, training_collector=None, world_state=None):
+    def __init__(self, memory_system: Optional[Any] = None, training_collector: Optional[Any] = None, world_state: Optional[Any] = None) -> None:
         self.memory = memory_system
         self.training_collector = training_collector
         self.world_state = world_state
@@ -59,7 +59,7 @@ class ConversationalEngine:
         # Load patterns from training data
         self._load_patterns()
     
-    def _load_patterns(self):
+    def _load_patterns(self) -> None:
         """Load conversational patterns from training data and curated patterns"""
         # First, load curated patterns
         self._load_curated_patterns()
@@ -91,7 +91,7 @@ class ConversationalEngine:
         except Exception as e:
             logger.debug(f"Could not load training patterns: {e}")
     
-    def _load_curated_patterns(self):
+    def _load_curated_patterns(self) -> None:
         """Load curated conversational patterns"""
         project_root = Path(__file__).resolve().parents[1]
         curated_path = project_root / "memory" / "curated_patterns.json"

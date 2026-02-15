@@ -7,7 +7,7 @@ Uses Llama 3.3 70B for ChatGPT-level performance
 import requests
 import json
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Generator
 from datetime import datetime
 import sys
 import io
@@ -88,7 +88,7 @@ class LLMConfig:
         self._fine_tuned_model = None
         self._check_fine_tuned_model()
     
-    def _check_fine_tuned_model(self):
+    def _check_fine_tuned_model(self) -> None:
         """Check if fine-tuned model exists and use it"""
         if not self.use_fine_tuned:
             return
@@ -365,13 +365,13 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
             logger.error(f"Error in LLM chat: {e}")
             raise
     
-    def stream_chat(self, user_input: str):
+    def stream_chat(self, user_input: str) -> Generator[str, None, None]:
         """
         Stream response token-by-token (like ChatGPT typing effect)
-        
+
         Args:
             user_input: User's message
-            
+
         Yields:
             Response chunks as they're generated
         """
@@ -669,12 +669,12 @@ Provide:
             logger.error(f"Error in audit_logic: {e}")
             return {'has_errors': False, 'error': str(e)}
 
-    def clear_history(self):
+    def clear_history(self) -> None:
         """Clear conversation history"""
         self.conversation_history = []
         logger.info("Conversation history cleared")
     
-    def set_temperature(self, temp: float):
+    def set_temperature(self, temp: float) -> None:
         """Set response creativity (0.0 = focused, 1.0 = creative)"""
         if 0 <= temp <= 1:
             self.config.temperature = temp

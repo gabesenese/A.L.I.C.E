@@ -61,7 +61,7 @@ class PluginInterface(ABC):
         pass
     
     @abstractmethod
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Cleanup when plugin is disabled"""
         pass
     
@@ -83,7 +83,7 @@ class PluginManager:
     Uses semantic intent classification for intelligent routing
     """
     
-    def __init__(self, plugins_dir: str = "plugins", use_semantic: bool = True):
+    def __init__(self, plugins_dir: str = "plugins", use_semantic: bool = True) -> None:
         self.plugins_dir = plugins_dir
         self.plugins: Dict[str, PluginInterface] = {}
         self.plugin_order: List[str] = []  # Execution priority
@@ -102,10 +102,10 @@ class PluginManager:
         os.makedirs(plugins_dir, exist_ok=True)
         logger.info("[OK] Plugin Manager initialized")
     
-    def register_plugin(self, plugin: PluginInterface, priority: int = 50):
+    def register_plugin(self, plugin: PluginInterface, priority: int = 50) -> None:
         """
         Register a plugin
-        
+
         Args:
             plugin: Plugin instance
             priority: Execution priority (lower = higher priority)
@@ -124,7 +124,7 @@ class PluginManager:
             logger.error(f"[ERROR] Error registering plugin {plugin.name}: {e}")
             return False
     
-    def unregister_plugin(self, plugin_name: str):
+    def unregister_plugin(self, plugin_name: str) -> bool:
         """Unregister and shutdown a plugin"""
         if plugin_name in self.plugins:
             try:
@@ -241,13 +241,13 @@ class PluginManager:
                 capabilities.extend(plugin.capabilities)
         return list(set(capabilities))
     
-    def enable_plugin(self, plugin_name: str):
+    def enable_plugin(self, plugin_name: str) -> bool:
         """Enable a plugin"""
         if plugin_name in self.plugins:
             self.plugins[plugin_name].enabled = True
             logger.info(f"[OK] Plugin enabled: {plugin_name}")
     
-    def disable_plugin(self, plugin_name: str):
+    def disable_plugin(self, plugin_name: str) -> bool:
         """Disable a plugin"""
         if plugin_name in self.plugins:
             self.plugins[plugin_name].enabled = False

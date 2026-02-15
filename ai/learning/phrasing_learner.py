@@ -44,7 +44,7 @@ class PhrasingLearner:
         self._load_learned_patterns()
         logger.info(f"[PhrasingLearner] Initialized with {len(self.learned_patterns)} patterns")
 
-    def _load_learned_patterns(self):
+    def _load_learned_patterns(self) -> None:
         """Load previously learned phrasings from storage"""
         if not self.storage_path.exists():
             logger.info("[PhrasingLearner] No existing patterns found, starting fresh")
@@ -69,7 +69,7 @@ class PhrasingLearner:
         except Exception as e:
             logger.error(f"[PhrasingLearner] Error loading patterns: {e}")
 
-    def _persist(self, new_entry: Dict[str, Any]):
+    def _persist(self, new_entry: Dict[str, Any]) -> None:
         """Append new learning to storage (JSONL format)"""
         try:
             with open(self.storage_path, 'a', encoding='utf-8') as f:
@@ -111,7 +111,7 @@ class PhrasingLearner:
             # General responses by type
             return f"general:{thought_type}"
 
-    def _update_confidence(self, pattern: str):
+    def _update_confidence(self, pattern: str) -> None:
         """
         Update confidence score for a pattern based on number of examples.
         More examples = higher confidence that Alice can phrase it herself.
@@ -143,10 +143,10 @@ class PhrasingLearner:
 
     def record_phrasing(
         self,
-        alice_thought: Dict,
+        alice_thought: Dict[str, Any],
         ollama_phrasing: str,
-        context: Dict
-    ):
+        context: Dict[str, Any]
+    ) -> None:
         """
         Record how Ollama phrased Alice's thought.
         Alice learns by observing.
