@@ -663,9 +663,10 @@ class SystemControlPlugin(PluginInterface):
                     elif isinstance(apps_data, dict) and apps_data.get('Name'):
                         name_lower = apps_data['Name'].lower()
                         self._installed_apps[name_lower] = apps_data['Path']
-            except:
+            except (json.JSONDecodeError, TypeError, KeyError) as e:
+                logger.debug(f"Failed to parse Windows registry apps: {e}")
                 pass
-            
+
             # Add common protocol handlers and system apps
             protocol_apps = {
                 "epic games launcher": "com.epicgames.launcher://",

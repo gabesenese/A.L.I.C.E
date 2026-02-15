@@ -958,9 +958,10 @@ class MemorySystem:
             age_days = (datetime.now() - mem_time).days
             # Decay over 30 days
             recency_score = max(0, (30 - age_days) / 30.0) * 0.3
-        except:
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning(f"Failed to calculate recency score: {e}")
             recency_score = 0.0
-        
+
         # Base importance (set at creation)
         base_score = memory.importance * 0.4
         
@@ -1094,9 +1095,10 @@ class MemorySystem:
                 try:
                     with open(archive_file, 'r', encoding='utf-8') as f:
                         existing_archive = json.load(f)
-                except:
+                except (json.JSONDecodeError, OSError, FileNotFoundError) as e:
+                    logger.debug(f"Could not load existing archive: {e}")
                     pass
-            
+
             # Append new archived memories
             new_archive = existing_archive + [asdict(m) for m in archived]
             

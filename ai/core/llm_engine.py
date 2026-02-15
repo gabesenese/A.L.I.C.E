@@ -202,12 +202,13 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
             if os.path.exists(path) or (path in ["ollama.exe", "ollama"]):
                 try:
                     # Test if executable works
-                    result = subprocess.run([path, "--version"], 
+                    result = subprocess.run([path, "--version"],
                                           capture_output=True, timeout=5)
                     if result.returncode == 0:
                         logger.info(f"Ollama found at: {path}")
                         return path
-                except:
+                except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as e:
+                    logger.debug(f"Failed to test Ollama at {path}: {e}")
                     continue
         return None
     
@@ -216,7 +217,8 @@ Be a real thinking partner - helpful, intelligent, and honest. Not a roleplay of
         try:
             response = requests.get(f"{self.config.base_url}/api/tags", timeout=2)
             return response.status_code == 200
-        except:
+        except (requests.RequestException, ConnectionError, TimeoutError) as e:
+            logger.debug(f"Ollama not running or unreachable: {e}")
             return False
     
     def _start_ollama_service(self) -> bool:
@@ -516,7 +518,8 @@ Input: {user_input}"""
                 try:
                     import json
                     return json.loads(content)
-                except:
+                except (json.JSONDecodeError, ValueError, TypeError) as e:
+                    logger.debug(f"Failed to parse LLM response as JSON: {e}")
                     return {
                         'intent': 'unknown',
                         'raw_analysis': content,
@@ -649,7 +652,8 @@ Provide:
                 try:
                     import json
                     return json.loads(content)
-                except:
+                except (json.JSONDecodeError, ValueError, TypeError) as e:
+                    logger.debug(f"Failed to parse audit response as JSON: {e}")
                     # Fallback: analyze content for issues
                     has_errors = any(word in content.lower() for word in ['error', 'incorrect', 'inconsistent', 'flaw'])
                     return {

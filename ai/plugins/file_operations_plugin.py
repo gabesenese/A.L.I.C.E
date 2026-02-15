@@ -123,7 +123,8 @@ class FileOperationsPlugin(PluginInterface):
             abs_path = os.path.abspath(filepath)
             # Check if it's within safe base directory
             return abs_path.startswith(self.safe_base_dir)
-        except:
+        except (OSError, ValueError) as e:
+            logger.warning(f"Path validation failed for '{filepath}': {e}")
             return False
 
     def handle_request(self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:

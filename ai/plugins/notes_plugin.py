@@ -590,7 +590,8 @@ class NotesManager:
                     due = datetime.fromisoformat(note.due_date)
                     if due < now:
                         results.append(note)
-                except:
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Failed to parse due date '{note.due_date}' for note '{note.title}': {e}")
                     pass
         results.sort(key=lambda x: x.due_date)
         return results
