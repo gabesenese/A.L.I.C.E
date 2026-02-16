@@ -2270,8 +2270,6 @@ class ALICE:
                             )
                             response = retry_response.response if retry_response.success else "Hi there!"
                     if response:
-                        self._think("LLM → greeting response (will be learned)")
-                        
                         # Store as learned pattern for future use
                         if getattr(self, 'learning_engine', None):
                             self.learning_engine.collect_interaction(
@@ -2281,13 +2279,11 @@ class ALICE:
                                 entities=entities or {},
                                 quality_score=0.95  # High quality - greetings are straightforward
                             )
-                        
-                        # Add directly to conversational engine for immediate use
-                        if hasattr(self, 'conversational_engine') and self.conversational_engine:
-                            if response not in self.conversational_engine.learned_greetings:
-                                self.conversational_engine.learned_greetings.append(response)
-                                self._think("Greeting learned → will use cached version next time")
-                        
+
+                        # Don't add to conversational_engine.learned_greetings
+                        # Always use LLM for greetings to get fresh, varied responses
+                        self._think("LLM → greeting response (will be learned)")
+
                         self._store_interaction(user_input, response, intent, entities)
                         if use_voice and self.speech:
                             self.speech.speak(response, blocking=False)
