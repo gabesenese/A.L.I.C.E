@@ -99,6 +99,9 @@ class LearningEngine:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
+        self._tfidf_matrix = None
+        self._needs_refit = True
+
         # Storage
         self.training_file = self.data_dir / "training_data.jsonl"
         self.stats_file = self.data_dir / "training_stats.json"
@@ -124,6 +127,7 @@ class LearningEngine:
         self.stats = self._load_stats()
         self._lock = threading.RLock()
         self._load_examples()
+        self._load_patterns()
 
         logger.info(f"[Learning] Engine initialized with {len(self.examples)} examples")
     
@@ -170,6 +174,9 @@ class LearningEngine:
             
             # Learn pattern immediately
             self._learn_pattern(example)
+
+            # Mark TF-IDF matrix as needing refit after new example
+            self._needs_refit = True
 
     def run_offline_training(self, max_entries: int = 500) -> Dict[str, Any]:
         """
@@ -269,17 +276,27 @@ class LearningEngine:
 
         return hard_lessons
     
+    def _refit_vectorizer(self):
+        """Fit vectorizer on current examples and cache the matrix."""
+        texts = [ex.user_input for ex in self.examples]
+        self._tfidf_matrix = self.vectorizer.fit_transform(texts)
+        self._needs_refit = False
+
     def _learn_pattern(self, example: TrainingExample):
         """Learn a single pattern"""
-        input_hash = hash(example.user_input) % (10**8)
-        self.patterns[input_hash] = {
+        import hashlib
+        key = hashlib.sha256(example.user_input.encode("utf-8")).hexdigest()[:16]
+        self.patterns[key] = {
             'input': example.user_input,
             'response': example.assistant_response,
             'intent': example.intent,
             'quality': example.quality_score,
             'rating': example.user_rating
         }
-    
+
+        self._save_patterns()
+
+       
     def get_similar_examples(self, user_input: str, top_k: int = 3) -> List[TrainingExample]:
         """Find similar examples using TF-IDF similarity"""
         if not _ml_available():
@@ -320,7 +337,11 @@ class LearningEngine:
             if example.quality_score >= 0.7:
                 return example.assistant_response
         
-        return None
+        return None 
+    
+    def _stable_hash(self, txt: str) -> str:
+        import hashlib
+        return hashlib.sha256(txt.encode("utf-8")).hexdigest()[:12] # 48-bit
     
     def get_high_quality_examples(self, min_examples: int = 50) -> Optional[List[Dict]]:
         """
