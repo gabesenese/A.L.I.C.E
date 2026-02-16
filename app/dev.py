@@ -39,7 +39,7 @@ class ALICEReloader(FileSystemEventHandler):
         self.debounce_seconds = debounce_seconds
         self.last_reload_time = 0
         self.startup_time = time.time()
-        self.startup_grace_period = 3.0  # Ignore events for first 3 seconds
+        self.startup_grace_period = 1.5  # Reduced from 3.0 to 1.5 seconds
 
         self.ignored_patterns = {
             '__pycache__',
@@ -62,6 +62,7 @@ class ALICEReloader(FileSystemEventHandler):
 
         # Track file modification times to detect real changes
         self.file_mtimes = {}
+        print("[DEV] File watcher initialized - watching for .py changes")
         logger.debug("File watcher initialized with startup grace period")
 
     def should_ignore(self, path):
@@ -153,6 +154,8 @@ class ALICEReloader(FileSystemEventHandler):
         except (ValueError, OSError):
             file_path = src_path.name
 
+        print(f"\n[DEV] 📝 Code changed: {file_path}")
+        print("[DEV] 🔄 Reloading A.L.I.C.E...\n")
         logger.info(f"Code changed: {file_path}")
         logger.info("Reloading A.L.I.C.E...")
 
@@ -350,11 +353,13 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
 
         logger.info("Setting up file watcher...")
         logger.info(f"Project root: {project_root}")
+        print(f"\n[DEV]  Watching directories for .py file changes:")
         watched_count = 0
         for dir_name in watch_dirs:
             watch_path = project_root / dir_name
             if watch_path.exists():
                 observer.schedule(event_handler, str(watch_path), recursive=True)
+                print(f"[DEV]     {dir_name}/")
                 logger.info(f"   Watching: {dir_name}/")
                 watched_count += 1
             else:
@@ -362,6 +367,9 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
 
         if watched_count > 0:
             observer.start()
+            print(f"[DEV]  File watcher active ({watched_count} directories)")
+            print(f"[DEV]     Auto-reload enabled - edit any .py file to trigger reload")
+            print(f"[DEV]      Grace period: {event_handler.startup_grace_period}s after startup\n")
             logger.info(f"File watcher active ({watched_count} directories)")
             logger.info(f"   Auto-reload enabled for .py files")
             logger.info(f"   Startup grace period: {event_handler.startup_grace_period}s")
