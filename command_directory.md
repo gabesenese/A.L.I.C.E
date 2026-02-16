@@ -2,7 +2,7 @@
 
 **Quick reference for all commands to run, test, and interact with A.L.I.C.E**
 
-Last Updated: 2026-02-16
+Last Updated: 2026-02-16 (Added Analytics & Memory Management commands)
 
 ---
 
@@ -28,9 +28,10 @@ python app/main.py --test-mode
 3. [Training & Learning](#training--learning)
 4. [Automation & Scheduling](#automation--scheduling)
 5. [Monitoring & Debugging](#monitoring--debugging)
-6. [Development Tools](#development-tools)
-7. [Coverage & Quality](#coverage--quality)
-8. [Git Operations](#git-operations)
+6. [Analytics & Memory Management](#analytics--memory-management)
+7. [Development Tools](#development-tools)
+8. [Coverage & Quality](#coverage--quality)
+9. [Git Operations](#git-operations)
 
 ---
 
@@ -244,6 +245,150 @@ grep -i "error\|exception\|traceback" logs/alice.log | grep -v "test"
 
 # Monitor logs in real-time
 tail -f logs/alice.log
+```
+
+---
+
+## 📊 Analytics & Memory Management
+
+### Usage Analytics
+
+```bash
+# View usage analytics log
+tail -50 data/analytics/usage_log.jsonl
+
+# View formatted usage stats
+cat data/analytics/usage_log.jsonl | jq '.'
+
+# View recent interactions
+tail -20 data/analytics/usage_log.jsonl | jq -r '[.timestamp, .intent, .plugin, .response_time_ms] | @csv'
+
+# View daily statistics
+cat data/analytics/daily_stats.json | jq '.'
+
+# Count interactions by intent
+cat data/analytics/usage_log.jsonl | jq -r '.intent' | sort | uniq -c | sort -rn
+
+# Count plugin usage
+cat data/analytics/usage_log.jsonl | jq -r '.plugin | select(. != null)' | sort | uniq -c | sort -rn
+
+# Average response time
+cat data/analytics/usage_log.jsonl | jq -r '.response_time_ms | select(. != null)' | awk '{sum+=$1; count++} END {print sum/count " ms"}'
+
+# Monitor usage in real-time
+tail -f data/analytics/usage_log.jsonl | jq '.'
+```
+
+### Memory Growth Monitor
+
+```bash
+# View memory growth snapshots
+tail -10 data/analytics/memory_growth.jsonl
+
+# View formatted memory growth
+cat data/analytics/memory_growth.jsonl | jq '.'
+
+# Check latest memory stats
+cat data/analytics/memory_growth.jsonl | tail -1 | jq '.memory_stats'
+
+# View memory size over time
+cat data/analytics/memory_growth.jsonl | jq -r '[.timestamp, .memory_stats.total_memories] | @csv'
+
+# View memory type breakdown
+cat data/analytics/memory_growth.jsonl | tail -1 | jq '.type_breakdown'
+
+# Monitor memory growth rate
+cat data/analytics/memory_growth.jsonl | jq -r '[.timestamp, .file_stats.total_size_mb] | @csv'
+
+# View memory growth config
+cat data/analytics/memory_monitor_config.json | jq '.'
+```
+
+### Memory Pruner
+
+```bash
+# View memory pruning config
+cat data/memory_pruning_config.json | jq '.'
+
+# Check archived memories
+ls -lh data/archives/
+
+# View archived conversations
+ls -lht data/archives/ | head -20
+
+# Check pruning schedule
+cat data/memory_pruning_config.json | jq '.retention_days'
+
+# View importance thresholds
+cat data/memory_pruning_config.json | jq '.importance_threshold'
+
+# Check last pruning time
+cat data/memory_pruning_config.json | jq '.last_prune_time'
+
+# Manually trigger pruning (edit config to force)
+# Set "last_prune_time": null in data/memory_pruning_config.json
+```
+
+### Background Embedding Generator
+
+```bash
+# Check if background embedding generator is running
+# (Look for [BgEmbedding] in logs during startup)
+grep "BgEmbedding" logs/alice.log | tail -10
+
+# Monitor embedding generation in real-time
+tail -f logs/alice.log | grep "BgEmbedding"
+
+# Check embedding queue status
+# (Visible in debug logs when running with --debug)
+python app/main.py --debug | grep "embedding"
+```
+
+### RAG Document Indexer Plugin
+
+```bash
+# Using RAG indexer in A.L.I.C.E (interactive mode)
+# Start A.L.I.C.E and type these commands:
+
+# List indexed directories
+# Input: "list rag directories"
+
+# Add directory to index
+# Input: "add directory to rag index: ~/Documents/notes"
+
+# Remove directory from index
+# Input: "remove directory from rag index: ~/Documents/notes"
+
+# Trigger reindexing
+# Input: "reindex rag documents"
+
+# Check index status
+# Input: "show rag index status"
+
+# View RAG indexer configuration
+cat config/rag_indexer_config.json | jq '.'
+
+# Check indexed directories
+cat config/rag_indexer_config.json | jq '.indexed_directories'
+
+# View file extensions indexed
+cat config/rag_indexer_config.json | jq '.file_extensions'
+
+# Check auto-index status
+cat config/rag_indexer_config.json | jq '.auto_index'
+```
+
+### Analytics Dashboard (Future Enhancement)
+
+```bash
+# Generate usage report (future feature)
+python scripts/analytics/generate_usage_report.py
+
+# Export analytics to CSV
+cat data/analytics/usage_log.jsonl | jq -r '[.timestamp, .intent, .plugin, .response_time_ms, .success] | @csv' > analytics.csv
+
+# Memory growth report
+cat data/analytics/memory_growth.jsonl | jq -r '[.timestamp, .memory_stats.total_memories, .file_stats.total_size_mb] | @csv' > memory_growth.csv
 ```
 
 ---
@@ -640,6 +785,10 @@ taskmgr  # Windows
 | **Train Alice** | `python scripts/training/run_scenarios_and_train.py` |
 | **Monitor live** | `python tools/monitoring/monitor_live.py` |
 | **Debug logs** | `tail -f logs/alice.log` |
+| **View usage analytics** | `tail -20 data/analytics/usage_log.jsonl \| jq '.'` |
+| **View memory growth** | `tail -10 data/analytics/memory_growth.jsonl \| jq '.'` |
+| **Check memory config** | `cat data/memory_pruning_config.json \| jq '.'` |
+| **View RAG config** | `cat config/rag_indexer_config.json \| jq '.'` |
 | **Check imports** | `python -c "from ai.facades import *"` |
 | **Run benchmarks** | `python scripts/benchmark_response_time.py` |
 | **Format code** | `black ai/ app/ tests/` |
