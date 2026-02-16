@@ -1565,7 +1565,6 @@ class ALICE:
             'conversation:ack',
             'conversation:question',
             'greeting',
-            'status_inquiry',  # "how are you?", "how's it going?"
             'farewell'
         ]
         
@@ -2286,69 +2285,6 @@ class ALICE:
                                 self.conversational_engine.learned_greetings.append(response)
                                 self._think("Greeting learned → will use cached version next time")
                         
-                        self._store_interaction(user_input, response, intent, entities)
-                        if use_voice and self.speech:
-                            self.speech.speak(response, blocking=False)
-                        logger.info(f"A.L.I.C.E: {response[:100]}...")
-                        return response
-
-                # If this is a status inquiry (how are you?), handle similarly to greetings
-                if intent == "status_inquiry" and getattr(self, "llm_gateway", None):
-                    # Check for cached response first
-                    cached = self._cache_get(user_input, intent)
-                    if cached:
-                        self._think("Status inquiry → using cached response")
-                        self._store_interaction(user_input, cached, intent, entities)
-                        if use_voice and self.speech:
-                            self.speech.speak(cached, blocking=False)
-                        logger.info(f"A.L.I.C.E (cached): {cached[:100]}...")
-                        return cached
-
-                    # No cache - use LLM and cache result
-                    user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
-                    prompt = (
-                        f"The user asked: {user_input!r}. They're asking how you're doing. "
-                        "Respond briefly (under 20 words) with your status. "
-                        "Be warm and conversational. "
-                        f"User's name: {user_name!r}."
-                    )
-                    llm_response = self.llm_gateway.request(
-                        prompt=prompt,
-                        call_type=LLMCallType.CHITCHAT,
-                        use_history=False,
-                        user_input=user_input
-                    )
-                    if llm_response.success and llm_response.response:
-                        response = llm_response.response
-                    else:
-                        # Policy denied or error - use fallback
-                        if getattr(llm_response, "denied_by_policy", False):
-                            status_responses = [
-                                f"I'm doing well, thanks{f' {user_name}' if user_name else ''}! How about you?",
-                                f"Pretty good{f', {user_name}' if user_name else ''}! How are you?",
-                                f"Great{f', {user_name}' if user_name else ''}! How's yours going?"
-                            ]
-                            import random
-                            response = random.choice(status_responses)
-                        else:
-                            response = llm_response.response or "I'm doing well! How about you?"
-
-                    if response:
-                        self._think("LLM → status response (caching for next time)")
-
-                        # Cache the response
-                        self._cache_put(user_input, intent, response)
-
-                        # Store as learned pattern
-                        if getattr(self, 'learning_engine', None):
-                            self.learning_engine.collect_interaction(
-                                user_input=user_input,
-                                assistant_response=response,
-                                intent='status_inquiry',
-                                entities=entities or {},
-                                quality_score=0.95
-                            )
-
                         self._store_interaction(user_input, response, intent, entities)
                         if use_voice and self.speech:
                             self.speech.speak(response, blocking=False)
