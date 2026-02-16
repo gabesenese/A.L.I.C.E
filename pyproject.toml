@@ -3,6 +3,7 @@ testpaths = ["tests/integration"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+norecursedirs = ["tests/deprecated", "*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}"]
 filterwarnings = [
     "ignore::DeprecationWarning:torchao.*",
 ]
