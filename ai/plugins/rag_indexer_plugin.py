@@ -23,6 +23,12 @@ class RAGIndexerPlugin(PluginInterface):
     """
 
     def __init__(self, memory_system: Optional[MemorySystem] = None):
+        super().__init__()
+        self.name = "RAGIndexerPlugin"
+        self.version = "1.0.0"
+        self.description = "Indexes documents from configured directories for semantic search"
+        self.enabled = True
+
         self.memory_system = memory_system
         self.config_path = Path("config/rag_indexer_config.json")
         self.config = self._load_config()
@@ -59,12 +65,6 @@ class RAGIndexerPlugin(PluginInterface):
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2)
-
-    def name(self) -> str:
-        return "rag_indexer"
-
-    def description(self) -> str:
-        return "Indexes documents from configured directories for semantic search"
 
     def can_handle(self, intent: str, entities: Dict[str, Any]) -> bool:
         indexer_intents = [
