@@ -45,6 +45,10 @@ class WeatherFormatter(SimpleFormatter):
 
         parts = []
 
+        # Round temperature to whole number
+        if temp is not None:
+            temp = round(temp)
+
         # Temperature and condition
         if temp is not None and condition and condition != 'unknown':
             parts.append(f"Weather in {location}: {condition}, {temp}°C")
