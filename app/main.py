@@ -2236,7 +2236,17 @@ class ALICE:
                     else:
                         # Policy denied or error - use safe greeting fallback
                         if getattr(llm_response, "denied_by_policy", False):
-                            response = f"Hi {user_name}! How can I help?" if user_name else "Hi! How can I help?"
+                            # If user asked how we're doing, answer that
+                            if asked_how:
+                                wellbeing_responses = [
+                                    f"I'm doing well, thanks{f' {user_name}' if user_name else ''}! How about you?",
+                                    f"Pretty good{f', {user_name}' if user_name else ''}! How are you?",
+                                    f"Great{f', {user_name}' if user_name else ''}! How's yours going?"
+                                ]
+                                import random
+                                response = random.choice(wellbeing_responses)
+                            else:
+                                response = f"Hi {user_name}! How can I help?" if user_name else "Hi! How can I help?"
                         else:
                             response = llm_response.response or "Hi there!"
                     
