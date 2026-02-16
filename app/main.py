@@ -1540,15 +1540,26 @@ class ALICE:
         return normalized
     
     def _cache_get(self, user_input: str, intent: str) -> Optional[str]:
-        """Get cached response if available"""
+        """Get cached response if available and fresh (within 5 minutes)"""
         cache_key = (self._normalize_input(user_input), intent)
-        return self._response_cache.get(cache_key)
-    
+        cached_data = self._response_cache.get(cache_key)
+
+        if cached_data:
+            response, timestamp = cached_data
+            # Check if cache is still fresh (5 minutes = 300 seconds)
+            if time.time() - timestamp < 300:
+                return response
+            else:
+                # Expired, remove from cache
+                del self._response_cache[cache_key]
+
+        return None
+
     def _cache_put(self, user_input: str, intent: str, response: str) -> None:
-        """Store response in cache"""
+        """Store response in cache with timestamp"""
         cache_key = (self._normalize_input(user_input), intent)
-        self._response_cache[cache_key] = response
-        
+        self._response_cache[cache_key] = (response, time.time())
+
         # Simple LRU: if cache gets too big, remove oldest entries
         if len(self._response_cache) > self._cache_max_size:
             # Remove first (oldest) item
@@ -2153,9 +2164,15 @@ class ALICE:
             # FAST PATH: Check cache and conversational shortcuts
             intent_confidence = getattr(nlp_result, 'intent_confidence', 0.5)
             
-            # 0.5 Check if cached response exists (only for very stable intents)
-            # Only cache acknowledgments - everything else needs variation
-            cacheable_intents = ['conversation:ack']
+            # 0.5 Check if cached response exists (with 5-minute expiry for variation)
+            # Cache conversational intents for faster responses to repeated questions
+            cacheable_intents = [
+                'conversation:ack',
+                'conversation:general',
+                'greeting',
+                'farewell',
+                'status_inquiry'
+            ]
             if intent in cacheable_intents:
                 cached_response = self._cache_get(user_input, intent)
                 if cached_response:
@@ -3619,6 +3636,11 @@ class ALICE:
                     )
                 except Exception as e:
                     logger.debug(f"[AsyncEval] Could not queue evaluation: {e}")
+
+            # Cache response if it's a cacheable intent (with 5-minute expiry)
+            if intent in cacheable_intents and response:
+                self._cache_put(user_input, intent, response)
+                self._think(f"Response cached for {intent}")
 
             logger.info(f"A.L.I.C.E: {response[:100]}...")
             return response
