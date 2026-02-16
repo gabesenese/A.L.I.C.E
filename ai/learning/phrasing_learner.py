@@ -257,14 +257,15 @@ class PhrasingLearner:
             # Fallback: use any example with this pattern
             examples_with_tone = self.learned_patterns[pattern]
 
-        # Select best example (most recent)
-        best_example = max(examples_with_tone, key=lambda e: e.get('timestamp', ''))
+        # Select example with variation (random choice for natural variety)
+        import random
+        selected_example = random.choice(examples_with_tone)
 
         # Adapt the learned phrasing to current thought
         adapted_phrasing = self._adapt_phrasing(
-            learned_phrasing=best_example['ollama_phrasing'],
+            learned_phrasing=selected_example['ollama_phrasing'],
             current_thought=alice_thought,
-            learned_thought=best_example['alice_thought']
+            learned_thought=selected_example['alice_thought']
         )
 
         logger.info(f"[PhrasingLearner] Alice phrased '{pattern}' independently!")
