@@ -10,6 +10,7 @@ from rich.live import Live
 from rich.layout import Layout
 from rich.prompt import Prompt
 from rich.markdown import Markdown
+from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 from rich import box
 from datetime import datetime
 import time
@@ -172,9 +173,19 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
         self.console.print()
 
     def show_loading(self, message="Initializing A.L.I.C.E systems"):
-        """Show loading animation with tech-style spinner"""
-        with self.console.status(f"[{self.colors['accent']}]{message}...", spinner="arc") as status:
-            time.sleep(2)  # Simulated loading delay
+        """Show loading progress bar with percentage"""
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=40, style=self.colors['accent'], complete_style=self.colors['success']),
+            TextColumn(f"[{self.colors['success']}]{{task.percentage:>3.0f}}%"),
+            console=self.console
+        ) as progress:
+            task = progress.add_task(f"[{self.colors['accent']}]{message}", total=100)
+
+            # Simulate loading progress (0-100%)
+            for i in range(100):
+                progress.update(task, advance=1)
+                time.sleep(0.02)  # 2 seconds total (100 steps * 0.02s)
 
     def print_user_input(self, text):
         """Display user input"""
