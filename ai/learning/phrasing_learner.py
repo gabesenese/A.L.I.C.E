@@ -318,7 +318,8 @@ class PhrasingLearner:
                         # Convert to string for replacement
                         old_str = str(old_val)
                         new_str = str(new_val)
-                        if old_str in adapted:
+                        # CRITICAL: Check old_str is not empty to avoid inserting new_str between every character
+                        if old_str and old_str in adapted:
                             adapted = adapted.replace(old_str, new_str)
 
             # 2. Data subfield (for note ops, file ops, etc.)
