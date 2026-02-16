@@ -27,6 +27,15 @@ class RAGIndexerPlugin(PluginInterface):
         self.config_path = Path("config/rag_indexer_config.json")
         self.config = self._load_config()
 
+    def initialize(self) -> bool:
+        """Initialize the RAG indexer plugin"""
+        logger.info("RAG Indexer plugin initialized")
+        return True
+
+    def shutdown(self) -> None:
+        """Cleanup when plugin is disabled"""
+        logger.info("RAG Indexer plugin shutdown")
+
     def _load_config(self) -> Dict[str, Any]:
         """Load indexer configuration"""
         if self.config_path.exists():
