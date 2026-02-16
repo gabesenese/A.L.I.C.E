@@ -3,7 +3,7 @@ Optimization Facade for A.L.I.C.E
 Performance tuning and runtime optimization
 """
 
-from ai.optimization.runtime_thresholds import get_thresholds, update_threshold
+from ai.optimization.runtime_thresholds import get_thresholds, update_thresholds
 from typing import Dict, Any, Optional
 import logging
 
@@ -52,7 +52,7 @@ class OptimizationFacade:
             True if updated successfully
         """
         try:
-            update_threshold(key, value)
+            update_thresholds({key: value})
             # Reload thresholds
             self.thresholds = get_thresholds()
             return True

@@ -3,31 +3,48 @@ Training Facade for A.L.I.C.E
 Training data collection and model fine-tuning
 """
 
-from ai.training.training_data_collector import get_training_collector
-from ai.training.fine_tuning import FineTuningManager
 from typing import Dict, Any, Optional, List
 import logging
 
 logger = logging.getLogger(__name__)
+
+try:
+    from ai.training.scenario_generator import ScenarioGenerator
+    _scenario_gen_available = True
+except ImportError:
+    _scenario_gen_available = False
+
+try:
+    from ai.training.ollama_evaluator import get_ollama_evaluator
+    _evaluator_available = True
+except ImportError:
+    _evaluator_available = False
 
 
 class TrainingFacade:
     """Facade for training and fine-tuning"""
 
     def __init__(self) -> None:
-        # Training data collector
+        # Scenario generator
         try:
-            self.collector = get_training_collector()
+            self.scenario_gen = ScenarioGenerator() if _scenario_gen_available else None
         except Exception as e:
-            logger.warning(f"Training collector not available: {e}")
-            self.collector = None
+            logger.warning(f"Scenario generator not available: {e}")
+            self.scenario_gen = None
 
-        # Fine-tuning manager
+        # Evaluator
         try:
-            self.fine_tuning = FineTuningManager()
+            self.evaluator = get_ollama_evaluator() if _evaluator_available else None
         except Exception as e:
-            logger.warning(f"Fine-tuning manager not available: {e}")
-            self.fine_tuning = None
+            logger.warning(f"Evaluator not available: {e}")
+            self.evaluator = None
+
+        # Training data collector (not yet implemented)
+        self.collector = None
+
+        # Fine-tuning manager (not yet implemented)
+        self.fine_tuner = None
+        self.fine_tuning = None
 
         logger.info("[TrainingFacade] Initialized training systems")
 

@@ -19,14 +19,15 @@ class TestLearningCycle:
     """Integration tests for learning and self-improvement"""
 
     @pytest.fixture
-    def learner(self):
-        """Create fresh phrasing learner"""
-        return PhrasingLearner(storage_path="data/test_learning.jsonl")
+    def learner(self, tmp_path):
+        """Create fresh phrasing learner with isolated storage"""
+        storage = str(tmp_path / "test_learning.jsonl")
+        return PhrasingLearner(storage_path=storage)
 
     @pytest.fixture
-    def formulator(self):
-        """Create fresh response formulator"""
-        return ResponseFormulator()
+    def formulator(self, learner):
+        """Create fresh response formulator wired to a phrasing learner"""
+        return ResponseFormulator(phrasing_learner=learner)
 
     def test_learning_progression_0_to_3_examples(self, learner):
         """Learning should progress: 0 examples -> can't phrase -> 3 examples -> can phrase"""
@@ -125,10 +126,9 @@ class TestLearningCycle:
 
     def test_formulator_independence_increases_over_time(self, formulator):
         """Response formulator should become more independent with use"""
-        # Track LLM calls (would need mocking in real test)
         action = "test_action"
 
-        # First few calls will use LLM
+        # First few calls will use basic fallback
         for i in range(5):
             response = formulator.formulate_response(
                 action=action,
@@ -141,7 +141,6 @@ class TestLearningCycle:
             assert response is not None
 
         # After learning, should be more likely to use learned patterns
-        # (This is probabilistic, so we just verify it doesn't crash)
         response = formulator.formulate_response(
             action=action,
             data={"count": 99},
@@ -184,6 +183,26 @@ class TestLearningCycle:
         assert response is not None
         # Should be a reasonable response
         assert len(response) > 0
+
+    def test_persistence_across_instances(self, tmp_path):
+        """Learner should persist and reload patterns"""
+        storage = str(tmp_path / "persist_test.jsonl")
+        thought = {"type": "persist_test", "data": {}}
+
+        # First instance: train
+        learner1 = PhrasingLearner(storage_path=storage)
+        for _ in range(3):
+            learner1.record_phrasing(
+                alice_thought=thought,
+                ollama_phrasing="Persisted response",
+                context={'tone': 'warm'}
+            )
+        assert learner1.can_phrase_myself(thought, "warm") is True
+
+        # Second instance: should load persisted data
+        learner2 = PhrasingLearner(storage_path=storage)
+        assert learner2.can_phrase_myself(thought, "warm") is True
+        assert learner2.get_stats()['total_examples'] == 3
 
 
 if __name__ == "__main__":

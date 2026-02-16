@@ -1194,6 +1194,18 @@ class MemorySystem:
         self._save_memories()
 
 
+# Singleton instance
+_memory_system: Optional[MemorySystem] = None
+
+
+def get_memory_system(data_dir: str = "data/memory") -> MemorySystem:
+    """Get or create the memory system singleton"""
+    global _memory_system
+    if _memory_system is None:
+        _memory_system = MemorySystem(data_dir=data_dir)
+    return _memory_system
+
+
 # Example usage
 if __name__ == "__main__":
     print("Testing Memory System...\n")

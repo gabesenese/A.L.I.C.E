@@ -5,13 +5,15 @@ Tests the complete flow: thought -> phrasing learning -> independent generation
 
 import pytest
 import sys
+import tempfile
+import os
 from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from ai.core.response_formulator import ResponseFormulator, get_response_formulator
+from ai.core.response_formulator import ResponseFormulator
 from ai.learning.phrasing_learner import PhrasingLearner
 
 
@@ -19,18 +21,18 @@ class TestResponseFormulationPipeline:
     """End-to-end tests for response formulation and learning"""
 
     @pytest.fixture
-    def formulator(self):
-        """Create fresh response formulator for each test"""
-        return ResponseFormulator()
+    def learner(self, tmp_path):
+        """Create fresh phrasing learner with isolated storage"""
+        storage = str(tmp_path / "test_phrasings.jsonl")
+        return PhrasingLearner(storage_path=storage)
 
     @pytest.fixture
-    def learner(self):
-        """Create fresh phrasing learner for each test"""
-        return PhrasingLearner(storage_path="data/test_phrasings.jsonl")
+    def formulator(self, learner):
+        """Create fresh response formulator wired to a phrasing learner"""
+        return ResponseFormulator(phrasing_learner=learner)
 
     def test_initial_formulation_uses_llm(self, formulator):
-        """First time Alice sees an action, she uses LLM"""
-        # New action type Alice hasn't seen
+        """First time Alice sees an action, she uses LLM or data-aware fallback"""
         response = formulator.formulate_response(
             action="create_note",
             data={"note_title": "test"},
@@ -42,7 +44,7 @@ class TestResponseFormulationPipeline:
         assert response is not None
         assert isinstance(response, str)
         assert len(response) > 0
-        # Response should mention the note
+        # Response should mention the note title from data
         assert "test" in response.lower() or "note" in response.lower()
 
     def test_learning_after_multiple_examples(self, learner):
@@ -65,39 +67,40 @@ class TestResponseFormulationPipeline:
         assert can_phrase is True, "Alice should be able to phrase independently after 5 examples"
 
     def test_independent_phrasing_quality(self, learner):
-        """Alice's independent phrasing should be natural"""
-        thought = {"type": "create_note", "data": {"note_title": "meeting"}}
+        """Alice's independent phrasing should be natural and adapt to new data"""
+        # Train with consistent note_title so adaptation can substitute
+        training_thought = {"type": "create_note", "data": {"note_title": "tasks"}}
 
-        # Train Alice with examples
         training_examples = [
-            "I've created a note called 'project ideas' for you.",
-            "I made a note titled 'shopping list'.",
-            "Your note 'meeting agenda' has been created.",
-            "I've added a note called 'reminders'.",
-            "Note created: 'daily tasks'."
+            "I've created a note called 'tasks' for you.",
+            "I made a note titled 'tasks'.",
+            "Your note 'tasks' has been created.",
+            "I've added a note called 'tasks'.",
+            "Note created: 'tasks'."
         ]
 
         for example in training_examples:
             learner.record_phrasing(
-                alice_thought={"type": "create_note", "data": {"note_title": "example"}},
+                alice_thought=training_thought,
                 ollama_phrasing=example,
                 context={'tone': 'warm and helpful'}
             )
 
-        # Get independent response
-        response = learner.phrase_myself(thought, tone="warm and helpful")
+        # Now ask for a different title - adaptation should swap it
+        new_thought = {"type": "create_note", "data": {"note_title": "meeting"}}
+        response = learner.phrase_myself(new_thought, tone="warm and helpful")
 
         assert response is not None
         assert len(response) > 10
+        # Adaptation should have replaced "tasks" with "meeting"
         assert "meeting" in response.lower()
-        # Should use learned patterns (created/made/added)
         assert any(word in response.lower() for word in ['created', 'made', 'added', 'note'])
 
     def test_formulator_learns_from_successes(self, formulator):
-        """Response formulator should record successful phrasings"""
+        """Response formulator should record successful phrasings via its learner"""
         initial_patterns = len(formulator.phrasing_learner.learned_patterns)
 
-        # Formulate response (will use LLM and potentially learn)
+        # Formulate response (will use basic fallback, then learn)
         response = formulator.formulate_response(
             action="create_reminder",
             data={"reminder_text": "call mom"},
@@ -106,15 +109,13 @@ class TestResponseFormulationPipeline:
             tone="warm and helpful"
         )
 
-        # Should have learned something (if LLM was used)
-        final_patterns = len(formulator.phrasing_learner.learned_patterns)
-
+        assert response is not None
         # Patterns may increase or stay same depending on independence
+        final_patterns = len(formulator.phrasing_learner.learned_patterns)
         assert final_patterns >= initial_patterns
 
     def test_fallback_on_error(self, formulator):
         """Formulator should handle errors gracefully"""
-        # This should not crash even with unusual data
         response = formulator.formulate_response(
             action="unknown_action",
             data={},
@@ -125,7 +126,6 @@ class TestResponseFormulationPipeline:
 
         assert response is not None
         assert isinstance(response, str)
-        # Should acknowledge the issue
         assert len(response) > 0
 
     def test_tone_variation(self, learner):

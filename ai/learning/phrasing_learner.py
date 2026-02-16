@@ -283,6 +283,7 @@ class PhrasingLearner:
         Strategy:
         - For capability answers: swap capability details
         - For knowledge answers: keep structure, swap content
+        - For data-bearing actions: substitute data field values
         - For others: use learned phrasing as template
         """
         thought_type = current_thought.get('type', 'general')
@@ -301,9 +302,18 @@ class PhrasingLearner:
 
         elif thought_type == 'knowledge_answer':
             # For knowledge: structure is good, but content differs
-            # Keep the phrasing style, just ensure current content is reflected
-            # (In future: could use more sophisticated NLP here)
             pass
+
+        else:
+            # Generic data field substitution
+            old_data = learned_thought.get('data', {})
+            new_data = current_thought.get('data', {})
+            for key in old_data:
+                if key in new_data and old_data[key] != new_data[key]:
+                    old_val = str(old_data[key])
+                    new_val = str(new_data[key])
+                    if old_val and old_val in adapted:
+                        adapted = adapted.replace(old_val, new_val)
 
         # Return adapted phrasing
         return adapted

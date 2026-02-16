@@ -3,26 +3,29 @@ Speech Facade for A.L.I.C.E
 Voice input/output management
 """
 
-from speech.stt import listen_for_voice, STTEngine
-from speech.tts import speak
 from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
+
+try:
+    from speech.speech_engine import SpeechEngine
+    _speech_available = True
+except ImportError:
+    _speech_available = False
 
 
 class SpeechFacade:
     """Facade for voice I/O systems"""
 
     def __init__(self) -> None:
-        # STT Engine
         try:
-            self.stt = STTEngine()
+            self.engine = SpeechEngine() if _speech_available else None
         except Exception as e:
-            logger.warning(f"STT engine not available: {e}")
-            self.stt = None
+            logger.warning(f"Speech engine not available: {e}")
+            self.engine = None
 
-        logger.info("[SpeechFacade] Initialized speech systems")
+        logger.info(f"[SpeechFacade] Initialized (available={self.engine is not None})")
 
     def listen(self, timeout: int = 5) -> Optional[str]:
         """
@@ -34,8 +37,11 @@ class SpeechFacade:
         Returns:
             Transcribed text or None
         """
+        if not self.engine:
+            return None
+
         try:
-            return listen_for_voice(timeout=timeout)
+            return self.engine.listen(timeout=timeout)
         except Exception as e:
             logger.error(f"Failed to listen for voice: {e}")
             return None
@@ -51,41 +57,19 @@ class SpeechFacade:
         Returns:
             True if speech started successfully
         """
+        if not self.engine:
+            return False
+
         try:
-            speak(text, wait=wait)
+            self.engine.speak(text)
             return True
         except Exception as e:
             logger.error(f"Failed to speak: {e}")
             return False
 
-    def is_stt_available(self) -> bool:
-        """Check if STT is available"""
-        return self.stt is not None
-
-    def configure_stt(
-        self,
-        engine: str = "google",
-        language: str = "en-US"
-    ) -> bool:
-        """
-        Configure STT engine
-
-        Args:
-            engine: Engine to use (google, sphinx, etc.)
-            language: Language code
-
-        Returns:
-            True if configured successfully
-        """
-        if not self.stt:
-            return False
-
-        try:
-            self.stt.configure(engine=engine, language=language)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to configure STT: {e}")
-            return False
+    def is_available(self) -> bool:
+        """Check if speech engine is available"""
+        return self.engine is not None
 
 
 # Singleton instance

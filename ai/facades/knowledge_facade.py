@@ -3,28 +3,38 @@ Knowledge Facade for A.L.I.C.E
 Knowledge graphs and user profiling
 """
 
-from ai.knowledge.knowledge_graph import get_knowledge_graph
-from ai.knowledge.user_profile import get_user_profile
 from typing import Dict, Any, Optional, List
 import logging
 
 logger = logging.getLogger(__name__)
+
+try:
+    from ai.core.knowledge_engine import KnowledgeEngine
+    _knowledge_engine_available = True
+except ImportError:
+    _knowledge_engine_available = False
+
+try:
+    from ai.learning.user_profile_engine import UserProfileEngine
+    _user_profile_available = True
+except ImportError:
+    _user_profile_available = False
 
 
 class KnowledgeFacade:
     """Facade for knowledge management"""
 
     def __init__(self) -> None:
-        # Knowledge graph
+        # Knowledge engine
         try:
-            self.graph = get_knowledge_graph()
+            self.graph = KnowledgeEngine() if _knowledge_engine_available else None
         except Exception as e:
-            logger.warning(f"Knowledge graph not available: {e}")
+            logger.warning(f"Knowledge engine not available: {e}")
             self.graph = None
 
         # User profile
         try:
-            self.profile = get_user_profile()
+            self.profile = UserProfileEngine() if _user_profile_available else None
         except Exception as e:
             logger.warning(f"User profile not available: {e}")
             self.profile = None

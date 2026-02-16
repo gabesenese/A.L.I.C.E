@@ -216,18 +216,39 @@ IMPORTANT: Output ONLY the response text, nothing else. No meta-commentary, no q
         if not success:
             return "I wasn't able to complete that action."
 
+        # Extract a human-readable subject from data
+        subject = (
+            data.get('note_title') or data.get('title') or
+            data.get('name') or data.get('reminder_text') or
+            data.get('query') or data.get('filename')
+        )
+
         # Simple templates based on action type
-        if "create" in action:
+        if "create" in action or "add" in action:
+            if subject:
+                return f"Created '{subject}' successfully."
             return "Created successfully."
         elif "delete" in action or "remove" in action:
             count = data.get('count', 1)
+            if subject:
+                return f"Removed '{subject}'."
             return f"Removed {count} item{'s' if count != 1 else ''}."
         elif "search" in action or "find" in action:
             count = data.get('count', 0)
+            if subject:
+                return f"Found {count} result{'s' if count != 1 else ''} for '{subject}'."
             return f"Found {count} result{'s' if count != 1 else ''}."
         elif "update" in action or "edit" in action:
+            if subject:
+                return f"Updated '{subject}' successfully."
             return "Updated successfully."
+        elif "remind" in action:
+            if subject:
+                return f"Reminder set: '{subject}'."
+            return "Reminder set."
         else:
+            if subject:
+                return f"Done: '{subject}'."
             return "Done."
 
     def _learn_formulation(
@@ -328,4 +349,10 @@ def get_response_formulator(phrasing_learner=None, llm_gateway=None) -> Response
             phrasing_learner=phrasing_learner,
             llm_gateway=llm_gateway
         )
+    else:
+        # Update dependencies if provided (supports late wiring)
+        if phrasing_learner is not None and _formulator.phrasing_learner is None:
+            _formulator.phrasing_learner = phrasing_learner
+        if llm_gateway is not None and _formulator.llm_gateway is None:
+            _formulator.llm_gateway = llm_gateway
     return _formulator

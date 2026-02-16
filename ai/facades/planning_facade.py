@@ -3,39 +3,42 @@ Planning Facade for A.L.I.C.E
 Goals, tasks, and autonomous execution
 """
 
-from ai.planning.goal_manager import get_goal_manager
-from ai.planning.task_executor import TaskExecutor
-from ai.planning.goal_decomposer import get_goal_decomposer
 from typing import Dict, Any, Optional, List
 import logging
 
 logger = logging.getLogger(__name__)
+
+try:
+    from ai.planning.goal_tracker import GoalTracker
+except ImportError:
+    GoalTracker = None
+
+try:
+    from ai.planning.task_executor import TaskExecutor
+except ImportError:
+    TaskExecutor = None
 
 
 class PlanningFacade:
     """Facade for goal planning and task execution"""
 
     def __init__(self, safe_mode: bool = True) -> None:
-        # Goal manager
+        # Goal tracker
         try:
-            self.goal_manager = get_goal_manager()
+            self.goal_manager = GoalTracker() if GoalTracker else None
         except Exception as e:
-            logger.warning(f"Goal manager not available: {e}")
+            logger.warning(f"Goal tracker not available: {e}")
             self.goal_manager = None
 
         # Task executor
         try:
-            self.executor = TaskExecutor(safe_mode=safe_mode)
+            self.executor = TaskExecutor(safe_mode=safe_mode) if TaskExecutor else None
         except Exception as e:
             logger.warning(f"Task executor not available: {e}")
             self.executor = None
 
-        # Goal decomposer
-        try:
-            self.decomposer = get_goal_decomposer()
-        except Exception as e:
-            logger.warning(f"Goal decomposer not available: {e}")
-            self.decomposer = None
+        # Goal decomposer (not yet implemented)
+        self.decomposer = None
 
         logger.info("[PlanningFacade] Initialized planning systems")
 
