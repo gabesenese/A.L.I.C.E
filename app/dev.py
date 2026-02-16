@@ -88,7 +88,7 @@ class ALICEReloader(FileSystemEventHandler):
 
         return False
 
-    def file_changed(self, path):
+    def file_changed(self, path, is_move=False):
         """Check if file actually changed based on modification time"""
         try:
             current_mtime = os.path.getmtime(path)
@@ -98,7 +98,11 @@ class ALICEReloader(FileSystemEventHandler):
             if path_str not in self.file_mtimes:
                 self.file_mtimes[path_str] = current_mtime
                 logger.debug(f"First time tracking file: {path_str}")
-                return False  # Don't trigger on first observation
+                # For moved files (atomic saves), treat as changed even if first time
+                if is_move:
+                    logger.debug(f"File moved (atomic save) - treating as changed")
+                    return True
+                return False  # Don't trigger on first observation for regular modifications
 
             # Check if modification time changed
             if current_mtime != self.file_mtimes[path_str]:
@@ -154,8 +158,8 @@ class ALICEReloader(FileSystemEventHandler):
         except (ValueError, OSError):
             file_path = src_path.name
 
-        print(f"\n[DEV] 📝 Code changed: {file_path}")
-        print("[DEV] 🔄 Reloading A.L.I.C.E...\n")
+        print(f"\n[DEV] Code changed: {file_path}")
+        print("[DEV] Reloading A.L.I.C.E...\n")
         logger.info(f"Code changed: {file_path}")
         logger.info("Reloading A.L.I.C.E...")
 
@@ -165,6 +169,61 @@ class ALICEReloader(FileSystemEventHandler):
     def on_created(self, event):
         """Handle file creation"""
         self.on_modified(event)
+
+    def on_moved(self, event):
+        """Handle file moves (atomic saves on Windows)"""
+        if event.is_directory:
+            return
+
+        # On Windows, editors often save by creating temp file then renaming to original
+        # The dest_path is the final Python file location
+        if hasattr(event, 'dest_path'):
+            dest_path = event.dest_path
+
+            # Only process .py files
+            if not dest_path.endswith('.py'):
+                logger.debug(f"Ignoring moved non-Python file: {dest_path}")
+                return
+
+            if self.should_ignore(dest_path):
+                return
+
+            # Use same grace period and change detection logic
+            time_since_startup = time.time() - self.startup_time
+            if time_since_startup < self.startup_grace_period:
+                logger.debug(f"Ignoring move event during startup grace period")
+                return
+
+            # Check if file actually changed
+            if not self.file_changed(dest_path, is_move=True):
+                logger.debug(f"Ignoring move - file didn't actually change")
+                return
+
+            # Debounce
+            current_time = time.time()
+            time_since_last = current_time - self.last_reload_time
+            if time_since_last < self.debounce_seconds:
+                logger.debug(f"Debouncing reload (last reload {time_since_last:.2f}s ago)")
+                return
+
+            self.last_reload_time = current_time
+
+            # Get relative path for display
+            src_path = Path(dest_path)
+            try:
+                if not src_path.is_absolute():
+                    src_path = (Path.cwd() / src_path).resolve()
+                file_path = src_path.relative_to(Path.cwd().resolve())
+            except (ValueError, OSError):
+                file_path = src_path.name
+
+            print(f"\n[DEV] Code changed: {file_path}")
+            print("[DEV] Reloading A.L.I.C.E...\n")
+            logger.info(f"Code changed (moved): {file_path}")
+            logger.info("Reloading A.L.I.C.E...")
+
+            # Trigger reload
+            self.restart_callback()
 
 
 class ALICERunner:
