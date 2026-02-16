@@ -25,6 +25,7 @@ import sys
 import logging
 import re
 import html
+import time
 from typing import Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -501,7 +502,7 @@ class ALICE:
                 notes_plugin=notes_plugin
             )
             self.proactive_assistant.set_notification_callback(self._handle_observer_notification)
-            self.proactive_assistant.start()
+            self.proactive_assistant.start() 
             logger.info("[OK] Proactive assistant monitoring")
             
             logger.info("=" * 80)
@@ -851,6 +852,10 @@ class ALICE:
             condition = plugin_data.get('condition', '').lower()
             location = plugin_data.get('location', '')
 
+            # Round temperature to whole number for cleaner display
+            if temp is not None:
+                temp = round(temp)
+
             # Check if we recently gave weather info (avoid repetition)
             recent_weather_given = False
             if hasattr(self, 'conversation_topics') and self.conversation_topics:
@@ -858,6 +863,17 @@ class ALICE:
                 recent_weather = [t for t in self.conversation_topics[-3:] if t.startswith('weather')]
                 if len(recent_weather) >= 2:  # Already answered weather question recently
                     recent_weather_given = True
+
+            # Only formulate weather_report if we have current weather data (temp is not None)
+            # If temp is None, this might be forecast data which should be handled separately
+            if temp is None:
+                # This is likely forecast data or an error - don't create a weather_report
+                # Return a general formulation that will trigger fallback handling
+                return {
+                    'type': 'general_response',
+                    'content': 'Weather information',
+                    'confidence': 0.5
+                }
 
             # User asking about clothing/layers/what to wear
             if any(word in input_lower for word in ['wear', 'layer', 'coat', 'jacket', 'dress', 'clothing', 'bring']):
@@ -1101,6 +1117,11 @@ class ALICE:
             reason = alice_response.get('reason', '')
             temp = alice_response.get('temperature')
             is_followup = alice_response.get('is_followup', False)
+
+            # Round temperature to whole number
+            if temp is not None:
+                temp = round(temp)
+
             thought_content = alice_response
             if is_followup:
                 content_str = f"As I mentioned, {advice} because {reason}. It's {temp}°C."
@@ -1118,6 +1139,11 @@ class ALICE:
             condition = alice_response.get('condition', '')
             location = alice_response.get('location', '')
             is_followup = alice_response.get('is_followup', False)
+
+            # Round temperature to whole number
+            if temp is not None:
+                temp = round(temp)
+
             thought_content = alice_response
             if is_followup:
                 content_str = f"Still {condition}, {temp}°C in {location}"
@@ -2170,8 +2196,8 @@ class ALICE:
                 'conversation:ack',
                 'conversation:general',
                 'greeting',
-                'farewell',
-                'status_inquiry'
+                'farewell'
+                # Removed 'status_inquiry' - we want varied responses to "how are you?"
             ]
             if intent in cacheable_intents:
                 cached_response = self._cache_get(user_input, intent)
@@ -2295,6 +2321,25 @@ class ALICE:
                                 intent='greeting',
                                 entities=entities or {},
                                 quality_score=0.95  # High quality - greetings are straightforward
+                            )
+
+                        # LEARN phrasing so A.L.I.C.E can greet independently
+                        if self.phrasing_learner:
+                            self.phrasing_learner.record_phrasing(
+                                alice_thought={
+                                    'type': 'greeting',
+                                    'data': {
+                                        'user_input': user_input,
+                                        'user_name': user_name,
+                                        'asked_how': asked_how
+                                    }
+                                },
+                                ollama_phrasing=response,
+                                context={
+                                    'tone': 'friendly',
+                                    'intent': 'greeting',
+                                    'user_input': user_input
+                                }
                             )
 
                         # Don't add to conversational_engine.learned_greetings
@@ -3462,6 +3507,40 @@ class ALICE:
                 
                 if llm_response.success and llm_response.response:
                     response = llm_response.response
+
+                    # LEARN from Ollama's conversational response
+                    # Record so A.L.I.C.E can eventually handle this without Ollama
+                    if self.phrasing_learner:
+                        self.phrasing_learner.record_phrasing(
+                            alice_thought={
+                                'type': intent,
+                                'data': {
+                                    'user_input': user_input,
+                                    'entities': entities or {}
+                                }
+                            },
+                            ollama_phrasing=response,
+                            context={
+                                'tone': 'helpful',
+                                'intent': intent,
+                                'user_input': user_input
+                            }
+                        )
+
+                        # Check if Alice can now handle this independently
+                        thought_for_check = {
+                            'type': intent,
+                            'data': {'user_input': user_input, 'entities': entities or {}}
+                        }
+                        if self.phrasing_learner.can_phrase_myself(thought_for_check, 'helpful'):
+                            self._think(f"Alice learned '{intent}' - can now respond independently!")
+                        else:
+                            # Count learned examples
+                            learned_count = 0
+                            pattern = f"general:{intent}"
+                            if hasattr(self.phrasing_learner, 'learned_patterns') and pattern in self.phrasing_learner.learned_patterns:
+                                learned_count = len(self.phrasing_learner.learned_patterns[pattern])
+                            self._think(f"Alice learned from this interaction (confidence in '{intent}' topics growing)")
                 else:
                     # Gateway denied or error - provide fallback
                     response = llm_response.response or "I don't have enough training data to answer that yet. Keep interacting with me so I can learn!"
@@ -4361,21 +4440,21 @@ class ALICE:
             memory_stats = self.memory.get_statistics()
             print(f"   Total Memories: {memory_stats['total_memories']}")
             if self.privacy_mode:
-                print(f"   ⚠Episodic memory storage is DISABLED")
+                print(f"   Episodic memory storage is DISABLED")
             
             # LLM Gateway Statistics
             if hasattr(self, 'llm_gateway') and self.llm_gateway:
-                print("\n📊 LLM Gateway Statistics:")
+                print("\n LLM Gateway Statistics:")
                 gateway_stats = self.llm_gateway.get_statistics()
                 print(f"   Total Requests: {gateway_stats['total_requests']}")
                 
                 # Advanced breakdown
                 print(f"   Self Handlers: {gateway_stats['self_handlers']} ({gateway_stats.get('self_handler_percentage', 0)}%)")
-                print(f"   💡 Pattern Hits: {gateway_stats['pattern_hits']} ({gateway_stats.get('pattern_hit_percentage', 0)}%)")
-                print(f"   🔧 Tool Calls: {gateway_stats['tool_calls']} ({gateway_stats.get('tool_call_percentage', 0)}%)")
+                print(f"   Pattern Hits: {gateway_stats['pattern_hits']} ({gateway_stats.get('pattern_hit_percentage', 0)}%)")
+                print(f"   Tool Calls: {gateway_stats['tool_calls']} ({gateway_stats.get('tool_call_percentage', 0)}%)")
                 print(f"   RAG Lookups: {gateway_stats['rag_lookups']} ({gateway_stats.get('rag_lookup_percentage', 0)}%)")
                 print(f"   Formatter Usage: {gateway_stats['formatter_calls']} ({gateway_stats.get('formatter_percentage', 0)}%)")
-                print(f"    LLM Fallback: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_fallback_percentage', 0)}%)")
+                print(f"   LLM Fallback: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_fallback_percentage', 0)}%)")
                 print(f"   Policy Denials: {gateway_stats['policy_denials']} ({gateway_stats.get('denial_percentage', 0)}%)")
                 
                 if gateway_stats['by_type']:
@@ -4622,7 +4701,7 @@ class ALICE:
             # Show proposed patterns awaiting approval
             if not hasattr(self, 'pattern_miner'):
                 try:
-                    from ai.pattern_miner import PatternMiner
+                    from ai.learning.pattern_miner import PatternMiner
                     self.pattern_miner = PatternMiner()
                 except Exception as e:
                     print(f"\n[ERROR] Pattern miner not available: {e}")
@@ -4671,7 +4750,7 @@ class ALICE:
             pattern_id = parts[2].strip()
             
             if not hasattr(self, 'pattern_miner'):
-                from ai.pattern_miner import PatternMiner
+                from ai.learning.pattern_miner import PatternMiner
                 self.pattern_miner = PatternMiner()
             
             if self.pattern_miner.approve_pattern(pattern_id):
@@ -4689,7 +4768,7 @@ class ALICE:
             pattern_id = parts[2].strip()
             
             if not hasattr(self, 'pattern_miner'):
-                from ai.pattern_miner import PatternMiner
+                from ai.learning.pattern_miner import PatternMiner
                 self.pattern_miner = PatternMiner()
             
             if self.pattern_miner.reject_pattern(pattern_id):
