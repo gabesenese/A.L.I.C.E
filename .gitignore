@@ -258,3 +258,4 @@ data/realtime_learning/errors_realtime.jsonl
 data/realtime_learning/learning_cycles.jsonl
 data/realtime_learning/successes_realtime.jsonl
 data/training/comprehensive_test_errors.jsonl
+data/training/learned_patterns.pkl
