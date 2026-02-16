@@ -895,7 +895,27 @@ class ALICE:
                     recent_weather_given = True
 
             # User asking about clothing/layers/what to wear
-            if any(word in input_lower for word in ['wear', 'layer', 'coat', 'jacket', 'dress', 'clothing', 'bring']):
+            if any(word in input_lower for word in ['wear', 'layer', 'coat', 'jacket', 'dress', 'clothing', 'bring', 'scarf', 'hat', 'gloves', 'boots', 'sweater', 'hoodie', 'umbrella']):
+                # Detect what specific item they're asking about
+                clothing_item = None
+                item_keywords = {
+                    'scarf': ['scarf', 'scarves'],
+                    'coat': ['coat'],
+                    'jacket': ['jacket'],
+                    'hat': ['hat', 'beanie', 'toque'],
+                    'gloves': ['glove', 'gloves', 'mitten', 'mittens'],
+                    'boots': ['boot', 'boots'],
+                    'sweater': ['sweater', 'jumper'],
+                    'hoodie': ['hoodie', 'sweatshirt'],
+                    'umbrella': ['umbrella'],
+                    'layers': ['layer', 'layers']
+                }
+
+                for item, keywords in item_keywords.items():
+                    if any(kw in input_lower for kw in keywords):
+                        clothing_item = item
+                        break
+
                 # Handle forecast-based advice (weekly forecast)
                 if forecast and isinstance(forecast, list) and len(forecast) > 0:
                     # Analyze the week's temperature range
@@ -910,60 +930,28 @@ class ALICE:
                         min_temp = min(all_temps)
                         max_temp = max(all_temps)
 
-                        # Provide advice based on coldest temperature
-                        if min_temp < -15:
-                            advice = "definitely wear heavy layers and a warm coat"
-                            reason = f"temperatures will drop to {min_temp}°C"
-                        elif min_temp < 0:
-                            advice = "yes, wear a warm coat"
-                            reason = f"it will be below freezing (low of {min_temp}°C)"
-                        elif min_temp < 10:
-                            advice = "a jacket would be a good idea"
-                            reason = f"temperatures will be chilly (low of {min_temp}°C)"
-                        elif min_temp < 20:
-                            advice = "light layers should be fine"
-                            reason = f"it will be mild (ranging from {min_temp}°C to {max_temp}°C)"
-                        else:
-                            advice = "light clothing is perfect"
-                            reason = f"it will be warm all week (low of {min_temp}°C)"
-
+                        # Just pass the data - let A.L.I.C.E formulate the response
                         return {
                             'type': 'weather_advice',
-                            'advice': advice,
-                            'reason': reason,
                             'temperature': min_temp,
                             'temp_range': f"{min_temp}°C to {max_temp}°C",
                             'location': location,
                             'is_forecast': True,
+                            'clothing_item': clothing_item,  # Pass the item for context
+                            'user_question': user_input,  # Let LLM see original question
                             'confidence': 0.95
                         }
 
                 # Handle current weather advice
                 elif temp is not None:
-                    # Alice's reasoning about clothing
-                    if temp < -15:
-                        advice = "definitely wear multiple layers"
-                        reason = "it's extremely cold"
-                    elif temp < 0:
-                        advice = "yes, wear layers"
-                        reason = "it's well below freezing"
-                    elif temp < 10:
-                        advice = "a light jacket would be good"
-                        reason = "it's chilly"
-                    elif temp < 20:
-                        advice = "light clothing should be fine"
-                        reason = "it's mild"
-                    else:
-                        advice = "light clothing is perfect"
-                        reason = "it's warm"
-
+                    # Just pass the data - let A.L.I.C.E formulate the response
                     return {
                         'type': 'weather_advice',
-                        'advice': advice,
-                        'reason': reason,
                         'temperature': temp,
                         'condition': condition,
                         'location': location,
+                        'clothing_item': clothing_item,  # Pass the item for context
+                        'user_question': user_input,  # Let LLM see original question
                         'is_followup': recent_weather_given,
                         'confidence': 0.95
                     }
@@ -1185,10 +1173,13 @@ class ALICE:
             content_str = f"I {'can' if can_do else 'cannot'} do this. Details: {details}"
 
         elif response_type == 'weather_advice':
-            advice = alice_response.get('advice', '')
-            reason = alice_response.get('reason', '')
             temp = alice_response.get('temperature')
+            condition = alice_response.get('condition', '')
+            location = alice_response.get('location', '')
+            clothing_item = alice_response.get('clothing_item')
             is_followup = alice_response.get('is_followup', False)
+            is_forecast = alice_response.get('is_forecast', False)
+            temp_range = alice_response.get('temp_range', '')
 
             # Round temperature to whole number
             if temp is not None:
@@ -1196,13 +1187,16 @@ class ALICE:
 
             thought_content = alice_response
 
-            # Format temperature reference
-            temp_ref = f"It's {temp}°C" if temp is not None else "Current conditions apply"
-
-            if is_followup:
-                content_str = f"As I mentioned, {advice} because {reason}. {temp_ref}."
+            # Minimal context string - let learner/LLM generate the actual advice
+            if is_forecast and temp_range:
+                context_str = f"Weather advice for {location}: {temp_range} this week"
             else:
-                content_str = f"{advice.capitalize()} because {reason}. {temp_ref} outside."
+                context_str = f"Weather advice for {location}: {temp}°C, {condition}"
+
+            if clothing_item:
+                context_str += f" (item: {clothing_item})"
+
+            content_str = context_str
 
         elif response_type == 'weather_prediction':
             answer = alice_response.get('answer', '').capitalize()
