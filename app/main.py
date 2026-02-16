@@ -995,15 +995,25 @@ class ALICE:
                         }
 
             # General weather query - provide comprehensive info
-            return {
-                'type': 'weather_report',
-                'temperature': temp,
-                'condition': condition,
-                'location': location,
-                'full_data': plugin_data,
-                'is_followup': recent_weather_given,
-                'confidence': 0.9
-            }
+            # Only create weather_report if we have current temperature data
+            # If temp is None, this is likely forecast data - use simple formatter instead
+            if temp is not None:
+                return {
+                    'type': 'weather_report',
+                    'temperature': temp,
+                    'condition': condition,
+                    'location': location,
+                    'full_data': plugin_data,
+                    'is_followup': recent_weather_given,
+                    'confidence': 0.9
+                }
+            else:
+                # Forecast data or error - use simple formatter
+                return {
+                    'type': 'general_response',
+                    'content': 'Weather information available',
+                    'confidence': 0.5
+                }
 
         # Note/file operations
         elif intent.startswith('note') or intent.startswith('file'):
@@ -1185,10 +1195,14 @@ class ALICE:
                 temp = round(temp)
 
             thought_content = alice_response
+
+            # Format temperature reference
+            temp_ref = f"It's {temp}°C" if temp is not None else "Current conditions apply"
+
             if is_followup:
-                content_str = f"As I mentioned, {advice} because {reason}. It's {temp}°C."
+                content_str = f"As I mentioned, {advice} because {reason}. {temp_ref}."
             else:
-                content_str = f"{advice.capitalize()} because {reason}. It's {temp}°C outside."
+                content_str = f"{advice.capitalize()} because {reason}. {temp_ref} outside."
 
         elif response_type == 'weather_prediction':
             answer = alice_response.get('answer', '').capitalize()
@@ -1207,10 +1221,18 @@ class ALICE:
                 temp = round(temp)
 
             thought_content = alice_response
-            if is_followup:
-                content_str = f"Still {condition}, {temp}°C in {location}"
+
+            # Safety check: if temp is None, don't include it
+            if temp is None:
+                if is_followup:
+                    content_str = f"Still {condition} in {location}"
+                else:
+                    content_str = f"Weather in {location}: {condition}"
             else:
-                content_str = f"Weather in {location}: {condition}, {temp}°C"
+                if is_followup:
+                    content_str = f"Still {condition}, {temp}°C in {location}"
+                else:
+                    content_str = f"Weather in {location}: {condition}, {temp}°C"
 
         elif response_type == 'operation_success':
             operation = alice_response.get('operation', 'operation')
