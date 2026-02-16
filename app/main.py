@@ -880,6 +880,7 @@ class ALICE:
             temp = plugin_data.get('temperature')
             condition = plugin_data.get('condition', '').lower()
             location = plugin_data.get('location', '')
+            forecast = plugin_data.get('forecast')  # Check for forecast data
 
             # Round temperature to whole number for cleaner display
             if temp is not None:
@@ -893,20 +894,52 @@ class ALICE:
                 if len(recent_weather) >= 2:  # Already answered weather question recently
                     recent_weather_given = True
 
-            # Only formulate weather_report if we have current weather data (temp is not None)
-            # If temp is None, this might be forecast data which should be handled separately
-            if temp is None:
-                # This is likely forecast data or an error - don't create a weather_report
-                # Return a general formulation that will trigger fallback handling
-                return {
-                    'type': 'general_response',
-                    'content': 'Weather information',
-                    'confidence': 0.5
-                }
-
             # User asking about clothing/layers/what to wear
             if any(word in input_lower for word in ['wear', 'layer', 'coat', 'jacket', 'dress', 'clothing', 'bring']):
-                if temp is not None:
+                # Handle forecast-based advice (weekly forecast)
+                if forecast and isinstance(forecast, list) and len(forecast) > 0:
+                    # Analyze the week's temperature range
+                    all_temps = []
+                    for day in forecast:
+                        if 'low' in day:
+                            all_temps.append(round(day['low']))
+                        if 'high' in day:
+                            all_temps.append(round(day['high']))
+
+                    if all_temps:
+                        min_temp = min(all_temps)
+                        max_temp = max(all_temps)
+
+                        # Provide advice based on coldest temperature
+                        if min_temp < -15:
+                            advice = "definitely wear heavy layers and a warm coat"
+                            reason = f"temperatures will drop to {min_temp}°C"
+                        elif min_temp < 0:
+                            advice = "yes, wear a warm coat"
+                            reason = f"it will be below freezing (low of {min_temp}°C)"
+                        elif min_temp < 10:
+                            advice = "a jacket would be a good idea"
+                            reason = f"temperatures will be chilly (low of {min_temp}°C)"
+                        elif min_temp < 20:
+                            advice = "light layers should be fine"
+                            reason = f"it will be mild (ranging from {min_temp}°C to {max_temp}°C)"
+                        else:
+                            advice = "light clothing is perfect"
+                            reason = f"it will be warm all week (low of {min_temp}°C)"
+
+                        return {
+                            'type': 'weather_advice',
+                            'advice': advice,
+                            'reason': reason,
+                            'temperature': min_temp,
+                            'temp_range': f"{min_temp}°C to {max_temp}°C",
+                            'location': location,
+                            'is_forecast': True,
+                            'confidence': 0.95
+                        }
+
+                # Handle current weather advice
+                elif temp is not None:
                     # Alice's reasoning about clothing
                     if temp < -15:
                         advice = "definitely wear multiple layers"
