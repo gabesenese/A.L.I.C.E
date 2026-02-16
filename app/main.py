@@ -100,6 +100,12 @@ from ai.learning.pattern_miner import PatternMiner
 from ai.training.synthetic_corpus_generator import SyntheticCorpusGenerator
 from ai.memory.multimodal_context import MultimodalContext
 
+# Analytics and memory management
+from ai.analytics.memory_growth_monitor import get_memory_growth_monitor
+from ai.analytics.usage_analytics import get_usage_analytics
+from ai.memory.bg_embedding_generator import get_bg_embedding_generator
+from ai.memory.memory_pruner import get_memory_pruner
+
 # Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -502,9 +508,31 @@ class ALICE:
                 notes_plugin=notes_plugin
             )
             self.proactive_assistant.set_notification_callback(self._handle_observer_notification)
-            self.proactive_assistant.start() 
+            self.proactive_assistant.start()
             logger.info("[OK] Proactive assistant monitoring")
-            
+
+            # 10. Analytics and Memory Management
+            logger.info("Initializing analytics and memory management...")
+
+            # Usage analytics - track interaction patterns
+            self.usage_analytics = get_usage_analytics()
+            logger.info("[OK] Usage analytics ready")
+
+            # Memory growth monitor - track memory size over time
+            self.memory_growth_monitor = get_memory_growth_monitor()
+            logger.info("[OK] Memory growth monitor ready")
+
+            # Background embedding generator - async embedding generation
+            self.bg_embedding_generator = get_bg_embedding_generator(
+                embedding_manager=self.memory.embedding_manager
+            )
+            self.bg_embedding_generator.start()
+            logger.info("[OK] Background embedding generator started")
+
+            # Memory pruner - automatic memory lifecycle management
+            self.memory_pruner = get_memory_pruner()
+            logger.info("[OK] Memory pruner ready")
+
             logger.info("=" * 80)
             logger.info("[OK] A.L.I.C.E initialized successfully!")
             logger.info("=" * 80)
@@ -1287,6 +1315,8 @@ class ALICE:
 
     def _register_plugins(self):
         """Register all available plugins"""
+        from ai.plugins.rag_indexer_plugin import RAGIndexerPlugin
+
         # Register NotesPlugin early to ensure it handles note commands before calendar
         self.plugins.register_plugin(NotesPlugin())
         self.plugins.register_plugin(WeatherPlugin())
@@ -1299,6 +1329,7 @@ class ALICE:
         self.plugins.register_plugin(DocumentPlugin())
         self.plugins.register_plugin(CalendarPlugin())
         self.plugins.register_plugin(MusicPlugin())
+        self.plugins.register_plugin(RAGIndexerPlugin(self.memory))  # RAG document indexer
 
         logger.info(f"[OK] Registered {len(self.plugins.plugins)} plugins")
     
@@ -3723,6 +3754,42 @@ class ALICE:
             if intent in cacheable_intents and response:
                 self._cache_put(user_input, intent, response)
                 self._think(f"Response cached for {intent}")
+
+            # Analytics - log interaction metrics
+            if hasattr(self, 'usage_analytics'):
+                try:
+                    import time
+                    response_time = (time.time() - locals().get('start_time', time.time())) * 1000  # ms
+                    plugin_name = selected_plugin if 'selected_plugin' in locals() else None
+                    llm_used = 'ollama_phrased_response' in locals() or 'llm_response' in locals()
+                    cached = intent in cacheable_intents and self._cache_get(user_input, intent) is not None
+
+                    self.usage_analytics.log_interaction(
+                        user_input=user_input,
+                        intent=intent,
+                        plugin_used=plugin_name,
+                        response_time_ms=response_time,
+                        success=True,
+                        llm_used=llm_used,
+                        cached=cached
+                    )
+                except Exception as e:
+                    logger.debug(f"[Analytics] Could not log interaction: {e}")
+
+            # Memory Management - periodic monitoring and pruning
+            if hasattr(self, 'memory_growth_monitor') and hasattr(self, 'memory_pruner'):
+                try:
+                    # Take memory snapshot if it's time
+                    if self.memory_growth_monitor.should_take_snapshot():
+                        self.memory_growth_monitor.take_snapshot(self.memory)
+
+                    # Run memory pruning if it's time
+                    if self.memory_pruner.should_run():
+                        prune_result = self.memory_pruner.prune_memories(self.memory)
+                        if prune_result.get('pruned_count', 0) > 0:
+                            logger.info(f"[MemoryPruner] Pruned {prune_result['pruned_count']} old memories")
+                except Exception as e:
+                    logger.debug(f"[MemoryMgmt] Error in periodic tasks: {e}")
 
             logger.info(f"A.L.I.C.E: {response[:100]}...")
             return response
