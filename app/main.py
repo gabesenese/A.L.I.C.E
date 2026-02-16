@@ -851,6 +851,14 @@ class ALICE:
             condition = plugin_data.get('condition', '').lower()
             location = plugin_data.get('location', '')
 
+            # Check if we recently gave weather info (avoid repetition)
+            recent_weather_given = False
+            if hasattr(self, 'conversation_topics') and self.conversation_topics:
+                # Check last 3 topics for weather
+                recent_weather = [t for t in self.conversation_topics[-3:] if t.startswith('weather')]
+                if len(recent_weather) >= 2:  # Already answered weather question recently
+                    recent_weather_given = True
+
             # User asking about clothing/layers/what to wear
             if any(word in input_lower for word in ['wear', 'layer', 'coat', 'jacket', 'dress', 'clothing', 'bring']):
                 if temp is not None:
@@ -878,6 +886,7 @@ class ALICE:
                         'temperature': temp,
                         'condition': condition,
                         'location': location,
+                        'is_followup': recent_weather_given,
                         'confidence': 0.95
                     }
 
@@ -914,6 +923,7 @@ class ALICE:
                 'condition': condition,
                 'location': location,
                 'full_data': plugin_data,
+                'is_followup': recent_weather_given,
                 'confidence': 0.9
             }
 
@@ -1090,8 +1100,12 @@ class ALICE:
             advice = alice_response.get('advice', '')
             reason = alice_response.get('reason', '')
             temp = alice_response.get('temperature')
+            is_followup = alice_response.get('is_followup', False)
             thought_content = alice_response
-            content_str = f"{advice.capitalize()} because {reason}. It's {temp}°C outside."
+            if is_followup:
+                content_str = f"As I mentioned, {advice} because {reason}. It's {temp}°C."
+            else:
+                content_str = f"{advice.capitalize()} because {reason}. It's {temp}°C outside."
 
         elif response_type == 'weather_prediction':
             answer = alice_response.get('answer', '').capitalize()
@@ -1103,8 +1117,12 @@ class ALICE:
             temp = alice_response.get('temperature')
             condition = alice_response.get('condition', '')
             location = alice_response.get('location', '')
+            is_followup = alice_response.get('is_followup', False)
             thought_content = alice_response
-            content_str = f"Weather in {location}: {condition}, {temp}°C"
+            if is_followup:
+                content_str = f"Still {condition}, {temp}°C in {location}"
+            else:
+                content_str = f"Weather in {location}: {condition}, {temp}°C"
 
         elif response_type == 'operation_success':
             operation = alice_response.get('operation', 'operation')
@@ -2091,6 +2109,29 @@ class ALICE:
             self._think(f"NLP → intent={intent!r} confidence={getattr(nlp_result, 'intent_confidence', '?')}")
             if entities:
                 self._think(f"     entities={str(entities)[:120]}...")
+
+            # 1.2. Follow-up Detection - Detect if this is a follow-up to previous topic
+            # If low confidence on generic intent + recent weather/note/etc topic → bias towards that
+            intent_confidence = getattr(nlp_result, 'intent_confidence', 0.5)
+            if intent_confidence < 0.7 and self.conversation_topics:
+                recent_intent = self.conversation_topics[-1] if self.conversation_topics else None
+                user_lower = user_input.lower()
+
+                # Weather follow-ups: "should i wear...", "do i need...", "is it..."
+                if recent_intent and recent_intent.startswith('weather'):
+                    followup_phrases = ['wear', 'layer', 'coat', 'jacket', 'bring', 'umbrella', 'need', 'cold', 'warm']
+                    if any(phrase in user_lower for phrase in followup_phrases):
+                        self._think(f"Follow-up detected: {intent} → {recent_intent} (continuing weather context)")
+                        intent = recent_intent  # Inherit previous weather intent
+                        intent_confidence = 0.75  # Boost confidence
+
+                # Note follow-ups: "add to it", "delete that", "show it"
+                elif recent_intent and recent_intent.startswith('note'):
+                    followup_phrases = ['add to', 'delete', 'remove', 'modify', 'change', 'show']
+                    if any(phrase in user_lower for phrase in followup_phrases):
+                        self._think(f"Follow-up detected: {intent} → {recent_intent} (continuing note context)")
+                        intent = recent_intent
+                        intent_confidence = 0.75
 
             # 1.5. Reference Resolution - Handle "it", "that", "them", etc.
             if hasattr(self, 'conversation_context'):

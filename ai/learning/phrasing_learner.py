@@ -283,7 +283,7 @@ class PhrasingLearner:
         Strategy:
         - For capability answers: swap capability details
         - For knowledge answers: keep structure, swap content
-        - For data-bearing actions: substitute data field values
+        - For weather/data types: substitute ALL changed field values (top-level + data)
         - For others: use learned phrasing as template
         """
         thought_type = current_thought.get('type', 'general')
@@ -305,7 +305,22 @@ class PhrasingLearner:
             pass
 
         else:
-            # Generic data field substitution
+            # Generic field substitution - check both top-level AND data subfield
+            # This handles weather_report, weather_advice, note ops, etc.
+
+            # 1. Top-level fields (weather_report has temperature, condition at top level)
+            for key in learned_thought:
+                if key in current_thought and key not in ['type', 'confidence', 'data']:
+                    old_val = learned_thought[key]
+                    new_val = current_thought[key]
+                    if old_val != new_val and old_val is not None and new_val is not None:
+                        # Convert to string for replacement
+                        old_str = str(old_val)
+                        new_str = str(new_val)
+                        if old_str in adapted:
+                            adapted = adapted.replace(old_str, new_str)
+
+            # 2. Data subfield (for note ops, file ops, etc.)
             old_data = learned_thought.get('data', {})
             new_data = current_thought.get('data', {})
             for key in old_data:
