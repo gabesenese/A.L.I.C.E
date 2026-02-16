@@ -16,6 +16,7 @@ import logging
 import asyncio
 from typing import Dict, Any, Optional
 from datetime import datetime
+from dataclasses import is_dataclass, asdict
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,17 @@ class AsyncEvaluationWrapper:
         self.evaluation_queue = []
         self.processing = False
 
+    def _make_json_serializable(self, obj: Any) -> Any:
+        """Convert dataclass objects (like Entity) to dictionaries for JSON serialization"""
+        if is_dataclass(obj) and not isinstance(obj, type):
+            return asdict(obj)
+        elif isinstance(obj, dict):
+            return {k: self._make_json_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [self._make_json_serializable(item) for item in obj]
+        else:
+            return obj
+
     def queue_evaluation(
         self,
         user_input: str,
@@ -55,7 +67,7 @@ class AsyncEvaluationWrapper:
             'user_input': user_input,
             'alice_response': alice_response,
             'action': plugin_result.get('action', 'unknown'),
-            'data': plugin_result.get('data', {}),
+            'data': self._make_json_serializable(plugin_result.get('data', {})),
             'success': plugin_result.get('success', True),
             'alice_confidence': alice_confidence,
             'timestamp': datetime.now().isoformat()
