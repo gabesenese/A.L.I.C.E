@@ -1116,9 +1116,34 @@ class MemorySystem:
             "episodic_count": len(self.episodic_memory),
             "semantic_count": len(self.semantic_memory),
             "procedural_count": len(self.procedural_memory),
-            "total_memories": len(self.episodic_memory) + len(self.semantic_memory) + len(self.procedural_memory),
+            "document_count": len(self.document_memory),
+            "total_memories": len(self.episodic_memory) + len(self.semantic_memory) + len(self.procedural_memory) + len(self.document_memory),
             "vector_count": len(self.vector_store.ids)
         }
+
+    def get_all_memories(self) -> List[Dict[str, Any]]:
+        """
+        Get all memories from all memory types as dictionaries
+
+        Returns:
+            List of all memories as dictionaries
+        """
+        all_memories = []
+
+        # Combine all memory types
+        for memory in self.episodic_memory:
+            all_memories.append(asdict(memory))
+
+        for memory in self.semantic_memory:
+            all_memories.append(asdict(memory))
+
+        for memory in self.procedural_memory:
+            all_memories.append(asdict(memory))
+
+        for memory in self.document_memory:
+            all_memories.append(asdict(memory))
+
+        return all_memories
     
     def _save_memories(self):
         """Save all memories to disk"""
