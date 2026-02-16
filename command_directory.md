@@ -23,15 +23,15 @@ python app/main.py --test-mode
 
 ## 📋 Table of Contents
 
-1. [Running A.L.I.C.E](#-running-alice)
-2. [Testing & Validation](#-testing--validation)
-3. [Training & Learning](#-training--learning)
-4. [Automation & Scheduling](#-automation--scheduling)
-5. [Monitoring & Debugging](#-monitoring--debugging)
-6. [Analytics & Memory Management](#-analytics--memory-management)
-7. [Development Tools](#%EF%B8%8F-development-tools)
-8. [Coverage & Quality](#-coverage--quality)
-9. [Git Operations](#-git-operations)
+1. [Running A.L.I.C.E](#running-alice)
+2. [Testing & Validation](#testing--validation)
+3. [Training & Learning](#training--learning)
+4. [Automation & Scheduling](#automation--scheduling)
+5. [Monitoring & Debugging](#monitoring--debugging)
+6. [Analytics & Memory Management](#analytics--memory-management)
+7. [Development Tools](#development-tools)
+8. [Coverage & Quality](#coverage--quality)
+9. [Git Operations](#git-operations)
 
 ---
 
