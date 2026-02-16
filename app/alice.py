@@ -43,7 +43,6 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
         from ui.rich_terminal import RichTerminalUI
     
     ui = RichTerminalUI(user_name)
-    ui.show_welcome()
     ui.show_loading("Initializing A.L.I.C.E systems")
     
     # Initialize ALICE with stdout suppressed (unless debug, so thinking is visible)
