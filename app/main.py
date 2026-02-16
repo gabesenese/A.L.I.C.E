@@ -2301,6 +2301,9 @@ class ALICE:
                         # Always use LLM for greetings to get fresh, varied responses
                         self._think("LLM → greeting response (will be learned)")
 
+                        # Cache the greeting response (5-minute expiry for variation)
+                        self._cache_put(user_input, intent, response)
+
                         self._store_interaction(user_input, response, intent, entities)
                         if use_voice and self.speech:
                             self.speech.speak(response, blocking=False)
