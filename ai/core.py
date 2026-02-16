@@ -24,7 +24,7 @@ from ai.learning_engine import get_learning_engine, LearningEngine
 from ai.router import get_router, RequestRouter, RoutingDecision
 from ai.llm_policy import get_llm_policy, configure_llm_policy, LLMPolicy, LLMCallType
 from ai.service_degradation import get_degradation_handler, ServiceDegradationHandler
-from ai.simple_formatters import FormatterRegistry
+from ai.models.simple_formatters import FormatterRegistry
 
 logger = logging.getLogger(__name__)
 

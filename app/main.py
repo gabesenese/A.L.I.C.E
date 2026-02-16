@@ -1962,7 +1962,7 @@ class ALICE:
             forecast_data = forecast_entity.data
             self._think(f"Using stored forecast data for {mentioned_day} query: {type(forecast_data)} with {len(forecast_data.get('forecast', []))} days")
             
-            from ai.simple_formatters import WeatherFormatter
+            from ai.models.simple_formatters import WeatherFormatter
             try:
                 result = WeatherFormatter.format(
                     forecast_data,
