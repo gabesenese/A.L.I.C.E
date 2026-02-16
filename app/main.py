@@ -103,6 +103,7 @@ from ai.memory.multimodal_context import MultimodalContext
 # Analytics and memory management
 from ai.analytics.memory_growth_monitor import get_memory_growth_monitor
 from ai.analytics.usage_analytics import get_usage_analytics
+from ai.memory.embedding_manager import get_embedding_manager
 from ai.memory.bg_embedding_generator import get_bg_embedding_generator
 from ai.memory.memory_pruner import get_memory_pruner
 
@@ -524,7 +525,7 @@ class ALICE:
 
             # Background embedding generator - async embedding generation
             self.bg_embedding_generator = get_bg_embedding_generator(
-                embedding_manager=self.memory.embedding_manager
+                embedding_manager=get_embedding_manager()
             )
             self.bg_embedding_generator.start()
             logger.info("[OK] Background embedding generator started")

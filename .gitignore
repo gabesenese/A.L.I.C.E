@@ -259,3 +259,5 @@ data/realtime_learning/learning_cycles.jsonl
 data/realtime_learning/successes_realtime.jsonl
 data/training/comprehensive_test_errors.jsonl
 data/training/learned_patterns.pkl
+app/config/rag_indexer_config.json
+config/rag_indexer_config.json
