@@ -250,3 +250,11 @@ nightly_training_output.txt
 NUL
 tmpclaude*
 scripts/automation/data/training/
+data/test_phrasings.jsonl
+data/test_learning.jsonl
+data/evaluations/evaluations.jsonl
+data/autolearn/cycle_history.jsonl
+data/realtime_learning/errors_realtime.jsonl
+data/realtime_learning/learning_cycles.jsonl
+data/realtime_learning/successes_realtime.jsonl
+data/training/comprehensive_test_errors.jsonl
