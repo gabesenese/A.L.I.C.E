@@ -2153,9 +2153,9 @@ class ALICE:
             # FAST PATH: Check cache and conversational shortcuts
             intent_confidence = getattr(nlp_result, 'intent_confidence', 0.5)
             
-            # 0.5 Check if cached response exists (only for stable intents)
-            # Don't cache dynamic data (weather, time, etc.) or queries that need fresh responses
-            cacheable_intents = ['greeting', 'farewell', 'conversation:ack']
+            # 0.5 Check if cached response exists (only for very stable intents)
+            # Only cache acknowledgments - everything else needs variation
+            cacheable_intents = ['conversation:ack']
             if intent in cacheable_intents:
                 cached_response = self._cache_get(user_input, intent)
                 if cached_response:
