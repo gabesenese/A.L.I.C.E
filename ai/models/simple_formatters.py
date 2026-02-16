@@ -85,32 +85,78 @@ class WeatherFormatter(SimpleFormatter):
                     if day.get('date') == target_date:
                         return WeatherFormatter._format_single_day(location, day)
 
-        summary_lines = [f"7-day forecast for {location}:"]
+        # Weather condition icons/symbols
+        condition_icons = {
+            'clear': '☀️',
+            'sunny': '☀️',
+            'partly cloudy': '⛅',
+            'cloudy': '☁️',
+            'overcast': '☁️',
+            'foggy': '🌫️',
+            'fog': '🌫️',
+            'rain': '🌧️',
+            'light rain': '🌦️',
+            'drizzle': '🌦️',
+            'light drizzle': '🌦️',
+            'heavy rain': '⛈️',
+            'thunderstorm': '⛈️',
+            'snow': '❄️',
+            'light snow': '🌨️',
+            'heavy snow': '❄️',
+            'sleet': '🌨️',
+            'windy': '💨'
+        }
 
-        daily_lines = []
-        for day in days:
+        # Start with header
+        summary_lines = [f"\n📅 7-Day Forecast for {location}\n"]
+
+        today = datetime.now().date()
+
+        for i, day in enumerate(days):
             date_str = day.get('date')
             high = day.get('high')
             low = day.get('low')
-            condition = day.get('condition', 'unknown')
+            condition = day.get('condition', 'unknown').lower()
 
-            # Format date nicely
-            day_name = ""
+            # Format date
+            day_label = ""
+            is_today = False
             if date_str:
                 try:
                     date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-                    # Format: "Monday, February 9"
-                    day_name = date_obj.strftime('%A, %B %d').replace(' 0', ' ')
+                    is_today = date_obj.date() == today
+
+                    # Get day of week
+                    day_of_week = date_obj.strftime('%A')
+
+                    # Add "Today" marker
+                    if is_today:
+                        day_label = f"Today ({day_of_week})"
+                    else:
+                        day_label = day_of_week
                 except:
-                    day_name = date_str
+                    day_label = date_str
 
-            if day_name and high is not None and low is not None:
-                daily_lines.append(f"{day_name}: {condition}, low {int(low)}°C, high {int(high)}°C")
-            elif day_name:
-                daily_lines.append(f"{day_name}: {condition}")
+            # Get weather icon
+            icon = '🌤️'  # Default
+            for key, symbol in condition_icons.items():
+                if key in condition:
+                    icon = symbol
+                    break
 
-        if daily_lines:
-            summary_lines.extend(daily_lines)
+            # Format temperature range
+            if high is not None and low is not None:
+                temp_range = f"{int(low)}° to {int(high)}°"
+
+                # Create formatted line with better structure
+                # Pad day name to align properly
+                day_padded = day_label.ljust(18)
+                condition_cap = condition.title()
+
+                line = f"  {icon} {day_padded} {temp_range:>12}  ({condition_cap})"
+                summary_lines.append(line)
+            elif day_label:
+                summary_lines.append(f"  {icon} {day_label}: {condition.title()}")
 
         return "\n".join(summary_lines)
 
