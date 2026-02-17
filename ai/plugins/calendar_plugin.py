@@ -117,28 +117,12 @@ class CalendarPlugin(PluginInterface):
     def can_handle(self, intent: str, entities: Dict) -> bool:
         """Check if this plugin can handle the request"""
         calendar_intents = [
-            "calendar", "schedule", "appointment", "meeting", 
+            "calendar", "schedule", "appointment", "meeting",
             "event", "reminder", "booking"
         ]
-        
-        calendar_keywords = [
-            "calendar", "event", "meeting", "appointment", "schedule",
-            "book", "reserve", "plan", "remind", "reminder"
-        ]
-        
-        # Check intent
-        if intent in calendar_intents:
-            return True
-        
-        # Check for calendar keywords in entities
-        if isinstance(entities, dict):
-            text = str(entities).lower()
-            # Exclude if it's a note command
-            if 'note' in text or 'notes' in text:
-                return False
-            return any(keyword in text for keyword in calendar_keywords)
-        
-        return False
+
+        # Only check intent to avoid context pollution from previous queries
+        return intent in calendar_intents
 
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         """Execute calendar operations"""

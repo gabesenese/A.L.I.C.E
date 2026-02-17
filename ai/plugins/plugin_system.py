@@ -270,8 +270,12 @@ class WeatherPlugin(PluginInterface):
         return True
     
     def can_handle(self, intent: str, entities: Dict) -> bool:
+        """Check if this plugin can handle the given intent"""
         intent_lower = (intent or "").lower()
-        return "weather" in intent_lower or intent == "weather" or "weather" in str(entities).lower()
+
+        # Only match based on intent - don't search entire entities dict
+        # (entities may contain old context data from previous queries)
+        return "weather" in intent_lower
 
     def _is_forecast_request(self, intent: str, query: str, entities: Dict) -> bool:
         intent_lower = (intent or "").lower()
@@ -515,17 +519,8 @@ class TimePlugin(PluginInterface):
         return True
     
     def can_handle(self, intent: str, entities: Dict) -> bool:
-        # Only handle explicit time/date requests, not incidental mentions
-        if intent.lower() in ["time", "date"]:
-            return True
-        
-        # Check for time/date specific patterns in query context
-        entity_str = str(entities).lower()
-        if intent == "time" or intent == "date":
-            return True
-            
-        # Don't match on incidental mentions of time words
-        return False
+        # Only handle explicit time/date requests based on intent
+        return intent.lower() in ["time", "date"]
     
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         now = datetime.now()
@@ -563,7 +558,8 @@ class FileOperationsPlugin(PluginInterface):
         return True
     
     def can_handle(self, intent: str, entities: Dict) -> bool:
-        return intent == "file_operation" or intent == "command" and ("file" in str(entities).lower() or "folder" in str(entities).lower())
+        # Only match based on intent, not context pollution
+        return intent in ["file_operation", "command"]
     
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         # Mock implementation - add actual file operations
@@ -720,14 +716,13 @@ class SystemControlPlugin(PluginInterface):
     _CONTROL_WORDS = ("volume", "brightness", "shutdown", "restart", "open", "launch", "mute", "unmute")
     
     def can_handle(self, intent: str, entities: Dict, query: str = None) -> bool:
+        # Check query for control words if provided
         if query is not None:
             q = query.lower()
             if not any(w in q for w in self._CONTROL_WORDS):
                 return False
-        return intent == "system_control" or any(
-            word in str(entities).lower()
-            for word in ["volume", "brightness", "shutdown", "restart", "open", "launch"]
-        )
+        # Only match based on intent
+        return intent == "system_control"
     
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         query_lower = query.lower()
@@ -852,10 +847,8 @@ class WebSearchPlugin(PluginInterface):
         return True
     
     def can_handle(self, intent: str, entities: Dict) -> bool:
-        return intent == "search" or any(
-            word in str(entities).lower() 
-            for word in ["search", "google", "find", "lookup"]
-        )
+        # Only match based on intent to avoid context pollution
+        return intent == "search"
     
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         # Extract search query
