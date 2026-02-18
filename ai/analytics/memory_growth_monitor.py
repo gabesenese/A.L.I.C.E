@@ -123,8 +123,8 @@ class MemoryGrowthMonitor:
                 snapshot['file_stats']['file_details'] = file_details
 
             # Document statistics
-            if hasattr(memory_system, 'document_processor'):
-                registry = memory_system.document_processor.document_registry
+            if hasattr(memory_system, 'document_registry'):
+                registry = memory_system.document_registry
                 snapshot['memory_stats']['total_documents'] = len(registry)
                 snapshot['memory_stats']['total_chunks'] = sum(
                     doc['chunks_created'] for doc in registry.values()
