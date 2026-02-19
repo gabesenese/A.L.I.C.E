@@ -662,13 +662,19 @@ class NotesPlugin(PluginInterface):
     
     def can_handle(self, intent: str = None, entities: Dict = None, command: str = None) -> bool:
         """Check if this plugin can handle the command"""
+        # Explicit intent strings - always handle these
+        notes_intents = ['notes:create', 'notes:append', 'notes:update', 'notes:list',
+                         'notes:search', 'notes:delete', 'notes:edit', 'notes:read']
+        if intent and intent.lower() in notes_intents:
+            return True
+
         # Handle both old and new interface
         if command is None and intent:
             command = intent
-        
+
         if not command:
             return False
-        
+
         command_lower = command.lower()
         
         # Keywords that indicate note-related commands
@@ -984,11 +990,21 @@ class NotesPlugin(PluginInterface):
         
         # Update the note
         self.manager.update_note(note_id, content=new_content)
-        
+
+        # Keep context current so follow-up commands know which note we just touched
+        self.last_note_id = note_id
+        self.last_note_title = note.title
+
         return {
             "success": True,
-            "message": f"✅ Added '{item_to_add}' to {note.title}",
-            "note_id": note_id
+            "action": "add_to_note",
+            "data": {
+                "title": note.title,
+                "note_id": note_id,
+                "item_added": item_to_add,
+                "new_content": new_content
+            },
+            "formulate": True
         }
     
     def _search_notes(self, command: str) -> Dict[str, Any]:

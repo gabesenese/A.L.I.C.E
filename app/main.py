@@ -1709,14 +1709,23 @@ class ALICE:
         """
         if not (user_input and goal_description):
             return False  # Don't reuse if missing context
-        
+
+        input_lower = user_input.lower()
+
+        # Never let a notes:create goal override an append/add-to operation.
+        # "add X to the list/note" is always an append, not a create.
+        if any(w in input_lower for w in ['add', 'put', 'append', 'include']) and \
+           any(phrase in input_lower for phrase in ['to the list', 'to my list', 'to the note',
+                                                     'to my note', 'on the list', 'on my list']):
+            return False
+
         stop = {"the", "a", "an", "is", "are", "was", "were", "you", "your", "me", "my", "how", "what", "who", "where", "when", "why", "outside", "hows", "from", "to", "and", "or", "but", "it", "its"}
         a = set(w.lower() for w in user_input.split() if len(w) > 2 and w.lower() not in stop)
         b = set(w.lower() for w in goal_description.split() if len(w) > 2 and w.lower() not in stop)
-        
+
         if not a or not b:
             return False  # Don't reuse if either has no meaningful words
-        
+
         overlap = len(a & b) / len(a)
         return overlap >= 0.3  # Increased threshold from 0.15 to 0.3 for better topic detection
     

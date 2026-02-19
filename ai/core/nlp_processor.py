@@ -974,8 +974,16 @@ class NLPProcessor:
             return 'email:read', 0.85
 
         # Notes intents - distinguish VERY clearly
-        # Create: "create/add/new + note(s)"
-        if any(word in text_lower for word in ['create', 'add', 'new', 'make', 'write']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
+        # Append/add to existing note: must come BEFORE create to prevent misclassification
+        # Patterns: "add X to the list", "add X to my note", "put X on the list"
+        if any(word in text_lower for word in ['add', 'put', 'append', 'include']) and \
+           any(phrase in text_lower for phrase in ['to the list', 'to my list', 'to the note', 'to my note', 'on the list', 'on my list', 'to grocery', 'to shopping']):
+            return 'notes:append', 0.9
+        # Create: "create/new/make + note" - requires explicit note/memo keyword
+        if any(word in text_lower for word in ['create', 'new', 'make', 'write']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
+            return 'notes:create', 0.9
+        # "add a note" - create, not append (no "to the" structure)
+        if text_lower.startswith('add') and any(word in text_lower for word in ['note', 'memo']):
             return 'notes:create', 0.9
         # List: "show/list + note(s)"
         if any(word in text_lower for word in ['show', 'list', 'display', 'see']) and any(word in text_lower for word in ['note', 'notes', 'all notes']):
