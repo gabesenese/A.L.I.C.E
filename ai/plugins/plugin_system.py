@@ -308,11 +308,18 @@ class WeatherPlugin(PluginInterface):
                 # Be defensive: API might return a list or a plain string on error
                 if isinstance(data, dict) and data.get('results'):
                     result = data['results'][0]
-                    return result.get('latitude'), result.get('longitude'), result.get('name')
+                    lat = result.get('latitude')
+                    lon = result.get('longitude')
+                    name = result.get('name', location)
+                    # Validate coordinates are present and numeric
+                    if lat is None or lon is None:
+                        logger.error(f"Geocoding returned incomplete coordinates for {location!r}")
+                        return None
+                    return lat, lon, name
                 else:
-                    logger.error(f"Unexpected geocoding response format for {location!r}: {data!r}")
+                    logger.error(f"Geocoding returned no results for {location!r}: {data!r}")
         except Exception as e:
-            logger.error(f"Geocoding error: {e}")
+            logger.error(f"Geocoding error for {location!r}: {e}")
         return None
     
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
@@ -378,13 +385,41 @@ class WeatherPlugin(PluginInterface):
                 return self._get_forecast(lat, lon, location_name)
 
             # Get weather from Open-Meteo (free, no API key needed)
-            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=celsius&wind_speed_unit=kmh"
-            response = requests.get(url, timeout=5)
-            
+            url = (
+                f"https://api.open-meteo.com/v1/forecast"
+                f"?latitude={lat}&longitude={lon}"
+                "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+                "&temperature_unit=celsius&wind_speed_unit=kmh"
+            )
+            try:
+                response = requests.get(url, timeout=8)
+            except requests.exceptions.Timeout:
+                logger.warning(f"Weather API timed out for {location_name}")
+                return {
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "error": "timeout",
+                        "location": location_name,
+                        "message_code": "weather:timeout"
+                    }
+                }
+            except requests.exceptions.ConnectionError as e:
+                logger.warning(f"Weather API connection error for {location_name}: {e}")
+                return {
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "error": "connection_error",
+                        "location": location_name,
+                        "message_code": "weather:connection_error"
+                    }
+                }
+
             if response.status_code == 200:
                 data = response.json()
-                current = data['current']
-                
+                current = data.get('current', {})
+
                 # Weather code descriptions
                 weather_codes = {
                     0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
@@ -392,12 +427,27 @@ class WeatherPlugin(PluginInterface):
                     61: "light rain", 63: "rain", 65: "heavy rain", 71: "light snow", 73: "snow", 75: "heavy snow",
                     80: "rain showers", 81: "rain showers", 82: "heavy rain showers", 95: "thunderstorm"
                 }
-                
-                temp = current['temperature_2m']
-                humidity = current['relative_humidity_2m']
-                wind = current['wind_speed_10m']
-                condition = weather_codes.get(current['weather_code'], 'unknown')
-                
+
+                # Use .get() with None defaults - API may omit or null any field
+                temp = current.get('temperature_2m')
+                humidity = current.get('relative_humidity_2m')
+                wind = current.get('wind_speed_10m')
+                weather_code = current.get('weather_code')
+                condition = weather_codes.get(weather_code, 'unknown') if weather_code is not None else 'unknown'
+
+                # If no usable data came back, treat as a no-data response
+                if temp is None and condition == 'unknown':
+                    logger.warning(f"Weather API returned no usable data for {location_name}")
+                    return {
+                        "success": False,
+                        "response": None,
+                        "data": {
+                            "error": "no_data",
+                            "location": location_name,
+                            "message_code": "weather:no_data"
+                        }
+                    }
+
                 return {
                     "success": True,
                     "response": None,
@@ -412,15 +462,17 @@ class WeatherPlugin(PluginInterface):
                     }
                 }
             else:
+                logger.warning(f"Weather API returned HTTP {response.status_code} for {location_name}")
                 return {
                     "success": False,
                     "response": None,
                     "data": {
                         "error": "fetch_failed",
+                        "http_status": response.status_code,
                         "message_code": "weather:fetch_failed"
                     }
                 }
-                
+
         except Exception as e:
             logger.error(f"Weather plugin error: {e}")
             return {
@@ -446,14 +498,39 @@ class WeatherPlugin(PluginInterface):
                 "&daily=temperature_2m_max,temperature_2m_min,weather_code"
                 "&forecast_days=7&temperature_unit=celsius&timezone=auto"
             )
-            response = requests.get(url, timeout=5)
+            try:
+                response = requests.get(url, timeout=8)
+            except requests.exceptions.Timeout:
+                logger.warning(f"Forecast API timed out for {location_name}")
+                return {
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "error": "timeout",
+                        "location": location_name,
+                        "message_code": "weather:timeout"
+                    }
+                }
+            except requests.exceptions.ConnectionError as e:
+                logger.warning(f"Forecast API connection error for {location_name}: {e}")
+                return {
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "error": "connection_error",
+                        "location": location_name,
+                        "message_code": "weather:connection_error"
+                    }
+                }
 
             if response.status_code != 200:
+                logger.warning(f"Forecast API returned HTTP {response.status_code} for {location_name}")
                 return {
                     "success": False,
                     "response": None,
                     "data": {
                         "error": "fetch_failed",
+                        "http_status": response.status_code,
                         "message_code": "weather:fetch_failed"
                     }
                 }
@@ -474,13 +551,29 @@ class WeatherPlugin(PluginInterface):
             mins = daily.get("temperature_2m_min", [])
             codes = daily.get("weather_code", [])
 
-            for i in range(min(len(dates), len(maxes), len(mins), len(codes))):
+            for i in range(len(dates)):
+                # Values may be None if station data unavailable for that day
+                high = maxes[i] if i < len(maxes) else None
+                low = mins[i] if i < len(mins) else None
+                code = codes[i] if i < len(codes) else None
+                condition = weather_codes.get(code, "unknown") if code is not None else "unknown"
                 forecast.append({
                     "date": dates[i],
-                    "high": maxes[i],
-                    "low": mins[i],
-                    "condition": weather_codes.get(codes[i], "unknown")
+                    "high": high,
+                    "low": low,
+                    "condition": condition
                 })
+
+            if not forecast:
+                return {
+                    "success": False,
+                    "response": None,
+                    "data": {
+                        "error": "no_data",
+                        "location": location_name,
+                        "message_code": "weather:no_data"
+                    }
+                }
 
             return {
                 "success": True,

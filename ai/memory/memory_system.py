@@ -1121,29 +1121,97 @@ class MemorySystem:
             "vector_count": len(self.vector_store.ids)
         }
 
-    def get_all_memories(self) -> List[Dict[str, Any]]:
+    def get_all_memories(
+        self,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        sort_by: str = 'timestamp',
+        sort_desc: bool = True,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """
-        Get all memories from all memory types as dictionaries
+        Get memories with optional filtering and pagination.
+
+        Args:
+            memory_type: Filter to one type ('episodic', 'semantic', 'procedural', 'document').
+                         If None, all types are included.
+            tags:        Include only memories that have at least one of these tags.
+                         If None, no tag filtering is applied.
+            limit:       Maximum number of results to return after offset.
+                         If None, all matching results are returned.
+            offset:      Number of results to skip (for pagination).
+            sort_by:     Field to sort by: 'timestamp', 'importance', or 'access_count'.
+                         Unknown fields fall back to 'timestamp'.
+            sort_desc:   If True (default), most recent / highest value first.
+            since:       ISO-8601 datetime string; exclude memories older than this.
+            until:       ISO-8601 datetime string; exclude memories newer than this.
 
         Returns:
-            List of all memories as dictionaries
+            List of memory dicts (matching asdict(MemoryEntry) format).
         """
-        all_memories = []
+        # Build the candidate pool from the requested type(s)
+        type_map = {
+            'episodic': self.episodic_memory,
+            'semantic': self.semantic_memory,
+            'procedural': self.procedural_memory,
+            'document': self.document_memory,
+        }
 
-        # Combine all memory types
-        for memory in self.episodic_memory:
-            all_memories.append(asdict(memory))
+        if memory_type:
+            sources = [type_map.get(memory_type, [])]
+        else:
+            sources = list(type_map.values())
 
-        for memory in self.semantic_memory:
-            all_memories.append(asdict(memory))
+        candidates: List[MemoryEntry] = []
+        for source in sources:
+            candidates.extend(source)
 
-        for memory in self.procedural_memory:
-            all_memories.append(asdict(memory))
+        # Tag filter (any-match)
+        if tags:
+            tag_set = {t.lower() for t in tags}
+            candidates = [
+                m for m in candidates
+                if m.tags and any(t.lower() in tag_set for t in m.tags)
+            ]
 
-        for memory in self.document_memory:
-            all_memories.append(asdict(memory))
+        # Date range filter
+        if since or until:
+            since_dt = datetime.fromisoformat(since) if since else None
+            until_dt = datetime.fromisoformat(until) if until else None
+            filtered = []
+            for m in candidates:
+                try:
+                    ts = datetime.fromisoformat(m.timestamp)
+                    if since_dt and ts < since_dt:
+                        continue
+                    if until_dt and ts > until_dt:
+                        continue
+                    filtered.append(m)
+                except (ValueError, TypeError):
+                    filtered.append(m)  # Keep memories with unparseable timestamps
+            candidates = filtered
 
-        return all_memories
+        # Sort
+        valid_sort_fields = {'timestamp', 'importance', 'access_count'}
+        field = sort_by if sort_by in valid_sort_fields else 'timestamp'
+
+        def _sort_key(m: MemoryEntry):
+            val = getattr(m, field, None)
+            if val is None:
+                return '' if field == 'timestamp' else 0
+            return val
+
+        candidates.sort(key=_sort_key, reverse=sort_desc)
+
+        # Pagination
+        paginated = candidates[offset:]
+        if limit is not None:
+            paginated = paginated[:limit]
+
+        return [asdict(m) for m in paginated]
     
     def _save_memories(self):
         """Save all memories to disk"""

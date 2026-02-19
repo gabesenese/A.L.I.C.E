@@ -70,6 +70,10 @@ class BackgroundEmbeddingGenerator:
             logger.warning("[BgEmbedding] Already running")
             return
 
+        if self.embedding_manager is None:
+            logger.error("[BgEmbedding] Cannot start: embedding_manager is None")
+            return
+
         self.running = True
         self.worker_thread = threading.Thread(
             target=self._worker_loop,
@@ -99,10 +103,18 @@ class BackgroundEmbeddingGenerator:
     ) -> bool:
         """
         Submit an embedding task to the queue
-        Returns True if successfully queued, False if queue is full
+        Returns True if successfully queued, False if queue is full or unavailable
         """
         if not self.running:
             logger.warning("[BgEmbedding] Generator not running, call start() first")
+            return False
+
+        if self.embedding_manager is None:
+            logger.error("[BgEmbedding] Cannot queue task: embedding_manager is None")
+            return False
+
+        if not text or not text.strip():
+            logger.debug(f"[BgEmbedding] Skipping empty text for task {task_id}")
             return False
 
         task = EmbeddingTask(
@@ -210,26 +222,38 @@ class BackgroundEmbeddingGenerator:
             # Generate embeddings in batch
             embeddings = self.embedding_manager.batch_create_embeddings(texts)
 
+            # Guard against length mismatch (embedding model may silently drop items)
+            if len(embeddings) != len(tasks):
+                logger.warning(
+                    f"[BgEmbedding] Embedding count mismatch: {len(embeddings)} embeddings "
+                    f"for {len(tasks)} tasks - handling partial results"
+                )
+
             # Store results and call callbacks
-            for task, embedding in zip(tasks, embeddings):
-                # Store in cache
-                with self.cache_lock:
-                    self.results_cache[task.task_id] = {
-                        'embedding': embedding,
-                        'task_id': task.task_id,
-                        'metadata': task.metadata,
-                        'completed_at': datetime.now().isoformat()
-                    }
+            for i, task in enumerate(tasks):
+                if i < len(embeddings):
+                    embedding = embeddings[i]
+                    with self.cache_lock:
+                        self.results_cache[task.task_id] = {
+                            'embedding': embedding,
+                            'task_id': task.task_id,
+                            'metadata': task.metadata,
+                            'completed_at': datetime.now().isoformat(),
+                            'success': True
+                        }
+                    if task.callback:
+                        try:
+                            task.callback(task.task_id, embedding, task.metadata)
+                        except Exception as e:
+                            logger.error(f"[BgEmbedding] Callback error for task {task.task_id}: {e}")
+                    with self.stats_lock:
+                        self.stats['completed_tasks'] += 1
+                else:
+                    # No embedding produced for this task
+                    self._fail_task(task, reason="embedding_missing")
 
-                # Call callback if provided
-                if task.callback:
-                    try:
-                        task.callback(task.task_id, embedding, task.metadata)
-                    except Exception as e:
-                        logger.error(f"[BgEmbedding] Callback error for task {task.task_id}: {e}")
-
-                with self.stats_lock:
-                    self.stats['completed_tasks'] += 1
+            # Evict oldest cache entries if cache has grown too large
+            self._evict_cache_if_needed()
 
             processing_time = time.time() - start_time
             with self.stats_lock:
@@ -239,9 +263,39 @@ class BackgroundEmbeddingGenerator:
 
         except Exception as e:
             logger.error(f"[BgEmbedding] Batch processing error: {e}", exc_info=True)
+            # Notify all tasks in this batch that they failed so callers don't wait forever
+            for task in tasks:
+                self._fail_task(task, reason=str(e))
 
-            with self.stats_lock:
-                self.stats['failed_tasks'] += len(tasks)
+    def _fail_task(self, task: EmbeddingTask, reason: str = "unknown"):
+        """Mark a task as failed, cache a sentinel, and fire the callback with None"""
+        with self.cache_lock:
+            self.results_cache[task.task_id] = {
+                'embedding': None,
+                'task_id': task.task_id,
+                'metadata': task.metadata,
+                'completed_at': datetime.now().isoformat(),
+                'success': False,
+                'error': reason
+            }
+        if task.callback:
+            try:
+                task.callback(task.task_id, None, task.metadata)
+            except Exception as cb_err:
+                logger.error(f"[BgEmbedding] Failure callback error for task {task.task_id}: {cb_err}")
+        with self.stats_lock:
+            self.stats['failed_tasks'] += 1
+
+    def _evict_cache_if_needed(self, max_size: int = 2000):
+        """Evict oldest cache entries when cache exceeds max_size"""
+        with self.cache_lock:
+            if len(self.results_cache) > max_size:
+                # Remove oldest 25%
+                evict_count = max_size // 4
+                oldest_keys = list(self.results_cache.keys())[:evict_count]
+                for key in oldest_keys:
+                    del self.results_cache[key]
+                logger.debug(f"[BgEmbedding] Evicted {evict_count} stale cache entries")
 
     def get_stats(self) -> Dict[str, Any]:
         """Get processing statistics"""
