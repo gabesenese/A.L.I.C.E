@@ -3353,7 +3353,10 @@ class ALICE:
 
                 # Fallback: Use gateway formatting if formulation didn't produce response
                 if not response:
-                    self._think("Formulation failed → using gateway formatter as fallback")
+                    if alice_formulation and alice_formulation.get('type') not in ('general_response', None):
+                        self._think("Formulation failed → using gateway formatter as fallback")
+                    else:
+                        self._think(f"Using gateway formatter for {intent}")
                     if hasattr(self, 'llm_gateway') and self.llm_gateway:
                         formatter_name = plugin_name.lower().replace('plugin', '').strip()
                         response = self.llm_gateway.format_tool_result(

@@ -53,8 +53,8 @@ class ResponseOptimizer:
         # Remove trailing whitespace
         optimized = optimized.strip()
         
-        # Ensure response ends properly
-        if optimized and not optimized[-1] in '.!?':
+        # Ensure response ends properly (skip for multi-line/structured responses)
+        if optimized and not optimized[-1] in '.!?' and '\n' not in optimized:
             if '?' in optimized:
                 pass  # Question, keep as is
             elif len(optimized.split()) > 10:
