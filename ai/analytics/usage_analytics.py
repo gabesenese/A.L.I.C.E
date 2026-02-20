@@ -56,7 +56,8 @@ class UsageAnalytics:
         response_time_ms: Optional[float] = None,
         success: bool = True,
         llm_used: bool = False,
-        cached: bool = False
+        cached: bool = False,
+        extra_metadata: Optional[Dict[str, Any]] = None,
     ):
         """Log a user interaction"""
         try:
@@ -94,6 +95,9 @@ class UsageAnalytics:
                 'llm_used': llm_used,
                 'cached': cached
             }
+
+            if extra_metadata:
+                log_entry['metadata'] = extra_metadata
 
             with open(self.usage_log_path, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(log_entry) + '\n')

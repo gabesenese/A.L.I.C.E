@@ -29,7 +29,7 @@ import os
 import sys
 import json
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -637,6 +637,218 @@ class NotesPlugin(PluginInterface):
         # Track last accessed note for context-aware operations
         self.last_note_id = None
         self.last_note_title = None
+        self.last_note_result_ids: List[str] = []
+        self.last_resolution_path = "none"
+
+        # Learning and telemetry state (no hardcoded response text path)
+        self.learning_state_path = Path("data/notes/notes_learning_state.json")
+        self.telemetry_log_path = Path("data/analytics/notes_plugin_telemetry.jsonl")
+        self._action_token_weights: Dict[str, Dict[str, float]] = {}
+        self._note_selection_weights: Dict[str, float] = {}
+        self._load_learning_state()
+
+    def _load_learning_state(self) -> None:
+        """Load note action/selection learning weights for reranking."""
+        try:
+            self.learning_state_path.parent.mkdir(parents=True, exist_ok=True)
+            self.telemetry_log_path.parent.mkdir(parents=True, exist_ok=True)
+            if not self.learning_state_path.exists():
+                self._action_token_weights = {}
+                self._note_selection_weights = {}
+                return
+
+            with open(self.learning_state_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            self._action_token_weights = data.get('action_token_weights', {}) or {}
+            self._note_selection_weights = data.get('note_selection_weights', {}) or {}
+        except Exception as e:
+            logger.debug(f"[NotesLearning] Failed to load learning state: {e}")
+            self._action_token_weights = {}
+            self._note_selection_weights = {}
+
+    def _save_learning_state(self) -> None:
+        """Persist learning weights for future ranking decisions."""
+        try:
+            payload = {
+                'action_token_weights': self._action_token_weights,
+                'note_selection_weights': self._note_selection_weights,
+                'updated_at': datetime.now().isoformat(),
+            }
+            with open(self.learning_state_path, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, indent=2)
+        except Exception as e:
+            logger.debug(f"[NotesLearning] Failed to save learning state: {e}")
+
+    def _tokenize(self, text: str) -> List[str]:
+        return [t for t in re.findall(r"[a-z0-9']+", text.lower()) if len(t) > 2]
+
+    def _extract_ordinal_index(self, command: str) -> Optional[int]:
+        """Extract 0-based ordinal index from utterances like first/2nd/number 3."""
+        words_map = {
+            'first': 0, 'second': 1, 'third': 2, 'fourth': 3, 'fifth': 4,
+            'sixth': 5, 'seventh': 6, 'eighth': 7, 'ninth': 8, 'tenth': 9,
+        }
+        lower = command.lower()
+        for word, idx in words_map.items():
+            if re.search(rf"\b{word}\b", lower):
+                return idx
+
+        m = re.search(r"\b(\d+)(?:st|nd|rd|th)?\b", lower)
+        if m:
+            n = int(m.group(1))
+            if n >= 1:
+                return n - 1
+        return None
+
+    def _rank_note_candidates(self, command: str, notes: List[Note]) -> List[Note]:
+        """Rank note candidates using token overlap + learned selection weights + recency."""
+        cmd_tokens = set(self._tokenize(command))
+
+        def score(note: Note) -> float:
+            title_tokens = set(self._tokenize(note.title))
+            content_tokens = set(self._tokenize(note.content[:120])) if note.content else set()
+            overlap = len(cmd_tokens & title_tokens) * 3.0 + len(cmd_tokens & content_tokens) * 1.0
+            learned = sum(self._note_selection_weights.get(tok, 0.0) for tok in title_tokens)
+            recency = 0.0
+            try:
+                recency = datetime.fromisoformat(note.updated_at).timestamp() / 1e10
+            except Exception:
+                pass
+            return overlap + learned + recency
+
+        ranked = sorted(notes, key=score, reverse=True)
+        return ranked
+
+    def _resolve_note_reference(self, command: str, *, include_archived: bool = False) -> Dict[str, Any]:
+        """Resolve note reference via context, ordinals, title match, or fallback with disambiguation."""
+        lower = command.lower()
+        all_notes = self.manager.get_all_notes(include_archived=include_archived)
+
+        # 1) Ordinal from last list result: "second note", "3rd"
+        ordinal_index = self._extract_ordinal_index(command)
+        if ordinal_index is not None and self.last_note_result_ids:
+            if 0 <= ordinal_index < len(self.last_note_result_ids):
+                note = self.manager.get_note(self.last_note_result_ids[ordinal_index])
+                if note:
+                    return {"status": "resolved", "note": note, "resolution_path": "result_set_ordinal"}
+
+        # 2) Pronoun/context references
+        if any(token in lower for token in ['last', 'this', 'that', 'it', 'the note']) and self.last_note_id:
+            note = self.manager.get_note(self.last_note_id)
+            if note:
+                return {"status": "resolved", "note": note, "resolution_path": "last_note_context"}
+
+        # 3) Title extraction and matching
+        title_patterns = [
+            r'(?:called|titled|named|about)\s+(.+)$',
+            r'(?:note|list)\s+(?:called|titled|named)\s+(.+)$',
+            r'(?:the\s+)?(.+?)\s+(?:note|list)\b',
+            r'(?:delete|remove|edit|update|archive|unarchive|pin|unpin|categorize|category|priority|title|name)\s+(?:the\s+)?(.+)$',
+        ]
+        candidates: List[Note] = []
+        matched_query = None
+        for pattern in title_patterns:
+            m = re.search(pattern, command, re.IGNORECASE)
+            if not m:
+                continue
+            matched_query = m.group(1).strip().strip('?.!,')
+            if matched_query:
+                candidates = self.manager.find_by_title(matched_query)
+                if candidates:
+                    break
+
+        # 4) If no explicit query and only one note exists, use it
+        if not candidates and len(all_notes) == 1:
+            return {"status": "resolved", "note": all_notes[0], "resolution_path": "single_note_fallback"}
+
+        # 5) Ranking/disambiguation
+        if len(candidates) == 1:
+            return {"status": "resolved", "note": candidates[0], "resolution_path": "title_exact_or_partial"}
+        if len(candidates) > 1:
+            ranked = self._rank_note_candidates(command, candidates)
+            return {
+                "status": "ambiguous",
+                "candidates": ranked[:5],
+                "resolution_path": "title_ambiguous_ranked",
+                "query": matched_query,
+            }
+
+        return {"status": "unresolved", "resolution_path": "no_match"}
+
+    def _make_disambiguation_result(self, action: str, candidates: List[Note], message_code: str) -> Dict[str, Any]:
+        return {
+            "success": False,
+            "action": action,
+            "data": {
+                "error": "note_ambiguous",
+                "message_code": message_code,
+                "candidates": [
+                    {
+                        "note_id": n.id,
+                        "title": n.title,
+                        "updated_at": n.updated_at,
+                        "tags": n.tags,
+                    }
+                    for n in candidates
+                ],
+            },
+            "formulate": True,
+        }
+
+    def _record_learning_outcome(self, command: str, action: str, success: bool, resolution_path: str) -> None:
+        """Update token weights for action routing and note selection from outcomes."""
+        tokens = self._tokenize(command)
+        if not tokens or not action:
+            return
+
+        action_weights = self._action_token_weights.setdefault(action, {})
+        delta = 0.15 if success else -0.08
+        for token in tokens[:20]:
+            action_weights[token] = float(action_weights.get(token, 0.0) + delta)
+            action_weights[token] = max(-2.0, min(2.0, action_weights[token]))
+
+        if success and resolution_path in ("title_exact_or_partial", "result_set_ordinal", "last_note_context"):
+            for token in tokens[:20]:
+                self._note_selection_weights[token] = float(self._note_selection_weights.get(token, 0.0) + 0.05)
+                self._note_selection_weights[token] = max(-2.0, min(2.0, self._note_selection_weights[token]))
+
+        self._save_learning_state()
+
+    def _update_context_from_result(self, result: Dict[str, Any]) -> None:
+        """Keep note context memory synchronized with latest structured plugin result."""
+        data = result.get('data', {}) if isinstance(result, dict) else {}
+        note_id = data.get('note_id')
+        note_title = data.get('note_title') or data.get('title')
+        if note_id:
+            self.last_note_id = note_id
+        if note_title:
+            self.last_note_title = note_title
+
+        listed_notes = data.get('notes') if isinstance(data, dict) else None
+        if isinstance(listed_notes, list):
+            self.last_note_result_ids = [n.get('note_id') for n in listed_notes if isinstance(n, dict) and n.get('note_id')]
+
+        diagnostics = data.get('diagnostics', {}) if isinstance(data, dict) else {}
+        if diagnostics.get('resolution_path'):
+            self.last_resolution_path = diagnostics['resolution_path']
+
+    def _log_telemetry(self, *, command: str, intent: str, result: Dict[str, Any], resolution_path: str) -> None:
+        """Emit notes-plugin telemetry for mining and reranking improvements."""
+        try:
+            entry = {
+                "timestamp": datetime.now().isoformat(),
+                "intent": intent,
+                "command": command[:200],
+                "action": result.get('action'),
+                "success": bool(result.get('success', False)),
+                "resolution_path": resolution_path,
+                "error": (result.get('data') or {}).get('error'),
+                "message_code": (result.get('data') or {}).get('message_code'),
+            }
+            with open(self.telemetry_log_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(entry) + '\n')
+        except Exception as e:
+            logger.debug(f"[NotesTelemetry] failed: {e}")
     
     def initialize(self) -> bool:
         """Initialize the plugin"""
@@ -730,6 +942,7 @@ class NotesPlugin(PluginInterface):
         
         try:
             command_lower = command.lower()
+            resolution_path = "rule_router"
             
             # Count notes (check first for "how many notes")
             if re.search(r'how many|count|number of', command_lower) and 'note' in command_lower:
@@ -799,12 +1012,30 @@ class NotesPlugin(PluginInterface):
             else:
                 result = {
                     "success": False,
-                    "message": "I'm not sure what you want to do with notes. Try 'create note', 'search notes', or 'list notes'."
+                    "action": "notes_unknown_intent",
+                    "data": {
+                        "error": "unsupported_notes_command",
+                        "message_code": "notes:unsupported_command",
+                        "command": command,
+                    },
+                    "formulate": True,
                 }
             
             # Ensure response field exists for new interface
             if 'response' not in result:
                 result['response'] = result.get('message', '')
+
+            data = result.setdefault('data', {}) if isinstance(result, dict) else {}
+            diagnostics = data.setdefault('diagnostics', {}) if isinstance(data, dict) else {}
+            if isinstance(diagnostics, dict) and not diagnostics.get('resolution_path'):
+                diagnostics['resolution_path'] = resolution_path
+
+            self._update_context_from_result(result)
+            action = result.get('action', 'notes_unknown_action')
+            success = bool(result.get('success', False))
+            resolved_path = diagnostics.get('resolution_path', resolution_path)
+            self._record_learning_outcome(command, action, success, resolved_path)
+            self._log_telemetry(command=command, intent=intent or "", result=result, resolution_path=resolved_path)
             
             return result
         
@@ -812,8 +1043,13 @@ class NotesPlugin(PluginInterface):
             logger.error(f"Error executing notes command: {e}")
             return {
                 "success": False,
-                "response": f"Error: {str(e)}",
-                "message": f"Error: {str(e)}"
+                "action": "notes_execution_error",
+                "response": "",
+                "data": {
+                    "error": "notes_execution_error",
+                    "message_code": "notes:execution_error",
+                },
+                "formulate": True,
             }
     
     def _create_note(self, command: str) -> Dict[str, Any]:
@@ -855,7 +1091,12 @@ class NotesPlugin(PluginInterface):
         if not content:
             return {
                 "success": False,
-                "message": "I couldn't understand what you want to write in the note. Try: 'Create note about project ideas', 'Create a note called shopping list', or 'Add note: Buy groceries'"
+                "action": "create_note",
+                "data": {
+                    "error": "missing_note_content",
+                    "message_code": "notes:create_missing_content",
+                },
+                "formulate": True,
             }
         
         # Extract tags if present (words starting with #)
@@ -943,7 +1184,12 @@ class NotesPlugin(PluginInterface):
         if not match:
             return {
                 "success": False,
-                "message": "I couldn't understand what you want to add. Try: 'add eggs to the list'"
+                "action": "add_to_note",
+                "data": {
+                    "error": "missing_add_content",
+                    "message_code": "notes:add_missing_content",
+                },
+                "formulate": True,
             }
         
         item_to_add = match.group(1).strip()
@@ -973,7 +1219,12 @@ class NotesPlugin(PluginInterface):
         if not note_id:
             return {
                 "success": False,
-                "message": "I'm not sure which note to add to. Try creating a note first or specify: 'add eggs to grocery list'"
+                "action": "add_to_note",
+                "data": {
+                    "error": "target_note_not_found",
+                    "message_code": "notes:add_target_not_found",
+                },
+                "formulate": True,
             }
         
         # Get the note and append content
@@ -981,7 +1232,13 @@ class NotesPlugin(PluginInterface):
         if not note:
             return {
                 "success": False,
-                "message": f"I couldn't find the note '{note_title}'"
+                "action": "add_to_note",
+                "data": {
+                    "error": "target_note_missing",
+                    "message_code": "notes:add_target_missing",
+                    "note_title": note_title,
+                },
+                "formulate": True,
             }
         
         # Append the item to the content
@@ -1029,7 +1286,12 @@ class NotesPlugin(PluginInterface):
         if not query:
             return {
                 "success": False,
-                "message": "What would you like to search for? Try: 'Search notes for meeting'"
+                "action": "search_notes",
+                "data": {
+                    "error": "missing_search_query",
+                    "message_code": "notes:search_missing_query",
+                },
+                "formulate": True,
             }
         
         # Check for date range keywords
@@ -1111,26 +1373,31 @@ class NotesPlugin(PluginInterface):
         if not notes:
             return {
                 "success": True,
-                "message": "You don't have any notes yet. Create one with 'Create note about...'",
-                "notes": []
+                "action": "list_notes",
+                "data": {
+                    "count": 0,
+                    "has_notes": False,
+                    "note_type": note_type,
+                    "notes": [],
+                },
+                "formulate": True,
             }
         
-        # Format output
-        notes_text = f"You have {len(notes)} note(s):\n\n"
-        for i, note in enumerate(notes[:20], 1):  # Show max 20
-            tags_str = f" #{' #'.join(note.tags)}" if note.tags else ""
-            icon = "" if note.note_type == "general" else "✅" if note.note_type == "todo" else "💡" if note.note_type == "idea" else "👥"
-            notes_text += f"{i}. {icon} {note.title}{tags_str}\n"
-            # Show content preview if different from title
+        notes_payload = []
+        for note in notes[:20]:
+            preview = ""
             if note.content and note.content != note.title:
                 preview = note.content[:100].replace('\n', ' ')
                 if len(note.content) > 100:
                     preview += '...'
-                notes_text += f"   {preview}\n"
-            notes_text += f"   📅 {note.updated_at[:10]}\n"
-        
-        if len(notes) > 20:
-            notes_text += f"\n... and {len(notes) - 20} more notes"
+            notes_payload.append({
+                "note_id": note.id,
+                "title": note.title,
+                "tags": note.tags,
+                "note_type": note.note_type,
+                "updated_at": note.updated_at,
+                "preview": preview,
+            })
 
         # Track first listed note for context-aware follow-ups like "what is the title of the note?"
         first_note = notes[0]
@@ -1139,40 +1406,40 @@ class NotesPlugin(PluginInterface):
         
         return {
             "success": True,
-            "message": notes_text,
-            "notes": [note.to_dict() for note in notes]
+            "action": "list_notes",
+            "data": {
+                "count": len(notes),
+                "shown": len(notes_payload),
+                "has_more": len(notes) > 20,
+                "note_type": note_type,
+                "notes": notes_payload,
+            },
+            "formulate": True,
         }
 
     def _get_note_title(self, command: str) -> Dict[str, Any]:
         """Return the title of a referenced note using context or explicit title mention."""
-        note = None
+        resolution = self._resolve_note_reference(command)
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "get_note_title",
+                resolution.get("candidates", []),
+                "notes:title_ambiguous",
+            )
 
-        # Prefer context when user refers to "the note", "this", "that", etc.
-        if self.last_note_id and any(word in command.lower() for word in ['the note', 'this', 'that', 'it', 'last']):
-            note = self.manager.get_note(self.last_note_id)
-
-        # If no context note, try to resolve by explicit title fragment
-        if not note:
-            title_match = re.search(r"(?:title|name)\s+of\s+(?:the\s+)?note\s+(?:called\s+)?(.+)", command, re.IGNORECASE)
-            if title_match:
-                title_query = title_match.group(1).strip().strip('?.!,')
-                matches = self.manager.find_by_title(title_query)
-                if matches:
-                    note = matches[0]
-
-        # Single-note fallback for natural follow-up phrasing
-        if not note:
-            all_notes = self.manager.get_all_notes()
-            if len(all_notes) == 1:
-                note = all_notes[0]
-
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
         if not note:
             return {
                 "success": False,
                 "action": "get_note_title",
-                "data": {},
+                "data": {
+                    "error": "note_not_identified",
+                    "message_code": "notes:title_target_not_found",
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "no_match")
+                    },
+                },
                 "formulate": True,
-                "message": "I couldn't tell which note you mean. Try 'show my notes' first or mention the note name."
             }
 
         self.last_note_id = note.id
@@ -1183,7 +1450,10 @@ class NotesPlugin(PluginInterface):
             "action": "get_note_title",
             "data": {
                 "note_id": note.id,
-                "title": note.title
+                "title": note.title,
+                "diagnostics": {
+                    "resolution_path": resolution.get("resolution_path", "resolved")
+                },
             },
             "formulate": True
         }
@@ -1195,36 +1465,43 @@ class NotesPlugin(PluginInterface):
         if not archived_notes:
             return {
                 "success": True,
-                "message": "📦 You don't have any archived notes.",
-                "notes": []
+                "action": "list_archived_notes",
+                "data": {
+                    "count": 0,
+                    "notes": [],
+                },
+                "formulate": True,
             }
         
         # Sort by updated date (most recent first)
         archived_notes.sort(key=lambda x: x.updated_at, reverse=True)
         
-        # Format output
-        notes_text = f"📦 You have {len(archived_notes)} archived note(s):\n\n"
-        for i, note in enumerate(archived_notes[:20], 1):  # Show max 20
-            tags_str = f" #{' #'.join(note.tags)}" if note.tags else ""
-            icon = "" if note.note_type == "general" else "✅" if note.note_type == "todo" else "💡" if note.note_type == "idea" else "👥"
-            notes_text += f"{i}. {icon} {note.title}{tags_str}\n"
-            # Show content preview if different from title
+        archived_payload = []
+        for note in archived_notes[:20]:
+            preview = ""
             if note.content and note.content != note.title:
                 preview = note.content[:100].replace('\n', ' ')
                 if len(note.content) > 100:
                     preview += '...'
-                notes_text += f"   {preview}\n"
-            notes_text += f"   📅 Archived: {note.updated_at[:10]}\n"
-        
-        if len(archived_notes) > 20:
-            notes_text += f"\n... and {len(archived_notes) - 20} more archived notes"
-        
-        notes_text += "\n\n💡 Tip: Use 'unarchive note called [title]' to restore a note."
+            archived_payload.append({
+                "note_id": note.id,
+                "title": note.title,
+                "tags": note.tags,
+                "note_type": note.note_type,
+                "updated_at": note.updated_at,
+                "preview": preview,
+            })
         
         return {
             "success": True,
-            "message": notes_text,
-            "notes": [note.to_dict() for note in archived_notes]
+            "action": "list_archived_notes",
+            "data": {
+                "count": len(archived_notes),
+                "shown": len(archived_payload),
+                "has_more": len(archived_notes) > 20,
+                "notes": archived_payload,
+            },
+            "formulate": True,
         }
     
     def _delete_note(self, command: str) -> Dict[str, Any]:
@@ -1235,52 +1512,59 @@ class NotesPlugin(PluginInterface):
         if re.search(r'delete\s+(?:all|any|every)\s+(?:my\s+)?notes?', command_lower):
             return self._delete_all_notes()
 
-        # Extract note identifier from command
-        note_to_delete = None
-        note_id = None
+        resolution = self._resolve_note_reference(command)
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "delete_note",
+                resolution.get("candidates", []),
+                "notes:delete_ambiguous",
+            )
 
-        # Pattern 1: "delete last note"
-        if 'last' in command_lower and self.last_note_id:
-            note_id = self.last_note_id
-            note_to_delete = self.manager.get_note(note_id)
-        
-        # Pattern 2: "delete note called/titled/about X" or "delete the X" (e.g. "delete the grocery list")
-        else:
-            patterns = [
-                r'delete\s+(?:note\s+)?(?:called|titled|named|about)\s+(.+)',
-                r'delete\s+(?:the\s+)?(.+?)\s+note',
-                r'remove\s+(?:note\s+)?(?:called|titled|named|about)\s+(.+)',
-                r'remove\s+(?:the\s+)?(.+?)\s+note',
-                r'(?:delete|remove)\s+(?:the\s+)?(.+)$',  # "delete the grocery list" -> title "grocery list"
-            ]
-            
-            for pattern in patterns:
-                match = re.search(pattern, command, re.IGNORECASE)
-                if match:
-                    title_query = match.group(1).strip()
-                    matching_notes = self.manager.find_by_title(title_query)
-                    if matching_notes:
-                        note_to_delete = matching_notes[0]
-                        note_id = note_to_delete.id
-                    break
+        note_to_delete = resolution.get("note") if resolution.get("status") == "resolved" else None
+        note_id = note_to_delete.id if note_to_delete else None
         
         if not note_to_delete:
             return {
                 "success": False,
-                "message": "I couldn't identify which note to delete. Try: 'delete last note' or 'delete note called shopping list'"
+                "action": "delete_note",
+                "data": {
+                    "error": "note_not_identified",
+                    "message_code": "notes:delete_target_not_found",
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "no_match")
+                    },
+                },
+                "formulate": True,
             }
         
         # Archive instead of permanently deleting (safer)
         if self.manager.archive_note(note_id):
             return {
                 "success": True,
-                "message": f"✅ Archived note: {note_to_delete.title}\n(Note is archived, not permanently deleted. Use 'unarchive' to restore it)",
-                "note_id": note_id
+                "action": "delete_note",
+                "data": {
+                    "note_id": note_id,
+                    "note_title": note_to_delete.title,
+                    "archived": True,
+                    "permanent": False,
+                    "restorable": True,
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "resolved")
+                    },
+                },
+                "formulate": True,
             }
         else:
             return {
                 "success": False,
-                "message": f"❌ Failed to archive note: {note_to_delete.title}"
+                "action": "delete_note",
+                "data": {
+                    "error": "archive_failed",
+                    "message_code": "notes:archive_failed",
+                    "note_id": note_id,
+                    "note_title": note_to_delete.title,
+                },
+                "formulate": True,
             }
 
     def _delete_all_notes(self) -> Dict[str, Any]:
@@ -1318,70 +1602,56 @@ class NotesPlugin(PluginInterface):
 
     def _edit_note(self, command: str) -> Dict[str, Any]:
         """Edit a note"""
-        note_to_edit = None
-        note_id = None
+        resolution = self._resolve_note_reference(command)
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "edit_note",
+                resolution.get("candidates", []),
+                "notes:edit_ambiguous",
+            )
+
+        note_to_edit = resolution.get("note") if resolution.get("status") == "resolved" else None
+        note_id = note_to_edit.id if note_to_edit else None
         new_content = None
-        
-        # Pattern 1: "edit last note to say X" or "update last note: X"
-        if 'last' in command.lower() and self.last_note_id:
-            note_id = self.last_note_id
-            note_to_edit = self.manager.get_note(note_id)
-            
-            # Extract new content
-            patterns = [
-                r'to\s+say\s+(.+)',
-                r'to:\s*(.+)',
-                r'with\s+(.+)',
-                r':\s*(.+)',
-            ]
-            for pattern in patterns:
-                match = re.search(pattern, command, re.IGNORECASE)
-                if match:
-                    new_content = match.group(1).strip()
-                    break
-        
-        # Pattern 2: "edit note called X to say Y" or "update shopping list: add milk"
-        else:
-            # First extract note title
-            title_patterns = [
-                r'(?:edit|update)\s+(?:note\s+)?(?:called|titled|named)\s+(.+?)\s+(?:to|:|with)',
-                r'(?:edit|update)\s+(?:the\s+)?(.+?)\s+note\s+(?:to|:|with)',
-            ]
-            
-            for pattern in title_patterns:
-                match = re.search(pattern, command, re.IGNORECASE)
-                if match:
-                    title_query = match.group(1).strip()
-                    matching_notes = self.manager.find_by_title(title_query)
-                    if matching_notes:
-                        note_to_edit = matching_notes[0]
-                        note_id = note_to_edit.id
-                    break
-            
-            # Extract new content
-            if note_to_edit:
-                content_patterns = [
-                    r'to\s+say\s+(.+)',
-                    r'to:\s*(.+)',
-                    r':\s*(.+)',
-                    r'with\s+(.+)',
-                ]
-                for pattern in content_patterns:
-                    match = re.search(pattern, command, re.IGNORECASE)
-                    if match:
-                        new_content = match.group(1).strip()
-                        break
+
+        # Extract new content regardless of resolution path
+        content_patterns = [
+            r'to\s+say\s+(.+)',
+            r'to:\s*(.+)',
+            r':\s*(.+)',
+            r'with\s+(.+)',
+        ]
+        for pattern in content_patterns:
+            match = re.search(pattern, command, re.IGNORECASE)
+            if match:
+                new_content = match.group(1).strip()
+                break
         
         if not note_to_edit:
             return {
                 "success": False,
-                "message": "I couldn't identify which note to edit. Try: 'edit last note to say...' or 'update shopping list: add eggs'"
+                "action": "edit_note",
+                "data": {
+                    "error": "note_not_identified",
+                    "message_code": "notes:edit_target_not_found",
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "no_match")
+                    },
+                },
+                "formulate": True,
             }
         
         if not new_content:
             return {
                 "success": False,
-                "message": f"What would you like to change in '{note_to_edit.title}'? Try: 'edit {note_to_edit.title} to say: new content'"
+                "action": "edit_note",
+                "data": {
+                    "error": "missing_new_content",
+                    "message_code": "notes:edit_missing_content",
+                    "note_id": note_id,
+                    "note_title": note_to_edit.title,
+                },
+                "formulate": True,
             }
         
         # Update the note
@@ -1389,8 +1659,16 @@ class NotesPlugin(PluginInterface):
         
         return {
             "success": True,
-            "message": f"✅ Updated note: {note_to_edit.title}",
-            "note_id": note_id
+            "action": "edit_note",
+            "data": {
+                "note_id": note_id,
+                "note_title": note_to_edit.title,
+                "new_content": new_content,
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "resolved")
+                    },
+            },
+            "formulate": True,
         }
     
     def _show_tags(self) -> Dict[str, Any]:
@@ -1400,115 +1678,144 @@ class NotesPlugin(PluginInterface):
         if not tags:
             return {
                 "success": True,
-                "message": "No tags found in your notes. Add tags to notes using #tagname",
-                "tags": []
+                "action": "show_tags",
+                "data": {
+                    "count": 0,
+                    "tags": [],
+                    "tag_counts": {},
+                },
+                "formulate": True,
             }
-        
-        tags_text = f"🏷All tags ({len(tags)}):\n"
-        tags_text += ', '.join(f"#{tag}" for tag in tags)
-        
+
+        tag_counts = {}
+        for tag in tags:
+            notes_with_tag = self.manager.search_by_tag(tag)
+            tag_counts[tag] = len(notes_with_tag)
+
         return {
             "success": True,
-            "message": tags_text,
-            "tags": tags
+            "action": "show_tags",
+            "data": {
+                "count": len(tags),
+                "tags": tags,
+                "tag_counts": tag_counts,
+                "sorted_tags": [{"tag": tag, "count": count} for tag, count in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)],
+            },
+            "formulate": True,
         }
     
     def _pin_unpin_note(self, command: str) -> Dict[str, Any]:
         """Pin or unpin a note"""
         is_unpin = 'unpin' in command.lower()
-        note_id = None
-        note = None
-        
-        # Check for "last note"
-        if 'last' in command.lower() and self.last_note_id:
-            note_id = self.last_note_id
-            note = self.manager.get_note(note_id)
-        else:
-            # Try to find by title
-            patterns = [
-                r'(?:pin|unpin)\s+(?:note\s+)?(?:called|titled)\s+(.+)',
-                r'(?:pin|unpin)\s+(?:the\s+)?(.+?)\s+note',
-            ]
-            for pattern in patterns:
-                match = re.search(pattern, command, re.IGNORECASE)
-                if match:
-                    title_query = match.group(1).strip()
-                    matching_notes = self.manager.find_by_title(title_query)
-                    if matching_notes:
-                        note = matching_notes[0]
-                        note_id = note.id
-                    break
-        
+        resolution = self._resolve_note_reference(command)
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "unpin_note" if is_unpin else "pin_note",
+                resolution.get("candidates", []),
+                "notes:pin_ambiguous",
+            )
+
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
         if not note:
             return {
                 "success": False,
-                "message": "I couldn't identify which note to pin/unpin. Try: 'pin last note' or 'pin note called shopping list'"
+                "action": "unpin_note" if is_unpin else "pin_note",
+                "data": {
+                    "error": "note_not_identified",
+                    "message_code": "notes:pin_target_not_found",
+                },
+                "formulate": True,
             }
+        note_id = note.id
         
         if is_unpin:
             success = self.manager.unpin_note(note_id)
-            action = "Unpinned"
+            action = "unpin_note"
         else:
             success = self.manager.pin_note(note_id)
-            action = "Pinned"
+            action = "pin_note"
         
         if success:
             return {
                 "success": True,
-                "message": f"✅ {action} note: {note.title}"
+                "action": action,
+                "data": {
+                    "note_id": note_id,
+                    "note_title": note.title,
+                    "pinned": not is_unpin,
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "resolved")
+                    },
+                },
+                "formulate": True,
             }
         return {
             "success": False,
-            "message": f"❌ Failed to {action.lower()} note"
+            "action": action,
+            "data": {
+                "error": "pin_state_update_failed",
+                "message_code": "notes:pin_update_failed",
+                "note_id": note_id,
+                "note_title": note.title,
+            },
+            "formulate": True,
         }
     
     def _archive_unarchive_note(self, command: str) -> Dict[str, Any]:
         """Archive or unarchive a note"""
         is_unarchive = 'unarchive' in command.lower()
-        note_id = None
-        note = None
-        
-        # Check for "last note"
-        if 'last' in command.lower() and self.last_note_id:
-            note_id = self.last_note_id
-            note = self.manager.get_note(note_id)
-        else:
-            # Try to find by title
-            patterns = [
-                r'(?:archive|unarchive)\s+(?:note\s+)?(?:called|titled)\s+(.+)',
-                r'(?:archive|unarchive)\s+(?:the\s+)?(.+?)\s+note',
-            ]
-            for pattern in patterns:
-                match = re.search(pattern, command, re.IGNORECASE)
-                if match:
-                    title_query = match.group(1).strip()
-                    matching_notes = self.manager.find_by_title(title_query)
-                    if matching_notes:
-                        note = matching_notes[0]
-                        note_id = note.id
-                    break
-        
+        resolution = self._resolve_note_reference(command, include_archived=True)
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "unarchive_note" if is_unarchive else "archive_note",
+                resolution.get("candidates", []),
+                "notes:archive_ambiguous",
+            )
+
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
         if not note:
             return {
                 "success": False,
-                "message": "I couldn't identify which note to archive/unarchive."
+                "action": "unarchive_note" if is_unarchive else "archive_note",
+                "data": {
+                    "error": "note_not_identified",
+                    "message_code": "notes:archive_target_not_found",
+                },
+                "formulate": True,
             }
+        note_id = note.id
         
         if is_unarchive:
             success = self.manager.unarchive_note(note_id)
-            action = "Unarchived"
+            action = "unarchive_note"
         else:
             success = self.manager.archive_note(note_id)
-            action = "Archived"
+            action = "archive_note"
         
         if success:
             return {
                 "success": True,
-                "message": f"✅ {action} note: {note.title}"
+                "action": action,
+                "data": {
+                    "note_id": note_id,
+                    "note_title": note.title,
+                    "archived": not is_unarchive,
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "resolved")
+                    },
+                },
+                "formulate": True,
             }
         return {
             "success": False,
-            "message": f"❌ Failed to {action.lower()} note"
+            "action": action,
+            "data": {
+                "error": "archive_state_update_failed",
+                "message_code": "notes:archive_update_failed",
+                "note_id": note_id,
+                "note_title": note.title,
+            },
+            "formulate": True,
         }
     
     def _set_priority(self, command: str) -> Dict[str, Any]:
@@ -1524,37 +1831,25 @@ class NotesPlugin(PluginInterface):
         elif 'medium' in command.lower():
             priority = "medium"
         
-        # Find the note
-        note_id = None
-        note = None
-
-        # Check for references to the last/recent note
-        if any(word in command.lower() for word in ['last', 'this', 'that', 'it', 'the note']) and self.last_note_id:
-            note_id = self.last_note_id
-            note = self.manager.get_note(note_id)
-        else:
-            # Extract note title
-            patterns = [
-                r'(?:set|mark)\s+(.+?)\s+as\s+(?:urgent|high|low|medium)',
-                r'(?:priority|prioritize)\s+(.+?)\s+(?:as|to)\s+(?:urgent|high|low|medium)',
-            ]
-            for pattern in patterns:
-                match = re.search(pattern, command, re.IGNORECASE)
-                if match:
-                    title_query = match.group(1).strip().replace('note called', '').replace('note', '').strip()
-                    matching_notes = self.manager.find_by_title(title_query)
-                    if matching_notes:
-                        note = matching_notes[0]
-                        note_id = note.id
-                    break
+        resolution = self._resolve_note_reference(command)
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "set_priority",
+                resolution.get("candidates", []),
+                "notes:priority_ambiguous",
+            )
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
+        note_id = note.id if note else None
         
         if not note:
             return {
                 "success": False,
                 "action": "set_priority",
-                "data": {},
+                "data": {
+                    "error": "note_not_identified",
+                    "message_code": "notes:priority_target_not_found",
+                },
                 "formulate": True,
-                "message": "I couldn't identify which note to set priority for."
             }
 
         if self.manager.set_priority(note_id, priority):
@@ -1564,16 +1859,22 @@ class NotesPlugin(PluginInterface):
                 "data": {
                     "note_title": note.title,
                     "priority": priority,
-                    "note_id": note_id
+                    "note_id": note_id,
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "resolved")
+                    },
                 },
                 "formulate": True
             }
         return {
             "success": False,
             "action": "set_priority",
-            "data": {},
+            "data": {
+                "error": "priority_update_failed",
+                "message_code": "notes:priority_update_failed",
+                "note_id": note_id,
+            },
             "formulate": True,
-            "message": "Failed to set priority"
         }
     
     def _set_category(self, command: str) -> Dict[str, Any]:
@@ -1584,28 +1885,55 @@ class NotesPlugin(PluginInterface):
         if category_match:
             category = category_match.group(1).lower()
         
-        # Find the note
-        note_id = None
-        note = None
-        
-        if 'last' in command.lower() and self.last_note_id:
-            note_id = self.last_note_id
-            note = self.manager.get_note(note_id)
+        resolution = self._resolve_note_reference(command)
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "set_category",
+                resolution.get("candidates", []),
+                "notes:category_ambiguous",
+            )
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
+        note_id = note.id if note else None
         
         if not note:
             return {
                 "success": False,
-                "message": "I couldn't identify which note to categorize."
+                "action": "set_category",
+                "data": {
+                    "error": "note_not_identified",
+                    "message_code": "notes:category_target_not_found",
+                    "category": category,
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "no_match")
+                    },
+                },
+                "formulate": True,
             }
         
         if self.manager.set_category(note_id, category):
             return {
                 "success": True,
-                "message": f"✅ Set category to '{category}' for: {note.title}"
+                "action": "set_category",
+                "data": {
+                    "note_id": note_id,
+                    "note_title": note.title,
+                    "category": category,
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "resolved")
+                    },
+                },
+                "formulate": True,
             }
         return {
             "success": False,
-            "message": "❌ Failed to set category"
+            "action": "set_category",
+            "data": {
+                "error": "set_category_failed",
+                "message_code": "notes:category_update_failed",
+                "note_id": note_id,
+                "category": category,
+            },
+            "formulate": True,
         }
     
     def _link_notes(self, command: str) -> Dict[str, Any]:
@@ -1613,7 +1941,12 @@ class NotesPlugin(PluginInterface):
         # This is a simplified version - could be enhanced
         return {
             "success": False,
-            "message": "Note linking feature is available but requires specifying both note titles. Try: 'link note A to note B'"
+            "action": "link_notes",
+            "data": {
+                "error": "insufficient_link_arguments",
+                "message_code": "notes:link_requires_two_titles",
+            },
+            "formulate": True,
         }
     
     def _show_overdue_notes(self) -> Dict[str, Any]:
@@ -1623,20 +1956,32 @@ class NotesPlugin(PluginInterface):
         if not overdue:
             return {
                 "success": True,
-                "message": "✅ No overdue notes!",
-                "notes": []
+                "action": "show_overdue_notes",
+                "data": {
+                    "count": 0,
+                    "notes": [],
+                },
+                "formulate": True,
             }
-        
-        notes_text = f"⚠You have {len(overdue)} overdue note(s):\n\n"
-        for i, note in enumerate(overdue, 1):
-            tags_str = f" #{' #'.join(note.tags)}" if note.tags else ""
-            notes_text += f"{i}. {note.title}{tags_str}\n"
-            notes_text += f"   Due: {note.due_date[:10]}\n\n"
-        
+
+        overdue_payload = []
+        for note in overdue:
+            overdue_payload.append({
+                "note_id": note.id,
+                "title": note.title,
+                "tags": note.tags,
+                "due_date": note.due_date,
+                "priority": note.priority,
+            })
+
         return {
             "success": True,
-            "message": notes_text,
-            "notes": [note.to_dict() for note in overdue]
+            "action": "show_overdue_notes",
+            "data": {
+                "count": len(overdue_payload),
+                "notes": overdue_payload,
+            },
+            "formulate": True,
         }
     
     def _count_notes(self, command: str) -> Dict[str, Any]:
@@ -1691,8 +2036,13 @@ class NotesPlugin(PluginInterface):
         if not tags:
             return {
                 "success": True,
-                "message": "You haven't used any tags in your notes yet. Add tags with #tagname when creating notes!",
-                "tags": []
+                "action": "show_tags",
+                "data": {
+                    "count": 0,
+                    "tags": [],
+                    "tag_counts": {},
+                },
+                "formulate": True,
             }
         
         # Count notes per tag
@@ -1704,15 +2054,16 @@ class NotesPlugin(PluginInterface):
         # Sort by count (most used first)
         sorted_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
         
-        message = f"🏷**All Tags** ({len(tags)} total)\n\n"
-        for tag, count in sorted_tags:
-            message += f"   #{tag} ({count} note{'s' if count != 1 else ''})\n"
-        
         return {
             "success": True,
-            "message": message,
-            "tags": tags,
-            "tag_counts": tag_counts
+            "action": "show_tags",
+            "data": {
+                "count": len(tags),
+                "tags": tags,
+                "tag_counts": tag_counts,
+                "sorted_tags": [{"tag": tag, "count": count} for tag, count in sorted_tags],
+            },
+            "formulate": True,
         }
 
 

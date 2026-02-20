@@ -3830,18 +3830,33 @@ class ALICE:
                 try:
                     import time
                     response_time = (time.time() - locals().get('start_time', time.time())) * 1000  # ms
-                    plugin_name = selected_plugin if 'selected_plugin' in locals() else None
+                    plugin_name = None
+                    if 'plugin_result' in locals() and isinstance(plugin_result, dict):
+                        plugin_name = plugin_result.get('plugin')
                     llm_used = 'ollama_phrased_response' in locals() or 'llm_response' in locals()
                     cached = intent in cacheable_intents and self._cache_get(user_input, intent) is not None
+                    interaction_success = True
+                    extra_metadata = None
+                    if 'plugin_result' in locals() and isinstance(plugin_result, dict):
+                        interaction_success = bool(plugin_result.get('success', True))
+                        pdata = plugin_result.get('data', {}) if isinstance(plugin_result.get('data', {}), dict) else {}
+                        diagnostics = pdata.get('diagnostics', {}) if isinstance(pdata.get('diagnostics', {}), dict) else {}
+                        extra_metadata = {
+                            'plugin_action': plugin_result.get('action'),
+                            'plugin_error': pdata.get('error'),
+                            'message_code': pdata.get('message_code'),
+                            'resolution_path': diagnostics.get('resolution_path'),
+                        }
 
                     self.usage_analytics.log_interaction(
                         user_input=user_input,
                         intent=intent,
                         plugin_used=plugin_name,
                         response_time_ms=response_time,
-                        success=True,
+                        success=interaction_success,
                         llm_used=llm_used,
-                        cached=cached
+                        cached=cached,
+                        extra_metadata=extra_metadata,
                     )
                 except Exception as e:
                     logger.debug(f"[Analytics] Could not log interaction: {e}")
