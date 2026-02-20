@@ -738,6 +738,10 @@ class NotesPlugin(PluginInterface):
             # Add to list/note (context-aware update)
             elif re.search(r'add\s+.+\s+to\s+(?:the\s+)?(?:list|note)', command_lower):
                 result = self._add_to_note(command)
+
+            # Ask for note title/name (context-aware follow-up)
+            elif re.search(r"(?:what(?:'s|\s+is)?\s+the\s+title|title\s+of\s+(?:the\s+)?note|name\s+of\s+(?:the\s+)?note)", command_lower):
+                result = self._get_note_title(command)
             
             # Show tags (check first before list/show notes)
             elif 'tag' in command_lower and any(word in command_lower for word in ['show', 'list', 'all']):
@@ -1127,11 +1131,61 @@ class NotesPlugin(PluginInterface):
         
         if len(notes) > 20:
             notes_text += f"\n... and {len(notes) - 20} more notes"
+
+        # Track first listed note for context-aware follow-ups like "what is the title of the note?"
+        first_note = notes[0]
+        self.last_note_id = first_note.id
+        self.last_note_title = first_note.title
         
         return {
             "success": True,
             "message": notes_text,
             "notes": [note.to_dict() for note in notes]
+        }
+
+    def _get_note_title(self, command: str) -> Dict[str, Any]:
+        """Return the title of a referenced note using context or explicit title mention."""
+        note = None
+
+        # Prefer context when user refers to "the note", "this", "that", etc.
+        if self.last_note_id and any(word in command.lower() for word in ['the note', 'this', 'that', 'it', 'last']):
+            note = self.manager.get_note(self.last_note_id)
+
+        # If no context note, try to resolve by explicit title fragment
+        if not note:
+            title_match = re.search(r"(?:title|name)\s+of\s+(?:the\s+)?note\s+(?:called\s+)?(.+)", command, re.IGNORECASE)
+            if title_match:
+                title_query = title_match.group(1).strip().strip('?.!,')
+                matches = self.manager.find_by_title(title_query)
+                if matches:
+                    note = matches[0]
+
+        # Single-note fallback for natural follow-up phrasing
+        if not note:
+            all_notes = self.manager.get_all_notes()
+            if len(all_notes) == 1:
+                note = all_notes[0]
+
+        if not note:
+            return {
+                "success": False,
+                "action": "get_note_title",
+                "data": {},
+                "formulate": True,
+                "message": "I couldn't tell which note you mean. Try 'show my notes' first or mention the note name."
+            }
+
+        self.last_note_id = note.id
+        self.last_note_title = note.title
+
+        return {
+            "success": True,
+            "action": "get_note_title",
+            "data": {
+                "note_id": note.id,
+                "title": note.title
+            },
+            "formulate": True
         }
     
     def _list_archived_notes(self) -> Dict[str, Any]:

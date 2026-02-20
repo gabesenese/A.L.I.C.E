@@ -2565,8 +2565,16 @@ class ALICE:
                         user_input, intent, entities or {}, resolution.resolved_input
                     )
                     if goal_res.cancelled and goal_res.message:
-                        self._think("Goal cancelled → returning ack")
-                        return goal_res.message
+                        cancel_ack_intents = {
+                            "conversation:ack",
+                            "cancel",
+                            "task:cancel",
+                            "email:cancel",
+                        }
+                        if intent in cancel_ack_intents:
+                            self._think("Goal cancelled → returning ack")
+                            return goal_res.message
+                        self._think(f"Goal cancelled → continuing with intent={intent!r}")
                     if goal_res.revised:
                         intent, entities = goal_res.intent, goal_res.entities
                         self._think(f"Goal revised → intent={intent!r}")

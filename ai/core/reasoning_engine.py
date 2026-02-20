@@ -318,7 +318,7 @@ class ReasoningEngine:
         
         # 1) Cancel: "cancel that", "never mind"
         for pat in self.CANCEL_PATTERNS:
-            if re.search(pat, inp):
+            if re.search(pat, inp) and self._is_pure_cancellation_input(inp):
                 self.set_goal(None)
                 cancelled = True
                 msg = "Understood. Cancelled."
@@ -330,6 +330,9 @@ class ReasoningEngine:
                     revised=False,
                     message=msg,
                 )
+
+        if any(re.search(pat, inp) for pat in self.CANCEL_PATTERNS):
+            logger.debug("Cancellation phrase detected in mixed input; skipping goal cancellation")
         
         # 2) Revise: "actually delete the shopping list"
         for pat in self.REVISE_PATTERNS:
@@ -378,7 +381,7 @@ class ReasoningEngine:
                     revised=False,
                     message="I'm not sure what to do—could you say it again?",
                 )
-        
+
         # 4) Check if input relates to existing goal
         current_goal = self.active_goal
         if current_goal:
@@ -432,6 +435,23 @@ class ReasoningEngine:
             revised=False,
             message=None,
         )
+
+    def _is_pure_cancellation_input(self, inp: str) -> bool:
+        """Return True only when input appears to be an explicit cancellation utterance."""
+        normalized = re.sub(r"\s+", " ", inp.strip())
+
+        # If input clearly continues with a new request or question, do not treat as cancel-only.
+        continuation_markers = [
+            " how ", " what ", " when ", " where ", " why ", " who ", " can ", " could ",
+            " would ", " should ", " is ", " are ", " do ", " does ", " did ",
+            " tell me", " show me", " let me", " let's ", " lets ", " how's ", " what's ",
+        ]
+        if "?" in normalized:
+            return False
+        if any(marker in f" {normalized} " for marker in continuation_markers):
+            return False
+
+        return True
     
     def get_current_goal(self) -> Optional[ActiveGoal]:
         """Get current active goal"""
