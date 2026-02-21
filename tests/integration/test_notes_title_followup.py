@@ -192,6 +192,54 @@ class TestNotesTitleFollowup:
         assert followup.get("data", {}).get("archived") is True
         assert followup.get("data", {}).get("diagnostics", {}).get("resolution_path") == "disambiguation_selection"
 
+    def test_disambiguation_selection_by_title_keyword(self, plugin):
+        plugin.manager.create_note(title="Grocery List", content="milk")
+        plugin.manager.create_note(title="Grocery List Weekend", content="eggs")
+
+        ambiguous = plugin.execute(
+            intent="conversation:general",
+            query="delete grocery list",
+            entities={},
+            context={},
+        )
+        assert ambiguous.get("success") is False
+        assert ambiguous.get("data", {}).get("error") == "note_ambiguous"
+
+        followup = plugin.execute(
+            intent="conversation:general",
+            query="the weekend one",
+            entities={},
+            context={},
+        )
+
+        assert followup.get("success") is True
+        assert followup.get("action") == "delete_note"
+        assert followup.get("data", {}).get("note_title") == "Grocery List Weekend"
+
+    def test_disambiguation_selection_by_tag_hint(self, plugin):
+        plugin.manager.create_note(title="Project Tasks", content="code", tags=["work"])
+        plugin.manager.create_note(title="Project Tasks Personal", content="gym", tags=["personal"])
+
+        ambiguous = plugin.execute(
+            intent="conversation:general",
+            query="delete project tasks",
+            entities={},
+            context={},
+        )
+        assert ambiguous.get("success") is False
+        assert ambiguous.get("data", {}).get("error") == "note_ambiguous"
+
+        followup = plugin.execute(
+            intent="conversation:general",
+            query="the one tagged personal",
+            entities={},
+            context={},
+        )
+
+        assert followup.get("success") is True
+        assert followup.get("action") == "delete_note"
+        assert followup.get("data", {}).get("note_title") == "Project Tasks Personal"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

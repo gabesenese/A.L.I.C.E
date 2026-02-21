@@ -802,8 +802,13 @@ class NotesPlugin(PluginInterface):
 
         return {"status": "unresolved", "resolution_path": "no_match"}
 
-    def _extract_disambiguation_selection_index(self, command: str, candidate_count: int) -> Optional[int]:
-        """Extract candidate index for disambiguation follow-ups like '2', 'second', or 'last one'."""
+    def _extract_disambiguation_selection_index(
+        self,
+        command: str,
+        candidate_count: int,
+        candidates: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[int]:
+        """Extract candidate index for disambiguation follow-ups by number, tag, or title hint."""
         if not command or candidate_count <= 0:
             return None
 
@@ -819,6 +824,42 @@ class NotesPlugin(PluginInterface):
         ordinal_idx = self._extract_ordinal_index(lower)
         if ordinal_idx is not None:
             return ordinal_idx
+
+        if candidates:
+            tag_match = re.search(r"(?:tag(?:ged)?\s+|#)([a-z0-9_-]+)", lower)
+            if tag_match:
+                wanted_tag = tag_match.group(1).lower()
+                matched_indices = []
+                for idx, candidate in enumerate(candidates):
+                    tags = [str(tag).lower() for tag in (candidate.get('tags') or [])]
+                    if wanted_tag in tags:
+                        matched_indices.append(idx)
+                if len(matched_indices) == 1:
+                    return matched_indices[0]
+
+            ignore_tokens = {
+                'the', 'this', 'that', 'one', 'option', 'note', 'list', 'pick', 'choose',
+                'select', 'title', 'tag', 'tagged', 'with', 'please', 'from', 'for'
+            }
+            command_tokens = {tok for tok in self._tokenize(lower) if tok not in ignore_tokens}
+            if command_tokens:
+                best_idx = None
+                best_score = 0
+                tie = False
+                for idx, candidate in enumerate(candidates):
+                    title_tokens = set(self._tokenize(str(candidate.get('title', ''))))
+                    tag_tokens = set(self._tokenize(' '.join(str(tag) for tag in (candidate.get('tags') or []))))
+                    candidate_tokens = title_tokens | tag_tokens
+                    overlap = len(command_tokens & candidate_tokens)
+                    if overlap > best_score:
+                        best_score = overlap
+                        best_idx = idx
+                        tie = False
+                    elif overlap == best_score and overlap > 0:
+                        tie = True
+
+                if best_idx is not None and best_score > 0 and not tie:
+                    return best_idx
 
         return None
 
@@ -1089,7 +1130,7 @@ class NotesPlugin(PluginInterface):
         candidates = pending.get("candidates", [])
         action = pending.get("action", "unknown")
         original_command = pending.get("command", "")
-        idx = self._extract_disambiguation_selection_index(command, len(candidates))
+        idx = self._extract_disambiguation_selection_index(command, len(candidates), candidates=candidates)
         if idx is None:
             return None
 
@@ -1154,7 +1195,7 @@ class NotesPlugin(PluginInterface):
                 "message_code": message_code,
                 "candidates": candidate_payload,
                 "requires_selection": True,
-                "selection_hint": "Reply with the option number (e.g., 1 or 2)",
+                "selection_hint": "Reply with a number (e.g., 1), or name/tag hint (e.g., weekend one, tagged work)",
             },
             "formulate": True,
         }
@@ -1270,7 +1311,11 @@ class NotesPlugin(PluginInterface):
         ]
         
         # Check for question patterns
-        if self.pending_disambiguation and self._extract_disambiguation_selection_index(command_lower, len(self.pending_disambiguation.get('candidates', []))) is not None:
+        if self.pending_disambiguation and self._extract_disambiguation_selection_index(
+            command_lower,
+            len(self.pending_disambiguation.get('candidates', [])),
+            candidates=self.pending_disambiguation.get('candidates', []),
+        ) is not None:
             return True
 
         if any(re.search(pattern, command_lower) for pattern in question_patterns):
