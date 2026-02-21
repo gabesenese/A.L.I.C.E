@@ -4708,7 +4708,7 @@ class ALICE:
                 try:
                     context = self.summarizer.get_detailed_context()
                     topics = context.get('frequent_topics', [])
-                    print("\n🏷Conversation Topics:")
+                    print("\nConversation Topics:")
                     print("=" * 50)
                     if topics:
                         for i, topic in enumerate(topics, 1):
