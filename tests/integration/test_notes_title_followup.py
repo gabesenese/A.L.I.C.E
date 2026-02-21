@@ -164,6 +164,34 @@ class TestNotesTitleFollowup:
         assert result.get("action") == "get_note_content"
         assert result.get("data", {}).get("note_title") == "Release Plan"
 
+    def test_disambiguation_selection_by_number_executes_delete(self, plugin):
+        plugin.manager.create_note(title="Grocery List", content="milk")
+        plugin.manager.create_note(title="Grocery List Weekend", content="eggs")
+
+        ambiguous = plugin.execute(
+            intent="conversation:general",
+            query="delete grocery list",
+            entities={},
+            context={},
+        )
+
+        assert ambiguous.get("success") is False
+        assert ambiguous.get("data", {}).get("error") == "note_ambiguous"
+        assert ambiguous.get("data", {}).get("requires_selection") is True
+        assert len(ambiguous.get("data", {}).get("candidates", [])) >= 2
+
+        followup = plugin.execute(
+            intent="conversation:general",
+            query="2",
+            entities={},
+            context={},
+        )
+
+        assert followup.get("success") is True
+        assert followup.get("action") == "delete_note"
+        assert followup.get("data", {}).get("archived") is True
+        assert followup.get("data", {}).get("diagnostics", {}).get("resolution_path") == "disambiguation_selection"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

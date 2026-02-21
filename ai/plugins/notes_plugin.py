@@ -645,6 +645,7 @@ class NotesPlugin(PluginInterface):
         self.last_note_title = None
         self.last_note_result_ids: List[str] = []
         self.last_resolution_path = "none"
+        self.pending_disambiguation: Optional[Dict[str, Any]] = None
 
         # Learning and telemetry state (no hardcoded response text path)
         self.learning_state_path = Path("data/notes/notes_learning_state.json")
@@ -801,22 +802,359 @@ class NotesPlugin(PluginInterface):
 
         return {"status": "unresolved", "resolution_path": "no_match"}
 
+    def _extract_disambiguation_selection_index(self, command: str, candidate_count: int) -> Optional[int]:
+        """Extract candidate index for disambiguation follow-ups like '2', 'second', or 'last one'."""
+        if not command or candidate_count <= 0:
+            return None
+
+        lower = command.lower().strip()
+        number_match = re.fullmatch(r"(?:option\s*)?(\d+)", lower)
+        if number_match:
+            selected = int(number_match.group(1)) - 1
+            return selected
+
+        if 'last' in lower and candidate_count > 0:
+            return candidate_count - 1
+
+        ordinal_idx = self._extract_ordinal_index(lower)
+        if ordinal_idx is not None:
+            return ordinal_idx
+
+        return None
+
+    def _extract_edit_content(self, command: str) -> Optional[str]:
+        content_patterns = [
+            r'to\s+say\s+(.+)',
+            r'to:\s*(.+)',
+            r':\s*(.+)',
+            r'with\s+(.+)',
+        ]
+        for pattern in content_patterns:
+            match = re.search(pattern, command, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        return None
+
+    def _extract_priority(self, command: str) -> str:
+        lower = command.lower()
+        if 'urgent' in lower:
+            return 'urgent'
+        if 'high' in lower:
+            return 'high'
+        if 'low' in lower:
+            return 'low'
+        if 'medium' in lower:
+            return 'medium'
+        return 'medium'
+
+    def _extract_category(self, command: str) -> str:
+        category_match = re.search(r'(?:category|categorize)\s+(?:as|to)\s+(\w+)', command, re.IGNORECASE)
+        if category_match:
+            return category_match.group(1).lower()
+        return 'general'
+
+    def _build_note_content_result(self, note: Note, resolution_path: str) -> Dict[str, Any]:
+        return {
+            "success": True,
+            "action": "get_note_content",
+            "data": {
+                "note_id": note.id,
+                "note_title": note.title,
+                "content": note.content,
+                "tags": note.tags,
+                "note_type": note.note_type,
+                "category": note.category,
+                "priority": note.priority,
+                "created_at": note.created_at,
+                "updated_at": note.updated_at,
+                "diagnostics": {
+                    "resolution_path": resolution_path,
+                },
+            },
+            "formulate": True,
+        }
+
+    def _build_note_summary_result(self, note: Note, resolution_path: str) -> Dict[str, Any]:
+        text = (note.content or "").strip()
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        key_points: List[str] = []
+        action_items: List[str] = []
+        dates: List[str] = []
+
+        date_pattern = re.compile(r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2})\b", re.IGNORECASE)
+        action_pattern = re.compile(r"^(?:[-*]|\d+[.)]|\[ ?\]|todo\b|action\b|call\b|email\b|buy\b|send\b|finish\b)", re.IGNORECASE)
+
+        for line in lines:
+            normalized = re.sub(r"^[-*\d\[\]()\.\s]+", "", line).strip()
+            if normalized and len(key_points) < 8:
+                key_points.append(normalized[:220])
+
+            if action_pattern.search(line):
+                cleaned = re.sub(r"^[-*\d\[\]()\.\s]+", "", line).strip()
+                if cleaned:
+                    action_items.append(cleaned[:220])
+
+            for match in date_pattern.findall(line):
+                if match not in dates:
+                    dates.append(match)
+
+        if not key_points and text:
+            key_points = [text[:220]]
+
+        return {
+            "success": True,
+            "action": "summarize_note",
+            "data": {
+                "note_id": note.id,
+                "note_title": note.title,
+                "summary": {
+                    "overview": key_points[:3],
+                    "key_points": key_points,
+                    "action_items": action_items,
+                    "dates": dates,
+                    "line_count": len(lines),
+                },
+                "tags": note.tags,
+                "note_type": note.note_type,
+                "category": note.category,
+                "priority": note.priority,
+                "created_at": note.created_at,
+                "updated_at": note.updated_at,
+                "diagnostics": {
+                    "resolution_path": resolution_path,
+                },
+            },
+            "formulate": True,
+        }
+
+    def _execute_selected_disambiguation(self, action: str, note: Note, original_command: str) -> Dict[str, Any]:
+        """Execute a disambiguated action against the selected note."""
+        resolution_path = "disambiguation_selection"
+        self.last_note_id = note.id
+        self.last_note_title = note.title
+
+        if action == "get_note_title":
+            return {
+                "success": True,
+                "action": "get_note_title",
+                "data": {
+                    "note_id": note.id,
+                    "title": note.title,
+                    "diagnostics": {"resolution_path": resolution_path},
+                },
+                "formulate": True,
+            }
+
+        if action == "get_note_content":
+            return self._build_note_content_result(note, resolution_path)
+
+        if action == "summarize_note":
+            return self._build_note_summary_result(note, resolution_path)
+
+        if action == "delete_note":
+            success = self.manager.archive_note(note.id)
+            if success:
+                return {
+                    "success": True,
+                    "action": "delete_note",
+                    "data": {
+                        "note_id": note.id,
+                        "note_title": note.title,
+                        "archived": True,
+                        "permanent": False,
+                        "restorable": True,
+                        "diagnostics": {"resolution_path": resolution_path},
+                    },
+                    "formulate": True,
+                }
+            return {
+                "success": False,
+                "action": "delete_note",
+                "data": {
+                    "error": "archive_failed",
+                    "message_code": "notes:archive_failed",
+                    "note_id": note.id,
+                    "diagnostics": {"resolution_path": resolution_path},
+                },
+                "formulate": True,
+            }
+
+        if action in ("pin_note", "unpin_note"):
+            success = self.manager.unpin_note(note.id) if action == "unpin_note" else self.manager.pin_note(note.id)
+            if success:
+                return {
+                    "success": True,
+                    "action": action,
+                    "data": {
+                        "note_id": note.id,
+                        "note_title": note.title,
+                        "pinned": action == "pin_note",
+                        "diagnostics": {"resolution_path": resolution_path},
+                    },
+                    "formulate": True,
+                }
+
+        if action in ("archive_note", "unarchive_note"):
+            success = self.manager.unarchive_note(note.id) if action == "unarchive_note" else self.manager.archive_note(note.id)
+            if success:
+                return {
+                    "success": True,
+                    "action": action,
+                    "data": {
+                        "note_id": note.id,
+                        "note_title": note.title,
+                        "archived": action == "archive_note",
+                        "diagnostics": {"resolution_path": resolution_path},
+                    },
+                    "formulate": True,
+                }
+
+        if action == "set_priority":
+            priority = self._extract_priority(original_command)
+            if self.manager.set_priority(note.id, priority):
+                return {
+                    "success": True,
+                    "action": "set_priority",
+                    "data": {
+                        "note_id": note.id,
+                        "note_title": note.title,
+                        "priority": priority,
+                        "diagnostics": {"resolution_path": resolution_path},
+                    },
+                    "formulate": True,
+                }
+
+        if action == "set_category":
+            category = self._extract_category(original_command)
+            if self.manager.set_category(note.id, category):
+                return {
+                    "success": True,
+                    "action": "set_category",
+                    "data": {
+                        "note_id": note.id,
+                        "note_title": note.title,
+                        "category": category,
+                        "diagnostics": {"resolution_path": resolution_path},
+                    },
+                    "formulate": True,
+                }
+
+        if action == "edit_note":
+            new_content = self._extract_edit_content(original_command)
+            if not new_content:
+                return {
+                    "success": False,
+                    "action": "edit_note",
+                    "data": {
+                        "error": "missing_new_content",
+                        "message_code": "notes:edit_missing_content",
+                        "note_id": note.id,
+                        "note_title": note.title,
+                        "diagnostics": {"resolution_path": resolution_path},
+                    },
+                    "formulate": True,
+                }
+            self.manager.update_note(note.id, content=new_content)
+            return {
+                "success": True,
+                "action": "edit_note",
+                "data": {
+                    "note_id": note.id,
+                    "note_title": note.title,
+                    "new_content": new_content,
+                    "diagnostics": {"resolution_path": resolution_path},
+                },
+                "formulate": True,
+            }
+
+        return {
+            "success": True,
+            "action": "select_note_candidate",
+            "data": {
+                "note_id": note.id,
+                "note_title": note.title,
+                "next_action": action,
+                "message_code": "notes:selection_applied",
+                "diagnostics": {"resolution_path": resolution_path},
+            },
+            "formulate": True,
+        }
+
+    def _resolve_pending_disambiguation(self, command: str) -> Optional[Dict[str, Any]]:
+        """Resolve pending disambiguation if user provides a candidate selection."""
+        pending = self.pending_disambiguation
+        if not pending:
+            return None
+
+        candidates = pending.get("candidates", [])
+        action = pending.get("action", "unknown")
+        original_command = pending.get("command", "")
+        idx = self._extract_disambiguation_selection_index(command, len(candidates))
+        if idx is None:
+            return None
+
+        if idx < 0 or idx >= len(candidates):
+            return {
+                "success": False,
+                "action": action,
+                "data": {
+                    "error": "invalid_disambiguation_selection",
+                    "message_code": "notes:selection_out_of_range",
+                    "selected": idx + 1,
+                    "candidate_count": len(candidates),
+                    "candidates": candidates,
+                    "requires_selection": True,
+                    "diagnostics": {"resolution_path": "disambiguation_selection_invalid"},
+                },
+                "formulate": True,
+            }
+
+        selected = candidates[idx]
+        note_id = selected.get("note_id")
+        note = self.manager.get_note(note_id) if note_id else None
+        if not note:
+            self.pending_disambiguation = None
+            return {
+                "success": False,
+                "action": action,
+                "data": {
+                    "error": "selected_note_not_found",
+                    "message_code": "notes:selected_note_not_found",
+                    "diagnostics": {"resolution_path": "disambiguation_selection_missing_note"},
+                },
+                "formulate": True,
+            }
+
+        result = self._execute_selected_disambiguation(action, note, original_command)
+        self.pending_disambiguation = None
+        return result
+
     def _make_disambiguation_result(self, action: str, candidates: List[Note], message_code: str) -> Dict[str, Any]:
+        candidate_payload = [
+            {
+                "option": index + 1,
+                "note_id": note.id,
+                "title": note.title,
+                "updated_at": note.updated_at,
+                "tags": note.tags,
+            }
+            for index, note in enumerate(candidates)
+        ]
+        self.pending_disambiguation = {
+            "action": action,
+            "candidates": candidate_payload,
+            "command": "",
+            "created_at": datetime.now().isoformat(),
+        }
         return {
             "success": False,
             "action": action,
             "data": {
                 "error": "note_ambiguous",
                 "message_code": message_code,
-                "candidates": [
-                    {
-                        "note_id": n.id,
-                        "title": n.title,
-                        "updated_at": n.updated_at,
-                        "tags": n.tags,
-                    }
-                    for n in candidates
-                ],
+                "candidates": candidate_payload,
+                "requires_selection": True,
+                "selection_hint": "Reply with the option number (e.g., 1 or 2)",
             },
             "formulate": True,
         }
@@ -932,6 +1270,9 @@ class NotesPlugin(PluginInterface):
         ]
         
         # Check for question patterns
+        if self.pending_disambiguation and self._extract_disambiguation_selection_index(command_lower, len(self.pending_disambiguation.get('candidates', []))) is not None:
+            return True
+
         if any(re.search(pattern, command_lower) for pattern in question_patterns):
             return True
         
@@ -969,81 +1310,90 @@ class NotesPlugin(PluginInterface):
         try:
             command_lower = command.lower()
             resolution_path = "rule_router"
+
+            pending_resolution = self._resolve_pending_disambiguation(command)
+            if pending_resolution is not None:
+                result = pending_resolution
+                resolution_path = "disambiguation_selection"
+            else:
+                result = None
             
             # Count notes (check first for "how many notes")
-            if re.search(r'how many|count|number of', command_lower) and 'note' in command_lower:
+            if result is None and re.search(r'how many|count|number of', command_lower) and 'note' in command_lower:
                 result = self._count_notes(command)
             
             # Add to list/note (context-aware update)
-            elif re.search(r'add\s+.+\s+to\s+(?:the\s+)?(?:list|note)', command_lower):
+            elif result is None and re.search(r'add\s+.+\s+to\s+(?:the\s+)?(?:list|note)', command_lower):
                 result = self._add_to_note(command)
 
             # Ask for note title/name (context-aware follow-up)
-            elif re.search(r"(?:what(?:'s|\s+is)?\s+the\s+title|title\s+of\s+(?:the\s+)?note|name\s+of\s+(?:the\s+)?note)", command_lower):
+            elif result is None and re.search(r"(?:what(?:'s|\s+is)?\s+the\s+title|title\s+of\s+(?:the\s+)?note|name\s+of\s+(?:the\s+)?note)", command_lower):
                 result = self._get_note_title(command)
 
             # Summarize note content
-            elif any(word in command_lower for word in ['summarize', 'summary', 'tldr', 'highlights']) and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']):
+            elif result is None and any(word in command_lower for word in ['summarize', 'summary', 'tldr', 'highlights']) and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']):
                 result = self._summarize_note_content(command)
 
             # Read/show full note content
-            elif any(word in command_lower for word in ['read', 'open', 'full content', 'show content', 'what is in']) and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']):
+            elif result is None and any(word in command_lower for word in ['read', 'open', 'full content', 'show content', 'what is in']) and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']):
                 result = self._get_note_content(command)
             
             # Show tags (check first before list/show notes)
-            elif 'tag' in command_lower and any(word in command_lower for word in ['show', 'list', 'all']):
+            elif result is None and 'tag' in command_lower and any(word in command_lower for word in ['show', 'list', 'all']):
                 result = self._show_tags()
             
             # Create note
-            elif any(word in command_lower for word in ['create', 'add', 'new', 'make', 'write', 'jot']) and 'note' in command_lower:
+            elif result is None and any(word in command_lower for word in ['create', 'add', 'new', 'make', 'write', 'jot']) and 'note' in command_lower:
                 result = self._create_note(command)
             
             # Search notes
-            elif any(word in command_lower for word in ['search', 'find']):
+            elif result is None and any(word in command_lower for word in ['search', 'find']):
                 result = self._search_notes(command)
             
             # Delete/remove note (check before list — "delete the grocery list" must not match list)
-            elif any(word in command_lower for word in ['delete', 'remove']):
+            elif result is None and any(word in command_lower for word in ['delete', 'remove']):
                 result = self._delete_note(command)
             
             # List/show notes (also handle "do i have notes")
-            elif any(word in command_lower for word in ['list', 'show', 'all notes', 'my notes', 'do i have']):
+            elif result is None and any(word in command_lower for word in ['list', 'show', 'all notes', 'my notes', 'do i have']):
                 result = self._list_notes(command)
             
             # Edit/update note
-            elif any(word in command_lower for word in ['edit', 'update']):
+            elif result is None and any(word in command_lower for word in ['edit', 'update']):
                 result = self._edit_note(command)
             
             # Pin/unpin note
-            elif 'pin' in command_lower:
+            elif result is None and 'pin' in command_lower:
                 result = self._pin_unpin_note(command)
             
             # List archived notes (check before archive/unarchive action)
-            elif (any(word in command_lower for word in ['archived notes', 'show archived', 'list archived']) or
-                  re.search(r'what.*archived|archived.*what|show.*archived|list.*archived', command_lower)):
+            elif result is None and (
+                any(word in command_lower for word in ['archived notes', 'show archived', 'list archived'])
+                or re.search(r'what.*archived|archived.*what|show.*archived|list.*archived', command_lower)
+            ):
                 result = self._list_archived_notes()
             
             # Archive/unarchive action
-            elif 'archive' in command_lower or 'unarchive' in command_lower:
+            elif result is None and ('archive' in command_lower or 'unarchive' in command_lower):
                 result = self._archive_unarchive_note(command)
             
             # Set priority
-            elif 'priority' in command_lower or any(word in command_lower for word in ['urgent', 'urgency', 'important']):
+            elif result is None and ('priority' in command_lower or any(word in command_lower for word in ['urgent', 'urgency', 'important'])):
                 result = self._set_priority(command)
             
             # Set category
-            elif 'category' in command_lower or 'categorize' in command_lower:
+            elif result is None and ('category' in command_lower or 'categorize' in command_lower):
                 result = self._set_category(command)
             
             # Link notes
-            elif 'link' in command_lower or 'relate' in command_lower:
+            elif result is None and ('link' in command_lower or 'relate' in command_lower):
                 result = self._link_notes(command)
             
             # Show overdue notes
-            elif 'overdue' in command_lower:
+            elif result is None and 'overdue' in command_lower:
                 result = self._show_overdue_notes()
             
-            else:
+            elif result is None:
                 result = {
                     "success": False,
                     "action": "notes_unknown_intent",
@@ -1058,6 +1408,9 @@ class NotesPlugin(PluginInterface):
             # Ensure response field exists for new interface
             if 'response' not in result:
                 result['response'] = result.get('message', '')
+
+            if result.get('data', {}).get('error') == 'note_ambiguous' and self.pending_disambiguation:
+                self.pending_disambiguation['command'] = command
 
             data = result.setdefault('data', {}) if isinstance(result, dict) else {}
             diagnostics = data.setdefault('diagnostics', {}) if isinstance(data, dict) else {}

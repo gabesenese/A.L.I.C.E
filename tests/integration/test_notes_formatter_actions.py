@@ -50,3 +50,23 @@ def test_summarize_note_action_formatting():
     assert "Summary: Sprint" in text
     assert "Key Points:" in text
     assert "Action Items:" in text
+
+
+def test_note_ambiguous_action_formatting():
+    payload = {
+        "action": "delete_note",
+        "data": {
+            "error": "note_ambiguous",
+            "selection_hint": "Reply with the option number (e.g., 1 or 2)",
+            "candidates": [
+                {"option": 1, "title": "Grocery List", "tags": ["home"], "updated_at": "2026-02-20T10:00:00"},
+                {"option": 2, "title": "Grocery List Weekend", "tags": [], "updated_at": "2026-02-20T11:00:00"},
+            ],
+        },
+    }
+
+    text = NotesFormatter.format(payload)
+    assert "I found multiple matching notes:" in text
+    assert "1. Grocery List" in text
+    assert "2. Grocery List Weekend" in text
+    assert "Reply with the option number" in text

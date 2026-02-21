@@ -443,6 +443,25 @@ class NotesFormatter(SimpleFormatter):
         action = payload.get('action', '')
         data = payload.get('data', {})
 
+        if data.get('error') == 'note_ambiguous':
+            candidates = data.get('candidates', [])
+            lines = ["I found multiple matching notes:"]
+            for idx, candidate in enumerate(candidates, 1):
+                option = candidate.get('option', idx)
+                title = candidate.get('title', 'Untitled')
+                tags = candidate.get('tags', [])
+                updated = (candidate.get('updated_at') or '')[:10]
+                line = f"{option}. {title}"
+                if tags:
+                    line += f"  #{' #'.join(tags[:3])}"
+                if updated:
+                    line += f"  [{updated}]"
+                lines.append(line)
+            hint = data.get('selection_hint') or "Reply with the option number."
+            lines.append("")
+            lines.append(hint)
+            return "\n".join(lines)
+
         if action in ('list_notes', 'list_archived_notes'):
             notes = data.get('notes', [])
             count = data.get('count', len(notes))
