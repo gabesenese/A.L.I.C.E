@@ -30,8 +30,12 @@ import sys
 import json
 import logging
 import uuid
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, asdict
+from typing import (
+    Dict, List, Optional, Any, Tuple,
+    Final, ClassVar, Protocol, runtime_checkable,
+)
+from typing import TypedDict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
@@ -147,6 +151,61 @@ class Note:
             score *= 1.1
         
         return score
+
+
+# ---------------------------------------------------------------------------
+# Module-level constants  (Final → cannot be accidentally overridden)
+# ---------------------------------------------------------------------------
+DESTRUCTIVE_ACTIONS: Final[frozenset] = frozenset({
+    "delete_note", "archive_note", "delete_all_notes",
+})
+_BULK_DESTRUCTIVE_ACTIONS: Final[frozenset] = frozenset({"delete_all_notes"})
+_UPCOMING_REMINDER_HOURS: Final[int] = 48
+_CONFIRMATION_KEYWORD: Final[str] = "confirm"
+_MAX_CONTENT_SNIPPET_CHARS: Final[int] = 160
+
+
+# ---------------------------------------------------------------------------
+# Protocol: any class that can supply note snippets to the LLM context builder
+# ---------------------------------------------------------------------------
+@runtime_checkable
+class NoteContextProvider(Protocol):
+    """Contract for objects that can yield note context snippets for the LLM."""
+    def get_note_context_snippet(self, query: str, max_chars: int = 600) -> str: ...
+
+
+# ---------------------------------------------------------------------------
+# TypedDict: structured note search parameters
+# ---------------------------------------------------------------------------
+class NoteSearchQuery(TypedDict, total=False):
+    """Type-safe bag of note search parameters."""
+    keyword: str
+    tags: List[str]
+    content_query: str
+    include_archived: bool
+    limit: int
+
+
+# ---------------------------------------------------------------------------
+# Immutable value object for full-text content search results
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class ContentSearchResult:
+    """Immutable scored result from full-text body search."""
+    note: Note
+    score: float
+    matched_snippet: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "note_id": self.note.id,
+            "title": self.note.title,
+            "tags": self.note.tags,
+            "score": round(self.score, 3),
+            "matched_snippet": self.matched_snippet,
+            "updated_at": self.note.updated_at,
+            "priority": self.note.priority,
+        }
 
 
 class NotesManager:
@@ -612,6 +671,167 @@ class NotesManager:
         results.sort(key=lambda x: len(x.title))
         return results
 
+    # ------------------------------------------------------------------
+    # Full-text content search  (feature: body search with scoring)
+    # ------------------------------------------------------------------
+    def search_by_content(
+        self,
+        query: str,
+        *,
+        include_archived: bool = False,
+        limit: int = 20,
+    ) -> List["ContentSearchResult"]:
+        """Search the body text of all notes, returning scored results.
+
+        Scoring weights:
+        - exact phrase in content × 10
+        - each individual token match (title bonus ×3, body ×1)
+        - recency boost: notes updated in the last 7 days get +1
+        """
+        query_lower = query.lower()
+        tokens = [t for t in re.findall(r"[a-z0-9']+", query_lower) if len(t) > 2]
+        now = datetime.now()
+        results: List[ContentSearchResult] = []
+
+        for note in self.notes.values():
+            if not include_archived and note.archived:
+                continue
+
+            score = 0.0
+            body_lower = (note.content or "").lower()
+            title_lower = note.title.lower()
+
+            # Exact phrase bonus — title match outranks body match
+            if query_lower in title_lower:
+                score += 15.0
+            if query_lower in body_lower:
+                score += 10.0
+
+            # Token-level matching
+            for tok in tokens:
+                if tok in title_lower:
+                    score += 3.0
+                if tok in body_lower:
+                    score += 1.0
+
+            if score == 0.0:
+                continue
+
+            # Recency boost
+            try:
+                updated = datetime.fromisoformat(note.updated_at)
+                if (now - updated).days <= 7:
+                    score += 1.0
+            except (ValueError, TypeError):
+                pass
+
+            # Build a contextual snippet around the first match
+            idx = body_lower.find(query_lower)
+            if idx == -1 and tokens:
+                idx = body_lower.find(tokens[0])
+            if idx >= 0:
+                start = max(0, idx - 40)
+                end = min(len(note.content), idx + _MAX_CONTENT_SNIPPET_CHARS)
+                snippet = ("..." if start > 0 else "") + note.content[start:end].strip()
+                if end < len(note.content):
+                    snippet += "..."
+            else:
+                snippet = note.content[:_MAX_CONTENT_SNIPPET_CHARS]
+
+            results.append(ContentSearchResult(note=note, score=score, matched_snippet=snippet))
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results[:limit]
+
+    # ------------------------------------------------------------------
+    # Append content  (feature: non-destructive append to note body)
+    # ------------------------------------------------------------------
+    def append_note_content(self, note_id: str, text: str) -> Optional[Note]:
+        """Append *text* as a new line to a note's content without replacing it."""
+        note = self.notes.get(note_id)
+        if not note:
+            return None
+        separator = "\n" if note.content else ""
+        note.content = (note.content or "").rstrip() + separator + text
+        note.updated_at = datetime.now().isoformat()
+        self._save_notes()
+        logger.info(f"Appended content to note: {note_id}")
+        return note
+
+    # ------------------------------------------------------------------
+    # Partial field patch  (feature: update individual fields without
+    # touching content — e.g. just change tags or due_date)
+    # ------------------------------------------------------------------
+    def patch_note_fields(self, note_id: str, patches: Dict[str, Any]) -> Optional[Note]:
+        """Apply *patches* dict to allowed mutable fields of a note.
+
+        Allowed keys: title, content, tags, note_type, category, priority,
+                      due_date, reminder, pinned, archived.
+        """
+        _ALLOWED: Final[frozenset] = frozenset({
+            "title", "content", "tags", "note_type", "category",
+            "priority", "due_date", "reminder", "pinned", "archived",
+        })
+        note = self.notes.get(note_id)
+        if not note:
+            return None
+        for key, value in patches.items():
+            if key in _ALLOWED:
+                setattr(note, key, value)
+        note.updated_at = datetime.now().isoformat()
+        self._save_notes()
+        logger.info(f"Patched note {note_id}: {list(patches.keys())}")
+        return note
+
+    # ------------------------------------------------------------------
+    # Upcoming reminders  (feature: surface notes due within N hours)
+    # ------------------------------------------------------------------
+    def get_upcoming_reminders(self, hours: int = _UPCOMING_REMINDER_HOURS) -> List[Note]:
+        """Return active notes whose due_date or reminder falls within *hours* from now."""
+        now = datetime.now()
+        cutoff = now + timedelta(hours=hours)
+        results: List[Note] = []
+        for note in self.notes.values():
+            if note.archived:
+                continue
+            for dt_field in (note.due_date, note.reminder):
+                if not dt_field:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(dt_field)
+                    if now <= dt <= cutoff:
+                        results.append(note)
+                        break
+                except (ValueError, TypeError):
+                    pass
+        results.sort(key=lambda n: n.due_date or n.reminder or "")
+        return results
+
+    # ------------------------------------------------------------------
+    # Note linking  (ensure bidirectional, idempotent)
+    # ------------------------------------------------------------------
+    def link_notes_by_ids(self, note_id_a: str, note_id_b: str) -> bool:
+        """Create a bidirectional link between two notes; idempotent."""
+        note_a = self.notes.get(note_id_a)
+        note_b = self.notes.get(note_id_b)
+        if not note_a or not note_b or note_id_a == note_id_b:
+            return False
+        note_a.related_notes = note_a.related_notes or []
+        note_b.related_notes = note_b.related_notes or []
+        changed = False
+        if note_id_b not in note_a.related_notes:
+            note_a.related_notes.append(note_id_b)
+            changed = True
+        if note_id_a not in note_b.related_notes:
+            note_b.related_notes.append(note_id_a)
+            changed = True
+        if changed:
+            now_iso = datetime.now().isoformat()
+            note_a.updated_at = now_iso
+            note_b.updated_at = now_iso
+            self._save_notes()
+        return True
+
 
 class NotesPlugin(PluginInterface):
     """Plugin for managing notes with search capabilities"""
@@ -646,6 +866,12 @@ class NotesPlugin(PluginInterface):
         self.last_note_result_ids: List[str] = []
         self.last_resolution_path = "none"
         self.pending_disambiguation: Optional[Dict[str, Any]] = None
+
+        # Destructive-action confirmation gate
+        self.pending_confirmation: Optional[Dict[str, Any]] = None
+
+        # Sliding window of recent conversation turns for "create from context" feature
+        self._conversation_context: List[Dict[str, str]] = []  # [{"role": "user"|"assistant", "text": "..."}]
 
         # Learning and telemetry state (no hardcoded response text path)
         self.learning_state_path = Path("data/notes/notes_learning_state.json")
@@ -1252,9 +1478,476 @@ class NotesPlugin(PluginInterface):
             }
             with open(self.telemetry_log_path, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(entry) + '\n')
+            # ---------------------------------------------------------------
+            # Feature #6: Feedback loop — bridge telemetry outcome to the
+            # AdaptiveContextSelector so notes context is learned over time.
+            # ---------------------------------------------------------------
+            self._bridge_telemetry_to_context_selector(entry)
         except Exception as e:
             logger.debug(f"[NotesTelemetry] failed: {e}")
-    
+
+    # ------------------------------------------------------------------
+    # Feature #6: Feedback loop unification
+    # Bridge successful/failed operations back to AdaptiveContextSelector
+    # so the "notes" context type gains learned relevance weights.
+    # ------------------------------------------------------------------
+    def _bridge_telemetry_to_context_selector(self, telemetry_entry: Dict[str, Any]) -> None:
+        """Push telemetry outcome into AdaptiveContextSelector as feedback."""
+        try:
+            from ai.memory.adaptive_context_selector import get_context_selector
+            selector = get_context_selector()
+            action = telemetry_entry.get("action") or "unknown"
+            success = bool(telemetry_entry.get("success", False))
+            # Map success → 4-star, failure → 2-star (conservative nudge)
+            rating = 4 if success else 2
+            # Use a deterministic selection_id derived from the telemetry timestamp+action
+            import hashlib
+            sid = hashlib.md5(
+                f"{telemetry_entry.get('timestamp','')}-{action}".encode()
+            ).hexdigest()[:16]
+            selector.record_feedback(
+                selection_id=sid,
+                context_type="notes",
+                user_input=telemetry_entry.get("command", "")[:120],
+                intent=telemetry_entry.get("intent") or action,
+                success=success,
+                rating=rating,
+            )
+        except Exception as e:
+            logger.debug(f"[NotesTelemetryBridge] skipped feedback: {e}")
+
+    # ------------------------------------------------------------------
+    # Feature #2: NoteContextProvider implementation
+    # Satisfies the Protocol → can be registered with _build_llm_context
+    # ------------------------------------------------------------------
+    def get_note_context_snippet(self, query: str, max_chars: int = 600) -> str:
+        """Return a compact context snippet of the most relevant notes for *query*.
+
+        Implements ``NoteContextProvider`` protocol so the LLM context builder
+        can inject live note data without knowing plugin internals.
+        """
+        if not query or not self.manager.notes:
+            return ""
+
+        # Use full-text search for the best matches
+        results = self.manager.search_by_content(query, limit=5)
+        if not results:
+            # Fall back to fuzzy title/tag search
+            fuzzy = self.manager.fuzzy_search(query)
+            if not fuzzy:
+                return ""
+            results = [
+                ContentSearchResult(
+                    note=n,
+                    score=n.get_relevance_score(query),
+                    matched_snippet=n.content[:_MAX_CONTENT_SNIPPET_CHARS],
+                )
+                for n in fuzzy[:5]
+            ]
+
+        lines = ["Relevant notes:"]
+        total = 0
+        for r in results:
+            line = f"- [{r.note.title}] {r.matched_snippet[:120]}"
+            if total + len(line) > max_chars:
+                break
+            lines.append(line)
+            total += len(line)
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Feature #4: Destructive-action confirmation gate
+    # ------------------------------------------------------------------
+    def _check_pending_confirmation(self, command: str) -> Optional[Dict[str, Any]]:
+        """If there is a pending confirmation request, check if the user confirmed.
+
+        Returns:
+            The confirmed action result if user said "confirm", a cancellation
+            result if the user said "cancel/no", or *None* if nothing is pending.
+        """
+        pending = self.pending_confirmation
+        if not pending:
+            return None
+
+        lower = command.lower().strip()
+        # Accept explicit confirmation keywords
+        confirmed = any(
+            w in lower
+            for w in (_CONFIRMATION_KEYWORD, "yes", "do it", "go ahead", "proceed")
+        )
+        cancelled = any(w in lower for w in ("cancel", "no", "abort", "stop", "nevermind"))
+
+        if confirmed:
+            self.pending_confirmation = None
+            # Re-dispatch stored action
+            stored_command = pending.get("command", "")
+            stored_action = pending.get("action", "")
+            logger.info(f"[ConfirmationGate] confirmed {stored_action} for: {stored_command[:60]}")
+            return self._dispatch_confirmed_destructive(stored_action, pending)
+
+        if cancelled:
+            self.pending_confirmation = None
+            return {
+                "success": True,
+                "action": "action_cancelled",
+                "data": {
+                    "message_code": "notes:action_cancelled",
+                    "cancelled_action": pending.get("action"),
+                    "note_title": pending.get("note_title"),
+                },
+                "formulate": True,
+            }
+
+        return None  # Still waiting — not a yes/no → fall through to normal routing
+
+    def _dispatch_confirmed_destructive(self, action: str, pending: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute the stored destructive action after explicit user confirmation."""
+        note_id = pending.get("note_id")
+        note_title = pending.get("note_title", "")
+
+        if action == "delete_all_notes":
+            return self._execute_confirmed_delete_all()
+
+        note = self.manager.get_note(note_id) if note_id else None
+        if not note:
+            return {
+                "success": False,
+                "action": action,
+                "data": {
+                    "error": "note_not_found_after_confirmation",
+                    "message_code": "notes:confirm_note_missing",
+                    "note_title": note_title,
+                },
+                "formulate": True,
+            }
+
+        if action in ("delete_note", "archive_note"):
+            if self.manager.archive_note(note.id):
+                return {
+                    "success": True,
+                    "action": action,
+                    "data": {
+                        "note_id": note.id,
+                        "note_title": note.title,
+                        "archived": True,
+                        "permanent": False,
+                        "restorable": True,
+                        "diagnostics": {"resolution_path": "confirmed_destructive"},
+                    },
+                    "formulate": True,
+                }
+
+        return {
+            "success": False,
+            "action": action,
+            "data": {
+                "error": "confirmation_dispatch_failed",
+                "message_code": "notes:confirm_dispatch_error",
+            },
+            "formulate": True,
+        }
+
+    def _build_confirmation_request(
+        self, action: str, note_id: str, note_title: str, command: str
+    ) -> Dict[str, Any]:
+        """Gate a destructive action behind an explicit confirmation request."""
+        self.pending_confirmation = {
+            "action": action,
+            "note_id": note_id,
+            "note_title": note_title,
+            "command": command,
+            "created_at": datetime.now().isoformat(),
+        }
+        return {
+            "success": False,
+            "action": "requires_confirmation",
+            "data": {
+                "error": "requires_confirmation",
+                "message_code": "notes:confirm_required",
+                "pending_action": action,
+                "note_title": note_title,
+                "prompt": f'This will archive "{note_title}". Reply "confirm" to proceed or "cancel" to abort.',
+            },
+            "formulate": True,
+        }
+
+    # ------------------------------------------------------------------
+    # Feature #5: Append-mode note update
+    # ------------------------------------------------------------------
+    def _append_note(self, command: str) -> Dict[str, Any]:
+        """Append text to an existing note without replacing its content."""
+        # Extract text to append
+        append_patterns = [
+            r'(?:append|add to|attach to)\s+(?:note\s+)?(.+?)\s*:\s*(.+)',
+            r'(?:append|add to)\s+(?:note\s+)?(.+)',
+        ]
+        text_to_append: Optional[str] = None
+        explicit_title: Optional[str] = None
+
+        for pat in append_patterns:
+            m = re.search(pat, command, re.IGNORECASE)
+            if m:
+                if m.lastindex and m.lastindex >= 2:
+                    explicit_title = self._normalize_title_query(m.group(1))
+                    text_to_append = m.group(2).strip()
+                else:
+                    text_to_append = m.group(1).strip()
+                break
+
+        # Fallback: "append [text]" or "add [text] to [title]"
+        if not text_to_append:
+            colon_m = re.search(r':\s*(.+)$', command)
+            if colon_m:
+                text_to_append = colon_m.group(1).strip()
+
+        if not text_to_append:
+            return {
+                "success": False,
+                "action": "append_note",
+                "data": {
+                    "error": "missing_append_text",
+                    "message_code": "notes:append_missing_text",
+                },
+                "formulate": True,
+            }
+
+        # Resolve target note
+        if explicit_title:
+            candidates = self.manager.find_by_title(explicit_title)
+            if not candidates:
+                return {
+                    "success": False,
+                    "action": "append_note",
+                    "data": {
+                        "error": "note_not_found",
+                        "message_code": "notes:append_target_not_found",
+                        "query": explicit_title,
+                    },
+                    "formulate": True,
+                }
+            if len(candidates) > 1:
+                return self._make_disambiguation_result(
+                    "append_note", candidates, "notes:append_ambiguous"
+                )
+            note = candidates[0]
+        elif self.last_note_id:
+            note = self.manager.get_note(self.last_note_id)
+        else:
+            note = None
+
+        if not note:
+            return {
+                "success": False,
+                "action": "append_note",
+                "data": {
+                    "error": "no_target_note",
+                    "message_code": "notes:append_no_target",
+                },
+                "formulate": True,
+            }
+
+        updated = self.manager.append_note_content(note.id, text_to_append)
+        if not updated:
+            return {
+                "success": False,
+                "action": "append_note",
+                "data": {"error": "append_failed", "message_code": "notes:append_failed"},
+                "formulate": True,
+            }
+
+        self.last_note_id = note.id
+        self.last_note_title = note.title
+        return {
+            "success": True,
+            "action": "append_note",
+            "data": {
+                "note_id": note.id,
+                "note_title": note.title,
+                "appended_text": text_to_append,
+                "new_length": len(updated.content or ""),
+            },
+            "formulate": True,
+        }
+
+    # ------------------------------------------------------------------
+    # Feature #3: Create note from conversation context
+    # ------------------------------------------------------------------
+    def record_conversation_turn(self, role: str, text: str) -> None:
+        """Keep a sliding window of recent turns (max 10) for "save this" feature."""
+        self._conversation_context.append({"role": role, "text": text})
+        if len(self._conversation_context) > 10:
+            self._conversation_context = self._conversation_context[-10:]
+
+    def _create_note_from_context(self, command: str, context: Optional[Dict] = None) -> Dict[str, Any]:
+        """Create a note from the recent conversation context.
+
+        Triggers: "save this", "remember that", "make a note of this",
+                  "note of what I just said", etc.
+        """
+        # Assemble source text from recent conversation turns
+        source_parts: List[str] = []
+        for turn in reversed(self._conversation_context[-6:]):
+            if turn.get("role") == "assistant":
+                source_parts.insert(0, f"A: {turn['text']}")
+            else:
+                source_parts.insert(0, f"U: {turn['text']}")
+
+        # Also check the context dict passed from main app
+        if context and isinstance(context, dict):
+            ctx_text = context.get("last_assistant_response") or context.get("last_response", "")
+            if ctx_text and not any(ctx_text in p for p in source_parts):
+                source_parts.insert(0, f"A: {ctx_text}")
+
+        if not source_parts:
+            return {
+                "success": False,
+                "action": "create_note_from_context",
+                "data": {
+                    "error": "no_context_available",
+                    "message_code": "notes:context_create_no_context",
+                },
+                "formulate": True,
+            }
+
+        content = "\n".join(source_parts)
+        # Extract optional title override from command
+        title_m = re.search(
+            r'(?:title|call it|name it|titled?)\s+["\']?(.+?)["\']?$', command, re.IGNORECASE
+        )
+        if title_m:
+            title = title_m.group(1).strip()
+        else:
+            # Auto-title: first 8 words of user's last turn
+            user_turns = [t["text"] for t in self._conversation_context if t.get("role") == "user"]
+            last_user = user_turns[-1] if user_turns else ""
+            words = last_user.split()
+            title = " ".join(words[:8])
+            if len(words) > 8:
+                title += "..."
+            if not title:
+                title = f"Context note {datetime.now().strftime('%b %d %H:%M')}"
+
+        tags = re.findall(r'#(\w+)', command)
+        note = self.manager.create_note(
+            title=title,
+            content=content,
+            tags=tags,
+            note_type="general",
+        )
+        self.last_note_id = note.id
+        self.last_note_title = note.title
+        return {
+            "success": True,
+            "action": "create_note_from_context",
+            "data": {
+                "note_id": note.id,
+                "note_title": note.title,
+                "tags": tags,
+                "source_turns": len(source_parts),
+            },
+            "formulate": True,
+        }
+
+    # ------------------------------------------------------------------
+    # Feature #9: Note linking (improved)
+    # ------------------------------------------------------------------
+    def _link_notes(self, command: str) -> Dict[str, Any]:
+        """Link two notes by extracting two title hints from the command."""
+        # Pattern: "link [A] to [B]" / "link [A] and [B]" / "relate [A] to [B]"
+        link_patterns = [
+            r'(?:link|relate|connect)\s+(.+?)\s+(?:to|with|and)\s+(.+)',
+        ]
+        title_a: Optional[str] = None
+        title_b: Optional[str] = None
+        for pat in link_patterns:
+            m = re.search(pat, command, re.IGNORECASE)
+            if m:
+                title_a = self._normalize_title_query(m.group(1))
+                title_b = self._normalize_title_query(m.group(2))
+                break
+
+        if not title_a or not title_b:
+            return {
+                "success": False,
+                "action": "link_notes",
+                "data": {
+                    "error": "insufficient_link_arguments",
+                    "message_code": "notes:link_requires_two_titles",
+                },
+                "formulate": True,
+            }
+
+        candidates_a = self.manager.find_by_title(title_a)
+        candidates_b = self.manager.find_by_title(title_b)
+
+        if not candidates_a:
+            return {
+                "success": False, "action": "link_notes",
+                "data": {"error": "note_a_not_found", "message_code": "notes:link_note_a_missing", "query": title_a},
+                "formulate": True,
+            }
+        if not candidates_b:
+            return {
+                "success": False, "action": "link_notes",
+                "data": {"error": "note_b_not_found", "message_code": "notes:link_note_b_missing", "query": title_b},
+                "formulate": True,
+            }
+
+        note_a = candidates_a[0]
+        note_b = candidates_b[0]
+
+        if self.manager.link_notes_by_ids(note_a.id, note_b.id):
+            return {
+                "success": True,
+                "action": "link_notes",
+                "data": {
+                    "note_a_id": note_a.id,
+                    "note_a_title": note_a.title,
+                    "note_b_id": note_b.id,
+                    "note_b_title": note_b.title,
+                    "bidirectional": True,
+                },
+                "formulate": True,
+            }
+
+        return {
+            "success": False, "action": "link_notes",
+            "data": {"error": "link_failed", "message_code": "notes:link_failed"},
+            "formulate": True,
+        }
+
+    # ------------------------------------------------------------------
+    # Feature #1: Content search action
+    # ------------------------------------------------------------------
+    def _search_notes_by_content(self, query: str) -> Dict[str, Any]:
+        """Full-text search inside note bodies, return scored results."""
+        results = self.manager.search_by_content(query, limit=15)
+        if not results:
+            return {
+                "success": True,
+                "action": "search_notes_content",
+                "data": {"query": query, "count": 0, "found": False, "results": []},
+                "formulate": True,
+            }
+
+        self.last_note_result_ids = [r.note.id for r in results]
+        if results:
+            self.last_note_id = results[0].note.id
+            self.last_note_title = results[0].note.title
+
+        return {
+            "success": True,
+            "action": "search_notes_content",
+            "data": {
+                "query": query,
+                "count": len(results),
+                "found": True,
+                "results": [r.to_dict() for r in results],
+            },
+            "formulate": True,
+        }
+
     def initialize(self) -> bool:
         """Initialize the plugin"""
         try:
@@ -1296,9 +1989,12 @@ class NotesPlugin(PluginInterface):
         
         # Keywords that indicate note-related commands
         note_keywords = ['note', 'notes', 'write down', 'remember this', 'jot down']
-        action_keywords = ['create', 'add', 'new', 'make', 'search', 'find', 'show', 
-                          'list', 'delete', 'remove', 'edit', 'update', 'read', 'open', 'summary', 'summarize']
-        
+        action_keywords = [
+            'create', 'add', 'new', 'make', 'search', 'find', 'show',
+            'list', 'delete', 'remove', 'edit', 'update', 'read', 'open',
+            'summary', 'summarize', 'append', 'link', 'connect', 'relate',
+        ]
+
         # Question patterns about notes
         question_patterns = [
             r'how many notes',
@@ -1307,9 +2003,16 @@ class NotesPlugin(PluginInterface):
             r'number of notes',
             r'what.*notes',
             r'show.*notes',
-            r'list.*notes'
+            r'list.*notes',
         ]
-        
+
+        # Pending confirmation gate — always intercept "confirm" / "cancel" / "yes" / "no"
+        if self.pending_confirmation and any(
+            w in command_lower
+            for w in (_CONFIRMATION_KEYWORD, "yes", "cancel", "no", "abort", "do it", "proceed")
+        ):
+            return True
+
         # Check for question patterns
         if self.pending_disambiguation and self._extract_disambiguation_selection_index(
             command_lower,
@@ -1320,6 +2023,13 @@ class NotesPlugin(PluginInterface):
 
         if any(re.search(pattern, command_lower) for pattern in question_patterns):
             return True
+
+        # "save/remember this conversation" patterns
+        if re.search(
+            r'(?:save|remember|note down|capture|keep)\s+(?:this|that|what i (?:just )?said|this conversation)',
+            command_lower,
+        ):
+            return True
         
         # Check for "add X to list/note" pattern (context-aware update)
         if re.search(r'add\s+.+\s+to\s+(?:the\s+)?(?:list|note)', command_lower):
@@ -1327,6 +2037,12 @@ class NotesPlugin(PluginInterface):
         
         # "delete/remove the X list" (e.g. "delete the grocery list") — notes are often called "lists"
         if any(w in command_lower for w in ['delete', 'remove']) and 'list' in command_lower:
+            return True
+
+        # Append to note
+        if re.search(r'\bappend\b', command_lower) and any(
+            w in command_lower for w in ['note', 'to', 'it']
+        ):
             return True
         
         # Check if command contains note-related keywords
@@ -1356,16 +2072,35 @@ class NotesPlugin(PluginInterface):
             command_lower = command.lower()
             resolution_path = "rule_router"
 
-            pending_resolution = self._resolve_pending_disambiguation(command)
-            if pending_resolution is not None:
-                result = pending_resolution
-                resolution_path = "disambiguation_selection"
+            # ── Confirmation gate (highest priority) ──────────────────────────
+            confirmation_result = self._check_pending_confirmation(command)
+            if confirmation_result is not None:
+                result = confirmation_result
+                resolution_path = "confirmation_gate"
             else:
                 result = None
+
+            # ── Disambiguation resolution ──────────────────────────────────────
+            if result is None:
+                pending_resolution = self._resolve_pending_disambiguation(command)
+                if pending_resolution is not None:
+                    result = pending_resolution
+                    resolution_path = "disambiguation_selection"
             
             # Count notes (check first for "how many notes")
             if result is None and re.search(r'how many|count|number of', command_lower) and 'note' in command_lower:
                 result = self._count_notes(command)
+
+            # Create note FROM conversation context ("save this", "remember that", etc.)
+            elif result is None and re.search(
+                r'(?:save|remember|note down|capture|keep)\s+(?:this|that|what i (?:just )?said|this conversation)',
+                command_lower
+            ):
+                result = self._create_note_from_context(command, context)
+
+            # Append to existing note
+            elif result is None and re.search(r'\bappend\b', command_lower):
+                result = self._append_note(command)
             
             # Add to list/note (context-aware update)
             elif result is None and re.search(r'add\s+.+\s+to\s+(?:the\s+)?(?:list|note)', command_lower):
@@ -1390,6 +2125,17 @@ class NotesPlugin(PluginInterface):
             # Create note
             elif result is None and any(word in command_lower for word in ['create', 'add', 'new', 'make', 'write', 'jot']) and 'note' in command_lower:
                 result = self._create_note(command)
+
+            # Content / body search (full-text)
+            elif result is None and any(word in command_lower for word in ['search', 'find']) and any(
+                word in command_lower for word in ['content', 'body', 'contains', 'inside', 'text of']
+            ):
+                query_m = re.search(
+                    r'(?:search|find)\s+(?:note\s+)?(?:content|body|text)(?:\s+(?:for|containing|with))?\s+(.+)',
+                    command, re.IGNORECASE,
+                )
+                query = query_m.group(1).strip() if query_m else command
+                result = self._search_notes_by_content(query)
             
             # Search notes
             elif result is None and any(word in command_lower for word in ['search', 'find']):
@@ -1431,7 +2177,7 @@ class NotesPlugin(PluginInterface):
                 result = self._set_category(command)
             
             # Link notes
-            elif result is None and ('link' in command_lower or 'relate' in command_lower):
+            elif result is None and ('link' in command_lower or 'relate' in command_lower or 'connect' in command_lower):
                 result = self._link_notes(command)
             
             # Show overdue notes
@@ -1727,7 +2473,7 @@ class NotesPlugin(PluginInterface):
             }
         
         # Check for date range keywords
-        results = []
+        results: List[Note] = []
         if any(word in command.lower() for word in ['today', 'yesterday', 'this week', 'last week', 'this month']):
             results = self._search_by_date_keywords(command)
         
@@ -1739,19 +2485,32 @@ class NotesPlugin(PluginInterface):
         # Default: fuzzy search with relevance scoring
         else:
             results = self.manager.fuzzy_search(query)
-        
+
+        # Feature #1: If no fuzzy results, fall back to full-text content search
         if not results:
+            content_results = self.manager.search_by_content(query, limit=10)
+            if content_results:
+                self.last_note_result_ids = [r.note.id for r in content_results]
+                return {
+                    "success": True,
+                    "action": "search_notes_content",
+                    "data": {
+                        "query": query,
+                        "count": len(content_results),
+                        "found": True,
+                        "fallback": True,
+                        "results": [r.to_dict() for r in content_results],
+                    },
+                    "formulate": True,
+                }
             return {
                 "success": True,
                 "action": "search_notes_empty",
-                "data": {
-                    "query": query,
-                    "count": 0,
-                    "found": False
-                },
-                "formulate": True
+                "data": {"query": query, "count": 0, "found": False},
+                "formulate": True,
             }
 
+        self.last_note_result_ids = [n.id for n in results[:10]]
         return {
             "success": True,
             "action": "search_notes",
@@ -1759,9 +2518,12 @@ class NotesPlugin(PluginInterface):
                 "query": query,
                 "count": len(results),
                 "found": True,
-                "results": [{"title": n.title, "tags": n.tags} for n in results[:10]]
+                "results": [
+                    {"note_id": n.id, "title": n.title, "tags": n.tags, "updated_at": n.updated_at}
+                    for n in results[:10]
+                ],
             },
-            "formulate": True
+            "formulate": True,
         }
     
     def _search_by_date_keywords(self, command: str) -> List[Note]:
@@ -1852,7 +2614,22 @@ class NotesPlugin(PluginInterface):
         self.last_note_id = first_note.id
         self.last_note_title = first_note.title
         self.last_note_result_ids = [n.get('note_id') for n in notes_payload if n.get('note_id')]
-        
+
+        # ── Feature #7: Surface upcoming reminders and overdue notes ─────────
+        upcoming = self.manager.get_upcoming_reminders()
+        overdue = self.manager.get_overdue_notes()
+        overdue_count = len(overdue)
+        upcoming_payload = [
+            {
+                "note_id": n.id,
+                "title": n.title,
+                "due_date": n.due_date,
+                "reminder": n.reminder,
+                "priority": n.priority,
+            }
+            for n in upcoming[:5]
+        ]
+
         return {
             "success": True,
             "action": "list_notes",
@@ -1863,6 +2640,8 @@ class NotesPlugin(PluginInterface):
                 "limit": list_limit,
                 "note_type": note_type,
                 "notes": notes_payload,
+                "overdue_count": overdue_count,
+                "upcoming_reminders": upcoming_payload,
             },
             "formulate": True,
         }
@@ -2124,37 +2903,40 @@ class NotesPlugin(PluginInterface):
             }
 
     def _delete_all_notes(self) -> Dict[str, Any]:
-        """Delete/archive all active notes"""
+        """Delete/archive all active notes — requires explicit confirmation (confidence guard)."""
         active_notes = [note for note in self.manager.notes.values() if not note.archived]
 
         if not active_notes:
             return {
                 "success": True,
                 "action": "delete_notes_empty",
-                "data": {
-                    "count": 0,
-                    "had_notes": False
-                },
-                "formulate": True
+                "data": {"count": 0, "had_notes": False},
+                "formulate": True,
             }
 
         count = len(active_notes)
+        # ── Feature #4: Confidence guard for bulk destructive action ──────────
+        # Never archive everything silently. Gate behind user confirmation.
+        return self._build_confirmation_request(
+            action="delete_all_notes",
+            note_id="",
+            note_title=f"ALL {count} active notes",
+            command="delete_all_notes",
+        )
 
-        # Archive all active notes
+    def _execute_confirmed_delete_all(self) -> Dict[str, Any]:
+        """Actually archive all notes — only called after confirmation."""
+        active_notes = [note for note in self.manager.notes.values() if not note.archived]
+        count = len(active_notes)
         for note in active_notes:
             self.manager.archive_note(note.id)
-
         return {
             "success": True,
             "action": "delete_notes",
-            "data": {
-                "count": count,
-                "archived": True,
-                "permanent": False,
-                "restorable": True
-            },
-            "formulate": True
+            "data": {"count": count, "archived": True, "permanent": False, "restorable": True},
+            "formulate": True,
         }
+
 
     def _edit_note(self, command: str) -> Dict[str, Any]:
         """Edit a note"""
@@ -2455,19 +3237,6 @@ class NotesPlugin(PluginInterface):
                 "message_code": "notes:category_update_failed",
                 "note_id": note_id,
                 "category": category,
-            },
-            "formulate": True,
-        }
-    
-    def _link_notes(self, command: str) -> Dict[str, Any]:
-        """Link related notes together"""
-        # This is a simplified version - could be enhanced
-        return {
-            "success": False,
-            "action": "link_notes",
-            "data": {
-                "error": "insufficient_link_arguments",
-                "message_code": "notes:link_requires_two_titles",
             },
             "formulate": True,
         }

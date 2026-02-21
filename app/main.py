@@ -1638,7 +1638,32 @@ class ALICE:
             if capabilities:
                 context_parts.append(f"Available capabilities: {', '.join(capabilities[:10])}")
                 context_types.append("capabilities")
-        
+
+        # 8. Notes context injection (Feature #2) — surface relevant note snippets
+        # when the query is notes-related or explicitly asks about personal knowledge.
+        _notes_trigger_words = [
+            'note', 'notes', 'wrote', 'saved', 'remember', 'wrote down',
+            'reminder', 'todo', 'task', 'idea', 'meeting notes',
+        ]
+        if any(w in user_input.lower() for w in _notes_trigger_words):
+            try:
+                notes_plugin = getattr(self.plugins, '_plugin_instances', {}).get('notes')
+                if notes_plugin is None:
+                    # Try iterating over registered plugins
+                    for _p in (getattr(self.plugins, 'plugins', None) or []):
+                        if hasattr(_p, 'get_note_context_snippet'):
+                            notes_plugin = _p
+                            break
+                if notes_plugin is not None and hasattr(notes_plugin, 'get_note_context_snippet'):
+                    notes_snippet = notes_plugin.get_note_context_snippet(user_input, max_chars=500)
+                    if notes_snippet:
+                        context_parts.append(notes_snippet)
+                        context_types.append("notes")
+                        self._think("Notes context snippet injected into LLM context")
+            except Exception as _ne:
+                import logging as _log
+                _log.getLogger(__name__).debug(f"Notes context injection skipped: {_ne}")
+
         # Adaptive selection - only include relevant context
         if self.context_selector and context_parts:
             optimized = self.context_selector.select_relevant_context(
@@ -3444,6 +3469,18 @@ class ALICE:
                     # Record turn in reasoning engine
                     self.reasoning_engine.record_turn(user_input, intent, entities or {}, response, success)
                     self.reasoning_engine.record_plugin_result(plugin_name, success)
+
+                    # Feature #3: Feed conversation turn into notes plugin so
+                    # "save this" / "remember that" can capture recent context.
+                    try:
+                        for _np in (getattr(self.plugins, 'plugins', None) or []):
+                            if hasattr(_np, 'record_conversation_turn'):
+                                _np.record_conversation_turn("user", user_input)
+                                if response:
+                                    _np.record_conversation_turn("assistant", str(response)[:400])
+                                break
+                    except Exception:
+                        pass
                     
                     # Store weather data for follow-up questions
                     if plugin_name == 'WeatherPlugin' and success and plugin_result.get('data'):

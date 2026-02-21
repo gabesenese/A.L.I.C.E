@@ -275,13 +275,14 @@ class AdaptiveContextSelector:
             if overlap > 0.2:
                 reasons.append("keyword_overlap")
         
-        # Context type priority
+        # Context type priority — notes gets a strong base weight (learned over time)
         type_priority = {
             "personalization": 0.1,  # Always include
             "conversation": 0.3,  # High priority
             "memory": 0.25,  # High priority
             "capabilities": 0.1,  # Lower priority
-            "general": 0.15
+            "general": 0.15,
+            "notes": 0.30,  # Feature #2: notes context relevant when user asks note-related queries
         }
         score += type_priority.get(context_type, 0.1)
         

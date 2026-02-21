@@ -3,8 +3,87 @@ Simple Answer Formatters for A.L.I.C.E Tools
 Converts structured tool output to natural language WITHOUT using LLM
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Protocol, runtime_checkable
 from datetime import datetime, timedelta
+
+
+# ---------------------------------------------------------------------------
+# Feature #8: FormatterStrategy — Strategy pattern for adaptive rendering
+# ---------------------------------------------------------------------------
+@runtime_checkable
+class FormatterStrategy(Protocol):
+    """Protocol for pluggable note-list rendering strategies.
+
+    Any object implementing ``render_notes_list`` satisfies this contract,
+    allowing ``NotesFormatter`` to swap rendering strategies at runtime
+    without changing the calling code.
+    """
+    def render_notes_list(
+        self,
+        notes: List[Dict[str, Any]],
+        count: int,
+        shown: int,
+        header: str,
+    ) -> List[str]:
+        """Return formatted lines for a list of note dicts."""
+        ...
+
+
+class CompactNotesListStrategy:
+    """Compact single-line format — best when there are many notes (>8)."""
+
+    def render_notes_list(
+        self,
+        notes: List[Dict[str, Any]],
+        count: int,
+        shown: int,
+        header: str,
+    ) -> List[str]:
+        lines = [f"{header} ({count})"]
+        for idx, note in enumerate(notes, 1):
+            title = note.get("title", "Untitled")
+            tags = note.get("tags", [])
+            tag_str = (" #" + " #".join(tags[:2])) if tags else ""
+            lines.append(f"{idx}. {title}{tag_str}")
+        return lines
+
+
+class DetailedNotesListStrategy:
+    """Detailed multi-line format — best for small lists (≤8 notes)."""
+
+    def render_notes_list(
+        self,
+        notes: List[Dict[str, Any]],
+        count: int,
+        shown: int,
+        header: str,
+    ) -> List[str]:
+        lines = [f"{header} ({count})"]
+        for idx, note in enumerate(notes, 1):
+            title = note.get("title", "Untitled")
+            tags = note.get("tags", [])
+            updated = (note.get("updated_at") or "")[:10]
+            priority = note.get("priority", "")
+            preview = note.get("preview", "")
+            line = f"{idx}. {title}"
+            if tags:
+                line += f"  #{' #'.join(tags[:3])}"
+            if updated:
+                line += f"  [{updated}]"
+            if priority and priority not in ("medium", ""):
+                line += f"  [{priority}]"
+            lines.append(line)
+            if preview:
+                lines.append(f"   {preview}")
+        return lines
+
+
+def _pick_list_strategy(note_count: int) -> FormatterStrategy:
+    """Select the appropriate rendering strategy based on note count."""
+    if note_count > 8:
+        return CompactNotesListStrategy()
+    return DetailedNotesListStrategy()
+
 
 
 class SimpleFormatter:
@@ -462,35 +541,54 @@ class NotesFormatter(SimpleFormatter):
             lines.append(hint)
             return "\n".join(lines)
 
+        # Feature #4: Confirmation request (destructive action gate)
+        if data.get('error') == 'requires_confirmation':
+            prompt = data.get('prompt', '')
+            note_title = data.get('note_title', '')
+            return prompt or f'Confirm to proceed with "{note_title}". Reply "confirm" or "cancel".'
+
+        # Feature #4: Action cancelled
+        if action == 'action_cancelled':
+            cancelled_action = data.get('cancelled_action', 'action')
+            note_title = data.get('note_title', '')
+            msg = f"Cancelled {cancelled_action.replace('_', ' ')}"
+            if note_title:
+                msg += f' for "{note_title}"'
+            return msg + "."
+
         if action in ('list_notes', 'list_archived_notes'):
             notes = data.get('notes', [])
             count = data.get('count', len(notes))
             shown = data.get('shown', len(notes))
             limit = data.get('limit')
             header = "Notes" if action == 'list_notes' else "Archived Notes"
-            lines = [f"{header} ({count})"]
-            if isinstance(shown, int):
-                if isinstance(limit, int):
-                    lines.append(f"Showing {shown} of {count} (limit {limit})")
-                else:
-                    lines.append(f"Showing {shown} of {count}")
-            if not notes:
-                lines.append("No notes available.")
-                return "\n".join(lines)
 
-            for idx, note in enumerate(notes, 1):
-                title = note.get('title', 'Untitled')
-                tags = note.get('tags', [])
-                updated = (note.get('updated_at') or '')[:10]
-                preview = note.get('preview', '')
-                line = f"{idx}. {title}"
-                if tags:
-                    line += f"  #{' #'.join(tags[:3])}"
-                if updated:
-                    line += f"  [{updated}]"
-                lines.append(line)
-                if preview:
-                    lines.append(f"   {preview}")
+            if not notes and count == 0:
+                header_line = "Archived notes" if action == 'list_archived_notes' else "Notes"
+                return f"No {header_line.lower()} found."
+
+            # Feature #8: Strategy-based adaptive rendering
+            strategy = _pick_list_strategy(shown)
+            lines = strategy.render_notes_list(notes, count, shown, header)
+
+            # Inject "Showing X of Y (limit N)" metadata after the header line
+            if isinstance(shown, int) and isinstance(count, int):
+                if isinstance(limit, int):
+                    lines.insert(1, f"Showing {shown} of {count} (limit {limit})")
+                elif shown != count:
+                    lines.insert(1, f"Showing {shown} of {count}")
+
+            # Upcoming reminders / overdue notices (Feature #7)
+            overdue_count = data.get('overdue_count', 0)
+            upcoming = data.get('upcoming_reminders', [])
+            if overdue_count:
+                lines.append(f"\n[!] {overdue_count} overdue note(s). Use 'show overdue notes' for details.")
+            if upcoming:
+                lines.append(f"\nUpcoming reminders ({len(upcoming)}):")
+                for r in upcoming[:3]:
+                    title_r = r.get('title', 'Untitled')
+                    due = r.get('due_date') or r.get('reminder', '')
+                    lines.append(f"  - {title_r}  due: {due[:10] if due else '?'}")
 
             if count > shown:
                 lines.append(f"... and {count - shown} more")
@@ -561,6 +659,141 @@ class NotesFormatter(SimpleFormatter):
             for item in sorted_tags:
                 lines.append(f"- #{item.get('tag')}: {item.get('count', 0)}")
             return "\n".join(lines)
+
+        # ── Feature #1: Content / full-text search results ───────────────────
+        if action == 'search_notes_content':
+            results = data.get('results', [])
+            query = data.get('query', '')
+            count = data.get('count', len(results))
+            fallback = data.get('fallback', False)
+            if not results:
+                return f"No notes found containing '{query}'."
+            header = f"Content search results for '{query}' ({count})"
+            if fallback:
+                header += " [body search fallback]"
+            lines = [header]
+            for idx, r in enumerate(results[:10], 1):
+                title = r.get('title', 'Untitled')
+                snippet = r.get('matched_snippet', '')
+                score = r.get('score', 0.0)
+                lines.append(f"{idx}. {title}  [score: {score:.1f}]")
+                if snippet:
+                    lines.append(f"   ...{snippet[:120]}...")
+            if count > 10:
+                lines.append(f"... and {count - 10} more")
+            return "\n".join(lines)
+
+        if action == 'search_notes':
+            results = data.get('results', [])
+            query = data.get('query', '')
+            count = data.get('count', len(results))
+            if not results:
+                return f"No notes found for '{query}'."
+            lines = [f"Search results for '{query}' ({count}):"]
+            for idx, r in enumerate(results, 1):
+                title = r.get('title', 'Untitled')
+                tags = r.get('tags', [])
+                tag_str = (" #" + " #".join(tags[:3])) if tags else ""
+                lines.append(f"{idx}. {title}{tag_str}")
+            return "\n".join(lines)
+
+        if action == 'search_notes_empty':
+            return f"No notes found for '{data.get('query', '')}'. Try different keywords."
+
+        # ── Feature #3: Create note from conversation ─────────────────────────
+        if action == 'create_note_from_context':
+            title = data.get('note_title', 'Untitled')
+            turns = data.get('source_turns', 0)
+            return f"Note saved: \"{title}\" (captured {turns} conversation turn(s))."
+
+        # ── Feature #5: Append note ───────────────────────────────────────────
+        if action == 'append_note':
+            title = data.get('note_title', 'Untitled')
+            appended = data.get('appended_text', '')
+            return f"Appended to \"{title}\": {appended[:80]}"
+
+        # ── Simple CRUD actions ───────────────────────────────────────────────
+        if action == 'create_note':
+            title = data.get('title', 'Untitled')
+            tags = data.get('tags', [])
+            note_type = data.get('note_type', 'note')
+            tag_str = (" [" + ", ".join(f"#{t}" for t in tags) + "]") if tags else ""
+            return f"Created {note_type}: \"{title}\"{tag_str}"
+
+        if action == 'edit_note':
+            title = data.get('note_title', 'Untitled')
+            new_content = data.get('new_content', '')
+            return f"Updated \"{title}\": {new_content[:80]}"
+
+        if action == 'add_to_note':
+            title = data.get('title', 'Untitled')
+            item = data.get('item_added', '')
+            return f"Added to \"{title}\": {item}"
+
+        if action == 'delete_note':
+            title = data.get('note_title', 'Untitled')
+            restorable = data.get('restorable', True)
+            suffix = " (archived — can be restored)" if restorable else " (deleted)"
+            return f"Deleted \"{title}\"{suffix}."
+
+        if action in ('delete_notes', 'delete_notes_empty'):
+            count = data.get('count', 0)
+            if count == 0:
+                return "No active notes to delete."
+            return f"Archived {count} note(s). They can be restored from the archive."
+
+        if action in ('pin_note', 'unpin_note'):
+            title = data.get('note_title', 'Untitled')
+            pinned = data.get('pinned', action == 'pin_note')
+            verb = "Pinned" if pinned else "Unpinned"
+            return f"{verb}: \"{title}\"."
+
+        if action in ('archive_note', 'unarchive_note'):
+            title = data.get('note_title', 'Untitled')
+            archived = data.get('archived', action == 'archive_note')
+            verb = "Archived" if archived else "Unarchived"
+            return f"{verb}: \"{title}\"."
+
+        if action == 'set_priority':
+            title = data.get('note_title', 'Untitled')
+            priority = data.get('priority', 'medium')
+            return f"Priority for \"{title}\" set to {priority}."
+
+        if action == 'set_category':
+            title = data.get('note_title', 'Untitled')
+            category = data.get('category', 'general')
+            return f"Category for \"{title}\" set to {category}."
+
+        if action == 'get_note_title':
+            title = data.get('title', 'Untitled')
+            return f"Note title: \"{title}\"."
+
+        # ── Feature #7: Overdue notes ─────────────────────────────────────────
+        if action == 'show_overdue_notes':
+            notes = data.get('notes', [])
+            count = data.get('count', len(notes))
+            if count == 0:
+                return "No overdue notes — you're all caught up!"
+            lines = [f"Overdue notes ({count}):"]
+            for idx, n in enumerate(notes, 1):
+                title = n.get('title', 'Untitled')
+                due = n.get('due_date', '')
+                priority = n.get('priority', '')
+                line = f"{idx}. {title}"
+                if due:
+                    line += f"  due: {due[:10]}"
+                if priority and priority not in ('medium', ''):
+                    line += f"  [{priority}]"
+                lines.append(line)
+            return "\n".join(lines)
+
+        # ── Feature #9: Note linking ──────────────────────────────────────────
+        if action == 'link_notes':
+            a = data.get('note_a_title', '')
+            b = data.get('note_b_title', '')
+            if a and b:
+                return f"Linked \"{a}\" ↔ \"{b}\"."
+            return "Notes linked."
 
         return None
     
