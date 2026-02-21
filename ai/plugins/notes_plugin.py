@@ -29,6 +29,7 @@ import os
 import sys
 import json
 import logging
+import uuid
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
@@ -323,8 +324,12 @@ class NotesManager:
     
     def _generate_id(self) -> str:
         """Generate unique note ID"""
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-        return f"note_{timestamp}"
+        while True:
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+            suffix = uuid.uuid4().hex[:8]
+            note_id = f"note_{timestamp}_{suffix}"
+            if note_id not in self.notes:
+                return note_id
     
     def create_note(self, title: str, content: str, tags: List[str] = None, 
                    note_type: str = "general", category: str = "general",
@@ -626,6 +631,7 @@ class NotesPlugin(PluginInterface):
         self.commands = [
             "create note", "add note", "new note", "make note",
             "search notes", "find notes", "show notes", "list notes",
+            "show note content", "read note", "summarize note",
             "delete note", "remove note", "archive note",
             "edit note", "update note",
             "pin note", "unpin note",
@@ -719,6 +725,14 @@ class NotesPlugin(PluginInterface):
         ranked = sorted(notes, key=score, reverse=True)
         return ranked
 
+    def _normalize_title_query(self, query: str) -> str:
+        """Normalize extracted title query for more robust note matching."""
+        cleaned = (query or "").strip().strip('"\'').strip('?.!,')
+        cleaned = re.sub(r"^(?:the|my|this|that)\s+", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+(?:note|list)\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
     def _resolve_note_reference(self, command: str, *, include_archived: bool = False) -> Dict[str, Any]:
         """Resolve note reference via context, ordinals, title match, or fallback with disambiguation."""
         lower = command.lower()
@@ -751,9 +765,21 @@ class NotesPlugin(PluginInterface):
             m = re.search(pattern, command, re.IGNORECASE)
             if not m:
                 continue
-            matched_query = m.group(1).strip().strip('?.!,')
+            matched_query = self._normalize_title_query(m.group(1))
             if matched_query:
                 candidates = self.manager.find_by_title(matched_query)
+                if not candidates:
+                    contextual_notes = [
+                        self.manager.get_note(note_id)
+                        for note_id in self.last_note_result_ids
+                        if note_id
+                    ]
+                    contextual_candidates = [
+                        note for note in contextual_notes
+                        if note and not note.archived and matched_query.lower() in note.title.lower()
+                    ]
+                    if contextual_candidates:
+                        candidates = contextual_candidates
                 if candidates:
                     break
 
@@ -892,7 +918,7 @@ class NotesPlugin(PluginInterface):
         # Keywords that indicate note-related commands
         note_keywords = ['note', 'notes', 'write down', 'remember this', 'jot down']
         action_keywords = ['create', 'add', 'new', 'make', 'search', 'find', 'show', 
-                          'list', 'delete', 'remove', 'edit', 'update']
+                          'list', 'delete', 'remove', 'edit', 'update', 'read', 'open', 'summary', 'summarize']
         
         # Question patterns about notes
         question_patterns = [
@@ -955,6 +981,14 @@ class NotesPlugin(PluginInterface):
             # Ask for note title/name (context-aware follow-up)
             elif re.search(r"(?:what(?:'s|\s+is)?\s+the\s+title|title\s+of\s+(?:the\s+)?note|name\s+of\s+(?:the\s+)?note)", command_lower):
                 result = self._get_note_title(command)
+
+            # Summarize note content
+            elif any(word in command_lower for word in ['summarize', 'summary', 'tldr', 'highlights']) and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']):
+                result = self._summarize_note_content(command)
+
+            # Read/show full note content
+            elif any(word in command_lower for word in ['read', 'open', 'full content', 'show content', 'what is in']) and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']):
+                result = self._get_note_content(command)
             
             # Show tags (check first before list/show notes)
             elif 'tag' in command_lower and any(word in command_lower for word in ['show', 'list', 'all']):
@@ -1354,6 +1388,16 @@ class NotesPlugin(PluginInterface):
             start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         
         return self.manager.search_by_date_range(start_date, end_date)
+
+    def _extract_list_limit(self, command: str, default_limit: int = 200) -> int:
+        """Extract explicit list limit from command text; default to large list for full visibility."""
+        match = re.search(r'\b(?:top|last|first|show)\s+(\d+)\b', command.lower())
+        if match:
+            try:
+                return max(1, min(int(match.group(1)), 500))
+            except Exception:
+                return default_limit
+        return default_limit
     
     def _list_notes(self, command: str) -> Dict[str, Any]:
         """List all notes or filter by type"""
@@ -1369,6 +1413,8 @@ class NotesPlugin(PluginInterface):
             notes = self.manager.search_by_type(note_type)
         else:
             notes = self.manager.get_all_notes()
+
+        list_limit = self._extract_list_limit(command)
         
         if not notes:
             return {
@@ -1384,18 +1430,22 @@ class NotesPlugin(PluginInterface):
             }
         
         notes_payload = []
-        for note in notes[:20]:
+        for note in notes[:list_limit]:
             preview = ""
             if note.content and note.content != note.title:
-                preview = note.content[:100].replace('\n', ' ')
-                if len(note.content) > 100:
+                preview = note.content[:140].replace('\n', ' ')
+                if len(note.content) > 140:
                     preview += '...'
             notes_payload.append({
                 "note_id": note.id,
                 "title": note.title,
                 "tags": note.tags,
                 "note_type": note.note_type,
+                "category": note.category,
+                "priority": note.priority,
                 "updated_at": note.updated_at,
+                "created_at": note.created_at,
+                "content_length": len(note.content or ""),
                 "preview": preview,
             })
 
@@ -1403,6 +1453,7 @@ class NotesPlugin(PluginInterface):
         first_note = notes[0]
         self.last_note_id = first_note.id
         self.last_note_title = first_note.title
+        self.last_note_result_ids = [n.get('note_id') for n in notes_payload if n.get('note_id')]
         
         return {
             "success": True,
@@ -1410,12 +1461,118 @@ class NotesPlugin(PluginInterface):
             "data": {
                 "count": len(notes),
                 "shown": len(notes_payload),
-                "has_more": len(notes) > 20,
+                "has_more": len(notes) > list_limit,
+                "limit": list_limit,
                 "note_type": note_type,
                 "notes": notes_payload,
             },
             "formulate": True,
         }
+
+    def _get_note_content(self, command: str) -> Dict[str, Any]:
+        """Return full content of a referenced note with clean structured metadata."""
+        resolution = self._resolve_note_reference(command, include_archived=True)
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "get_note_content",
+                resolution.get("candidates", []),
+                "notes:content_ambiguous",
+            )
+
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
+        if not note:
+            return {
+                "success": False,
+                "action": "get_note_content",
+                "data": {
+                    "error": "note_not_identified",
+                    "message_code": "notes:content_target_not_found",
+                    "diagnostics": {
+                        "resolution_path": resolution.get("resolution_path", "no_match")
+                    },
+                },
+                "formulate": True,
+            }
+
+        self.last_note_id = note.id
+        self.last_note_title = note.title
+
+        return {
+            "success": True,
+            "action": "get_note_content",
+            "data": {
+                "note_id": note.id,
+                "note_title": note.title,
+                "content": note.content,
+                "tags": note.tags,
+                "note_type": note.note_type,
+                "category": note.category,
+                "priority": note.priority,
+                "created_at": note.created_at,
+                "updated_at": note.updated_at,
+                "diagnostics": {
+                    "resolution_path": resolution.get("resolution_path", "resolved")
+                },
+            },
+            "formulate": True,
+        }
+
+    def _summarize_note_content(self, command: str) -> Dict[str, Any]:
+        """Generate structured summary of a note for clean downstream formatting."""
+        content_res = self._get_note_content(command)
+        if not content_res.get("success"):
+            content_res["action"] = "summarize_note"
+            return content_res
+
+        data = content_res.get("data", {})
+        text = (data.get("content") or "").strip()
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+        key_points: List[str] = []
+        action_items: List[str] = []
+        dates: List[str] = []
+
+        date_pattern = re.compile(r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2})\b", re.IGNORECASE)
+        action_pattern = re.compile(r"^(?:[-*]|\d+[.)]|\[ ?\]|todo\b|action\b|call\b|email\b|buy\b|send\b|finish\b)", re.IGNORECASE)
+
+        for line in lines:
+            normalized = re.sub(r"^[-*\d\[\]()\.\s]+", "", line).strip()
+            if normalized and len(key_points) < 8:
+                key_points.append(normalized[:220])
+
+            if action_pattern.search(line):
+                cleaned = re.sub(r"^[-*\d\[\]()\.\s]+", "", line).strip()
+                if cleaned:
+                    action_items.append(cleaned[:220])
+
+            for match in date_pattern.findall(line):
+                if match not in dates:
+                    dates.append(match)
+
+        if not key_points and text:
+            key_points = [text[:220]]
+
+        content_res["action"] = "summarize_note"
+        content_res["data"] = {
+            "note_id": data.get("note_id"),
+            "note_title": data.get("note_title"),
+            "summary": {
+                "overview": key_points[:3],
+                "key_points": key_points,
+                "action_items": action_items,
+                "dates": dates,
+                "line_count": len(lines),
+            },
+            "tags": data.get("tags", []),
+            "note_type": data.get("note_type"),
+            "category": data.get("category"),
+            "priority": data.get("priority"),
+            "created_at": data.get("created_at"),
+            "updated_at": data.get("updated_at"),
+            "diagnostics": data.get("diagnostics", {}),
+        }
+        content_res["formulate"] = True
+        return content_res
 
     def _get_note_title(self, command: str) -> Dict[str, Any]:
         """Return the title of a referenced note using context or explicit title mention."""
@@ -1499,6 +1656,7 @@ class NotesPlugin(PluginInterface):
                 "count": len(archived_notes),
                 "shown": len(archived_payload),
                 "has_more": len(archived_notes) > 20,
+                "limit": 20,
                 "notes": archived_payload,
             },
             "formulate": True,
@@ -1667,39 +1825,6 @@ class NotesPlugin(PluginInterface):
                     "diagnostics": {
                         "resolution_path": resolution.get("resolution_path", "resolved")
                     },
-            },
-            "formulate": True,
-        }
-    
-    def _show_tags(self) -> Dict[str, Any]:
-        """Show all tags used in notes"""
-        tags = self.manager.get_all_tags()
-        
-        if not tags:
-            return {
-                "success": True,
-                "action": "show_tags",
-                "data": {
-                    "count": 0,
-                    "tags": [],
-                    "tag_counts": {},
-                },
-                "formulate": True,
-            }
-
-        tag_counts = {}
-        for tag in tags:
-            notes_with_tag = self.manager.search_by_tag(tag)
-            tag_counts[tag] = len(notes_with_tag)
-
-        return {
-            "success": True,
-            "action": "show_tags",
-            "data": {
-                "count": len(tags),
-                "tags": tags,
-                "tag_counts": tag_counts,
-                "sorted_tags": [{"tag": tag, "count": count} for tag, count in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)],
             },
             "formulate": True,
         }

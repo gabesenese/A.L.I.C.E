@@ -405,44 +405,145 @@ class NotesFormatter(SimpleFormatter):
     
     @staticmethod
     def format(data: Any, **kwargs) -> Optional[str]:
-        """
-        Format notes
-        
-        Expected data:
-        [
-            {'title': str, 'content': str, 'tags': list, 'created': str},
-            ...
-        ]
-        """
+        """Format notes payloads (legacy lists/single-note + structured action data)."""
+        if isinstance(data, dict) and 'action' in data and isinstance(data.get('data'), dict):
+            return NotesFormatter._format_action_payload(data)
+
         if not isinstance(data, list):
-            # Single note
             if isinstance(data, dict):
                 return NotesFormatter._format_single_note(data)
             return None
-        
+
         if not data:
             return "No notes found."
-        
+
         count = len(data)
         lines = [f"Found {count} note(s):"]
-        
+
         for i, note in enumerate(data[:10], 1):
             title = note.get('title', 'Untitled')
             tags = note.get('tags', [])
             created = note.get('created', '')
-            
+
             note_line = f"{i}. {title}"
             if tags:
                 note_line += f" [tags: {', '.join(tags[:3])}]"
             if created:
                 note_line += f" (created {created})"
-            
+
             lines.append(note_line)
-        
+
         if count > 10:
             lines.append(f"... and {count - 10} more")
-        
+
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_action_payload(payload: Dict[str, Any]) -> Optional[str]:
+        action = payload.get('action', '')
+        data = payload.get('data', {})
+
+        if action in ('list_notes', 'list_archived_notes'):
+            notes = data.get('notes', [])
+            count = data.get('count', len(notes))
+            shown = data.get('shown', len(notes))
+            limit = data.get('limit')
+            header = "Notes" if action == 'list_notes' else "Archived Notes"
+            lines = [f"{header} ({count})"]
+            if isinstance(shown, int):
+                if isinstance(limit, int):
+                    lines.append(f"Showing {shown} of {count} (limit {limit})")
+                else:
+                    lines.append(f"Showing {shown} of {count}")
+            if not notes:
+                lines.append("No notes available.")
+                return "\n".join(lines)
+
+            for idx, note in enumerate(notes, 1):
+                title = note.get('title', 'Untitled')
+                tags = note.get('tags', [])
+                updated = (note.get('updated_at') or '')[:10]
+                preview = note.get('preview', '')
+                line = f"{idx}. {title}"
+                if tags:
+                    line += f"  #{' #'.join(tags[:3])}"
+                if updated:
+                    line += f"  [{updated}]"
+                lines.append(line)
+                if preview:
+                    lines.append(f"   {preview}")
+
+            if count > shown:
+                lines.append(f"... and {count - shown} more")
+            return "\n".join(lines)
+
+        if action == 'get_note_content':
+            title = data.get('note_title', 'Untitled')
+            tags = data.get('tags', [])
+            category = data.get('category', '')
+            priority = data.get('priority', '')
+            content = data.get('content', '').strip()
+
+            lines = [title]
+            meta = []
+            if tags:
+                meta.append(f"tags: {', '.join(tags)}")
+            if category:
+                meta.append(f"category: {category}")
+            if priority:
+                meta.append(f"priority: {priority}")
+            if meta:
+                lines.append(" | ".join(meta))
+            lines.append("")
+            lines.append(content or "(empty note)")
+            return "\n".join(lines)
+
+        if action == 'summarize_note':
+            title = data.get('note_title', 'Untitled')
+            summary = data.get('summary', {})
+            overview = summary.get('overview', [])
+            key_points = summary.get('key_points', [])
+            action_items = summary.get('action_items', [])
+            dates = summary.get('dates', [])
+
+            lines = [f"Summary: {title}"]
+            if overview:
+                lines.append("Overview:")
+                for item in overview[:3]:
+                    lines.append(f"- {item}")
+            if key_points:
+                lines.append("\nKey Points:")
+                for item in key_points[:8]:
+                    lines.append(f"- {item}")
+            if action_items:
+                lines.append("\nAction Items:")
+                for item in action_items[:8]:
+                    lines.append(f"- {item}")
+            if dates:
+                lines.append("\nDates:")
+                lines.append("- " + ", ".join(dates[:8]))
+            return "\n".join(lines)
+
+        if action == 'count_notes':
+            return (
+                f"Notes: {data.get('total', 0)} total"
+                f" | todo: {data.get('todos', 0)}"
+                f" | ideas: {data.get('ideas', 0)}"
+                f" | meetings: {data.get('meetings', 0)}"
+                f" | pinned: {data.get('pinned', 0)}"
+                f" | archived: {data.get('archived', 0)}"
+            )
+
+        if action == 'show_tags':
+            sorted_tags = data.get('sorted_tags', [])
+            if not sorted_tags:
+                return "No tags found."
+            lines = [f"Tags ({len(sorted_tags)}):"]
+            for item in sorted_tags:
+                lines.append(f"- #{item.get('tag')}: {item.get('count', 0)}")
+            return "\n".join(lines)
+
+        return None
     
     @staticmethod
     def _format_single_note(note: Dict) -> str:

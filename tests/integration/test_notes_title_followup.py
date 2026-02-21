@@ -97,6 +97,73 @@ class TestNotesTitleFollowup:
         learning_state = json.loads(plugin.learning_state_path.read_text(encoding="utf-8"))
         assert "action_token_weights" in learning_state
 
+    def test_get_note_content_returns_full_content_payload(self, plugin):
+        plugin.manager.create_note(title="Release Plan", content="Line 1\nLine 2\n- action")
+
+        result = plugin.execute(
+            intent="conversation:general",
+            query="show content of that note",
+            entities={},
+            context={},
+        )
+
+        assert result.get("success") is True
+        assert result.get("action") == "get_note_content"
+        assert "Line 1" in result.get("data", {}).get("content", "")
+
+    def test_summarize_note_returns_structured_sections(self, plugin):
+        plugin.manager.create_note(
+            title="Sprint Notes",
+            content="Finalize auth flow\n- email vendor\nDeadline 2026-03-10\nShip release",
+        )
+
+        result = plugin.execute(
+            intent="conversation:general",
+            query="summarize that note",
+            entities={},
+            context={},
+        )
+
+        assert result.get("success") is True
+        assert result.get("action") == "summarize_note"
+        summary = result.get("data", {}).get("summary", {})
+        assert isinstance(summary.get("key_points", []), list)
+        assert isinstance(summary.get("action_items", []), list)
+        assert isinstance(summary.get("dates", []), list)
+
+    def test_list_notes_includes_pagination_metadata(self, plugin):
+        plugin.manager.create_note(title="One", content="1")
+        plugin.manager.create_note(title="Two", content="2")
+
+        result = plugin.execute(
+            intent="conversation:question",
+            query="show 1 notes",
+            entities={},
+            context={},
+        )
+
+        assert result.get("success") is True
+        assert result.get("action") == "list_notes"
+        data = result.get("data", {})
+        assert data.get("limit") == 1
+        assert data.get("shown") == 1
+        assert data.get("count") >= 2
+        assert data.get("has_more") is True
+
+    def test_resolver_normalizes_title_suffix_for_content(self, plugin):
+        plugin.manager.create_note(title="Release Plan", content="Scope and milestones")
+
+        result = plugin.execute(
+            intent="conversation:general",
+            query="read the release plan note",
+            entities={},
+            context={},
+        )
+
+        assert result.get("success") is True
+        assert result.get("action") == "get_note_content"
+        assert result.get("data", {}).get("note_title") == "Release Plan"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

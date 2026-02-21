@@ -1005,20 +1005,44 @@ class ALICE:
 
         # Note/file operations
         elif intent.startswith('note') or intent.startswith('file'):
-            operation = plugin_data.get('operation', 'unknown')
+            action = plugin_data.get('action', plugin_data.get('operation', 'unknown'))
             success = plugin_data.get('success', False)
+
+            if action == 'list_notes':
+                return {
+                    'type': 'notes_listing',
+                    'note_count': plugin_data.get('count', 0),
+                    'notes': plugin_data.get('notes', []),
+                    'has_more': plugin_data.get('has_more', False),
+                    'confidence': 0.95
+                }
+            if action == 'get_note_content':
+                return {
+                    'type': 'note_content',
+                    'title': plugin_data.get('note_title', ''),
+                    'content': plugin_data.get('content', ''),
+                    'tags': plugin_data.get('tags', []),
+                    'confidence': 0.95
+                }
+            if action == 'summarize_note':
+                return {
+                    'type': 'note_summary',
+                    'title': plugin_data.get('note_title', ''),
+                    'summary': plugin_data.get('summary', {}),
+                    'confidence': 0.95
+                }
 
             if success:
                 return {
                     'type': 'operation_success',
-                    'operation': operation,
-                    'details': plugin_data.get('message', ''),
+                    'operation': action,
+                    'details': plugin_data,
                     'confidence': 0.95
                 }
             else:
                 return {
                     'type': 'operation_failure',
-                    'operation': operation,
+                    'operation': action,
                     'error': plugin_data.get('error', 'Operation failed'),
                     'confidence': 0.9
                 }
@@ -3258,7 +3282,11 @@ class ALICE:
                     recent_topics=self.conversation_topics[-3:] if self.conversation_topics else [],
                     active_goal=goal_res.goal if goal_res else None,
                     world_state=self.reasoning_engine if hasattr(self, 'reasoning_engine') else None,
-                    plugin_data=plugin_result.get('data', {})
+                    plugin_data={
+                        **(plugin_result.get('data', {}) if isinstance(plugin_result.get('data', {}), dict) else {}),
+                        'action': plugin_result.get('action'),
+                        'success': plugin_result.get('success', success),
+                    }
                 )
 
                 # NEW: Check if plugin wants Alice to formulate response from data
@@ -3367,9 +3395,15 @@ class ALICE:
                         self._think(f"Using gateway formatter for {intent}")
                     if hasattr(self, 'llm_gateway') and self.llm_gateway:
                         formatter_name = plugin_name.lower().replace('plugin', '').strip()
+                        formatter_payload = plugin_result.get('data', {})
+                        if formatter_name == 'notes' and isinstance(plugin_result, dict):
+                            formatter_payload = {
+                                'action': plugin_result.get('action'),
+                                'data': plugin_result.get('data', {}),
+                            }
                         response = self.llm_gateway.format_tool_result(
                             tool_name=formatter_name,
-                            data=plugin_result.get('data', {}),
+                            data=formatter_payload,
                             user_input=user_input,
                             context={'intent': intent, 'entities': entities}
                         )
