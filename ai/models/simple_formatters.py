@@ -794,6 +794,80 @@ class NotesFormatter(SimpleFormatter):
             if a and b:
                 return f"Linked \"{a}\" ↔ \"{b}\"."
             return "Notes linked."
+        
+        # ── Tag Analytics ─────────────────────────────────────────────────────
+        if action == 'tag_analytics':
+            total = data.get('total_notes', 0)
+            top_tags = data.get('top_tags', {})
+            aging = data.get('aging_notes_count', 0)
+            
+            lines = [
+                "📊 **Tag Analytics**",
+                f"Total Notes: {total}",
+                ""
+            ]
+            
+            if top_tags:
+                lines.append("🏷️  Top Tags:")
+                for tag, count in list(top_tags.items())[:10]:
+                    lines.append(f"  • #{tag}: {count} notes")
+            
+            if aging > 0:
+                lines.append(f"\n⏰ {aging} notes haven't been updated in 30+ days")
+            
+            return "\n".join(lines)
+        
+        # ── Auto Link Note ────────────────────────────────────────────────────
+        if action == 'auto_link_note':
+            title = data.get('note_title', '')
+            count = data.get('linked_count', 0)
+            if count > 0:
+                return f"Automatically linked \"{title}\" to {count} related note(s)."
+            return f"No related notes found for \"{title}\"."
+        
+        # ── Check Checklist Item ──────────────────────────────────────────────
+        if action == 'check_checklist_item':
+            if data.get('error'):
+                error = data.get('error')
+                if error == 'no_item_number':
+                    return "Please specify which checklist item number to check/uncheck."
+                elif error == 'no_checklist_items':
+                    title = data.get('note_title', 'this note')
+                    return f"\"{title}\" doesn't have any checklist items."
+                elif error == 'invalid_item_index':
+                    return "Invalid checklist item number."
+                return "Could not update checklist item."
+            
+            title = data.get('note_title', '')
+            text = data.get('item_text', '')
+            checked = data.get('checked', False)
+            status = "☑" if checked else "☐"
+            return f"{status} {text}\n(in \"{title}\")"
+        
+        # ── Suggest Tags ──────────────────────────────────────────────────────
+        if action == 'suggest_tags':
+            if data.get('error'):
+                return "Could not suggest tags for this note."
+            
+            title = data.get('note_title', '')
+            current = data.get('current_tags', [])
+            suggested = data.get('suggested_tags', [])
+            
+            lines = [f"Tag suggestions for \"{title}\":"]
+            
+            if current:
+                lines.append(f"Current tags: {', '.join(['#' + t for t in current])}")
+            
+            if suggested:
+                new_tags = [t for t in suggested if t not in current]
+                if new_tags:
+                    lines.append(f"Suggested: {', '.join(['#' + t for t in new_tags])}")
+                else:
+                    lines.append("No new tag suggestions (current tags look good!)")
+            else:
+                lines.append("No tag suggestions available.")
+            
+            return "\n".join(lines)
 
         return None
     

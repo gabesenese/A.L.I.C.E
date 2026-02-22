@@ -66,6 +66,11 @@ class Note:
     checklist_items: Optional[List[Dict[str, Any]]] = None  # [{"text": "item", "checked": False}]
     related_notes: Optional[List[str]] = None  # List of note IDs
     
+    # Transient fields (not saved to disk)
+    _relevance_cache: Dict[str, float] = field(default_factory=dict, repr=False, compare=False)
+    _tokenized_title: Optional[List[str]] = field(default=None, repr=False, compare=False)
+    _tokenized_content: Optional[List[str]] = field(default=None, repr=False, compare=False)
+    
     def to_dict(self) -> Dict:
         """Convert note to dictionary"""
         return asdict(self)
@@ -109,16 +114,36 @@ class Note:
         return tag.lower() in [t.lower() for t in self.tags]
     
     def get_relevance_score(self, keyword: str) -> float:
-        """Calculate relevance score for fuzzy search"""
+        """Calculate relevance score for fuzzy search with caching and optimization"""
+        # Check cache first
+        cache_key = keyword.lower()
+        if cache_key in self._relevance_cache:
+            return self._relevance_cache[cache_key]
+        
         keyword_lower = keyword.lower()
         score = 0.0
         
-        # Title match (highest weight)
-        if keyword_lower in self.title.lower():
+        # Pre-tokenize if not already done (lazy initialization)
+        if self._tokenized_title is None:
+            self._tokenized_title = self.title.lower().split()
+        if self._tokenized_content is None:
+            self._tokenized_content = self.content.lower().split()
+        
+        # Title match (highest weight) - early exit for exact matches
+        title_lower = self.title.lower()
+        if keyword_lower == title_lower:
+            score = 15.0  # Exact match
+            if self.pinned:
+                score *= 1.2
+            if self.priority == "urgent":
+                score *= 1.15
+            elif self.priority == "high":
+                score *= 1.1
+            self._relevance_cache[cache_key] = score
+            return score
+        
+        if keyword_lower in title_lower:
             score += 10.0
-            # Bonus for exact match
-            if keyword_lower == self.title.lower():
-                score += 5.0
         
         # Content match
         if keyword_lower in self.content.lower():
@@ -132,13 +157,24 @@ class Note:
         if keyword_lower in self.category.lower():
             score += 3.0
         
-        # Partial word matching
-        title_words = self.title.lower().split()
-        content_words = self.content.lower().split()
-        for word in title_words:
+        # Early exit if strong match found
+        if score >= 15.0:
+            if self.pinned:
+                score *= 1.2
+            if self.priority == "urgent":
+                score *= 1.15
+            elif self.priority == "high":
+                score *= 1.1
+            self._relevance_cache[cache_key] = score
+            return score
+        
+        # Partial word matching using pre-tokenized lists
+        for word in self._tokenized_title:
             if keyword_lower in word or word in keyword_lower:
                 score += 2.0
-        for word in content_words[:50]:  # Check first 50 words
+        
+        # Limit content word checking to first 50 words for performance
+        for word in self._tokenized_content[:50]:
             if keyword_lower in word or word in keyword_lower:
                 score += 0.5
         
@@ -150,6 +186,8 @@ class Note:
         elif self.priority == "high":
             score *= 1.1
         
+        # Cache the result
+        self._relevance_cache[cache_key] = score
         return score
 
 
@@ -223,37 +261,93 @@ class NotesManager:
         os.makedirs(self.notes_dir, exist_ok=True)
     
     def _load_notes(self):
-        """Load notes from JSON file"""
+        """Load notes from JSON file with validation and error recovery"""
         try:
             if os.path.exists(self.notes_file):
                 with open(self.notes_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self.notes = {
-                        note_id: Note.from_dict(note_data)
-                        for note_id, note_data in data.items()
-                    }
-                logger.info(f"Loaded {len(self.notes)} notes from storage")
+                    
+                # Validate and load notes with UUID checking
+                loaded_notes = {}
+                corrupted_count = 0
+                
+                for note_id, note_data in data.items():
+                    try:
+                        # Validate UUID format in note ID
+                        if '_' in note_id:
+                            uuid_part = note_id.split('_')[-1]
+                            try:
+                                # Validate it's hex
+                                int(uuid_part, 16)
+                            except ValueError:
+                                logger.warning(f"Invalid UUID in note ID: {note_id}")
+                                corrupted_count += 1
+                                continue
+                        
+                        note = Note.from_dict(note_data)
+                        loaded_notes[note_id] = note
+                    except (ValueError, TypeError, KeyError) as e:
+                        logger.warning(f"Skipping corrupted note {note_id}: {e}")
+                        corrupted_count += 1
+                
+                self.notes = loaded_notes
+                logger.info(f"Loaded {len(self.notes)} notes from storage" + 
+                           (f" ({corrupted_count} corrupted entries skipped)" if corrupted_count else ""))
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error loading notes: {e}. Attempting backup recovery...")
+            self._recover_from_backup()
+        except FileNotFoundError:
+            logger.info("No existing notes file found, starting fresh")
+            self.notes = {}
         except Exception as e:
-            logger.error(f"Error loading notes: {e}")
+            logger.error(f"Unexpected error loading notes: {e}")
             self.notes = {}
     
     def _save_notes(self):
-        """Save notes to JSON file and human-readable text file"""
+        """Save notes to JSON file with atomic writes and backup"""
+        temp_file = self.notes_file + ".tmp"
+        backup_file = self.notes_file + ".backup"
+        
         try:
-            # Save JSON data file
+            # Prepare data
             data = {
                 note_id: note.to_dict()
                 for note_id, note in self.notes.items()
             }
-            with open(self.notes_file, 'w', encoding='utf-8') as f:
+            
+            # Write to temporary file first (atomic write pattern)
+            with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            # Create backup of existing file before replacing
+            if os.path.exists(self.notes_file):
+                try:
+                    if os.path.exists(backup_file):
+                        os.remove(backup_file)
+                    os.rename(self.notes_file, backup_file)
+                except OSError as e:
+                    logger.warning(f"Could not create backup: {e}")
+            
+            # Move temp file to actual location
+            os.rename(temp_file, self.notes_file)
             
             # Save human-readable text file
             self._save_readable_notes()
             
             logger.info(f"Saved {len(self.notes)} notes to storage")
+        except json.JSONEncodeError as e:
+            logger.error(f"JSON encode error saving notes: {e}")
+        except OSError as e:
+            logger.error(f"File system error saving notes: {e}")
         except Exception as e:
-            logger.error(f"Error saving notes: {e}")
+            logger.error(f"Unexpected error saving notes: {e}")
+        finally:
+            # Clean up temp file if it still exists
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except OSError:
+                    pass
     
     def _save_readable_notes(self):
         """Save notes to a human-readable text file"""
@@ -303,6 +397,27 @@ class NotesManager:
             logger.info(f"Saved readable notes to {text_file}")
         except Exception as e:
             logger.error(f"Error saving readable notes: {e}")
+    
+    def _recover_from_backup(self):
+        """Attempt to recover notes from backup file"""
+        backup_file = self.notes_file + ".backup"
+        if os.path.exists(backup_file):
+            try:
+                with open(backup_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.notes = {
+                        note_id: Note.from_dict(note_data)
+                        for note_id, note_data in data.items()
+                    }
+                logger.info(f"Recovered {len(self.notes)} notes from backup")
+                # Save the recovered data to main file
+                self._save_notes()
+            except Exception as e:
+                logger.error(f"Backup recovery failed: {e}")
+                self.notes = {}
+        else:
+            logger.warning("No backup file available")
+            self.notes = {}
     
     def _write_note_to_file(self, f, note: Note):
         """Write a single note to file with proper formatting"""
@@ -831,6 +946,210 @@ class NotesManager:
             note_b.updated_at = now_iso
             self._save_notes()
         return True
+    
+    def auto_link_related_notes(self, note_id: str, min_shared_keywords: int = 2) -> List[str]:
+        """Automatically link a note to other notes with shared keywords/tags.
+        
+        Returns list of note IDs that were linked.
+        """
+        note = self.notes.get(note_id)
+        if not note:
+            return []
+        
+        # Extract keywords from the note (title + tags + key content words)
+        note_keywords = set()
+        
+        # Add title words (3+ chars)
+        note_keywords.update(w.lower() for w in note.title.split() if len(w) >= 3)
+        
+        # Add tags
+        note_keywords.update(t.lower() for t in note.tags)
+        
+        # Add category
+        note_keywords.add(note.category.lower())
+        
+        # Find other notes with shared keywords
+        linked_note_ids = []
+        for other_id, other_note in self.notes.items():
+            if other_id == note_id or other_note.archived:
+                continue
+            
+            # Skip if already linked
+            if note.related_notes and other_id in note.related_notes:
+                continue
+            
+            # Build other note's keywords
+            other_keywords = set()
+            other_keywords.update(w.lower() for w in other_note.title.split() if len(w) >= 3)
+            other_keywords.update(t.lower() for t in other_note.tags)
+            other_keywords.add(other_note.category.lower())
+            
+            # Check for shared keywords
+            shared = note_keywords & other_keywords
+            if len(shared) >= min_shared_keywords:
+                if self.link_notes_by_ids(note_id, other_id):
+                    linked_note_ids.append(other_id)
+        
+        return linked_note_ids
+    
+    def suggest_tags_via_llm(self, note: Note, max_tags: int = 5) -> List[str]:
+        """Use local LLM to suggest tags for a note.
+        
+        Returns list of suggested tags.
+        """
+        try:
+            # Try to import LLM interface
+            from ai.llm_interface import LLMInterface
+            
+            llm = LLMInterface()
+            
+            prompt = f"""Analyze this note and suggest {max_tags} relevant tags. 
+Return ONLY the tags as a comma-separated list, no explanation.
+
+Title: {note.title}
+Content: {note.content[:500]}
+
+Tags (comma-separated):"""
+            
+            response = llm.generate(prompt, max_tokens=50, temperature=0.3)
+            
+            # Parse response
+            suggested_tags = [
+                tag.strip().lower().replace('#', '').replace(' ', '_')
+                for tag in response.strip().split(',')
+                if tag.strip()
+            ]
+            
+            return suggested_tags[:max_tags]
+        except Exception as e:
+            logger.debug(f"LLM auto-tagging unavailable: {e}")
+            return []
+    
+    def extract_action_items(self, content: str) -> List[Dict[str, Any]]:
+        """Extract potential checklist items from note content.
+        
+        Returns list of checklist items.
+        """
+        items = []
+        lines = content.split('\n')
+        
+        # Patterns that suggest action items
+        action_patterns = [
+            r'^\s*[-*]\s+(.+)$',  # Bullet points
+            r'^\s*\d+[\\.)]\s+(.+)$',  # Numbered lists
+            r'^\s*\[[ x]\]\s+(.+)$',  # Existing checkboxes
+            r'^(?:TODO|TASK|ACTION):\s*(.+)$',  # Explicit TODO markers
+            r'^(?:Call|Email|Send|Buy|Finish|Complete|Review|Check)\s+(.+)$',  # Action verbs
+        ]
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            for pattern in action_patterns:
+                match = re.match(pattern, line, re.IGNORECASE)
+                if match:
+                    text = match.group(1).strip()
+                    # Check if already checked   
+                    is_checked = '[x]' in line.lower() or '☑' in line
+                    items.append({
+                        "text": text,
+                        "checked": is_checked
+                    })
+                    break
+        
+        return items
+    
+    def update_checklist_item(self, note_id: str, item_index: int, checked: bool) -> bool:
+        """Update the checked status of a checklist item.
+        
+        Returns True if successful.
+        """
+        note = self.notes.get(note_id)
+        if not note or not note.checklist_items:
+            return False
+        
+        if 0 <= item_index < len(note.checklist_items):
+            note.checklist_items[item_index]["checked"] = checked
+            note.updated_at = datetime.now().isoformat()
+            self._save_notes()
+            return True
+        
+        return False
+    
+    def get_tag_analytics(self) -> Dict[str, Any]:
+        """Get comprehensive tag usage analytics.
+        
+        Returns dictionary with tag statistics.
+        """
+        tag_counts = {}
+        tag_notes = {}
+        category_counts = {}
+        priority_counts = {"low": 0, "medium": 0, "high": 0, "urgent": 0}
+        type_counts = {}
+        
+        active_notes = [n for n in self.notes.values() if not n.archived]
+        
+        for note in active_notes:
+            # Count tags
+            for tag in note.tags:
+                tag_lower = tag.lower()
+                tag_counts[tag_lower] = tag_counts.get(tag_lower, 0) + 1
+                if tag_lower not in tag_notes:
+                    tag_notes[tag_lower] = []
+                tag_notes[tag_lower].append(note.id)
+            
+            # Count categories
+            category_counts[note.category] = category_counts.get(note.category, 0) + 1
+            
+            # Count priorities
+            priority_counts[note.priority] = priority_counts.get(note.priority, 0) + 1
+            
+            # Count types
+            type_counts[note.note_type] = type_counts.get(note.note_type, 0) + 1
+        
+        # Calculate aging notes (not updated in 30+ days)
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+        aging_notes = [
+            note.id for note in active_notes
+            if note.updated_at < thirty_days_ago
+        ]
+        
+        # Find most productive tags (tags with most completed checklist items)
+        productive_tags = {}
+        for tag, note_ids in tag_notes.items():
+            completed_items = 0
+            total_items = 0
+            for note_id in note_ids:
+                note = self.notes.get(note_id)
+                if note and note.checklist_items:
+                    for item in note.checklist_items:
+                        total_items += 1
+                        if item.get("checked", False):
+                            completed_items += 1
+            if total_items > 0:
+                productive_tags[tag] = {
+                    "completion_rate": completed_items / total_items,
+                    "completed": completed_items,
+                    "total": total_items
+                }
+        
+        return {
+            "total_notes": len(active_notes),
+            "archived_notes": len([n for n in self.notes.values() if n.archived]),
+            "tag_counts": dict(sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)),
+            "top_tags": dict(sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:10]),
+            "category_distribution": category_counts,
+            "priority_distribution": priority_counts,
+            "type_distribution": type_counts,
+            "aging_notes_count": len(aging_notes),
+            "aging_note_ids": aging_notes,
+            "productive_tags": dict(sorted(productive_tags.items(), 
+                                           key=lambda x: x[1]["completion_rate"], 
+                                           reverse=True)[:5]),
+            "total_tags_used": len(tag_counts)
+        }
 
 
 class NotesPlugin(PluginInterface):
@@ -1993,6 +2312,7 @@ class NotesPlugin(PluginInterface):
             'create', 'add', 'new', 'make', 'search', 'find', 'show',
             'list', 'delete', 'remove', 'edit', 'update', 'read', 'open',
             'summary', 'summarize', 'append', 'link', 'connect', 'relate',
+            'stats', 'analytics', 'check', 'uncheck', 'toggle', 'suggest',
         ]
 
         # Question patterns about notes
@@ -2226,6 +2546,22 @@ class NotesPlugin(PluginInterface):
             # Link notes
             elif result is None and ('link' in command_lower or 'relate' in command_lower or 'connect' in command_lower):
                 result = self._link_notes(command)
+            
+            # Tag analytics / stats
+            elif result is None and re.search(r'(?:tag|note).*(?:stats?|analytics?|analysis)', command_lower):
+                result = self._get_tag_analytics()
+            
+            # Auto-link note to related notes
+            elif result is None and re.search(r'auto.*link|find.*related|link.*similar', command_lower):
+                result = self._auto_link_note(command)
+            
+            # Check/uncheck checklist items
+            elif result is None and re.search(r'\\b(check|uncheck|toggle)\\b.*\\b(item|checklist|task)\\b|\\b(item|task)\\s+\\d+', command_lower):
+                result = self._check_checklist_item(command)
+            
+            # Suggest tags for a note
+            elif result is None and re.search(r'suggest.*tags?|tag.*suggest', command_lower):
+                result = self._suggest_tags_for_note(command)
             
             # Show overdue notes
             elif result is None and 'overdue' in command_lower:
@@ -3364,6 +3700,162 @@ class NotesPlugin(PluginInterface):
                 "pinned": pinned,
                 "archived": archived,
                 "tags_count": len(all_tags)
+            },
+            "formulate": True
+        }
+    
+    def _get_tag_analytics(self) -> Dict[str, Any]:
+        """Show comprehensive tag analytics and statistics"""
+        analytics = self.manager.get_tag_analytics()
+        
+        return {
+            "success": True,
+            "action": "tag_analytics",
+            "data": analytics,
+            "formulate": True
+        }
+    
+    def _auto_link_note(self, command: str) -> Dict[str, Any]:
+        """Automatically link a note to related notes based on shared keywords"""
+        resolution = self._resolve_note_reference(command)
+        
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "auto_link_note",
+                resolution.get("candidates", []),
+                "notes:auto_link_ambiguous",
+            )
+        
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
+        if not note:
+            return {
+                "success": False,
+                "action": "auto_link_note",
+                "data": {"error": "note_not_found"},
+                "formulate": True
+            }
+        
+        linked_ids = self.manager.auto_link_related_notes(note.id)
+        
+        return {
+            "success": True,
+            "action": "auto_link_note",
+            "data": {
+                "note_id": note.id,
+                "note_title": note.title,
+                "linked_count": len(linked_ids),
+                "linked_note_ids": linked_ids
+            },
+            "formulate": True
+        }
+    
+    def _check_checklist_item(self, command: str) -> Dict[str, Any]:
+        """Check or uncheck a checklist item in a note"""
+        # Extract which item to toggle (by number)
+        item_match = re.search(r'(check|uncheck|toggle)\s+(?:item\s+)?(\d+)', command, re.IGNORECASE)
+        if not item_match:
+            return {
+                "success": False,
+                "action": "check_checklist_item",
+                "data": {"error": "no_item_number"},
+                "formulate": True
+            }
+        
+        action = item_match.group(1).lower()
+        item_num = int(item_match.group(2)) - 1  # Convert to 0-based index
+        
+        # Resolve which note
+        resolution = self._resolve_note_reference(command)
+        
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "check_checklist_item",
+                resolution.get("candidates", []),
+                "notes:checklist_ambiguous",
+            )
+        
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
+        if not note:
+            # Try last_note_id
+            if self.last_note_id:
+                note = self.manager.get_note(self.last_note_id)
+        
+        if not note:
+            return {
+                "success": False,
+                "action": "check_checklist_item",
+                "data": {"error": "note_not_found"},
+                "formulate": True
+            }
+        
+        if not note.checklist_items:
+            return {
+                "success": False,
+                "action": "check_checklist_item",
+                "data": {"error": "no_checklist_items", "note_title": note.title},
+                "formulate": True
+            }
+        
+        # Determine checked state
+        if action == "toggle":
+            current_state = note.checklist_items[item_num].get("checked", False)
+            checked = not current_state
+        else:
+            checked = (action == "check")
+        
+        success = self.manager.update_checklist_item(note.id, item_num, checked)
+        
+        if success:
+            return {
+                "success": True,
+                "action": "check_checklist_item",
+                "data": {
+                    "note_id": note.id,
+                    "note_title": note.title,
+                    "item_index": item_num,
+                    "item_text": note.checklist_items[item_num]["text"],
+                    "checked": checked
+                },
+                "formulate": True
+            }
+        else:
+            return {
+                "success": False,
+                "action": "check_checklist_item",
+                "data": {"error": "invalid_item_index"},
+                "formulate": True
+            }
+    
+    def _suggest_tags_for_note(self, command: str) -> Dict[str, Any]:
+        """Use LLM to suggest tags for a note"""
+        resolution = self._resolve_note_reference(command)
+        
+        if resolution.get("status") == "ambiguous":
+            return self._make_disambiguation_result(
+                "suggest_tags",
+                resolution.get("candidates", []),
+                "notes:suggest_tags_ambiguous",
+            )
+        
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
+        if not note:
+            return {
+                "success": False,
+                "action": "suggest_tags",
+                "data": {"error": "note_not_found"},
+                "formulate": True
+            }
+        
+        suggested_tags = self.manager.suggest_tags_via_llm(note)
+        
+        return {
+            "success": True,
+            "action": "suggest_tags",
+            "data": {
+                "note_id": note.id,
+                "note_title": note.title,
+                "current_tags": note.tags,
+                "suggested_tags": suggested_tags
             },
             "formulate": True
         }
