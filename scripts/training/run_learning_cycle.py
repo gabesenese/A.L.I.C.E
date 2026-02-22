@@ -72,7 +72,7 @@ def run_learning_cycle():
                 # Get teaching vectors for this domain
                 vectors = TEACHING_VECTORS.get(domain, [])
                 if not vectors:
-                    print(f"  ⚠ {domain}: no teaching vectors found")
+                    print(f"   {domain}: no teaching vectors found")
                     continue
                 
                 # Use first 1-2 skills from this domain
@@ -83,9 +83,9 @@ def run_learning_cycle():
                         test_queries.extend([(q, domain) for q in queries])
                         print(f"  {domain}/{skill}: generated {len(queries)} queries")
                     except Exception as e:
-                        print(f"  ⚠ {domain}/{skill}: {str(e)[:60]}")
+                        print(f"   {domain}/{skill}: {str(e)[:60]}")
             except Exception as e:
-                print(f"  ⚠ {domain}: {str(e)[:60]}")
+                print(f"   {domain}: {str(e)[:60]}")
         
         if not test_queries:
             print("  No test queries generated. Check LLM connection.")
@@ -183,7 +183,7 @@ def run_learning_cycle():
         
         print(f"\nResults:")
         print(f"  Positive signals:     {positive}")
-        print(f"  ⚠ Improvement needed:   {improvement}")
+        print(f"   Improvement needed:   {improvement}")
         print(f"  Negative signals:     {negative}")
         
         avg_score = sum(s["score"] for s in signals) / len(signals) if signals else 0

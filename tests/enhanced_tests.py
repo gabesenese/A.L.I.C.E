@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from app.main import alice
 
 print("\n" + "="*80)
-print("📧 ENHANCED EMAIL/CALENDAR TESTS + 💬 MULTI-TURN CONVERSATIONS")
+print(" ENHANCED EMAIL/CALENDAR TESTS +  MULTI-TURN CONVERSATIONS")
 print("="*80 + "\n")
 
 # Test data
@@ -32,7 +32,7 @@ test_results = {
 
 def test_intent(category, query, expected_keywords=None, test_type="standard"):
     """Test an intent and capture results"""
-    print(f"🔹 [{category}] {query}")
+    print(f" [{category}] {query}")
     
     try:
         response = alice.handle_input(query)
@@ -44,7 +44,7 @@ def test_intent(category, query, expected_keywords=None, test_type="standard"):
         ])
         
         if has_error:
-            print(f"   ❌ FAIL: {response[:80]}")
+            print(f"    FAIL: {response[:80]}")
             test_results[f"{category}_tests"].append({
                 "query": query,
                 "response": response,
@@ -58,7 +58,7 @@ def test_intent(category, query, expected_keywords=None, test_type="standard"):
         if expected_keywords:
             found_keywords = sum(1 for kw in expected_keywords if kw.lower() in response.lower())
             if found_keywords < len(expected_keywords) * 0.5:
-                print(f"   ⚠PARTIAL: Missing keywords in: {response[:60]}")
+                print(f"   PARTIAL: Missing keywords in: {response[:60]}")
                 test_results[f"{category}_tests"].append({
                     "query": query,
                     "response": response,
@@ -68,7 +68,7 @@ def test_intent(category, query, expected_keywords=None, test_type="standard"):
                 test_results["total_failed"] += 1
                 return False
         
-        print(f"   ✅ PASS: {response[:80]}")
+        print(f"    PASS: {response[:80]}")
         test_results[f"{category}_tests"].append({
             "query": query,
             "response": response,
@@ -79,7 +79,7 @@ def test_intent(category, query, expected_keywords=None, test_type="standard"):
         return True
         
     except Exception as e:
-        print(f"   ❌ ERROR: {str(e)}")
+        print(f"    ERROR: {str(e)}")
         test_results[f"{category}_tests"].append({
             "query": query,
             "response": str(e),
@@ -90,7 +90,7 @@ def test_intent(category, query, expected_keywords=None, test_type="standard"):
         return False
 
 # ===== EMAIL TESTS =====
-print("📧 EMAIL TESTS")
+print(" EMAIL TESTS")
 print("-"*80)
 
 email_tests = [
@@ -106,7 +106,7 @@ for query, keywords in email_tests:
     test_intent("email", query, keywords)
 
 # ===== CALENDAR TESTS =====
-print("\n📅 CALENDAR TESTS")
+print("\n CALENDAR TESTS")
 print("-"*80)
 
 calendar_tests = [
@@ -122,7 +122,7 @@ for query, keywords in calendar_tests:
     test_intent("calendar", query, keywords)
 
 # ===== MULTI-TURN CONVERSATION TESTS =====
-print("\n💬 MULTI-TURN CONVERSATION TESTS")
+print("\n MULTI-TURN CONVERSATION TESTS")
 print("-"*80)
 print("Testing context persistence across multiple turns...\n")
 
@@ -177,18 +177,18 @@ for scenario in multiturn_scenarios:
             ])
             
             if has_error:
-                print(f"    ❌ FAIL")
+                print(f"     FAIL")
                 scenario_passed = False
             else:
                 found_keywords = sum(1 for kw in keywords if kw.lower() in response.lower())
                 if found_keywords >= len(keywords) * 0.5:
-                    print(f"    ✅ PASS")
+                    print(f"     PASS")
                 else:
-                    print(f"    ⚠PARTIAL")
+                    print(f"    PARTIAL")
                     scenario_passed = False
                     
         except Exception as e:
-            print(f"    ❌ ERROR: {str(e)}")
+            print(f"     ERROR: {str(e)}")
             scenario_passed = False
     
     if scenario_passed:
@@ -208,7 +208,7 @@ for scenario in multiturn_scenarios:
 
 # ===== SUMMARY =====
 print("\n" + "="*80)
-print("📊 TEST SUMMARY")
+print(" TEST SUMMARY")
 print("="*80)
 
 total_tests = test_results["total_passed"] + test_results["total_failed"]
@@ -220,8 +220,8 @@ Calendar Tests:         {len(test_results['calendar_tests'])} tests
 Multi-turn Scenarios:   {len(test_results['multiturn_tests'])} tests
 ────────────────────────────────────
 Total Tests:            {total_tests}
-Passed:                 {test_results['total_passed']} ✅
-Failed:                 {test_results['total_failed']} ❌
+Passed:                 {test_results['total_passed']} 
+Failed:                 {test_results['total_failed']} 
 ────────────────────────────────────
 Pass Rate:              {pass_rate:.0f}%
 """)

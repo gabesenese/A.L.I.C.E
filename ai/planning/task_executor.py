@@ -93,7 +93,7 @@ class TaskExecutor:
         """
         # Safety check
         if self.safe_mode and any(dangerous in command.lower() for dangerous in self.dangerous_commands):
-            logger.warning(f"🚫 Blocked dangerous command: {command}")
+            logger.warning(f" Blocked dangerous command: {command}")
             return TaskResult(
                 success=False,
                 message="Command blocked for safety",
@@ -364,7 +364,7 @@ class TaskExecutor:
             
             while True:
                 try:
-                    logger.info(f"⏰ Executing scheduled task: {task_name}")
+                    logger.info(f" Executing scheduled task: {task_name}")
                     task_function()
                     
                     if not repeat:
@@ -442,11 +442,11 @@ class TaskExecutor:
                 
                 # Stop on failure if critical
                 if not result.success and task.get("critical", False):
-                    logger.error(f"❌ Workflow failed at step {i}")
+                    logger.error(f" Workflow failed at step {i}")
                     break
                     
             except Exception as e:
-                logger.error(f"❌ Workflow error at step {i}: {e}")
+                logger.error(f" Workflow error at step {i}: {e}")
                 results.append({
                     "step": i,
                     "task": task,
@@ -469,7 +469,7 @@ class TaskExecutor:
     def clear_history(self):
         """Clear task history"""
         self.task_history = []
-        logger.info("🧹 Task history cleared")
+        logger.info(" Task history cleared")
 
 
 # Example usage
@@ -525,7 +525,7 @@ if __name__ == "__main__":
     print("\n5. Testing scheduled task...")
     
     def test_task():
-        print("   ⏰ Scheduled task executed!")
+        print("    Scheduled task executed!")
     
     result = executor.schedule_task("test_reminder", test_task, delay_seconds=2)
     print(f"   {result.message}")

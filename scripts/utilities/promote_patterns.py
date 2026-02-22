@@ -460,7 +460,7 @@ def main():
     args = parser.parse_args()
     
     logger.info("=" * 70)
-    logger.info("🎓 A.L.I.C.E Pattern Promotion - Batch Learning from Simulations")
+    logger.info(" A.L.I.C.E Pattern Promotion - Batch Learning from Simulations")
     logger.info("=" * 70)
     logger.info(f"Min Frequency: {args.min_frequency}")
     logger.info(f"Min Teacher Consistency: {args.min_consistency:.0%}")
@@ -475,7 +475,7 @@ def main():
     
     # Analyze logs
     log_file = Path("data/training/auto_generated.jsonl")
-    logger.info(f"\n📊 Analyzing simulation logs: {log_file}")
+    logger.info(f"\n Analyzing simulation logs: {log_file}")
     
     candidates = promoter.analyze_logs(log_file)
     logger.info(f"[OK] Found {len(candidates)} pattern candidates")

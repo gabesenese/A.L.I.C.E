@@ -67,7 +67,7 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
         if debug:
             ui.print_info("Debug mode: A.L.I.C.E thinking steps will appear above each response.")
         if privacy_mode:
-            ui.print_info("🔒 Privacy mode: Episodic memories will not be saved.")
+            ui.print_info(" Privacy mode: Episodic memories will not be saved.")
         ui.print_info("")
         
         # Main interaction loop

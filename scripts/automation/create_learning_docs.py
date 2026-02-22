@@ -15,7 +15,7 @@ User: "delete my notes"
   ↓
 Plugin: execute_command()
   ↓
-return {"success": True, "message": "✅ Archived 5 notes..."}  ← HARD-CODED!
+return {"success": True, "message": " Archived 5 notes..."}  ← HARD-CODED!
   ↓
 Alice speaks it verbatim (no learning)
 ```
@@ -49,7 +49,7 @@ def _delete_note(self, command: str) -> Dict[str, Any]:
     # ... deletion logic ...
     return {
         "success": True,
-        "message": f"✅ Archived {count} notes. They're not permanently deleted."  # BAD!
+        "message": f" Archived {count} notes. They're not permanently deleted."  # BAD!
     }
 ```
 
@@ -156,7 +156,7 @@ Alice learns in stages:
 **Stage 3: Independent (3+ examples)**
 - Can formulate without Ollama
 - Uses learned patterns
-- 🎉 Marked as independent_action
+-  Marked as independent_action
 
 **Stage 4: Expert (10+ examples)**
 - Handles variations confidently
@@ -168,9 +168,9 @@ Alice learns in stages:
 Refactor plugins gradually (no breaking changes):
 
 ### Phase 1: Add Response Formulator
-- ✓ Create response_formulator.py
-- ✓ Seed initial templates
-- ✓ Integrate into main.py
+-  Create response_formulator.py
+-  Seed initial templates
+-  Integrate into main.py
 
 ### Phase 2: Refactor High-Traffic Plugins First
 Priority order:
@@ -239,7 +239,7 @@ def _delete_all_notes(self) -> Dict[str, Any]:
 
     return {
         "success": True,
-        "message": f"✅ Archived {count} notes.\n(Notes are archived, not permanently deleted...)",
+        "message": f" Archived {count} notes.\n(Notes are archived, not permanently deleted...)",
         "count": count
     }
 ```
@@ -299,7 +299,7 @@ Alice learns to say things like:
 - data/response_templates/independence.json - Independence tracking
 
 
-Alice will truly learn and develop her own voice! 🎓
+Alice will truly learn and develop her own voice! 
 """
 with open('ALICE_LEARNING_ARCHITECTURE.md', 'w', encoding='utf-8') as f:
     f.write(__doc__)

@@ -295,10 +295,10 @@ print("""
    Audit pipeline (teaching→grading→scoring)
 
 4. WHAT NEEDS ATTENTION
-   ⚠ Ollama network dependency (can fail/timeout)
-   ⚠ 69 modules → massive surface area
-   ⚠ No real performance metrics dashboard
-   ⚠ Training feedback not automated yet
+    Ollama network dependency (can fail/timeout)
+    69 modules → massive surface area
+    No real performance metrics dashboard
+    Training feedback not automated yet
 
 5. NEXT ACTIONS (High Priority)
    A. Cut modules: Keep only 15 core, deprecate rest

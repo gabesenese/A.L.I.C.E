@@ -12,8 +12,14 @@ Covers:
   #9  Note linking (bidirectional)
 """
 
+import sys
+from pathlib import Path
+
 import pytest
 from datetime import datetime, timedelta
+
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 from ai.plugins.notes_plugin import NotesPlugin, NotesManager, ContentSearchResult
 from ai.models.simple_formatters import (
@@ -178,6 +184,11 @@ class TestDestructiveConfirmationGate:
         plugin.manager.create_note(title="Note C", content="x")
         plugin.execute(command="delete all notes")
         assert plugin.can_handle(command="confirm") is True
+
+
+class TestNotesRoutingGuards:
+    def test_can_handle_ignores_code_file_introspection_prompt(self, plugin):
+        assert plugin.can_handle(command="tell me what notes_plugin.py does") is False
 
 
 # ---------------------------------------------------------------------------

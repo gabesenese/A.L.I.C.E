@@ -56,7 +56,7 @@ for error in errors:
     scenarios.append(scenario)
     
     # Print details
-    print(f"📌 {category}")
+    print(f" {category}")
     print(f"   Query: {query}")
     print(f"   Error Type: {error_type}")
     print(f"   Should respond: {corrected_response[:60]}...")
@@ -64,7 +64,7 @@ for error in errors:
 
 # Save scenarios
 if scenarios:
-    print(f"\n💾 Saving {len(scenarios)} correction scenarios...\n")
+    print(f"\n Saving {len(scenarios)} correction scenarios...\n")
     
     scenario_file.parent.mkdir(parents=True, exist_ok=True)
     

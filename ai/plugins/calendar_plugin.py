@@ -105,10 +105,10 @@ class CalendarPlugin(PluginInterface):
         try:
             self.service = self._authenticate()
             if self.service:
-                logger.info("📅 Calendar plugin initialized successfully")
+                logger.info(" Calendar plugin initialized successfully")
                 return True
             else:
-                logger.warning("📅 Calendar plugin initialized without authentication")
+                logger.warning(" Calendar plugin initialized without authentication")
                 return True  # Still allow plugin to load for setup
         except Exception as e:
             logger.error(f"Failed to initialize calendar plugin: {e}")
@@ -242,7 +242,7 @@ class CalendarPlugin(PluginInterface):
             # Format events for response
             response_lines = []
             time_desc = self._get_time_description(query)
-            response_lines.append(f"📅 Your calendar {time_desc}:")
+            response_lines.append(f" Your calendar {time_desc}:")
             
             for event in events:
                 start = event['start'].get('dateTime', event['start'].get('date'))
@@ -264,7 +264,7 @@ class CalendarPlugin(PluginInterface):
                 
                 # Add location if available
                 if event.get('location'):
-                    response_lines.append(f"     📍 {event['location']}")
+                    response_lines.append(f"      {event['location']}")
             
             return {
                 'success': True,
@@ -337,7 +337,7 @@ class CalendarPlugin(PluginInterface):
             date_str = start_dt.strftime('%A, %B %d, %Y')
             time_str = start_dt.strftime('%I:%M %p')
             
-            response = f"✅ Created event '{event_details['title']}' for {date_str} at {time_str}"
+            response = f" Created event '{event_details['title']}' for {date_str} at {time_str}"
             
             if event_details.get('location'):
                 response += f" at {event_details['location']}"
@@ -421,7 +421,7 @@ class CalendarPlugin(PluginInterface):
                 }
             
             # Format search results
-            response_lines = [f"📅 Found {len(events)} event(s) matching '{' '.join(search_terms)}':"]
+            response_lines = [f" Found {len(events)} event(s) matching '{' '.join(search_terms)}':"]
             
             for event in events[:5]:  # Limit to 5 results
                 start = event['start'].get('dateTime', event['start'].get('date'))
@@ -639,4 +639,4 @@ class CalendarPlugin(PluginInterface):
 
     def shutdown(self):
         """Shutdown the calendar plugin"""
-        logger.info("📅 Calendar plugin shutdown complete")
+        logger.info(" Calendar plugin shutdown complete")

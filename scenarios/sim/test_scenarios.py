@@ -65,7 +65,7 @@ def test_scenarios():
                 print(f"    Notes: {step.notes}")
             break
     
-    print("\n✅ Scenario definitions test passed!\n")
+    print("\n Scenario definitions test passed!\n")
 
 
 if __name__ == "__main__":

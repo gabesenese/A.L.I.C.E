@@ -248,7 +248,7 @@ class EntityRelationshipTracker:
                     name: Entity.from_dict(data) 
                     for name, data in entities_data.items()
                 }
-                logger.info(f"📂 Loaded {len(self.entities)} entities")
+                logger.info(f" Loaded {len(self.entities)} entities")
             except Exception as e:
                 logger.error(f"Error loading entities: {e}")
         
@@ -261,7 +261,7 @@ class EntityRelationshipTracker:
                     EntityRelationship.from_dict(data) 
                     for data in relationships_data
                 ]
-                logger.info(f"📂 Loaded {len(self.relationships)} relationships")
+                logger.info(f" Loaded {len(self.relationships)} relationships")
             except Exception as e:
                 logger.error(f"Error loading relationships: {e}")
     
@@ -284,7 +284,7 @@ class EntityRelationshipTracker:
             with open(self.relationships_file, 'w', encoding='utf-8') as f:
                 json.dump(relationships_data, f, indent=2, ensure_ascii=False)
             
-            logger.debug("💾 Saved entity relationship data")
+            logger.debug(" Saved entity relationship data")
         except Exception as e:
             logger.error(f"Error saving data: {e}")
     

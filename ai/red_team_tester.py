@@ -132,7 +132,7 @@ class RedTeamTester:
             " ",  # Whitespace only
             "a" * 10000,  # Very long input
             "\x00" * 10,  # Null bytes
-            "😀" * 100,  # Unicode/emoji
+            "" * 100,  # Unicode/emoji
             "../../etc/passwd",  # Path traversal
             "<script>alert('xss')</script>",  # XSS attempt
             "'; DROP TABLE users; --",  # SQL injection

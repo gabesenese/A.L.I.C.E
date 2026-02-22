@@ -61,7 +61,7 @@ class SpeechEngine:
         self.audio_queue = queue.Queue()
         self.listen_thread = None
         
-        logger.info("✅ Speech Engine initialized")
+        logger.info(" Speech Engine initialized")
     
     @property
     def recognizer(self):
@@ -73,9 +73,9 @@ class SpeechEngine:
                 self._recognizer.energy_threshold = 4000
                 self._recognizer.dynamic_energy_threshold = True
                 self._recognizer.pause_threshold = 0.8
-                logger.info("🎤 Speech recognizer initialized")
+                logger.info(" Speech recognizer initialized")
             except ImportError:
-                logger.error("❌ speech_recognition not installed. Run: pip install SpeechRecognition")
+                logger.error(" speech_recognition not installed. Run: pip install SpeechRecognition")
         return self._recognizer
     
     @property
@@ -85,9 +85,9 @@ class SpeechEngine:
             try:
                 import speech_recognition as sr
                 self._microphone = sr.Microphone()
-                logger.info("🎙Microphone initialized")
+                logger.info("Microphone initialized")
             except ImportError:
-                logger.error("❌ speech_recognition not installed")
+                logger.error(" speech_recognition not installed")
         return self._microphone
     
     @property
@@ -111,11 +111,11 @@ class SpeechEngine:
                 self._tts_engine.setProperty('rate', 175)  # Speed
                 self._tts_engine.setProperty('volume', 0.9)  # Volume
                 
-                logger.info("🔊 TTS engine initialized")
+                logger.info(" TTS engine initialized")
             except ImportError:
-                logger.error("❌ pyttsx3 not installed. Run: pip install pyttsx3")
+                logger.error(" pyttsx3 not installed. Run: pip install pyttsx3")
             except Exception as e:
-                logger.error(f"❌ TTS initialization error: {e}")
+                logger.error(f" TTS initialization error: {e}")
         return self._tts_engine
     
     def speak(self, text: str, blocking: bool = True):
@@ -127,12 +127,12 @@ class SpeechEngine:
             blocking: Wait for speech to finish
         """
         if not self.tts_engine:
-            logger.warning("⚠TTS engine not available")
+            logger.warning("TTS engine not available")
             print(f"ALICE: {text}")  # Fallback to print
             return
         
         try:
-            logger.info(f"🔊 Speaking: {text}")
+            logger.info(f" Speaking: {text}")
             
             if blocking:
                 self.tts_engine.say(text)
@@ -147,7 +147,7 @@ class SpeechEngine:
                 thread.start()
                 
         except Exception as e:
-            logger.error(f"❌ Speech error: {e}")
+            logger.error(f" Speech error: {e}")
             print(f"ALICE: {text}")  # Fallback
     
     def listen(self, timeout: Optional[int] = None, phrase_timeout: Optional[int] = None) -> Optional[str]:
@@ -162,7 +162,7 @@ class SpeechEngine:
             Recognized text or None
         """
         if not self.recognizer or not self.microphone:
-            logger.error("❌ Speech recognition not available")
+            logger.error(" Speech recognition not available")
             return None
         
         timeout = timeout or self.config.listening_timeout
@@ -170,7 +170,7 @@ class SpeechEngine:
         
         try:
             with self.microphone as source:
-                logger.info("🎤 Listening...")
+                logger.info(" Listening...")
                 
                 # Adjust for ambient noise
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
@@ -192,7 +192,7 @@ class SpeechEngine:
                 else:
                     text = self.recognizer.recognize_google(audio)
                 
-                logger.info(f"✅ Recognized: {text}")
+                logger.info(f" Recognized: {text}")
                 return text
                 
         except Exception as sr_error:
@@ -200,16 +200,16 @@ class SpeechEngine:
             error_name = type(sr_error).__name__
             
             if "UnknownValueError" in error_name:
-                logger.debug("❓ Could not understand audio")
+                logger.debug(" Could not understand audio")
                 return None
             elif "RequestError" in error_name:
-                logger.error(f"❌ Speech recognition service error: {sr_error}")
+                logger.error(f" Speech recognition service error: {sr_error}")
                 return None
             elif "WaitTimeoutError" in error_name:
-                logger.debug("⏱Listening timeout")
+                logger.debug("Listening timeout")
                 return None
             else:
-                logger.error(f"❌ Speech recognition error: {sr_error}")
+                logger.error(f" Speech recognition error: {sr_error}")
                 return None
     
     def listen_for_wake_word(self, callback: Callable[[str], None], background: bool = True):
@@ -221,7 +221,7 @@ class SpeechEngine:
             background: Run in background thread
         """
         def wake_word_loop():
-            logger.info(f"👂 Listening for wake words: {', '.join(self.config.wake_words)}")
+            logger.info(f" Listening for wake words: {', '.join(self.config.wake_words)}")
             self.is_listening = True
             
             while self.is_listening:
@@ -245,17 +245,17 @@ class SpeechEngine:
                                 break
                         
                 except KeyboardInterrupt:
-                    logger.info("⏹Stopping wake word detection")
+                    logger.info("Stopping wake word detection")
                     self.is_listening = False
                     break
                 except Exception as e:
-                    logger.error(f"❌ Wake word detection error: {e}")
+                    logger.error(f" Wake word detection error: {e}")
                     time.sleep(1)
         
         if background:
             self.listen_thread = threading.Thread(target=wake_word_loop, daemon=True)
             self.listen_thread.start()
-            logger.info("🎙Wake word detection started in background")
+            logger.info("Wake word detection started in background")
         else:
             wake_word_loop()
     
@@ -264,11 +264,11 @@ class SpeechEngine:
         self.is_listening = False
         if self.listen_thread:
             self.listen_thread.join(timeout=2)
-        logger.info("⏹Stopped listening")
+        logger.info("Stopped listening")
     
     def test_audio(self):
         """Test audio input/output"""
-        logger.info("🧪 Testing audio system...")
+        logger.info(" Testing audio system...")
         
         # Test TTS
         print("\n1. Testing Text-to-Speech...")
@@ -280,12 +280,12 @@ class SpeechEngine:
         
         text = self.listen(timeout=5)
         if text:
-            print(f"   ✅ Heard: {text}")
+            print(f"    Heard: {text}")
             self.speak(f"I heard you say: {text}")
         else:
-            print("   ❌ Could not detect speech")
+            print("    Could not detect speech")
         
-        print("\n✅ Audio test complete")
+        print("\n Audio test complete")
     
     def set_voice(self, voice_name: str):
         """Change TTS voice"""
@@ -294,20 +294,20 @@ class SpeechEngine:
             for voice in voices:
                 if voice_name.lower() in voice.name.lower():
                     self.tts_engine.setProperty('voice', voice.id)
-                    logger.info(f"🎭 Voice changed to: {voice.name}")
+                    logger.info(f" Voice changed to: {voice.name}")
                     return True
-            logger.warning(f"⚠Voice '{voice_name}' not found")
+            logger.warning(f"Voice '{voice_name}' not found")
         return False
     
     def list_voices(self):
         """List available TTS voices"""
         if self.tts_engine:
             voices = self.tts_engine.getProperty('voices')
-            print("\n🎭 Available voices:")
+            print("\n Available voices:")
             for i, voice in enumerate(voices):
                 print(f"  {i+1}. {voice.name} ({voice.id})")
         else:
-            logger.warning("⚠TTS engine not available")
+            logger.warning("TTS engine not available")
     
     def save_audio(self, text: str, filename: str):
         """Save speech to audio file"""
@@ -317,13 +317,13 @@ class SpeechEngine:
                 self.tts_engine.runAndWait()
                 logger.info(f"Audio saved to: {filename}")
             except Exception as e:
-                logger.error(f"❌ Error saving audio: {e}")
+                logger.error(f" Error saving audio: {e}")
 
 
 # Example usage
 if __name__ == "__main__":
     print("=" * 80)
-    print("🎤 A.L.I.C.E Speech Engine Test")
+    print(" A.L.I.C.E Speech Engine Test")
     print("=" * 80)
     
     # Create speech engine
@@ -356,28 +356,28 @@ if __name__ == "__main__":
         choice = input("\nEnter choice (1-4): ").strip()
         
         if choice == "1":
-            print("\n👂 Say one of the wake words:")
+            print("\n Say one of the wake words:")
             print(f"   {', '.join(config.wake_words)}")
             print("   Then say a command after the wake word")
             print("   (Press Ctrl+C to stop)\n")
             
             def handle_command(command):
                 speech.speak(f"You said: {command}")
-                print(f"✅ Command received: {command}")
+                print(f" Command received: {command}")
             
             try:
                 speech.listen_for_wake_word(handle_command, background=False)
             except KeyboardInterrupt:
-                print("\n⏹Stopped")
+                print("\nStopped")
         
         elif choice == "2":
-            print("\n🎤 Listening... (speak now)")
+            print("\n Listening... (speak now)")
             text = speech.listen()
             if text:
-                print(f"✅ You said: {text}")
+                print(f" You said: {text}")
                 speech.speak(f"You said: {text}")
             else:
-                print("❌ No speech detected")
+                print(" No speech detected")
         
         elif choice == "3":
             text = input("\nEnter text to speak: ").strip()
@@ -385,11 +385,11 @@ if __name__ == "__main__":
                 speech.speak(text)
         
         elif choice == "4":
-            print("\n👋 Goodbye!")
+            print("\n Goodbye!")
             break
         
         else:
-            print("❌ Invalid choice")
+            print(" Invalid choice")
 
 
 

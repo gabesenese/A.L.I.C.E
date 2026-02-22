@@ -13,6 +13,7 @@ from pathlib import Path
 from datetime import datetime
 from threading import Thread, Event
 
+
 try:
     from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler

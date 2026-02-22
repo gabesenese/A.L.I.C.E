@@ -13,7 +13,7 @@ print("ALICE COMPREHENSIVE KNOWLEDGE ASSESSMENT REPORT")
 print("=" * 80 + "\n")
 
 # ===== TEST SUMMARY =====
-print("📊 TEST SUMMARY:")
+print(" TEST SUMMARY:")
 print("-" * 80)
 
 test_results = {
@@ -45,7 +45,7 @@ for domain, count, details in passing:
     print(f"  {domain:.<25} {count} tests - {details}")
 
 # ===== FAILING DOMAINS =====
-print("\n⚠ ISSUES IDENTIFIED (2):")
+print("\n ISSUES IDENTIFIED (2):")
 print("-" * 80)
 
 issues = [
@@ -70,7 +70,7 @@ for i, issue in enumerate(issues, 1):
     print(f"    Solution: {issue['fix']}")
 
 # ===== IMPROVEMENTS MADE THIS SESSION =====
-print("\n🔧 IMPROVEMENTS IMPLEMENTED THIS SESSION:")
+print("\n IMPROVEMENTS IMPLEMENTED THIS SESSION:")
 print("-" * 80)
 
 improvements = [
@@ -109,7 +109,7 @@ if scenarios_file.exists():
     print(f"\n  Generated {scenario_count} correction scenarios")
 
 # ===== RECOMMENDATIONS =====
-print("\n💡 RECOMMENDATIONS FOR NEXT ITERATION:")
+print("\n RECOMMENDATIONS FOR NEXT ITERATION:")
 print("-" * 80)
 
 recommendations = [
@@ -125,7 +125,7 @@ for i, rec in enumerate(recommendations, 1):
     print(f"  {i}. {rec}")
 
 # ===== KNOWLEDGE BASE SNAPSHOT =====
-print("\n📋 ALICE'S KNOWLEDGE BASE SNAPSHOT:")
+print("\n ALICE'S KNOWLEDGE BASE SNAPSHOT:")
 print("-" * 80)
 
 knowledge_areas = [
@@ -143,7 +143,7 @@ for area, capability in knowledge_areas:
     print(f"  {area:.<20} {capability}")
 
 # ===== FINAL STATUS =====
-print("\n🎯 FINAL STATUS:")
+print("\n FINAL STATUS:")
 print("-" * 80)
 
 print(f"""

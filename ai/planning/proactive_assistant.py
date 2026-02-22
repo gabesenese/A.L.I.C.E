@@ -164,7 +164,7 @@ class ProactiveAssistant:
                 # Follow up on stale incomplete task
                 if self.notification_callback:
                     self.notification_callback(
-                        f"💡 You started '{task.description}' earlier. Want to continue?",
+                        f" You started '{task.description}' earlier. Want to continue?",
                         priority="normal"
                     )
                 # Update last activity to avoid spam
@@ -229,7 +229,7 @@ class ProactiveAssistant:
             if not today_events:
                 return None
             
-            briefing = "📅 **Today's Schedule:**\n\n"
+            briefing = " **Today's Schedule:**\n\n"
             for event in today_events[:5]:
                 if isinstance(event, dict):
                     summary = event.get('summary') or event.get('title', 'Event')

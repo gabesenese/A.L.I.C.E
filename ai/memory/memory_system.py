@@ -420,7 +420,7 @@ class MemorySystem:
         self.turns_since_consolidation += 1
         
         if self.turns_since_consolidation >= self.consolidation_interval:
-            logger.info(f"⏰ Running periodic memory consolidation (after {self.turns_since_consolidation} turns)")
+            logger.info(f" Running periodic memory consolidation (after {self.turns_since_consolidation} turns)")
             self.consolidate_memories(max_episodic=1000, auto_deduplicate=True)
             self.turns_since_consolidation = 0
     
@@ -1350,7 +1350,7 @@ if __name__ == "__main__":
         print("[OK] Stored memories\n")
         
         # Recall memories
-        print("🔍 Testing memory recall...")
+        print(" Testing memory recall...")
         
         queries = [
             "Tell me about Python",

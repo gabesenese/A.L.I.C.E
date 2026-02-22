@@ -257,7 +257,7 @@ def seed_templates():
         ]
     )
 
-    print(f"\n✓ Seeded {len(formulator.templates)} response templates")
+    print(f"\n Seeded {len(formulator.templates)} response templates")
     print("\nAlice will now learn to formulate these types of responses.")
     print("After seeing 3 examples of each type, she'll formulate independently.")
     print("\nResponse templates saved to: data/response_templates/")

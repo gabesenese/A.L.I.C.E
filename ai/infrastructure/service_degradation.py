@@ -82,10 +82,10 @@ class ServiceDegradationHandler:
         
         if service.failure_count >= self.max_failures_before_disable:
             if service.is_available:
-                logger.warning(f"🔴 Service '{service_name}' is now UNAVAILABLE after {service.failure_count} failures")
+                logger.warning(f" Service '{service_name}' is now UNAVAILABLE after {service.failure_count} failures")
                 service.is_available = False
         else:
-            logger.warning(f"⚠Service '{service_name}' failed ({service.failure_count}/{self.max_failures_before_disable}): {error}")
+            logger.warning(f"Service '{service_name}' failed ({service.failure_count}/{self.max_failures_before_disable}): {error}")
     
     def mark_service_recovered(self, service_name: str):
         """Mark service as recovered"""
@@ -94,7 +94,7 @@ class ServiceDegradationHandler:
         
         service = self.services[service_name]
         if not service.is_available:
-            logger.info(f"✅ Service '{service_name}' is now AVAILABLE")
+            logger.info(f" Service '{service_name}' is now AVAILABLE")
         
         service.is_available = True
         service.failure_count = 0
@@ -154,7 +154,7 @@ class ServiceDegradationHandler:
         """
         # Check if we should even try
         if not self.should_retry_service(service_name):
-            logger.info(f"⏭Skipping '{service_name}' (service unavailable)")
+            logger.info(f"Skipping '{service_name}' (service unavailable)")
             if fallback_func:
                 return fallback_func()
             return fallback_value
@@ -174,7 +174,7 @@ class ServiceDegradationHandler:
             self.mark_service_failed(service_name, e)
             
             # Try fallback
-            logger.info(f"⚠Using fallback for '{service_name}': {e.user_message}")
+            logger.info(f"Using fallback for '{service_name}': {e.user_message}")
             
             if fallback_func:
                 try:

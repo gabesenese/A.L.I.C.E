@@ -187,7 +187,7 @@ if __name__ == "__main__":
         plugin = AsyncAPIPlugin()
 
         if plugin.initialize():
-            print("✓ Plugin initialized")
+            print(" Plugin initialized")
 
             # Single async call
             result = plugin.execute(
@@ -196,16 +196,16 @@ if __name__ == "__main__":
                 entities={},
                 context={}
             )
-            print(f"✓ Single fetch: {result['data']}")
+            print(f" Single fetch: {result['data']}")
 
             # Multiple concurrent calls
             queries = ["query1", "query2", "query3"]
             results = await plugin._fetch_multiple_async(queries)
-            print(f"✓ Concurrent fetches: {len(results)} results")
+            print(f" Concurrent fetches: {len(results)} results")
 
             # Shutdown
             plugin.shutdown()
-            print("✓ Plugin shut down")
+            print(" Plugin shut down")
 
     # Run demo
     asyncio.run(demo())

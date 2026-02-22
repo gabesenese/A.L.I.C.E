@@ -39,7 +39,7 @@ class ConsolidationEngine:
         self.turns_since_consolidation += 1
 
         if self.turns_since_consolidation >= self.consolidation_interval:
-            logger.info(f"⏰ Running periodic consolidation (after {self.turns_since_consolidation} turns)")
+            logger.info(f" Running periodic consolidation (after {self.turns_since_consolidation} turns)")
             result = self.consolidate(max_episodic=1000, auto_deduplicate=True)
             self.turns_since_consolidation = 0
             return result
@@ -164,7 +164,7 @@ class ConsolidationEngine:
             True if consolidation succeeded
         """
         try:
-            logger.info("🧹 Starting memory consolidation...")
+            logger.info(" Starting memory consolidation...")
 
             # Step 1: Deduplicate if requested
             if auto_deduplicate:
@@ -201,7 +201,7 @@ class ConsolidationEngine:
             if archived_memories:
                 self.persistence.save_archived_memories(archived_memories)
 
-            logger.info(f"✅ Consolidation complete:")
+            logger.info(f" Consolidation complete:")
             logger.info(f"   Kept: {len(to_keep)} memories")
             logger.info(f"   Archived: {len(archived_memories)} memories")
 

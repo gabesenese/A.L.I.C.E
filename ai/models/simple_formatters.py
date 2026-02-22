@@ -166,28 +166,28 @@ class WeatherFormatter(SimpleFormatter):
 
         # Weather condition icons/symbols
         condition_icons = {
-            'clear': '☀️',
-            'sunny': '☀️',
-            'partly cloudy': '⛅',
-            'cloudy': '☁️',
-            'overcast': '☁️',
-            'foggy': '🌫️',
-            'fog': '🌫️',
-            'rain': '🌧️',
-            'light rain': '🌦️',
-            'drizzle': '🌦️',
-            'light drizzle': '🌦️',
-            'heavy rain': '⛈️',
-            'thunderstorm': '⛈️',
-            'snow': '❄️',
-            'light snow': '🌨️',
-            'heavy snow': '❄️',
-            'sleet': '🌨️',
-            'windy': '💨'
+            'clear': '',
+            'sunny': '',
+            'partly cloudy': '',
+            'cloudy': '',
+            'overcast': '',
+            'foggy': '',
+            'fog': '',
+            'rain': '',
+            'light rain': '',
+            'drizzle': '',
+            'light drizzle': '',
+            'heavy rain': '',
+            'thunderstorm': '',
+            'snow': '',
+            'light snow': '',
+            'heavy snow': '',
+            'sleet': '',
+            'windy': ''
         }
 
         # Start with header
-        summary_lines = [f"\n📅 7-Day Forecast for {location}\n"]
+        summary_lines = [f"\n 7-Day Forecast for {location}\n"]
 
         today = datetime.now().date()
 
@@ -217,7 +217,7 @@ class WeatherFormatter(SimpleFormatter):
                     day_label = date_str
 
             # Get weather icon
-            icon = '🌤️'  # Default
+            icon = ''  # Default
             for key, symbol in condition_icons.items():
                 if key in condition:
                     icon = symbol
@@ -792,7 +792,7 @@ class NotesFormatter(SimpleFormatter):
             a = data.get('note_a_title', '')
             b = data.get('note_b_title', '')
             if a and b:
-                return f"Linked \"{a}\" ↔ \"{b}\"."
+                return f"Linked \"{a}\"  \"{b}\"."
             return "Notes linked."
         
         # ── Tag Analytics ─────────────────────────────────────────────────────
@@ -802,18 +802,18 @@ class NotesFormatter(SimpleFormatter):
             aging = data.get('aging_notes_count', 0)
             
             lines = [
-                "📊 **Tag Analytics**",
+                " **Tag Analytics**",
                 f"Total Notes: {total}",
                 ""
             ]
             
             if top_tags:
-                lines.append("🏷️  Top Tags:")
+                lines.append("  Top Tags:")
                 for tag, count in list(top_tags.items())[:10]:
                     lines.append(f"  • #{tag}: {count} notes")
             
             if aging > 0:
-                lines.append(f"\n⏰ {aging} notes haven't been updated in 30+ days")
+                lines.append(f"\n {aging} notes haven't been updated in 30+ days")
             
             return "\n".join(lines)
         
@@ -841,7 +841,7 @@ class NotesFormatter(SimpleFormatter):
             title = data.get('note_title', '')
             text = data.get('item_text', '')
             checked = data.get('checked', False)
-            status = "☑" if checked else "☐"
+            status = "checked" if checked else "unchecked"
             return f"{status} {text}\n(in \"{title}\")"
         
         # ── Suggest Tags ──────────────────────────────────────────────────────
@@ -868,6 +868,55 @@ class NotesFormatter(SimpleFormatter):
                 lines.append("No tag suggestions available.")
             
             return "\n".join(lines)
+
+        if action == 'semantic_search_notes':
+            query = data.get('query', '')
+            results = data.get('results', [])
+            if not results:
+                return f"No semantic matches found for '{query}'."
+            lines = [f"Semantic matches for '{query}':"]
+            for idx, item in enumerate(results[:5], 1):
+                title = item.get('title', 'Untitled')
+                similarity = item.get('similarity', 0.0)
+                lines.append(f"{idx}. {title} (similarity: {similarity:.2f})")
+            return "\n".join(lines)
+
+        if action == 'proactive_notes_insights':
+            upcoming = data.get('upcoming_reminders', [])
+            overdue = data.get('overdue', [])
+            stale = data.get('stale_notes', [])
+            meeting = data.get('meeting_prep', [])
+            return (
+                f"Proactive insights: {len(upcoming)} upcoming reminders, "
+                f"{len(overdue)} overdue, {len(stale)} stale notes, "
+                f"{len(meeting)} meeting-prep candidates."
+            )
+
+        if action == 'list_note_templates':
+            templates = data.get('templates', [])
+            if not templates:
+                return "No note templates available."
+            return f"Available note templates: {', '.join(templates)}"
+
+        if action == 'create_note_from_template':
+            if data.get('error'):
+                return "Could not create note from template."
+            template = data.get('template', 'template')
+            title = data.get('note_title', 'Untitled')
+            return f"Created note '{title}' from {template} template."
+
+        if action == 'show_note_versions':
+            count = data.get('count', 0)
+            title = data.get('note_title', 'Untitled')
+            return f"{title} has {count} saved versions."
+
+        if action == 'restore_note_version':
+            restored = data.get('restored', False)
+            title = data.get('note_title', 'Untitled')
+            idx = data.get('version_index', 0) + 1
+            if restored:
+                return f"Restored {title} to version {idx}."
+            return f"Could not restore {title} to version {idx}."
 
         return None
     

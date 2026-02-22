@@ -65,6 +65,7 @@ class Note:
     reminder: Optional[str] = None
     checklist_items: Optional[List[Dict[str, Any]]] = None  # [{"text": "item", "checked": False}]
     related_notes: Optional[List[str]] = None  # List of note IDs
+    versions: List[Dict[str, Any]] = field(default_factory=list)
     
     # Transient fields (not saved to disk)
     _relevance_cache: Dict[str, float] = field(default_factory=dict, repr=False, compare=False)
@@ -87,17 +88,24 @@ class Note:
             'priority': 'medium',
             'reminder': None,
             'checklist_items': None,
-            'related_notes': None
+            'related_notes': None,
+            'versions': [],
         }
         for key, default_value in defaults.items():
             if key not in data:
                 data[key] = default_value
+        
+        # Remove transient fields if they somehow got saved
+        data.pop('_relevance_cache', None)
+        data.pop('_tokenized_title', None)
+        data.pop('_tokenized_content', None)
+        
         return Note(**data)
     
     def __str__(self) -> str:
         tags_str = f" [{', '.join(self.tags)}]" if self.tags else ""
-        pin_str = "📌 " if self.pinned else ""
-        priority_icons = {"low": "🔵", "medium": "🟡", "high": "🟠", "urgent": "🔴"}
+        pin_str = " " if self.pinned else ""
+        priority_icons = {"low": "", "medium": "", "high": "", "urgent": ""}
         priority_str = f"{priority_icons.get(self.priority, '')} " if self.priority != "medium" else ""
         return f"{pin_str}{priority_str}{self.title}{tags_str}\n{self.content}"
     
@@ -255,6 +263,30 @@ class NotesManager:
         self.notes: Dict[str, Note] = {}
         self._ensure_directory()
         self._load_notes()
+        
+        self.NOTE_TEMPLATES: Dict[str, Dict[str, Any]] = {
+            "meeting": {
+                "title_prefix": "Meeting",
+                "category": "work",
+                "note_type": "meeting",
+                "template": "Attendees:\nAgenda:\nDecisions:\nAction Items:\n",
+                "tags": ["meeting"],
+            },
+            "project": {
+                "title_prefix": "Project",
+                "category": "project",
+                "note_type": "general",
+                "template": "Objective:\nMilestones:\nRisks:\nNext Steps:\n",
+                "tags": ["project"],
+            },
+            "daily": {
+                "title_prefix": "Daily",
+                "category": "personal",
+                "note_type": "todo",
+                "template": "Top Priorities:\n1.\n2.\n3.\nNotes:\n",
+                "tags": ["daily"],
+            },
+        }
     
     def _ensure_directory(self):
         """Ensure notes directory exists"""
@@ -424,13 +456,13 @@ class NotesManager:
         # Status indicators
         status = []
         if note.pinned:
-            status.append("📌 PINNED")
+            status.append(" PINNED")
         if note.priority == "urgent":
-            status.append("🔴 URGENT")
+            status.append(" URGENT")
         elif note.priority == "high":
-            status.append("🟠 HIGH PRIORITY")
+            status.append(" HIGH PRIORITY")
         elif note.priority == "low":
-            status.append("🔵 LOW PRIORITY")
+            status.append(" LOW PRIORITY")
         
         # Header
         f.write("┌" + "─"*78 + "┐\n")
@@ -489,7 +521,7 @@ class NotesManager:
             f.write("│ " + " "*74 + " │\n")
             f.write(f"│ {'Checklist:':<74} │\n")
             for item in note.checklist_items:
-                checkbox = "☑" if item.get("checked", False) else "☐"
+                checkbox = "[x]" if item.get("checked", False) else "[ ]"
                 item_text = item.get("text", "")
                 f.write(f"│   {checkbox} {item_text[:70]:<70} │\n")
         
@@ -504,6 +536,166 @@ class NotesManager:
             note_id = f"note_{timestamp}_{suffix}"
             if note_id not in self.notes:
                 return note_id
+
+    def _save_note_version(self, note: Note) -> None:
+        """Capture current note state for history before a mutating operation."""
+        snapshot = note.to_dict()
+        snapshot.pop("versions", None)
+        snapshot.pop("_relevance_cache", None)
+        snapshot.pop("_tokenized_title", None)
+        snapshot.pop("_tokenized_content", None)
+        snapshot["version_timestamp"] = datetime.now().isoformat()
+
+        note.versions.append(snapshot)
+        if len(note.versions) > 20:
+            note.versions = note.versions[-20:]
+
+    def list_templates(self) -> List[str]:
+        """Return available note template names."""
+        return sorted(list(self.NOTE_TEMPLATES.keys()))
+
+    def create_note_from_template(
+        self,
+        template_name: str,
+        title: Optional[str] = None,
+        variables: Optional[Dict[str, str]] = None,
+    ) -> Optional[Note]:
+        """Create a new note from a built-in template."""
+        template = self.NOTE_TEMPLATES.get(template_name.lower())
+        if not template:
+            return None
+
+        content = template["template"]
+        if variables:
+            for key, value in variables.items():
+                content = content.replace("{" + key + "}", value)
+
+        final_title = title or f"{template['title_prefix']} {datetime.now().strftime('%Y-%m-%d')}"
+        return self.create_note(
+            title=final_title,
+            content=content,
+            tags=list(template.get("tags", [])),
+            note_type=template.get("note_type", "general"),
+            category=template.get("category", "general"),
+        )
+
+    def get_note_versions(self, note_id: str) -> List[Dict[str, Any]]:
+        """Return version history for a note."""
+        note = self.notes.get(note_id)
+        if not note:
+            return []
+        return note.versions
+
+    def restore_note_version(self, note_id: str, version_index: int) -> bool:
+        """Restore note fields from a previous version index."""
+        note = self.notes.get(note_id)
+        if not note or version_index < 0 or version_index >= len(note.versions):
+            return False
+
+        self._save_note_version(note)
+        version = note.versions[version_index]
+
+        note.title = version.get("title", note.title)
+        note.content = version.get("content", note.content)
+        note.tags = version.get("tags", note.tags)
+        note.note_type = version.get("note_type", note.note_type)
+        note.category = version.get("category", note.category)
+        note.priority = version.get("priority", note.priority)
+        note.due_date = version.get("due_date", note.due_date)
+        note.checklist_items = version.get("checklist_items", note.checklist_items)
+        note.related_notes = version.get("related_notes", note.related_notes)
+        note.updated_at = datetime.now().isoformat()
+        self._save_notes()
+        return True
+
+    def semantic_search_notes(
+        self,
+        query: str,
+        top_k: int = 5,
+        min_similarity: float = 0.40,
+    ) -> List[Dict[str, Any]]:
+        """Semantic search across note title + content using embeddings."""
+        try:
+            from ai.memory.embedding_manager import get_embedding_manager
+
+            embedding_manager = get_embedding_manager()
+            query_vec = embedding_manager.create_embedding(query)
+
+            scored: List[Dict[str, Any]] = []
+            for note in self.notes.values():
+                if note.archived:
+                    continue
+                text = f"{note.title}\n{note.content}"
+                note_vec = embedding_manager.create_embedding(text)
+                similarity = embedding_manager.calculate_similarity(query_vec, note_vec)
+                if similarity >= min_similarity:
+                    scored.append(
+                        {
+                            "note_id": note.id,
+                            "title": note.title,
+                            "similarity": float(similarity),
+                            "snippet": (note.content or "")[:220],
+                            "tags": note.tags,
+                        }
+                    )
+
+            scored.sort(key=lambda x: x["similarity"], reverse=True)
+            return scored[:top_k]
+        except Exception as e:
+            logger.debug(f"Semantic search unavailable, falling back to keyword search: {e}")
+            fallback_notes = self.fuzzy_search(query)[:top_k]
+            return [
+                {
+                    "note_id": n.id,
+                    "title": n.title,
+                    "similarity": n.get_relevance_score(query),
+                    "snippet": (n.content or "")[:220],
+                    "tags": n.tags,
+                }
+                for n in fallback_notes
+            ]
+
+    def get_proactive_insights(self) -> Dict[str, Any]:
+        """Generate actionable note insights (reminders, stale items, meeting prep)."""
+        active_notes = [n for n in self.notes.values() if not n.archived]
+        now = datetime.now()
+
+        upcoming = self.get_upcoming_reminders(hours=72)
+        overdue = self.get_overdue_notes()
+        stale = [
+            n
+            for n in active_notes
+            if (now - datetime.fromisoformat(n.updated_at)).days >= 14
+        ]
+
+        meeting_candidates = [
+            n
+            for n in active_notes
+            if n.note_type == "meeting" or "meeting" in [t.lower() for t in n.tags]
+        ]
+
+        return {
+            "upcoming_reminders": [
+                {"note_id": n.id, "title": n.title, "due": n.reminder or n.due_date}
+                for n in upcoming[:8]
+            ],
+            "overdue": [
+                {"note_id": n.id, "title": n.title, "due": n.due_date}
+                for n in overdue[:8]
+            ],
+            "stale_notes": [
+                {"note_id": n.id, "title": n.title, "updated_at": n.updated_at}
+                for n in stale[:8]
+            ],
+            "meeting_prep": [
+                {
+                    "note_id": n.id,
+                    "title": n.title,
+                    "summary_hint": (n.content or "")[:160],
+                }
+                for n in meeting_candidates[:6]
+            ],
+        }
     
     def create_note(self, title: str, content: str, tags: List[str] = None, 
                    note_type: str = "general", category: str = "general",
@@ -542,6 +734,8 @@ class NotesManager:
         note = self.notes.get(note_id)
         if not note:
             return None
+
+        self._save_note_version(note)
         
         if title is not None:
             note.title = title
@@ -641,6 +835,7 @@ class NotesManager:
         """Pin a note"""
         note = self.notes.get(note_id)
         if note:
+            self._save_note_version(note)
             note.pinned = True
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -652,6 +847,7 @@ class NotesManager:
         """Unpin a note"""
         note = self.notes.get(note_id)
         if note:
+            self._save_note_version(note)
             note.pinned = False
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -663,6 +859,7 @@ class NotesManager:
         """Archive a note"""
         note = self.notes.get(note_id)
         if note:
+            self._save_note_version(note)
             note.archived = True
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -674,6 +871,7 @@ class NotesManager:
         """Unarchive a note"""
         note = self.notes.get(note_id)
         if note:
+            self._save_note_version(note)
             note.archived = False
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -685,6 +883,7 @@ class NotesManager:
         """Set due date for a note"""
         note = self.notes.get(note_id)
         if note:
+            self._save_note_version(note)
             note.due_date = due_date
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -696,6 +895,7 @@ class NotesManager:
         """Set category for a note"""
         note = self.notes.get(note_id)
         if note:
+            self._save_note_version(note)
             note.category = category
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -707,6 +907,7 @@ class NotesManager:
         """Set priority for a note"""
         note = self.notes.get(note_id)
         if note and priority in ["low", "medium", "high", "urgent"]:
+            self._save_note_version(note)
             note.priority = priority
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -999,9 +1200,9 @@ class NotesManager:
         """
         try:
             # Try to import LLM interface
-            from ai.llm_interface import LLMInterface
+            from ai.core.llm_engine import LocalLLMEngine
             
-            llm = LLMInterface()
+            llm = LocalLLMEngine()
             
             prompt = f"""Analyze this note and suggest {max_tags} relevant tags. 
 Return ONLY the tags as a comma-separated list, no explanation.
@@ -1011,7 +1212,7 @@ Content: {note.content[:500]}
 
 Tags (comma-separated):"""
             
-            response = llm.generate(prompt, max_tokens=50, temperature=0.3)
+            response = llm.generate_response(prompt, system_prompt="You are a helpful tag generator.")
             
             # Parse response
             suggested_tags = [
@@ -1052,7 +1253,7 @@ Tags (comma-separated):"""
                 if match:
                     text = match.group(1).strip()
                     # Check if already checked   
-                    is_checked = '[x]' in line.lower() or '☑' in line
+                    is_checked = '[x]' in line.lower()
                     items.append({
                         "text": text,
                         "checked": is_checked
@@ -1071,6 +1272,7 @@ Tags (comma-separated):"""
             return False
         
         if 0 <= item_index < len(note.checklist_items):
+            self._save_note_version(note)
             note.checklist_items[item_index]["checked"] = checked
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -1274,8 +1476,22 @@ class NotesPlugin(PluginInterface):
     def _normalize_title_query(self, query: str) -> str:
         """Normalize extracted title query for more robust note matching."""
         cleaned = (query or "").strip().strip('"\'').strip('?.!,')
+        cleaned = re.sub(
+            r"^(?:what(?:'s|\s+is)?\s+(?:in|inside)(?:\s+of)?\s+(?:the\s+)?)",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r"^(?:show\s+(?:me\s+)?)?(?:the\s+)?(?:content|contents)\s+(?:of\s+)?",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"^(?:of\s+)", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"^(?:the|my|this|that)\s+", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\s+(?:note|list)\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+(?:note|notes|list|lists)\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+(?:for\s+me|please|right\s+now)\b", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         return cleaned
 
@@ -1298,11 +1514,28 @@ class NotesPlugin(PluginInterface):
             if note:
                 return {"status": "resolved", "note": note, "resolution_path": "last_note_context"}
 
+        # 2b) Follow-up fallback: resolve pronouns against last result set.
+        if any(token in lower for token in ['last', 'this', 'that', 'it', 'the note']) and self.last_note_result_ids:
+            if len(self.last_note_result_ids) == 1:
+                note = self.manager.get_note(self.last_note_result_ids[0])
+                if note:
+                    return {"status": "resolved", "note": note, "resolution_path": "last_result_single"}
+            first_result = self.manager.get_note(self.last_note_result_ids[0])
+            if first_result:
+                return {"status": "resolved", "note": first_result, "resolution_path": "last_result_first"}
+
+        # 2c) Last known title fallback for pronoun follow-ups.
+        if any(token in lower for token in ['last', 'this', 'that', 'it', 'the note']) and self.last_note_title:
+            title_matches = self.manager.find_by_title(self.last_note_title)
+            if len(title_matches) == 1:
+                return {"status": "resolved", "note": title_matches[0], "resolution_path": "last_title_context"}
+
         # 3) Title extraction and matching
         title_patterns = [
+            r"(?:what(?:'s|\s+is)?\s+(?:in|inside)(?:\s+of)?\s+(?:the\s+)?)?(.+?)\s+notes?\b",
             r'(?:called|titled|named|about)\s+(.+)$',
             r'(?:note|list)\s+(?:called|titled|named)\s+(.+)$',
-            r'(?:the\s+)?(.+?)\s+(?:note|list)\b',
+            r'(?:the\s+)?(.+?)\s+(?:notes?|lists?)\b',
             r'(?:delete|remove|edit|update|archive|unarchive|pin|unpin|categorize|category|priority|title|name)\s+(?:the\s+)?(.+)$',
         ]
         candidates: List[Note] = []
@@ -2305,6 +2538,15 @@ class NotesPlugin(PluginInterface):
             return False
 
         command_lower = command.lower()
+
+        # Do not hijack code/file introspection prompts such as
+        # "what does notes_plugin.py do". Those are better handled by
+        # general conversation/code explanation logic outside Notes.
+        if re.search(r'\b[\w\-]+\.(?:py|js|ts|tsx|jsx|md|json|ya?ml|toml|ini|cfg)\b', command_lower) and re.search(
+            r'\b(?:what\s+does|tell\s+me\s+what|explain|describe|how\s+does)\b',
+            command_lower,
+        ):
+            return False
         
         # Keywords that indicate note-related commands
         note_keywords = ['note', 'notes', 'write down', 'remember this', 'jot down']
@@ -2313,6 +2555,7 @@ class NotesPlugin(PluginInterface):
             'list', 'delete', 'remove', 'edit', 'update', 'read', 'open',
             'summary', 'summarize', 'append', 'link', 'connect', 'relate',
             'stats', 'analytics', 'check', 'uncheck', 'toggle', 'suggest',
+            'semantic', 'template', 'version', 'restore', 'proactive', 'insights',
         ]
 
         # Question patterns about notes
@@ -2324,9 +2567,9 @@ class NotesPlugin(PluginInterface):
             r'any notes?',
             r'count.*notes?',
             r'number of notes',
-            r'what.*notes',
-            r'show.*notes',
-            r'list.*notes',
+            r'what.*\bnotes?\b',
+            r'show.*\bnotes?\b',
+            r'list.*\bnotes?\b',
         ]
 
         # Pending confirmation gate — always intercept "confirm" / "cancel" / "yes" / "no"
@@ -2374,7 +2617,7 @@ class NotesPlugin(PluginInterface):
             r'\b(?:it|this|that|the note)\b',
             command_lower,
         ) and re.search(
-            r'\babout\b|\bin\b|\binside\b|\bcontains\b|\bsay\b|\bcontent\b|\bcontents\b|\bwhat\b',
+            r'\babout\b|\bin\b|\binside\b|\bcontains\b|\bsay\b|\bcontent\b|\bcontents\b|\bwhat\b|\bread\b|\bshow\b|\bopen\b',
             command_lower,
         ):
             return True
@@ -2460,6 +2703,7 @@ class NotesPlugin(PluginInterface):
             elif result is None and (
                 any(word in command_lower for word in ['read', 'open', 'full content', 'show content'])
                 or re.search(r'what(?:\s+is|\s*\'s)\s+in\b', command_lower)
+                or re.search(r'what(?:\s+is|\s*\'s)\s+inside(?:\s+of)?\b', command_lower)
                 or re.search(r'(?:anything|something|what)\s+in\s+(?:the\s+)?(?:note|it|this|that)', command_lower)
                 or re.search(r'(?:wanna|want to)\s+know.*(?:note|in|inside)', command_lower)
                 or re.search(r'is there\s+(?:anything|something)\s+in', command_lower)
@@ -2491,6 +2735,10 @@ class NotesPlugin(PluginInterface):
                 )
                 query = query_m.group(1).strip() if query_m else command
                 result = self._search_notes_by_content(query)
+
+            # Semantic search (conceptual similarity)
+            elif result is None and re.search(r'(semantic|smart|meaning|concept).*(search|find)|(search|find).*(semantic|similar)', command_lower):
+                result = self._semantic_search_notes(command)
             
             # Search notes
             elif result is None and any(word in command_lower for word in ['search', 'find']):
@@ -2546,7 +2794,7 @@ class NotesPlugin(PluginInterface):
             # Link notes
             elif result is None and ('link' in command_lower or 'relate' in command_lower or 'connect' in command_lower):
                 result = self._link_notes(command)
-            
+
             # Tag analytics / stats
             elif result is None and re.search(r'(?:tag|note).*(?:stats?|analytics?|analysis)', command_lower):
                 result = self._get_tag_analytics()
@@ -2554,6 +2802,26 @@ class NotesPlugin(PluginInterface):
             # Auto-link note to related notes
             elif result is None and re.search(r'auto.*link|find.*related|link.*similar', command_lower):
                 result = self._auto_link_note(command)
+
+            # Proactive note intelligence (reminders, stale notes, meeting prep)
+            elif result is None and re.search(r'proactive|insights|meeting prep|what should i (?:do|review)', command_lower):
+                result = self._show_proactive_insights()
+
+            # List note templates
+            elif result is None and re.search(r'(list|show).*(template)|(template).*(list|available)', command_lower):
+                result = self._list_note_templates()
+
+            # Create note from template
+            elif result is None and re.search(r'(create|make|new).*(template)|(template).*(note)', command_lower):
+                result = self._create_note_from_template(command)
+
+            # Show note version history
+            elif result is None and re.search(r'(show|list|view).*(version|history)|(version history)', command_lower):
+                result = self._show_note_versions(command)
+
+            # Restore note version
+            elif result is None and re.search(r'(restore|revert).*(version)', command_lower):
+                result = self._restore_note_version(command)
             
             # Check/uncheck checklist items
             elif result is None and re.search(r'\\b(check|uncheck|toggle)\\b.*\\b(item|checklist|task)\\b|\\b(item|task)\\s+\\d+', command_lower):
@@ -3672,19 +3940,19 @@ class NotesPlugin(PluginInterface):
         pinned = len([n for n in all_notes if n.pinned])
         
         # Build response
-        message = f"📊 **Note Statistics**\n\n"
+        message = f" **Note Statistics**\n\n"
         message += f"   Total active notes: {total_count}\n"
         
         if todos > 0:
-            message += f"   ✅ To-do notes: {todos}\n"
+            message += f"    To-do notes: {todos}\n"
         if ideas > 0:
-            message += f"   💡 Ideas: {ideas}\n"
+            message += f"    Ideas: {ideas}\n"
         if meetings > 0:
-            message += f"   👥 Meeting notes: {meetings}\n"
+            message += f"    Meeting notes: {meetings}\n"
         if pinned > 0:
-            message += f"   📌 Pinned: {pinned}\n"
+            message += f"    Pinned: {pinned}\n"
         if archived > 0:
-            message += f"   📦 Archived: {archived}\n"
+            message += f"    Archived: {archived}\n"
         
         # Add tag count
         all_tags = self.manager.get_all_tags()
@@ -3858,6 +4126,154 @@ class NotesPlugin(PluginInterface):
                 "suggested_tags": suggested_tags
             },
             "formulate": True
+        }
+
+    def _semantic_search_notes(self, command: str) -> Dict[str, Any]:
+        """Run semantic (embedding-based) search across notes."""
+        match = re.search(
+            r'(?:semantic|smart|meaning|concept).*(?:search|find)\s+(?:for\s+)?(.+)$',
+            command,
+            re.IGNORECASE,
+        )
+        query = match.group(1).strip() if match else command
+        query = re.sub(r'^(?:semantic|smart|meaning|concept)\s+(?:search|find)\s*', '', query, flags=re.IGNORECASE).strip()
+
+        if not query:
+            return {
+                "success": False,
+                "action": "semantic_search_notes",
+                "data": {"error": "missing_query"},
+                "formulate": True,
+            }
+
+        results = self.manager.semantic_search_notes(query=query, top_k=8)
+        return {
+            "success": True,
+            "action": "semantic_search_notes",
+            "data": {
+                "query": query,
+                "count": len(results),
+                "results": results,
+            },
+            "formulate": True,
+        }
+
+    def _show_proactive_insights(self) -> Dict[str, Any]:
+        """Return proactive reminders and planning insights from notes."""
+        insights = self.manager.get_proactive_insights()
+        return {
+            "success": True,
+            "action": "proactive_notes_insights",
+            "data": insights,
+            "formulate": True,
+        }
+
+    def _list_note_templates(self) -> Dict[str, Any]:
+        """List available note templates."""
+        templates = self.manager.list_templates()
+        return {
+            "success": True,
+            "action": "list_note_templates",
+            "data": {
+                "count": len(templates),
+                "templates": templates,
+            },
+            "formulate": True,
+        }
+
+    def _create_note_from_template(self, command: str) -> Dict[str, Any]:
+        """Create note from template command."""
+        template_names = self.manager.list_templates()
+        template_name = next((name for name in template_names if name in command.lower()), None)
+        if not template_name:
+            return {
+                "success": False,
+                "action": "create_note_from_template",
+                "data": {"error": "template_not_identified", "templates": template_names},
+                "formulate": True,
+            }
+
+        title_match = re.search(r'(?:called|named|title)\s+(.+)$', command, re.IGNORECASE)
+        title = title_match.group(1).strip() if title_match else None
+        created = self.manager.create_note_from_template(template_name=template_name, title=title)
+
+        if not created:
+            return {
+                "success": False,
+                "action": "create_note_from_template",
+                "data": {"error": "template_creation_failed", "template": template_name},
+                "formulate": True,
+            }
+
+        return {
+            "success": True,
+            "action": "create_note_from_template",
+            "data": {
+                "template": template_name,
+                "note_id": created.id,
+                "note_title": created.title,
+            },
+            "formulate": True,
+        }
+
+    def _show_note_versions(self, command: str) -> Dict[str, Any]:
+        """Show version history for a note."""
+        resolution = self._resolve_note_reference(command, include_archived=True)
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
+        if not note:
+            return {
+                "success": False,
+                "action": "show_note_versions",
+                "data": {"error": "note_not_found"},
+                "formulate": True,
+            }
+
+        versions = self.manager.get_note_versions(note.id)
+        return {
+            "success": True,
+            "action": "show_note_versions",
+            "data": {
+                "note_id": note.id,
+                "note_title": note.title,
+                "count": len(versions),
+                "versions": versions,
+            },
+            "formulate": True,
+        }
+
+    def _restore_note_version(self, command: str) -> Dict[str, Any]:
+        """Restore a note to a selected version index."""
+        index_match = re.search(r'(?:version\s+)?(\d+)', command, re.IGNORECASE)
+        if not index_match:
+            return {
+                "success": False,
+                "action": "restore_note_version",
+                "data": {"error": "missing_version_index"},
+                "formulate": True,
+            }
+
+        version_index = max(0, int(index_match.group(1)) - 1)
+        resolution = self._resolve_note_reference(command, include_archived=True)
+        note = resolution.get("note") if resolution.get("status") == "resolved" else None
+        if not note:
+            return {
+                "success": False,
+                "action": "restore_note_version",
+                "data": {"error": "note_not_found"},
+                "formulate": True,
+            }
+
+        restored = self.manager.restore_note_version(note.id, version_index)
+        return {
+            "success": restored,
+            "action": "restore_note_version",
+            "data": {
+                "note_id": note.id,
+                "note_title": note.title,
+                "version_index": version_index,
+                "restored": restored,
+            },
+            "formulate": True,
         }
     
     def _show_tags(self) -> Dict[str, Any]:

@@ -164,6 +164,75 @@ class TestNotesTitleFollowup:
         assert result.get("action") == "get_note_content"
         assert result.get("data", {}).get("note_title") == "Release Plan"
 
+    def test_content_query_what_is_in_the_note_phrase(self, plugin):
+        plugin.manager.create_note(title="Test", content="This is the note body")
+
+        result = plugin.execute(
+            intent="conversation:general",
+            query="what is in the test note?",
+            entities={},
+            context={},
+        )
+
+        assert result.get("success") is True
+        assert result.get("action") == "get_note_content"
+        assert result.get("data", {}).get("note_title") == "Test"
+        assert "This is the note body" in result.get("data", {}).get("content", "")
+
+    def test_content_query_inside_of_my_note_phrase(self, plugin):
+        plugin.manager.create_note(title="Test", content="Inside-of phrase content")
+
+        result = plugin.execute(
+            intent="conversation:question",
+            query="what is inside of my test note?",
+            entities={},
+            context={},
+        )
+
+        assert result.get("success") is True
+        assert result.get("action") == "get_note_content"
+        assert result.get("data", {}).get("note_title") == "Test"
+        assert "Inside-of phrase content" in result.get("data", {}).get("content", "")
+
+    def test_content_query_read_plural_notes_phrase(self, plugin):
+        plugin.manager.create_note(title="Test", content="Plural notes phrase content")
+
+        result = plugin.execute(
+            intent="conversation:general",
+            query="i want you to read the test notes for me",
+            entities={},
+            context={},
+        )
+
+        assert result.get("success") is True
+        assert result.get("action") == "get_note_content"
+        assert result.get("data", {}).get("note_title") == "Test"
+        assert "Plural notes phrase content" in result.get("data", {}).get("content", "")
+
+    def test_read_it_followup_after_list_notes(self, plugin):
+        plugin.manager.create_note(title="Test Note", content="Follow-up read content")
+
+        first = plugin.execute(
+            intent="conversation:question",
+            query="do i have any notes?",
+            entities={},
+            context={},
+        )
+        assert first.get("success") is True
+        assert first.get("action") == "list_notes"
+
+        followup = plugin.execute(
+            intent="conversation:general",
+            query="read it for me",
+            entities={},
+            context={},
+        )
+
+        assert followup.get("success") is True
+        assert followup.get("action") == "get_note_content"
+        assert followup.get("data", {}).get("note_title") == "Test Note"
+        assert "Follow-up read content" in followup.get("data", {}).get("content", "")
+
     def test_disambiguation_selection_by_number_executes_delete(self, plugin):
         plugin.manager.create_note(title="Grocery List", content="milk")
         plugin.manager.create_note(title="Grocery List Weekend", content="eggs")

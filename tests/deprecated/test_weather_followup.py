@@ -40,7 +40,7 @@ print(f'Response:\n{response2}\n')
 if 'wednesday' in response2.lower() or '2026-02-' in response2:
     print('SUCCESS: Response mentions Wednesday or has a date (forecast returned!)')
 else:
-    print('⚠ Response may not be from forecast data')
+    print(' Response may not be from forecast data')
 
 # Test 3: Another weekday follow-up
 print('\n' + '═' * 70)

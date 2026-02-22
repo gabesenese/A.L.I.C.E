@@ -571,7 +571,7 @@ class SelfReflectionSystem:
         
         # Complexity
         if analysis.get('complexity_score', 0) > 20:
-            summary_parts.append(f"  ⚠ Complexity: {analysis['complexity_score']:.0f} (consider refactoring)")
+            summary_parts.append(f"   Complexity: {analysis['complexity_score']:.0f} (consider refactoring)")
         
         return '\n'.join(summary_parts)
     

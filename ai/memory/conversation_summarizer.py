@@ -409,7 +409,7 @@ Summary:"""
             
             # Try gateway first (enforces policy)
             if self.llm_gateway:
-                from ai.llm_policy import LLMCallType
+                from ai.core.llm_policy import LLMCallType
                 response = self.llm_gateway.request(
                     prompt=summary_prompt,
                     call_type=LLMCallType.GENERATION,

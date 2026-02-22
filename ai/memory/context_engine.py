@@ -667,7 +667,7 @@ class ContextEngine:
         """Clear short-term memory"""
         self.short_term_memory = []
         self.conv_state = ConversationState()
-        logger.info("🧹 Short-term memory cleared")
+        logger.info(" Short-term memory cleared")
     
     def get_personalization_context(self) -> str:
         """Get personalization info for LLM system prompt"""

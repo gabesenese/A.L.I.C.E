@@ -1413,10 +1413,10 @@ class ALICE:
         Display/speak them appropriately
         """
         priority_label = {
-            EventPriority.LOW: "ℹ",
+            EventPriority.LOW: "",
             EventPriority.NORMAL: "",
-            EventPriority.HIGH: "⚠",
-            EventPriority.CRITICAL: "🚨"
+            EventPriority.HIGH: "",
+            EventPriority.CRITICAL: ""
         }.get(priority, "•")
         
         notification = f"\n{priority_label} {message}\n"
@@ -3270,14 +3270,30 @@ class ALICE:
                 and not any(w in user_input.lower() for w in _cmd_words)
                 and not active_goal  # Don't skip if there's an active goal
             )
-            if _is_short_followup or is_pure_conversation:
+            notes_plugin = None
+            if hasattr(self, 'plugins') and getattr(self.plugins, 'plugins', None):
+                notes_plugin = self.plugins.plugins.get('Notes Plugin')
+
+            has_note_context = bool(getattr(notes_plugin, 'last_note_id', None)) if notes_plugin else False
+            force_plugins_for_note_followup = bool(
+                has_note_context
+                and re.search(r"\b(?:it|this|that|the\s+note|my\s+note)\b", user_input.lower())
+                and re.search(r"\b(?:what|read|show|in|inside|content|contents|contains?)\b", user_input.lower())
+            )
+            force_plugins_for_explicit_note_read = bool(
+                re.search(r"\b(?:read|show|open|what(?:'s|\s+is)?|inside|content|contents?)\b", user_input.lower())
+                and re.search(r"\bnotes?\b", user_input.lower())
+            )
+            force_plugins_for_notes = force_plugins_for_note_followup or force_plugins_for_explicit_note_read
+
+            if (_is_short_followup or is_pure_conversation) and not force_plugins_for_notes:
                 if is_pure_conversation:
                     self._think("Pure conversation → skipping plugins, using LLM")
                 else:
                     self._think("Short follow-up (no command words, no goal) → skipping plugins, using LLM")
             else:
                 self._think(f"Trying plugins... (confidence: {intent_confidence:.2f}, goal: {active_goal.description[:30] if active_goal else 'none'}...)")
-            if not _is_short_followup and not is_pure_conversation:
+            if (not _is_short_followup and not is_pure_conversation) or force_plugins_for_notes:
                 context_summary = self.context.get_context_summary()
                 # Enhance context with goal info (keep as dict for plugins)
                 if active_goal:
@@ -4687,7 +4703,7 @@ class ALICE:
             
             # Conversational Engine Statistics
             if hasattr(self, 'conversational_engine') and self.conversational_engine:
-                print("\n💬 Conversational Engine:")
+                print("\n Conversational Engine:")
                 if hasattr(self.conversational_engine, 'pattern_count'):
                     print(f"   Learned Patterns: {self.conversational_engine.pattern_count}")
                 if hasattr(self.conversational_engine, 'learned_greetings'):
@@ -4762,7 +4778,7 @@ class ALICE:
             if self.relationship_tracker:
                 try:
                     stats = self.relationship_tracker.get_statistics()
-                    print("\n👥 Tracked Entities:")
+                    print("\n Tracked Entities:")
                     print("=" * 50)
                     print(f"Total entities: {stats['total_entities']}")
                     
@@ -4861,7 +4877,7 @@ class ALICE:
             query = parts[1].strip()
             results = self.memory.recall_memory(query, top_k=10, min_similarity=0.5)
             
-            print(f"\n🔍 Memory Search Results for: '{query}'")
+            print(f"\n Memory Search Results for: '{query}'")
             print("=" * 70)
             
             if not results:

@@ -145,11 +145,11 @@ if __name__ == "__main__":
 
     # Initialize
     if plugin.initialize():
-        print("✓ Plugin initialized")
+        print(" Plugin initialized")
 
         # Check if it can handle a greeting
         can_handle = plugin.can_handle("greeting", {}, "Hello Alice!")
-        print(f"✓ Can handle greeting: {can_handle}")
+        print(f" Can handle greeting: {can_handle}")
 
         # Execute
         result = plugin.execute(
@@ -159,10 +159,10 @@ if __name__ == "__main__":
             context={"user_name": "User"}
         )
 
-        print(f"✓ Result: {result}")
+        print(f" Result: {result}")
 
         # Shutdown
         plugin.shutdown()
-        print("✓ Plugin shut down")
+        print(" Plugin shut down")
     else:
-        print("✗ Plugin initialization failed")
+        print(" Plugin initialization failed")

@@ -675,7 +675,7 @@ Provide:
         """Set response creativity (0.0 = focused, 1.0 = creative)"""
         if 0 <= temp <= 1:
             self.config.temperature = temp
-            logger.info(f"🌡Temperature set to: {temp}")
+            logger.info(f"Temperature set to: {temp}")
         else:
             logger.warning("Temperature must be between 0.0 and 1.0")
     
@@ -693,7 +693,7 @@ if __name__ == "__main__":
     print("=" * 80)
     print("A.L.I.C.E - Advanced GPU-Accelerated AI Assistant")
     print("=" * 80)
-    print("\n💻 Optimized for:")
+    print("\n Optimized for:")
     print("   - CPU: Intel i7-14700K")
     print("   - GPU: RTX 5070 Ti")
     print("   - RAM: 32GB")

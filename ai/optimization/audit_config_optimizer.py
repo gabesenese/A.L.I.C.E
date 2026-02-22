@@ -147,16 +147,16 @@ class ConfigOptimizer:
         # Overall assessment
         if suggestions['overall_improvement'] > 0.3:
             suggestions['overall_assessment'] = 'strong'
-            suggestions['explanation'].append("\n💪 Strong overall improvement. Continue current strategy.")
+            suggestions['explanation'].append("\n Strong overall improvement. Continue current strategy.")
         elif suggestions['overall_improvement'] > 0.0:
             suggestions['overall_assessment'] = 'positive'
             suggestions['explanation'].append("\nPositive improvement. Maintain current strategy.")
         elif suggestions['overall_improvement'] == 0:
             suggestions['overall_assessment'] = 'stagnant'
-            suggestions['explanation'].append("\n⚠No improvement. Consider adjusting training approach.")
+            suggestions['explanation'].append("\nNo improvement. Consider adjusting training approach.")
         else:
             suggestions['overall_assessment'] = 'negative'
-            suggestions['explanation'].append("\n⛔ Performance declined. Review training data quality.")
+            suggestions['explanation'].append("\n Performance declined. Review training data quality.")
         
         return suggestions
     

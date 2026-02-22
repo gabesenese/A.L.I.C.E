@@ -261,3 +261,6 @@ data/training/comprehensive_test_errors.jsonl
 data/training/learned_patterns.pkl
 app/config/rag_indexer_config.json
 config/rag_indexer_config.json
+data/analytics/notes_plugin_telemetry.jsonl
+data/context/selection_feedback.jsonl
+

@@ -181,7 +181,7 @@ if __name__ == "__main__":
     plugin = StatefulCounterPlugin()
 
     if plugin.initialize():
-        print(f"✓ Initialized. Total count: {plugin.total_count}")
+        print(f" Initialized. Total count: {plugin.total_count}")
 
         # Simulate interactions
         for i in range(3):
@@ -191,7 +191,7 @@ if __name__ == "__main__":
                 entities={},
                 context={}
             )
-            print(f"✓ Execution {i+1}: {result['data']}")
+            print(f" Execution {i+1}: {result['data']}")
 
         # Get stats
         stats = plugin.execute(
@@ -200,15 +200,15 @@ if __name__ == "__main__":
             entities={},
             context={}
         )
-        print(f"✓ Stats: {stats['data']}")
+        print(f" Stats: {stats['data']}")
 
         # Shutdown
         plugin.shutdown()
-        print("✓ Shut down")
+        print(" Shut down")
 
         # Verify persistence
         print("\\nVerifying persistence...")
         plugin2 = StatefulCounterPlugin()
         plugin2.initialize()
-        print(f"✓ Reloaded. Total count: {plugin2.total_count}")
+        print(f" Reloaded. Total count: {plugin2.total_count}")
         plugin2.shutdown()

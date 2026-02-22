@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 # Import semantic intent classifier
 try:
-    from ai.intent_classifier import get_intent_classifier
+    from ai.core.intent_classifier import get_intent_classifier
     SEMANTIC_CLASSIFICATION_AVAILABLE = True
 except ImportError:
-    logger.warning("Semantic intent classifier not available")
+    logger.debug("Semantic intent classifier not available")
     SEMANTIC_CLASSIFICATION_AVAILABLE = False
 
 
@@ -131,10 +131,10 @@ class PluginManager:
                 self.plugins[plugin_name].shutdown()
                 del self.plugins[plugin_name]
                 self.plugin_order.remove(plugin_name)
-                logger.info(f"✅ Plugin unregistered: {plugin_name}")
+                logger.info(f" Plugin unregistered: {plugin_name}")
                 return True
             except Exception as e:
-                logger.error(f"❌ Error unregistering plugin {plugin_name}: {e}")
+                logger.error(f" Error unregistering plugin {plugin_name}: {e}")
                 return False
         return False
     
@@ -169,7 +169,7 @@ class PluginManager:
                     plugin = self.plugins.get(actual_plugin_name)
                     
                     if plugin and plugin.enabled:
-                        logger.info(f"🔌 Semantic match: {plugin_name}:{semantic_result['action']} (confidence: {semantic_result['confidence']:.2f})")
+                        logger.info(f" Semantic match: {plugin_name}:{semantic_result['action']} (confidence: {semantic_result['confidence']:.2f})")
                         try:
                             # Execute plugin with semantic action hint
                             result = plugin.execute(intent, query, entities, context)
@@ -207,7 +207,7 @@ class PluginManager:
             candidates.sort(key=lambda x: x[2], reverse=True)
             plugin_name, plugin, score = candidates[0]
             
-            logger.info(f"🔌 Executing plugin: {plugin_name} (score: {score:.1f})")
+            logger.info(f" Executing plugin: {plugin_name} (score: {score:.1f})")
             try:
                 result = plugin.execute(intent, query, entities, context)
                 result['plugin'] = plugin_name
@@ -218,7 +218,7 @@ class PluginManager:
                 # Try next candidate if first fails
                 if len(candidates) > 1:
                     plugin_name, plugin, score = candidates[1]
-                    logger.info(f"🔌 Trying fallback plugin: {plugin_name}")
+                    logger.info(f" Trying fallback plugin: {plugin_name}")
                     try:
                         result = plugin.execute(intent, query, entities, context)
                         result['plugin'] = plugin_name
@@ -975,7 +975,7 @@ if __name__ == "__main__":
     pm.register_plugin(WebSearchPlugin())
     
     # List all plugins
-    print("📋 Registered Plugins:")
+    print(" Registered Plugins:")
     for plugin_info in pm.get_all_plugins():
         print(f"  - {plugin_info['name']}: {plugin_info['description']}")
     
@@ -983,7 +983,7 @@ if __name__ == "__main__":
     print(f"   {', '.join(pm.get_capabilities())}")
     
     # Test plugin execution
-    print("\n🧪 Testing Plugin Execution:\n")
+    print("\n Testing Plugin Execution:\n")
     
     test_cases = [
         ("weather", "What's the weather like?", {}, {"location": "New York"}),

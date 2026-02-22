@@ -80,7 +80,7 @@ for category, query in tests:
             "cannot", "can't", "unknown", "not sure how", "didn't understand"
         ])
         
-        status = "❌ ERROR" if is_error else "OK"
+        status = " ERROR" if is_error else "OK"
         print(f"{status} | {category:.<40} | {response[:80]}")
         
         results.append({
@@ -99,7 +99,7 @@ for category, query in tests:
             })
     
     except Exception as e:
-        print(f"❌ CRASH | {category:.<40} | Exception: {str(e)[:60]}")
+        print(f" CRASH | {category:.<40} | Exception: {str(e)[:60]}")
         errors.append({
             "category": category,
             "query": query,
@@ -114,14 +114,14 @@ successful = sum(1 for r in results if not r["is_error"])
 failed = len(errors)
 total = len(results)
 
-print(f"\n📊 RESULTS:")
+print(f"\n RESULTS:")
 print(f"  Total Tests: {total}")
 print(f"  Passed: {successful} ({successful*100//total}%)")
 print(f"  Failed: {failed} ({failed*100//total}%)")
 
 # Save errors for scenario learning
 if errors:
-    print(f"\n💾 Saving {len(errors)} error scenarios for learning...")
+    print(f"\n Saving {len(errors)} error scenarios for learning...")
     
     error_file = Path("data/training/comprehensive_test_errors.jsonl")
     error_file.parent.mkdir(parents=True, exist_ok=True)

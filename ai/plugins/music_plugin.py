@@ -765,7 +765,7 @@ class MusicPlugin(PluginInterface):
         self.pending_local_selection = mp3_files
 
         # Build prompt
-        response = "🎵 Found the following .mp3 files:\n"
+        response = " Found the following .mp3 files:\n"
         for i, song in enumerate(mp3_files, 1):
             response += f"{i}. {song.title} by {song.artist} ({os.path.basename(song.uri)})\n"
         response += "\nPlease reply with the number of the song you want to play."
@@ -937,7 +937,7 @@ class MusicPlugin(PluginInterface):
         # Fallback - resume playbook or suggest YouTube Music
         if self.youtube_controller.is_available:
             if self.youtube_controller.open_youtube_music():
-                return "🎵 Opened YouTube Music - what would you like to listen to?"
+                return " Opened YouTube Music - what would you like to listen to?"
         
         # Try resuming existing playback
         if self.spotify_manager.is_authenticated:
@@ -1000,7 +1000,7 @@ class MusicPlugin(PluginInterface):
         if self.local_manager.is_initialized:
             success_local = self.local_manager.stop()
         
-        return "⏹Stopped music playback"
+        return "Stopped music playback"
     
     def _handle_next_request(self) -> str:
         """Handle next track requests"""
@@ -1016,9 +1016,9 @@ class MusicPlugin(PluginInterface):
             success_spotify = self.spotify_manager.next_track()
         
         if success_desktop or success_spotify:
-            return "⏭Skipped to next track"
+            return "Skipped to next track"
         
-        return "❌ Next track control available with Spotify desktop app or Web API"
+        return " Next track control available with Spotify desktop app or Web API"
     
     def _handle_previous_request(self) -> str:
         """Handle previous track requests"""
@@ -1034,9 +1034,9 @@ class MusicPlugin(PluginInterface):
             success_spotify = self.spotify_manager.previous_track()
         
         if success_desktop or success_spotify:
-            return "⏮Went to previous track"
+            return "Went to previous track"
         
-        return "❌ Previous track control available with Spotify desktop app or Web API"
+        return " Previous track control available with Spotify desktop app or Web API"
     
     def _handle_volume_request(self, volume: Optional[int], user_input: str) -> str:
         """Handle volume control requests"""
@@ -1083,11 +1083,11 @@ class MusicPlugin(PluginInterface):
             results.extend(local_results[:5])  # Limit to 5 results
         
         if not results:
-            return f"🔍 No results found for '{query}'"
+            return f" No results found for '{query}'"
         
-        response = f"🔍 Found {len(results)} results for '{query}':\n"
+        response = f" Found {len(results)} results for '{query}':\n"
         for i, song in enumerate(results[:5], 1):
-            source_icon = "🎵" if song.source == "spotify" else "💿"
+            source_icon = "" if song.source == "spotify" else ""
             response += f"{i}. {source_icon} {song.title} by {song.artist}"
             if song.album:
                 response += f" ({song.album})"
@@ -1107,27 +1107,27 @@ class MusicPlugin(PluginInterface):
     
     def _handle_status_request(self) -> str:
         """Handle status requests"""
-        status = "🎵 Music Status:\n"
+        status = " Music Status:\n"
         
         # Spotify status
         if self.spotify_manager.is_authenticated:
             current_track = self.spotify_manager.get_current_track()
             if current_track:
-                status += f"🎵 Spotify: {current_track.title} by {current_track.artist}\n"
+                status += f" Spotify: {current_track.title} by {current_track.artist}\n"
             else:
-                status += "🎵 Spotify: No track playing\n"
+                status += " Spotify: No track playing\n"
         else:
-            status += "🎵 Spotify: Not connected\n"
+            status += " Spotify: Not connected\n"
         
         # Local status
         if self.local_manager.is_initialized:
             current_song = self.local_manager.get_current_song()
             if current_song:
-                status += f"💿 Local: {current_song.title} by {current_song.artist}\n"
+                status += f" Local: {current_song.title} by {current_song.artist}\n"
             else:
-                status += "💿 Local: No music playing\n"
+                status += " Local: No music playing\n"
         else:
-            status += "💿 Local: Not available\n"
+            status += " Local: Not available\n"
         
         return status
     
@@ -1154,15 +1154,15 @@ class MusicPlugin(PluginInterface):
         if self.youtube_controller.is_available and (prefer_youtube or self.current_source in ["youtube", "auto"]):
             if song and artist:
                 if self.youtube_controller.play_specific_song(song, artist):
-                    return f"▶Opening '{song}' by {artist} on YouTube Music"
+                    return f"Opening '{song}' by {artist} on YouTube Music"
             else:
                 if self.youtube_controller.search_and_play(query):
-                    return f"▶Searching for '{query}' on YouTube Music"
+                    return f"Searching for '{query}' on YouTube Music"
         
         # Try desktop Spotify second (if running and not preferring YouTube)
         if not prefer_youtube and self.desktop_spotify.is_available and self.desktop_spotify.is_spotify_running():
             if self.desktop_spotify.search_and_play(query):
-                return f"▶Searching and playing '{query}' on Spotify desktop"
+                return f"Searching and playing '{query}' on Spotify desktop"
         
         # Try Spotify Web API if available
         if not prefer_youtube and self.spotify_manager.is_authenticated and self.current_source in ["spotify", "auto"]:
@@ -1170,7 +1170,7 @@ class MusicPlugin(PluginInterface):
             if results:
                 song_result = results[0]
                 if self.spotify_manager.play_track(song_result.uri):
-                    return f"▶Playing '{song_result.title}' by {song_result.artist} on Spotify"
+                    return f"Playing '{song_result.title}' by {song_result.artist} on Spotify"
         
         # Try local files
         if self.local_manager.is_initialized and self.current_source in ["local", "auto"]:
@@ -1178,22 +1178,22 @@ class MusicPlugin(PluginInterface):
             if results:
                 song_result = results[0]
                 if self.local_manager.play_file(song_result.uri):
-                    return f"▶Playing '{song_result.title}' by {song_result.artist} from local files"
+                    return f"Playing '{song_result.title}' by {song_result.artist} from local files"
         
         # Fallback: Open YouTube Music even if something failed
         if self.youtube_controller.is_available:
             if self.youtube_controller.search_and_play(query):
-                return f"🎵 Opening YouTube Music search for '{query}'"
+                return f" Opening YouTube Music search for '{query}'"
         
         # Last resort: Try to open Spotify
         if self.desktop_spotify.is_available:
             try:
                 subprocess.Popen(["spotify"])
-                return f"🎵 Opening Spotify... Please search for '{query}' manually"
+                return f" Opening Spotify... Please search for '{query}' manually"
             except:
                 pass
         
-        return f"❌ Unable to play '{query}'. Try:\n• Using YouTube Music (opens automatically)\n• Opening Spotify desktop app\n• Adding music files to ~/Music/"
+        return f" Unable to play '{query}'. Try:\n• Using YouTube Music (opens automatically)\n• Opening Spotify desktop app\n• Adding music files to ~/Music/"
     
     def _play_playlist(self, playlist_name: str) -> str:
         """Play a specific playlist"""
@@ -1204,9 +1204,9 @@ class MusicPlugin(PluginInterface):
                     tracks = self.spotify_manager.get_playlist_tracks(playlist.uri)
                     if tracks:
                         if self.spotify_manager.play_track(tracks[0].uri):
-                            return f"▶Playing playlist '{playlist.name}' ({len(tracks)} songs)"
+                            return f"Playing playlist '{playlist.name}' ({len(tracks)} songs)"
         
-        return f"❌ Playlist '{playlist_name}' not found"
+        return f" Playlist '{playlist_name}' not found"
     
     def _list_playlists(self) -> str:
         """List available playlists"""
