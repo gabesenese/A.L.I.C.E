@@ -13,6 +13,7 @@ Covers:
 """
 
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -516,3 +517,90 @@ class TestNewFormatterHandlers:
         assert "rocket" in text
         assert "Space ideas" in text
         assert "Engineering" in text
+
+    def test_format_show_recent_note_changes(self):
+        payload = {
+            "action": "show_recent_note_changes",
+            "data": {
+                "count": 2,
+                "changes": [
+                    {"note_title": "A", "action": "update_note", "reason": ""},
+                    {"note_title": "B", "action": "set_priority", "reason": "urgency"},
+                ],
+            },
+        }
+        text = NotesFormatter.format(payload)
+        assert "Recent note changes" in text
+        assert "set_priority" in text
+
+    def test_format_notes_health_check(self):
+        payload = {
+            "action": "notes_health_check",
+            "data": {"healthy": True, "checked_notes": 3, "anomaly_count": 0, "anomalies": []},
+        }
+        text = NotesFormatter.format(payload)
+        assert "health check passed" in text.lower()
+
+
+# ---------------------------------------------------------------------------
+# New hardening features — versioning config, change feed, health check
+# ---------------------------------------------------------------------------
+
+class TestNotesHardeningFeatures:
+    def test_versioning_respects_settings_and_adds_metadata(self, tmp_path):
+        manager = NotesManager(
+            notes_dir=str(tmp_path),
+            settings={
+                "versioning_enabled": True,
+                "max_versions_per_note": 2,
+            },
+        )
+        note = manager.create_note(title="Config test", content="v1")
+        manager.update_note(note.id, content="v2")
+        manager.update_note(note.id, content="v3")
+        manager.update_note(note.id, content="v4")
+
+        versions = manager.get_note_versions(note.id)
+        assert len(versions) == 2
+        assert all("version_action" in v for v in versions)
+        assert all(v.get("version_action") == "update_note" for v in versions)
+
+    def test_show_recent_changes_action(self, plugin):
+        created = plugin.manager.create_note(title="Change feed", content="before")
+        plugin.manager.update_note(created.id, content="after")
+
+        result = plugin.execute(command="show recent changes to my notes")
+        assert result["success"] is True
+        assert result["action"] == "show_recent_note_changes"
+        assert result["data"]["count"] >= 1
+        assert "action" in result["data"]["changes"][0]
+
+    def test_notes_health_check_action(self, plugin):
+        plugin.manager.create_note(title="Health A", content="ok")
+        plugin.manager.create_note(title="Health B", content="ok")
+
+        result = plugin.execute(command="run notes health check")
+        assert result["success"] is True
+        assert result["action"] == "notes_health_check"
+        assert result["data"]["checked_notes"] >= 2
+        assert "anomalies" in result["data"]
+
+    def test_user_templates_file_is_merged(self, tmp_path):
+        templates_file = tmp_path / "templates.json"
+        templates_file.write_text(
+            json.dumps(
+                {
+                    "retro": {
+                        "title_prefix": "Retro",
+                        "category": "work",
+                        "note_type": "meeting",
+                        "template": "Wins:\nLearnings:\nActions:\n",
+                        "tags": ["retro", "team"],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        manager = NotesManager(notes_dir=str(tmp_path))
+        assert "retro" in manager.list_templates()

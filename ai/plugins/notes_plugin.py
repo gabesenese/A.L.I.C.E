@@ -30,6 +30,7 @@ import sys
 import json
 import logging
 import uuid
+import shutil
 from typing import (
     Dict, List, Optional, Any, Tuple,
     Final, ClassVar, Protocol, runtime_checkable,
@@ -254,13 +255,26 @@ class ContentSearchResult:
         }
 
 
+@dataclass
+class NotesSettings:
+    """Runtime settings for NotesManager behavior and safety controls."""
+    versioning_enabled: bool = True
+    max_versions_per_note: int = 20
+    dump_corrupted_notes: bool = True
+    embedding_cache_enabled: bool = True
+    user_templates_filename: str = "templates.json"
+
+
 class NotesManager:
     """Handles note storage and retrieval"""
     
-    def __init__(self, notes_dir: str = "data/notes"):
+    def __init__(self, notes_dir: str = "data/notes", settings: Optional[Dict[str, Any]] = None):
         self.notes_dir = notes_dir
         self.notes_file = os.path.join(notes_dir, "notes.json")
         self.notes: Dict[str, Note] = {}
+        self.settings = NotesSettings(**(settings or {}))
+        self._embedding_cache: Dict[str, Dict[str, Any]] = {}
+        self._query_embedding_cache: Dict[str, List[float]] = {}
         self._ensure_directory()
         self._load_notes()
         
@@ -287,6 +301,7 @@ class NotesManager:
                 "tags": ["daily"],
             },
         }
+        self._load_user_templates()
     
     def _ensure_directory(self):
         """Ensure notes directory exists"""
@@ -302,6 +317,7 @@ class NotesManager:
                 # Validate and load notes with UUID checking
                 loaded_notes = {}
                 corrupted_count = 0
+                corrupted_entries: Dict[str, Any] = {}
                 
                 for note_id, note_data in data.items():
                     try:
@@ -312,27 +328,33 @@ class NotesManager:
                                 # Validate it's hex
                                 int(uuid_part, 16)
                             except ValueError:
-                                logger.warning(f"Invalid UUID in note ID: {note_id}")
+                                logger.warning(f"[notes_load_invalid_id] Invalid UUID in note ID: {note_id}")
                                 corrupted_count += 1
+                                corrupted_entries[note_id] = note_data
                                 continue
                         
                         note = Note.from_dict(note_data)
                         loaded_notes[note_id] = note
                     except (ValueError, TypeError, KeyError) as e:
-                        logger.warning(f"Skipping corrupted note {note_id}: {e}")
+                        logger.warning(f"[notes_load_corrupted_entry] Skipping corrupted note {note_id}: {e}")
                         corrupted_count += 1
+                        corrupted_entries[note_id] = note_data
                 
                 self.notes = loaded_notes
+                if corrupted_entries and self.settings.dump_corrupted_notes:
+                    self._dump_corrupted_notes(corrupted_entries, source="load_validation")
                 logger.info(f"Loaded {len(self.notes)} notes from storage" + 
                            (f" ({corrupted_count} corrupted entries skipped)" if corrupted_count else ""))
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error loading notes: {e}. Attempting backup recovery...")
+            logger.error(f"[notes_load_json_decode_error] JSON decode error loading notes: {e}. Attempting backup recovery...")
+            if self.settings.dump_corrupted_notes and os.path.exists(self.notes_file):
+                self._dump_corrupted_notes({"raw_notes_file": self.notes_file}, source="json_decode_error")
             self._recover_from_backup()
         except FileNotFoundError:
             logger.info("No existing notes file found, starting fresh")
             self.notes = {}
         except Exception as e:
-            logger.error(f"Unexpected error loading notes: {e}")
+            logger.error(f"[notes_load_unexpected_error] Unexpected error loading notes: {e}")
             self.notes = {}
     
     def _save_notes(self):
@@ -358,7 +380,7 @@ class NotesManager:
                         os.remove(backup_file)
                     os.rename(self.notes_file, backup_file)
                 except OSError as e:
-                    logger.warning(f"Could not create backup: {e}")
+                    logger.warning(f"[notes_save_backup_create_error] Could not create backup: {e}")
             
             # Move temp file to actual location
             os.rename(temp_file, self.notes_file)
@@ -367,12 +389,12 @@ class NotesManager:
             self._save_readable_notes()
             
             logger.info(f"Saved {len(self.notes)} notes to storage")
-        except json.JSONEncodeError as e:
-            logger.error(f"JSON encode error saving notes: {e}")
+        except TypeError as e:
+            logger.error(f"[notes_save_json_error] JSON serialization error saving notes: {e}")
         except OSError as e:
-            logger.error(f"File system error saving notes: {e}")
+            logger.error(f"[notes_save_fs_error] File system error saving notes: {e}")
         except Exception as e:
-            logger.error(f"Unexpected error saving notes: {e}")
+            logger.error(f"[notes_save_unexpected_error] Unexpected error saving notes: {e}")
         finally:
             # Clean up temp file if it still exists
             if os.path.exists(temp_file):
@@ -445,11 +467,66 @@ class NotesManager:
                 # Save the recovered data to main file
                 self._save_notes()
             except Exception as e:
-                logger.error(f"Backup recovery failed: {e}")
+                logger.error(f"[notes_backup_recovery_error] Backup recovery failed: {e}")
                 self.notes = {}
         else:
-            logger.warning("No backup file available")
+            logger.warning("[notes_backup_missing] No backup file available")
             self.notes = {}
+
+    def _dump_corrupted_notes(self, payload: Dict[str, Any], source: str) -> None:
+        """Persist corrupted entries for later forensic inspection."""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dump_path = os.path.join(self.notes_dir, f"corrupted_{timestamp}.json")
+
+            if payload.get("raw_notes_file") and isinstance(payload.get("raw_notes_file"), str):
+                source_file = payload["raw_notes_file"]
+                if os.path.exists(source_file):
+                    shutil.copy2(source_file, dump_path)
+                    logger.warning(f"[notes_corrupted_dump_saved] Saved raw corrupted notes file to {dump_path}")
+                    return
+
+            with open(dump_path, 'w', encoding='utf-8') as f:
+                json.dump(
+                    {
+                        "source": source,
+                        "captured_at": datetime.now().isoformat(),
+                        "entries": payload,
+                    },
+                    f,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            logger.warning(f"[notes_corrupted_dump_saved] Saved corrupted notes dump to {dump_path}")
+        except Exception as e:
+            logger.error(f"[notes_corrupted_dump_error] Failed to dump corrupted notes: {e}")
+
+    def _load_user_templates(self) -> None:
+        """Merge user-defined templates from disk with built-in templates."""
+        templates_path = os.path.join(self.notes_dir, self.settings.user_templates_filename)
+        if not os.path.exists(templates_path):
+            return
+        try:
+            with open(templates_path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            if not isinstance(payload, dict):
+                logger.warning("[notes_templates_invalid_format] templates.json must be an object of template definitions")
+                return
+            for name, template in payload.items():
+                if not isinstance(template, dict):
+                    continue
+                if "template" not in template:
+                    continue
+                normalized_name = str(name).lower().strip()
+                self.NOTE_TEMPLATES[normalized_name] = {
+                    "title_prefix": template.get("title_prefix", normalized_name.title()),
+                    "category": template.get("category", "general"),
+                    "note_type": template.get("note_type", "general"),
+                    "template": template.get("template", ""),
+                    "tags": list(template.get("tags", [])),
+                }
+        except Exception as e:
+            logger.warning(f"[notes_templates_load_error] Could not load user templates: {e}")
     
     def _write_note_to_file(self, f, note: Note):
         """Write a single note to file with proper formatting"""
@@ -537,18 +614,31 @@ class NotesManager:
             if note_id not in self.notes:
                 return note_id
 
-    def _save_note_version(self, note: Note) -> None:
+    def _save_note_version(
+        self,
+        note: Note,
+        *,
+        action: str = "update_note",
+        reason: Optional[str] = None,
+        change_source: str = "manual",
+    ) -> None:
         """Capture current note state for history before a mutating operation."""
+        if not self.settings.versioning_enabled:
+            return
         snapshot = note.to_dict()
         snapshot.pop("versions", None)
         snapshot.pop("_relevance_cache", None)
         snapshot.pop("_tokenized_title", None)
         snapshot.pop("_tokenized_content", None)
         snapshot["version_timestamp"] = datetime.now().isoformat()
+        snapshot["version_action"] = action
+        snapshot["version_reason"] = reason or ""
+        snapshot["change_source"] = change_source
 
         note.versions.append(snapshot)
-        if len(note.versions) > 20:
-            note.versions = note.versions[-20:]
+        max_versions = max(1, int(self.settings.max_versions_per_note))
+        if len(note.versions) > max_versions:
+            note.versions = note.versions[-max_versions:]
 
     def list_templates(self) -> List[str]:
         """Return available note template names."""
@@ -592,7 +682,11 @@ class NotesManager:
         if not note or version_index < 0 or version_index >= len(note.versions):
             return False
 
-        self._save_note_version(note)
+        self._save_note_version(
+            note,
+            action="restore_note_version",
+            reason=f"restore_to_version_{version_index + 1}",
+        )
         version = note.versions[version_index]
 
         note.title = version.get("title", note.title)
@@ -613,20 +707,29 @@ class NotesManager:
         query: str,
         top_k: int = 5,
         min_similarity: float = 0.40,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Semantic search across note title + content using embeddings."""
         try:
             from ai.memory.embedding_manager import get_embedding_manager
 
             embedding_manager = get_embedding_manager()
-            query_vec = embedding_manager.create_embedding(query)
+            query_vec = self._get_query_embedding(query, embedding_manager)
+            active_filters = filters or {}
 
             scored: List[Dict[str, Any]] = []
             for note in self.notes.values():
                 if note.archived:
                     continue
+                if active_filters.get("tag") and str(active_filters.get("tag")).lower() not in [t.lower() for t in note.tags]:
+                    continue
+                if active_filters.get("category") and str(active_filters.get("category")).lower() != str(note.category).lower():
+                    continue
+                min_priority = active_filters.get("min_priority")
+                if min_priority and not self._priority_meets_threshold(note.priority, str(min_priority)):
+                    continue
                 text = f"{note.title}\n{note.content}"
-                note_vec = embedding_manager.create_embedding(text)
+                note_vec = self._get_note_embedding(note, embedding_manager)
                 similarity = embedding_manager.calculate_similarity(query_vec, note_vec)
                 if similarity >= min_similarity:
                     scored.append(
@@ -654,6 +757,85 @@ class NotesManager:
                 }
                 for n in fallback_notes
             ]
+
+    def _priority_meets_threshold(self, priority: str, min_priority: str) -> bool:
+        order = {"low": 0, "medium": 1, "high": 2, "urgent": 3}
+        return order.get(str(priority).lower(), 1) >= order.get(str(min_priority).lower(), 1)
+
+    def _get_query_embedding(self, query: str, embedding_manager: Any) -> List[float]:
+        key = query.strip().lower()
+        if self.settings.embedding_cache_enabled and key in self._query_embedding_cache:
+            return self._query_embedding_cache[key]
+        emb = embedding_manager.create_embedding(query)
+        if self.settings.embedding_cache_enabled:
+            self._query_embedding_cache[key] = emb
+        return emb
+
+    def _get_note_embedding(self, note: Note, embedding_manager: Any) -> List[float]:
+        if self.settings.embedding_cache_enabled:
+            cached = self._embedding_cache.get(note.id)
+            if cached and cached.get("updated_at") == note.updated_at:
+                return cached["embedding"]
+
+        text = f"{note.title}\n{note.content}"
+        emb = embedding_manager.create_embedding(text)
+        if self.settings.embedding_cache_enabled:
+            self._embedding_cache[note.id] = {
+                "updated_at": note.updated_at,
+                "embedding": emb,
+            }
+        return emb
+
+    def get_recent_changes(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Aggregate note version history into a unified recent-changes feed."""
+        changes: List[Dict[str, Any]] = []
+        for note in self.notes.values():
+            for idx, version in enumerate(note.versions):
+                changes.append(
+                    {
+                        "note_id": note.id,
+                        "note_title": note.title,
+                        "version_index": idx,
+                        "timestamp": version.get("version_timestamp", ""),
+                        "action": version.get("version_action", "update_note"),
+                        "reason": version.get("version_reason", ""),
+                        "change_source": version.get("change_source", "manual"),
+                    }
+                )
+        changes.sort(key=lambda item: item.get("timestamp", ""), reverse=True)
+        return changes[: max(1, limit)]
+
+    def run_health_check(self) -> Dict[str, Any]:
+        """Validate loaded notes and report anomalies without mutating state."""
+        anomalies: List[Dict[str, Any]] = []
+        seen_ids = set()
+        for note_id, note in self.notes.items():
+            if note_id in seen_ids:
+                anomalies.append({"code": "duplicate_note_id", "note_id": note_id})
+            seen_ids.add(note_id)
+
+            if not note_id.startswith("note_"):
+                anomalies.append({"code": "invalid_note_id_prefix", "note_id": note_id})
+
+            if not note.title:
+                anomalies.append({"code": "missing_title", "note_id": note_id})
+
+            for related_id in (note.related_notes or []):
+                if related_id not in self.notes:
+                    anomalies.append(
+                        {
+                            "code": "dangling_related_note",
+                            "note_id": note_id,
+                            "related_note_id": related_id,
+                        }
+                    )
+
+        return {
+            "healthy": len(anomalies) == 0,
+            "checked_notes": len(self.notes),
+            "anomaly_count": len(anomalies),
+            "anomalies": anomalies,
+        }
 
     def get_proactive_insights(self) -> Dict[str, Any]:
         """Generate actionable note insights (reminders, stale items, meeting prep)."""
@@ -735,7 +917,7 @@ class NotesManager:
         if not note:
             return None
 
-        self._save_note_version(note)
+        self._save_note_version(note, action="update_note")
         
         if title is not None:
             note.title = title
@@ -835,7 +1017,7 @@ class NotesManager:
         """Pin a note"""
         note = self.notes.get(note_id)
         if note:
-            self._save_note_version(note)
+            self._save_note_version(note, action="pin_note")
             note.pinned = True
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -847,7 +1029,7 @@ class NotesManager:
         """Unpin a note"""
         note = self.notes.get(note_id)
         if note:
-            self._save_note_version(note)
+            self._save_note_version(note, action="unpin_note")
             note.pinned = False
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -859,7 +1041,7 @@ class NotesManager:
         """Archive a note"""
         note = self.notes.get(note_id)
         if note:
-            self._save_note_version(note)
+            self._save_note_version(note, action="archive_note")
             note.archived = True
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -871,7 +1053,7 @@ class NotesManager:
         """Unarchive a note"""
         note = self.notes.get(note_id)
         if note:
-            self._save_note_version(note)
+            self._save_note_version(note, action="unarchive_note")
             note.archived = False
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -883,7 +1065,7 @@ class NotesManager:
         """Set due date for a note"""
         note = self.notes.get(note_id)
         if note:
-            self._save_note_version(note)
+            self._save_note_version(note, action="set_due_date")
             note.due_date = due_date
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -895,7 +1077,7 @@ class NotesManager:
         """Set category for a note"""
         note = self.notes.get(note_id)
         if note:
-            self._save_note_version(note)
+            self._save_note_version(note, action="set_category")
             note.category = category
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -907,7 +1089,7 @@ class NotesManager:
         """Set priority for a note"""
         note = self.notes.get(note_id)
         if note and priority in ["low", "medium", "high", "urgent"]:
-            self._save_note_version(note)
+            self._save_note_version(note, action="set_priority")
             note.priority = priority
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -1272,7 +1454,7 @@ Tags (comma-separated):"""
             return False
         
         if 0 <= item_index < len(note.checklist_items):
-            self._save_note_version(note)
+            self._save_note_version(note, action="update_checklist_item")
             note.checklist_items[item_index]["checked"] = checked
             note.updated_at = datetime.now().isoformat()
             self._save_notes()
@@ -2556,6 +2738,7 @@ class NotesPlugin(PluginInterface):
             'summary', 'summarize', 'append', 'link', 'connect', 'relate',
             'stats', 'analytics', 'check', 'uncheck', 'toggle', 'suggest',
             'semantic', 'template', 'version', 'restore', 'proactive', 'insights',
+            'changes', 'health',
         ]
 
         # Question patterns about notes
@@ -2761,7 +2944,7 @@ class NotesPlugin(PluginInterface):
                 any(word in command_lower for word in ['list', 'show', 'all notes', 'my notes'])
                 or re.search(r'(?:do|did)\s+(?:i|we|you)\s+(?:not\s+)?have.*notes?', command_lower)
                 or re.search(r'have any notes?|any notes?', command_lower)
-            ):
+            ) and not re.search(r'(recent|latest).*(changes?)|(changes?).*(recent|latest)', command_lower):
                 result = self._list_notes(command)
             
             # Edit/update note
@@ -2806,6 +2989,14 @@ class NotesPlugin(PluginInterface):
             # Proactive note intelligence (reminders, stale notes, meeting prep)
             elif result is None and re.search(r'proactive|insights|meeting prep|what should i (?:do|review)', command_lower):
                 result = self._show_proactive_insights()
+
+            # Show recent note changes from version history
+            elif result is None and re.search(r'(show|list|view).*(recent|latest).*(changes?)|(recent|latest).*(changes?).*(notes?)', command_lower):
+                result = self._show_recent_note_changes(command)
+
+            # Notes integrity health check
+            elif result is None and re.search(r'(run|do|perform|show).*(notes?).*(health check|integrity|validate)|(notes?).*(health check|integrity|validate)', command_lower):
+                result = self._run_notes_health_check()
 
             # List note templates
             elif result is None and re.search(r'(list|show).*(template)|(template).*(list|available)', command_lower):
@@ -4146,7 +4337,24 @@ class NotesPlugin(PluginInterface):
                 "formulate": True,
             }
 
-        results = self.manager.semantic_search_notes(query=query, top_k=8)
+        filters: Dict[str, Any] = {}
+        tag_match = re.search(r'(?:tag|tagged)\s+#?([a-z0-9_-]+)', command, re.IGNORECASE)
+        if tag_match:
+            filters["tag"] = tag_match.group(1)
+
+        category_match = re.search(r'category\s+([a-z0-9_-]+)', command, re.IGNORECASE)
+        if category_match:
+            filters["category"] = category_match.group(1)
+
+        priority_match = re.search(r'(?:min(?:imum)?\s+)?priority\s+(low|medium|high|urgent)', command, re.IGNORECASE)
+        if priority_match:
+            filters["min_priority"] = priority_match.group(1).lower()
+
+        results = self.manager.semantic_search_notes(
+            query=query,
+            top_k=8,
+            filters=filters or None,
+        )
         return {
             "success": True,
             "action": "semantic_search_notes",
@@ -4154,6 +4362,7 @@ class NotesPlugin(PluginInterface):
                 "query": query,
                 "count": len(results),
                 "results": results,
+                "filters": filters,
             },
             "formulate": True,
         }
@@ -4165,6 +4374,38 @@ class NotesPlugin(PluginInterface):
             "success": True,
             "action": "proactive_notes_insights",
             "data": insights,
+            "formulate": True,
+        }
+
+    def _show_recent_note_changes(self, command: str) -> Dict[str, Any]:
+        """Return a cross-note feed of recent versioned changes."""
+        limit_match = re.search(r'\b(\d+)\b', command)
+        limit = 12
+        if limit_match:
+            try:
+                limit = max(1, min(int(limit_match.group(1)), 100))
+            except ValueError:
+                limit = 12
+
+        changes = self.manager.get_recent_changes(limit=limit)
+        return {
+            "success": True,
+            "action": "show_recent_note_changes",
+            "data": {
+                "count": len(changes),
+                "changes": changes,
+                "limit": limit,
+            },
+            "formulate": True,
+        }
+
+    def _run_notes_health_check(self) -> Dict[str, Any]:
+        """Run non-mutating integrity checks for note storage and links."""
+        health = self.manager.run_health_check()
+        return {
+            "success": True,
+            "action": "notes_health_check",
+            "data": health,
             "formulate": True,
         }
 

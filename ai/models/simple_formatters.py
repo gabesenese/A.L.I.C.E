@@ -908,7 +908,14 @@ class NotesFormatter(SimpleFormatter):
         if action == 'show_note_versions':
             count = data.get('count', 0)
             title = data.get('note_title', 'Untitled')
-            return f"{title} has {count} saved versions."
+            versions = data.get('versions', [])
+            if not versions:
+                return f"{title} has no saved versions."
+            latest = versions[-1]
+            latest_action = latest.get('version_action', 'update_note')
+            latest_reason = latest.get('version_reason', '')
+            reason_suffix = f" ({latest_reason})" if latest_reason else ""
+            return f"{title} has {count} saved versions. Latest: {latest_action}{reason_suffix}."
 
         if action == 'restore_note_version':
             restored = data.get('restored', False)
@@ -917,6 +924,27 @@ class NotesFormatter(SimpleFormatter):
             if restored:
                 return f"Restored {title} to version {idx}."
             return f"Could not restore {title} to version {idx}."
+
+        if action == 'show_recent_note_changes':
+            changes = data.get('changes', [])
+            if not changes:
+                return "No recent note changes were found."
+            lines = [f"Recent note changes ({len(changes)}):"]
+            for change in changes[:6]:
+                title = change.get('note_title', 'Untitled')
+                action_name = change.get('action', 'update_note')
+                reason = change.get('reason') or ''
+                suffix = f" ({reason})" if reason else ""
+                lines.append(f"- {title}: {action_name}{suffix}")
+            return "\n".join(lines)
+
+        if action == 'notes_health_check':
+            healthy = data.get('healthy', False)
+            checked = data.get('checked_notes', 0)
+            anomalies = data.get('anomaly_count', 0)
+            if healthy:
+                return f"Notes health check passed: {checked} notes checked, no anomalies found."
+            return f"Notes health check found {anomalies} anomaly(s) across {checked} notes."
 
         return None
     
