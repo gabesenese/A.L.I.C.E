@@ -100,6 +100,9 @@ python -m pytest tests/integration/test_memory_rag.py -v
 
 # Plugin execution
 python -m pytest tests/integration/test_plugin_execution.py -v
+
+# NLP tokenizer layers
+python -m pytest tests/integration/test_nlp_tokenizer_layers.py -v
 ```
 
 ### Individual Test Files

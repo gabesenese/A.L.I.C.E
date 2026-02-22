@@ -19,7 +19,7 @@ import re
 import logging
 import importlib
 import json
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
@@ -112,6 +112,9 @@ class ProcessedQuery:
     is_question: bool
     keywords: List[str]
     context_entities: Dict[str, str] = field(default_factory=dict)
+    parsed_command: Dict[str, Any] = field(default_factory=dict)
+    plugin_scores: Dict[str, float] = field(default_factory=dict)
+    token_debug: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -123,6 +126,38 @@ class ConversationContext:
     mentioned_events: deque = field(default_factory=lambda: deque(maxlen=5))
     mentioned_songs: deque = field(default_factory=lambda: deque(maxlen=3))
     query_history: deque = field(default_factory=lambda: deque(maxlen=10))
+
+
+@dataclass
+class TokenSegment:
+    """Surface-level segment prior to lexical tokenization."""
+    text: str
+    kind: str  # utterance | meta_command | plugin_phrase
+    start_pos: int
+    end_pos: int
+
+
+@dataclass
+class RichToken:
+    """Token with lexical, semantic, and positional metadata."""
+    text: str
+    normalized: str
+    kind: str  # word | number | ordinal | symbol | hashtag | quoted_span | pronoun | date_like | command
+    role: str  # action | object | modifier | meta | reference | value | unknown
+    start_pos: int
+    end_pos: int
+    flags: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ParsedCommand:
+    """Structured interpretation produced from rich tokens."""
+    action: str = "unknown"
+    object_type: str = "unknown"
+    title_hint: Optional[str] = None
+    sentence_type: str = "declarative"  # question | imperative | declarative
+    modifiers: Dict[str, Any] = field(default_factory=dict)
+    references: List[Dict[str, Any]] = field(default_factory=list)
 
 
 # ============================================================================
@@ -513,7 +548,14 @@ class TemporalParser:
     """
     
     def __init__(self):
-        self.cal = Calendar() if Calendar is not None else None
+        if Calendar is not None:
+            version_context_style = getattr(parsedatetime_mod, "VERSION_CONTEXT_STYLE", None)
+            if version_context_style is not None:
+                self.cal = Calendar(version=version_context_style)
+            else:
+                self.cal = Calendar()
+        else:
+            self.cal = None
         
         # Time of day mappings
         self.time_of_day = {
@@ -818,10 +860,287 @@ class NLPProcessor:
         
         # Load learned corrections into pattern matching
         self.learned_corrections = self._load_learned_corrections()
+        self.tokenizer_profile = "default"
+        self.command_vocabulary = self._load_command_vocabulary()
         
         # Cache for performance
         self._entity_cache = {}
         self._cache_lock = threading.Lock()
+
+    def set_tokenizer_profile(self, profile: str) -> None:
+        """Set tokenizer behavior profile: strict, default, llm-assisted."""
+        profile_value = (profile or "default").strip().lower()
+        if profile_value not in {"strict", "default", "llm-assisted"}:
+            profile_value = "default"
+        self.tokenizer_profile = profile_value
+
+    def _load_command_vocabulary(self) -> Dict[str, Set[str]]:
+        """Load shared command vocabulary from command directory with safe defaults."""
+        verbs = {
+            "create", "add", "make", "write", "append", "show", "list", "read", "open",
+            "find", "search", "delete", "remove", "edit", "update", "summarize", "archive",
+            "unarchive", "pin", "unpin", "play", "pause", "send", "check",
+        }
+        objects = {
+            "note", "notes", "list", "lists", "task", "tasks", "email", "emails", "calendar",
+            "event", "events", "music", "song", "songs", "reminder", "reminders",
+        }
+        meta = {"/help", "/plugins", "/debug", "/debug tokens", "/profile"}
+
+        try:
+            command_path = Path("command_directory.md")
+            if command_path.exists():
+                content = command_path.read_text(encoding="utf-8", errors="ignore")
+                phrases = re.findall(r'"([^"]+)"', content)
+                for phrase in phrases:
+                    parts = [p for p in re.findall(r"[a-zA-Z]+", phrase.lower()) if p]
+                    if not parts:
+                        continue
+                    verbs.add(parts[0])
+                    if len(parts) > 1:
+                        objects.add(parts[-1])
+        except Exception as e:
+            logger.debug(f"Could not load command vocabulary from command_directory.md: {e}")
+
+        return {
+            "verbs": verbs,
+            "objects": objects,
+            "meta": meta,
+        }
+
+    def _surface_segment(self, text: str) -> List[TokenSegment]:
+        """Surface layer: split raw text into analyzable segments."""
+        if not text:
+            return []
+
+        segments: List[TokenSegment] = []
+        offset = 0
+        for piece in re.split(r"[;\n]+", text):
+            segment_text = piece.strip()
+            if not segment_text:
+                offset += len(piece) + 1
+                continue
+
+            start = text.find(segment_text, offset)
+            end = start + len(segment_text)
+            offset = end
+
+            kind = "meta_command" if segment_text.startswith("/") else "utterance"
+            if re.search(r"\b(?:plugin|note|email|calendar|music|task|reminder)s?\b", segment_text, re.IGNORECASE):
+                kind = "plugin_phrase" if kind == "utterance" else kind
+
+            segments.append(TokenSegment(text=segment_text, kind=kind, start_pos=start, end_pos=end))
+
+        return segments
+
+    def _normalize_for_tokenizer(self, text: str) -> str:
+        """Normalize user input before lexical tokenization."""
+        normalized = (text or "").strip()
+        normalized = re.sub(r"\s+", " ", normalized)
+
+        contractions = {
+            "what's": "what is",
+            "i'm": "i am",
+            "can't": "cannot",
+            "won't": "will not",
+            "don't": "do not",
+            "it's": "it is",
+        }
+        for source, target in contractions.items():
+            normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE)
+
+        typo_map = {
+            "notets": "notes",
+            "nots": "notes",
+            "emial": "email",
+            "calender": "calendar",
+        }
+        for source, target in typo_map.items():
+            normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE)
+
+        normalized = re.sub(r"\binside of\b", "in", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bi wanna\b", "i want to", normalized, flags=re.IGNORECASE)
+
+        if self.tokenizer_profile == "strict":
+            normalized = re.sub(r"\b(?:please|kindly)\b", "", normalized, flags=re.IGNORECASE)
+            normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        return normalized
+
+    def _lexical_tokenize(self, segments: List[TokenSegment]) -> List[RichToken]:
+        """Lexical layer: tokenize segments into rich tokens with type/role/span metadata."""
+        tokens: List[RichToken] = []
+        token_pattern = re.compile(r'"[^"]+"|#\w+|\d+(?:st|nd|rd|th)?|[A-Za-z]+|[^\w\s]')
+
+        action_words = self.command_vocabulary.get("verbs", set())
+        object_words = self.command_vocabulary.get("objects", set())
+        pronouns = {"this", "that", "it", "them", "those", "these", "one", "last"}
+        ordinal_words = {
+            "first", "second", "third", "fourth", "fifth", "sixth",
+            "seventh", "eighth", "ninth", "tenth",
+        }
+        meta_words = self.command_vocabulary.get("meta", set())
+
+        for segment in segments:
+            for match in token_pattern.finditer(segment.text):
+                raw = match.group(0)
+                norm = raw.lower()
+                start = segment.start_pos + match.start()
+                end = segment.start_pos + match.end()
+
+                if raw.startswith('"') and raw.endswith('"'):
+                    kind = "quoted_span"
+                    role = "value"
+                elif raw.startswith("#"):
+                    kind = "hashtag"
+                    role = "modifier"
+                elif re.fullmatch(r"\d+(?:st|nd|rd|th)", norm):
+                    kind = "ordinal"
+                    role = "reference"
+                elif raw.isdigit():
+                    kind = "number"
+                    role = "value"
+                elif re.fullmatch(r"[A-Za-z]+", raw):
+                    kind = "word"
+                    if norm in action_words:
+                        role = "action"
+                    elif norm in ordinal_words:
+                        role = "reference"
+                        kind = "ordinal"
+                    elif norm in object_words:
+                        role = "object"
+                    elif norm in pronouns:
+                        role = "reference"
+                        kind = "pronoun"
+                    elif norm in {"today", "tomorrow", "yesterday", "week", "month"}:
+                        role = "modifier"
+                        kind = "date_like"
+                    else:
+                        role = "unknown"
+                else:
+                    kind = "symbol"
+                    role = "meta" if raw in meta_words else "unknown"
+
+                token = RichToken(
+                    text=raw,
+                    normalized=norm,
+                    kind=kind,
+                    role=role,
+                    start_pos=start,
+                    end_pos=end,
+                    flags={
+                        "is_ordinal": kind == "ordinal",
+                        "is_reference": role == "reference",
+                        "is_meta_command": segment.kind == "meta_command" or norm in meta_words,
+                    },
+                )
+                tokens.append(token)
+
+        return tokens
+
+    def _extract_semantic_hints(self, text: str, tokens: List[RichToken]) -> ParsedCommand:
+        """Semantic hint layer: derive structured command from token sequence."""
+        token_text = [token.normalized for token in tokens if token.kind != "symbol"]
+        lower = text.lower()
+        parsed = ParsedCommand()
+
+        if text.endswith("?") or (token_text and token_text[0] in {"what", "when", "where", "who", "why", "how", "do", "is", "are", "can"}):
+            parsed.sentence_type = "question"
+        elif token_text and token_text[0] in self.command_vocabulary.get("verbs", set()):
+            parsed.sentence_type = "imperative"
+
+        if re.search(r"\b(do i have|is there)\b", lower) and re.search(r"\bnote|notes|list|lists\b", lower):
+            parsed.action = "query_exist"
+            parsed.object_type = "note"
+        elif re.search(r"\b(list|show)\b", lower) and re.search(r"\bnotes?|lists?\b", lower):
+            parsed.action = "list"
+            parsed.object_type = "note"
+        elif re.search(r"\b(read|open|show)\b", lower) and re.search(r"\bnotes?|lists?|it|that|this\b", lower):
+            parsed.action = "read"
+            parsed.object_type = "note"
+        elif re.search(r"\b(create|make|new|add)\b", lower) and re.search(r"\bnotes?|memo\b", lower):
+            parsed.action = "create"
+            parsed.object_type = "note"
+        elif re.search(r"\b(add|append|put|include)\b", lower) and re.search(r"\bto\b", lower) and re.search(r"\bnotes?|lists?\b", lower):
+            parsed.action = "append"
+            parsed.object_type = "note"
+
+        title_match = re.search(r"(?:called|named|titled|about)\s+([a-z0-9\s'\-]+)$", lower)
+        if not title_match:
+            title_match = re.search(r"(?:read|open|show)\s+(?:the\s+)?([a-z0-9\s'\-]+?)\s+notes?\b", lower)
+        if title_match:
+            parsed.title_hint = title_match.group(1).strip(" .,!?")
+
+        for token in tokens:
+            if token.flags.get("is_reference"):
+                parsed.references.append({
+                    "text": token.normalized,
+                    "start": token.start_pos,
+                    "end": token.end_pos,
+                })
+
+        if re.search(r"\b(?:my|mine)\b", lower):
+            parsed.modifiers["scope"] = "my"
+        if re.search(r"\b(today|tomorrow|yesterday|this week|next week)\b", lower):
+            parsed.modifiers["time"] = re.search(r"\b(today|tomorrow|yesterday|this week|next week)\b", lower).group(1)
+        if re.search(r"\b(low|medium|high|urgent)\b", lower):
+            parsed.modifiers["priority"] = re.search(r"\b(low|medium|high|urgent)\b", lower).group(1)
+
+        return parsed
+
+    def _compute_plugin_scores(self, tokens: List[RichToken], parsed: ParsedCommand) -> Dict[str, float]:
+        """Compute plugin routing scores from token features and parsed command."""
+        scores = {
+            "notes": 0.0,
+            "email": 0.0,
+            "calendar": 0.0,
+            "music": 0.0,
+            "system": 0.0,
+            "conversation": 0.2,
+        }
+
+        normalized = [token.normalized for token in tokens]
+        note_terms = {"note", "notes", "list", "lists", "todo", "task", "tasks"}
+        email_terms = {"email", "emails", "mail", "inbox", "sender", "subject"}
+        cal_terms = {"calendar", "event", "events", "meeting", "schedule"}
+        music_terms = {"music", "song", "songs", "playlist", "album", "artist", "play"}
+        system_terms = {"system", "cpu", "memory", "disk", "battery", "status"}
+
+        scores["notes"] += sum(1.2 for word in normalized if word in note_terms)
+        scores["email"] += sum(1.2 for word in normalized if word in email_terms)
+        scores["calendar"] += sum(1.2 for word in normalized if word in cal_terms)
+        scores["music"] += sum(1.2 for word in normalized if word in music_terms)
+        scores["system"] += sum(1.2 for word in normalized if word in system_terms)
+
+        if parsed.object_type == "note":
+            scores["notes"] += 1.5
+        if parsed.action in {"read", "append", "create", "list", "query_exist"} and parsed.object_type == "note":
+            scores["notes"] += 1.0
+        if parsed.references:
+            scores["notes"] += 0.6
+
+        if self.tokenizer_profile == "strict":
+            for key in ("email", "calendar", "music", "system"):
+                if scores[key] < 1.0:
+                    scores[key] *= 0.7
+
+        return scores
+
+    def debug_tokenizer(self, text: str) -> Dict[str, Any]:
+        """Development HUD for tokenizer introspection."""
+        normalized = self._normalize_for_tokenizer(self._clean_text(text))
+        segments = self._surface_segment(normalized)
+        tokens = self._lexical_tokenize(segments)
+        parsed = self._extract_semantic_hints(normalized, tokens)
+        scores = self._compute_plugin_scores(tokens, parsed)
+        return {
+            "raw_text": text,
+            "normalized_text": normalized,
+            "segments": [segment.__dict__ for segment in segments],
+            "tokens": [token.__dict__ for token in tokens],
+            "parsed_command": parsed.__dict__,
+            "plugin_scores": scores,
+        }
     
     def _load_learned_corrections(self) -> Dict[str, str]:
         """Load learned corrections to override pattern matching"""
@@ -864,60 +1183,73 @@ class NLPProcessor:
         9. Update conversation context
         """
         
-        # Step 0: Check learned corrections FIRST (highest priority)
-        if self.learned_corrections and text.lower() in self.learned_corrections:
-            learned_intent = self.learned_corrections[text.lower()]
-            logger.info(f"[LEARNED] Using correction for '{text}' -> {learned_intent}")
+        # Step 1: Coreference resolution
+        if use_context:
+            resolved_text = self.coref_resolver.resolve(text, self.context)
+        else:
+            resolved_text = text
+
+        # Step 2: Clean + normalize for tokenizer layers
+        clean_text = self._clean_text(resolved_text)
+        normalized_text = self._normalize_for_tokenizer(clean_text)
+
+        # Step 3: Surface + lexical + semantic hint layers
+        segments = self._surface_segment(normalized_text)
+        rich_tokens = self._lexical_tokenize(segments)
+        parsed_command = self._extract_semantic_hints(normalized_text, rich_tokens)
+        plugin_scores = self._compute_plugin_scores(rich_tokens, parsed_command)
+        tokens = [
+            token.normalized
+            for token in rich_tokens
+            if token.kind in {"word", "number", "ordinal", "pronoun", "hashtag", "quoted_span", "date_like"}
+        ]
+
+        # Step 4: Check learned corrections FIRST (highest priority)
+        if self.learned_corrections and normalized_text.lower() in self.learned_corrections:
+            learned_intent = self.learned_corrections[normalized_text.lower()]
+            logger.info(f"[LEARNED] Using correction for '{normalized_text}' -> {learned_intent}")
             intent = learned_intent
             intent_confidence = 0.95  # High confidence for learned patterns
         else:
-            # Step 1: Coreference resolution
-            if use_context:
-                resolved_text = self.coref_resolver.resolve(text, self.context)
-            else:
-                resolved_text = text
-            
-            # Clean text
-            clean_text = self._clean_text(resolved_text)
-            
-            # Tokenize
-            tokens = word_tokenize(clean_text.lower())
-            
-            # Step 2: Intent detection (SEMANTIC-FIRST!)
-            intent, intent_confidence = self._detect_intent_semantic(clean_text)
+            # Step 5: Intent detection (semantic + structured hints)
+            intent, intent_confidence = self._detect_intent_semantic(
+                normalized_text,
+                parsed_command=parsed_command,
+                plugin_scores=plugin_scores,
+            )
         
         # Continue with rest of processing
 
         # Step 3: Entity extraction
-        entities = self._extract_all_entities(clean_text)
+        entities = self._extract_all_entities(normalized_text)
         
         # Step 4: Slot filling
-        slots = self.slot_filler.extract_slots(clean_text, intent, entities)
+        slots = self.slot_filler.extract_slots(normalized_text, intent, entities)
         
         # Step 5: Sentiment analysis
         if self.sentiment_analyzer is not None:
-            sentiment = self.sentiment_analyzer.polarity_scores(clean_text)
+            sentiment = self.sentiment_analyzer.polarity_scores(normalized_text)
             compound = sentiment.get('compound', 0)
             sentiment['category'] = 'positive' if compound >= 0.05 else ('negative' if compound <= -0.05 else 'neutral')
         else:
             sentiment = {'compound': 0.0, 'pos': 0.0, 'neu': 1.0, 'neg': 0.0, 'category': 'neutral'}
         
         # Step 6: Emotion detection
-        emotions = self.emotion_detector.detect_emotions(clean_text, sentiment)
+        emotions = self.emotion_detector.detect_emotions(normalized_text, sentiment)
         
         # Step 7: Urgency detection
-        urgency = self.emotion_detector.detect_urgency(clean_text)
+        urgency = self.emotion_detector.detect_urgency(normalized_text)
         
         # Step 8: Keyword extraction
-        keywords = self._extract_keywords(clean_text)
+        keywords = self._extract_keywords(normalized_text)
         
         # Step 9: Check if question
-        is_question = self._is_question(clean_text)
+        is_question = self._is_question(normalized_text)
         
         # Build result
         result = ProcessedQuery(
             original_text=text,
-            clean_text=clean_text,
+            clean_text=normalized_text,
             tokens=tokens,
             intent=intent,
             intent_confidence=intent_confidence,
@@ -927,7 +1259,10 @@ class NLPProcessor:
             emotions=emotions,
             urgency_level=urgency,
             is_question=is_question,
-            keywords=keywords
+            keywords=keywords,
+            parsed_command=parsed_command.__dict__,
+            plugin_scores=plugin_scores,
+            token_debug=[token.__dict__ for token in rich_tokens],
         )
         
         # Step 10: Update conversation context
@@ -938,10 +1273,30 @@ class NLPProcessor:
         
         return result
     
-    def _detect_intent_semantic(self, text: str) -> Tuple[str, float]:
+    def _detect_intent_semantic(
+        self,
+        text: str,
+        parsed_command: Optional[ParsedCommand] = None,
+        plugin_scores: Optional[Dict[str, float]] = None,
+    ) -> Tuple[str, float]:
         """Detect intent using explicit patterns (primary) then semantic classifier (fallback)"""
         
         text_lower = text.lower()
+
+        if text_lower.startswith('/debug tokens'):
+            return 'system:debug_tokens', 0.98
+
+        if parsed_command and parsed_command.object_type == 'note':
+            action_map = {
+                'query_exist': 'notes:list',
+                'list': 'notes:list',
+                'read': 'notes:read',
+                'append': 'notes:append',
+                'create': 'notes:create',
+            }
+            mapped = action_map.get(parsed_command.action)
+            if mapped:
+                return mapped, 0.88
         
         # PHASE 1: HIGH-CONFIDENCE EXPLICIT PATTERNS (these override semantic classification)
         # System intents - check BEFORE time (system has "how's" pattern that could match time)
@@ -1093,6 +1448,20 @@ class NLPProcessor:
         if '?' in text:
             return 'conversation:question', 0.5
 
+        if plugin_scores:
+            best_plugin = max(plugin_scores.items(), key=lambda item: item[1])
+            plugin_name, score = best_plugin
+            if score >= 2.2:
+                plugin_intent_map = {
+                    'notes': 'notes:list',
+                    'email': 'email:list',
+                    'calendar': 'calendar:list',
+                    'music': 'music:play',
+                    'system': 'system:status',
+                }
+                if plugin_name in plugin_intent_map:
+                    return plugin_intent_map[plugin_name], min(0.85, 0.55 + (score / 10.0))
+
         return 'conversation:general', 0.3
     
     def _extract_all_entities(self, text: str) -> Dict[str, List[Entity]]:
@@ -1203,7 +1572,7 @@ class NLPProcessor:
     def _clean_text(self, text: str) -> str:
         """Clean and normalize text"""
         text = re.sub(r'\s+', ' ', text).strip()
-        text = re.sub(r'[^\w\s.,!?\'-]', '', text)
+        text = re.sub(r'[^\w\s.,!?\'\-/#:;]', '', text)
         return text
     
     def _is_question(self, text: str) -> bool:
