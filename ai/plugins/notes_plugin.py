@@ -2048,6 +2048,17 @@ class NotesPlugin(PluginInterface):
         ):
             return True
         
+        # Context-aware follow-up: when we already have a note in context,
+        # intercept short pronoun questions like "what is it about?", "what's in it?"
+        if self.last_note_id and re.search(
+            r'\b(?:it|this|that|the note)\b',
+            command_lower,
+        ) and re.search(
+            r'\babout\b|\bin\b|\binside\b|\bcontains\b|\bsay\b|\bcontent\b|\bcontents\b|\bwhat\b',
+            command_lower,
+        ):
+            return True
+
         # Check if command contains note-related keywords
         has_note_keyword = any(keyword in command_lower for keyword in note_keywords)
         has_action_keyword = any(keyword in command_lower for keyword in action_keywords)
@@ -2082,7 +2093,7 @@ class NotesPlugin(PluginInterface):
                 resolution_path = "confirmation_gate"
             else:
                 result = None
-
+ 
             # ── Disambiguation resolution ──────────────────────────────────────
             if result is None:
                 pending_resolution = self._resolve_pending_disambiguation(command)
@@ -2119,6 +2130,9 @@ class NotesPlugin(PluginInterface):
                  and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']))
                 or re.search(r'what\s+(?:is|are)\s+\S+\s+\S*\s*note\b.*\babout\b', command_lower)
                 or re.search(r'(?:tell me|explain)\s+(?:me\s+)?about\s+(?:my|the|this)?\s*\S*\s*note', command_lower)
+                # Context follow-up: "what is it about?" when last_note_id is set
+                or (self.last_note_id and re.search(r'\b(?:it|this|that)\b.*\babout\b|\babout\b.*\b(?:it|this|that)\b', command_lower)
+                    and not re.search(r'\bnote\b', command_lower))
             ):
                 result = self._summarize_note_content(command)
 
@@ -2126,9 +2140,17 @@ class NotesPlugin(PluginInterface):
             elif result is None and (
                 any(word in command_lower for word in ['read', 'open', 'full content', 'show content'])
                 or re.search(r'what(?:\s+is|\s*\'s)\s+in\b', command_lower)
+                or re.search(r'(?:anything|something|what)\s+in\s+(?:the\s+)?(?:note|it|this|that)', command_lower)
+                or re.search(r'(?:wanna|want to)\s+know.*(?:note|in|inside)', command_lower)
+                or re.search(r'is there\s+(?:anything|something)\s+in', command_lower)
                 or (re.search(r'\bcontents\b', command_lower)
                     and any(w in command_lower for w in ['note', 'it', 'this', 'that', 'one']))
-            ) and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']):
+                # Context follow-up: "what's in it?" / "anything in it?" when note context exists
+                or (self.last_note_id and re.search(
+                    r'\b(?:in|inside|contains?)\b.*\b(?:it|this|that)\b|\b(?:it|this|that)\b.*\b(?:in|inside|contains?)\b',
+                    command_lower,
+                ) and not re.search(r'\bnote\b', command_lower))
+            ) and any(word in command_lower for word in ['note', 'notes', 'it', 'this', 'that', 'one', 'anything', 'something', 'know']):
                 result = self._get_note_content(command)
             
             # Show tags (check first before list/show notes)
