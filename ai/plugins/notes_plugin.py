@@ -2114,11 +2114,21 @@ class NotesPlugin(PluginInterface):
                 result = self._get_note_title(command)
 
             # Summarize note content
-            elif result is None and any(word in command_lower for word in ['summarize', 'summary', 'tldr', 'highlights']) and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']):
+            elif result is None and (
+                (any(word in command_lower for word in ['summarize', 'summary', 'tldr', 'highlights'])
+                 and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']))
+                or re.search(r'what\s+(?:is|are)\s+\S+\s+\S*\s*note\b.*\babout\b', command_lower)
+                or re.search(r'(?:tell me|explain)\s+(?:me\s+)?about\s+(?:my|the|this)?\s*\S*\s*note', command_lower)
+            ):
                 result = self._summarize_note_content(command)
 
             # Read/show full note content
-            elif result is None and any(word in command_lower for word in ['read', 'open', 'full content', 'show content', 'what is in']) and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']):
+            elif result is None and (
+                any(word in command_lower for word in ['read', 'open', 'full content', 'show content'])
+                or re.search(r'what(?:\s+is|\s*\'s)\s+in\b', command_lower)
+                or (re.search(r'\bcontents\b', command_lower)
+                    and any(w in command_lower for w in ['note', 'it', 'this', 'that', 'one']))
+            ) and any(word in command_lower for word in ['note', 'it', 'this', 'that', 'one']):
                 result = self._get_note_content(command)
             
             # Show tags (check first before list/show notes)
