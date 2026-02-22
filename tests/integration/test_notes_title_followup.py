@@ -233,6 +233,21 @@ class TestNotesTitleFollowup:
         assert followup.get("data", {}).get("note_title") == "Test Note"
         assert "Follow-up read content" in followup.get("data", {}).get("content", "")
 
+    def test_read_the_named_note_for_me_phrase(self, plugin):
+        plugin.manager.create_note(title="Test", content="Direct read content")
+
+        result = plugin.execute(
+            intent="conversation:general",
+            query="read the test note for me",
+            entities={},
+            context={},
+        )
+
+        assert result.get("success") is True
+        assert result.get("action") == "get_note_content"
+        assert result.get("data", {}).get("note_title") == "Test"
+        assert "Direct read content" in result.get("data", {}).get("content", "")
+
     def test_disambiguation_selection_by_number_executes_delete(self, plugin):
         plugin.manager.create_note(title="Grocery List", content="milk")
         plugin.manager.create_note(title="Grocery List Weekend", content="eggs")

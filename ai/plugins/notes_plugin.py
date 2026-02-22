@@ -1670,6 +1670,12 @@ class NotesPlugin(PluginInterface):
             cleaned,
             flags=re.IGNORECASE,
         )
+        cleaned = re.sub(
+            r"^(?:please\s+)?(?:read|show|open)(?:\s+(?:out\s+)?)?(?:the\s+)?",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
         cleaned = re.sub(r"^(?:of\s+)", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"^(?:the|my|this|that)\s+", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\s+(?:note|notes|list|lists)\b", "", cleaned, flags=re.IGNORECASE)
@@ -1714,6 +1720,7 @@ class NotesPlugin(PluginInterface):
 
         # 3) Title extraction and matching
         title_patterns = [
+            r'(?:read|show|open)\s+(?:the\s+)?(.+?)\s+notes?\b',
             r"(?:what(?:'s|\s+is)?\s+(?:in|inside)(?:\s+of)?\s+(?:the\s+)?)?(.+?)\s+notes?\b",
             r'(?:called|titled|named|about)\s+(.+)$',
             r'(?:note|list)\s+(?:called|titled|named)\s+(.+)$',

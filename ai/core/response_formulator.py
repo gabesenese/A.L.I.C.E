@@ -102,31 +102,23 @@ class ResponseFormulator:
         Formulate a natural language response from plugin data.
 
         Process:
-        1. Check if Alice can formulate independently (learned patterns)
-        2. If not, use Ollama with examples to formulate
-        3. Learn from successful formulation
-        4. Track progress toward independence
+        1. Prefer Alice's independent learned phrasing
+        2. Fall back to local non-LLM synthesis
+        3. Learn from generated responses to improve future independence
         """
 
-        # Check if Alice can formulate this independently
+        # Alice-first: use learned independent phrasing when available.
         if action in self.independent_actions and self.phrasing_learner:
             alice_response = self._formulate_independently(action, data, success, tone)
             if alice_response:
                 logger.info(f"[ResponseFormulator] Alice formulated '{action}' independently")
                 return alice_response
 
-        # Use Ollama to formulate with learning
-        if self.llm_gateway:
-            ollama_response = self._formulate_with_llm(action, data, success, user_input, tone)
-
-            # Learn from this formulation
-            if ollama_response and self.phrasing_learner:
-                self._learn_formulation(action, data, ollama_response, tone)
-
-            return ollama_response
-
-        # Fallback: basic template-based formulation
-        return self._formulate_basic(action, data, success)
+        # Local fallback (no Ollama): generate response and learn from it.
+        response = self._formulate_basic(action, data, success)
+        if response and self.phrasing_learner:
+            self._learn_formulation(action, data, response, tone)
+        return response
 
     def _formulate_independently(
         self,
@@ -163,7 +155,7 @@ class ResponseFormulator:
         success: bool,
         user_input: str,
         tone: str
-    ) -> str:
+    ) -> Optional[str]:
         """Use LLM to formulate response with examples for learning"""
 
         # Get template and examples if available
@@ -185,6 +177,7 @@ Data: {json.dumps(data, indent=2)}
 {examples_text}
 
 Generate a {tone} response (1-2 sentences). Be specific, don't use emojis, match Alice's personality.
+Ground your answer in the Data fields. Don't invent details not present in the Data.
 
 IMPORTANT: Output ONLY the response text, nothing else. No meta-commentary, no quotes, no explanations."""
 
@@ -203,8 +196,7 @@ IMPORTANT: Output ONLY the response text, nothing else. No meta-commentary, no q
         except Exception as e:
             logger.error(f"Error formulating with LLM: {e}")
 
-        # Fallback
-        return self._formulate_basic(action, data, success)
+        return None
 
     def _formulate_basic(
         self,

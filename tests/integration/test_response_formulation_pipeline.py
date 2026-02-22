@@ -163,6 +163,75 @@ class TestResponseFormulationPipeline:
         # They should be different (different learned patterns)
         assert warm_response != professional_response or len(warm_response) > 0
 
+    def test_notes_list_response_is_generated_without_empty_output(self, formulator):
+        response = formulator.formulate_response(
+            action="list_notes",
+            data={
+                "count": 3,
+                "shown": 3,
+                "notes": [
+                    {"title": "Grocery List"},
+                    {"title": "Grocery List Weekend"},
+                    {"title": "Meeting Note"},
+                ],
+            },
+            success=True,
+            user_input="do i have any notes?",
+            tone="helpful",
+        )
+
+        assert response is not None
+        assert isinstance(response, str)
+        assert len(response.strip()) > 0
+
+    def test_notes_list_response_for_empty_state_is_nonempty(self, formulator):
+        response = formulator.formulate_response(
+            action="list_notes",
+            data={"count": 0, "shown": 0, "notes": []},
+            success=True,
+            user_input="do i have any notes?",
+            tone="helpful",
+        )
+        assert response is not None
+        assert isinstance(response, str)
+        assert len(response.strip()) > 0
+
+    def test_count_notes_response_is_nonempty(self, formulator):
+        response = formulator.formulate_response(
+            action="count_notes",
+            data={"total": 1},
+            success=True,
+            user_input="how many notes do i have?",
+            tone="helpful",
+        )
+        assert response is not None
+        assert isinstance(response, str)
+        assert len(response.strip()) > 0
+
+    def test_formulation_does_not_call_llm_gateway(self, learner):
+        class DummyGateway:
+            def __init__(self):
+                self.called = False
+
+            def request(self, **kwargs):
+                self.called = True
+                raise AssertionError("LLM gateway should not be called")
+
+        gateway = DummyGateway()
+        formulator = ResponseFormulator(phrasing_learner=learner, llm_gateway=gateway)
+
+        response = formulator.formulate_response(
+            action="list_notes",
+            data={"count": 1, "notes": [{"title": "Test"}]},
+            success=True,
+            user_input="do i have any notes?",
+            tone="helpful",
+        )
+
+        assert isinstance(response, str)
+        assert len(response.strip()) > 0
+        assert gateway.called is False
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
