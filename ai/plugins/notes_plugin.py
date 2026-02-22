@@ -1998,7 +1998,10 @@ class NotesPlugin(PluginInterface):
         # Question patterns about notes
         question_patterns = [
             r'how many notes',
-            r'do i have.*notes?',
+            r'do (?:i|we|you) have.*notes?',
+            r'(?:do|did)\s+(?:i|we|you)\s+(?:not\s+)?have.*notes?',
+            r'have any notes?',
+            r'any notes?',
             r'count.*notes?',
             r'number of notes',
             r'what.*notes',
@@ -2145,8 +2148,12 @@ class NotesPlugin(PluginInterface):
             elif result is None and any(word in command_lower for word in ['delete', 'remove']):
                 result = self._delete_note(command)
             
-            # List/show notes (also handle "do i have notes")
-            elif result is None and any(word in command_lower for word in ['list', 'show', 'all notes', 'my notes', 'do i have']):
+            # List/show notes (also handle "do i/we have notes?", "any notes?")
+            elif result is None and (
+                any(word in command_lower for word in ['list', 'show', 'all notes', 'my notes'])
+                or re.search(r'(?:do|did)\s+(?:i|we|you)\s+(?:not\s+)?have.*notes?', command_lower)
+                or re.search(r'have any notes?|any notes?', command_lower)
+            ):
                 result = self._list_notes(command)
             
             # Edit/update note
