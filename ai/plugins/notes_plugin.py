@@ -2176,6 +2176,14 @@ class NotesPlugin(PluginInterface):
             elif result is None and any(word in command_lower for word in ['search', 'find']):
                 result = self._search_notes(command)
             
+            # Check for specific note by name (before list route)
+            # "do i have a note called X?", "is there a note named X?", etc.
+            elif result is None and re.search(
+                r'(?:do|did|is there)\s+(?:i|we|you|there)?\s*(?:have|has)?\s*(?:a|an|the)?\s*note\s+(?:called|named|titled|about)\s+',
+                command_lower,
+            ):
+                result = self._search_notes(command)
+            
             # Delete/remove note (check before list — "delete the grocery list" must not match list)
             elif result is None and any(word in command_lower for word in ['delete', 'remove']):
                 result = self._delete_note(command)
