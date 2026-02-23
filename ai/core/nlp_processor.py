@@ -63,7 +63,7 @@ except ImportError:  # pragma: no cover
 
 # Semantic intent classification
 try:
-    from ai.intent_classifier import get_intent_classifier
+    from ai.core.intent_classifier import get_intent_classifier
     SEMANTIC_CLASSIFIER_AVAILABLE = True
 except ImportError:
     SEMANTIC_CLASSIFIER_AVAILABLE = False
@@ -126,6 +126,9 @@ class ConversationContext:
     mentioned_events: deque = field(default_factory=lambda: deque(maxlen=5))
     mentioned_songs: deque = field(default_factory=lambda: deque(maxlen=3))
     query_history: deque = field(default_factory=lambda: deque(maxlen=10))
+    dialogue_state: str = "idle"
+    last_plugin: Optional[str] = None
+    pending_clarification: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -158,6 +161,16 @@ class ParsedCommand:
     sentence_type: str = "declarative"  # question | imperative | declarative
     modifiers: Dict[str, Any] = field(default_factory=dict)
     references: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class RouteDecision:
+    """Calibrated routing output used by final intent selection."""
+    intent: str
+    confidence: float
+    plugin: str
+    action: str
+    trace: Dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================================
@@ -862,6 +875,44 @@ class NLPProcessor:
         self.learned_corrections = self._load_learned_corrections()
         self.tokenizer_profile = "default"
         self.command_vocabulary = self._load_command_vocabulary()
+        self._plugin_actions = {
+            "notes": {"create", "append", "read", "list", "search", "delete", "query_exist"},
+            "email": {"compose", "read", "list", "search", "delete", "reply"},
+            "calendar": {"create", "list", "search", "update", "delete"},
+            "music": {"play", "pause", "next", "previous", "queue"},
+            "system": {"status", "debug_tokens"},
+            "conversation": {"general", "question", "meta_question", "clarification_needed"},
+        }
+        self._intent_action_defaults = {
+            "notes": "list",
+            "email": "list",
+            "calendar": "list",
+            "music": "play",
+            "system": "status",
+            "conversation": "general",
+        }
+        self._grammar_action_weights = {
+            "create": 1.25,
+            "append": 1.20,
+            "read": 1.15,
+            "list": 1.05,
+            "search": 1.05,
+            "delete": 1.05,
+            "query_exist": 1.10,
+        }
+        self._typo_replacements = {
+            "raed": "read",
+            "nots": "notes",
+            "notse": "notes",
+            "emial": "email",
+            "calender": "calendar",
+        }
+        self._noisy_channel_lexicon = {
+            *(self.command_vocabulary.get("verbs", set())),
+            *(self.command_vocabulary.get("objects", set())),
+            "calendar", "email", "music", "notes", "note", "todo", "task", "tasks",
+            "read", "open", "show", "create", "append", "list", "search", "delete",
+        }
         
         # Cache for performance
         self._entity_cache = {}
@@ -906,6 +957,223 @@ class NLPProcessor:
             "verbs": verbs,
             "objects": objects,
             "meta": meta,
+        }
+
+    def _edit_distance(self, source: str, target: str) -> int:
+        """Small Levenshtein implementation for typo correction."""
+        if source == target:
+            return 0
+        if not source:
+            return len(target)
+        if not target:
+            return len(source)
+
+        previous = list(range(len(target) + 1))
+        for i, source_char in enumerate(source, start=1):
+            current = [i]
+            for j, target_char in enumerate(target, start=1):
+                substitution = previous[j - 1] + (0 if source_char == target_char else 1)
+                insertion = current[j - 1] + 1
+                deletion = previous[j] + 1
+                current.append(min(substitution, insertion, deletion))
+            previous = current
+        return previous[-1]
+
+    def _closest_lexicon_term(self, token: str, max_distance: int = 1) -> Optional[str]:
+        """Find likely command lexicon correction for noisy input tokens."""
+        if not token or not token.isalpha() or len(token) < 4:
+            return None
+        if token in self._noisy_channel_lexicon:
+            return token
+
+        def _is_adjacent_transposition(source: str, target: str) -> bool:
+            if len(source) != len(target):
+                return False
+            mismatches = [index for index, pair in enumerate(zip(source, target)) if pair[0] != pair[1]]
+            if len(mismatches) != 2:
+                return False
+            first, second = mismatches
+            return second == first + 1 and source[first] == target[second] and source[second] == target[first]
+
+        candidate = None
+        best_distance = max_distance + 1
+        for term in self._noisy_channel_lexicon:
+            if abs(len(term) - len(token)) > max_distance:
+                continue
+            if token[0] != term[0] or token[-1] != term[-1]:
+                continue
+
+            if _is_adjacent_transposition(token, term):
+                return term
+
+            distance = self._edit_distance(token, term)
+            if distance < best_distance:
+                best_distance = distance
+                candidate = term
+                if distance == 1:
+                    break
+
+        if best_distance <= max_distance:
+            return candidate
+        return None
+
+    def _apply_noisy_channel_normalization(self, text: str) -> str:
+        """Apply typo-aware correction for command words while preserving structure."""
+        if not text:
+            return text
+
+        parts = re.findall(r"[A-Za-z]+|[^A-Za-z]+", text)
+        adjusted: List[str] = []
+        for part in parts:
+            if part.isalpha():
+                lower = part.lower()
+                replacement = self._typo_replacements.get(lower) or self._closest_lexicon_term(lower)
+                adjusted.append(replacement if replacement else part)
+            else:
+                adjusted.append(part)
+
+        return "".join(adjusted)
+
+    def _build_weighted_parse(self, parsed: ParsedCommand, plugin_scores: Dict[str, float], text: str) -> List[Tuple[str, float]]:
+        """Produce weighted intent candidates from parsed command and plugin scores."""
+        candidates: List[Tuple[str, float]] = []
+        if parsed.object_type == "note" and parsed.action in self._plugin_actions["notes"]:
+            weight = self._grammar_action_weights.get(parsed.action, 1.0)
+            confidence = min(0.96, 0.68 * weight)
+            candidates.append((f"notes:{parsed.action}", confidence))
+
+        if parsed.object_type == "unknown":
+            lower = text.lower()
+            if re.search(r"\b(email|mail|inbox)\b", lower):
+                action = "compose" if re.search(r"\b(send|compose|draft|write)\b", lower) else "list"
+                candidates.append((f"email:{action}", 0.66))
+            if re.search(r"\b(calendar|meeting|event|schedule)\b", lower):
+                action = "create" if re.search(r"\b(create|add|schedule|book)\b", lower) else "list"
+                candidates.append((f"calendar:{action}", 0.66))
+
+        if plugin_scores:
+            ranked = sorted(plugin_scores.items(), key=lambda item: item[1], reverse=True)
+            if ranked:
+                plugin, score = ranked[0]
+                if plugin in self._intent_action_defaults and score > 1.0:
+                    action = self._intent_action_defaults[plugin]
+                    if plugin == "notes" and parsed.action in self._plugin_actions["notes"]:
+                        action = parsed.action
+                    candidates.append((f"{plugin}:{action}", min(0.85, 0.5 + (score / 12.0))))
+
+        deduped: Dict[str, float] = {}
+        for intent, score in candidates:
+            deduped[intent] = max(score, deduped.get(intent, 0.0))
+        return sorted(deduped.items(), key=lambda item: item[1], reverse=True)
+
+    def _retrieval_first_parse(self, tokens: List[RichToken]) -> Optional[Tuple[str, float]]:
+        """Resolve very short follow-up queries using context before broad intent matching."""
+        content_tokens = [token for token in tokens if token.kind != "symbol"]
+        if len(content_tokens) > 5:
+            return None
+
+        token_words = {token.normalized for token in content_tokens}
+        action_cues = {"read", "show", "open", "list", "play", "pause", "reply", "send", "schedule"}
+        if token_words.isdisjoint(action_cues):
+            return None
+
+        reference_present = any(token.flags.get("is_reference") for token in content_tokens)
+        if not reference_present and token_words.isdisjoint({"read", "show", "open", "list", "reply", "send"}):
+            return None
+
+        last_intent = self.context.last_intent or ""
+        if last_intent.startswith("notes:") or self.context.mentioned_notes:
+            if "list" in token_words:
+                return "notes:list", 0.81
+            return "notes:read", 0.82
+        if last_intent.startswith("email:"):
+            return "email:read", 0.78
+        if last_intent.startswith("calendar:"):
+            return "calendar:list", 0.76
+        return None
+
+    def _calibrate_route_decision(
+        self,
+        weighted_candidates: List[Tuple[str, float]],
+        plugin_scores: Dict[str, float],
+        semantic_intent: Optional[Tuple[str, float]],
+        parsed: ParsedCommand,
+    ) -> RouteDecision:
+        """Two-stage calibrated router: combine grammar, plugin, and semantic signals."""
+        combined: Dict[str, float] = {}
+        trace: Dict[str, Any] = {
+            "weighted_candidates": weighted_candidates,
+            "semantic": semantic_intent,
+            "plugin_scores": plugin_scores,
+        }
+
+        for intent, score in weighted_candidates:
+            combined[intent] = max(combined.get(intent, 0.0), score)
+
+        if semantic_intent:
+            semantic_name, semantic_score = semantic_intent
+            combined[semantic_name] = max(combined.get(semantic_name, 0.0), semantic_score * 0.92)
+
+        if plugin_scores:
+            plugin_name, plugin_value = max(plugin_scores.items(), key=lambda item: item[1])
+            if plugin_name in self._intent_action_defaults and plugin_value > 1.4:
+                plugin_action = self._intent_action_defaults[plugin_name]
+                plugin_intent = f"{plugin_name}:{plugin_action}"
+                combined[plugin_intent] = max(combined.get(plugin_intent, 0.0), min(0.82, 0.42 + (plugin_value / 10.0)))
+
+        if not combined:
+            return RouteDecision(
+                intent="conversation:general",
+                confidence=0.3,
+                plugin="conversation",
+                action="general",
+                trace=trace,
+            )
+
+        best_intent, best_score = max(combined.items(), key=lambda item: item[1])
+        sorted_scores = sorted(combined.values(), reverse=True)
+        margin = sorted_scores[0] - sorted_scores[1] if len(sorted_scores) > 1 else sorted_scores[0]
+        calibrated = max(0.2, min(0.97, best_score * (0.88 + min(0.2, margin))))
+
+        if ":" in best_intent:
+            plugin, action = best_intent.split(":", 1)
+        else:
+            plugin, action = "conversation", "general"
+
+        trace["calibration"] = {
+            "margin": margin,
+            "combined": sorted(combined.items(), key=lambda item: item[1], reverse=True)[:5],
+        }
+
+        return RouteDecision(
+            intent=best_intent,
+            confidence=calibrated,
+            plugin=plugin,
+            action=action,
+            trace=trace,
+        )
+
+    def _build_uncertainty_prompt(self, route: RouteDecision, parsed: ParsedCommand, plugin_scores: Dict[str, float]) -> Dict[str, Any]:
+        """Build disambiguation metadata when intent confidence is weak."""
+        if route.confidence >= 0.55:
+            return {}
+
+        ranked_plugins = sorted(plugin_scores.items(), key=lambda item: item[1], reverse=True)
+        options = [name for name, score in ranked_plugins[:3] if score > 0.5]
+        if route.plugin not in options:
+            options.insert(0, route.plugin)
+        options = [option for option in options if option]
+
+        question = "Could you clarify what you want me to do?"
+        if options:
+            question = f"Did you mean {', '.join(options[:2])}{' or ' + options[2] if len(options) > 2 else ''}?"
+
+        return {
+            "needs_clarification": True,
+            "question": question,
+            "candidate_plugins": options,
+            "route_confidence": route.confidence,
+            "parsed_action": parsed.action,
         }
 
     def _surface_segment(self, text: str) -> List[TokenSegment]:
@@ -960,6 +1228,7 @@ class NLPProcessor:
 
         normalized = re.sub(r"\binside of\b", "in", normalized, flags=re.IGNORECASE)
         normalized = re.sub(r"\bi wanna\b", "i want to", normalized, flags=re.IGNORECASE)
+        normalized = self._apply_noisy_channel_normalization(normalized)
 
         if self.tokenizer_profile == "strict":
             normalized = re.sub(r"\b(?:please|kindly)\b", "", normalized, flags=re.IGNORECASE)
@@ -1064,6 +1333,21 @@ class NLPProcessor:
         elif re.search(r"\b(add|append|put|include)\b", lower) and re.search(r"\bto\b", lower) and re.search(r"\bnotes?|lists?\b", lower):
             parsed.action = "append"
             parsed.object_type = "note"
+        elif re.search(r"\b(send|compose|draft|reply)\b", lower) and re.search(r"\bemail|mail|inbox\b", lower):
+            parsed.action = "compose" if not re.search(r"\breply\b", lower) else "reply"
+            parsed.object_type = "email"
+        elif re.search(r"\b(read|open|show|list)\b", lower) and re.search(r"\bemail|mail|inbox\b", lower):
+            parsed.action = "read" if re.search(r"\b(read|open)\b", lower) else "list"
+            parsed.object_type = "email"
+        elif re.search(r"\b(schedule|create|add|book)\b", lower) and re.search(r"\bcalendar|event|meeting\b", lower):
+            parsed.action = "create"
+            parsed.object_type = "calendar"
+        elif re.search(r"\b(show|list|find|search)\b", lower) and re.search(r"\bcalendar|event|meeting|schedule\b", lower):
+            parsed.action = "list" if re.search(r"\b(show|list)\b", lower) else "search"
+            parsed.object_type = "calendar"
+        elif re.search(r"\b(play|pause|skip|next)\b", lower) and re.search(r"\bmusic|song|songs|playlist|album\b", lower):
+            parsed.action = "play" if re.search(r"\bplay\b", lower) else "pause"
+            parsed.object_type = "music"
 
         title_match = re.search(r"(?:called|named|titled|about)\s+([a-z0-9\s'\-]+)$", lower)
         if not title_match:
@@ -1100,6 +1384,7 @@ class NLPProcessor:
         }
 
         normalized = [token.normalized for token in tokens]
+        bigrams = {f"{normalized[i]} {normalized[i + 1]}" for i in range(len(normalized) - 1)}
         note_terms = {"note", "notes", "list", "lists", "todo", "task", "tasks"}
         email_terms = {"email", "emails", "mail", "inbox", "sender", "subject"}
         cal_terms = {"calendar", "event", "events", "meeting", "schedule"}
@@ -1114,15 +1399,57 @@ class NLPProcessor:
 
         if parsed.object_type == "note":
             scores["notes"] += 1.5
+        if parsed.object_type == "email":
+            scores["email"] += 1.5
+        if parsed.object_type == "calendar":
+            scores["calendar"] += 1.5
+        if parsed.object_type == "music":
+            scores["music"] += 1.5
         if parsed.action in {"read", "append", "create", "list", "query_exist"} and parsed.object_type == "note":
             scores["notes"] += 1.0
+        if parsed.action in {"compose", "read", "list", "search", "reply"} and parsed.object_type == "email":
+            scores["email"] += 1.0
+        if parsed.action in {"create", "list", "search"} and parsed.object_type == "calendar":
+            scores["calendar"] += 1.0
+        if parsed.action in {"play", "pause"} and parsed.object_type == "music":
+            scores["music"] += 1.0
         if parsed.references:
             scores["notes"] += 0.6
+
+        if "read it" in bigrams or "show it" in bigrams:
+            scores["notes"] += 0.5
+            if self.context.last_intent and self.context.last_intent.startswith("email:"):
+                scores["email"] += 0.5
+        if "next song" in bigrams:
+            scores["music"] += 0.7
+        if "system status" in bigrams:
+            scores["system"] += 0.8
+
+        if parsed.sentence_type == "question":
+            scores["conversation"] += 0.15
+        if self.context.last_plugin and self.context.last_plugin in scores:
+            scores[self.context.last_plugin] += 0.35
+
+        action_bias = {
+            "query_exist": "notes",
+            "append": "notes",
+            "compose": "email",
+            "reply": "email",
+            "play": "music",
+            "status": "system",
+        }
+        preferred = action_bias.get(parsed.action)
+        if preferred:
+            scores[preferred] += 0.45
 
         if self.tokenizer_profile == "strict":
             for key in ("email", "calendar", "music", "system"):
                 if scores[key] < 1.0:
                     scores[key] *= 0.7
+
+        if self.tokenizer_profile == "llm-assisted":
+            for key in ("notes", "email", "calendar", "music", "system"):
+                scores[key] *= 1.05
 
         return scores
 
@@ -1198,6 +1525,7 @@ class NLPProcessor:
         rich_tokens = self._lexical_tokenize(segments)
         parsed_command = self._extract_semantic_hints(normalized_text, rich_tokens)
         plugin_scores = self._compute_plugin_scores(rich_tokens, parsed_command)
+        retrieval_route = self._retrieval_first_parse(rich_tokens)
         tokens = [
             token.normalized
             for token in rich_tokens
@@ -1211,12 +1539,52 @@ class NLPProcessor:
             intent = learned_intent
             intent_confidence = 0.95  # High confidence for learned patterns
         else:
-            # Step 5: Intent detection (semantic + structured hints)
-            intent, intent_confidence = self._detect_intent_semantic(
-                normalized_text,
-                parsed_command=parsed_command,
-                plugin_scores=plugin_scores,
-            )
+            # Step 5: Intent detection (retrieval-first + semantic + calibrated routing)
+            if retrieval_route:
+                intent, intent_confidence = retrieval_route
+                route = RouteDecision(
+                    intent=intent,
+                    confidence=intent_confidence,
+                    plugin=intent.split(":", 1)[0],
+                    action=intent.split(":", 1)[1] if ":" in intent else "general",
+                    trace={"source": "retrieval_first"},
+                )
+            else:
+                semantic_intent = self._detect_intent_semantic(
+                    normalized_text,
+                    parsed_command=parsed_command,
+                    plugin_scores=plugin_scores,
+                    return_structured=False,
+                )
+                weighted_candidates = self._build_weighted_parse(parsed_command, plugin_scores, normalized_text)
+                route = self._calibrate_route_decision(weighted_candidates, plugin_scores, semantic_intent, parsed_command)
+                intent = route.intent
+                intent_confidence = route.confidence
+
+            uncertainty = self._build_uncertainty_prompt(route, parsed_command, plugin_scores)
+            if intent.startswith("vague_") and not uncertainty:
+                uncertainty = {
+                    "needs_clarification": True,
+                    "question": "Can you clarify what action and target you mean?",
+                    "candidate_plugins": ["notes", "email", "calendar", "music"],
+                    "route_confidence": intent_confidence,
+                    "parsed_action": parsed_command.action,
+                }
+            if not uncertainty and re.search(r"\b(do that thing|this thing|that thing|what about that|who is that)\b", normalized_text.lower()):
+                uncertainty = {
+                    "needs_clarification": True,
+                    "question": "Could you clarify what you want me to do?",
+                    "candidate_plugins": ["notes", "email", "calendar", "music"],
+                    "route_confidence": intent_confidence,
+                    "parsed_action": parsed_command.action,
+                }
+            if uncertainty:
+                parsed_command.modifiers["disambiguation"] = uncertainty
+                if intent_confidence < 0.45 and not intent.startswith(("notes:", "email:", "calendar:", "music:", "system:")):
+                    intent = "conversation:clarification_needed"
+                    intent_confidence = max(intent_confidence, 0.41)
+
+            parsed_command.modifiers["routing_trace"] = route.trace
         
         # Continue with rest of processing
 
@@ -1278,6 +1646,7 @@ class NLPProcessor:
         text: str,
         parsed_command: Optional[ParsedCommand] = None,
         plugin_scores: Optional[Dict[str, float]] = None,
+        return_structured: bool = False,
     ) -> Tuple[str, float]:
         """Detect intent using explicit patterns (primary) then semantic classifier (fallback)"""
         
@@ -1553,6 +1922,13 @@ class NLPProcessor:
         """Update conversation context"""
         self.context.last_intent = result.intent
         self.context.query_history.append(result.original_text)
+        self.context.last_plugin = result.intent.split(':', 1)[0] if ':' in result.intent else 'conversation'
+        self.context.dialogue_state = 'clarifying' if result.intent == 'conversation:clarification_needed' else 'active'
+
+        disambiguation = {}
+        if isinstance(result.parsed_command, dict):
+            disambiguation = result.parsed_command.get('modifiers', {}).get('disambiguation', {})
+        self.context.pending_clarification = disambiguation if disambiguation else {}
         
         # Extract entities to context
         self.context.last_entities = {}

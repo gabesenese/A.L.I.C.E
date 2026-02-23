@@ -46,3 +46,22 @@ class TestLayeredTokenizer:
         debug = self.nlp.debug_tokenizer("please maybe check something quickly")
         scores = debug.get("plugin_scores", {})
         assert scores.get("conversation", 0) >= 0.2
+
+    def test_noisy_channel_normalization_corrects_command_typos(self):
+        debug = self.nlp.debug_tokenizer("raed the nots")
+        normalized = debug.get("normalized_text", "")
+        assert "read" in normalized
+        assert "notes" in normalized
+
+    def test_retrieval_first_short_followup_uses_context(self):
+        self.nlp.process("create a note called sprint plan")
+        result = self.nlp.process("read it")
+        assert result.intent == "notes:read"
+        assert result.intent_confidence >= 0.8
+
+    def test_ambiguous_query_emits_disambiguation_metadata(self):
+        result = self.nlp.process("do that thing")
+        modifiers = result.parsed_command.get("modifiers", {})
+        disambiguation = modifiers.get("disambiguation", {})
+        assert isinstance(disambiguation, dict)
+        assert disambiguation.get("needs_clarification") is True
