@@ -97,6 +97,46 @@ class TestNotesTitleFollowup:
         learning_state = json.loads(plugin.learning_state_path.read_text(encoding="utf-8"))
         assert "action_token_weights" in learning_state
 
+    def test_search_guardrail_requests_query_clarification(self, plugin):
+        result = plugin.execute(intent="notes:search", query="search notes", entities={}, context={})
+
+        assert result.get("success") is False
+        assert result.get("action") == "search_notes"
+        data = result.get("data", {})
+        assert data.get("error") == "clarification_required"
+        assert data.get("requires_clarification") is True
+        assert "search" in (data.get("clarification_question") or "").lower()
+
+    def test_telemetry_includes_nlp_metadata_and_event_id(self, plugin):
+        plugin.manager.create_note(title="Telemetry Meta", content="body")
+        context = {
+            "nlp": {
+                "intent": "notes:list",
+                "intent_confidence": 0.91,
+                "parsed_command": {"action": "list", "object_type": "note"},
+                "plugin_scores": {"notes": 3.2, "conversation": 0.2},
+            }
+        }
+
+        result = plugin.execute(intent="notes:list", query="show notes", entities={}, context=context)
+        assert result.get("success") is True
+
+        telemetry_lines = plugin.telemetry_log_path.read_text(encoding="utf-8").strip().splitlines()
+        telemetry_entry = json.loads(telemetry_lines[-1])
+        assert telemetry_entry.get("event_id")
+        assert telemetry_entry.get("intent") == "notes:list"
+        assert telemetry_entry.get("intent_confidence") >= 0.9
+        assert isinstance(telemetry_entry.get("parsed_command"), dict)
+        assert isinstance(telemetry_entry.get("plugin_scores"), dict)
+
+    def test_telemetry_dedupes_identical_event_burst(self, plugin):
+        plugin.manager.create_note(title="Burst", content="dedupe")
+        plugin.execute(intent="notes:list", query="show notes", entities={}, context={})
+        plugin.execute(intent="notes:list", query="show notes", entities={}, context={})
+
+        telemetry_lines = plugin.telemetry_log_path.read_text(encoding="utf-8").strip().splitlines()
+        assert len(telemetry_lines) == 1
+
     def test_get_note_content_returns_full_content_payload(self, plugin):
         plugin.manager.create_note(title="Release Plan", content="Line 1\nLine 2\n- action")
 

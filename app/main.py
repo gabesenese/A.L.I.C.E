@@ -3298,6 +3298,14 @@ class ALICE:
                 # Enhance context with goal info (keep as dict for plugins)
                 if active_goal:
                     context_summary['active_goal'] = active_goal.description
+                if nlp_result is not None:
+                    context_summary['nlp'] = {
+                        'intent': intent,
+                        'intent_confidence': float(intent_confidence or 0.0),
+                        'parsed_command': getattr(nlp_result, 'parsed_command', {}) or {},
+                        'plugin_scores': getattr(nlp_result, 'plugin_scores', {}) or {},
+                        'token_debug': getattr(nlp_result, 'token_debug', [])[:30],
+                    }
                 plugin_result = self.plugins.execute_for_intent(
                     intent, user_input, entities, context_summary
                 )

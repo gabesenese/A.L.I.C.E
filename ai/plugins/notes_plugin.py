@@ -31,6 +31,7 @@ import json
 import logging
 import uuid
 import shutil
+import hashlib
 from typing import (
     Dict, List, Optional, Any, Tuple,
     Final, ClassVar, Protocol, runtime_checkable,
@@ -1579,8 +1580,10 @@ class NotesPlugin(PluginInterface):
         # Learning and telemetry state (no hardcoded response text path)
         self.learning_state_path = Path("data/notes/notes_learning_state.json")
         self.telemetry_log_path = Path("data/analytics/notes_plugin_telemetry.jsonl")
+        self.telemetry_eval_path = Path("data/analytics/notes_nlp_eval.jsonl")
         self._action_token_weights: Dict[str, Dict[str, float]] = {}
         self._note_selection_weights: Dict[str, float] = {}
+        self._recent_telemetry_keys: List[str] = []
         self._load_learning_state()
 
     def _load_learning_state(self) -> None:
@@ -1588,6 +1591,7 @@ class NotesPlugin(PluginInterface):
         try:
             self.learning_state_path.parent.mkdir(parents=True, exist_ok=True)
             self.telemetry_log_path.parent.mkdir(parents=True, exist_ok=True)
+            self.telemetry_eval_path.parent.mkdir(parents=True, exist_ok=True)
             if not self.learning_state_path.exists():
                 self._action_token_weights = {}
                 self._note_selection_weights = {}
@@ -1617,6 +1621,166 @@ class NotesPlugin(PluginInterface):
 
     def _tokenize(self, text: str) -> List[str]:
         return [t for t in re.findall(r"[a-z0-9']+", text.lower()) if len(t) > 2]
+
+    def _extract_strict_slots(self, command: str, intent: str, context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Strict slot extraction for notes routing and guardrails."""
+        lower = (command or "").lower()
+        context_obj = context or {}
+        nlp_meta = context_obj.get("nlp", {}) if isinstance(context_obj, dict) else {}
+        parsed = nlp_meta.get("parsed_command", {}) if isinstance(nlp_meta, dict) else {}
+
+        action_hint = "unknown"
+        if isinstance(parsed, dict) and parsed.get("action"):
+            action_hint = str(parsed.get("action"))
+
+        if action_hint == "unknown":
+            if re.search(r"\b(do i have|is there)\b", lower) and re.search(r"\bnote|notes\b", lower):
+                action_hint = "query_exist"
+            elif re.search(r"\b(read|show|open)\b", lower) and re.search(r"\b(note|notes|it|this|that)\b", lower):
+                action_hint = "read"
+            elif re.search(r"\b(search|find)\b", lower) and re.search(r"\b(content|body|contains|inside|text)\b", lower):
+                action_hint = "search_content"
+            elif re.search(r"\b(search|find)\b", lower):
+                action_hint = "search"
+
+        title_hint = None
+        title_match = re.search(r"(?:called|named|titled|about)\s+(.+)$", command, re.IGNORECASE)
+        if title_match:
+            title_hint = self._normalize_title_query(title_match.group(1))
+
+        query = None
+        query_patterns = [
+            r'(?:search|find)\s+(?:my\s+)?notes?\s+(?:for|about|containing)\s+(.+)',
+            r'(?:search|find)\s+(?:note\s+)?(?:content|body|text)(?:\s+(?:for|containing|with))?\s+(.+)',
+            r'(?:search|find)\s+(?:my\s+)?notes?\s+(.+)',
+        ]
+        for pattern in query_patterns:
+            query_match = re.search(pattern, command, re.IGNORECASE)
+            if query_match:
+                query = query_match.group(1).strip().strip('?.!,')
+                break
+
+        note_ref = None
+        if action_hint in {"read", "query_exist"}:
+            note_ref = title_hint
+            if not note_ref and any(token in lower for token in ["it", "this", "that", "last"]):
+                note_ref = self.last_note_title or "context_reference"
+
+        intent_conf = float(nlp_meta.get("intent_confidence", 0.0) or 0.0)
+        action_conf = 0.55
+        if action_hint in {"read", "query_exist", "search", "search_content"}:
+            action_conf = 0.78
+        if isinstance(parsed, dict) and parsed.get("action") == action_hint:
+            action_conf = min(0.95, action_conf + 0.12)
+
+        slot_conf = 0.45
+        slot_signals = [bool(query), bool(note_ref), bool(title_hint)]
+        if any(slot_signals):
+            slot_conf = 0.82
+        if all(slot_signals):
+            slot_conf = 0.91
+
+        return {
+            "action_hint": action_hint,
+            "query": query,
+            "note_ref": note_ref,
+            "title_hint": title_hint,
+            "intent_confidence": intent_conf,
+            "action_confidence": action_conf,
+            "slot_confidence": slot_conf,
+            "parsed_command": parsed if isinstance(parsed, dict) else {},
+            "plugin_scores": nlp_meta.get("plugin_scores", {}) if isinstance(nlp_meta, dict) else {},
+        }
+
+    def _build_clarification_result(self, action: str, message_code: str, question: str, slots: Dict[str, Any], resolution_path: str) -> Dict[str, Any]:
+        return {
+            "success": False,
+            "action": action,
+            "data": {
+                "error": "clarification_required",
+                "message_code": message_code,
+                "requires_clarification": True,
+                "clarification_question": question,
+                "routing": {
+                    "intent_confidence": slots.get("intent_confidence", 0.0),
+                    "action_confidence": slots.get("action_confidence", 0.0),
+                    "slot_confidence": slots.get("slot_confidence", 0.0),
+                },
+                "diagnostics": {
+                    "resolution_path": resolution_path,
+                    "action_hint": slots.get("action_hint", "unknown"),
+                },
+            },
+            "formulate": True,
+        }
+
+    def _apply_action_guardrails(self, result: Dict[str, Any], slots: Dict[str, Any], command: str) -> Dict[str, Any]:
+        """Enforce action+slot confidence constraints before final response."""
+        if not isinstance(result, dict):
+            return result
+
+        action = result.get("action", "")
+        data = result.get("data", {}) if isinstance(result.get("data", {}), dict) else {}
+
+        if action in {"search_notes", "search_notes_content"}:
+            query = data.get("query") or slots.get("query")
+            if not query:
+                return self._build_clarification_result(
+                    action="search_notes",
+                    message_code="notes:search_clarify_query",
+                    question="What should I search for in your notes?",
+                    slots=slots,
+                    resolution_path="guardrail_missing_search_query",
+                )
+
+        if action == "get_note_content":
+            note_ref = slots.get("note_ref") or slots.get("title_hint") or self.last_note_title
+            if not result.get("success", False) and not note_ref:
+                return self._build_clarification_result(
+                    action="get_note_content",
+                    message_code="notes:content_clarify_target",
+                    question="Which note should I read? You can give the title or number.",
+                    slots=slots,
+                    resolution_path="guardrail_missing_note_ref",
+                )
+
+        if action in {"search_notes", "search_notes_content", "get_note_content", "list_notes"}:
+            routing = data.setdefault("routing", {})
+            routing["intent_confidence"] = float(slots.get("intent_confidence", 0.0) or 0.0)
+            routing["action_confidence"] = float(slots.get("action_confidence", 0.0) or 0.0)
+            routing["slot_confidence"] = float(slots.get("slot_confidence", 0.0) or 0.0)
+
+        return result
+
+    def _telemetry_event_id(self, timestamp_iso: str, command: str, action: str, resolution_path: str) -> str:
+        seed = f"{timestamp_iso}|{command.strip().lower()[:160]}|{action}|{resolution_path}"
+        return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:20]
+
+    def _telemetry_dedupe_key(self, command: str, action: str, resolution_path: str) -> str:
+        bucket = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        raw = f"{bucket}|{command.strip().lower()[:160]}|{action}|{resolution_path}"
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
+
+    def _record_telemetry_evaluation(self, entry: Dict[str, Any], result: Dict[str, Any]) -> None:
+        """Write lightweight online eval metrics from real traffic for NLP regression tracking."""
+        try:
+            action = entry.get("action") or "unknown"
+            success = bool(entry.get("success", False))
+            routing = ((result.get("data") or {}).get("routing") or {}) if isinstance(result, dict) else {}
+            event = {
+                "timestamp": entry.get("timestamp"),
+                "event_id": entry.get("event_id"),
+                "intent": entry.get("intent", ""),
+                "action": action,
+                "route_accuracy": 1 if success else 0,
+                "slot_accuracy": 1 if success and float(routing.get("slot_confidence", 0.0) or 0.0) >= 0.6 else 0,
+                "clarification_rate": 1 if (entry.get("error") == "clarification_required") else 0,
+                "fallback_rate": 1 if str(entry.get("resolution_path", "")).startswith("guardrail_") else 0,
+            }
+            with open(self.telemetry_eval_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(event) + '\n')
+        except Exception as e:
+            logger.debug(f"[NotesTelemetryEval] failed: {e}")
 
     def _extract_ordinal_index(self, command: str) -> Optional[int]:
         """Extract 0-based ordinal index from utterances like first/2nd/number 3."""
@@ -2204,21 +2368,54 @@ class NotesPlugin(PluginInterface):
         if diagnostics.get('resolution_path'):
             self.last_resolution_path = diagnostics['resolution_path']
 
-    def _log_telemetry(self, *, command: str, intent: str, result: Dict[str, Any], resolution_path: str) -> None:
+    def _log_telemetry(
+        self,
+        *,
+        command: str,
+        intent: str,
+        result: Dict[str, Any],
+        resolution_path: str,
+        strict_slots: Optional[Dict[str, Any]] = None,
+        nlp_meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Emit notes-plugin telemetry for mining and reranking improvements."""
         try:
+            timestamp_iso = datetime.now().isoformat()
+            strict_slots = strict_slots or {}
+            nlp_meta = nlp_meta or {}
+            action = result.get('action')
+            dedupe_key = self._telemetry_dedupe_key(command, action or "unknown", resolution_path)
+            if dedupe_key in self._recent_telemetry_keys:
+                return
+
             entry = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": timestamp_iso,
+                "event_id": self._telemetry_event_id(timestamp_iso, command, action or "unknown", resolution_path),
+                "dedupe_key": dedupe_key,
                 "intent": intent,
                 "command": command[:200],
-                "action": result.get('action'),
+                "action": action,
                 "success": bool(result.get('success', False)),
                 "resolution_path": resolution_path,
                 "error": (result.get('data') or {}).get('error'),
                 "message_code": (result.get('data') or {}).get('message_code'),
+                "intent_confidence": float((nlp_meta.get("intent_confidence", 0.0) or 0.0)),
+                "action_confidence": float((strict_slots.get("action_confidence", 0.0) or 0.0)),
+                "slot_confidence": float((strict_slots.get("slot_confidence", 0.0) or 0.0)),
+                "parsed_command": nlp_meta.get("parsed_command") if isinstance(nlp_meta, dict) else {},
+                "plugin_scores": nlp_meta.get("plugin_scores") if isinstance(nlp_meta, dict) else {},
+                "query_slot": strict_slots.get("query"),
+                "note_ref_slot": strict_slots.get("note_ref") or strict_slots.get("title_hint"),
             }
             with open(self.telemetry_log_path, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(entry) + '\n')
+
+            self._recent_telemetry_keys.append(dedupe_key)
+            if len(self._recent_telemetry_keys) > 100:
+                self._recent_telemetry_keys = self._recent_telemetry_keys[-80:]
+
+            self._record_telemetry_evaluation(entry, result)
+
             # ---------------------------------------------------------------
             # Feature #6: Feedback loop — bridge telemetry outcome to the
             # AdaptiveContextSelector so notes context is learned over time.
@@ -2838,6 +3035,7 @@ class NotesPlugin(PluginInterface):
         try:
             command_lower = command.lower()
             resolution_path = "rule_router"
+            strict_slots = self._extract_strict_slots(command, intent or "", context)
 
             # ── Confirmation gate (highest priority) ──────────────────────────
             confirmation_result = self._check_pending_confirmation(command)
@@ -3057,12 +3255,23 @@ class NotesPlugin(PluginInterface):
             if isinstance(diagnostics, dict) and not diagnostics.get('resolution_path'):
                 diagnostics['resolution_path'] = resolution_path
 
+            result = self._apply_action_guardrails(result, strict_slots, command)
+            data = result.setdefault('data', {}) if isinstance(result, dict) else {}
+            diagnostics = data.setdefault('diagnostics', {}) if isinstance(data, dict) else {}
+
             self._update_context_from_result(result)
             action = result.get('action', 'notes_unknown_action')
             success = bool(result.get('success', False))
             resolved_path = diagnostics.get('resolution_path', resolution_path)
             self._record_learning_outcome(command, action, success, resolved_path)
-            self._log_telemetry(command=command, intent=intent or "", result=result, resolution_path=resolved_path)
+            self._log_telemetry(
+                command=command,
+                intent=intent or "",
+                result=result,
+                resolution_path=resolved_path,
+                strict_slots=strict_slots,
+                nlp_meta=(context or {}).get("nlp", {}) if isinstance(context, dict) else {},
+            )
             
             return result
         
