@@ -2,33 +2,10 @@
 Integration tests for notes follow-up title questions.
 """
 
-import sys
 import json
-from pathlib import Path
-
-import pytest
-
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-from ai.plugins.notes_plugin import NotesManager, NotesPlugin
 
 
 class TestNotesTitleFollowup:
-    @pytest.fixture
-    def plugin(self, tmp_path):
-        notes_dir = tmp_path / "notes"
-        plugin = NotesPlugin()
-        plugin.manager = NotesManager(notes_dir=str(notes_dir))
-        plugin.last_note_id = None
-        plugin.last_note_title = None
-        plugin.last_note_result_ids = []
-        plugin.learning_state_path = tmp_path / "notes_learning_state.json"
-        plugin.telemetry_log_path = tmp_path / "notes_plugin_telemetry.jsonl"
-        plugin._action_token_weights = {}
-        plugin._note_selection_weights = {}
-        return plugin
-
     def test_title_followup_after_list_notes(self, plugin):
         plugin.manager.create_note(title="Untitled", content="First content")
 
@@ -364,6 +341,3 @@ class TestNotesTitleFollowup:
         assert followup.get("action") == "delete_note"
         assert followup.get("data", {}).get("note_title") == "Project Tasks Personal"
 
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v", "--tb=short"])

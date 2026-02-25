@@ -6,6 +6,9 @@ __pycache__/
 
 # logs
 *.log
+data/analytics/*.jsonl
+data/context/*.jsonl
+data/notes/corrupted_*.json
 
 # Claude Code temporary files
 tmpclaude-*
@@ -209,7 +212,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 SETUP_INSTRUCTIONS.md
-.gitignore
 todo.md
 
 
@@ -244,7 +246,6 @@ data/memory/
 COMPLETION_REPORT.md
 data/context_state.pkl
 integration_test_output.txt
-.gitignore
 learning_cycle_output.txt
 nightly_training_output.txt
 NUL
