@@ -2,7 +2,7 @@
 Autonomous Agent Mode
 ======================
 Enables Alice to execute complex multi-step goals autonomously without
-constant supervision. True Jarvis-level autonomous operation.
+constant supervision. True autonomous operation.
 
 Alice can:
 - Take high-level goals and decompose them into steps

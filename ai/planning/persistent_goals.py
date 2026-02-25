@@ -4,7 +4,7 @@ Persistent Goal System
 Long-running goal management with multi-session persistence,
 progress tracking, and autonomous execution.
 
-Enables Alice to work on complex goals over days/weeks like Jarvis.
+Enables Alice to work on complex goals over days/weeks.
 """
 
 import json

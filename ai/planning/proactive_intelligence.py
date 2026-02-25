@@ -4,7 +4,7 @@ Proactive Intelligence Loop
 Background intelligence system that monitors context, generates insights,
 and proactively surfaces help without being asked.
 
-This is what makes Alice feel like Jarvis - always aware, always ready,
+This is what makes Alice always aware, always ready,
 always one step ahead.
 """
 

@@ -4,7 +4,7 @@ User Profile & Preference Engine
 Deep user modeling system that learns preferences, habits, communication style,
 and behavioral patterns over time.
 
-Makes Alice personalized and adaptive like Jarvis.
+Makes Alice personalized and adaptive.
 """
 
 import json

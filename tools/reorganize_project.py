@@ -205,7 +205,7 @@ def print_reorganization_plan():
     """Print the reorganization plan"""
 
     print("=" * 80)
-    print("PROJECT REORGANIZATION PLAN - STARK LEVEL ENGINEERING")
+    print("PROJECT REORGANIZATION PLAN")
     print("=" * 80)
     print()
 

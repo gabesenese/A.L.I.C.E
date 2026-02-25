@@ -5,7 +5,7 @@ Advanced multi-turn conversation tracking with reference resolution,
 topic tracking, and seamless context across messages.
 
 This enables Alice to understand "it", "that", "them" and maintain
-coherent multi-turn conversations like Jarvis.
+coherent multi-turn conversations.
 """
 
 import time
