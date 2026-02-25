@@ -69,6 +69,22 @@ except ImportError:
     SEMANTIC_CLASSIFIER_AVAILABLE = False
     logging.warning("[WARN] Semantic intent classifier not available. Using fallback patterns.")
 
+# Advanced NLP stack — Frame Parser, Probabilistic Slot Filler, Advanced Coreference
+try:
+    from ai.core.frame_parser import FrameParser as _FrameParser, FrameMatchResult as _FrameMatchResult
+    from ai.core.prob_slot_filler import ProbabilisticSlotFiller as _ProbSlotFiller, FilledSlots as _FilledSlots
+    from ai.core.coreference import LegacyCoreferenceResolverCompat as _AdvancedCoref, DialogueMemory as _DialogueMemory
+    from ai.core.utterance_fingerprint import get_fingerprint_store as _get_fingerprint_store
+    ADVANCED_NLP_AVAILABLE = True
+except ImportError:
+    ADVANCED_NLP_AVAILABLE = False
+    _FrameParser = None
+    _ProbSlotFiller = None
+    _AdvancedCoref = None
+    _DialogueMemory = None
+    _get_fingerprint_store = None
+    logging.warning("[WARN] Advanced NLP modules not available. Using legacy routing.")
+
 logger = logging.getLogger(__name__)
 
 
@@ -856,8 +872,20 @@ class NLPProcessor:
         self.temporal_parser = TemporalParser()
         self.slot_filler = SlotFiller(self.temporal_parser)
         self.domain_ner = DomainEntityExtractor()
-        self.coref_resolver = CoreferenceResolver()
         self.emotion_detector = EmotionDetector()
+
+        # Advanced NLP stack
+        if ADVANCED_NLP_AVAILABLE:
+            self.coref_resolver = _AdvancedCoref()
+            self.frame_parser = _FrameParser()
+            self.prob_slot_filler = _ProbSlotFiller()
+            self.dialogue_memory = self.coref_resolver.memory
+            self._fp_store = _get_fingerprint_store()
+        else:
+            self.coref_resolver = CoreferenceResolver()
+            self.frame_parser = None
+            self.prob_slot_filler = None
+            self.dialogue_memory = None
         
         # Conversation context
         self.context = ConversationContext()
@@ -1516,6 +1544,16 @@ class NLPProcessor:
         else:
             resolved_text = text
 
+        # Step 1.5: Fingerprint lookup — use cached parse as a strong prior
+        _fp_prior_intent: Optional[str] = None
+        _fp_prior_conf: float = 0.0
+        if hasattr(self, '_fp_store') and self._fp_store is not None:
+            _fp_hit = self._fp_store.lookup(resolved_text)
+            if _fp_hit and _fp_hit.confidence >= 0.80:
+                _fp_prior_intent = _fp_hit.intent
+                _fp_prior_conf = _fp_hit.confidence
+                logger.debug("[FINGERPRINT] Prior: %s (%.2f)", _fp_prior_intent, _fp_prior_conf)
+
         # Step 2: Clean + normalize for tokenizer layers
         clean_text = self._clean_text(resolved_text)
         normalized_text = self._normalize_for_tokenizer(clean_text)
@@ -1585,7 +1623,55 @@ class NLPProcessor:
                     intent_confidence = max(intent_confidence, 0.41)
 
             parsed_command.modifiers["routing_trace"] = route.trace
-        
+
+        # Fingerprint prior: if we have a cached high-confidence parse, use it as a boost
+        if _fp_prior_intent and _fp_prior_intent == intent and _fp_prior_conf > intent_confidence:
+            intent_confidence = min(0.97, _fp_prior_conf)
+            logger.debug("[FINGERPRINT] Boosted confidence %.2f → %.2f", intent_confidence, _fp_prior_conf)
+        elif _fp_prior_intent and _fp_prior_conf >= 0.85 and intent_confidence < 0.70:
+            # Prior disagrees but is very confident — override
+            logger.info(
+                "[FINGERPRINT] Prior override: %s (%.2f) → %s (%.2f)",
+                intent, intent_confidence, _fp_prior_intent, _fp_prior_conf,
+            )
+            intent = _fp_prior_intent
+            intent_confidence = _fp_prior_conf
+
+        # ── Advanced NLP: Semantic Frame Parser + Probabilistic Slot Filler ──
+        frame_result = None
+        filled_slots = None
+        if self.frame_parser is not None:
+            _ctx_dict = {
+                "last_plugin": self.context.last_plugin,
+                "last_note_title": str(self.context.mentioned_notes[-1]) if self.context.mentioned_notes else None,
+                "last_entities": self.context.last_entities,
+                "entity_chain": self.dialogue_memory.entity_chain_dict() if self.dialogue_memory else [],
+            }
+            frame_result = self.frame_parser.parse(normalized_text, context=_ctx_dict)
+            if frame_result is not None and frame_result.confidence > 0.50:
+                filled_slots = self.prob_slot_filler.fill(
+                    text=normalized_text,
+                    frame_name=frame_result.frame_name,
+                    context=_ctx_dict,
+                    frame_slot_evidence=frame_result.slot_evidence,
+                )
+                # Override routing if frame is more confident
+                if frame_result.confidence > intent_confidence + 0.07:
+                    logger.info(
+                        "[FRAME] Override route %s (%.2f) → frame %s (%.2f)",
+                        intent, intent_confidence,
+                        frame_result.frame_name, frame_result.confidence,
+                    )
+                    intent = f"{frame_result.plugin}:{frame_result.action}"
+                    intent_confidence = min(0.97, frame_result.confidence)
+                parsed_command.modifiers["frame"] = {
+                    "name": frame_result.frame_name,
+                    "confidence": frame_result.confidence,
+                    "keywords": frame_result.matched_keywords,
+                    "slots": filled_slots.as_dict() if filled_slots else {},
+                    "fill_confidence": filled_slots.fill_confidence if filled_slots else 0.0,
+                }
+
         # Continue with rest of processing
 
         # Step 3: Entity extraction
@@ -1636,8 +1722,22 @@ class NLPProcessor:
         # Step 10: Update conversation context
         if use_context:
             self._update_context(result)
-        
-        logger.info(f"[NLP] Intent: {intent} ({intent_confidence:.2f}) | Slots: {len(slots)} | Emotions: {emotions} | Urgency: {urgency}")
+            # Update dialogue memory
+            if self.dialogue_memory is not None:
+                _filled = filled_slots.as_dict() if filled_slots else {}
+                self.dialogue_memory.update_from_nlp_result(intent, _filled)
+            # Store successful high-confidence parses in the fingerprint cache
+            if hasattr(self, '_fp_store') and self._fp_store is not None and intent_confidence >= 0.80:
+                _frame_name = frame_result.frame_name if frame_result else None
+                _fp_slots = filled_slots.as_dict() if filled_slots else {}
+                self._fp_store.store(resolved_text, intent, _frame_name, _fp_slots, intent_confidence)
+
+        logger.info(
+            "[NLP] Intent: %s (%.2f) | Frame: %s | Slots: %d | Emotions: %s | Urgency: %s",
+            intent, intent_confidence,
+            frame_result.frame_name if frame_result else "none",
+            len(slots), emotions, urgency,
+        )
         
         return result
     

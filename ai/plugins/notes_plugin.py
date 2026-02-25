@@ -1629,8 +1629,29 @@ class NotesPlugin(PluginInterface):
         nlp_meta = context_obj.get("nlp", {}) if isinstance(context_obj, dict) else {}
         parsed = nlp_meta.get("parsed_command", {}) if isinstance(nlp_meta, dict) else {}
 
+        # ── Frame Parser slots (highest priority source) ──────────────
+        frame_data: Dict[str, Any] = {}
+        frame_slots: Dict[str, Any] = {}
+        if isinstance(parsed, dict):
+            modifiers = parsed.get("modifiers", {}) or {}
+            frame_data = modifiers.get("frame", {}) or {}
+            frame_slots = frame_data.get("slots", {}) or {}
+
         action_hint = "unknown"
-        if isinstance(parsed, dict) and parsed.get("action"):
+        # Use frame action if available
+        if frame_data.get("name"):
+            _frame_to_action = {
+                "CREATE_NOTE": "create",
+                "READ_NOTE": "read",
+                "SEARCH_NOTE": "search",
+                "LIST_NOTES": "list",
+                "UPDATE_NOTE": "update",
+                "DELETE_NOTE": "delete",
+                "ARCHIVE_NOTE": "archive",
+            }
+            action_hint = _frame_to_action.get(frame_data["name"], "unknown")
+
+        if action_hint == "unknown" and isinstance(parsed, dict) and parsed.get("action"):
             action_hint = str(parsed.get("action"))
 
         if action_hint == "unknown":
@@ -1643,40 +1664,46 @@ class NotesPlugin(PluginInterface):
             elif re.search(r"\b(search|find)\b", lower):
                 action_hint = "search"
 
-        title_hint = None
-        title_match = re.search(r"(?:called|named|titled|about)\s+(.+)$", command, re.IGNORECASE)
-        if title_match:
-            title_hint = self._normalize_title_query(title_match.group(1))
+        # ── title_hint: frame slots first, then regex ─────────────────
+        title_hint = frame_slots.get("title") or frame_slots.get("note_ref")
+        if not title_hint:
+            title_match = re.search(r"(?:called|named|titled|about)\s+(.+)$", command, re.IGNORECASE)
+            if title_match:
+                title_hint = self._normalize_title_query(title_match.group(1))
 
-        query = None
-        query_patterns = [
-            r'(?:search|find)\s+(?:my\s+)?notes?\s+(?:for|about|containing)\s+(.+)',
-            r'(?:search|find)\s+(?:note\s+)?(?:content|body|text)(?:\s+(?:for|containing|with))?\s+(.+)',
-            r'(?:search|find)\s+(?:my\s+)?notes?\s+(.+)',
-        ]
-        for pattern in query_patterns:
-            query_match = re.search(pattern, command, re.IGNORECASE)
-            if query_match:
-                query = query_match.group(1).strip().strip('?.!,')
-                break
+        # ── query: frame slots first, then regex ─────────────────────
+        query = frame_slots.get("query")
+        if not query:
+            query_patterns = [
+                r'(?:search|find)\s+(?:my\s+)?notes?\s+(?:for|about|containing)\s+(.+)',
+                r'(?:search|find)\s+(?:note\s+)?(?:content|body|text)(?:\s+(?:for|containing|with))?\s+(.+)',
+                r'(?:search|find)\s+(?:my\s+)?notes?\s+(.+)',
+            ]
+            for pattern in query_patterns:
+                query_match = re.search(pattern, command, re.IGNORECASE)
+                if query_match:
+                    query = query_match.group(1).strip().strip('?.!,')
+                    break
 
-        note_ref = None
-        if action_hint in {"read", "query_exist"}:
-            note_ref = title_hint
-            if not note_ref and any(token in lower for token in ["it", "this", "that", "last"]):
+        # ── note_ref: frame slots first, then context ─────────────────
+        note_ref = frame_slots.get("note_ref") or title_hint
+        if not note_ref and action_hint in {"read", "query_exist"}:
+            if any(token in lower for token in ["it", "this", "that", "last"]):
                 note_ref = self.last_note_title or "context_reference"
 
         intent_conf = float(nlp_meta.get("intent_confidence", 0.0) or 0.0)
-        action_conf = 0.55
+        # Action confidence boosted when frame parser agrees
+        frame_conf = float(frame_data.get("confidence", 0.0) or 0.0)
+        action_conf = max(0.55, frame_conf * 0.90) if frame_conf > 0 else 0.55
         if action_hint in {"read", "query_exist", "search", "search_content"}:
-            action_conf = 0.78
+            action_conf = max(action_conf, 0.78)
         if isinstance(parsed, dict) and parsed.get("action") == action_hint:
             action_conf = min(0.95, action_conf + 0.12)
 
         slot_conf = 0.45
         slot_signals = [bool(query), bool(note_ref), bool(title_hint)]
         if any(slot_signals):
-            slot_conf = 0.82
+            slot_conf = max(0.82, float(frame_data.get("fill_confidence", 0.82)))
         if all(slot_signals):
             slot_conf = 0.91
 
@@ -1685,9 +1712,13 @@ class NotesPlugin(PluginInterface):
             "query": query,
             "note_ref": note_ref,
             "title_hint": title_hint,
+            "tags": frame_slots.get("tags"),
+            "priority": frame_slots.get("priority"),
             "intent_confidence": intent_conf,
             "action_confidence": action_conf,
             "slot_confidence": slot_conf,
+            "frame_name": frame_data.get("name"),
+            "frame_confidence": frame_conf,
             "parsed_command": parsed if isinstance(parsed, dict) else {},
             "plugin_scores": nlp_meta.get("plugin_scores", {}) if isinstance(nlp_meta, dict) else {},
         }

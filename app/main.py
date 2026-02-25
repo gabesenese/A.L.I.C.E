@@ -202,6 +202,9 @@ class ALICE:
             # 1. NLP Processor
             logger.info("Loading NLP processor...")
             self.nlp = NLPProcessor()
+            # Shared session objects from NLP stack
+            self.dialogue_memory = getattr(self.nlp, 'dialogue_memory', None)
+            self.fp_store = getattr(self.nlp, '_fp_store', None)
             
             # 1.5. Unified Context Engine (combines context_manager + advanced_context_handler)
             logger.info("Loading unified context engine...")
@@ -235,6 +238,14 @@ class ALICE:
                 auto_start=True
             )
             logger.info("[OK] Continuous learning active - Alice learns 24/7 from real-time errors")
+
+            # 2.9.2. Failure taxonomy for retraining signal
+            try:
+                from ai.core.failure_taxonomy import get_failure_taxonomy
+                self.failure_taxonomy = get_failure_taxonomy()
+                logger.info("[OK] Failure taxonomy ready - failed turns will be classified for retraining")
+            except ImportError:
+                self.failure_taxonomy = None
 
             # 3. Memory System (needs to be before conversational engine)
             logger.info("Loading memory system...")
@@ -2254,7 +2265,40 @@ class ALICE:
                 return f"No jacket needed - it's {temp}°C, nice and warm!"
         
         return None
-    
+
+    def _apply_confidence_cascade(self, intent: str, confidence: float, nlp_result) -> dict:
+        """
+        Confidence cascade policy:
+          >= 0.85 → execute directly
+          >= 0.65 → execute with a low-confidence prefix marker
+          >= 0.45 → ask for clarification
+          <  0.45 → surface top-2 interpretations
+        """
+        if confidence >= 0.85:
+            return {"action": "execute", "confidence": confidence}
+        if confidence >= 0.65:
+            return {
+                "action": "execute_low_conf",
+                "confidence": confidence,
+                "marker": "I'm not 100% sure, but I'll try—",
+            }
+        if confidence >= 0.45:
+            return {
+                "action": "clarify",
+                "confidence": confidence,
+                "question": "Could you clarify what you'd like me to do?",
+            }
+        # < 0.45: surface top-2 candidates
+        scores = getattr(nlp_result, 'plugin_scores', {}) or {}
+        top2 = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:2]
+        options = [f"{p} ({v:.0%})" for p, v in top2] if top2 else [intent]
+        return {
+            "action": "interpret",
+            "confidence": confidence,
+            "options": options,
+            "question": f"Did you mean: {' or '.join(options)}?",
+        }
+
     def process_input(self, user_input: str, use_voice: bool = False) -> str:
         """
         Process user input through the complete pipeline
@@ -3294,6 +3338,13 @@ class ALICE:
             else:
                 self._think(f"Trying plugins... (confidence: {intent_confidence:.2f}, goal: {active_goal.description[:30] if active_goal else 'none'}...)")
             if (not _is_short_followup and not is_pure_conversation) or force_plugins_for_notes:
+                # Confidence cascade: gate plugin execution on intent confidence
+                _cascade = self._apply_confidence_cascade(intent, intent_confidence or 0.0, nlp_result)
+                if _cascade["action"] == "clarify":
+                    return _cascade["question"]
+                if _cascade["action"] == "interpret":
+                    return _cascade["question"]
+                _low_conf_prefix = _cascade.get("marker", "")
                 context_summary = self.context.get_context_summary()
                 # Enhance context with goal info (keep as dict for plugins)
                 if active_goal:
@@ -3305,10 +3356,28 @@ class ALICE:
                         'parsed_command': getattr(nlp_result, 'parsed_command', {}) or {},
                         'plugin_scores': getattr(nlp_result, 'plugin_scores', {}) or {},
                         'token_debug': getattr(nlp_result, 'token_debug', [])[:30],
+                        'dialogue_memory': self.dialogue_memory.entity_chain_dict() if self.dialogue_memory else [],
                     }
                 plugin_result = self.plugins.execute_for_intent(
                     intent, user_input, entities, context_summary
                 )
+                # Failure taxonomy: classify and log failed turns for retraining
+                if self.failure_taxonomy and plugin_result:
+                    self.failure_taxonomy.classify_and_log(
+                        utterance=user_input,
+                        intent=intent,
+                        plugin_result=plugin_result,
+                        nlp_result=vars(nlp_result) if nlp_result else {},
+                    )
+                # Update dialogue memory with plugin response titles
+                if self.dialogue_memory and plugin_result and plugin_result.get('success'):
+                    _dm_titles = plugin_result.get('data', {}).get('titles', []) or []
+                    if not _dm_titles:
+                        _note_title = plugin_result.get('data', {}).get('note_title')
+                        if _note_title:
+                            _dm_titles = [_note_title]
+                    if _dm_titles:
+                        self.dialogue_memory.record_result_set('RESULT_SET', _dm_titles)
                 # If low confidence and no plugin match, consider using LLM with clarification
                 if not plugin_result and intent_confidence < 0.6:
                     self._think("Low confidence + no plugin match → using LLM with context")
