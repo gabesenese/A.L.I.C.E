@@ -3175,11 +3175,14 @@ class NotesPlugin(PluginInterface):
             elif result is None and any(word in command_lower for word in ['delete', 'remove']):
                 result = self._delete_note(command)
             
-            # List/show notes (also handle "do i/we have notes?", "any notes?")
+            # List/show notes (also handle "do i/we have notes?", "any notes?", "what are the N notes?")
             elif result is None and (
                 any(word in command_lower for word in ['list', 'show', 'all notes', 'my notes'])
                 or re.search(r'(?:do|did)\s+(?:i|we|you)\s+(?:not\s+)?have.*notes?', command_lower)
                 or re.search(r'have any notes?|any notes?', command_lower)
+                or re.search(r'what\s+are\s+(?:the|those|my|all|your)?\s*(?:\w+\s+)?notes?', command_lower)
+                or re.search(r'which\s+notes?|(?:tell|show)\s+me\s+(?:the|all\s+)?notes?', command_lower)
+                or re.search(r'(?:can|could)\s+(?:i|you)\s+see\s+(?:the|all|my)?\s*notes?', command_lower)
             ) and not re.search(r'(recent|latest).*(changes?)|(changes?).*(recent|latest)', command_lower):
                 result = self._list_notes(command)
             
@@ -3261,7 +3264,21 @@ class NotesPlugin(PluginInterface):
             # Show overdue notes
             elif result is None and 'overdue' in command_lower:
                 result = self._show_overdue_notes()
-            
+
+            # ── NLP-intent safety net ─────────────────────────────────────────
+            # When rule-based routing above fails to match, trust the NLP intent
+            # so we never hit the unsupported_command dead-end for known intents.
+            elif result is None and intent in ('notes:list',):
+                result = self._list_notes(command)
+            elif result is None and intent in ('notes:create', 'notes:append'):
+                result = self._create_note(command)
+            elif result is None and intent in ('notes:read', 'notes:query_exist', 'notes:search'):
+                result = self._search_notes(command)
+            elif result is None and intent in ('notes:delete',):
+                result = self._delete_note(command)
+            elif result is None and intent in ('notes:update', 'notes:edit'):
+                result = self._edit_note(command)
+
             elif result is None:
                 result = {
                     "success": False,
