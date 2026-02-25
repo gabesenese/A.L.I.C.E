@@ -1019,6 +1019,17 @@ class ALICE:
             action = plugin_data.get('action', plugin_data.get('operation', 'unknown'))
             success = plugin_data.get('success', False)
 
+            if action == 'count_notes':
+                return {
+                    'type': 'notes_count',
+                    'total': plugin_data.get('total', 0),
+                    'todos': plugin_data.get('todos', 0),
+                    'ideas': plugin_data.get('ideas', 0),
+                    'meetings': plugin_data.get('meetings', 0),
+                    'pinned': plugin_data.get('pinned', 0),
+                    'archived': plugin_data.get('archived', 0),
+                    'confidence': 0.95,
+                }
             if action == 'list_notes':
                 return {
                     'type': 'notes_listing',
@@ -1262,6 +1273,23 @@ class ALICE:
                     content_str = f"Still {condition}, {temp}°C in {location}"
                 else:
                     content_str = f"Weather in {location}: {condition}, {temp}°C"
+
+        elif response_type == 'notes_count':
+            total = alice_response.get('total', 0)
+            todos = alice_response.get('todos', 0)
+            ideas = alice_response.get('ideas', 0)
+            meetings = alice_response.get('meetings', 0)
+            pinned = alice_response.get('pinned', 0)
+            archived = alice_response.get('archived', 0)
+            thought_content = alice_response
+            extras = []
+            if todos:    extras.append(f"{todos} to-do")
+            if ideas:    extras.append(f"{ideas} idea")
+            if meetings: extras.append(f"{meetings} meeting")
+            if pinned:   extras.append(f"{pinned} pinned")
+            if archived: extras.append(f"{archived} archived")
+            extra_str = f" ({', '.join(extras)})" if extras else ""
+            content_str = f"You have {total} note{'s' if total != 1 else ''}{extra_str}."
 
         elif response_type == 'operation_success':
             operation = alice_response.get('operation', 'operation')
