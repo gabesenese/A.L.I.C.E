@@ -3442,22 +3442,11 @@ class ALICE:
                     }
                 )
 
-                # NEW: Check if plugin wants Alice to formulate response from data
-                if plugin_result.get('formulate', False) and hasattr(self, 'response_formulator'):
+                # If plugin wants Alice to formulate the response, feed its data
+                # back through the standard _formulate_response path so Alice's
+                # direct-phrase architecture handles it (never bypasses to Ollama).
+                if plugin_result.get('formulate', False):
                     self._think(f"Plugin requested formulation → Alice will learn to respond")
-                    try:
-                        tone = self._select_tone(intent, context, user_input)
-                        response = self.response_formulator.formulate_response(
-                            action=plugin_result.get('action', intent),
-                            data=plugin_result.get('data', {}),
-                            success=success,
-                            user_input=user_input,
-                            tone=tone
-                        )
-                        self._think(f"Alice formulated response from plugin data")
-                    except Exception as e:
-                        logger.error(f"Error in response formulation: {e}")
-                        response = None
 
                 # Existing flow: Formulate response if not already done
                 if not response:
