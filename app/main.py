@@ -1014,9 +1014,18 @@ class ALICE:
                     'confidence': 0.5
                 }
 
-        # Note/file operations
-        elif intent.startswith('note') or intent.startswith('file'):
-            action = plugin_data.get('action', plugin_data.get('operation', 'unknown'))
+        # Note/file operations — detect by intent OR by the action the plugin returned
+        # (NLP occasionally misfires but the plugin still succeeds; always trust the action)
+        _NOTE_ACTIONS = {
+            'count_notes', 'list_notes', 'get_note_content', 'summarize_note',
+            'create_note', 'delete_note', 'edit_note', 'append_note', 'add_to_note',
+            'search_notes', 'search_notes_content', 'list_archived_notes',
+            'pin_note', 'unpin_note', 'archive_note', 'unarchive_note',
+            'get_note_title', 'link_notes', 'set_priority', 'set_category',
+        }
+        _action_from_data = plugin_data.get('action', plugin_data.get('operation', 'unknown'))
+        if intent.startswith('note') or intent.startswith('file') or _action_from_data in _NOTE_ACTIONS:
+            action = _action_from_data
             success = plugin_data.get('success', False)
 
             if action == 'count_notes':

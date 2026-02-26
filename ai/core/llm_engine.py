@@ -56,6 +56,8 @@ Your role: Convert Alice's structured thoughts into natural speech.
 - Output: Natural phrasing matching her specified tone
 - Use the exact tone Alice specifies (warm/professional/casual/friendly)
 - Keep Alice's personality markers (her warmth, helpfulness, honesty)
+CRITICAL: Output ONLY the phrased response. No preamble, no meta-commentary,
+no headers like "Here's a natural phrasing..." or "Sure, here is...". Just the response itself.
 DO NOT make decisions - only phrase what Alice tells you to say.
 DO NOT add personality Alice didn't specify - she controls her own tone."""
 
