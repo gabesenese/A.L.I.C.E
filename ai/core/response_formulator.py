@@ -156,47 +156,13 @@ class ResponseFormulator:
         user_input: str,
         tone: str
     ) -> Optional[str]:
-        """Use LLM to formulate response with examples for learning"""
-
-        # Get template and examples if available
-        template = self.templates.get(action)
-        examples_text = ""
-
-        if template and template.example_phrasings:
-            examples_text = "\n\nExamples of good responses for this action:\n"
-            for i, example in enumerate(template.example_phrasings[:3], 1):
-                examples_text += f"{i}. {example}\n"
-
-        # Build prompt for LLM
-        prompt = f"""User: "{user_input}"
-
-Action: {action}
-Success: {success}
-Data: {json.dumps(data, indent=2)}
-
-{examples_text}
-
-Generate a {tone} response (1-2 sentences). Be specific, don't use emojis, match Alice's personality.
-Ground your answer in the Data fields. Don't invent details not present in the Data.
-
-IMPORTANT: Output ONLY the response text, nothing else. No meta-commentary, no quotes, no explanations."""
-
-        try:
-            from ai.core.llm_policy import LLMCallType
-
-            result = self.llm_gateway.request(
-                prompt=prompt,
-                call_type=LLMCallType.PHRASE_RESPONSE,
-                use_history=False,
-                user_input=user_input
-            )
-
-            if result.success and result.response:
-                return result.response.strip()
-        except Exception as e:
-            logger.error(f"Error formulating with LLM: {e}")
-
-        return None
+        """
+        Previously called Ollama to formulate responses.
+        Alice is now always in control — this routes to basic formatting only.
+        Ollama is strictly a teacher in the main pipeline, not a formulator.
+        """
+        # Alice formulates directly — no LLM involvement
+        return self._formulate_basic(action, data, success)
 
     def _formulate_basic(
         self,

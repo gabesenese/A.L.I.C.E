@@ -3538,29 +3538,27 @@ class ALICE:
                         logger.error(f"Error in tool-based response generation: {e}")
                         response = None
 
-                # Fallback: Use gateway formatting if formulation didn't produce response
+                # Fallback: Alice phrases directly — no Ollama
                 if not response:
+                    self._think("Response generation failed → Alice uses direct phrase fallback (no Ollama)")
                     if alice_formulation and alice_formulation.get('type') not in ('general_response', None):
-                        self._think("Formulation failed → using gateway formatter as fallback")
-                    else:
-                        self._think(f"Using gateway formatter for {intent}")
-                    if hasattr(self, 'llm_gateway') and self.llm_gateway:
-                        formatter_name = plugin_name.lower().replace('plugin', '').strip()
-                        formatter_payload = plugin_result.get('data', {})
-                        if formatter_name == 'notes' and isinstance(plugin_result, dict):
-                            formatter_payload = {
-                                'action': plugin_result.get('action'),
-                                'data': plugin_result.get('data', {}),
-                            }
-                        response = self.llm_gateway.format_tool_result(
-                            tool_name=formatter_name,
-                            data=formatter_payload,
-                            user_input=user_input,
-                            context={'intent': intent, 'entities': entities}
+                        # Try Alice's structured direct-phrase engine first
+                        response = self._alice_direct_phrase(
+                            alice_formulation.get('type', ''),
+                            alice_formulation
                         )
-                    else:
-                        plugin_data_str = str(plugin_result.get('data', {}))
-                        response = f"Result: {plugin_data_str[:500]}"
+                    if not response:
+                        # Simple inline Alice formatter — no LLM involved
+                        action = plugin_result.get('action', intent) if isinstance(plugin_result, dict) else intent
+                        data = plugin_result.get('data', {}) if isinstance(plugin_result, dict) else {}
+                        if success:
+                            subject = (
+                                data.get('note_title') or data.get('title') or
+                                data.get('name') or data.get('filename') or ''
+                            )
+                            response = f"Done." if not subject else f"Done — {subject}."
+                        else:
+                            response = "I wasn't able to complete that."
 
                 # Optimize plugin response
                 if getattr(self, 'response_optimizer', None):
@@ -3767,7 +3765,26 @@ class ALICE:
                 if relationship_response:
                     return relationship_response
             
-            # 3. Use Gateway for complex knowledge/reasoning (last resort)
+            # 3. Alice checks her learned patterns first — only use Ollama if she can't answer
+            if self.phrasing_learner:
+                _conv_thought = {
+                    'type': intent,
+                    'data': {'user_input': user_input, 'entities': entities or {}}
+                }
+                _tone_for_check = self._select_tone(intent, context, user_input) if hasattr(self, '_select_tone') else 'helpful'
+                if self.phrasing_learner.can_phrase_myself(_conv_thought, _tone_for_check):
+                    _learned_response = self.phrasing_learner.phrase_myself(_conv_thought, tone=_tone_for_check)
+                    if _learned_response:
+                        self._think(f"Alice answered from learned patterns — Ollama not needed for '{intent}'")
+                        if getattr(self, 'response_optimizer', None):
+                            _learned_response = self.response_optimizer.optimize(
+                                _learned_response, intent, {"entities": entities}
+                            )
+                        if use_voice and self.speech:
+                            self.speech.speak(_learned_response, blocking=False)
+                        return _learned_response
+
+            # 4. Use Gateway for complex knowledge/reasoning (last resort — Alice learns from this)
             self._think("A.L.I.C.E needs Ollama for complex reasoning/knowledge...")
             # Build enhanced context with smart caching and adaptive selection, including goal
             enhanced_context = self._build_llm_context(user_input_processed, intent, entities, goal_res)
