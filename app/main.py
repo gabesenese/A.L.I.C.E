@@ -1028,7 +1028,7 @@ class ALICE:
                     'meetings': plugin_data.get('meetings', 0),
                     'pinned': plugin_data.get('pinned', 0),
                     'archived': plugin_data.get('archived', 0),
-                    'confidence': 0.95,
+                    'confidence': 0.95, 
                 }
             if action == 'list_notes':
                 return {
@@ -1163,6 +1163,163 @@ class ALICE:
 
         return None
 
+    def _alice_direct_phrase(self, response_type: str, alice_response: Dict[str, Any]) -> Optional[str]:
+        """
+        Alice phrases structured/factual responses entirely on her own.
+        Returns None only for truly open-ended types that benefit from Ollama.
+        Ollama is NEVER in control here — it is only a teacher when Alice lacks
+        phrasing experience for a novel conversational pattern.
+        """
+        # ── Notes ────────────────────────────────────────────────────────────
+        if response_type == 'notes_count':
+            total = alice_response.get('total', 0)
+            extras = []
+            if alice_response.get('todos'):    extras.append(f"{alice_response['todos']} to-do")
+            if alice_response.get('ideas'):    extras.append(f"{alice_response['ideas']} idea")
+            if alice_response.get('meetings'): extras.append(f"{alice_response['meetings']} meeting")
+            if alice_response.get('pinned'):   extras.append(f"{alice_response['pinned']} pinned")
+            if alice_response.get('archived'): extras.append(f"{alice_response['archived']} archived")
+            detail = f" ({', '.join(extras)})" if extras else ""
+            if total == 0:
+                return "You don't have any notes yet."
+            return f"You have {total} note{'s' if total != 1 else ''}{detail}."
+
+        if response_type == 'notes_listing':
+            notes = alice_response.get('notes', [])
+            count = alice_response.get('note_count', len(notes))
+            if not notes:
+                return "You don't have any notes yet."
+            titles = [n.get('title', 'Untitled') if isinstance(n, dict) else str(n) for n in notes[:10]]
+            has_more = alice_response.get('has_more', False)
+            lines = [f"You have {count} note{'s' if count != 1 else ''}:"]
+            for i, t in enumerate(titles, 1):
+                lines.append(f"  {i}. {t}")
+            if has_more:
+                lines.append(f"  … and {count - len(titles)} more.")
+            return "\n".join(lines)
+
+        if response_type == 'note_content':
+            title = alice_response.get('title', 'that note')
+            content_body = alice_response.get('content', '')
+            tags = alice_response.get('tags', [])
+            header = f"**{title}**\n\n" if title else ""
+            tag_line = f"\n\nTags: {', '.join(tags)}" if tags else ""
+            return f"{header}{content_body}{tag_line}".strip() or "The note appears to be empty."
+
+        if response_type == 'note_summary':
+            title = alice_response.get('title', 'that note')
+            summary = alice_response.get('summary', {})
+            if isinstance(summary, dict):
+                lines = [f"Summary of **{title}**:"]
+                if summary.get('word_count'):    lines.append(f"  • {summary['word_count']} words")
+                if summary.get('key_points'):
+                    lines.append("  Key points:")
+                    for pt in summary['key_points'][:5]:
+                        lines.append(f"    – {pt}")
+                return "\n".join(lines) if len(lines) > 1 else f"Here's a summary of {title}."
+            return f"Here's what I found for **{title}**: {summary}"
+
+        if response_type == 'operation_success':
+            op = alice_response.get('operation', 'operation')
+            details = alice_response.get('details', {})
+            op_map = {
+                'create_note':   "Note created.",
+                'delete_note':   "Note deleted.",
+                'edit_note':     "Note updated.",
+                'append_note':   "Content added to your note.",
+                'pin_note':      "Note pinned.",
+                'unpin_note':    "Note unpinned.",
+                'archive_note':  "Note archived.",
+                'unarchive_note':"Note unarchived.",
+                'add_to_note':   "Added to your note.",
+                'link_notes':    "Notes linked.",
+                'set_priority':  "Priority updated.",
+                'set_category':  "Category updated.",
+            }
+            base = op_map.get(op)
+            if base:
+                title = (details.get('note_title') or details.get('title', '')) if isinstance(details, dict) else ''
+                return f"{base}{(' (' + title + ')') if title else ''}"
+            return f"Done — {op.replace('_', ' ')} completed."
+
+        if response_type == 'operation_failure':
+            op = alice_response.get('operation', 'that')
+            error = alice_response.get('error', '')
+            msg = f"I wasn't able to complete {op.replace('_', ' ')}."
+            if error and error not in ('Operation failed', 'unknown'):
+                msg += f" ({error})"
+            return msg
+
+        # ── Weather ──────────────────────────────────────────────────────────
+        if response_type == 'weather_report':
+            temp = alice_response.get('temperature')
+            condition = alice_response.get('condition', '')
+            location = alice_response.get('location', '')
+            is_followup = alice_response.get('is_followup', False)
+            if temp is not None:
+                temp = round(temp)
+            loc_str = f" in {location}" if location else ""
+            if is_followup:
+                return f"Still {condition}{loc_str}, {temp}°C." if temp is not None else f"Still {condition}{loc_str}."
+            return f"It's {temp}°C and {condition}{loc_str}." if temp is not None else f"{condition.capitalize()}{loc_str}."
+
+        if response_type == 'weather_advice':
+            temp = alice_response.get('temperature')
+            condition = alice_response.get('condition', '')
+            location = alice_response.get('location', '')
+            clothing_item = alice_response.get('clothing_item', '')
+            if temp is not None:
+                temp = round(temp)
+            loc_str = f" in {location}" if location else ""
+            if temp is not None and temp < 5:
+                advice = "Bundle up — it's very cold"
+            elif temp is not None and temp < 15:
+                advice = "A jacket would be a good idea"
+            elif temp is not None and temp < 22:
+                advice = "It's mild — a light layer should be fine"
+            else:
+                advice = "It's warm, no jacket needed"
+            return f"{advice}{loc_str} ({temp}°C, {condition})." if temp is not None else f"{advice}{loc_str}."
+
+        if response_type == 'weather_prediction':
+            answer = alice_response.get('answer', '').capitalize()
+            condition = alice_response.get('condition', '')
+            return f"{answer}. Current condition: {condition}." if condition else f"{answer}."
+
+        # ── Capability ───────────────────────────────────────────────────────
+        if response_type == 'capability_answer':
+            can_do = alice_response.get('can_do', False)
+            details = alice_response.get('details', '')
+            ops = alice_response.get('operations', [])
+            base = "Yes, I can do that." if can_do else "No, I can't do that."
+            if details:
+                base += f" {details}"
+            if ops:
+                base += f" Available operations: {', '.join(ops[:5])}."
+            return base
+
+        # ── Self-analysis / code ─────────────────────────────────────────────
+        if response_type == 'self_analysis':
+            total_files = alice_response.get('total_files', 0)
+            analyzed = alice_response.get('analyzed_files', [])
+            points = alice_response.get('architecture_points', [])
+            lines = [f"I have {total_files} Python files in my codebase."]
+            for f in analyzed[:5]:
+                lines.append(f"  • {f['path']}: {f.get('lines', 0)} lines")
+            for p in points[:5]:
+                lines.append(f"  • {p}")
+            return "\n".join(lines)
+
+        if response_type == 'code_explanation':
+            name = alice_response.get('file_name', 'file')
+            lines = alice_response.get('lines', 0)
+            module_type = alice_response.get('module_type', 'code')
+            preview = alice_response.get('content_preview', '')[:200]
+            return f"{name} is a {module_type} file with {lines} lines.{(' ' + preview) if preview else ''}"
+
+        # Open-ended types — return None to let Ollama assist Alice
+        return None
+
     def _generate_natural_response(
         self,
         alice_response: Dict[str, Any],
@@ -1171,259 +1328,109 @@ class ALICE:
         user_input: str
     ) -> str:
         """
-        Generate natural language response with progressive learning.
-        This is the LEARNING LOOP - Alice becomes independent over time.
+        Generate natural language response.  Alice is always in control.
 
-        Process:
-        1. Alice has formulated her structured response
-        2. Alice selects the tone
-        3. Alice checks: Can I phrase this myself? (learned enough?)
-        4. If YES: Alice phrases it independently (fast, no LLM!)
-        5. If NO: Alice asks Ollama, then LEARNS from it (child→parent)
+        Priority order:
+        1. Alice's learned phrasing patterns  (fastest — zero LLM)
+        2. Alice's built-in structured phrasing (_alice_direct_phrase)
+        3. Ollama assists Alice for open-ended/conversational types only,
+           then Alice LEARNS from it so she needs Ollama less each time.
 
-        Args:
-            alice_response: Alice's formulated thought (from _formulate_response)
-            tone: Selected tone (from _select_tone)
-            context: Conversational context
-            user_input: Original user input
-
-        Returns:
-            Natural language response ready for user
+        Ollama never overrides Alice.  It is strictly a teacher, not a speaker.
         """
-        # Extract the content type and data
         response_type = alice_response.get('type')
         content = alice_response.get('content') or alice_response
 
-        # Step 1: Can Alice phrase this herself? (Check if learned)
+        # ── Step 1: Learned pattern (Alice independent) ──────────────────────
         if self.phrasing_learner.can_phrase_myself(alice_response, tone):
-            # Alice has learned this pattern! Phrase it independently
             natural_response = self.phrasing_learner.phrase_myself(alice_response, tone)
-            logger.info(f"[ALICE] Phrased '{response_type}' independently (learned pattern, confidence high)")
-            logger.info("[Learning Progress] Alice is becoming more independent!")
+            logger.info(f"[ALICE] Phrased '{response_type}' from learned pattern")
             return natural_response
 
-        # Step 2: Not confident yet - Alice asks Ollama for help (child asks parent)
-        logger.info(f"[ALICE] Need Ollama's help to phrase '{response_type}' (learning in progress...)")
+        # ── Step 2: Alice phrases it directly from structured data ───────────
+        direct = self._alice_direct_phrase(response_type, alice_response)
+        if direct:
+            logger.info(f"[ALICE] Phrased '{response_type}' directly (no LLM needed)")
+            # Record so Alice strengthens her pattern for next time
+            self.phrasing_learner.record_phrasing(
+                alice_thought=alice_response,
+                ollama_phrasing=direct,
+                context={
+                    'tone': tone,
+                    'intent': context.current_intent if hasattr(context, 'current_intent') else 'unknown',
+                    'user_input': user_input,
+                    'source': 'alice_direct',
+                }
+            )
+            return direct
 
-        # Prepare content for phrasing based on response type
-        if response_type == 'capability_answer':
-            can_do = alice_response.get('can_do', False)
-            details = alice_response.get('details', '')
-            operations = alice_response.get('operations', [])
-            thought_content = {
-                'type': 'capability_answer',
-                'can_do': can_do,
-                'details': details,
-                'operations': operations
-            }
-            content_str = f"I {'can' if can_do else 'cannot'} do this. Details: {details}"
+        # ── Step 3: Open-ended — Alice asks Ollama for phrasing help ─────────
+        # Ollama is a teacher here, not a speaker. Alice learns from the reply.
+        logger.info(f"[ALICE] Asking Ollama to help phrase '{response_type}' (Alice will learn from this)")
 
-        elif response_type == 'weather_advice':
-            temp = alice_response.get('temperature')
-            condition = alice_response.get('condition', '')
-            location = alice_response.get('location', '')
-            clothing_item = alice_response.get('clothing_item')
-            is_followup = alice_response.get('is_followup', False)
-            is_forecast = alice_response.get('is_forecast', False)
-            temp_range = alice_response.get('temp_range', '')
-
-            # Round temperature to whole number
-            if temp is not None:
-                temp = round(temp)
-
-            thought_content = alice_response
-
-            # Minimal context string - let learner/LLM generate the actual advice
-            if is_forecast and temp_range:
-                context_str = f"Weather advice for {location}: {temp_range} this week"
-            else:
-                context_str = f"Weather advice for {location}: {temp}°C, {condition}"
-
-            if clothing_item:
-                context_str += f" (item: {clothing_item})"
-
-            content_str = context_str
-
-        elif response_type == 'weather_prediction':
-            answer = alice_response.get('answer', '').capitalize()
-            condition = alice_response.get('condition', '')
-            thought_content = alice_response
-            content_str = f"{answer}, current condition is {condition}."
-
-        elif response_type == 'weather_report':
-            temp = alice_response.get('temperature')
-            condition = alice_response.get('condition', '')
-            location = alice_response.get('location', '')
-            is_followup = alice_response.get('is_followup', False)
-
-            # Round temperature to whole number
-            if temp is not None:
-                temp = round(temp)
-
-            thought_content = alice_response
-
-            # Safety check: if temp is None, don't include it
-            if temp is None:
-                if is_followup:
-                    content_str = f"Still {condition} in {location}"
-                else:
-                    content_str = f"Weather in {location}: {condition}"
-            else:
-                if is_followup:
-                    content_str = f"Still {condition}, {temp}°C in {location}"
-                else:
-                    content_str = f"Weather in {location}: {condition}, {temp}°C"
-
-        elif response_type == 'notes_count':
-            total = alice_response.get('total', 0)
-            todos = alice_response.get('todos', 0)
-            ideas = alice_response.get('ideas', 0)
-            meetings = alice_response.get('meetings', 0)
-            pinned = alice_response.get('pinned', 0)
-            archived = alice_response.get('archived', 0)
-            thought_content = alice_response
-            extras = []
-            if todos:    extras.append(f"{todos} to-do")
-            if ideas:    extras.append(f"{ideas} idea")
-            if meetings: extras.append(f"{meetings} meeting")
-            if pinned:   extras.append(f"{pinned} pinned")
-            if archived: extras.append(f"{archived} archived")
-            extra_str = f" ({', '.join(extras)})" if extras else ""
-            content_str = f"You have {total} note{'s' if total != 1 else ''}{extra_str}."
-
-        elif response_type == 'operation_success':
-            operation = alice_response.get('operation', 'operation')
-            details = alice_response.get('details', '')
-            thought_content = alice_response
-            content_str = f"Successfully completed {operation}. {details}"
-
-        elif response_type == 'operation_failure':
-            operation = alice_response.get('operation', 'operation')
-            error = alice_response.get('error', '')
-            thought_content = alice_response
-            content_str = f"Could not complete {operation}. Error: {error}"
-
-        elif response_type == 'code_explanation':
-            file_name = alice_response.get('file_name', 'file')
-            file_path = alice_response.get('file_path', '')
-            lines = alice_response.get('lines', 0)
-            module_type = alice_response.get('module_type', 'code')
-            content_preview = alice_response.get('content_preview', '')
-            thought_content = alice_response
-            content_str = f"The file {file_name} is a {module_type} file with {lines} lines. It contains: {content_preview[:200]}"
-
-        elif response_type == 'self_analysis':
-            total_files = alice_response.get('total_files', 0)
-            analyzed_files = alice_response.get('analyzed_files', [])
-            architecture_points = alice_response.get('architecture_points', [])
-            thought_content = alice_response
-
-            # Build content string from actual code structure
-            analysis_str = f"I have {total_files} Python files in my codebase. "
-            analysis_str += f"I analyzed {len(analyzed_files)} key architectural files:\n\n"
-
-            for file_info in analyzed_files:
-                analysis_str += f"- {file_info['path']}: {file_info['lines']} lines, "
-                if file_info.get('classes'):
-                    analysis_str += f"{len(file_info['classes'])} classes, "
-                if file_info.get('functions'):
-                    analysis_str += f"{len(file_info['functions'])} functions"
-                analysis_str += "\n"
-
-            analysis_str += f"\nMy architecture includes:\n"
-            for point in architecture_points:
-                analysis_str += f"- {point}\n"
-
-            content_str = analysis_str
-
-        elif response_type == 'knowledge_answer':
-            # Alice answering from her OWN learned knowledge
+        # Build a concise prompt from the structured content so Ollama can help
+        # Alice phrasing it naturally — she provides the facts, Ollama provides fluency.
+        if response_type == 'knowledge_answer':
             question = alice_response.get('question', '')
             intent = alice_response.get('intent', '')
-            confidence = alice_response.get('confidence', 0.5)
-            thought_content = alice_response
-
-            # Query knowledge engine for the answer
-            # This pulls from Alice's learned entities, relationships, and patterns
-            entities = [e for e in self.knowledge_engine.entities.values() if e.name.lower() in question.lower()]
-            relationships = []
-            for entity in entities:
-                relationships.extend(self.knowledge_engine.get_relationships_for_entity(entity.name))
-
-            # Build answer from Alice's knowledge
-            if entities:
-                entity_info = ", ".join([f"{e.name} ({e.type})" for e in entities[:3]])
+            entities_known = [e for e in self.knowledge_engine.entities.values()
+                              if e.name.lower() in question.lower()]
+            relationships: list = []
+            for ent in entities_known:
+                relationships.extend(self.knowledge_engine.get_relationships_for_entity(ent.name))
+            if entities_known:
+                entity_info = ", ".join([f"{e.name} ({e.type})" for e in entities_known[:3]])
                 content_str = f"From my knowledge: {entity_info}"
                 if relationships:
-                    rel_info = relationships[0]
-                    content_str += f". {rel_info['subject']} {rel_info['predicate']} {rel_info['object']}"
+                    rel = relationships[0]
+                    content_str += f". {rel['subject']} {rel['predicate']} {rel['object']}"
             else:
-                # Alice has topical confidence but needs to articulate it
                 topic = intent.split(':')[0] if ':' in intent else intent
-                content_str = f"Based on what I've learned about {topic}, I can help with {question}"
+                content_str = f"Based on what I've learned about {topic}, I can help with: {question}"
 
         elif response_type == 'reasoning_result':
             conclusion = alice_response.get('conclusion', '')
-            thought_content = {
-                'type': 'reasoning_result',
-                'conclusion': conclusion
-            }
             content_str = f"Conclusion: {conclusion}"
 
         else:
-            # General response
-            thought_content = alice_response
+            # general_response and any other open-ended types
             content_str = str(content)
 
-        # Step 3: Ask Ollama to phrase it (using PHRASE_RESPONSE call)
+        thought_content = alice_response
+
         try:
             phrasing_context = {
                 'alice_thought': content_str,
                 'tone': tone,
-                'user_name': self.context.user_prefs.name
+                'user_name': self.context.user_prefs.name,
             }
-
             llm_response = self.llm_gateway.request(
                 prompt=content_str,
                 call_type=LLMCallType.PHRASE_RESPONSE,
                 context=phrasing_context,
-                user_input=user_input
+                user_input=user_input,
             )
-
             if llm_response.success and llm_response.response:
                 natural_response = llm_response.response
-
-                # Step 4: LEARN from Ollama's phrasing (child observes parent)
+                # Alice learns from Ollama's phrasing so she needs it less next time
                 self.phrasing_learner.record_phrasing(
                     alice_thought=thought_content,
                     ollama_phrasing=natural_response,
                     context={
                         'tone': tone,
                         'intent': context.current_intent if hasattr(context, 'current_intent') else 'unknown',
-                        'user_input': user_input
-                    }
+                        'user_input': user_input,
+                        'source': 'ollama_teacher',
+                    },
                 )
-
-                # Check if Alice can now phrase this independently
-                can_phrase_alone = self.phrasing_learner.can_phrase_myself(thought_content, tone)
-                if can_phrase_alone:
-                    self._think(f"Alice learned '{response_type}' - can now phrase independently!")
-                else:
-                    # Count learned examples for this response type
-                    learned_count = 0
-                    if hasattr(self.phrasing_learner, 'learned_patterns'):
-                        for pattern_examples in self.phrasing_learner.learned_patterns.values():
-                            learned_count += sum(1 for p in pattern_examples if p.get('alice_thought', {}).get('type') == response_type)
-                    self._think(f" Learning '{response_type}' ({learned_count}/3 examples - will be independent soon)")
-
+                if self.phrasing_learner.can_phrase_myself(thought_content, tone):
+                    self._think(f"Alice learned '{response_type}' — can now phrase independently!")
                 return natural_response
             else:
-                # Ollama failed - fallback to simple response
-                logger.warning("[ALICE] Ollama phrasing failed, using simple fallback")
+                logger.warning("[ALICE] Ollama phrasing failed — using Alice's direct fallback")
                 return content_str
-
         except Exception as e:
-            logger.error(f"[ALICE] Error in phrasing: {e}")
+            logger.error(f"[ALICE] Error in Ollama phrasing: {e}")
             return content_str
 
     def _register_plugins(self):
