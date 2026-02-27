@@ -994,8 +994,6 @@ class ALICE:
                         }
 
             # General weather query - provide comprehensive info
-            # Only create weather_report if we have current temperature data
-            # If temp is None, this is likely forecast data - use simple formatter instead
             if temp is not None:
                 return {
                     'type': 'weather_report',
@@ -1006,13 +1004,24 @@ class ALICE:
                     'is_followup': recent_weather_given,
                     'confidence': 0.9
                 }
-            else:
-                # Forecast data or error - use simple formatter
+
+            # Forecast data (no current temperature) — Alice formats directly
+            if forecast and isinstance(forecast, list) and len(forecast) > 0:
                 return {
-                    'type': 'general_response',
-                    'content': 'Weather information available',
-                    'confidence': 0.5
+                    'type': 'weather_forecast',
+                    'forecast': forecast,
+                    'location': location,
+                    'user_input': user_input,
+                    'confidence': 0.9
                 }
+
+            # No data at all
+            return {
+                'type': 'operation_failure',
+                'operation': 'weather_lookup',
+                'error': 'no data returned',
+                'confidence': 0.5
+            }
 
         # Note/file operations — detect by intent OR by the action the plugin returned
         # (NLP occasionally misfires but the plugin still succeeds; always trust the action)
@@ -1294,6 +1303,61 @@ class ALICE:
             answer = alice_response.get('answer', '').capitalize()
             condition = alice_response.get('condition', '')
             return f"{answer}. Current condition: {condition}." if condition else f"{answer}."
+
+        if response_type == 'weather_forecast':
+            from datetime import datetime as _dt
+            forecast = alice_response.get('forecast', [])
+            location = alice_response.get('location', '')
+            raw_input = alice_response.get('user_input', '').lower()
+
+            if not forecast:
+                return "I don't have forecast data available right now."
+
+            wants_weekend = 'weekend' in raw_input
+            wants_tomorrow = 'tomorrow' in raw_input
+
+            loc_str = f" for {location}" if location else ''
+
+            # ── Weekend filter ────────────────────────────────────────────────
+            if wants_weekend:
+                weekend_days = []
+                for day in forecast:
+                    try:
+                        date_obj = _dt.strptime(day.get('date', ''), '%Y-%m-%d').date()
+                        if date_obj.weekday() in (5, 6):  # 5=Saturday, 6=Sunday
+                            weekend_days.append((date_obj, day))
+                    except Exception:
+                        pass
+                if weekend_days:
+                    lines = [f"Weekend forecast{loc_str}:"]
+                    for date_obj, day in weekend_days:
+                        day_name = date_obj.strftime('%A')
+                        high = day.get('high')
+                        low = day.get('low')
+                        cond = day.get('condition', 'unknown').title()
+                        if high is not None and low is not None:
+                            lines.append(f"  {day_name}: {cond}, {int(low)}\u00b0 \u2013 {int(high)}\u00b0C")
+                        else:
+                            lines.append(f"  {day_name}: {cond}")
+                    return "\n".join(lines)
+
+            # ── Tomorrow filter ───────────────────────────────────────────────
+            if wants_tomorrow:
+                from datetime import timedelta as _td
+                tomorrow = (_dt.now().date() + _td(days=1)).strftime('%Y-%m-%d')
+                for day in forecast:
+                    if day.get('date') == tomorrow:
+                        high = day.get('high')
+                        low = day.get('low')
+                        cond = day.get('condition', 'unknown').title()
+                        if high is not None and low is not None:
+                            return f"Tomorrow{loc_str}: {cond}, {int(low)}\u00b0 \u2013 {int(high)}\u00b0C."
+                        return f"Tomorrow{loc_str}: {cond}."
+
+            # ── Full 7-day forecast ───────────────────────────────────────────
+            from ai.models.simple_formatters import WeatherFormatter
+            formatted = WeatherFormatter.format({'forecast': forecast, 'location': location})
+            return formatted or f"Forecast{loc_str} available but I couldn't format it."
 
         # ── Capability ───────────────────────────────────────────────────────
         if response_type == 'capability_answer':
