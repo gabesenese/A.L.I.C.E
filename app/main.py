@@ -1414,28 +1414,20 @@ class ALICE:
         response_type = alice_response.get('type')
         content = alice_response.get('content') or alice_response
 
-        # ── Step 1: Learned pattern (Alice independent) ──────────────────────
+        # ── Step 1: Alice phrases it directly from structured data ───────────
+        # This MUST come first so context-aware filters (weekend, tomorrow, etc.)
+        # always produce the correct, fresh answer.  Learned patterns are only
+        # used for open-ended types where _alice_direct_phrase returns None.
+        direct = self._alice_direct_phrase(response_type, alice_response)
+        if direct:
+            logger.info(f"[ALICE] Phrased '{response_type}' directly (no LLM needed)")
+            return direct
+
+        # ── Step 2: Learned pattern for open-ended types (Alice independent) ─
         if self.phrasing_learner.can_phrase_myself(alice_response, tone):
             natural_response = self.phrasing_learner.phrase_myself(alice_response, tone)
             logger.info(f"[ALICE] Phrased '{response_type}' from learned pattern")
             return natural_response
-
-        # ── Step 2: Alice phrases it directly from structured data ───────────
-        direct = self._alice_direct_phrase(response_type, alice_response)
-        if direct:
-            logger.info(f"[ALICE] Phrased '{response_type}' directly (no LLM needed)")
-            # Record so Alice strengthens her pattern for next time
-            self.phrasing_learner.record_phrasing(
-                alice_thought=alice_response,
-                ollama_phrasing=direct,
-                context={
-                    'tone': tone,
-                    'intent': context.current_intent if hasattr(context, 'current_intent') else 'unknown',
-                    'user_input': user_input,
-                    'source': 'alice_direct',
-                }
-            )
-            return direct
 
         # ── Step 3: Open-ended — Alice asks Ollama for phrasing help ─────────
         # Ollama is a teacher here, not a speaker. Alice learns from the reply.
@@ -3835,7 +3827,9 @@ class ALICE:
                     'type': intent,
                     'data': {'user_input': user_input, 'entities': entities or {}}
                 }
-                _tone_for_check = self._select_tone(intent, context, user_input) if hasattr(self, '_select_tone') else 'helpful'
+                # `context` (ConversationalContext) is only defined in the plugin branch;
+                # pass None here — _select_tone handles None gracefully.
+                _tone_for_check = self._select_tone(intent, None, user_input) if hasattr(self, '_select_tone') else 'helpful'
                 if self.phrasing_learner.can_phrase_myself(_conv_thought, _tone_for_check):
                     _learned_response = self.phrasing_learner.phrase_myself(_conv_thought, tone=_tone_for_check)
                     if _learned_response:
