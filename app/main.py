@@ -886,8 +886,16 @@ class ALICE:
         """
         input_lower = user_input.lower()
 
+        # Detect weather by CONTENT as well as intent — NLP sometimes misfires
+        # (e.g. intent='music:pause') but the WeatherPlugin still succeeds.
+        _is_weather_data = (
+            intent.startswith('weather')
+            or 'forecast' in plugin_data
+            or ('temperature' in plugin_data and 'condition' in plugin_data)
+        )
+
         # Weather-related formulations
-        if intent.startswith('weather'):
+        if _is_weather_data:
             temp = plugin_data.get('temperature')
             condition = plugin_data.get('condition', '').lower()
             location = plugin_data.get('location', '')
@@ -1305,7 +1313,7 @@ class ALICE:
             return f"{answer}. Current condition: {condition}." if condition else f"{answer}."
 
         if response_type == 'weather_forecast':
-            from datetime import datetime as _dt
+            from datetime import datetime as _dt, timedelta as _td
             forecast = alice_response.get('forecast', [])
             location = alice_response.get('location', '')
             raw_input = alice_response.get('user_input', '').lower()
@@ -1315,49 +1323,68 @@ class ALICE:
 
             wants_weekend = 'weekend' in raw_input
             wants_tomorrow = 'tomorrow' in raw_input
+            _days_kw = {'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+                        'friday': 4, 'saturday': 5, 'sunday': 6}
+            wants_specific_day = next((d for d in _days_kw if d in raw_input), None)
 
             loc_str = f" for {location}" if location else ''
+            today = _dt.now().date()
 
-            # ── Weekend filter ────────────────────────────────────────────────
+            def _fmt_day(d, day: dict) -> str:
+                is_today = d == today
+                is_tmr = d == today + _td(days=1)
+                label = 'Today' if is_today else ('Tomorrow' if is_tmr else d.strftime('%A'))
+                high = day.get('high')
+                low = day.get('low')
+                cond = day.get('condition', 'unknown').title()
+                if high is not None and low is not None:
+                    return f"  {label:<12} {cond}  (low {int(low)}\u00b0, high {int(high)}\u00b0C)"
+                return f"  {label:<12} {cond}"
+
+            # ── Specific weekday ──────────────────────────────────────────────
+            if wants_specific_day:
+                target_wd = _days_kw[wants_specific_day]
+                for day in forecast:
+                    try:
+                        d = _dt.strptime(day.get('date', ''), '%Y-%m-%d').date()
+                        if d.weekday() == target_wd:
+                            return _fmt_day(d, day).strip()
+                    except Exception:
+                        pass
+
+            # ── Weekend ───────────────────────────────────────────────────────
             if wants_weekend:
                 weekend_days = []
                 for day in forecast:
                     try:
-                        date_obj = _dt.strptime(day.get('date', ''), '%Y-%m-%d').date()
-                        if date_obj.weekday() in (5, 6):  # 5=Saturday, 6=Sunday
-                            weekend_days.append((date_obj, day))
+                        d = _dt.strptime(day.get('date', ''), '%Y-%m-%d').date()
+                        if d.weekday() in (5, 6):
+                            weekend_days.append((d, day))
                     except Exception:
                         pass
                 if weekend_days:
                     lines = [f"Weekend forecast{loc_str}:"]
-                    for date_obj, day in weekend_days:
-                        day_name = date_obj.strftime('%A')
-                        high = day.get('high')
-                        low = day.get('low')
-                        cond = day.get('condition', 'unknown').title()
-                        if high is not None and low is not None:
-                            lines.append(f"  {day_name}: {cond}, {int(low)}\u00b0 \u2013 {int(high)}\u00b0C")
-                        else:
-                            lines.append(f"  {day_name}: {cond}")
-                    return "\n".join(lines)
+                    for d, day in weekend_days:
+                        lines.append(_fmt_day(d, day))
+                    return '\n'.join(lines)
 
-            # ── Tomorrow filter ───────────────────────────────────────────────
+            # ── Tomorrow ──────────────────────────────────────────────────────
             if wants_tomorrow:
-                from datetime import timedelta as _td
-                tomorrow = (_dt.now().date() + _td(days=1)).strftime('%Y-%m-%d')
+                tomorrow_str = (today + _td(days=1)).strftime('%Y-%m-%d')
                 for day in forecast:
-                    if day.get('date') == tomorrow:
-                        high = day.get('high')
-                        low = day.get('low')
-                        cond = day.get('condition', 'unknown').title()
-                        if high is not None and low is not None:
-                            return f"Tomorrow{loc_str}: {cond}, {int(low)}\u00b0 \u2013 {int(high)}\u00b0C."
-                        return f"Tomorrow{loc_str}: {cond}."
+                    if day.get('date') == tomorrow_str:
+                        d = _dt.strptime(tomorrow_str, '%Y-%m-%d').date()
+                        return _fmt_day(d, day).strip()
 
-            # ── Full 7-day forecast ───────────────────────────────────────────
-            from ai.models.simple_formatters import WeatherFormatter
-            formatted = WeatherFormatter.format({'forecast': forecast, 'location': location})
-            return formatted or f"Forecast{loc_str} available but I couldn't format it."
+            # ── Full 7-day table ──────────────────────────────────────────────
+            lines = [f"7-day forecast{loc_str}:"]
+            for day in forecast[:7]:
+                try:
+                    d = _dt.strptime(day.get('date', ''), '%Y-%m-%d').date()
+                    lines.append(_fmt_day(d, day))
+                except Exception:
+                    pass
+            return '\n'.join(lines) if len(lines) > 1 else f"Forecast{loc_str} available but couldn't be formatted."
 
         # ── Capability ───────────────────────────────────────────────────────
         if response_type == 'capability_answer':
