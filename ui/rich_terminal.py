@@ -193,20 +193,38 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
         self.conversation_history.append(("user", text))
 
     def print_assistant_response(self, text):
-        """Display assistant response with nice formatting"""
-        # Check if it's markdown-like content
-        if any(marker in text for marker in ['**', '##', '- ', '1.']):
-            md = Markdown(text)
+        """Display assistant response with consistent, clean formatting."""
+        if not text:
+            return
+        text = text.strip()
+
+        # Detect content that benefits from Markdown rendering
+        _MD_MARKERS = ('**', '##', '```', '| ', '- ', '* ')
+        is_multiline  = '\n' in text
+        has_markdown  = any(m in text for m in _MD_MARKERS)
+        # Numbered list: lines starting with digit+dot (e.g. "1. Item")
+        has_numbered  = any(line.lstrip().startswith(tuple(f'{i}.' for i in range(1, 20)))
+                            for line in text.splitlines())
+
+        if is_multiline or has_markdown or has_numbered:
+            try:
+                content = Markdown(text)
+            except Exception:
+                content = Text(text)
             panel = Panel(
-                md,
+                content,
                 title=f"[{self.colors['assistant']}]A.L.I.C.E[/{self.colors['assistant']}]",
                 border_style=self.colors['dim_border'],
-                box=box.MINIMAL,
-                padding=(0, 2)
+                box=box.ROUNDED,
+                padding=(0, 2),
+                expand=False,
             )
+            self.console.print()
             self.console.print(panel)
         else:
-            self.console.print(f"[{self.colors['assistant']}]A.L.I.C.E:[/{self.colors['assistant']}] {text}")
+            self.console.print(
+                f"\n[{self.colors['assistant']}]A.L.I.C.E:[/{self.colors['assistant']}] {text}"
+            )
 
         self.conversation_history.append(("assistant", text))
         self.console.print()

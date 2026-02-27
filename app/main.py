@@ -1217,33 +1217,34 @@ class ALICE:
                 return "You don't have any notes yet."
             titles = [n.get('title', 'Untitled') if isinstance(n, dict) else str(n) for n in notes[:10]]
             has_more = alice_response.get('has_more', False)
-            lines = [f"You have {count} note{'s' if count != 1 else ''}:"]
+            lines = [f"**You have {count} note{'s' if count != 1 else ''}:**", ""]
             for i, t in enumerate(titles, 1):
-                lines.append(f"  {i}. {t}")
+                lines.append(f"{i}. {t}")
             if has_more:
-                lines.append(f"  … and {count - len(titles)} more.")
+                lines.append(f"\n*…and {count - len(titles)} more.*")
             return "\n".join(lines)
 
         if response_type == 'note_content':
             title = alice_response.get('title', 'that note')
             content_body = alice_response.get('content', '')
             tags = alice_response.get('tags', [])
-            header = f"**{title}**\n\n" if title else ""
-            tag_line = f"\n\nTags: {', '.join(tags)}" if tags else ""
-            return f"{header}{content_body}{tag_line}".strip() or "The note appears to be empty."
+            header = f"## {title}\n" if title else ""
+            tag_line = f"\n---\n*Tags: {', '.join(tags)}*" if tags else ""
+            return f"{header}\n{content_body}{tag_line}".strip() or "The note appears to be empty."
 
         if response_type == 'note_summary':
             title = alice_response.get('title', 'that note')
             summary = alice_response.get('summary', {})
             if isinstance(summary, dict):
-                lines = [f"Summary of **{title}**:"]
-                if summary.get('word_count'):    lines.append(f"  • {summary['word_count']} words")
+                lines = [f"## Summary: {title}", ""]
+                if summary.get('word_count'):
+                    lines.append(f"- **{summary['word_count']} words**")
                 if summary.get('key_points'):
-                    lines.append("  Key points:")
+                    lines.append("\n**Key points:**")
                     for pt in summary['key_points'][:5]:
-                        lines.append(f"    – {pt}")
-                return "\n".join(lines) if len(lines) > 1 else f"Here's a summary of {title}."
-            return f"Here's what I found for **{title}**: {summary}"
+                        lines.append(f"- {pt}")
+                return "\n".join(lines) if len(lines) > 2 else f"Summary of **{title}** — no structured data available."
+            return f"**{title}:** {summary}
 
         if response_type == 'operation_success':
             op = alice_response.get('operation', 'operation')
@@ -1285,15 +1286,17 @@ class ALICE:
             if temp is not None:
                 temp = round(temp)
             loc_str = f" in {location}" if location else ""
+            cond_cap = condition.capitalize() if condition else ""
             if is_followup:
-                return f"Still {condition}{loc_str}, {temp}°C." if temp is not None else f"Still {condition}{loc_str}."
-            return f"It's {temp}°C and {condition}{loc_str}." if temp is not None else f"{condition.capitalize()}{loc_str}."
+                return (f"Still **{cond_cap}**{loc_str} — {temp}°C." if temp is not None
+                        else f"Still **{cond_cap}**{loc_str}.")
+            return (f"**{temp}°C** — {cond_cap}{loc_str}." if temp is not None
+                    else f"**{cond_cap}**{loc_str}.")
 
         if response_type == 'weather_advice':
             temp = alice_response.get('temperature')
             condition = alice_response.get('condition', '')
             location = alice_response.get('location', '')
-            clothing_item = alice_response.get('clothing_item', '')
             if temp is not None:
                 temp = round(temp)
             loc_str = f" in {location}" if location else ""
@@ -1305,7 +1308,8 @@ class ALICE:
                 advice = "It's mild — a light layer should be fine"
             else:
                 advice = "It's warm, no jacket needed"
-            return f"{advice}{loc_str} ({temp}°C, {condition})." if temp is not None else f"{advice}{loc_str}."
+            detail = f" ({temp}°C, {condition})" if temp is not None else ""
+            return f"**{advice}**{loc_str}.{detail}"
 
         if response_type == 'weather_prediction':
             answer = alice_response.get('answer', '').capitalize()
@@ -1330,29 +1334,36 @@ class ALICE:
             loc_str = f" for {location}" if location else ''
             today = _dt.now().date()
 
-            def _fmt_day(d, day: dict) -> str:
+            def _day_label(d) -> str:
                 is_today = d == today
-                is_tmr = d == today + _td(days=1)
-                label = 'Today' if is_today else ('Tomorrow' if is_tmr else d.strftime('%A'))
-                high = day.get('high')
-                low = day.get('low')
-                cond = day.get('condition', 'unknown').title()
-                if high is not None and low is not None:
-                    return f"  {label:<12} {cond}  (low {int(low)}\u00b0, high {int(high)}\u00b0C)"
-                return f"  {label:<12} {cond}"
+                is_tmr   = d == today + _td(days=1)
+                return 'Today' if is_today else ('Tomorrow' if is_tmr else d.strftime('%A'))
 
-            # ── Specific weekday ──────────────────────────────────────────────
+            def _fmt_table_row(d, day: dict) -> str:
+                label = _day_label(d)
+                high  = day.get('high')
+                low   = day.get('low')
+                cond  = day.get('condition', 'unknown').title()
+                temp  = f"{int(low)}° – {int(high)}°C" if (high is not None and low is not None) else "—"
+                return f"| {label} | {cond} | {temp} |"
+
+            TABLE_SEP = "| --- | --- | --- |"
+
+            # ── Specific weekday ─────────────────────────────────────────────
             if wants_specific_day:
                 target_wd = _days_kw[wants_specific_day]
                 for day in forecast:
                     try:
                         d = _dt.strptime(day.get('date', ''), '%Y-%m-%d').date()
                         if d.weekday() == target_wd:
-                            return _fmt_day(d, day).strip()
+                            high, low = day.get('high'), day.get('low')
+                            cond = day.get('condition', 'unknown').title()
+                            temp = f"{int(low)}° – {int(high)}°C" if (high is not None and low is not None) else ''
+                            return f"**{_day_label(d)}{loc_str}** — {cond}{', ' + temp if temp else ''}"
                     except Exception:
                         pass
 
-            # ── Weekend ───────────────────────────────────────────────────────
+            # ── Weekend: two-row table ───────────────────────────────────────
             if wants_weekend:
                 weekend_days = []
                 for day in forecast:
@@ -1363,28 +1374,39 @@ class ALICE:
                     except Exception:
                         pass
                 if weekend_days:
-                    lines = [f"Weekend forecast{loc_str}:"]
+                    lines = [
+                        f"**Weekend forecast{loc_str}**", "",
+                        "| Day | Condition | Temp |",
+                        TABLE_SEP,
+                    ]
                     for d, day in weekend_days:
-                        lines.append(_fmt_day(d, day))
+                        lines.append(_fmt_table_row(d, day))
                     return '\n'.join(lines)
 
-            # ── Tomorrow ──────────────────────────────────────────────────────
+            # ── Tomorrow: single bold line ───────────────────────────────────
             if wants_tomorrow:
                 tomorrow_str = (today + _td(days=1)).strftime('%Y-%m-%d')
                 for day in forecast:
                     if day.get('date') == tomorrow_str:
                         d = _dt.strptime(tomorrow_str, '%Y-%m-%d').date()
-                        return _fmt_day(d, day).strip()
+                        high, low = day.get('high'), day.get('low')
+                        cond = day.get('condition', 'unknown').title()
+                        temp = f"{int(low)}° – {int(high)}°C" if (high is not None and low is not None) else ''
+                        return f"**Tomorrow{loc_str}** — {cond}{', ' + temp if temp else ''}"
 
-            # ── Full 7-day table ──────────────────────────────────────────────
-            lines = [f"7-day forecast{loc_str}:"]
+            # ── Full 7-day table ─────────────────────────────────────────────
+            lines = [
+                f"**7-day forecast{loc_str}**", "",
+                "| Day | Condition | Temp |",
+                TABLE_SEP,
+            ]
             for day in forecast[:7]:
                 try:
                     d = _dt.strptime(day.get('date', ''), '%Y-%m-%d').date()
-                    lines.append(_fmt_day(d, day))
+                    lines.append(_fmt_table_row(d, day))
                 except Exception:
                     pass
-            return '\n'.join(lines) if len(lines) > 1 else f"Forecast{loc_str} available but couldn't be formatted."
+            return '\n'.join(lines) if len(lines) > 4 else f"Forecast{loc_str} available but couldn't be formatted."
 
         # ── Capability ───────────────────────────────────────────────────────
         if response_type == 'capability_answer':
