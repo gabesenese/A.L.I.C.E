@@ -1244,7 +1244,7 @@ class ALICE:
                     for pt in summary['key_points'][:5]:
                         lines.append(f"- {pt}")
                 return "\n".join(lines) if len(lines) > 2 else f"Summary of **{title}** — no structured data available."
-            return f"**{title}:** {summary}
+            return f"**{title}:** {summary}"
 
         if response_type == 'operation_success':
             op = alice_response.get('operation', 'operation')
