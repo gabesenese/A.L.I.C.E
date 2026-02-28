@@ -1295,7 +1295,7 @@ class ALICE:
 
         if response_type == 'weather_advice':
             temp = alice_response.get('temperature')
-            condition = alice_response.get('condition', '')
+            condition = alice_response.get('condition', '').strip()
             location = alice_response.get('location', '')
             if temp is not None:
                 temp = round(temp)
@@ -1308,7 +1308,14 @@ class ALICE:
                 advice = "It's mild — a light layer should be fine"
             else:
                 advice = "It's warm, no jacket needed"
-            detail = f" ({temp}°C, {condition})" if temp is not None else ""
+            
+            # Format detail: only show if we have data
+            if temp is not None and condition:
+                detail = f" ({temp}°C, {condition})"
+            elif temp is not None:
+                detail = f" ({temp}°C)"
+            else:
+                detail = ""
             return f"**{advice}**{loc_str}.{detail}"
 
         if response_type == 'weather_prediction':
