@@ -1832,6 +1832,16 @@ class NLPProcessor:
         if any(word in text_lower for word in greeting_words) and len(text_lower.split()) <= 4:
             return 'greeting', 0.9
 
+        # Knowledge/definition questions: "what is X?", "what are X?", "who is X?", "define X"
+        # Must be before vague patterns to prevent misclassification
+        if text_lower.startswith('what is ') or text_lower.startswith('what are ') or \
+           text_lower.startswith('who is ') and len(text_lower.split()) > 2 or \
+           text_lower.startswith('define ') or text_lower.startswith('explain ') or \
+           'can you explain' in text_lower or 'can you tell me what' in text_lower:
+            # Exclude vague pronouns: "what is that", "who is he/she"
+            if not any(vague in text_lower for vague in ['what is that', 'who is he', 'who is she', 'who is that person']):
+                return 'conversation:question', 0.85
+
         # CLARIFICATION INTENTS (must run before semantic to catch vague patterns)
         # Vague pronouns without context: "who is he/she", "what is that", "who is that"
         if any(pattern in text_lower for pattern in ['who is he', 'who is she', 'who is that', 'what is that', 'who is that person']):
