@@ -15,9 +15,7 @@ class RAGEngine:
     """Handles retrieval-augmented generation queries"""
 
     def __init__(
-        self,
-        memory_store: MemoryStore,
-        embedding_manager: EmbeddingManager
+        self, memory_store: MemoryStore, embedding_manager: EmbeddingManager
     ) -> None:
         self.store = memory_store
         self.embedding = embedding_manager
@@ -27,7 +25,7 @@ class RAGEngine:
         query_text: str,
         memory_type: Optional[str] = None,
         top_k: int = 5,
-        min_similarity: float = 0.6
+        min_similarity: float = 0.6,
     ) -> List[Dict[str, Any]]:
         """
         Query memories with semantic similarity
@@ -50,7 +48,7 @@ class RAGEngine:
                 embedding=query_embedding,
                 threshold=min_similarity,
                 top_k=top_k,
-                memory_type=memory_type
+                memory_type=memory_type,
             )
 
             # Convert to dictionaries with similarity scores
@@ -59,22 +57,24 @@ class RAGEngine:
                 mem_embedding = memory.embedding
                 if mem_embedding:
                     import numpy as np
+
                     similarity = self.embedding.calculate_similarity(
-                        query_embedding,
-                        np.array(mem_embedding)
+                        query_embedding, np.array(mem_embedding)
                     )
                 else:
                     similarity = 0.0
 
-                results.append({
-                    'id': memory.id,
-                    'content': memory.content,
-                    'memory_type': memory.memory_type,
-                    'timestamp': memory.timestamp,
-                    'importance': memory.importance,
-                    'similarity': similarity,
-                    'tags': memory.tags
-                })
+                results.append(
+                    {
+                        "id": memory.id,
+                        "content": memory.content,
+                        "memory_type": memory.memory_type,
+                        "timestamp": memory.timestamp,
+                        "importance": memory.importance,
+                        "similarity": similarity,
+                        "tags": memory.tags,
+                    }
+                )
 
             return results
 
@@ -83,10 +83,7 @@ class RAGEngine:
             return []
 
     def get_llm_context(
-        self,
-        user_input: str,
-        max_tokens: int = 4000,
-        max_memories: int = 3
+        self, user_input: str, max_tokens: int = 4000, max_memories: int = 3
     ) -> str:
         """
         Get relevant context for LLM response
@@ -102,9 +99,7 @@ class RAGEngine:
         try:
             # Query relevant memories
             memories = self.query(
-                query_text=user_input,
-                top_k=max_memories,
-                min_similarity=0.6
+                query_text=user_input, top_k=max_memories, min_similarity=0.6
             )
 
             if not memories:
@@ -134,10 +129,7 @@ class RAGEngine:
             return ""
 
     def search_documents(
-        self,
-        query: str,
-        top_k: int = 5,
-        min_similarity: float = 0.6
+        self, query: str, top_k: int = 5, min_similarity: float = 0.6
     ) -> List[Dict[str, Any]]:
         """
         Search through ingested document chunks
@@ -156,15 +148,15 @@ class RAGEngine:
                 query_text=query,
                 memory_type="document",
                 top_k=top_k,
-                min_similarity=min_similarity
+                min_similarity=min_similarity,
             )
 
             # Add document-specific info
             for result in results:
-                memory = self.store.get_by_id(result['id'])
+                memory = self.store.get_by_id(result["id"])
                 if memory:
-                    result['source_file'] = memory.source_file
-                    result['chunk_index'] = memory.chunk_index
+                    result["source_file"] = memory.source_file
+                    result["chunk_index"] = memory.chunk_index
 
             return results
 
@@ -180,8 +172,7 @@ _rag_engine: OptionalType[RAGEngine] = None
 
 
 def get_rag_engine(
-    memory_store: MemoryStore = None,
-    embedding_manager: EmbeddingManager = None
+    memory_store: MemoryStore = None, embedding_manager: EmbeddingManager = None
 ) -> RAGEngine:
     """Get or create the RAGEngine singleton"""
     global _rag_engine

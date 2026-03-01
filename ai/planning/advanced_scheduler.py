@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class TaskStatus(Enum):
     """Task execution status"""
+
     PENDING = "pending"
     READY = "ready"
     RUNNING = "running"
@@ -31,6 +32,7 @@ class TaskStatus(Enum):
 
 class TaskPriority(Enum):
     """Task priority levels"""
+
     CRITICAL = 0
     HIGH = 1
     NORMAL = 2
@@ -41,6 +43,7 @@ class TaskPriority(Enum):
 @dataclass
 class Task:
     """Represents a scheduled task"""
+
     id: str
     name: str
     func: Callable
@@ -123,7 +126,9 @@ class TaskScheduler:
         self.failed_tasks: Set[str] = set()
 
         # Dependency graph
-        self.dependents: Dict[str, Set[str]] = defaultdict(set)  # task -> tasks that depend on it
+        self.dependents: Dict[str, Set[str]] = defaultdict(
+            set
+        )  # task -> tasks that depend on it
 
         # Worker threads
         self.workers: List[threading.Thread] = []
@@ -132,11 +137,11 @@ class TaskScheduler:
 
         # Statistics
         self.stats = {
-            'total_tasks': 0,
-            'completed': 0,
-            'failed': 0,
-            'cancelled': 0,
-            'total_runtime': 0.0
+            "total_tasks": 0,
+            "completed": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "total_runtime": 0.0,
         }
 
     def add_task(
@@ -148,7 +153,7 @@ class TaskScheduler:
         priority: TaskPriority = TaskPriority.NORMAL,
         dependencies: Set[str] = None,
         deadline: Optional[datetime] = None,
-        estimate_duration: float = 0.0
+        estimate_duration: float = 0.0,
     ) -> Task:
         """
         Add a task to the scheduler.
@@ -186,12 +191,12 @@ class TaskScheduler:
             priority=priority,
             dependencies=dependencies,
             deadline=deadline,
-            estimate_duration=estimate_duration
+            estimate_duration=estimate_duration,
         )
 
         with self.lock:
             self.tasks[task_id] = task
-            self.stats['total_tasks'] += 1
+            self.stats["total_tasks"] += 1
 
             # Build dependency graph
             for dep_id in dependencies:
@@ -218,7 +223,7 @@ class TaskScheduler:
                 return False
 
             task.status = TaskStatus.CANCELLED
-            self.stats['cancelled'] += 1
+            self.stats["cancelled"] += 1
 
             # Remove from ready queue if present
             self.ready_queue = [t for t in self.ready_queue if t.id != task_id]
@@ -259,12 +264,10 @@ class TaskScheduler:
             with self.lock:
                 self.completed_tasks.add(task.id)
                 self.running_tasks.discard(task.id)
-                self.stats['completed'] += 1
-                self.stats['total_runtime'] += task.duration()
+                self.stats["completed"] += 1
+                self.stats["total_runtime"] += task.duration()
 
-            logger.info(
-                f"Task completed: {task.id} in {task.duration():.2f}s"
-            )
+            logger.info(f"Task completed: {task.id} in {task.duration():.2f}s")
 
             # Check if this unblocks other tasks
             self._check_dependencies()
@@ -280,13 +283,15 @@ class TaskScheduler:
                 with self.lock:
                     heapq.heappush(self.ready_queue, task)
                     self.running_tasks.discard(task.id)
-                logger.info(f"Retrying task {task.id} ({task.retry_count}/{task.max_retries})")
+                logger.info(
+                    f"Retrying task {task.id} ({task.retry_count}/{task.max_retries})"
+                )
             else:
                 task.status = TaskStatus.FAILED
                 with self.lock:
                     self.failed_tasks.add(task.id)
                     self.running_tasks.discard(task.id)
-                    self.stats['failed'] += 1
+                    self.stats["failed"] += 1
 
     def _worker_thread(self):
         """Worker thread that executes tasks from queue"""
@@ -316,9 +321,7 @@ class TaskScheduler:
         # Spawn worker threads
         for i in range(self.max_workers):
             worker = threading.Thread(
-                target=self._worker_thread,
-                name=f"TaskWorker-{i}",
-                daemon=True
+                target=self._worker_thread, name=f"TaskWorker-{i}", daemon=True
             )
             worker.start()
             self.workers.append(worker)
@@ -350,10 +353,14 @@ class TaskScheduler:
 
         while True:
             with self.lock:
-                pending = len([
-                    t for t in self.tasks.values()
-                    if t.status in [TaskStatus.PENDING, TaskStatus.READY, TaskStatus.RUNNING]
-                ])
+                pending = len(
+                    [
+                        t
+                        for t in self.tasks.values()
+                        if t.status
+                        in [TaskStatus.PENDING, TaskStatus.READY, TaskStatus.RUNNING]
+                    ]
+                )
 
                 if pending == 0:
                     return True
@@ -412,8 +419,7 @@ class TaskScheduler:
                 return task.estimate_duration
 
             max_dep_path = max(
-                (calculate_longest_path(dep) for dep in task.dependencies),
-                default=0.0
+                (calculate_longest_path(dep) for dep in task.dependencies), default=0.0
             )
 
             longest_path[task_id] = max_dep_path + task.estimate_duration
@@ -438,8 +444,7 @@ class TaskScheduler:
             # Find dependency with longest path
             if task.dependencies:
                 current_id = max(
-                    task.dependencies,
-                    key=lambda tid: longest_path.get(tid, 0.0)
+                    task.dependencies, key=lambda tid: longest_path.get(tid, 0.0)
                 )
             else:
                 current_id = None
@@ -449,22 +454,22 @@ class TaskScheduler:
     def get_stats(self) -> Dict[str, Any]:
         """Get scheduler statistics"""
         with self.lock:
-            pending_count = len([
-                t for t in self.tasks.values()
-                if t.status == TaskStatus.PENDING
-            ])
+            pending_count = len(
+                [t for t in self.tasks.values() if t.status == TaskStatus.PENDING]
+            )
             ready_count = len(self.ready_queue)
             running_count = len(self.running_tasks)
 
             return {
                 **self.stats,
-                'pending': pending_count,
-                'ready': ready_count,
-                'running': running_count,
-                'avg_task_duration': (
-                    self.stats['total_runtime'] / self.stats['completed']
-                    if self.stats['completed'] > 0 else 0.0
-                )
+                "pending": pending_count,
+                "ready": ready_count,
+                "running": running_count,
+                "avg_task_duration": (
+                    self.stats["total_runtime"] / self.stats["completed"]
+                    if self.stats["completed"] > 0
+                    else 0.0
+                ),
             }
 
 

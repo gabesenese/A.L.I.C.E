@@ -21,7 +21,7 @@ class CodeAnalyzer:
     """
 
     def __init__(self):
-        self.supported_languages = {'python', 'javascript', 'typescript', 'java', 'cpp'}
+        self.supported_languages = {"python", "javascript", "typescript", "java", "cpp"}
 
     def analyze_python_code(self, code: str) -> Dict[str, Any]:
         """
@@ -41,22 +41,19 @@ class CodeAnalyzer:
         try:
             tree = ast.parse(code)
         except SyntaxError as e:
-            return {
-                'error': f'Syntax error: {e}',
-                'valid': False
-            }
+            return {"error": f"Syntax error: {e}", "valid": False}
 
         analysis = {
-            'valid': True,
-            'complexity': 0,
-            'functions': [],
-            'classes': [],
-            'imports': [],
-            'variables': [],
-            'docstrings': [],
-            'patterns': [],
-            'quality_score': 0.0,
-            'metrics': {}
+            "valid": True,
+            "complexity": 0,
+            "functions": [],
+            "classes": [],
+            "imports": [],
+            "variables": [],
+            "docstrings": [],
+            "patterns": [],
+            "quality_score": 0.0,
+            "metrics": {},
         }
 
         # Analyze AST nodes
@@ -64,39 +61,39 @@ class CodeAnalyzer:
             # Functions
             if isinstance(node, ast.FunctionDef):
                 func_info = self._analyze_function(node)
-                analysis['functions'].append(func_info)
-                analysis['complexity'] += func_info['complexity']
+                analysis["functions"].append(func_info)
+                analysis["complexity"] += func_info["complexity"]
 
             # Classes
             elif isinstance(node, ast.ClassDef):
                 class_info = self._analyze_class(node)
-                analysis['classes'].append(class_info)
+                analysis["classes"].append(class_info)
 
             # Imports
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    analysis['imports'].append(alias.name)
+                    analysis["imports"].append(alias.name)
 
             elif isinstance(node, ast.ImportFrom):
-                module = node.module or ''
+                module = node.module or ""
                 for alias in node.names:
-                    analysis['imports'].append(f"{module}.{alias.name}")
+                    analysis["imports"].append(f"{module}.{alias.name}")
 
             # Variables
             elif isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
-                        analysis['variables'].append(target.id)
+                        analysis["variables"].append(target.id)
 
         # Extract docstrings
-        analysis['docstrings'] = self._extract_docstrings(tree)
+        analysis["docstrings"] = self._extract_docstrings(tree)
 
         # Detect design patterns
-        analysis['patterns'] = self._detect_patterns(tree, analysis)
+        analysis["patterns"] = self._detect_patterns(tree, analysis)
 
         # Calculate quality metrics
-        analysis['metrics'] = self._calculate_metrics(code, analysis)
-        analysis['quality_score'] = self._calculate_quality_score(analysis['metrics'])
+        analysis["metrics"] = self._calculate_metrics(code, analysis)
+        analysis["quality_score"] = self._calculate_quality_score(analysis["metrics"])
 
         return analysis
 
@@ -118,27 +115,29 @@ class CodeAnalyzer:
         # Get return type if annotated
         return_type = None
         if node.returns:
-            return_type = ast.unparse(node.returns) if hasattr(ast, 'unparse') else 'annotated'
+            return_type = (
+                ast.unparse(node.returns) if hasattr(ast, "unparse") else "annotated"
+            )
 
         # Extract docstring
         docstring = ast.get_docstring(node)
 
         # Count lines
-        if hasattr(node, 'end_lineno') and hasattr(node, 'lineno'):
+        if hasattr(node, "end_lineno") and hasattr(node, "lineno"):
             lines = node.end_lineno - node.lineno + 1
         else:
             lines = 0
 
         return {
-            'name': node.name,
-            'args': args,
-            'arg_count': len(args),
-            'return_type': return_type,
-            'docstring': docstring,
-            'complexity': complexity,
-            'lines': lines,
-            'is_async': isinstance(node, ast.AsyncFunctionDef),
-            'decorators': [self._get_decorator_name(d) for d in node.decorator_list]
+            "name": node.name,
+            "args": args,
+            "arg_count": len(args),
+            "return_type": return_type,
+            "docstring": docstring,
+            "complexity": complexity,
+            "lines": lines,
+            "is_async": isinstance(node, ast.AsyncFunctionDef),
+            "decorators": [self._get_decorator_name(d) for d in node.decorator_list],
         }
 
     def _analyze_class(self, node: ast.ClassDef) -> Dict[str, Any]:
@@ -161,13 +160,13 @@ class CodeAnalyzer:
         docstring = ast.get_docstring(node)
 
         return {
-            'name': node.name,
-            'bases': bases,
-            'methods': methods,
-            'method_count': len(methods),
-            'attributes': attributes,
-            'docstring': docstring,
-            'decorators': [self._get_decorator_name(d) for d in node.decorator_list]
+            "name": node.name,
+            "bases": bases,
+            "methods": methods,
+            "method_count": len(methods),
+            "attributes": attributes,
+            "docstring": docstring,
+            "decorators": [self._get_decorator_name(d) for d in node.decorator_list],
         }
 
     def _get_decorator_name(self, decorator: ast.expr) -> str:
@@ -176,7 +175,7 @@ class CodeAnalyzer:
             return decorator.id
         elif isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Name):
             return decorator.func.id
-        return 'unknown'
+        return "unknown"
 
     def _get_base_name(self, base: ast.expr) -> str:
         """Extract base class name"""
@@ -184,7 +183,7 @@ class CodeAnalyzer:
             return base.id
         elif isinstance(base, ast.Attribute):
             return base.attr
-        return 'unknown'
+        return "unknown"
 
     def _extract_docstrings(self, tree: ast.AST) -> List[str]:
         """Extract all docstrings from AST"""
@@ -209,62 +208,76 @@ class CodeAnalyzer:
         patterns = []
 
         # Singleton pattern
-        for cls in analysis['classes']:
-            if 'singleton' in cls['name'].lower():
-                patterns.append('Singleton')
-            elif any('__new__' in m for m in cls['methods']):
-                patterns.append('Singleton (via __new__)')
+        for cls in analysis["classes"]:
+            if "singleton" in cls["name"].lower():
+                patterns.append("Singleton")
+            elif any("__new__" in m for m in cls["methods"]):
+                patterns.append("Singleton (via __new__)")
 
         # Factory pattern
-        for func in analysis['functions']:
-            if 'factory' in func['name'].lower() or 'create' in func['name'].lower():
-                patterns.append('Factory')
+        for func in analysis["functions"]:
+            if "factory" in func["name"].lower() or "create" in func["name"].lower():
+                patterns.append("Factory")
 
         # Decorator pattern
-        for func in analysis['functions']:
-            if func['decorators']:
-                patterns.append('Decorator')
+        for func in analysis["functions"]:
+            if func["decorators"]:
+                patterns.append("Decorator")
                 break
 
         # Observer pattern (event-based)
         for node in ast.walk(tree):
             if isinstance(node, ast.Name):
-                if 'observer' in node.id.lower() or 'listener' in node.id.lower():
-                    patterns.append('Observer')
+                if "observer" in node.id.lower() or "listener" in node.id.lower():
+                    patterns.append("Observer")
                     break
 
         return list(set(patterns))  # Remove duplicates
 
     def _calculate_metrics(self, code: str, analysis: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate code quality metrics"""
-        lines = code.split('\n')
+        lines = code.split("\n")
         total_lines = len(lines)
-        code_lines = len([line for line in lines if line.strip() and not line.strip().startswith('#')])
-        comment_lines = len([line for line in lines if line.strip().startswith('#')])
+        code_lines = len(
+            [
+                line
+                for line in lines
+                if line.strip() and not line.strip().startswith("#")
+            ]
+        )
+        comment_lines = len([line for line in lines if line.strip().startswith("#")])
 
         # Average function complexity
-        if analysis['functions']:
-            avg_complexity = sum(f['complexity'] for f in analysis['functions']) / len(analysis['functions'])
+        if analysis["functions"]:
+            avg_complexity = sum(f["complexity"] for f in analysis["functions"]) / len(
+                analysis["functions"]
+            )
         else:
             avg_complexity = 1.0
 
         # Documentation ratio
-        documented_functions = len([f for f in analysis['functions'] if f['docstring']])
-        documented_classes = len([c for c in analysis['classes'] if c['docstring']])
-        total_definitions = len(analysis['functions']) + len(analysis['classes'])
-        doc_ratio = (documented_functions + documented_classes) / total_definitions if total_definitions > 0 else 0.0
+        documented_functions = len([f for f in analysis["functions"] if f["docstring"]])
+        documented_classes = len([c for c in analysis["classes"] if c["docstring"]])
+        total_definitions = len(analysis["functions"]) + len(analysis["classes"])
+        doc_ratio = (
+            (documented_functions + documented_classes) / total_definitions
+            if total_definitions > 0
+            else 0.0
+        )
 
         return {
-            'total_lines': total_lines,
-            'code_lines': code_lines,
-            'comment_lines': comment_lines,
-            'comment_ratio': comment_lines / total_lines if total_lines > 0 else 0.0,
-            'avg_complexity': avg_complexity,
-            'max_complexity': max((f['complexity'] for f in analysis['functions']), default=1),
-            'function_count': len(analysis['functions']),
-            'class_count': len(analysis['classes']),
-            'doc_ratio': doc_ratio,
-            'import_count': len(analysis['imports'])
+            "total_lines": total_lines,
+            "code_lines": code_lines,
+            "comment_lines": comment_lines,
+            "comment_ratio": comment_lines / total_lines if total_lines > 0 else 0.0,
+            "avg_complexity": avg_complexity,
+            "max_complexity": max(
+                (f["complexity"] for f in analysis["functions"]), default=1
+            ),
+            "function_count": len(analysis["functions"]),
+            "class_count": len(analysis["classes"]),
+            "doc_ratio": doc_ratio,
+            "import_count": len(analysis["imports"]),
         }
 
     def _calculate_quality_score(self, metrics: Dict[str, Any]) -> float:
@@ -280,19 +293,19 @@ class CodeAnalyzer:
         score = 1.0
 
         # Penalize high complexity
-        if metrics['avg_complexity'] > 10:
+        if metrics["avg_complexity"] > 10:
             score -= 0.2
-        elif metrics['avg_complexity'] > 5:
+        elif metrics["avg_complexity"] > 5:
             score -= 0.1
 
         # Reward good documentation
-        if metrics['doc_ratio'] > 0.8:
+        if metrics["doc_ratio"] > 0.8:
             score += 0.1
-        elif metrics['doc_ratio'] < 0.3:
+        elif metrics["doc_ratio"] < 0.3:
             score -= 0.15
 
         # Reward balanced comments
-        comment_ratio = metrics['comment_ratio']
+        comment_ratio = metrics["comment_ratio"]
         if 0.1 <= comment_ratio <= 0.3:
             score += 0.05
         elif comment_ratio < 0.05:
@@ -305,31 +318,33 @@ class CodeAnalyzer:
         """Suggest code improvements based on analysis"""
         suggestions = []
 
-        metrics = analysis.get('metrics', {})
+        metrics = analysis.get("metrics", {})
 
         # Complexity suggestions
-        if metrics.get('avg_complexity', 0) > 10:
+        if metrics.get("avg_complexity", 0) > 10:
             suggestions.append(
                 "High complexity detected. Consider breaking down complex functions "
                 "into smaller, more focused functions."
             )
 
         # Documentation suggestions
-        if metrics.get('doc_ratio', 1.0) < 0.5:
+        if metrics.get("doc_ratio", 1.0) < 0.5:
             suggestions.append(
                 "Low documentation coverage. Add docstrings to functions and classes "
                 "to explain their purpose and usage."
             )
 
         # Comment suggestions
-        if metrics.get('comment_ratio', 0) < 0.05:
+        if metrics.get("comment_ratio", 0) < 0.05:
             suggestions.append(
                 "Very few comments. Add comments to explain complex logic and "
                 "non-obvious implementations."
             )
 
         # Function length suggestions
-        long_functions = [f for f in analysis.get('functions', []) if f.get('lines', 0) > 50]
+        long_functions = [
+            f for f in analysis.get("functions", []) if f.get("lines", 0) > 50
+        ]
         if long_functions:
             suggestions.append(
                 f"Found {len(long_functions)} long functions (>50 lines). "
@@ -337,7 +352,9 @@ class CodeAnalyzer:
             )
 
         # Class design suggestions
-        large_classes = [c for c in analysis.get('classes', []) if c.get('method_count', 0) > 20]
+        large_classes = [
+            c for c in analysis.get("classes", []) if c.get("method_count", 0) > 20
+        ]
         if large_classes:
             suggestions.append(
                 f"Found {len(large_classes)} large classes (>20 methods). "
@@ -351,31 +368,37 @@ class CodeAnalyzer:
         smells = []
 
         # Long parameter list
-        for func in analysis.get('functions', []):
-            if func['arg_count'] > 5:
-                smells.append({
-                    'type': 'Long Parameter List',
-                    'location': f"Function '{func['name']}'",
-                    'description': f"Has {func['arg_count']} parameters. Consider using a config object."
-                })
+        for func in analysis.get("functions", []):
+            if func["arg_count"] > 5:
+                smells.append(
+                    {
+                        "type": "Long Parameter List",
+                        "location": f"Function '{func['name']}'",
+                        "description": f"Has {func['arg_count']} parameters. Consider using a config object.",
+                    }
+                )
 
         # God class
-        for cls in analysis.get('classes', []):
-            if cls['method_count'] > 20:
-                smells.append({
-                    'type': 'God Class',
-                    'location': f"Class '{cls['name']}'",
-                    'description': f"Has {cls['method_count']} methods. Consider splitting responsibilities."
-                })
+        for cls in analysis.get("classes", []):
+            if cls["method_count"] > 20:
+                smells.append(
+                    {
+                        "type": "God Class",
+                        "location": f"Class '{cls['name']}'",
+                        "description": f"Has {cls['method_count']} methods. Consider splitting responsibilities.",
+                    }
+                )
 
         # High complexity
-        for func in analysis.get('functions', []):
-            if func['complexity'] > 15:
-                smells.append({
-                    'type': 'High Complexity',
-                    'location': f"Function '{func['name']}'",
-                    'description': f"Complexity: {func['complexity']}. Refactor to reduce branching."
-                })
+        for func in analysis.get("functions", []):
+            if func["complexity"] > 15:
+                smells.append(
+                    {
+                        "type": "High Complexity",
+                        "location": f"Function '{func['name']}'",
+                        "description": f"Complexity: {func['complexity']}. Refactor to reduce branching.",
+                    }
+                )
 
         return smells
 
@@ -391,7 +414,7 @@ class CodeGenerator:
     def _load_templates(self) -> Dict[str, str]:
         """Load code templates for common patterns"""
         return {
-            'function': '''def {name}({args}):
+            "function": '''def {name}({args}):
     """
     {description}
 
@@ -403,7 +426,7 @@ class CodeGenerator:
     """
     {body}
 ''',
-            'class': '''class {name}({bases}):
+            "class": '''class {name}({bases}):
     """
     {description}
     """
@@ -414,7 +437,7 @@ class CodeGenerator:
 
     {methods}
 ''',
-            'singleton': '''class {name}:
+            "singleton": '''class {name}:
     """
     {description}
     Singleton pattern implementation.
@@ -430,27 +453,23 @@ class CodeGenerator:
         if not hasattr(self, '_initialized'):
             self._initialized = True
             {init_body}
-'''
+''',
         }
 
     def generate_function(
-        self,
-        name: str,
-        args: List[str],
-        description: str,
-        return_type: str = 'Any'
+        self, name: str, args: List[str], description: str, return_type: str = "Any"
     ) -> str:
         """Generate a function template"""
-        arg_docs = '\n        '.join(f"{arg}: Description of {arg}" for arg in args)
-        args_str = ', '.join(args)
+        arg_docs = "\n        ".join(f"{arg}: Description of {arg}" for arg in args)
+        args_str = ", ".join(args)
 
-        return self.templates['function'].format(
+        return self.templates["function"].format(
             name=name,
             args=args_str,
             description=description,
             arg_docs=arg_docs,
             return_doc=f"Description of return value ({return_type})",
-            body="    pass  # TODO: Implement"
+            body="    pass  # TODO: Implement",
         )
 
     def generate_class(
@@ -458,19 +477,19 @@ class CodeGenerator:
         name: str,
         description: str,
         bases: List[str] = None,
-        methods: List[str] = None
+        methods: List[str] = None,
     ) -> str:
         """Generate a class template"""
-        bases_str = ', '.join(bases) if bases else ''
-        methods_str = '\n    '.join(methods) if methods else 'pass'
+        bases_str = ", ".join(bases) if bases else ""
+        methods_str = "\n    ".join(methods) if methods else "pass"
 
-        return self.templates['class'].format(
+        return self.templates["class"].format(
             name=name,
             bases=bases_str,
             description=description,
-            init_args='',
-            init_body='pass',
-            methods=methods_str
+            init_args="",
+            init_body="pass",
+            methods=methods_str,
         )
 
 

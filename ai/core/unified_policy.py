@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class LLMCallType(Enum):
     """Types of LLM calls for rate limiting"""
+
     CHAT = "chat"
     KNOWLEDGE = "knowledge"
     PARSE = "parse"
@@ -27,6 +28,7 @@ class LLMCallType(Enum):
 @dataclass
 class PolicyDecision:
     """Unified policy decision result"""
+
     allowed: bool
     reason: str
     should_ask_user: bool = False
@@ -41,6 +43,7 @@ class PolicyManager:
         # Import dependencies
         try:
             from ai.core.llm_policy import LLMPolicy
+
             self.llm_policy = LLMPolicy.get_instance()
         except Exception as e:
             logger.warning(f"LLM policy not available: {e}")
@@ -48,13 +51,14 @@ class PolicyManager:
 
         try:
             from ai.optimization.runtime_thresholds import get_thresholds
+
             self.thresholds = get_thresholds()
         except Exception as e:
             logger.error(f"Failed to load thresholds: {e}")
             self.thresholds = {
-                'tool_path_confidence': 0.7,
-                'goal_path_confidence': 0.6,
-                'ask_threshold': 0.5
+                "tool_path_confidence": 0.7,
+                "goal_path_confidence": 0.6,
+                "ask_threshold": 0.5,
             }
 
         logger.info("[PolicyManager] Initialized unified policy system")
@@ -63,7 +67,7 @@ class PolicyManager:
         self,
         call_type: LLMCallType,
         user_input: str,
-        confidence: Optional[float] = None
+        confidence: Optional[float] = None,
     ) -> Tuple[bool, str]:
         """
         Check if LLM call is allowed considering ALL policies:
@@ -86,14 +90,19 @@ class PolicyManager:
         # Check user approval needs
         if self.llm_policy:
             needs_approval = self.llm_policy.needs_user_approval(call_type.value)
-            if needs_approval and not self.llm_policy.has_user_approval(call_type.value):
+            if needs_approval and not self.llm_policy.has_user_approval(
+                call_type.value
+            ):
                 return False, f"User approval required for {call_type.value} calls"
 
         # Check confidence thresholds if provided
         if confidence is not None:
-            min_confidence = self.thresholds.get('tool_path_confidence', 0.7)
+            min_confidence = self.thresholds.get("tool_path_confidence", 0.7)
             if confidence < min_confidence:
-                return False, f"Confidence {confidence:.2f} below threshold {min_confidence}"
+                return (
+                    False,
+                    f"Confidence {confidence:.2f} below threshold {min_confidence}",
+                )
 
         return True, "All policies satisfied"
 
@@ -101,7 +110,7 @@ class PolicyManager:
         self,
         intent_confidence: float,
         has_goal: bool,
-        goal_json: Optional[Dict[str, Any]] = None
+        goal_json: Optional[Dict[str, Any]] = None,
     ) -> PolicyDecision:
         """
         Decide whether to execute or ask for clarification
@@ -115,9 +124,9 @@ class PolicyManager:
         Returns:
             PolicyDecision with execution recommendation
         """
-        tool_threshold = self.thresholds.get('tool_path_confidence', 0.7)
-        ask_threshold = self.thresholds.get('ask_threshold', 0.5)
-        goal_threshold = self.thresholds.get('goal_path_confidence', 0.6)
+        tool_threshold = self.thresholds.get("tool_path_confidence", 0.7)
+        ask_threshold = self.thresholds.get("ask_threshold", 0.5)
+        goal_threshold = self.thresholds.get("goal_path_confidence", 0.6)
 
         # High confidence - execute directly
         if intent_confidence >= tool_threshold:
@@ -125,7 +134,7 @@ class PolicyManager:
                 allowed=True,
                 reason=f"High confidence ({intent_confidence:.2f} >= {tool_threshold})",
                 should_ask_user=False,
-                confidence_threshold=tool_threshold
+                confidence_threshold=tool_threshold,
             )
 
         # Goal detected with sufficient confidence
@@ -134,7 +143,7 @@ class PolicyManager:
                 allowed=True,
                 reason=f"Goal detected with sufficient confidence ({intent_confidence:.2f} >= {goal_threshold})",
                 should_ask_user=False,
-                confidence_threshold=goal_threshold
+                confidence_threshold=goal_threshold,
             )
 
         # Medium confidence - ask for clarification
@@ -144,7 +153,7 @@ class PolicyManager:
                 reason=f"Medium confidence ({intent_confidence:.2f}), requesting clarification",
                 should_ask_user=True,
                 alternative_action="ask_for_clarification",
-                confidence_threshold=ask_threshold
+                confidence_threshold=ask_threshold,
             )
 
         # Low confidence - fallback to conversation
@@ -153,7 +162,7 @@ class PolicyManager:
             reason=f"Low confidence ({intent_confidence:.2f} < {ask_threshold})",
             should_ask_user=True,
             alternative_action="general_conversation",
-            confidence_threshold=ask_threshold
+            confidence_threshold=ask_threshold,
         )
 
     def load_dynamic_thresholds(self, threshold_file: Optional[str] = None) -> bool:
@@ -169,10 +178,12 @@ class PolicyManager:
         try:
             # Clear cache and reload
             import ai.optimization.runtime_thresholds as rt
-            if hasattr(rt, '_cached'):
+
+            if hasattr(rt, "_cached"):
                 rt._cached = {}
 
             from ai.optimization.runtime_thresholds import get_thresholds
+
             self.thresholds = get_thresholds()
 
             logger.info(f"[PolicyManager] Reloaded thresholds: {self.thresholds}")
@@ -207,6 +218,7 @@ class PolicyManager:
         """
         try:
             from ai.optimization.runtime_thresholds import update_thresholds
+
             update_thresholds({key: value})
 
             # Reload thresholds
@@ -228,13 +240,13 @@ class PolicyManager:
             Policy summary dictionary
         """
         summary = {
-            'thresholds': self.get_all_thresholds(),
-            'llm_policy_available': self.llm_policy is not None
+            "thresholds": self.get_all_thresholds(),
+            "llm_policy_available": self.llm_policy is not None,
         }
 
         if self.llm_policy:
             try:
-                summary['llm_rate_limits'] = {
+                summary["llm_rate_limits"] = {
                     call_type.value: self.llm_policy.can_make_call(call_type.value)
                     for call_type in LLMCallType
                 }

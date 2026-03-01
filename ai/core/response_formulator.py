@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ResponseTemplate:
     """Template for a type of response"""
+
     action: str  # e.g., "create_note", "delete_notes", "search_results"
     example_data: Dict[str, Any]  # Example data structure
     example_phrasings: List[str]  # Multiple ways to phrase it
@@ -45,7 +46,7 @@ class ResponseFormulator:
         self,
         phrasing_learner=None,
         llm_gateway=None,
-        storage_path: str = "data/response_templates"
+        storage_path: str = "data/response_templates",
     ):
         self.phrasing_learner = phrasing_learner
         self.llm_gateway = llm_gateway
@@ -65,14 +66,18 @@ class ResponseFormulator:
         template_file = self.storage_path / "templates.json"
         if template_file.exists():
             try:
-                with open(template_file, 'r', encoding='utf-8') as f:
+                with open(template_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     for action, template_data in data.items():
                         self.templates[action] = ResponseTemplate(
                             action=action,
-                            example_data=template_data.get('example_data', {}),
-                            example_phrasings=template_data.get('example_phrasings', []),
-                            formulation_rules=template_data.get('formulation_rules', [])
+                            example_data=template_data.get("example_data", {}),
+                            example_phrasings=template_data.get(
+                                "example_phrasings", []
+                            ),
+                            formulation_rules=template_data.get(
+                                "formulation_rules", []
+                            ),
                         )
                 logger.info(f"Loaded {len(self.templates)} response templates")
             except Exception as e:
@@ -83,10 +88,12 @@ class ResponseFormulator:
         independence_file = self.storage_path / "independence.json"
         if independence_file.exists():
             try:
-                with open(independence_file, 'r', encoding='utf-8') as f:
+                with open(independence_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.independent_actions = set(data.get('independent_actions', []))
-                logger.info(f"Alice can independently formulate {len(self.independent_actions)} action types")
+                    self.independent_actions = set(data.get("independent_actions", []))
+                logger.info(
+                    f"Alice can independently formulate {len(self.independent_actions)} action types"
+                )
             except Exception as e:
                 logger.error(f"Error loading independence data: {e}")
 
@@ -96,7 +103,7 @@ class ResponseFormulator:
         data: Dict[str, Any],
         success: bool,
         user_input: str,
-        tone: str = "helpful"
+        tone: str = "helpful",
     ) -> str:
         """
         Formulate a natural language response from plugin data.
@@ -111,7 +118,9 @@ class ResponseFormulator:
         if action in self.independent_actions and self.phrasing_learner:
             alice_response = self._formulate_independently(action, data, success, tone)
             if alice_response:
-                logger.info(f"[ResponseFormulator] Alice formulated '{action}' independently")
+                logger.info(
+                    f"[ResponseFormulator] Alice formulated '{action}' independently"
+                )
                 return alice_response
 
         # Local fallback (no Ollama): generate response and learn from it.
@@ -121,22 +130,14 @@ class ResponseFormulator:
         return response
 
     def _formulate_independently(
-        self,
-        action: str,
-        data: Dict[str, Any],
-        success: bool,
-        tone: str
+        self, action: str, data: Dict[str, Any], success: bool, tone: str
     ) -> Optional[str]:
         """Formulate response using Alice's learned patterns"""
         if not self.phrasing_learner:
             return None
 
         # Build a thought structure from the data
-        thought = {
-            "type": action,
-            "success": success,
-            "data": data
-        }
+        thought = {"type": action, "success": success, "data": data}
 
         # Try to phrase it using learned patterns
         try:
@@ -154,7 +155,7 @@ class ResponseFormulator:
         data: Dict[str, Any],
         success: bool,
         user_input: str,
-        tone: str
+        tone: str,
     ) -> Optional[str]:
         """
         Previously called Ollama to formulate responses.
@@ -164,21 +165,19 @@ class ResponseFormulator:
         # Alice formulates directly — no LLM involvement
         return self._formulate_basic(action, data, success)
 
-    def _formulate_basic(
-        self,
-        action: str,
-        data: Dict[str, Any],
-        success: bool
-    ) -> str:
+    def _formulate_basic(self, action: str, data: Dict[str, Any], success: bool) -> str:
         """Basic fallback formulation without LLM"""
         if not success:
             return "I wasn't able to complete that action."
 
         # Extract a human-readable subject from data
         subject = (
-            data.get('note_title') or data.get('title') or
-            data.get('name') or data.get('reminder_text') or
-            data.get('query') or data.get('filename')
+            data.get("note_title")
+            or data.get("title")
+            or data.get("name")
+            or data.get("reminder_text")
+            or data.get("query")
+            or data.get("filename")
         )
 
         # Simple templates based on action type
@@ -187,14 +186,16 @@ class ResponseFormulator:
                 return f"Created '{subject}' successfully."
             return "Created successfully."
         elif "delete" in action or "remove" in action:
-            count = data.get('count', 1)
+            count = data.get("count", 1)
             if subject:
                 return f"Removed '{subject}'."
             return f"Removed {count} item{'s' if count != 1 else ''}."
         elif "search" in action or "find" in action:
-            count = data.get('count', 0)
+            count = data.get("count", 0)
             if subject:
-                return f"Found {count} result{'s' if count != 1 else ''} for '{subject}'."
+                return (
+                    f"Found {count} result{'s' if count != 1 else ''} for '{subject}'."
+                )
             return f"Found {count} result{'s' if count != 1 else ''}."
         elif "update" in action or "edit" in action:
             if subject:
@@ -210,34 +211,27 @@ class ResponseFormulator:
             return "Done."
 
     def _learn_formulation(
-        self,
-        action: str,
-        data: Dict[str, Any],
-        response: str,
-        tone: str
+        self, action: str, data: Dict[str, Any], response: str, tone: str
     ):
         """Learn from a successful formulation"""
         if not self.phrasing_learner:
             return
 
         # Record this as a learned phrasing
-        thought = {
-            "type": action,
-            "data": data
-        }
+        thought = {"type": action, "data": data}
 
         try:
             self.phrasing_learner.record_phrasing(
-                alice_thought=thought,
-                ollama_phrasing=response,
-                context={'tone': tone}
+                alice_thought=thought, ollama_phrasing=response, context={"tone": tone}
             )
 
             # Check if Alice has learned enough to be independent
             if self.phrasing_learner.can_phrase_myself(thought, tone):
                 self.independent_actions.add(action)
                 self._save_independence_data()
-                logger.info(f"[ResponseFormulator] Alice achieved independence for '{action}'!")
+                logger.info(
+                    f"[ResponseFormulator] Alice achieved independence for '{action}'!"
+                )
         except Exception as e:
             logger.debug(f"Could not learn formulation: {e}")
 
@@ -245,10 +239,10 @@ class ResponseFormulator:
         """Save actions Alice can formulate independently"""
         independence_file = self.storage_path / "independence.json"
         try:
-            with open(independence_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'independent_actions': list(self.independent_actions)
-                }, f, indent=2)
+            with open(independence_file, "w", encoding="utf-8") as f:
+                json.dump(
+                    {"independent_actions": list(self.independent_actions)}, f, indent=2
+                )
         except Exception as e:
             logger.error(f"Error saving independence data: {e}")
 
@@ -257,14 +251,14 @@ class ResponseFormulator:
         action: str,
         example_data: Dict[str, Any],
         example_phrasings: List[str],
-        formulation_rules: List[str] = None
+        formulation_rules: List[str] = None,
     ):
         """Add a response template for an action type"""
         self.templates[action] = ResponseTemplate(
             action=action,
             example_data=example_data,
             example_phrasings=example_phrasings,
-            formulation_rules=formulation_rules or []
+            formulation_rules=formulation_rules or [],
         )
         self._save_templates()
 
@@ -275,12 +269,12 @@ class ResponseFormulator:
             data = {}
             for action, template in self.templates.items():
                 data[action] = {
-                    'example_data': template.example_data,
-                    'example_phrasings': template.example_phrasings,
-                    'formulation_rules': template.formulation_rules
+                    "example_data": template.example_data,
+                    "example_phrasings": template.example_phrasings,
+                    "formulation_rules": template.formulation_rules,
                 }
 
-            with open(template_file, 'w', encoding='utf-8') as f:
+            with open(template_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
 
             logger.info(f"Saved {len(self.templates)} response templates")
@@ -290,22 +284,28 @@ class ResponseFormulator:
     def get_stats(self) -> Dict[str, Any]:
         """Get formulator statistics"""
         return {
-            'total_templates': len(self.templates),
-            'independent_actions': len(self.independent_actions),
-            'learning_progress': f"{len(self.independent_actions)}/{len(self.templates)}" if self.templates else "0/0"
+            "total_templates": len(self.templates),
+            "independent_actions": len(self.independent_actions),
+            "learning_progress": (
+                f"{len(self.independent_actions)}/{len(self.templates)}"
+                if self.templates
+                else "0/0"
+            ),
         }
 
 
 # Singleton instance
 _formulator = None
 
-def get_response_formulator(phrasing_learner=None, llm_gateway=None) -> ResponseFormulator:
+
+def get_response_formulator(
+    phrasing_learner=None, llm_gateway=None
+) -> ResponseFormulator:
     """Get or create the response formulator singleton"""
     global _formulator
     if _formulator is None:
         _formulator = ResponseFormulator(
-            phrasing_learner=phrasing_learner,
-            llm_gateway=llm_gateway
+            phrasing_learner=phrasing_learner, llm_gateway=llm_gateway
         )
     else:
         # Update dependencies if provided (supports late wiring)

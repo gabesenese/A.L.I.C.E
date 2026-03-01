@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from speech.speech_engine import SpeechEngine
+
     _speech_available = True
 except ImportError:
     _speech_available = False

@@ -28,10 +28,10 @@ class MemoryMetrics:
 
             # Count by type
             counts_by_type = {
-                'episodic': self.store.count('episodic'),
-                'semantic': self.store.count('semantic'),
-                'procedural': self.store.count('procedural'),
-                'document': self.store.count('document')
+                "episodic": self.store.count("episodic"),
+                "semantic": self.store.count("semantic"),
+                "procedural": self.store.count("procedural"),
+                "document": self.store.count("document"),
             }
 
             # Calculate importance distribution
@@ -49,25 +49,23 @@ class MemoryMetrics:
                 all_tags.update(mem.tags)
 
             stats = {
-                'total_memories': len(all_memories),
-                'by_type': counts_by_type,
-                'average_importance': round(avg_importance, 3),
-                'total_accesses': total_accesses,
-                'average_accesses': round(avg_accesses, 2),
-                'unique_tags': len(all_tags),
-                'tags': list(all_tags)
+                "total_memories": len(all_memories),
+                "by_type": counts_by_type,
+                "average_importance": round(avg_importance, 3),
+                "total_accesses": total_accesses,
+                "average_accesses": round(avg_accesses, 2),
+                "unique_tags": len(all_tags),
+                "tags": list(all_tags),
             }
 
             return stats
 
         except Exception as e:
             logger.error(f"Failed to get stats: {e}")
-            return {'error': str(e)}
+            return {"error": str(e)}
 
     def get_top_memories(
-        self,
-        n: int = 10,
-        by: str = 'importance'
+        self, n: int = 10, by: str = "importance"
     ) -> list[Dict[str, Any]]:
         """
         Get top N memories by specified metric
@@ -82,26 +80,36 @@ class MemoryMetrics:
         try:
             all_memories = self.store.get_all()
 
-            if by == 'importance':
-                sorted_memories = sorted(all_memories, key=lambda m: m.importance, reverse=True)
-            elif by == 'access_count':
-                sorted_memories = sorted(all_memories, key=lambda m: m.access_count, reverse=True)
-            elif by == 'recency':
-                sorted_memories = sorted(all_memories, key=lambda m: m.timestamp, reverse=True)
+            if by == "importance":
+                sorted_memories = sorted(
+                    all_memories, key=lambda m: m.importance, reverse=True
+                )
+            elif by == "access_count":
+                sorted_memories = sorted(
+                    all_memories, key=lambda m: m.access_count, reverse=True
+                )
+            elif by == "recency":
+                sorted_memories = sorted(
+                    all_memories, key=lambda m: m.timestamp, reverse=True
+                )
             else:
                 logger.warning(f"Unknown sort key: {by}, using importance")
-                sorted_memories = sorted(all_memories, key=lambda m: m.importance, reverse=True)
+                sorted_memories = sorted(
+                    all_memories, key=lambda m: m.importance, reverse=True
+                )
 
             top_memories = sorted_memories[:n]
 
             return [
                 {
-                    'id': m.id,
-                    'content': m.content[:100] + '...' if len(m.content) > 100 else m.content,
-                    'memory_type': m.memory_type,
-                    'importance': m.importance,
-                    'access_count': m.access_count,
-                    'timestamp': m.timestamp
+                    "id": m.id,
+                    "content": (
+                        m.content[:100] + "..." if len(m.content) > 100 else m.content
+                    ),
+                    "memory_type": m.memory_type,
+                    "importance": m.importance,
+                    "access_count": m.access_count,
+                    "timestamp": m.timestamp,
                 }
                 for m in top_memories
             ]
@@ -126,7 +134,9 @@ class MemoryMetrics:
                     tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
             # Sort by count
-            sorted_tags = dict(sorted(tag_counts.items(), key=lambda x: x[1], reverse=True))
+            sorted_tags = dict(
+                sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
+            )
 
             return sorted_tags
 
@@ -144,46 +154,52 @@ class MemoryMetrics:
         try:
             stats = self.get_stats()
 
-            total = stats['total_memories']
-            avg_importance = stats['average_importance']
-            avg_accesses = stats['average_accesses']
+            total = stats["total_memories"]
+            avg_importance = stats["average_importance"]
+            avg_accesses = stats["average_accesses"]
 
             # Determine health status
             if total == 0:
-                health = 'empty'
+                health = "empty"
             elif avg_importance < 0.3:
-                health = 'low_quality'
+                health = "low_quality"
             elif avg_accesses < 0.5:
-                health = 'underutilized'
+                health = "underutilized"
             elif total > 10000:
-                health = 'needs_consolidation'
+                health = "needs_consolidation"
             else:
-                health = 'healthy'
+                health = "healthy"
 
             return {
-                'status': health,
-                'total_memories': total,
-                'average_importance': avg_importance,
-                'average_accesses': avg_accesses,
-                'recommendations': self._get_recommendations(health, stats)
+                "status": health,
+                "total_memories": total,
+                "average_importance": avg_importance,
+                "average_accesses": avg_accesses,
+                "recommendations": self._get_recommendations(health, stats),
             }
 
         except Exception as e:
             logger.error(f"Failed to get memory health: {e}")
-            return {'status': 'error', 'error': str(e)}
+            return {"status": "error", "error": str(e)}
 
     def _get_recommendations(self, health: str, stats: Dict) -> list[str]:
         """Generate recommendations based on health status"""
         recommendations = []
 
-        if health == 'empty':
+        if health == "empty":
             recommendations.append("Memory system is empty. Start storing memories.")
-        elif health == 'low_quality':
-            recommendations.append("Average importance is low. Consider reviewing memory quality.")
-        elif health == 'underutilized':
-            recommendations.append("Memories are rarely accessed. Improve memory retrieval.")
-        elif health == 'needs_consolidation':
-            recommendations.append("Large number of memories. Run consolidation to optimize.")
+        elif health == "low_quality":
+            recommendations.append(
+                "Average importance is low. Consider reviewing memory quality."
+            )
+        elif health == "underutilized":
+            recommendations.append(
+                "Memories are rarely accessed. Improve memory retrieval."
+            )
+        elif health == "needs_consolidation":
+            recommendations.append(
+                "Large number of memories. Run consolidation to optimize."
+            )
 
         return recommendations
 
@@ -199,6 +215,7 @@ def get_memory_metrics(memory_store: MemoryStore = None) -> MemoryMetrics:
     global _memory_metrics
     if _memory_metrics is None:
         from ai.memory.memory_store import get_memory_store
+
         store = memory_store or get_memory_store()
         _memory_metrics = MemoryMetrics(store)
     return _memory_metrics

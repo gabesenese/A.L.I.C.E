@@ -19,22 +19,22 @@ class ResponseOptimizer:
     - Adapting to user preferences
     - Fixing common response issues
     """
-    
+
     def __init__(self, world_state=None):
         self.world_state = world_state
         self.user_preferences = {
             "verbosity": "medium",  # low, medium, high
             "formality": "casual",  # casual, formal
-            "detail_level": "balanced"  # minimal, balanced, detailed
+            "detail_level": "balanced",  # minimal, balanced, detailed
         }
-    
+
     def optimize(self, response: str, intent: str, context: Dict = None) -> str:
         """Optimize a response for clarity and user preference"""
         if not response:
             return response
-        
+
         optimized = response
-        
+
         # Remove redundant phrases
         redundant_patterns = [
             (r"I can help you with that\.\s*", ""),
@@ -42,31 +42,31 @@ class ResponseOptimizer:
             (r"Let me help you with that\.\s*", ""),
             (r"Sure, I can do that\.\s*", ""),
         ]
-        
+
         for pattern, replacement in redundant_patterns:
             optimized = re.sub(pattern, replacement, optimized, flags=re.IGNORECASE)
-        
+
         # Fix common issues
         # Multiple newlines -> single
-        optimized = re.sub(r'\n{3,}', '\n\n', optimized)
-        
+        optimized = re.sub(r"\n{3,}", "\n\n", optimized)
+
         # Remove trailing whitespace
         optimized = optimized.strip()
-        
+
         # Ensure response ends properly (skip for multi-line/structured responses)
-        if optimized and not optimized[-1] in '.!?' and '\n' not in optimized:
-            if '?' in optimized:
+        if optimized and not optimized[-1] in ".!?" and "\n" not in optimized:
+            if "?" in optimized:
                 pass  # Question, keep as is
             elif len(optimized.split()) > 10:
                 optimized += "."
-        
+
         # Adapt to verbosity preference
         if self.user_preferences["verbosity"] == "low" and len(optimized) > 200:
             # Truncate long responses
-            sentences = optimized.split('. ')
+            sentences = optimized.split(". ")
             if len(sentences) > 2:
-                optimized = '. '.join(sentences[:2]) + '.'
-        
+                optimized = ". ".join(sentences[:2]) + "."
+
         return optimized
 
 

@@ -42,7 +42,9 @@ class PhrasingLearner:
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._load_learned_patterns()
-        logger.info(f"[PhrasingLearner] Initialized with {len(self.learned_patterns)} patterns")
+        logger.info(
+            f"[PhrasingLearner] Initialized with {len(self.learned_patterns)} patterns"
+        )
 
     def _load_learned_patterns(self) -> None:
         """Load previously learned phrasings from storage"""
@@ -52,11 +54,11 @@ class PhrasingLearner:
 
         try:
             pattern_count = 0
-            with open(self.storage_path, 'r', encoding='utf-8') as f:
+            with open(self.storage_path, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
                         entry = json.loads(line)
-                        pattern = entry['pattern']
+                        pattern = entry["pattern"]
                         self.learned_patterns[pattern].append(entry)
                         pattern_count += 1
 
@@ -72,8 +74,8 @@ class PhrasingLearner:
     def _persist(self, new_entry: Dict[str, Any]) -> None:
         """Append new learning to storage (JSONL format)"""
         try:
-            with open(self.storage_path, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(new_entry, ensure_ascii=False) + '\n')
+            with open(self.storage_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(new_entry, ensure_ascii=False) + "\n")
         except Exception as e:
             logger.error(f"[PhrasingLearner] Error persisting: {e}")
 
@@ -88,22 +90,22 @@ class PhrasingLearner:
         - knowledge:general (Alice providing general knowledge)
         - reasoning:conclusion (Alice providing a reasoning conclusion)
         """
-        thought_type = alice_thought.get('type', 'general')
+        thought_type = alice_thought.get("type", "general")
 
-        if thought_type == 'capability_answer':
+        if thought_type == "capability_answer":
             # Pattern based on whether Alice can or can't do something
-            can_do = alice_thought.get('can_do', False)
+            can_do = alice_thought.get("can_do", False)
             return f"capability:{can_do}"
 
-        elif thought_type == 'knowledge_answer':
+        elif thought_type == "knowledge_answer":
             # All knowledge answers are similar patterns
             return "knowledge:general"
 
-        elif thought_type == 'reasoning_result':
+        elif thought_type == "reasoning_result":
             # Reasoning conclusions
             return "reasoning:conclusion"
 
-        elif thought_type == 'factual_answer':
+        elif thought_type == "factual_answer":
             # Direct factual responses
             return "factual:answer"
 
@@ -145,7 +147,7 @@ class PhrasingLearner:
         self,
         alice_thought: Dict[str, Any],
         ollama_phrasing: str,
-        context: Dict[str, Any]
+        context: Dict[str, Any],
     ) -> None:
         """
         Record how Ollama phrased Alice's thought.
@@ -159,12 +161,12 @@ class PhrasingLearner:
         pattern = self._extract_pattern(alice_thought)
 
         entry = {
-            'pattern': pattern,
-            'alice_thought': alice_thought,
-            'ollama_phrasing': ollama_phrasing,
-            'context': context,
-            'timestamp': datetime.now().isoformat(),
-            'tone': context.get('tone', 'warm and helpful')
+            "pattern": pattern,
+            "alice_thought": alice_thought,
+            "ollama_phrasing": ollama_phrasing,
+            "context": context,
+            "timestamp": datetime.now().isoformat(),
+            "tone": context.get("tone", "warm and helpful"),
         }
 
         # Store in memory
@@ -179,10 +181,17 @@ class PhrasingLearner:
         self._persist(entry)
 
         # Log learning progress
-        if new_confidence >= self.confidence_threshold and old_confidence < self.confidence_threshold:
-            logger.info(f"[PhrasingLearner] Alice learned pattern '{pattern}'! Can now phrase independently.")
+        if (
+            new_confidence >= self.confidence_threshold
+            and old_confidence < self.confidence_threshold
+        ):
+            logger.info(
+                f"[PhrasingLearner] Alice learned pattern '{pattern}'! Can now phrase independently."
+            )
         else:
-            logger.info(f"[PhrasingLearner] Learning '{pattern}' (confidence: {new_confidence:.2f}, examples: {len(self.learned_patterns[pattern])})")
+            logger.info(
+                f"[PhrasingLearner] Learning '{pattern}' (confidence: {new_confidence:.2f}, examples: {len(self.learned_patterns[pattern])})"
+            )
 
     def can_phrase_myself(self, alice_thought: Dict, tone: str) -> bool:
         """
@@ -211,21 +220,28 @@ class PhrasingLearner:
         # Check confidence score
         confidence = self.confidence_scores.get(pattern, 0.0)
         if confidence < self.confidence_threshold:
-            logger.debug(f"[PhrasingLearner] Low confidence ({confidence:.2f}) for '{pattern}', need Ollama")
+            logger.debug(
+                f"[PhrasingLearner] Low confidence ({confidence:.2f}) for '{pattern}', need Ollama"
+            )
             return False
 
         # Check if we have examples with this tone
         examples_with_tone = [
-            e for e in self.learned_patterns[pattern]
-            if e['context'].get('tone') == tone
+            e
+            for e in self.learned_patterns[pattern]
+            if e["context"].get("tone") == tone
         ]
 
         if len(examples_with_tone) < self.min_examples_for_confidence:
-            logger.debug(f"[PhrasingLearner] Need more examples with tone '{tone}' (have {len(examples_with_tone)})")
+            logger.debug(
+                f"[PhrasingLearner] Need more examples with tone '{tone}' (have {len(examples_with_tone)})"
+            )
             return False
 
         # Alice is confident and has learned this!
-        logger.info(f"[PhrasingLearner] Alice can phrase '{pattern}' independently (confidence: {confidence:.2f})")
+        logger.info(
+            f"[PhrasingLearner] Alice can phrase '{pattern}' independently (confidence: {confidence:.2f})"
+        )
         return True
 
     def phrase_myself(self, alice_thought: Dict, tone: str) -> str:
@@ -249,8 +265,9 @@ class PhrasingLearner:
 
         # Get examples with matching tone
         examples_with_tone = [
-            e for e in self.learned_patterns[pattern]
-            if e['context'].get('tone') == tone
+            e
+            for e in self.learned_patterns[pattern]
+            if e["context"].get("tone") == tone
         ]
 
         if not examples_with_tone:
@@ -259,23 +276,21 @@ class PhrasingLearner:
 
         # Select example with variation (random choice for natural variety)
         import random
+
         selected_example = random.choice(examples_with_tone)
 
         # Adapt the learned phrasing to current thought
         adapted_phrasing = self._adapt_phrasing(
-            learned_phrasing=selected_example['ollama_phrasing'],
+            learned_phrasing=selected_example["ollama_phrasing"],
             current_thought=alice_thought,
-            learned_thought=selected_example['alice_thought']
+            learned_thought=selected_example["alice_thought"],
         )
 
         logger.info(f"[PhrasingLearner] Alice phrased '{pattern}' independently!")
         return adapted_phrasing
 
     def _adapt_phrasing(
-        self,
-        learned_phrasing: str,
-        current_thought: Dict,
-        learned_thought: Dict
+        self, learned_phrasing: str, current_thought: Dict, learned_thought: Dict
     ) -> str:
         """
         Adapt a learned phrasing to current situation.
@@ -287,21 +302,21 @@ class PhrasingLearner:
         - For weather/data types: substitute ALL changed field values (top-level + data)
         - For others: use learned phrasing as template
         """
-        thought_type = current_thought.get('type', 'general')
+        thought_type = current_thought.get("type", "general")
 
         # Simple adaptation: direct content substitution
         adapted = learned_phrasing
 
-        if thought_type == 'capability_answer':
+        if thought_type == "capability_answer":
             # Replace capability-specific details
-            old_details = learned_thought.get('details', [])
-            new_details = current_thought.get('details', [])
+            old_details = learned_thought.get("details", [])
+            new_details = current_thought.get("details", [])
 
             # Simple string replacement of details
             for old_detail, new_detail in zip(old_details, new_details):
                 adapted = adapted.replace(str(old_detail), str(new_detail))
 
-        elif thought_type == 'knowledge_answer':
+        elif thought_type == "knowledge_answer":
             # For knowledge: structure is good, but content differs
             pass
 
@@ -311,10 +326,14 @@ class PhrasingLearner:
 
             # 1. Top-level fields (weather_report has temperature, condition at top level)
             for key in learned_thought:
-                if key in current_thought and key not in ['type', 'confidence', 'data']:
+                if key in current_thought and key not in ["type", "confidence", "data"]:
                     old_val = learned_thought[key]
                     new_val = current_thought[key]
-                    if old_val != new_val and old_val is not None and new_val is not None:
+                    if (
+                        old_val != new_val
+                        and old_val is not None
+                        and new_val is not None
+                    ):
                         # Convert to string for replacement
                         old_str = str(old_val)
                         new_str = str(new_val)
@@ -323,8 +342,8 @@ class PhrasingLearner:
                             adapted = adapted.replace(old_str, new_str)
 
             # 2. Data subfield (for note ops, file ops, etc.)
-            old_data = learned_thought.get('data', {})
-            new_data = current_thought.get('data', {})
+            old_data = learned_thought.get("data", {})
+            new_data = current_thought.get("data", {})
             for key in old_data:
                 if key in new_data and old_data[key] != new_data[key]:
                     old_val = str(old_data[key])
@@ -338,22 +357,29 @@ class PhrasingLearner:
     def get_stats(self) -> Dict[str, Any]:
         """Get learning statistics"""
         total_patterns = len(self.learned_patterns)
-        total_examples = sum(len(examples) for examples in self.learned_patterns.values())
-        confident_patterns = sum(1 for conf in self.confidence_scores.values()
-                                if conf >= self.confidence_threshold)
+        total_examples = sum(
+            len(examples) for examples in self.learned_patterns.values()
+        )
+        confident_patterns = sum(
+            1
+            for conf in self.confidence_scores.values()
+            if conf >= self.confidence_threshold
+        )
 
         return {
-            'total_patterns': total_patterns,
-            'total_examples': total_examples,
-            'confident_patterns': confident_patterns,
-            'independence_rate': confident_patterns / total_patterns if total_patterns > 0 else 0.0,
-            'patterns': {
+            "total_patterns": total_patterns,
+            "total_examples": total_examples,
+            "confident_patterns": confident_patterns,
+            "independence_rate": (
+                confident_patterns / total_patterns if total_patterns > 0 else 0.0
+            ),
+            "patterns": {
                 pattern: {
-                    'examples': len(self.learned_patterns[pattern]),
-                    'confidence': self.confidence_scores.get(pattern, 0.0)
+                    "examples": len(self.learned_patterns[pattern]),
+                    "confidence": self.confidence_scores.get(pattern, 0.0),
                 }
                 for pattern in self.learned_patterns
-            }
+            },
         }
 
 
@@ -369,37 +395,45 @@ if __name__ == "__main__":
     print("\n[Session 1] Alice asks Ollama...")
 
     alice_thought = {
-        'type': 'capability_answer',
-        'can_do': True,
-        'details': ['read-only', 'all directories', 'list/read/search'],
-        'scope': ['ai/', 'app/', 'features/']
+        "type": "capability_answer",
+        "can_do": True,
+        "details": ["read-only", "all directories", "list/read/search"],
+        "scope": ["ai/", "app/", "features/"],
     }
 
-    ollama_response = "Yes, I can read and analyze my Python codebase across all directories."
+    ollama_response = (
+        "Yes, I can read and analyze my Python codebase across all directories."
+    )
 
-    can_do_it = learner.can_phrase_myself(alice_thought, 'warm and helpful')
+    can_do_it = learner.can_phrase_myself(alice_thought, "warm and helpful")
     print(f"Can Alice phrase this herself? {can_do_it}")
 
     if not can_do_it:
         print("Alice asks Ollama for help...")
-        learner.record_phrasing(alice_thought, ollama_response, {'tone': 'warm and helpful'})
+        learner.record_phrasing(
+            alice_thought, ollama_response, {"tone": "warm and helpful"}
+        )
         print(f"Ollama: {ollama_response}")
 
     # Session 2
     print("\n[Session 2] Alice asks Ollama again...")
-    learner.record_phrasing(alice_thought, ollama_response, {'tone': 'warm and helpful'})
+    learner.record_phrasing(
+        alice_thought, ollama_response, {"tone": "warm and helpful"}
+    )
 
     # Session 3
     print("\n[Session 3] Alice asks Ollama again...")
-    learner.record_phrasing(alice_thought, ollama_response, {'tone': 'warm and helpful'})
+    learner.record_phrasing(
+        alice_thought, ollama_response, {"tone": "warm and helpful"}
+    )
 
     # Session 4 - Alice is confident!
     print("\n[Session 4] Alice tries herself...")
-    can_do_it = learner.can_phrase_myself(alice_thought, 'warm and helpful')
+    can_do_it = learner.can_phrase_myself(alice_thought, "warm and helpful")
     print(f"Can Alice phrase this herself? {can_do_it}")
 
     if can_do_it:
-        response = learner.phrase_myself(alice_thought, 'warm and helpful')
+        response = learner.phrase_myself(alice_thought, "warm and helpful")
         print(f"Alice (independent!): {response}")
 
     # Stats

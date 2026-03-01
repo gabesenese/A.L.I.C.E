@@ -11,11 +11,12 @@ from datetime import datetime
 
 
 class SyntheticCorpusGenerator:
-    def __init__(self, output_path: str = "data/training/synthetic_corpus.jsonl",
-                 llm_engine=None):
+    def __init__(
+        self, output_path: str = "data/training/synthetic_corpus.jsonl", llm_engine=None
+    ):
         """
         Initialize synthetic corpus generator.
-        
+
         Args:
             output_path: Path to save generated corpus
             llm_engine: LLM engine for generating responses
@@ -73,7 +74,7 @@ class SyntheticCorpusGenerator:
                 "See you later",
                 "Exit",
                 "Talk to you later",
-            ]
+            ],
         }
 
         # Common typos and slang variations
@@ -141,7 +142,7 @@ class SyntheticCorpusGenerator:
             text.lower(),
             text.upper(),
             text.capitalize(),
-            " ".join(word.capitalize() for word in text.split())
+            " ".join(word.capitalize() for word in text.split()),
         ]
         return random.choice(variations)
 
@@ -159,17 +160,18 @@ class SyntheticCorpusGenerator:
 
         return list(variants)[:count]
 
-    def generate_training_pairs(self, intent: str, base_input: str,
-                               response: str, num_variants: int = 3) -> List[Dict[str, Any]]:
+    def generate_training_pairs(
+        self, intent: str, base_input: str, response: str, num_variants: int = 3
+    ) -> List[Dict[str, Any]]:
         """
         Generate training pairs from a base input-response.
-        
+
         Args:
             intent: The intent category
             base_input: The original user input
             response: The ideal response
             num_variants: Number of variants to generate
-            
+
         Returns:
             List of training pairs
         """
@@ -185,19 +187,21 @@ class SyntheticCorpusGenerator:
                 "category": "synthetic",
                 "quality_score": 0.85 + random.uniform(-0.05, 0.1),  # 0.8-0.95
                 "generated": True,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
             pairs.append(pair)
 
         return pairs
 
-    def generate_corpus(self, templates: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
+    def generate_corpus(
+        self, templates: Optional[Dict[str, List[str]]] = None
+    ) -> List[Dict[str, Any]]:
         """
         Generate synthetic corpus from templates.
-        
+
         Args:
             templates: Optional custom templates. Uses self.base_templates if None.
-            
+
         Returns:
             List of training pairs
         """
@@ -228,7 +232,7 @@ class SyntheticCorpusGenerator:
                         "category": "synthetic",
                         "quality_score": 0.82 + random.uniform(-0.05, 0.1),
                         "generated": True,
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": datetime.now().isoformat(),
                     }
                     corpus.append(pair)
 
@@ -253,16 +257,16 @@ class SyntheticCorpusGenerator:
 
     def save_corpus(self, corpus: List[Dict[str, Any]]):
         """Save corpus to JSONL file."""
-        os.makedirs(os.path.dirname(self.output_path) or '.', exist_ok=True)
-        with open(self.output_path, 'a') as f:
+        os.makedirs(os.path.dirname(self.output_path) or ".", exist_ok=True)
+        with open(self.output_path, "a") as f:
             for item in corpus:
-                f.write(json.dumps(item) + '\n')
+                f.write(json.dumps(item) + "\n")
 
     def load_corpus(self) -> List[Dict[str, Any]]:
         """Load corpus from JSONL file."""
         corpus = []
         if os.path.exists(self.output_path):
-            with open(self.output_path, 'r') as f:
+            with open(self.output_path, "r") as f:
                 for line in f:
                     if line.strip():
                         corpus.append(json.loads(line))
@@ -281,5 +285,6 @@ class SyntheticCorpusGenerator:
             "total_pairs": len(corpus),
             "intents": intents,
             "synthetic_count": sum(1 for item in corpus if item.get("generated")),
-            "avg_quality": sum(item.get("quality_score", 0.8) for item in corpus) / max(len(corpus), 1)
+            "avg_quality": sum(item.get("quality_score", 0.8) for item in corpus)
+            / max(len(corpus), 1),
         }

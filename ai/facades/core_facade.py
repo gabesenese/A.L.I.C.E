@@ -59,10 +59,7 @@ class CoreFacade:
 
         logger.info("[CoreFacade] Initialized core reasoning and LLM systems")
 
-    def process_input(
-        self,
-        text: str
-    ) -> Tuple[str, float, Dict[str, Any]]:
+    def process_input(self, text: str) -> Tuple[str, float, Dict[str, Any]]:
         """
         Process user input through NLP pipeline
 
@@ -86,7 +83,7 @@ class CoreFacade:
         data: Dict[str, Any],
         success: bool,
         user_input: str,
-        tone: str = "warm and helpful"
+        tone: str = "warm and helpful",
     ) -> str:
         """
         Generate natural language response
@@ -113,7 +110,7 @@ class CoreFacade:
                 data=data,
                 success=success,
                 user_input=user_input,
-                tone=tone
+                tone=tone,
             )
         except Exception as e:
             logger.error(f"Failed to generate response: {e}")
@@ -140,10 +137,7 @@ class CoreFacade:
             return f"I encountered an error: {str(e)}"
 
     def can_handle_conversationally(
-        self,
-        user_input: str,
-        intent: str,
-        context: Any
+        self, user_input: str, intent: str, context: Any
     ) -> bool:
         """
         Check if conversational engine can handle this without LLM
@@ -166,10 +160,7 @@ class CoreFacade:
             return False
 
     def generate_conversational_response(
-        self,
-        user_input: str,
-        intent: str,
-        context: Any
+        self, user_input: str, intent: str, context: Any
     ) -> Optional[str]:
         """
         Generate response using conversational engine (no LLM)
@@ -187,9 +178,7 @@ class CoreFacade:
 
         try:
             return self.conversational.generate_response(
-                user_input=user_input,
-                intent=intent,
-                context=context
+                user_input=user_input, intent=intent, context=context
             )
         except Exception as e:
             logger.error(f"Failed to generate conversational response: {e}")
@@ -215,10 +204,7 @@ class CoreFacade:
             return f"Knowledge query error: {str(e)}"
 
     def phrase_with_tone(
-        self,
-        content: str,
-        tone: str,
-        context: Optional[Dict[str, Any]] = None
+        self, content: str, tone: str, context: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Phrase structured content with specific tone

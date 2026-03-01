@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class MemoryEntry:
     """Single memory entry"""
+
     id: str
     content: str
     memory_type: str  # "episodic", "semantic", "procedural", "document"
@@ -95,7 +96,7 @@ class MemoryStore(ABC):
         embedding: np.ndarray,
         threshold: float,
         top_k: int,
-        memory_type: Optional[str] = None
+        memory_type: Optional[str] = None,
     ) -> List[MemoryEntry]:
         """
         Find similar memories by vector similarity
@@ -185,17 +186,14 @@ class InMemoryMemoryStore(MemoryStore):
         if memory_type is None:
             return list(self.memories.values())
 
-        return [
-            mem for mem in self.memories.values()
-            if mem.memory_type == memory_type
-        ]
+        return [mem for mem in self.memories.values() if mem.memory_type == memory_type]
 
     def find_by_similarity(
         self,
         embedding: np.ndarray,
         threshold: float,
         top_k: int,
-        memory_type: Optional[str] = None
+        memory_type: Optional[str] = None,
     ) -> List[MemoryEntry]:
         """Find similar memories"""
         from sklearn.metrics.pairwise import cosine_similarity
@@ -204,8 +202,7 @@ class InMemoryMemoryStore(MemoryStore):
 
         # Filter memories with embeddings
         memories_with_embeddings = [
-            mem for mem in candidates
-            if mem.embedding is not None
+            mem for mem in candidates if mem.embedding is not None
         ]
 
         if not memories_with_embeddings:
@@ -217,8 +214,7 @@ class InMemoryMemoryStore(MemoryStore):
             for mem in memories_with_embeddings:
                 mem_embedding = np.array(mem.embedding)
                 similarity = cosine_similarity(
-                    embedding.reshape(1, -1),
-                    mem_embedding.reshape(1, -1)
+                    embedding.reshape(1, -1), mem_embedding.reshape(1, -1)
                 )[0][0]
 
                 if similarity >= threshold:
@@ -264,8 +260,7 @@ class InMemoryMemoryStore(MemoryStore):
             return len(self.memories)
 
         return sum(
-            1 for mem in self.memories.values()
-            if mem.memory_type == memory_type
+            1 for mem in self.memories.values() if mem.memory_type == memory_type
         )
 
 

@@ -37,25 +37,25 @@ class Entity:
 
     def to_dict(self):
         return {
-            'name': self.name,
-            'type': self.type,
-            'attributes': self.attributes,
-            'aliases': list(self.aliases),
-            'first_seen': self.first_seen.isoformat(),
-            'last_seen': self.last_seen.isoformat(),
-            'confidence': self.confidence,
-            'mention_count': self.mention_count
+            "name": self.name,
+            "type": self.type,
+            "attributes": self.attributes,
+            "aliases": list(self.aliases),
+            "first_seen": self.first_seen.isoformat(),
+            "last_seen": self.last_seen.isoformat(),
+            "confidence": self.confidence,
+            "mention_count": self.mention_count,
         }
 
     @staticmethod
     def from_dict(data):
-        entity = Entity(data['name'], data['type'])
-        entity.attributes = data['attributes']
-        entity.aliases = set(data['aliases'])
-        entity.first_seen = datetime.fromisoformat(data['first_seen'])
-        entity.last_seen = datetime.fromisoformat(data['last_seen'])
-        entity.confidence = data['confidence']
-        entity.mention_count = data['mention_count']
+        entity = Entity(data["name"], data["type"])
+        entity.attributes = data["attributes"]
+        entity.aliases = set(data["aliases"])
+        entity.first_seen = datetime.fromisoformat(data["first_seen"])
+        entity.last_seen = datetime.fromisoformat(data["last_seen"])
+        entity.confidence = data["confidence"]
+        entity.mention_count = data["mention_count"]
         return entity
 
 
@@ -73,22 +73,22 @@ class Relationship:
 
     def to_dict(self):
         return {
-            'subject': self.subject,
-            'predicate': self.predicate,
-            'object': self.object,
-            'confidence': self.confidence,
-            'evidence_count': self.evidence_count,
-            'first_seen': self.first_seen.isoformat(),
-            'last_confirmed': self.last_confirmed.isoformat()
+            "subject": self.subject,
+            "predicate": self.predicate,
+            "object": self.object,
+            "confidence": self.confidence,
+            "evidence_count": self.evidence_count,
+            "first_seen": self.first_seen.isoformat(),
+            "last_confirmed": self.last_confirmed.isoformat(),
         }
 
     @staticmethod
     def from_dict(data):
-        rel = Relationship(data['subject'], data['predicate'], data['object'])
-        rel.confidence = data['confidence']
-        rel.evidence_count = data['evidence_count']
-        rel.first_seen = datetime.fromisoformat(data['first_seen'])
-        rel.last_confirmed = datetime.fromisoformat(data['last_confirmed'])
+        rel = Relationship(data["subject"], data["predicate"], data["object"])
+        rel.confidence = data["confidence"]
+        rel.evidence_count = data["evidence_count"]
+        rel.first_seen = datetime.fromisoformat(data["first_seen"])
+        rel.last_confirmed = datetime.fromisoformat(data["last_confirmed"])
         return rel
 
 
@@ -104,22 +104,23 @@ class ConceptLearning:
         """Learn a new concept or strengthen existing one"""
         if concept not in self.concepts:
             self.concepts[concept] = {
-                'examples': [],
-                'patterns': [],
-                'confidence': 0.3,
-                'first_learned': datetime.now().isoformat()
+                "examples": [],
+                "patterns": [],
+                "confidence": 0.3,
+                "first_learned": datetime.now().isoformat(),
             }
 
-        self.concepts[concept]['examples'].append({
-            'text': example,
-            'context': context,
-            'timestamp': datetime.now().isoformat()
-        })
+        self.concepts[concept]["examples"].append(
+            {
+                "text": example,
+                "context": context,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
         # Increase confidence with more examples
-        self.concepts[concept]['confidence'] = min(
-            0.95,
-            0.3 + (len(self.concepts[concept]['examples']) * 0.1)
+        self.concepts[concept]["confidence"] = min(
+            0.95, 0.3 + (len(self.concepts[concept]["examples"]) * 0.1)
         )
 
     def learn_word_association(self, word1: str, word2: str):
@@ -174,7 +175,7 @@ class KnowledgeEngine:
         alice_response: str,
         intent: str,
         entities: Dict[str, Any],
-        context: Dict[str, Any]
+        context: Dict[str, Any],
     ):
         """
         Alice learns from EVERY interaction.
@@ -198,7 +199,9 @@ class KnowledgeEngine:
         # Save learned knowledge
         self._save_knowledge()
 
-    def _extract_and_learn_entities(self, user_input: str, response: str, entities: Dict[str, Any]):
+    def _extract_and_learn_entities(
+        self, user_input: str, response: str, entities: Dict[str, Any]
+    ):
         """Extract entities from conversation and learn about them"""
         combined_text = f"{user_input} {response}"
 
@@ -209,20 +212,20 @@ class KnowledgeEngine:
 
         # Simple pattern matching for common entity types
         # Person names (capitalized words)
-        names = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b', combined_text)
+        names = re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b", combined_text)
         for name in names:
-            if name not in ['Alice', 'A.L.I.C.E', 'I', 'You']:
-                self._add_or_update_entity(name, 'person')
+            if name not in ["Alice", "A.L.I.C.E", "I", "You"]:
+                self._add_or_update_entity(name, "person")
 
         # Locations (common patterns)
         loc_patterns = [
-            r'\bin\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
-            r'\bat\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
+            r"\bin\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+            r"\bat\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
         ]
         for pattern in loc_patterns:
             locations = re.findall(pattern, combined_text)
             for loc in locations:
-                self._add_or_update_entity(loc, 'location')
+                self._add_or_update_entity(loc, "location")
 
     def _add_or_update_entity(self, name: str, entity_type: str):
         """Add new entity or update existing one"""
@@ -236,17 +239,19 @@ class KnowledgeEngine:
             self.entities[name] = entity
             logger.debug(f"[Learning] New entity: {name} ({entity_type})")
 
-    def _learn_relationships(self, user_input: str, response: str, entities: Dict[str, Any]):
+    def _learn_relationships(
+        self, user_input: str, response: str, entities: Dict[str, Any]
+    ):
         """Learn relationships between entities"""
         # Simple relationship extraction
         # Pattern: X is Y, X created Y, X lives in Y, etc.
 
         relationship_patterns = [
-            (r'(.+?)\s+is\s+(.+)', 'is'),
-            (r'(.+?)\s+created\s+(.+)', 'created'),
-            (r'(.+?)\s+lives\s+in\s+(.+)', 'lives_in'),
-            (r'(.+?)\s+works\s+at\s+(.+)', 'works_at'),
-            (r'(.+?)\'s\s+(.+)', 'has'),
+            (r"(.+?)\s+is\s+(.+)", "is"),
+            (r"(.+?)\s+created\s+(.+)", "created"),
+            (r"(.+?)\s+lives\s+in\s+(.+)", "lives_in"),
+            (r"(.+?)\s+works\s+at\s+(.+)", "works_at"),
+            (r"(.+?)\'s\s+(.+)", "has"),
         ]
 
         combined = f"{user_input} {response}"
@@ -263,14 +268,18 @@ class KnowledgeEngine:
         """Add or strengthen a relationship"""
         # Check if relationship exists
         for rel in self.relationships:
-            if (rel.subject.lower() == subject.lower() and
-                rel.predicate == predicate and
-                rel.object.lower() == obj.lower()):
+            if (
+                rel.subject.lower() == subject.lower()
+                and rel.predicate == predicate
+                and rel.object.lower() == obj.lower()
+            ):
                 # Strengthen existing relationship
                 rel.evidence_count += 1
                 rel.confidence = min(0.99, rel.confidence + 0.1)
                 rel.last_confirmed = datetime.now()
-                logger.debug(f"[Learning] Strengthened: {subject} {predicate} {obj} (confidence: {rel.confidence:.2f})")
+                logger.debug(
+                    f"[Learning] Strengthened: {subject} {predicate} {obj} (confidence: {rel.confidence:.2f})"
+                )
                 return
 
         # New relationship
@@ -281,28 +290,30 @@ class KnowledgeEngine:
     def _learn_semantic_patterns(self, user_input: str, response: str, intent: str):
         """Learn semantic patterns from the conversation"""
         # Learn word associations
-        words = re.findall(r'\b\w+\b', f"{user_input} {response}".lower())
+        words = re.findall(r"\b\w+\b", f"{user_input} {response}".lower())
         for i in range(len(words) - 1):
             self.concepts.learn_word_association(words[i], words[i + 1])
 
         # Learn intent patterns
         if intent and response:
             self.concepts.learn_concept(
-                concept=intent,
-                example=user_input,
-                context={'response': response[:100]}
+                concept=intent, example=user_input, context={"response": response[:100]}
             )
 
-    def _learn_response_strategy(self, user_input: str, response: str, intent: str, context: Dict[str, Any]):
+    def _learn_response_strategy(
+        self, user_input: str, response: str, intent: str, context: Dict[str, Any]
+    ):
         """Learn what kinds of responses work for different intents"""
         if intent and response:
             # Store successful response patterns
-            self.learned_responses[intent].append({
-                'user_input': user_input,
-                'response': response,
-                'timestamp': datetime.now().isoformat(),
-                'context_keys': list(context.keys())
-            })
+            self.learned_responses[intent].append(
+                {
+                    "user_input": user_input,
+                    "response": response,
+                    "timestamp": datetime.now().isoformat(),
+                    "context_keys": list(context.keys()),
+                }
+            )
 
             # Keep only recent examples (last 50 per intent)
             if len(self.learned_responses[intent]) > 50:
@@ -311,33 +322,44 @@ class KnowledgeEngine:
     def _update_topic_confidence(self, intent: str, context: Dict[str, Any]):
         """Update Alice's confidence in different topics"""
         if intent:
-            topic = intent.split(':')[0] if ':' in intent else intent
+            topic = intent.split(":")[0] if ":" in intent else intent
 
             # Increase confidence with each interaction
             current = self.topic_confidence[topic]
             self.topic_confidence[topic] = min(0.95, current + 0.02)
 
-    def can_answer_independently(self, question: str, intent: str) -> Tuple[bool, float]:
+    def can_answer_independently(
+        self, question: str, intent: str
+    ) -> Tuple[bool, float]:
         """
         Check if Alice can answer this question from her own knowledge.
         Returns (can_answer, confidence)
         """
         # Check entities mentioned in question
         words = question.lower().split()
-        relevant_entities = [e for e in self.entities.values() if e.name.lower() in question.lower()]
+        relevant_entities = [
+            e for e in self.entities.values() if e.name.lower() in question.lower()
+        ]
 
         # Check if we have learned responses for this intent
-        has_responses = intent in self.learned_responses and len(self.learned_responses[intent]) > 2
+        has_responses = (
+            intent in self.learned_responses and len(self.learned_responses[intent]) > 2
+        )
 
         # Check topic confidence
-        topic = intent.split(':')[0] if ':' in intent else intent
+        topic = intent.split(":")[0] if ":" in intent else intent
         topic_conf = self.topic_confidence.get(topic, 0.0)
 
         # Calculate overall confidence
-        entity_conf = sum(e.confidence for e in relevant_entities) / max(len(relevant_entities), 1) if relevant_entities else 0.0
+        entity_conf = (
+            sum(e.confidence for e in relevant_entities)
+            / max(len(relevant_entities), 1)
+            if relevant_entities
+            else 0.0
+        )
         response_conf = 0.5 if has_responses else 0.0
 
-        overall_conf = (entity_conf * 0.3 + response_conf * 0.3 + topic_conf * 0.4)
+        overall_conf = entity_conf * 0.3 + response_conf * 0.3 + topic_conf * 0.4
 
         # Can answer if confidence > 0.6
         can_answer = overall_conf > 0.6
@@ -364,8 +386,10 @@ class KnowledgeEngine:
         relevant_rels = []
 
         for rel in self.relationships:
-            if (rel.subject.lower() == entity_lower or
-                rel.object.lower() == entity_lower):
+            if (
+                rel.subject.lower() == entity_lower
+                or rel.object.lower() == entity_lower
+            ):
                 relevant_rels.append(rel.to_dict())
 
         return relevant_rels
@@ -375,25 +399,34 @@ class KnowledgeEngine:
         try:
             # Save entities
             entities_path = self.storage_path / "entities.json"
-            with open(entities_path, 'w') as f:
-                entities_data = {name: entity.to_dict() for name, entity in self.entities.items()}
+            with open(entities_path, "w") as f:
+                entities_data = {
+                    name: entity.to_dict() for name, entity in self.entities.items()
+                }
                 json.dump(entities_data, f, indent=2)
 
             # Save relationships
             rels_path = self.storage_path / "relationships.json"
-            with open(rels_path, 'w') as f:
+            with open(rels_path, "w") as f:
                 rels_data = [rel.to_dict() for rel in self.relationships]
                 json.dump(rels_data, f, indent=2)
 
             # Save concepts and patterns
             concepts_path = self.storage_path / "concepts.json"
-            with open(concepts_path, 'w') as f:
-                json.dump({
-                    'concepts': self.concepts.concepts,
-                    'word_associations': {k: dict(v) for k, v in self.concepts.word_associations.items()},
-                    'learned_responses': dict(self.learned_responses),
-                    'topic_confidence': dict(self.topic_confidence)
-                }, f, indent=2)
+            with open(concepts_path, "w") as f:
+                json.dump(
+                    {
+                        "concepts": self.concepts.concepts,
+                        "word_associations": {
+                            k: dict(v)
+                            for k, v in self.concepts.word_associations.items()
+                        },
+                        "learned_responses": dict(self.learned_responses),
+                        "topic_confidence": dict(self.topic_confidence),
+                    },
+                    f,
+                    indent=2,
+                )
 
         except Exception as e:
             logger.error(f"[KnowledgeEngine] Error saving knowledge: {e}")
@@ -406,27 +439,39 @@ class KnowledgeEngine:
             if entities_path.exists():
                 with open(entities_path) as f:
                     entities_data = json.load(f)
-                    self.entities = {name: Entity.from_dict(data) for name, data in entities_data.items()}
+                    self.entities = {
+                        name: Entity.from_dict(data)
+                        for name, data in entities_data.items()
+                    }
 
             # Load relationships
             rels_path = self.storage_path / "relationships.json"
             if rels_path.exists():
                 with open(rels_path) as f:
                     rels_data = json.load(f)
-                    self.relationships = [Relationship.from_dict(data) for data in rels_data]
+                    self.relationships = [
+                        Relationship.from_dict(data) for data in rels_data
+                    ]
 
             # Load concepts
             concepts_path = self.storage_path / "concepts.json"
             if concepts_path.exists():
                 with open(concepts_path) as f:
                     data = json.load(f)
-                    self.concepts.concepts = data.get('concepts', {})
+                    self.concepts.concepts = data.get("concepts", {})
                     self.concepts.word_associations = defaultdict(
                         lambda: defaultdict(int),
-                        {k: defaultdict(int, v) for k, v in data.get('word_associations', {}).items()}
+                        {
+                            k: defaultdict(int, v)
+                            for k, v in data.get("word_associations", {}).items()
+                        },
                     )
-                    self.learned_responses = defaultdict(list, data.get('learned_responses', {}))
-                    self.topic_confidence = defaultdict(float, data.get('topic_confidence', {}))
+                    self.learned_responses = defaultdict(
+                        list, data.get("learned_responses", {})
+                    )
+                    self.topic_confidence = defaultdict(
+                        float, data.get("topic_confidence", {})
+                    )
 
         except Exception as e:
             logger.error(f"[KnowledgeEngine] Error loading knowledge: {e}")
@@ -434,14 +479,16 @@ class KnowledgeEngine:
     def get_stats(self) -> Dict[str, Any]:
         """Get statistics about Alice's knowledge"""
         return {
-            'total_entities': len(self.entities),
-            'total_relationships': len(self.relationships),
-            'total_concepts': len(self.concepts.concepts),
-            'learned_intents': len(self.learned_responses),
-            'topics_confident_in': len([t for t, c in self.topic_confidence.items() if c > 0.7]),
-            'top_entities': sorted(
+            "total_entities": len(self.entities),
+            "total_relationships": len(self.relationships),
+            "total_concepts": len(self.concepts.concepts),
+            "learned_intents": len(self.learned_responses),
+            "topics_confident_in": len(
+                [t for t, c in self.topic_confidence.items() if c > 0.7]
+            ),
+            "top_entities": sorted(
                 [(e.name, e.mention_count) for e in self.entities.values()],
                 key=lambda x: x[1],
-                reverse=True
-            )[:10]
+                reverse=True,
+            )[:10],
         }

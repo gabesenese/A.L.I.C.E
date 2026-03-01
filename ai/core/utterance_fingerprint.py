@@ -43,13 +43,14 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-MAX_ENTRIES = 500   # max cached fingerprints
+MAX_ENTRIES = 500  # max cached fingerprints
 MIN_CONFIDENCE = 0.72  # minimum confidence to store as fingerprint
 
 
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CachedParse:
@@ -98,6 +99,7 @@ def _fingerprint(normalized: str) -> str:
 # Store
 # ---------------------------------------------------------------------------
 
+
 class FingerprintStore:
     """
     Thread-safe fingerprint cache backed by a local JSON file.
@@ -106,8 +108,12 @@ class FingerprintStore:
     def __init__(self, store_path: Optional[str] = None):
         if store_path is None:
             store_path = os.path.join(
-                os.path.dirname(__file__), "..", "..", "data", "analytics",
-                "utterance_fingerprints.json"
+                os.path.dirname(__file__),
+                "..",
+                "..",
+                "data",
+                "analytics",
+                "utterance_fingerprints.json",
             )
         self._path = Path(store_path).resolve()
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,7 +136,12 @@ class FingerprintStore:
                 entry.hits += 1
                 entry.last_used = datetime.utcnow().isoformat()
                 self._dirty = True
-                logger.debug("[FINGERPRINT] HIT %s → %s (%.2f)", fp[:8], entry.intent, entry.confidence)
+                logger.debug(
+                    "[FINGERPRINT] HIT %s → %s (%.2f)",
+                    fp[:8],
+                    entry.intent,
+                    entry.confidence,
+                )
                 return entry
         return None
 
@@ -187,7 +198,9 @@ class FingerprintStore:
                 return
             try:
                 data = {k: v.as_dict() for k, v in self._cache.items()}
-                self._path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                self._path.write_text(
+                    json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
                 self._dirty = False
                 logger.debug("[FINGERPRINT] Flushed %d entries to disk", len(data))
             except Exception as exc:

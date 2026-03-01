@@ -18,6 +18,7 @@ class FormatterStrategy(Protocol):
     allowing ``NotesFormatter`` to swap rendering strategies at runtime
     without changing the calling code.
     """
+
     def render_notes_list(
         self,
         notes: List[Dict[str, Any]],
@@ -85,10 +86,9 @@ def _pick_list_strategy(note_count: int) -> FormatterStrategy:
     return DetailedNotesListStrategy()
 
 
-
 class SimpleFormatter:
     """Base class for simple formatters"""
-    
+
     @staticmethod
     def format(data: Any, **kwargs) -> Optional[str]:
         """Format data into natural language. Returns None if can't format."""
@@ -97,12 +97,12 @@ class SimpleFormatter:
 
 class WeatherFormatter(SimpleFormatter):
     """Format weather data without LLM"""
-    
+
     @staticmethod
     def format(data: Dict[str, Any], **kwargs) -> Optional[str]:
         """
         Format weather data
-        
+
         Expected data:
         {
             'temperature': float,
@@ -114,13 +114,13 @@ class WeatherFormatter(SimpleFormatter):
         if not isinstance(data, dict):
             return None
 
-        if isinstance(data.get('forecast'), list):
+        if isinstance(data.get("forecast"), list):
             return WeatherFormatter._format_forecast(data, **kwargs)
-        
-        temp = data.get('temperature')
-        condition = data.get('condition', 'unknown')
-        location = data.get('location', 'your location')
-        humidity = data.get('humidity')
+
+        temp = data.get("temperature")
+        condition = data.get("condition", "unknown")
+        location = data.get("location", "your location")
+        humidity = data.get("humidity")
 
         parts = []
 
@@ -129,11 +129,11 @@ class WeatherFormatter(SimpleFormatter):
             temp = round(temp)
 
         # Temperature and condition
-        if temp is not None and condition and condition != 'unknown':
+        if temp is not None and condition and condition != "unknown":
             parts.append(f"Weather in {location}: {condition}, {temp}°C")
         elif temp is not None:
             parts.append(f"Temperature in {location}: {temp}°C")
-        elif condition and condition != 'unknown':
+        elif condition and condition != "unknown":
             parts.append(f"Weather in {location}: {condition}")
 
         # Humidity
@@ -148,8 +148,8 @@ class WeatherFormatter(SimpleFormatter):
     @staticmethod
     def _format_forecast(data: Dict[str, Any], **kwargs) -> Optional[str]:
         """Format multi-day weather forecast data."""
-        forecast = data.get('forecast', [])
-        location = data.get('location', 'your location')
+        forecast = data.get("forecast", [])
+        location = data.get("location", "your location")
 
         if not forecast:
             return None
@@ -161,29 +161,29 @@ class WeatherFormatter(SimpleFormatter):
             target_date = WeatherFormatter._weekday_to_date(target_day)
             if target_date:
                 for day in days:
-                    if day.get('date') == target_date:
+                    if day.get("date") == target_date:
                         return WeatherFormatter._format_single_day(location, day)
 
         # Weather condition icons/symbols
         condition_icons = {
-            'clear': '',
-            'sunny': '',
-            'partly cloudy': '',
-            'cloudy': '',
-            'overcast': '',
-            'foggy': '',
-            'fog': '',
-            'rain': '',
-            'light rain': '',
-            'drizzle': '',
-            'light drizzle': '',
-            'heavy rain': '',
-            'thunderstorm': '',
-            'snow': '',
-            'light snow': '',
-            'heavy snow': '',
-            'sleet': '',
-            'windy': ''
+            "clear": "",
+            "sunny": "",
+            "partly cloudy": "",
+            "cloudy": "",
+            "overcast": "",
+            "foggy": "",
+            "fog": "",
+            "rain": "",
+            "light rain": "",
+            "drizzle": "",
+            "light drizzle": "",
+            "heavy rain": "",
+            "thunderstorm": "",
+            "snow": "",
+            "light snow": "",
+            "heavy snow": "",
+            "sleet": "",
+            "windy": "",
         }
 
         # Start with header
@@ -192,21 +192,21 @@ class WeatherFormatter(SimpleFormatter):
         today = datetime.now().date()
 
         for i, day in enumerate(days):
-            date_str = day.get('date')
-            high = day.get('high')
-            low = day.get('low')
-            condition = day.get('condition', 'unknown').lower()
+            date_str = day.get("date")
+            high = day.get("high")
+            low = day.get("low")
+            condition = day.get("condition", "unknown").lower()
 
             # Format date
             day_label = ""
             is_today = False
             if date_str:
                 try:
-                    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
                     is_today = date_obj.date() == today
 
                     # Get day of week
-                    day_of_week = date_obj.strftime('%A')
+                    day_of_week = date_obj.strftime("%A")
 
                     # Add "Today" marker
                     if is_today:
@@ -217,7 +217,7 @@ class WeatherFormatter(SimpleFormatter):
                     day_label = date_str
 
             # Get weather icon
-            icon = ''  # Default
+            icon = ""  # Default
             for key, symbol in condition_icons.items():
                 if key in condition:
                     icon = symbol
@@ -242,18 +242,18 @@ class WeatherFormatter(SimpleFormatter):
     @staticmethod
     def _format_single_day(location: str, day: Dict[str, Any]) -> str:
         """Format a single day's forecast with improved readability"""
-        date_str = day.get('date')
-        high = day.get('high')
-        low = day.get('low')
-        condition = day.get('condition', 'unknown')
+        date_str = day.get("date")
+        high = day.get("high")
+        low = day.get("low")
+        condition = day.get("condition", "unknown")
 
         # Convert date to more readable format
         day_name = ""
         if date_str:
             try:
-                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
                 # Format: "Monday, February 9"
-                day_name = date_obj.strftime('%A, %B %d').replace(' 0', ' ')
+                day_name = date_obj.strftime("%A, %B %d").replace(" 0", " ")
             except:
                 day_name = date_str
 
@@ -267,20 +267,20 @@ class WeatherFormatter(SimpleFormatter):
     def _extract_target_day(entities: Optional[Dict[str, Any]]) -> Optional[str]:
         if not entities:
             return None
-        time_entities = entities.get('TIME_RANGE')
+        time_entities = entities.get("TIME_RANGE")
         if not time_entities:
             return None
         # Entities may be objects or strings, handle both
         if isinstance(time_entities, str):
             # Single string, return as-is
             return time_entities.lower()
-        
+
         for item in time_entities:
             if item is None:
                 continue
-            if hasattr(item, 'normalized_value') and item.normalized_value:
+            if hasattr(item, "normalized_value") and item.normalized_value:
                 return str(item.normalized_value).lower()
-            if hasattr(item, 'value'):
+            if hasattr(item, "value"):
                 return str(item.value).lower()
             if isinstance(item, str):
                 return item.lower()
@@ -289,13 +289,13 @@ class WeatherFormatter(SimpleFormatter):
     @staticmethod
     def _weekday_to_date(weekday: str) -> Optional[str]:
         weekdays = {
-            'monday': 0,
-            'tuesday': 1,
-            'wednesday': 2,
-            'thursday': 3,
-            'friday': 4,
-            'saturday': 5,
-            'sunday': 6
+            "monday": 0,
+            "tuesday": 1,
+            "wednesday": 2,
+            "thursday": 3,
+            "friday": 4,
+            "saturday": 5,
+            "sunday": 6,
         }
         if weekday not in weekdays:
             return None
@@ -305,17 +305,17 @@ class WeatherFormatter(SimpleFormatter):
         if days_ahead == 0:
             days_ahead = 7
         target_date = today + timedelta(days=days_ahead)
-        return target_date.strftime('%Y-%m-%d')
+        return target_date.strftime("%Y-%m-%d")
 
 
 class EmailFormatter(SimpleFormatter):
     """Format email data without LLM"""
-    
+
     @staticmethod
     def format(data: Any, **kwargs) -> Optional[str]:
         """
         Format email list or single email
-        
+
         Expected data for list:
         [
             {'from': str, 'subject': str, 'date': str, 'unread': bool},
@@ -324,12 +324,12 @@ class EmailFormatter(SimpleFormatter):
         """
         if isinstance(data, list):
             # If user requests latest N emails, limit to 5 by default
-            limit = kwargs.get('limit', 5)
+            limit = kwargs.get("limit", 5)
             return EmailFormatter._format_email_list(data, limit=limit)
         elif isinstance(data, dict):
             return EmailFormatter._format_single_email(data)
         return None
-    
+
     @staticmethod
     def _format_email_list(emails: List[Dict], limit: int = 5) -> str:
         """Format list of emails, showing up to 'limit' emails."""
@@ -337,31 +337,35 @@ class EmailFormatter(SimpleFormatter):
             return "No emails found."
 
         count = len(emails)
-        unread_count = sum(1 for e in emails if e.get('unread', False))
+        unread_count = sum(1 for e in emails if e.get("unread", False))
 
-        lines = [f"Showing your latest {min(count, limit)} of {count} email(s)" + (f", {unread_count} unread" if unread_count > 0 else "") + ":"]
+        lines = [
+            f"Showing your latest {min(count, limit)} of {count} email(s)"
+            + (f", {unread_count} unread" if unread_count > 0 else "")
+            + ":"
+        ]
 
         for i, email in enumerate(emails[:limit], 1):
-            sender = email.get('from', 'Unknown')
-            subject = email.get('subject', 'No subject')
-            unread_mark = " [UNREAD]" if email.get('unread') else ""
+            sender = email.get("from", "Unknown")
+            subject = email.get("subject", "No subject")
+            unread_mark = " [UNREAD]" if email.get("unread") else ""
             lines.append(f"{i}. From {sender}: {subject}{unread_mark}")
 
         if count > limit:
             lines.append(f"... and {count - limit} more")
 
         return "\n".join(lines)
-    
+
     @staticmethod
     def _format_single_email(email: Dict) -> str:
         """Format single email"""
         import html
         import re
 
-        sender = email.get('from', 'Unknown')
-        subject = email.get('subject', 'No subject')
-        date = email.get('date', 'Unknown date')
-        body = email.get('body', '')
+        sender = email.get("from", "Unknown")
+        subject = email.get("subject", "No subject")
+        date = email.get("date", "Unknown date")
+        body = email.get("body", "")
 
         # Strip HTML if present and normalize whitespace
         if body:
@@ -380,7 +384,7 @@ class EmailFormatter(SimpleFormatter):
             f"Subject: {subject}",
             f"Date: {date}",
             "",
-            preview if preview else "(No content)"
+            preview if preview else "(No content)",
         ]
 
         return "\n".join(lines)
@@ -388,12 +392,12 @@ class EmailFormatter(SimpleFormatter):
 
 class CalendarFormatter(SimpleFormatter):
     """Format calendar events without LLM"""
-    
+
     @staticmethod
     def format(data: Any, **kwargs) -> Optional[str]:
         """
         Format calendar events
-        
+
         Expected data:
         [
             {'title': str, 'start': str, 'end': str, 'location': str},
@@ -402,40 +406,40 @@ class CalendarFormatter(SimpleFormatter):
         """
         if not isinstance(data, list):
             return None
-        
+
         if not data:
             return "No events scheduled."
-        
+
         count = len(data)
         lines = [f"You have {count} upcoming event(s):"]
-        
+
         for i, event in enumerate(data[:10], 1):
-            title = event.get('title', 'Untitled')
-            start = event.get('start', '')
-            location = event.get('location', '')
-            
+            title = event.get("title", "Untitled")
+            start = event.get("start", "")
+            location = event.get("location", "")
+
             event_line = f"{i}. {title}"
             if start:
                 event_line += f" at {start}"
             if location:
                 event_line += f" ({location})"
-            
+
             lines.append(event_line)
-        
+
         if count > 10:
             lines.append(f"... and {count - 10} more")
-        
+
         return "\n".join(lines)
 
 
 class FileSearchFormatter(SimpleFormatter):
     """Format file search results without LLM"""
-    
+
     @staticmethod
     def format(data: Any, **kwargs) -> Optional[str]:
         """
         Format file search results
-        
+
         Expected data:
         [
             {'name': str, 'path': str, 'size': int, 'modified': str},
@@ -444,28 +448,28 @@ class FileSearchFormatter(SimpleFormatter):
         """
         if not isinstance(data, list):
             return None
-        
+
         if not data:
             return "No files found."
-        
+
         count = len(data)
         lines = [f"Found {count} file(s):"]
-        
+
         for i, file in enumerate(data[:10], 1):
-            name = file.get('name', 'Unknown')
-            path = file.get('path', '')
-            size = file.get('size', 0)
-            
+            name = file.get("name", "Unknown")
+            path = file.get("path", "")
+            size = file.get("size", 0)
+
             # Format size
             size_str = FileSearchFormatter._format_size(size)
-            
+
             lines.append(f"{i}. {name} ({size_str}) - {path}")
-        
+
         if count > 10:
             lines.append(f"... and {count - 10} more")
-        
+
         return "\n".join(lines)
-    
+
     @staticmethod
     def _format_size(bytes: int) -> str:
         """Format file size"""
@@ -481,11 +485,15 @@ class FileSearchFormatter(SimpleFormatter):
 
 class NotesFormatter(SimpleFormatter):
     """Format notes without LLM"""
-    
+
     @staticmethod
     def format(data: Any, **kwargs) -> Optional[str]:
         """Format notes payloads (legacy lists/single-note + structured action data)."""
-        if isinstance(data, dict) and 'action' in data and isinstance(data.get('data'), dict):
+        if (
+            isinstance(data, dict)
+            and "action" in data
+            and isinstance(data.get("data"), dict)
+        ):
             return NotesFormatter._format_action_payload(data)
 
         if not isinstance(data, list):
@@ -500,9 +508,9 @@ class NotesFormatter(SimpleFormatter):
         lines = [f"Found {count} note(s):"]
 
         for i, note in enumerate(data[:10], 1):
-            title = note.get('title', 'Untitled')
-            tags = note.get('tags', [])
-            created = note.get('created', '')
+            title = note.get("title", "Untitled")
+            tags = note.get("tags", [])
+            created = note.get("created", "")
 
             note_line = f"{i}. {title}"
             if tags:
@@ -519,52 +527,57 @@ class NotesFormatter(SimpleFormatter):
 
     @staticmethod
     def _format_action_payload(payload: Dict[str, Any]) -> Optional[str]:
-        action = payload.get('action', '')
-        data = payload.get('data', {})
+        action = payload.get("action", "")
+        data = payload.get("data", {})
 
-        if data.get('error') == 'note_ambiguous':
-            candidates = data.get('candidates', [])
+        if data.get("error") == "note_ambiguous":
+            candidates = data.get("candidates", [])
             lines = ["I found multiple matching notes:"]
             for idx, candidate in enumerate(candidates, 1):
-                option = candidate.get('option', idx)
-                title = candidate.get('title', 'Untitled')
-                tags = candidate.get('tags', [])
-                updated = (candidate.get('updated_at') or '')[:10]
+                option = candidate.get("option", idx)
+                title = candidate.get("title", "Untitled")
+                tags = candidate.get("tags", [])
+                updated = (candidate.get("updated_at") or "")[:10]
                 line = f"{option}. {title}"
                 if tags:
                     line += f"  #{' #'.join(tags[:3])}"
                 if updated:
                     line += f"  [{updated}]"
                 lines.append(line)
-            hint = data.get('selection_hint') or "Reply with the option number."
+            hint = data.get("selection_hint") or "Reply with the option number."
             lines.append("")
             lines.append(hint)
             return "\n".join(lines)
 
         # Feature #4: Confirmation request (destructive action gate)
-        if data.get('error') == 'requires_confirmation':
-            prompt = data.get('prompt', '')
-            note_title = data.get('note_title', '')
-            return prompt or f'Confirm to proceed with "{note_title}". Reply "confirm" or "cancel".'
+        if data.get("error") == "requires_confirmation":
+            prompt = data.get("prompt", "")
+            note_title = data.get("note_title", "")
+            return (
+                prompt
+                or f'Confirm to proceed with "{note_title}". Reply "confirm" or "cancel".'
+            )
 
         # Feature #4: Action cancelled
-        if action == 'action_cancelled':
-            cancelled_action = data.get('cancelled_action', 'action')
-            note_title = data.get('note_title', '')
+        if action == "action_cancelled":
+            cancelled_action = data.get("cancelled_action", "action")
+            note_title = data.get("note_title", "")
             msg = f"Cancelled {cancelled_action.replace('_', ' ')}"
             if note_title:
                 msg += f' for "{note_title}"'
             return msg + "."
 
-        if action in ('list_notes', 'list_archived_notes'):
-            notes = data.get('notes', [])
-            count = data.get('count', len(notes))
-            shown = data.get('shown', len(notes))
-            limit = data.get('limit')
-            header = "Notes" if action == 'list_notes' else "Archived Notes"
+        if action in ("list_notes", "list_archived_notes"):
+            notes = data.get("notes", [])
+            count = data.get("count", len(notes))
+            shown = data.get("shown", len(notes))
+            limit = data.get("limit")
+            header = "Notes" if action == "list_notes" else "Archived Notes"
 
             if not notes and count == 0:
-                header_line = "Archived notes" if action == 'list_archived_notes' else "Notes"
+                header_line = (
+                    "Archived notes" if action == "list_archived_notes" else "Notes"
+                )
                 return f"No {header_line.lower()} found."
 
             # Feature #8: Strategy-based adaptive rendering
@@ -579,27 +592,29 @@ class NotesFormatter(SimpleFormatter):
                     lines.insert(1, f"Showing {shown} of {count}")
 
             # Upcoming reminders / overdue notices (Feature #7)
-            overdue_count = data.get('overdue_count', 0)
-            upcoming = data.get('upcoming_reminders', [])
+            overdue_count = data.get("overdue_count", 0)
+            upcoming = data.get("upcoming_reminders", [])
             if overdue_count:
-                lines.append(f"\n[!] {overdue_count} overdue note(s). Use 'show overdue notes' for details.")
+                lines.append(
+                    f"\n[!] {overdue_count} overdue note(s). Use 'show overdue notes' for details."
+                )
             if upcoming:
                 lines.append(f"\nUpcoming reminders ({len(upcoming)}):")
                 for r in upcoming[:3]:
-                    title_r = r.get('title', 'Untitled')
-                    due = r.get('due_date') or r.get('reminder', '')
+                    title_r = r.get("title", "Untitled")
+                    due = r.get("due_date") or r.get("reminder", "")
                     lines.append(f"  - {title_r}  due: {due[:10] if due else '?'}")
 
             if count > shown:
                 lines.append(f"... and {count - shown} more")
             return "\n".join(lines)
 
-        if action == 'get_note_content':
-            title = data.get('note_title', 'Untitled')
-            tags = data.get('tags', [])
-            category = data.get('category', '')
-            priority = data.get('priority', '')
-            content = data.get('content', '').strip()
+        if action == "get_note_content":
+            title = data.get("note_title", "Untitled")
+            tags = data.get("tags", [])
+            category = data.get("category", "")
+            priority = data.get("priority", "")
+            content = data.get("content", "").strip()
 
             lines = [title]
             meta = []
@@ -615,13 +630,13 @@ class NotesFormatter(SimpleFormatter):
             lines.append(content or "(empty note)")
             return "\n".join(lines)
 
-        if action == 'summarize_note':
-            title = data.get('note_title', 'Untitled')
-            summary = data.get('summary', {})
-            overview = summary.get('overview', [])
-            key_points = summary.get('key_points', [])
-            action_items = summary.get('action_items', [])
-            dates = summary.get('dates', [])
+        if action == "summarize_note":
+            title = data.get("note_title", "Untitled")
+            summary = data.get("summary", {})
+            overview = summary.get("overview", [])
+            key_points = summary.get("key_points", [])
+            action_items = summary.get("action_items", [])
+            dates = summary.get("dates", [])
 
             lines = [f"Summary: {title}"]
             if overview:
@@ -641,7 +656,7 @@ class NotesFormatter(SimpleFormatter):
                 lines.append("- " + ", ".join(dates[:8]))
             return "\n".join(lines)
 
-        if action == 'count_notes':
+        if action == "count_notes":
             return (
                 f"Notes: {data.get('total', 0)} total"
                 f" | todo: {data.get('todos', 0)}"
@@ -651,8 +666,8 @@ class NotesFormatter(SimpleFormatter):
                 f" | archived: {data.get('archived', 0)}"
             )
 
-        if action == 'show_tags':
-            sorted_tags = data.get('sorted_tags', [])
+        if action == "show_tags":
+            sorted_tags = data.get("sorted_tags", [])
             if not sorted_tags:
                 return "No tags found."
             lines = [f"Tags ({len(sorted_tags)}):"]
@@ -661,11 +676,11 @@ class NotesFormatter(SimpleFormatter):
             return "\n".join(lines)
 
         # ── Feature #1: Content / full-text search results ───────────────────
-        if action == 'search_notes_content':
-            results = data.get('results', [])
-            query = data.get('query', '')
-            count = data.get('count', len(results))
-            fallback = data.get('fallback', False)
+        if action == "search_notes_content":
+            results = data.get("results", [])
+            query = data.get("query", "")
+            count = data.get("count", len(results))
+            fallback = data.get("fallback", False)
             if not results:
                 return f"No notes found containing '{query}'."
             header = f"Content search results for '{query}' ({count})"
@@ -673,9 +688,9 @@ class NotesFormatter(SimpleFormatter):
                 header += " [body search fallback]"
             lines = [header]
             for idx, r in enumerate(results[:10], 1):
-                title = r.get('title', 'Untitled')
-                snippet = r.get('matched_snippet', '')
-                score = r.get('score', 0.0)
+                title = r.get("title", "Untitled")
+                snippet = r.get("matched_snippet", "")
+                score = r.get("score", 0.0)
                 lines.append(f"{idx}. {title}  [score: {score:.1f}]")
                 if snippet:
                     lines.append(f"   ...{snippet[:120]}...")
@@ -683,181 +698,181 @@ class NotesFormatter(SimpleFormatter):
                 lines.append(f"... and {count - 10} more")
             return "\n".join(lines)
 
-        if action == 'search_notes':
-            results = data.get('results', [])
-            query = data.get('query', '')
-            count = data.get('count', len(results))
+        if action == "search_notes":
+            results = data.get("results", [])
+            query = data.get("query", "")
+            count = data.get("count", len(results))
             if not results:
                 return f"No notes found for '{query}'."
             lines = [f"Search results for '{query}' ({count}):"]
             for idx, r in enumerate(results, 1):
-                title = r.get('title', 'Untitled')
-                tags = r.get('tags', [])
+                title = r.get("title", "Untitled")
+                tags = r.get("tags", [])
                 tag_str = (" #" + " #".join(tags[:3])) if tags else ""
                 lines.append(f"{idx}. {title}{tag_str}")
             return "\n".join(lines)
 
-        if action == 'search_notes_empty':
-            return f"No notes found for '{data.get('query', '')}'. Try different keywords."
+        if action == "search_notes_empty":
+            return (
+                f"No notes found for '{data.get('query', '')}'. Try different keywords."
+            )
 
         # ── Feature #3: Create note from conversation ─────────────────────────
-        if action == 'create_note_from_context':
-            title = data.get('note_title', 'Untitled')
-            turns = data.get('source_turns', 0)
-            return f"Note saved: \"{title}\" (captured {turns} conversation turn(s))."
+        if action == "create_note_from_context":
+            title = data.get("note_title", "Untitled")
+            turns = data.get("source_turns", 0)
+            return f'Note saved: "{title}" (captured {turns} conversation turn(s)).'
 
         # ── Feature #5: Append note ───────────────────────────────────────────
-        if action == 'append_note':
-            title = data.get('note_title', 'Untitled')
-            appended = data.get('appended_text', '')
-            return f"Appended to \"{title}\": {appended[:80]}"
+        if action == "append_note":
+            title = data.get("note_title", "Untitled")
+            appended = data.get("appended_text", "")
+            return f'Appended to "{title}": {appended[:80]}'
 
         # ── Simple CRUD actions ───────────────────────────────────────────────
-        if action == 'create_note':
-            title = data.get('title', 'Untitled')
-            tags = data.get('tags', [])
-            note_type = data.get('note_type', 'note')
+        if action == "create_note":
+            title = data.get("title", "Untitled")
+            tags = data.get("tags", [])
+            note_type = data.get("note_type", "note")
             tag_str = (" [" + ", ".join(f"#{t}" for t in tags) + "]") if tags else ""
-            return f"Created {note_type}: \"{title}\"{tag_str}"
+            return f'Created {note_type}: "{title}"{tag_str}'
 
-        if action == 'edit_note':
-            title = data.get('note_title', 'Untitled')
-            new_content = data.get('new_content', '')
-            return f"Updated \"{title}\": {new_content[:80]}"
+        if action == "edit_note":
+            title = data.get("note_title", "Untitled")
+            new_content = data.get("new_content", "")
+            return f'Updated "{title}": {new_content[:80]}'
 
-        if action == 'add_to_note':
-            title = data.get('title', 'Untitled')
-            item = data.get('item_added', '')
-            return f"Added to \"{title}\": {item}"
+        if action == "add_to_note":
+            title = data.get("title", "Untitled")
+            item = data.get("item_added", "")
+            return f'Added to "{title}": {item}'
 
-        if action == 'delete_note':
-            title = data.get('note_title', 'Untitled')
-            restorable = data.get('restorable', True)
+        if action == "delete_note":
+            title = data.get("note_title", "Untitled")
+            restorable = data.get("restorable", True)
             suffix = " (archived — can be restored)" if restorable else " (deleted)"
-            return f"Deleted \"{title}\"{suffix}."
+            return f'Deleted "{title}"{suffix}.'
 
-        if action in ('delete_notes', 'delete_notes_empty'):
-            count = data.get('count', 0)
+        if action in ("delete_notes", "delete_notes_empty"):
+            count = data.get("count", 0)
             if count == 0:
                 return "No active notes to delete."
             return f"Archived {count} note(s). They can be restored from the archive."
 
-        if action in ('pin_note', 'unpin_note'):
-            title = data.get('note_title', 'Untitled')
-            pinned = data.get('pinned', action == 'pin_note')
+        if action in ("pin_note", "unpin_note"):
+            title = data.get("note_title", "Untitled")
+            pinned = data.get("pinned", action == "pin_note")
             verb = "Pinned" if pinned else "Unpinned"
-            return f"{verb}: \"{title}\"."
+            return f'{verb}: "{title}".'
 
-        if action in ('archive_note', 'unarchive_note'):
-            title = data.get('note_title', 'Untitled')
-            archived = data.get('archived', action == 'archive_note')
+        if action in ("archive_note", "unarchive_note"):
+            title = data.get("note_title", "Untitled")
+            archived = data.get("archived", action == "archive_note")
             verb = "Archived" if archived else "Unarchived"
-            return f"{verb}: \"{title}\"."
+            return f'{verb}: "{title}".'
 
-        if action == 'set_priority':
-            title = data.get('note_title', 'Untitled')
-            priority = data.get('priority', 'medium')
-            return f"Priority for \"{title}\" set to {priority}."
+        if action == "set_priority":
+            title = data.get("note_title", "Untitled")
+            priority = data.get("priority", "medium")
+            return f'Priority for "{title}" set to {priority}.'
 
-        if action == 'set_category':
-            title = data.get('note_title', 'Untitled')
-            category = data.get('category', 'general')
-            return f"Category for \"{title}\" set to {category}."
+        if action == "set_category":
+            title = data.get("note_title", "Untitled")
+            category = data.get("category", "general")
+            return f'Category for "{title}" set to {category}.'
 
-        if action == 'get_note_title':
-            title = data.get('title', 'Untitled')
-            return f"Note title: \"{title}\"."
+        if action == "get_note_title":
+            title = data.get("title", "Untitled")
+            return f'Note title: "{title}".'
 
         # ── Feature #7: Overdue notes ─────────────────────────────────────────
-        if action == 'show_overdue_notes':
-            notes = data.get('notes', [])
-            count = data.get('count', len(notes))
+        if action == "show_overdue_notes":
+            notes = data.get("notes", [])
+            count = data.get("count", len(notes))
             if count == 0:
                 return "No overdue notes — you're all caught up!"
             lines = [f"Overdue notes ({count}):"]
             for idx, n in enumerate(notes, 1):
-                title = n.get('title', 'Untitled')
-                due = n.get('due_date', '')
-                priority = n.get('priority', '')
+                title = n.get("title", "Untitled")
+                due = n.get("due_date", "")
+                priority = n.get("priority", "")
                 line = f"{idx}. {title}"
                 if due:
                     line += f"  due: {due[:10]}"
-                if priority and priority not in ('medium', ''):
+                if priority and priority not in ("medium", ""):
                     line += f"  [{priority}]"
                 lines.append(line)
             return "\n".join(lines)
 
         # ── Feature #9: Note linking ──────────────────────────────────────────
-        if action == 'link_notes':
-            a = data.get('note_a_title', '')
-            b = data.get('note_b_title', '')
+        if action == "link_notes":
+            a = data.get("note_a_title", "")
+            b = data.get("note_b_title", "")
             if a and b:
-                return f"Linked \"{a}\"  \"{b}\"."
+                return f'Linked "{a}"  "{b}".'
             return "Notes linked."
-        
+
         # ── Tag Analytics ─────────────────────────────────────────────────────
-        if action == 'tag_analytics':
-            total = data.get('total_notes', 0)
-            top_tags = data.get('top_tags', {})
-            aging = data.get('aging_notes_count', 0)
-            
-            lines = [
-                " **Tag Analytics**",
-                f"Total Notes: {total}",
-                ""
-            ]
-            
+        if action == "tag_analytics":
+            total = data.get("total_notes", 0)
+            top_tags = data.get("top_tags", {})
+            aging = data.get("aging_notes_count", 0)
+
+            lines = [" **Tag Analytics**", f"Total Notes: {total}", ""]
+
             if top_tags:
                 lines.append("  Top Tags:")
                 for tag, count in list(top_tags.items())[:10]:
                     lines.append(f"  • #{tag}: {count} notes")
-            
+
             if aging > 0:
                 lines.append(f"\n {aging} notes haven't been updated in 30+ days")
-            
+
             return "\n".join(lines)
-        
+
         # ── Auto Link Note ────────────────────────────────────────────────────
-        if action == 'auto_link_note':
-            title = data.get('note_title', '')
-            count = data.get('linked_count', 0)
+        if action == "auto_link_note":
+            title = data.get("note_title", "")
+            count = data.get("linked_count", 0)
             if count > 0:
-                return f"Automatically linked \"{title}\" to {count} related note(s)."
-            return f"No related notes found for \"{title}\"."
-        
+                return f'Automatically linked "{title}" to {count} related note(s).'
+            return f'No related notes found for "{title}".'
+
         # ── Check Checklist Item ──────────────────────────────────────────────
-        if action == 'check_checklist_item':
-            if data.get('error'):
-                error = data.get('error')
-                if error == 'no_item_number':
-                    return "Please specify which checklist item number to check/uncheck."
-                elif error == 'no_checklist_items':
-                    title = data.get('note_title', 'this note')
-                    return f"\"{title}\" doesn't have any checklist items."
-                elif error == 'invalid_item_index':
+        if action == "check_checklist_item":
+            if data.get("error"):
+                error = data.get("error")
+                if error == "no_item_number":
+                    return (
+                        "Please specify which checklist item number to check/uncheck."
+                    )
+                elif error == "no_checklist_items":
+                    title = data.get("note_title", "this note")
+                    return f'"{title}" doesn\'t have any checklist items.'
+                elif error == "invalid_item_index":
                     return "Invalid checklist item number."
                 return "Could not update checklist item."
-            
-            title = data.get('note_title', '')
-            text = data.get('item_text', '')
-            checked = data.get('checked', False)
+
+            title = data.get("note_title", "")
+            text = data.get("item_text", "")
+            checked = data.get("checked", False)
             status = "checked" if checked else "unchecked"
-            return f"{status} {text}\n(in \"{title}\")"
-        
+            return f'{status} {text}\n(in "{title}")'
+
         # ── Suggest Tags ──────────────────────────────────────────────────────
-        if action == 'suggest_tags':
-            if data.get('error'):
+        if action == "suggest_tags":
+            if data.get("error"):
                 return "Could not suggest tags for this note."
-            
-            title = data.get('note_title', '')
-            current = data.get('current_tags', [])
-            suggested = data.get('suggested_tags', [])
-            
-            lines = [f"Tag suggestions for \"{title}\":"]
-            
+
+            title = data.get("note_title", "")
+            current = data.get("current_tags", [])
+            suggested = data.get("suggested_tags", [])
+
+            lines = [f'Tag suggestions for "{title}":']
+
             if current:
                 lines.append(f"Current tags: {', '.join(['#' + t for t in current])}")
-            
+
             if suggested:
                 new_tags = [t for t in suggested if t not in current]
                 if new_tags:
@@ -866,96 +881,96 @@ class NotesFormatter(SimpleFormatter):
                     lines.append("No new tag suggestions (current tags look good!)")
             else:
                 lines.append("No tag suggestions available.")
-            
+
             return "\n".join(lines)
 
-        if action == 'semantic_search_notes':
-            query = data.get('query', '')
-            results = data.get('results', [])
+        if action == "semantic_search_notes":
+            query = data.get("query", "")
+            results = data.get("results", [])
             if not results:
                 return f"No semantic matches found for '{query}'."
             lines = [f"Semantic matches for '{query}':"]
             for idx, item in enumerate(results[:5], 1):
-                title = item.get('title', 'Untitled')
-                similarity = item.get('similarity', 0.0)
+                title = item.get("title", "Untitled")
+                similarity = item.get("similarity", 0.0)
                 lines.append(f"{idx}. {title} (similarity: {similarity:.2f})")
             return "\n".join(lines)
 
-        if action == 'proactive_notes_insights':
-            upcoming = data.get('upcoming_reminders', [])
-            overdue = data.get('overdue', [])
-            stale = data.get('stale_notes', [])
-            meeting = data.get('meeting_prep', [])
+        if action == "proactive_notes_insights":
+            upcoming = data.get("upcoming_reminders", [])
+            overdue = data.get("overdue", [])
+            stale = data.get("stale_notes", [])
+            meeting = data.get("meeting_prep", [])
             return (
                 f"Proactive insights: {len(upcoming)} upcoming reminders, "
                 f"{len(overdue)} overdue, {len(stale)} stale notes, "
                 f"{len(meeting)} meeting-prep candidates."
             )
 
-        if action == 'list_note_templates':
-            templates = data.get('templates', [])
+        if action == "list_note_templates":
+            templates = data.get("templates", [])
             if not templates:
                 return "No note templates available."
             return f"Available note templates: {', '.join(templates)}"
 
-        if action == 'create_note_from_template':
-            if data.get('error'):
+        if action == "create_note_from_template":
+            if data.get("error"):
                 return "Could not create note from template."
-            template = data.get('template', 'template')
-            title = data.get('note_title', 'Untitled')
+            template = data.get("template", "template")
+            title = data.get("note_title", "Untitled")
             return f"Created note '{title}' from {template} template."
 
-        if action == 'show_note_versions':
-            count = data.get('count', 0)
-            title = data.get('note_title', 'Untitled')
-            versions = data.get('versions', [])
+        if action == "show_note_versions":
+            count = data.get("count", 0)
+            title = data.get("note_title", "Untitled")
+            versions = data.get("versions", [])
             if not versions:
                 return f"{title} has no saved versions."
             latest = versions[-1]
-            latest_action = latest.get('version_action', 'update_note')
-            latest_reason = latest.get('version_reason', '')
+            latest_action = latest.get("version_action", "update_note")
+            latest_reason = latest.get("version_reason", "")
             reason_suffix = f" ({latest_reason})" if latest_reason else ""
             return f"{title} has {count} saved versions. Latest: {latest_action}{reason_suffix}."
 
-        if action == 'restore_note_version':
-            restored = data.get('restored', False)
-            title = data.get('note_title', 'Untitled')
-            idx = data.get('version_index', 0) + 1
+        if action == "restore_note_version":
+            restored = data.get("restored", False)
+            title = data.get("note_title", "Untitled")
+            idx = data.get("version_index", 0) + 1
             if restored:
                 return f"Restored {title} to version {idx}."
             return f"Could not restore {title} to version {idx}."
 
-        if action == 'show_recent_note_changes':
-            changes = data.get('changes', [])
+        if action == "show_recent_note_changes":
+            changes = data.get("changes", [])
             if not changes:
                 return "No recent note changes were found."
             lines = [f"Recent note changes ({len(changes)}):"]
             for change in changes[:6]:
-                title = change.get('note_title', 'Untitled')
-                action_name = change.get('action', 'update_note')
-                reason = change.get('reason') or ''
+                title = change.get("note_title", "Untitled")
+                action_name = change.get("action", "update_note")
+                reason = change.get("reason") or ""
                 suffix = f" ({reason})" if reason else ""
                 lines.append(f"- {title}: {action_name}{suffix}")
             return "\n".join(lines)
 
-        if action == 'notes_health_check':
-            healthy = data.get('healthy', False)
-            checked = data.get('checked_notes', 0)
-            anomalies = data.get('anomaly_count', 0)
+        if action == "notes_health_check":
+            healthy = data.get("healthy", False)
+            checked = data.get("checked_notes", 0)
+            anomalies = data.get("anomaly_count", 0)
             if healthy:
                 return f"Notes health check passed: {checked} notes checked, no anomalies found."
             return f"Notes health check found {anomalies} anomaly(s) across {checked} notes."
 
         return None
-    
+
     @staticmethod
     def _format_single_note(note: Dict) -> str:
         """Format single note"""
-        title = note.get('title', 'Untitled')
-        content = note.get('content', '')
-        tags = note.get('tags', [])
-        created = note.get('created', '')
-        
+        title = note.get("title", "Untitled")
+        content = note.get("content", "")
+        tags = note.get("tags", [])
+        created = note.get("created", "")
+
         lines = [f"Note: {title}"]
         if tags:
             lines.append(f"Tags: {', '.join(tags)}")
@@ -963,18 +978,18 @@ class NotesFormatter(SimpleFormatter):
             lines.append(f"Created: {created}")
         lines.append("")
         lines.append(content)
-        
+
         return "\n".join(lines)
 
 
 class MusicFormatter(SimpleFormatter):
     """Format music playback info without LLM"""
-    
+
     @staticmethod
     def format(data: Any, **kwargs) -> Optional[str]:
         """
         Format music status
-        
+
         Expected data:
         {
             'status': str,  # 'playing', 'paused', 'stopped'
@@ -985,16 +1000,16 @@ class MusicFormatter(SimpleFormatter):
         """
         if not isinstance(data, dict):
             return None
-        
-        status = data.get('status', 'unknown')
-        track = data.get('track', 'Unknown track')
-        artist = data.get('artist', 'Unknown artist')
-        
-        if status == 'playing':
+
+        status = data.get("status", "unknown")
+        track = data.get("track", "Unknown track")
+        artist = data.get("artist", "Unknown artist")
+
+        if status == "playing":
             return f"Now playing: {track} by {artist}"
-        elif status == 'paused':
+        elif status == "paused":
             return f"Paused: {track} by {artist}"
-        elif status == 'stopped':
+        elif status == "stopped":
             return "Music stopped."
         else:
             return f"Music status: {status}"
@@ -1002,12 +1017,12 @@ class MusicFormatter(SimpleFormatter):
 
 class RAGFormatter(SimpleFormatter):
     """Format RAG/document query results without LLM"""
-    
+
     @staticmethod
     def format(data: Any, **kwargs) -> Optional[str]:
         """
         Format RAG retrieval results
-        
+
         Expected data:
         [
             {'content': str, 'relevance': float, 'source': str},
@@ -1016,64 +1031,65 @@ class RAGFormatter(SimpleFormatter):
         """
         if not isinstance(data, list):
             return None
-        
+
         if not data:
             return "No relevant information found in documents."
-        
+
         lines = ["Here's what I found in the documents:"]
-        
+
         for i, result in enumerate(data[:3], 1):  # Top 3 results
-            content = result.get('content', '')
-            source = result.get('source', 'Unknown source')
-            relevance = result.get('relevance', 0.0)
-            
+            content = result.get("content", "")
+            source = result.get("source", "Unknown source")
+            relevance = result.get("relevance", 0.0)
+
             # Truncate content
             if len(content) > 200:
                 content = content[:200] + "..."
-            
+
             lines.append(f"\n{i}. {content}")
             lines.append(f"   Source: {source} (relevance: {relevance:.1%})")
-        
+
         return "\n".join(lines)
 
 
 class FormatterRegistry:
     """Registry of all simple formatters"""
-    
+
     FORMATTERS = {
-        'weather': WeatherFormatter,
-        'email': EmailFormatter,
-        'calendar': CalendarFormatter,
-        'file_operations': FileSearchFormatter,
-        'notes': NotesFormatter,
-        'music': MusicFormatter,
-        'documents': RAGFormatter
+        "weather": WeatherFormatter,
+        "email": EmailFormatter,
+        "calendar": CalendarFormatter,
+        "file_operations": FileSearchFormatter,
+        "notes": NotesFormatter,
+        "music": MusicFormatter,
+        "documents": RAGFormatter,
     }
-    
+
     @staticmethod
     def format(tool_name: str, data: Any, **kwargs) -> Optional[str]:
         """
         Format tool output using appropriate formatter
-        
+
         Args:
             tool_name: Name of tool
             data: Tool output data
             **kwargs: Additional formatting options
-        
+
         Returns:
             Formatted string or None if formatter can't handle it
         """
         formatter_class = FormatterRegistry.FORMATTERS.get(tool_name)
         if not formatter_class:
             return None
-        
+
         try:
             return formatter_class.format(data, **kwargs)
         except Exception as e:
             import logging
+
             logging.error(f"Formatter error for {tool_name}: {e}")
             return None
-    
+
     @staticmethod
     def can_format(tool_name: str) -> bool:
         """Check if tool has a simple formatter"""

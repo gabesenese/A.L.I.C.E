@@ -53,7 +53,7 @@ class MemoryFacade:
         content: str,
         memory_type: str = "episodic",
         importance: float = 0.5,
-        tags: List[str] = None
+        tags: List[str] = None,
     ) -> bool:
         """
         Store memory with automatic categorization
@@ -72,17 +72,14 @@ class MemoryFacade:
                 content=content,
                 memory_type=memory_type,
                 importance=importance,
-                tags=tags or []
+                tags=tags or [],
             )
         except Exception as e:
             logger.error(f"Failed to store memory: {e}")
             return False
 
     def recall(
-        self,
-        query: str,
-        memory_type: Optional[str] = None,
-        top_k: int = 5
+        self, query: str, memory_type: Optional[str] = None, top_k: int = 5
     ) -> List[Dict[str, Any]]:
         """
         Search memories with semantic similarity
@@ -97,19 +94,13 @@ class MemoryFacade:
         """
         try:
             return self.core.recall_memory(
-                query=query,
-                memory_type=memory_type,
-                top_k=top_k
+                query=query, memory_type=memory_type, top_k=top_k
             )
         except Exception as e:
             logger.error(f"Failed to recall memory: {e}")
             return []
 
-    def get_relevant_context(
-        self,
-        user_input: str,
-        max_tokens: int = 4000
-    ) -> str:
+    def get_relevant_context(self, user_input: str, max_tokens: int = 4000) -> str:
         """
         Get best context for LLM response
 
@@ -122,8 +113,7 @@ class MemoryFacade:
         """
         try:
             return self.core.get_context_for_llm(
-                user_input=user_input,
-                max_tokens=max_tokens
+                user_input=user_input, max_tokens=max_tokens
             )
         except Exception as e:
             logger.error(f"Failed to get context: {e}")
@@ -134,7 +124,7 @@ class MemoryFacade:
         user_input: str,
         assistant_response: str,
         intent: str,
-        entities: Dict[str, Any]
+        entities: Dict[str, Any],
     ) -> bool:
         """
         Store a complete conversation turn
@@ -153,7 +143,7 @@ class MemoryFacade:
                 "user": user_input,
                 "assistant": assistant_response,
                 "intent": intent,
-                "entities": entities
+                "entities": entities,
             }
 
             return self.core.store_memory(
@@ -161,7 +151,7 @@ class MemoryFacade:
                 memory_type="episodic",
                 importance=0.6,
                 tags=["conversation", intent],
-                metadata=conversation_memory
+                metadata=conversation_memory,
             )
         except Exception as e:
             logger.error(f"Failed to store conversation turn: {e}")
@@ -193,11 +183,7 @@ class MemoryFacade:
             logger.error(f"Failed to get memory stats: {e}")
             return {"error": str(e)}
 
-    def search_documents(
-        self,
-        query: str,
-        top_k: int = 5
-    ) -> List[Dict[str, Any]]:
+    def search_documents(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
         Search through ingested documents
 
@@ -215,9 +201,7 @@ class MemoryFacade:
             return []
 
     def add_document(
-        self,
-        file_path: str,
-        metadata: Optional[Dict[str, Any]] = None
+        self, file_path: str, metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Ingest a document into the memory system
@@ -231,8 +215,7 @@ class MemoryFacade:
         """
         try:
             return self.core.ingest_document(
-                file_path=file_path,
-                metadata=metadata or {}
+                file_path=file_path, metadata=metadata or {}
             )
         except Exception as e:
             logger.error(f"Failed to add document: {e}")

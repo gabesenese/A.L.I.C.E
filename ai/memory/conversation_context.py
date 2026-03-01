@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ConversationTurn:
     """Represents a single turn in the conversation"""
+
     turn_id: int
     timestamp: float
     user_input: str
@@ -36,6 +37,7 @@ class ConversationTurn:
 @dataclass
 class ReferenceCandidate:
     """Potential referent for a pronoun"""
+
     entity: str
     entity_type: str
     mention_turn: int
@@ -58,10 +60,7 @@ class ConversationContextManager:
     """
 
     def __init__(
-        self,
-        max_turns: int = 50,
-        context_window: int = 10,
-        recency_decay: float = 0.5
+        self, max_turns: int = 50, context_window: int = 10, recency_decay: float = 0.5
     ):
         self.max_turns = max_turns
         self.context_window = context_window
@@ -76,8 +75,12 @@ class ConversationContextManager:
         self.topic_history: List[Tuple[str, int]] = []  # (topic, turn_id)
 
         # Entity tracking for reference resolution
-        self.mentioned_entities: Dict[str, List[int]] = {}  # entity -> [turn_ids where mentioned]
-        self.entity_types: Dict[str, str] = {}  # entity -> type (person, file, concept, etc)
+        self.mentioned_entities: Dict[str, List[int]] = (
+            {}
+        )  # entity -> [turn_ids where mentioned]
+        self.entity_types: Dict[str, str] = (
+            {}
+        )  # entity -> type (person, file, concept, etc)
 
         # Salience tracking (what's currently important)
         self.salient_entities: List[str] = []
@@ -96,7 +99,7 @@ class ConversationContextManager:
         entities: Dict[str, Any] = None,
         topics: List[str] = None,
         sentiment: Optional[str] = None,
-        metadata: Dict[str, Any] = None
+        metadata: Dict[str, Any] = None,
     ) -> ConversationTurn:
         """
         Add a new conversation turn.
@@ -124,7 +127,7 @@ class ConversationContextManager:
             entities=entities or {},
             topics=topics or [],
             sentiment=sentiment,
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
         self.turns.append(turn)
@@ -152,8 +155,8 @@ class ConversationContextManager:
             self.mentioned_entities[entity_name].append(turn.turn_id)
 
             # Store entity type if available
-            if isinstance(entity_data, dict) and 'type' in entity_data:
-                self.entity_types[entity_name] = entity_data['type']
+            if isinstance(entity_data, dict) and "type" in entity_data:
+                self.entity_types[entity_name] = entity_data["type"]
 
     def _update_topic_tracking(self, turn: ConversationTurn):
         """Track topics and detect topic shifts"""
@@ -183,12 +186,12 @@ class ConversationContextManager:
         entity_scores = {}
 
         # Get recent turns (within context window)
-        recent_turns = list(self.turns)[-self.context_window:]
+        recent_turns = list(self.turns)[-self.context_window :]
 
         for turn in recent_turns:
             # Calculate recency multiplier
             turns_ago = self.turn_counter - turn.turn_id
-            recency_multiplier = self.recency_decay ** turns_ago
+            recency_multiplier = self.recency_decay**turns_ago
 
             for entity in turn.entities.keys():
                 if entity not in entity_scores:
@@ -199,9 +202,7 @@ class ConversationContextManager:
 
         # Sort by score and take top entities
         sorted_entities = sorted(
-            entity_scores.items(),
-            key=lambda x: x[1],
-            reverse=True
+            entity_scores.items(), key=lambda x: x[1], reverse=True
         )
 
         self.salient_entities = [entity for entity, score in sorted_entities[:5]]
@@ -209,21 +210,19 @@ class ConversationContextManager:
     def _update_last_references(self, turn: ConversationTurn):
         """Update last referenced items by type"""
         for entity_name, entity_data in turn.entities.items():
-            entity_type = self.entity_types.get(entity_name, 'object')
+            entity_type = self.entity_types.get(entity_name, "object")
 
-            if entity_type == 'file' or '.py' in entity_name or '.txt' in entity_name:
+            if entity_type == "file" or ".py" in entity_name or ".txt" in entity_name:
                 self.last_file = entity_name
-            elif entity_type == 'person':
+            elif entity_type == "person":
                 self.last_person = entity_name
-            elif entity_type == 'concept':
+            elif entity_type == "concept":
                 self.last_concept = entity_name
             else:
                 self.last_object = entity_name
 
     def resolve_reference(
-        self,
-        reference: str,
-        context_turns: int = 3
+        self, reference: str, context_turns: int = 3
     ) -> Optional[str]:
         """
         Resolve a pronoun or reference to an entity.
@@ -239,13 +238,13 @@ class ConversationContextManager:
 
         # Simple pronoun resolution
         pronoun_map = {
-            'it': self.last_object or self.last_file,
-            'that': self.last_object or self.last_concept,
-            'this': self.last_object,
-            'them': self.last_person,
-            'he': self.last_person,
-            'she': self.last_person,
-            'they': self.last_person,
+            "it": self.last_object or self.last_file,
+            "that": self.last_object or self.last_concept,
+            "this": self.last_object,
+            "them": self.last_person,
+            "he": self.last_person,
+            "she": self.last_person,
+            "they": self.last_person,
         }
 
         if reference_lower in pronoun_map:
@@ -255,7 +254,7 @@ class ConversationContextManager:
                 return resolved
 
         # More sophisticated resolution using salience
-        if reference_lower in ['it', 'that', 'this']:
+        if reference_lower in ["it", "that", "this"]:
             if self.salient_entities:
                 resolved = self.salient_entities[0]
                 logger.info(f"Resolved '{reference}' -> '{resolved}' (most salient)")
@@ -263,10 +262,7 @@ class ConversationContextManager:
 
         return None
 
-    def get_context_window(
-        self,
-        turns: int = None
-    ) -> List[ConversationTurn]:
+    def get_context_window(self, turns: int = None) -> List[ConversationTurn]:
         """
         Get recent conversation context.
 
@@ -291,16 +287,16 @@ class ConversationContextManager:
         recent_turns = self.get_context_window()
 
         return {
-            'total_turns': len(self.turns),
-            'current_turn': self.turn_counter,
-            'current_topic': self.current_topic,
-            'recent_topics': [topic for topic, _ in self.topic_history[-3:]],
-            'salient_entities': self.salient_entities,
-            'last_file': self.last_file,
-            'last_person': self.last_person,
-            'last_concept': self.last_concept,
-            'context_window_size': len(recent_turns),
-            'session_duration_minutes': self._get_session_duration()
+            "total_turns": len(self.turns),
+            "current_turn": self.turn_counter,
+            "current_topic": self.current_topic,
+            "recent_topics": [topic for topic, _ in self.topic_history[-3:]],
+            "salient_entities": self.salient_entities,
+            "last_file": self.last_file,
+            "last_person": self.last_person,
+            "last_concept": self.last_concept,
+            "context_window_size": len(recent_turns),
+            "session_duration_minutes": self._get_session_duration(),
         }
 
     def _get_session_duration(self) -> float:
@@ -315,9 +311,7 @@ class ConversationContextManager:
         return duration_seconds / 60.0
 
     def find_relevant_context(
-        self,
-        query: str,
-        max_turns: int = 5
+        self, query: str, max_turns: int = 5
     ) -> List[ConversationTurn]:
         """
         Find conversation turns relevant to a query.
@@ -330,14 +324,14 @@ class ConversationContextManager:
             List of relevant ConversationTurns
         """
         query_lower = query.lower()
-        query_words = set(re.findall(r'\b\w+\b', query_lower))
+        query_words = set(re.findall(r"\b\w+\b", query_lower))
 
         # Score each turn by word overlap
         scored_turns = []
 
         for turn in self.turns:
-            user_words = set(re.findall(r'\b\w+\b', turn.user_input.lower()))
-            response_words = set(re.findall(r'\b\w+\b', turn.alice_response.lower()))
+            user_words = set(re.findall(r"\b\w+\b", turn.user_input.lower()))
+            response_words = set(re.findall(r"\b\w+\b", turn.alice_response.lower()))
 
             all_words = user_words | response_words
             overlap = len(query_words & all_words)
@@ -345,7 +339,7 @@ class ConversationContextManager:
             if overlap > 0:
                 # Recency bonus
                 turns_ago = self.turn_counter - turn.turn_id
-                recency_bonus = self.recency_decay ** turns_ago
+                recency_bonus = self.recency_decay**turns_ago
 
                 score = overlap + recency_bonus
                 scored_turns.append((turn, score))
@@ -396,7 +390,7 @@ class ConversationContextManager:
             elif turn.topics:
                 flow.append(turn.topics[0])
             else:
-                flow.append('unknown')
+                flow.append("unknown")
 
         return flow
 
@@ -438,14 +432,12 @@ _context_manager = None
 
 
 def get_context_manager(
-    max_turns: int = 50,
-    context_window: int = 10
+    max_turns: int = 50, context_window: int = 10
 ) -> ConversationContextManager:
     """Get or create global conversation context manager"""
     global _context_manager
     if _context_manager is None:
         _context_manager = ConversationContextManager(
-            max_turns=max_turns,
-            context_window=context_window
+            max_turns=max_turns, context_window=context_window
         )
     return _context_manager

@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Decision:
     """Represents a decision option with weighted criteria"""
+
     name: str
     description: str
     scores: Dict[str, float] = field(default_factory=dict)
@@ -28,6 +29,7 @@ class Decision:
 @dataclass
 class Criterion:
     """Evaluation criterion with weight and optimization direction"""
+
     name: str
     weight: float
     maximize: bool = True  # True to maximize, False to minimize
@@ -54,7 +56,7 @@ class DecisionEngine:
         self,
         options: List[Decision],
         criteria: List[Criterion],
-        method: str = 'weighted_sum'
+        method: str = "weighted_sum",
     ) -> List[Decision]:
         """
         Evaluate and rank decision options.
@@ -77,11 +79,11 @@ class DecisionEngine:
                 criterion.weight /= total_weight
 
         # Apply chosen method
-        if method == 'weighted_sum':
+        if method == "weighted_sum":
             evaluated = self._weighted_sum(options, criteria)
-        elif method == 'topsis':
+        elif method == "topsis":
             evaluated = self._topsis(options, criteria)
-        elif method == 'utility':
+        elif method == "utility":
             evaluated = self._utility_theory(options, criteria)
         else:
             raise ValueError(f"Unknown method: {method}")
@@ -95,9 +97,7 @@ class DecisionEngine:
         return evaluated
 
     def _weighted_sum(
-        self,
-        options: List[Decision],
-        criteria: List[Criterion]
+        self, options: List[Decision], criteria: List[Criterion]
     ) -> List[Decision]:
         """Weighted Sum Model - simple but effective"""
         for option in options:
@@ -121,9 +121,7 @@ class DecisionEngine:
         return options
 
     def _topsis(
-        self,
-        options: List[Decision],
-        criteria: List[Criterion]
+        self, options: List[Decision], criteria: List[Criterion]
     ) -> List[Decision]:
         """
         TOPSIS - finds option closest to ideal and farthest from worst.
@@ -166,16 +164,16 @@ class DecisionEngine:
 
             # Calculate relative closeness to ideal
             if distance_to_ideal + distance_to_anti_ideal > 0:
-                option.utility = distance_to_anti_ideal / (distance_to_ideal + distance_to_anti_ideal)
+                option.utility = distance_to_anti_ideal / (
+                    distance_to_ideal + distance_to_anti_ideal
+                )
             else:
                 option.utility = 0.5
 
         return options
 
     def _utility_theory(
-        self,
-        options: List[Decision],
-        criteria: List[Criterion]
+        self, options: List[Decision], criteria: List[Criterion]
     ) -> List[Decision]:
         """
         Utility theory with risk adjustment.
@@ -246,9 +244,7 @@ class DecisionEngine:
             decision.confidence *= criteria_coverage
 
     def probabilistic_choice(
-        self,
-        options: List[Decision],
-        temperature: float = 1.0
+        self, options: List[Decision], temperature: float = 1.0
     ) -> Decision:
         """
         Make a probabilistic choice using softmax distribution.
@@ -283,10 +279,7 @@ class DecisionEngine:
         return options[best_idx]
 
     def compare_pairwise(
-        self,
-        option1: Decision,
-        option2: Decision,
-        criteria: List[Criterion]
+        self, option1: Decision, option2: Decision, criteria: List[Criterion]
     ) -> Tuple[Decision, float]:
         """
         Pairwise comparison of two options.
@@ -320,10 +313,7 @@ class DecisionEngine:
             return option2, confidence
 
     def learn_from_outcome(
-        self,
-        decision: Decision,
-        actual_utility: float,
-        context: Dict[str, Any] = None
+        self, decision: Decision, actual_utility: float, context: Dict[str, Any] = None
     ):
         """
         Learn from decision outcomes to improve future choices.
@@ -334,13 +324,15 @@ class DecisionEngine:
             context: Additional context information
         """
         # Record outcome
-        self.history.append({
-            'decision': decision.name,
-            'predicted_utility': decision.utility,
-            'actual_utility': actual_utility,
-            'error': abs(decision.utility - actual_utility),
-            'context': context or {}
-        })
+        self.history.append(
+            {
+                "decision": decision.name,
+                "predicted_utility": decision.utility,
+                "actual_utility": actual_utility,
+                "error": abs(decision.utility - actual_utility),
+                "context": context or {},
+            }
+        )
 
         # Simple learning: could adjust criterion weights based on prediction errors
         # For now, just log for future analysis
@@ -355,12 +347,12 @@ class DecisionEngine:
         if not self.history:
             return {}
 
-        errors = [entry['error'] for entry in self.history]
+        errors = [entry["error"] for entry in self.history]
 
         return {
-            'mean_absolute_error': sum(errors) / len(errors),
-            'decision_count': len(self.history),
-            'accuracy': 1.0 - (sum(errors) / len(errors)) if errors else 0.0
+            "mean_absolute_error": sum(errors) / len(errors),
+            "decision_count": len(self.history),
+            "accuracy": 1.0 - (sum(errors) / len(errors)) if errors else 0.0,
         }
 
 
@@ -371,9 +363,7 @@ class RiskAssessment:
 
     @staticmethod
     def calculate_risk_score(
-        probability: float,
-        impact: float,
-        mitigation: float = 0.0
+        probability: float, impact: float, mitigation: float = 0.0
     ) -> float:
         """
         Calculate risk score using standard risk matrix.
@@ -398,20 +388,18 @@ class RiskAssessment:
     def risk_category(risk_score: float) -> str:
         """Categorize risk level"""
         if risk_score >= 0.7:
-            return 'CRITICAL'
+            return "CRITICAL"
         elif risk_score >= 0.5:
-            return 'HIGH'
+            return "HIGH"
         elif risk_score >= 0.3:
-            return 'MEDIUM'
+            return "MEDIUM"
         elif risk_score >= 0.1:
-            return 'LOW'
+            return "LOW"
         else:
-            return 'MINIMAL'
+            return "MINIMAL"
 
     @staticmethod
-    def expected_value(
-        outcomes: List[Tuple[float, float]]
-    ) -> float:
+    def expected_value(outcomes: List[Tuple[float, float]]) -> float:
         """
         Calculate expected value from probability-weighted outcomes.
 

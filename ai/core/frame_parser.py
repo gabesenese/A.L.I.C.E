@@ -32,24 +32,27 @@ logger = logging.getLogger(__name__)
 # Data structures
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class FrameDefinition:
     """Declarative description of one intent frame."""
-    name: str                        # e.g. READ_NOTE
-    plugin: str                      # e.g. notes
-    action: str                      # e.g. get_note_content
-    trigger_keywords: List[str]      # weighted +0.15 each (capped at 0.45)
-    trigger_patterns: List[str]      # regex, each grants +0.20 (capped at 0.40)
-    anti_patterns: List[str]         # regex that *reduce* score -0.20 each
-    required_slots: List[str]        # slots that must be present for high conf
+
+    name: str  # e.g. READ_NOTE
+    plugin: str  # e.g. notes
+    action: str  # e.g. get_note_content
+    trigger_keywords: List[str]  # weighted +0.15 each (capped at 0.45)
+    trigger_patterns: List[str]  # regex, each grants +0.20 (capped at 0.40)
+    anti_patterns: List[str]  # regex that *reduce* score -0.20 each
+    required_slots: List[str]  # slots that must be present for high conf
     optional_slots: List[str]
     base_confidence: float = 0.55
-    priority: int = 5               # lower = higher priority when tied
+    priority: int = 5  # lower = higher priority when tied
 
 
 @dataclass
 class FrameMatchResult:
     """Scored result from frame matching."""
+
     frame_name: str
     plugin: str
     action: str
@@ -66,16 +69,24 @@ class FrameMatchResult:
 # ---------------------------------------------------------------------------
 
 _FRAMES: List[FrameDefinition] = [
-
     # ── Notes ──────────────────────────────────────────────────────────────
-
     FrameDefinition(
         name="CREATE_NOTE",
         plugin="notes",
         action="create_note",
         trigger_keywords=[
-            "create", "write", "make", "add", "new", "jot", "record",
-            "draft", "save", "compose", "note down", "take note",
+            "create",
+            "write",
+            "make",
+            "add",
+            "new",
+            "jot",
+            "record",
+            "draft",
+            "save",
+            "compose",
+            "note down",
+            "take note",
         ],
         trigger_patterns=[
             r"\b(create|write|make|add|new|save|jot(?:\s+down)?|record|draft|compose)\b.{0,25}\bnote\b",
@@ -91,14 +102,21 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.62,
         priority=4,
     ),
-
     FrameDefinition(
         name="READ_NOTE",
         plugin="notes",
         action="get_note_content",
         trigger_keywords=[
-            "read", "open", "show", "display", "view", "get", "fetch",
-            "what does", "what's in", "content of",
+            "read",
+            "open",
+            "show",
+            "display",
+            "view",
+            "get",
+            "fetch",
+            "what does",
+            "what's in",
+            "content of",
         ],
         trigger_patterns=[
             r"\b(read|open|show|display|view|get|fetch)\b.{0,20}\bnote\b",
@@ -114,14 +132,20 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.60,
         priority=3,
     ),
-
     FrameDefinition(
         name="SEARCH_NOTE",
         plugin="notes",
         action="search_notes",
         trigger_keywords=[
-            "find", "search", "look for", "locate", "filter",
-            "where is", "which note", "notes about", "notes with",
+            "find",
+            "search",
+            "look for",
+            "locate",
+            "filter",
+            "where is",
+            "which note",
+            "notes about",
+            "notes with",
         ],
         trigger_patterns=[
             r"\b(find|search|look\s+for|locate|filter)\b.{0,20}\bnotes?\b",
@@ -137,14 +161,18 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.65,
         priority=3,
     ),
-
     FrameDefinition(
         name="LIST_NOTES",
         plugin="notes",
         action="list_notes",
         trigger_keywords=[
-            "list", "show all", "all notes", "my notes", "notes i have",
-            "see all", "display all",
+            "list",
+            "show all",
+            "all notes",
+            "my notes",
+            "notes i have",
+            "see all",
+            "display all",
         ],
         trigger_patterns=[
             r"\b(list|show|display)\s+(all|my)\s+notes?\b",
@@ -160,14 +188,20 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.68,
         priority=2,
     ),
-
     FrameDefinition(
         name="UPDATE_NOTE",
         plugin="notes",
         action="update_note",
         trigger_keywords=[
-            "update", "edit", "change", "modify", "revise", "rename",
-            "append", "add to", "rewrite",
+            "update",
+            "edit",
+            "change",
+            "modify",
+            "revise",
+            "rename",
+            "append",
+            "add to",
+            "rewrite",
         ],
         trigger_patterns=[
             r"\b(update|edit|change|modify|revise|rename|rewrite)\b.{0,20}\bnote\b",
@@ -180,13 +214,17 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.65,
         priority=4,
     ),
-
     FrameDefinition(
         name="DELETE_NOTE",
         plugin="notes",
         action="delete_note",
         trigger_keywords=[
-            "delete", "remove", "trash", "erase", "discard", "get rid of",
+            "delete",
+            "remove",
+            "trash",
+            "erase",
+            "discard",
+            "get rid of",
         ],
         trigger_patterns=[
             r"\b(delete|remove|trash|erase|discard)\b.{0,20}\bnote\b",
@@ -199,7 +237,6 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.70,
         priority=3,
     ),
-
     FrameDefinition(
         name="ARCHIVE_NOTE",
         plugin="notes",
@@ -214,9 +251,7 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.72,
         priority=4,
     ),
-
     # ── Music ──────────────────────────────────────────────────────────────
-
     FrameDefinition(
         name="PLAY_MUSIC",
         plugin="music",
@@ -233,7 +268,6 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.70,
         priority=3,
     ),
-
     FrameDefinition(
         name="PAUSE_MUSIC",
         plugin="music",
@@ -249,7 +283,6 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.75,
         priority=2,
     ),
-
     FrameDefinition(
         name="SKIP_MUSIC",
         plugin="music",
@@ -264,14 +297,18 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.73,
         priority=2,
     ),
-
     # ── Calendar ───────────────────────────────────────────────────────────
-
     FrameDefinition(
         name="CREATE_EVENT",
         plugin="calendar",
         action="create_event",
-        trigger_keywords=["schedule", "add event", "create event", "set reminder", "book"],
+        trigger_keywords=[
+            "schedule",
+            "add event",
+            "create event",
+            "set reminder",
+            "book",
+        ],
         trigger_patterns=[
             r"\b(schedule|add|create|set|book)\b.{0,20}\b(event|meeting|appointment|reminder)\b",
             r"\b(meeting|appointment)\b.{0,20}\b(at|on|for)\b",
@@ -282,7 +319,6 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.68,
         priority=4,
     ),
-
     FrameDefinition(
         name="LIST_EVENTS",
         plugin="calendar",
@@ -299,9 +335,7 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.65,
         priority=3,
     ),
-
     # ── Email ──────────────────────────────────────────────────────────────
-
     FrameDefinition(
         name="COMPOSE_EMAIL",
         plugin="email",
@@ -317,7 +351,6 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.68,
         priority=4,
     ),
-
     FrameDefinition(
         name="READ_EMAIL",
         plugin="email",
@@ -333,9 +366,7 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.65,
         priority=3,
     ),
-
     # ── System / conversation ──────────────────────────────────────────────
-
     FrameDefinition(
         name="HELP",
         plugin="conversation",
@@ -352,7 +383,6 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.70,
         priority=6,
     ),
-
     FrameDefinition(
         name="GENERAL_CHAT",
         plugin="conversation",
@@ -379,19 +409,31 @@ _FRAME_INDEX: Dict[str, FrameDefinition] = {f.name: f for f in _FRAMES}
 # ---------------------------------------------------------------------------
 
 _TITLE_PATTERNS = [
-    re.compile(r'(?:called|titled?|named?|about)\s+["\']?(.+?)["\']?(?:\s+(?:tagged|with|and|$)|$)', re.IGNORECASE),
+    re.compile(
+        r'(?:called|titled?|named?|about)\s+["\']?(.+?)["\']?(?:\s+(?:tagged|with|and|$)|$)',
+        re.IGNORECASE,
+    ),
     re.compile(r'"([^"]{2,60})"'),
     re.compile(r"'([^']{2,60})'"),
 ]
 _QUERY_PATTERNS = [
-    re.compile(r'(?:about|for|related\s+to|containing|with)\s+["\']?(.+?)["\']?(?:\s+(?:tagged|in|$)|$)', re.IGNORECASE),
-    re.compile(r'(?:find|search|look\s+for)\s+(?:notes?\s+(?:about|on)\s+)?(.+?)(?:\s+(?:tagged|$)|$)', re.IGNORECASE),
+    re.compile(
+        r'(?:about|for|related\s+to|containing|with)\s+["\']?(.+?)["\']?(?:\s+(?:tagged|in|$)|$)',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:find|search|look\s+for)\s+(?:notes?\s+(?:about|on)\s+)?(.+?)(?:\s+(?:tagged|$)|$)",
+        re.IGNORECASE,
+    ),
 ]
 _NOTE_REF_PATTERNS = [
-    re.compile(r'(?:note|the)\s+(?:called|titled?|named?)\s+["\']?(.+?)["\']?(?:\s|$)', re.IGNORECASE),
-    re.compile(r'(?:note|file)\s+#?(\w[\w\s-]{1,40})', re.IGNORECASE),
+    re.compile(
+        r'(?:note|the)\s+(?:called|titled?|named?)\s+["\']?(.+?)["\']?(?:\s|$)',
+        re.IGNORECASE,
+    ),
+    re.compile(r"(?:note|file)\s+#?(\w[\w\s-]{1,40})", re.IGNORECASE),
 ]
-_TAG_PATTERN = re.compile(r'#(\w+)', re.IGNORECASE)
+_TAG_PATTERN = re.compile(r"#(\w+)", re.IGNORECASE)
 
 
 def _extract_inline_slots(text: str, frame: FrameDefinition) -> Dict[str, Any]:
@@ -423,6 +465,7 @@ def _extract_inline_slots(text: str, frame: FrameDefinition) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # FrameParser
 # ---------------------------------------------------------------------------
+
 
 class FrameParser:
     """

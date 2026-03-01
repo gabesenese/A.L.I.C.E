@@ -45,13 +45,17 @@ logger = logging.getLogger(__name__)
 # Data structures
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class EntityMention:
     """A single entity observed in one dialogue turn."""
-    entity_type: str        # NOTE_REF | EMAIL_REF | EVENT_REF | RESULT_SET | SONG_REF | PERSON_REF
-    value: Any              # str for single entity, list for RESULT_SET
-    turn_index: int         # which dialogue turn
-    plugin: str = ""        # which plugin produced this entity
+
+    entity_type: (
+        str  # NOTE_REF | EMAIL_REF | EVENT_REF | RESULT_SET | SONG_REF | PERSON_REF
+    )
+    value: Any  # str for single entity, list for RESULT_SET
+    turn_index: int  # which dialogue turn
+    plugin: str = ""  # which plugin produced this entity
     tags: List[str] = field(default_factory=list)
     extra: Dict[str, Any] = field(default_factory=dict)
 
@@ -59,11 +63,12 @@ class EntityMention:
 @dataclass
 class ResolvedText:
     """Output of the coreference resolver."""
-    text: str                      # resolved utterance
-    resolved: bool                 # was any substitution made?
-    entity_type: Optional[str]     # type of the resolved entity
-    resolved_value: Any            # the actual value substituted
-    confidence: float              # 0.0–1.0
+
+    text: str  # resolved utterance
+    resolved: bool  # was any substitution made?
+    entity_type: Optional[str]  # type of the resolved entity
+    resolved_value: Any  # the actual value substituted
+    confidence: float  # 0.0–1.0
     substitution_map: Dict[str, str] = field(default_factory=dict)
 
 
@@ -71,13 +76,14 @@ class ResolvedText:
 # Dialogue Memory
 # ---------------------------------------------------------------------------
 
+
 class DialogueMemory:
     """
     Sliding-window store of entity mentions across turns.
     Provides typed lookups used by the resolver.
     """
 
-    WINDOW = 12   # keep last N turns' entities
+    WINDOW = 12  # keep last N turns' entities
 
     def __init__(self):
         self._chain: deque[EntityMention] = deque(maxlen=self.WINDOW * 4)
@@ -105,14 +111,27 @@ class DialogueMemory:
             extra=extra or {},
         )
         self._chain.append(mention)
-        logger.debug("[COREF-MEM] recorded %s=%r turn=%d", entity_type, value, self._turn)
+        logger.debug(
+            "[COREF-MEM] recorded %s=%r turn=%d", entity_type, value, self._turn
+        )
 
-    def record_result_set(self, entity_type: str, values: List[str], plugin: str = "notes") -> None:
+    def record_result_set(
+        self, entity_type: str, values: List[str], plugin: str = "notes"
+    ) -> None:
         """Convenience: record a list result (e.g. search results)."""
-        self.record(entity_type="RESULT_SET", value=values, plugin=plugin,
-                    extra={"original_type": entity_type})
+        self.record(
+            entity_type="RESULT_SET",
+            value=values,
+            plugin=plugin,
+            extra={"original_type": entity_type},
+        )
 
-    def update_from_nlp_result(self, intent: str, slots: Dict[str, Any], response_titles: Optional[List[str]] = None) -> None:
+    def update_from_nlp_result(
+        self,
+        intent: str,
+        slots: Dict[str, Any],
+        response_titles: Optional[List[str]] = None,
+    ) -> None:
         """
         Called after each NLP+plugin cycle to update the entity chain from
         what was just processed.
@@ -158,13 +177,15 @@ class DialogueMemory:
         """Serialize chain for use in context dict passed to slot filler."""
         result: List[Dict[str, Any]] = []
         for m in reversed(self._chain):
-            result.append({
-                "type": m.entity_type,
-                "value": m.value,
-                "plugin": m.plugin,
-                "turn": m.turn_index,
-                "tags": m.tags,
-            })
+            result.append(
+                {
+                    "type": m.entity_type,
+                    "value": m.value,
+                    "plugin": m.plugin,
+                    "turn": m.turn_index,
+                    "tags": m.tags,
+                }
+            )
         return result
 
     def clear(self) -> None:
@@ -177,28 +198,55 @@ class DialogueMemory:
 # ---------------------------------------------------------------------------
 
 _ORDINAL_MAP: Dict[str, int] = {
-    "first": 0, "1st": 0, "one": 0,
-    "second": 1, "2nd": 1, "two": 1,
-    "third": 2, "3rd": 2, "three": 2,
-    "fourth": 3, "4th": 3, "four": 3,
-    "fifth": 4, "5th": 4, "five": 4,
-    "sixth": 5, "6th": 5, "six": 5,
-    "seventh": 6, "7th": 6,
-    "eighth": 7, "8th": 7,
-    "last": -1, "previous": -1, "latest": -1,
+    "first": 0,
+    "1st": 0,
+    "one": 0,
+    "second": 1,
+    "2nd": 1,
+    "two": 1,
+    "third": 2,
+    "3rd": 2,
+    "three": 2,
+    "fourth": 3,
+    "4th": 3,
+    "four": 3,
+    "fifth": 4,
+    "5th": 4,
+    "five": 4,
+    "sixth": 5,
+    "6th": 5,
+    "six": 5,
+    "seventh": 6,
+    "7th": 6,
+    "eighth": 7,
+    "8th": 7,
+    "last": -1,
+    "previous": -1,
+    "latest": -1,
 }
 
 # Pronoun groups
-_GENERIC_PRONOUNS = frozenset(["it", "that", "this", "the result", "this one", "that one"])
-_DOMAIN_PHRASES   = frozenset([
-    "the note", "the file", "the message", "the event",
-    "the email", "the song", "the track", "the entry",
-])
+_GENERIC_PRONOUNS = frozenset(
+    ["it", "that", "this", "the result", "this one", "that one"]
+)
+_DOMAIN_PHRASES = frozenset(
+    [
+        "the note",
+        "the file",
+        "the message",
+        "the event",
+        "the email",
+        "the song",
+        "the track",
+        "the entry",
+    ]
+)
 
 
 # ---------------------------------------------------------------------------
 # Advanced Coreference Resolver
 # ---------------------------------------------------------------------------
+
 
 class AdvancedCoreferenceResolver:
     """
@@ -218,39 +266,42 @@ class AdvancedCoreferenceResolver:
 
     # Ordinal: "the second one", "the 3rd note", "note number 2"
     _RE_ORDINAL = re.compile(
-        r'\bthe\s+(' + '|'.join(re.escape(k) for k in _ORDINAL_MAP) + r')\s+(?:one|note|file|result)?\b'
-        r'|(?:note|result)\s+(?:number\s+)?#?(\d+)\b',
+        r"\bthe\s+("
+        + "|".join(re.escape(k) for k in _ORDINAL_MAP)
+        + r")\s+(?:one|note|file|result)?\b"
+        r"|(?:note|result)\s+(?:number\s+)?#?(\d+)\b",
         re.IGNORECASE,
     )
 
     # Attribute: "the one tagged X", "the one from yesterday"
-    _RE_ATTRIBUTE_TAG  = re.compile(r'\bthe\s+one\s+tagged\s+([\w,\s]+?)(?:\s|$)', re.I)
-    _RE_ATTRIBUTE_WORD = re.compile(r'\bthe\s+one\s+(?:about|with|from|mentioning)\s+(.+?)(?:\s|$)', re.I)
+    _RE_ATTRIBUTE_TAG = re.compile(r"\bthe\s+one\s+tagged\s+([\w,\s]+?)(?:\s|$)", re.I)
+    _RE_ATTRIBUTE_WORD = re.compile(
+        r"\bthe\s+one\s+(?:about|with|from|mentioning)\s+(.+?)(?:\s|$)", re.I
+    )
 
     # Recency: "the last one", "the previous note"
     _RE_RECENCY = re.compile(
-        r'\bthe\s+(?:last|latest|most\s+recent|previous)\s+(?:one|note|file|result)?\b', re.I
+        r"\bthe\s+(?:last|latest|most\s+recent|previous)\s+(?:one|note|file|result)?\b",
+        re.I,
     )
 
     # Descriptive: "the work one", "the meeting note"
-    _RE_DESCRIPTIVE = re.compile(
-        r'\bthe\s+(\w+)\s+(?:one|note|file|result)\b', re.I
-    )
+    _RE_DESCRIPTIVE = re.compile(r"\bthe\s+(\w+)\s+(?:one|note|file|result)\b", re.I)
 
     # Domain pronouns
     _RE_DOMAIN = re.compile(
-        r'\b(' + '|'.join(re.escape(p) for p in _DOMAIN_PHRASES) + r')\b', re.I
+        r"\b(" + "|".join(re.escape(p) for p in _DOMAIN_PHRASES) + r")\b", re.I
     )
 
     # Generic pronouns
     _RE_PRONOUN = re.compile(
-        r'\b(' + '|'.join(re.escape(p) for p in _GENERIC_PRONOUNS) + r')\b', re.I
+        r"\b(" + "|".join(re.escape(p) for p in _GENERIC_PRONOUNS) + r")\b", re.I
     )
 
     # Idiomatic vague phrases that must NOT trigger coref resolution
     _RE_NO_RESOLVE = re.compile(
-        r'\b(do\s+that\s+thing|that\s+thing|this\s+thing|what\s+about\s+that|'
-        r'who\s+is\s+that|things?\s+like\s+that|something\s+like\s+that)\b',
+        r"\b(do\s+that\s+thing|that\s+thing|this\s+thing|what\s+about\s+that|"
+        r"who\s+is\s+that|things?\s+like\s+that|something\s+like\s+that)\b",
         re.IGNORECASE,
     )
 
@@ -264,8 +315,13 @@ class AdvancedCoreferenceResolver:
         """
         # Skip resolution for idiomatic/vague phrases
         if self._RE_NO_RESOLVE.search(text):
-            return ResolvedText(text=text, resolved=False, entity_type=None,
-                                resolved_value=None, confidence=0.0)
+            return ResolvedText(
+                text=text,
+                resolved=False,
+                entity_type=None,
+                resolved_value=None,
+                confidence=0.0,
+            )
         original = text
         text, sub_map, etype, evalue, conf = self._apply_resolutions(text, context)
 
@@ -287,9 +343,7 @@ class AdvancedCoreferenceResolver:
     # Internal resolution pipeline
     # ------------------------------------------------------------------
 
-    def _apply_resolutions(
-        self, text: str, ctx: Dict[str, Any]
-    ):
+    def _apply_resolutions(self, text: str, ctx: Dict[str, Any]):
         sub_map: Dict[str, str] = {}
         etype: Optional[str] = None
         evalue: Any = None
@@ -317,7 +371,7 @@ class AdvancedCoreferenceResolver:
                         target = result_set[idx]
                     replacement = f'"{target}"'
                     old = m.group(0)
-                    text = text[:m.start()] + replacement + text[m.end():]
+                    text = text[: m.start()] + replacement + text[m.end() :]
                     sub_map[old] = replacement
                     etype, evalue, conf = "ORDINAL_REF", target, 0.92
                     logger.info("[COREF] ORDINAL '%s' -> '%s'", old, replacement)
@@ -460,6 +514,7 @@ class AdvancedCoreferenceResolver:
 # Compatibility shim: drop-in replacement for the old CoreferenceResolver
 # ---------------------------------------------------------------------------
 
+
 class LegacyCoreferenceResolverCompat:
     """
     Wraps AdvancedCoreferenceResolver with the old interface:
@@ -487,5 +542,7 @@ class LegacyCoreferenceResolverCompat:
                 ctx["last_note_title"] = str(notes[-1])
                 # Sync result set into memory if not already there
                 if not self._memory.get_result_set() and notes:
-                    self._memory.record_result_set("RESULT_SET", [str(n) for n in notes])
+                    self._memory.record_result_set(
+                        "RESULT_SET", [str(n) for n in notes]
+                    )
         return self._engine.resolve_text(text, ctx)

@@ -10,12 +10,14 @@ logger = logging.getLogger(__name__)
 
 try:
     from ai.training.scenario_generator import ScenarioGenerator
+
     _scenario_gen_available = True
 except ImportError:
     _scenario_gen_available = False
 
 try:
     from ai.training.ollama_evaluator import get_ollama_evaluator
+
     _evaluator_available = True
 except ImportError:
     _evaluator_available = False
@@ -53,7 +55,7 @@ class TrainingFacade:
         user_input: str,
         assistant_response: str,
         intent: str,
-        quality_score: float = 1.0
+        quality_score: float = 1.0,
     ) -> bool:
         """
         Collect training example
@@ -75,7 +77,7 @@ class TrainingFacade:
                 user_input=user_input,
                 assistant_response=assistant_response,
                 intent=intent,
-                quality_score=quality_score
+                quality_score=quality_score,
             )
             return True
         except Exception as e:
@@ -83,9 +85,7 @@ class TrainingFacade:
             return False
 
     def get_training_data(
-        self,
-        min_quality: float = 0.7,
-        max_examples: int = 1000
+        self, min_quality: float = 0.7, max_examples: int = 1000
     ) -> List[Dict[str, Any]]:
         """
         Get collected training data
@@ -102,18 +102,13 @@ class TrainingFacade:
 
         try:
             return self.collector.get_training_data(
-                min_quality=min_quality,
-                max_examples=max_examples
+                min_quality=min_quality, max_examples=max_examples
             )
         except Exception as e:
             logger.error(f"Failed to get training data: {e}")
             return []
 
-    def start_fine_tuning(
-        self,
-        model_name: str,
-        training_file: str
-    ) -> Optional[str]:
+    def start_fine_tuning(self, model_name: str, training_file: str) -> Optional[str]:
         """
         Start fine-tuning job
 
@@ -152,11 +147,7 @@ class TrainingFacade:
             logger.error(f"Failed to get fine-tuning status: {e}")
             return {"error": str(e)}
 
-    def export_training_data(
-        self,
-        output_file: str,
-        format: str = "jsonl"
-    ) -> bool:
+    def export_training_data(self, output_file: str, format: str = "jsonl") -> bool:
         """
         Export training data to file
 

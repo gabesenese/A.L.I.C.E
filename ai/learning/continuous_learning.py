@@ -37,7 +37,7 @@ class ContinuousLearningLoop:
         learning_engine=None,
         realtime_logger=None,
         check_interval_hours: int = 6,
-        auto_start: bool = False
+        auto_start: bool = False,
     ):
         """
         Initialize continuous learning loop
@@ -80,7 +80,9 @@ class ContinuousLearningLoop:
         self.thread = threading.Thread(target=self._learning_loop, daemon=True)
         self.thread.start()
 
-        logger.info(f"[ContinuousLearning] Started - checking every {self.check_interval_hours} hours")
+        logger.info(
+            f"[ContinuousLearning] Started - checking every {self.check_interval_hours} hours"
+        )
         logger.info("[ContinuousLearning] Alice will now learn continuously, 24/7")
 
     def stop(self):
@@ -130,7 +132,9 @@ class ContinuousLearningLoop:
                     time.sleep(60)
 
             except Exception as e:
-                logger.error(f"[ContinuousLearning] Error in learning loop: {e}", exc_info=True)
+                logger.error(
+                    f"[ContinuousLearning] Error in learning loop: {e}", exc_info=True
+                )
                 time.sleep(300)  # Sleep 5 minutes on error
 
     def _process_learning_cycle(self):
@@ -150,23 +154,29 @@ class ContinuousLearningLoop:
 
         corrections_applied = 0
         stats = {
-            'cycle_number': self.cycles_completed + 1,
-            'timestamp': cycle_start.isoformat(),
-            'errors_processed': 0,
-            'corrections_applied': 0,
-            'patterns_identified': 0
+            "cycle_number": self.cycles_completed + 1,
+            "timestamp": cycle_start.isoformat(),
+            "errors_processed": 0,
+            "corrections_applied": 0,
+            "patterns_identified": 0,
         }
 
         try:
             # Step 1: Gather recent errors
-            logger.info(f"[Step 1] Gathering errors from last {self.check_interval_hours} hours...")
-            errors = self.realtime_logger.get_errors_since(hours=self.check_interval_hours)
-            stats['errors_processed'] = len(errors)
+            logger.info(
+                f"[Step 1] Gathering errors from last {self.check_interval_hours} hours..."
+            )
+            errors = self.realtime_logger.get_errors_since(
+                hours=self.check_interval_hours
+            )
+            stats["errors_processed"] = len(errors)
 
             logger.info(f"[Step 1] Found {len(errors)} errors to learn from")
 
             if len(errors) == 0:
-                logger.info("[ContinuousLearning] No errors found - Alice is performing well!")
+                logger.info(
+                    "[ContinuousLearning] No errors found - Alice is performing well!"
+                )
                 self._finalize_cycle(stats)
                 return
 
@@ -186,7 +196,7 @@ class ContinuousLearningLoop:
                     corrections_applied += corrections
                     logger.info(f"  - {error_type}: {corrections} corrections applied")
 
-            stats['corrections_applied'] = corrections_applied
+            stats["corrections_applied"] = corrections_applied
 
             # Step 4: Update learning velocity
             logger.info("[Step 4] Updating learning metrics...")
@@ -196,15 +206,19 @@ class ContinuousLearningLoop:
 
             # Step 5: Self-evaluation
             logger.info("[Step 5] Self-evaluating corrections...")
-            if velocity['trend'] == 'improving':
+            if velocity["trend"] == "improving":
                 logger.info("  - Corrections are working! Error rate decreasing.")
-            elif velocity['trend'] == 'degrading':
-                logger.warning("  - Error rate increasing. Need to adjust learning strategy.")
+            elif velocity["trend"] == "degrading":
+                logger.warning(
+                    "  - Error rate increasing. Need to adjust learning strategy."
+                )
             else:
                 logger.info("  - Error rate stable.")
 
         except Exception as e:
-            logger.error(f"[ContinuousLearning] Error in learning cycle: {e}", exc_info=True)
+            logger.error(
+                f"[ContinuousLearning] Error in learning cycle: {e}", exc_info=True
+            )
 
         # Finalize
         self._finalize_cycle(stats)
@@ -212,8 +226,12 @@ class ContinuousLearningLoop:
         duration = (datetime.now() - cycle_start).total_seconds()
         logger.info("=" * 70)
         logger.info(f"[ContinuousLearning] CYCLE COMPLETE in {duration:.1f}s")
-        logger.info(f"[ContinuousLearning] Total corrections applied: {corrections_applied}")
-        logger.info(f"[ContinuousLearning] Next cycle in {self.check_interval_hours} hours")
+        logger.info(
+            f"[ContinuousLearning] Total corrections applied: {corrections_applied}"
+        )
+        logger.info(
+            f"[ContinuousLearning] Next cycle in {self.check_interval_hours} hours"
+        )
         logger.info("=" * 70)
 
     def _group_errors(self, errors: List[Dict]) -> Dict[str, List[Dict]]:
@@ -221,7 +239,7 @@ class ContinuousLearningLoop:
         groups = {}
 
         for error in errors:
-            error_type = error['error_type']
+            error_type = error["error_type"]
             if error_type not in groups:
                 groups[error_type] = []
             groups[error_type].append(error)
@@ -235,34 +253,38 @@ class ContinuousLearningLoop:
         Small, frequent adjustments beat big, infrequent overhauls.
         """
         if not self.learning_engine:
-            logger.warning("[ContinuousLearning] No learning engine available for corrections")
+            logger.warning(
+                "[ContinuousLearning] No learning engine available for corrections"
+            )
             return 0
 
         corrections_applied = 0
 
         try:
-            if error_type == 'intent_mismatch':
+            if error_type == "intent_mismatch":
                 # Correct intent classification errors
                 for error in errors:
-                    if error.get('expected') and error.get('actual'):
+                    if error.get("expected") and error.get("actual"):
                         self.learning_engine.add_correction(
-                            user_input=error['user_input'],
-                            wrong_intent=error['actual'],
-                            correct_intent=error['expected'],
-                            confidence=0.7  # Micro-corrections have moderate confidence
+                            user_input=error["user_input"],
+                            wrong_intent=error["actual"],
+                            correct_intent=error["expected"],
+                            confidence=0.7,  # Micro-corrections have moderate confidence
                         )
                         corrections_applied += 1
 
-            elif error_type == 'route_mismatch':
+            elif error_type == "route_mismatch":
                 # Correct routing errors
                 for error in errors:
-                    if error.get('expected') and error.get('actual'):
+                    if error.get("expected") and error.get("actual"):
                         # Log for nightly processing (routes are more complex)
                         pass  # Routes handled by nightly training
 
-            elif error_type == 'plugin_failure':
+            elif error_type == "plugin_failure":
                 # Log plugin failures for investigation
-                logger.warning(f"[ContinuousLearning] Plugin failures detected: {len(errors)}")
+                logger.warning(
+                    f"[ContinuousLearning] Plugin failures detected: {len(errors)}"
+                )
                 # Don't auto-correct plugin failures - need manual review
 
         except Exception as e:
@@ -273,25 +295,27 @@ class ContinuousLearningLoop:
     def _finalize_cycle(self, stats: Dict):
         """Finalize learning cycle and update statistics"""
         self.cycles_completed += 1
-        self.total_corrections_applied += stats['corrections_applied']
+        self.total_corrections_applied += stats["corrections_applied"]
         self.last_run = datetime.now()
 
         self._save_stats()
 
         # Save cycle stats
         cycle_log = Path("data/realtime_learning/learning_cycles.jsonl")
-        with open(cycle_log, 'a') as f:
-            f.write(json.dumps(stats) + '\n')
+        with open(cycle_log, "a") as f:
+            f.write(json.dumps(stats) + "\n")
 
     def _load_stats(self):
         """Load statistics from disk"""
         if self.stats_file.exists():
             try:
-                with open(self.stats_file, 'r') as f:
+                with open(self.stats_file, "r") as f:
                     stats = json.load(f)
-                    self.cycles_completed = stats.get('cycles_completed', 0)
-                    self.total_corrections_applied = stats.get('total_corrections_applied', 0)
-                    last_run_str = stats.get('last_run')
+                    self.cycles_completed = stats.get("cycles_completed", 0)
+                    self.total_corrections_applied = stats.get(
+                        "total_corrections_applied", 0
+                    )
+                    last_run_str = stats.get("last_run")
                     if last_run_str:
                         self.last_run = datetime.fromisoformat(last_run_str)
             except Exception as e:
@@ -300,13 +324,13 @@ class ContinuousLearningLoop:
     def _save_stats(self):
         """Save statistics to disk"""
         stats = {
-            'cycles_completed': self.cycles_completed,
-            'total_corrections_applied': self.total_corrections_applied,
-            'last_run': self.last_run.isoformat() if self.last_run else None
+            "cycles_completed": self.cycles_completed,
+            "total_corrections_applied": self.total_corrections_applied,
+            "last_run": self.last_run.isoformat() if self.last_run else None,
         }
 
         try:
-            with open(self.stats_file, 'w') as f:
+            with open(self.stats_file, "w") as f:
                 json.dump(stats, f, indent=2)
         except Exception as e:
             logger.error(f"[ContinuousLearning] Error saving stats: {e}")
@@ -314,12 +338,12 @@ class ContinuousLearningLoop:
     def get_status(self) -> Dict[str, Any]:
         """Get current status of continuous learning"""
         return {
-            'running': self.running,
-            'paused': self.paused,
-            'cycles_completed': self.cycles_completed,
-            'total_corrections_applied': self.total_corrections_applied,
-            'last_run': self.last_run.isoformat() if self.last_run else None,
-            'check_interval_hours': self.check_interval_hours
+            "running": self.running,
+            "paused": self.paused,
+            "cycles_completed": self.cycles_completed,
+            "total_corrections_applied": self.total_corrections_applied,
+            "last_run": self.last_run.isoformat() if self.last_run else None,
+            "check_interval_hours": self.check_interval_hours,
         }
 
 
@@ -331,7 +355,7 @@ def get_continuous_learning_loop(
     learning_engine=None,
     realtime_logger=None,
     check_interval_hours: int = 6,
-    auto_start: bool = False
+    auto_start: bool = False,
 ) -> ContinuousLearningLoop:
     """Get or create global continuous learning loop"""
     global _continuous_loop
@@ -340,6 +364,6 @@ def get_continuous_learning_loop(
             learning_engine=learning_engine,
             realtime_logger=realtime_logger,
             check_interval_hours=check_interval_hours,
-            auto_start=auto_start
+            auto_start=auto_start,
         )
     return _continuous_loop

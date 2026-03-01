@@ -31,11 +31,7 @@ class InfrastructureFacade:
 
         logger.info("[InfrastructureFacade] Initialized infrastructure systems")
 
-    def emit_event(
-        self,
-        event_type: str,
-        data: Dict[str, Any]
-    ) -> bool:
+    def emit_event(self, event_type: str, data: Dict[str, Any]) -> bool:
         """
         Emit system event
 
@@ -57,9 +53,7 @@ class InfrastructureFacade:
             return False
 
     def subscribe(
-        self,
-        event_type: str,
-        callback: Callable[[Dict[str, Any]], None]
+        self, event_type: str, callback: Callable[[Dict[str, Any]], None]
     ) -> bool:
         """
         Subscribe to system events
@@ -82,9 +76,7 @@ class InfrastructureFacade:
             return False
 
     def recover_from_error(
-        self,
-        error: Exception,
-        context: Dict[str, Any]
+        self, error: Exception, context: Dict[str, Any]
     ) -> Optional[Any]:
         """
         Attempt to recover from error

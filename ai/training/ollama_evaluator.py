@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Evaluation:
     """Ollama's evaluation of Alice's response"""
+
     interaction_id: str
     timestamp: str
 
@@ -36,10 +37,10 @@ class Evaluation:
 
     # Evaluation scores (0-100)
     overall_score: int
-    accuracy_score: int      # Did she understand correctly?
+    accuracy_score: int  # Did she understand correctly?
     completeness_score: int  # Did she address everything?
-    naturalness_score: int   # Does it sound human?
-    conciseness_score: int   # Not too verbose?
+    naturalness_score: int  # Does it sound human?
+    conciseness_score: int  # Not too verbose?
 
     # Feedback
     what_worked: str
@@ -75,11 +76,7 @@ class OllamaEvaluator:
     Provides continuous feedback without human intervention.
     """
 
-    def __init__(
-        self,
-        llm_engine=None,
-        storage_path: str = "data/evaluations"
-    ):
+    def __init__(self, llm_engine=None, storage_path: str = "data/evaluations"):
         self.llm = llm_engine
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
@@ -99,7 +96,7 @@ class OllamaEvaluator:
         expected_data: Dict[str, Any],
         action_type: str,
         alice_confidence: float = 0.5,
-        context: Dict[str, Any] = None
+        context: Dict[str, Any] = None,
     ) -> Evaluation:
         """
         Ollama evaluates Alice's response quality.
@@ -112,16 +109,13 @@ class OllamaEvaluator:
             user_input=user_input,
             alice_response=alice_response,
             expected_data=expected_data,
-            context=context or {}
+            context=context or {},
         )
 
         # Get Ollama's evaluation
         try:
             # Use chat with no history for stateless evaluation
-            raw_evaluation = self.llm.chat(
-                user_input=prompt,
-                use_history=False
-            )
+            raw_evaluation = self.llm.chat(user_input=prompt, use_history=False)
 
             # Parse evaluation
             evaluation = self._parse_evaluation(
@@ -130,13 +124,15 @@ class OllamaEvaluator:
                 alice_response=alice_response,
                 expected_data=expected_data,
                 action_type=action_type,
-                alice_confidence=alice_confidence
+                alice_confidence=alice_confidence,
             )
 
             # Log evaluation
             self._log_evaluation(evaluation)
 
-            logger.info(f"[Evaluator] Score: {evaluation.overall_score}/100 for {action_type}")
+            logger.info(
+                f"[Evaluator] Score: {evaluation.overall_score}/100 for {action_type}"
+            )
 
             return evaluation
 
@@ -148,7 +144,7 @@ class OllamaEvaluator:
                 alice_response=alice_response,
                 expected_data=expected_data,
                 action_type=action_type,
-                alice_confidence=alice_confidence
+                alice_confidence=alice_confidence,
             )
 
     def _build_evaluation_prompt(
@@ -156,7 +152,7 @@ class OllamaEvaluator:
         user_input: str,
         alice_response: str,
         expected_data: Dict[str, Any],
-        context: Dict[str, Any]
+        context: Dict[str, Any],
     ) -> str:
         """Build prompt for Ollama to evaluate Alice's response"""
 
@@ -219,7 +215,7 @@ Be objective and constructive. Focus on helping Alice improve."""
         alice_response: str,
         expected_data: Dict[str, Any],
         action_type: str,
-        alice_confidence: float
+        alice_confidence: float,
     ) -> Evaluation:
         """Parse Ollama's evaluation response"""
 
@@ -254,12 +250,12 @@ Be objective and constructive. Focus on helping Alice improve."""
             what_needs_improvement=improve or "No issues identified",
             suggested_improvement=suggestion,
             action_type=action_type,
-            alice_confidence=alice_confidence
+            alice_confidence=alice_confidence,
         )
 
     def _extract_score(self, text: str, field: str) -> int:
         """Extract numeric score from evaluation text"""
-        pattern = rf'{field}:\s*(\d+)'
+        pattern = rf"{field}:\s*(\d+)"
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             score = int(match.group(1))
@@ -268,7 +264,7 @@ Be objective and constructive. Focus on helping Alice improve."""
 
     def _extract_field(self, text: str, field: str) -> str:
         """Extract text field from evaluation"""
-        pattern = rf'{field}:\s*(.+?)(?=\n[A-Z]+:|$)'
+        pattern = rf"{field}:\s*(.+?)(?=\n[A-Z]+:|$)"
         match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
         if match:
             return match.group(1).strip()
@@ -277,14 +273,15 @@ Be objective and constructive. Focus on helping Alice improve."""
     def _generate_id(self) -> str:
         """Generate unique evaluation ID"""
         from datetime import datetime
+
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
         return f"eval_{timestamp}"
 
     def _log_evaluation(self, evaluation: Evaluation):
         """Log evaluation to JSONL file"""
         try:
-            with open(self.eval_log, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(evaluation.to_dict()) + '\n')
+            with open(self.eval_log, "a", encoding="utf-8") as f:
+                f.write(json.dumps(evaluation.to_dict()) + "\n")
         except Exception as e:
             logger.error(f"Failed to log evaluation: {e}")
 
@@ -294,7 +291,7 @@ Be objective and constructive. Focus on helping Alice improve."""
         alice_response: str,
         expected_data: Dict[str, Any],
         action_type: str,
-        alice_confidence: float
+        alice_confidence: float,
     ) -> Evaluation:
         """Create neutral evaluation when Ollama evaluation fails"""
         return Evaluation(
@@ -312,7 +309,7 @@ Be objective and constructive. Focus on helping Alice improve."""
             what_needs_improvement="Could not evaluate",
             suggested_improvement=None,
             action_type=action_type,
-            alice_confidence=alice_confidence
+            alice_confidence=alice_confidence,
         )
 
     def get_recent_evaluations(
@@ -320,7 +317,7 @@ Be objective and constructive. Focus on helping Alice improve."""
         days: int = 7,
         min_score: int = 0,
         max_score: int = 100,
-        action_type: Optional[str] = None
+        action_type: Optional[str] = None,
     ) -> List[Evaluation]:
         """Load recent evaluations with filtering"""
 
@@ -331,22 +328,24 @@ Be objective and constructive. Focus on helping Alice improve."""
         cutoff = datetime.now().timestamp() - (days * 86400)
 
         try:
-            with open(self.eval_log, 'r', encoding='utf-8') as f:
+            with open(self.eval_log, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
                         data = json.loads(line)
-                        eval_time = datetime.fromisoformat(data['timestamp']).timestamp()
+                        eval_time = datetime.fromisoformat(
+                            data["timestamp"]
+                        ).timestamp()
 
                         # Filter by date
                         if eval_time < cutoff:
                             continue
 
                         # Filter by score
-                        if not (min_score <= data['overall_score'] <= max_score):
+                        if not (min_score <= data["overall_score"] <= max_score):
                             continue
 
                         # Filter by action type
-                        if action_type and data['action_type'] != action_type:
+                        if action_type and data["action_type"] != action_type:
                             continue
 
                         # Reconstruct evaluation object
@@ -364,10 +363,10 @@ Be objective and constructive. Focus on helping Alice improve."""
 
         if not evaluations:
             return {
-                'total': 0,
-                'average_score': 0,
-                'passing_rate': 0,
-                'failing_rate': 0
+                "total": 0,
+                "average_score": 0,
+                "passing_rate": 0,
+                "failing_rate": 0,
             }
 
         total = len(evaluations)
@@ -386,26 +385,27 @@ Be objective and constructive. Focus on helping Alice improve."""
 
         action_stats = {
             action: {
-                'count': len(scores),
-                'avg_score': sum(scores) / len(scores),
-                'min_score': min(scores),
-                'max_score': max(scores)
+                "count": len(scores),
+                "avg_score": sum(scores) / len(scores),
+                "min_score": min(scores),
+                "max_score": max(scores),
             }
             for action, scores in by_action.items()
         }
 
         return {
-            'total': total,
-            'average_score': round(avg_score, 1),
-            'passing_rate': round(passing / total * 100, 1),
-            'failing_rate': round(failing / total * 100, 1),
-            'critical_failures': critical,
-            'by_action': action_stats
+            "total": total,
+            "average_score": round(avg_score, 1),
+            "passing_rate": round(passing / total * 100, 1),
+            "failing_rate": round(failing / total * 100, 1),
+            "critical_failures": critical,
+            "by_action": action_stats,
         }
 
 
 # Singleton instance
 _evaluator = None
+
 
 def get_ollama_evaluator(llm_engine=None) -> OllamaEvaluator:
     """Get or create the Ollama evaluator singleton"""

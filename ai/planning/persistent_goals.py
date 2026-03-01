@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 class GoalStatus(Enum):
     """Goal execution status"""
+
     CREATED = "created"
     PLANNING = "planning"
     IN_PROGRESS = "in_progress"
@@ -34,6 +35,7 @@ class GoalStatus(Enum):
 
 class GoalPriority(Enum):
     """Goal priority levels"""
+
     CRITICAL = 1
     HIGH = 2
     NORMAL = 3
@@ -43,6 +45,7 @@ class GoalPriority(Enum):
 @dataclass
 class GoalStep:
     """A single step in achieving a goal"""
+
     step_id: str
     description: str
     status: str = "pending"
@@ -56,6 +59,7 @@ class GoalStep:
 @dataclass
 class Goal:
     """A long-running goal"""
+
     goal_id: str
     title: str
     description: str
@@ -83,7 +87,7 @@ class Goal:
         step = GoalStep(
             step_id=str(uuid.uuid4()),
             description=description,
-            dependencies=dependencies or []
+            dependencies=dependencies or [],
         )
         self.steps.append(step)
         return step
@@ -164,10 +168,10 @@ class PersistentGoalSystem:
 
         if goals_file.exists():
             try:
-                with open(goals_file, 'r') as f:
+                with open(goals_file, "r") as f:
                     data = json.load(f)
 
-                for goal_data in data.get('goals', []):
+                for goal_data in data.get("goals", []):
                     goal = self._deserialize_goal(goal_data)
                     self.goals[goal.goal_id] = goal
 
@@ -182,11 +186,11 @@ class PersistentGoalSystem:
 
         try:
             data = {
-                'goals': [self._serialize_goal(goal) for goal in self.goals.values()],
-                'last_updated': time.time()
+                "goals": [self._serialize_goal(goal) for goal in self.goals.values()],
+                "last_updated": time.time(),
             }
 
-            with open(goals_file, 'w') as f:
+            with open(goals_file, "w") as f:
                 json.dump(data, f, indent=2)
 
         except Exception as e:
@@ -195,48 +199,48 @@ class PersistentGoalSystem:
     def _serialize_goal(self, goal: Goal) -> Dict[str, Any]:
         """Convert goal to JSON-serializable dict"""
         return {
-            'goal_id': goal.goal_id,
-            'title': goal.title,
-            'description': goal.description,
-            'status': goal.status.value,
-            'priority': goal.priority.value,
-            'created_at': goal.created_at,
-            'updated_at': goal.updated_at,
-            'started_at': goal.started_at,
-            'completed_at': goal.completed_at,
-            'deadline': goal.deadline,
-            'steps': [asdict(step) for step in goal.steps],
-            'current_step': goal.current_step,
-            'progress': goal.progress,
-            'success_criteria': goal.success_criteria,
-            'blockers': goal.blockers,
-            'context': goal.context,
-            'metadata': goal.metadata
+            "goal_id": goal.goal_id,
+            "title": goal.title,
+            "description": goal.description,
+            "status": goal.status.value,
+            "priority": goal.priority.value,
+            "created_at": goal.created_at,
+            "updated_at": goal.updated_at,
+            "started_at": goal.started_at,
+            "completed_at": goal.completed_at,
+            "deadline": goal.deadline,
+            "steps": [asdict(step) for step in goal.steps],
+            "current_step": goal.current_step,
+            "progress": goal.progress,
+            "success_criteria": goal.success_criteria,
+            "blockers": goal.blockers,
+            "context": goal.context,
+            "metadata": goal.metadata,
         }
 
     def _deserialize_goal(self, data: Dict[str, Any]) -> Goal:
         """Convert dict to Goal object"""
         goal = Goal(
-            goal_id=data['goal_id'],
-            title=data['title'],
-            description=data['description'],
-            status=GoalStatus(data['status']),
-            priority=GoalPriority(data['priority']),
-            created_at=data['created_at'],
-            updated_at=data['updated_at'],
-            started_at=data.get('started_at'),
-            completed_at=data.get('completed_at'),
-            deadline=data.get('deadline'),
-            current_step=data.get('current_step'),
-            progress=data.get('progress', 0.0),
-            success_criteria=data.get('success_criteria', []),
-            blockers=data.get('blockers', []),
-            context=data.get('context', {}),
-            metadata=data.get('metadata', {})
+            goal_id=data["goal_id"],
+            title=data["title"],
+            description=data["description"],
+            status=GoalStatus(data["status"]),
+            priority=GoalPriority(data["priority"]),
+            created_at=data["created_at"],
+            updated_at=data["updated_at"],
+            started_at=data.get("started_at"),
+            completed_at=data.get("completed_at"),
+            deadline=data.get("deadline"),
+            current_step=data.get("current_step"),
+            progress=data.get("progress", 0.0),
+            success_criteria=data.get("success_criteria", []),
+            blockers=data.get("blockers", []),
+            context=data.get("context", {}),
+            metadata=data.get("metadata", {}),
         )
 
         # Deserialize steps
-        for step_data in data.get('steps', []):
+        for step_data in data.get("steps", []):
             step = GoalStep(**step_data)
             goal.steps.append(step)
 
@@ -248,7 +252,7 @@ class PersistentGoalSystem:
         description: str,
         priority: GoalPriority = GoalPriority.NORMAL,
         deadline: Optional[datetime] = None,
-        success_criteria: List[str] = None
+        success_criteria: List[str] = None,
     ) -> Goal:
         """
         Create a new goal.
@@ -269,7 +273,7 @@ class PersistentGoalSystem:
             description=description,
             priority=priority,
             deadline=deadline.timestamp() if deadline else None,
-            success_criteria=success_criteria or []
+            success_criteria=success_criteria or [],
         )
 
         self.goals[goal.goal_id] = goal
@@ -285,16 +289,15 @@ class PersistentGoalSystem:
     def get_active_goals(self) -> List[Goal]:
         """Get all active (not completed/cancelled) goals"""
         return [
-            goal for goal in self.goals.values()
-            if goal.status not in [GoalStatus.COMPLETED, GoalStatus.CANCELLED, GoalStatus.FAILED]
+            goal
+            for goal in self.goals.values()
+            if goal.status
+            not in [GoalStatus.COMPLETED, GoalStatus.CANCELLED, GoalStatus.FAILED]
         ]
 
     def get_goals_by_priority(self, priority: GoalPriority) -> List[Goal]:
         """Get goals by priority level"""
-        return [
-            goal for goal in self.goals.values()
-            if goal.priority == priority
-        ]
+        return [goal for goal in self.goals.values() if goal.priority == priority]
 
     def update_goal_status(self, goal_id: str, status: GoalStatus):
         """Update goal status"""
@@ -353,7 +356,7 @@ class PersistentGoalSystem:
 
         for i, step_desc in enumerate(steps):
             # Create dependencies based on sequential order
-            dependencies = [goal.steps[i-1].step_id] if i > 0 else []
+            dependencies = [goal.steps[i - 1].step_id] if i > 0 else []
             goal.add_step(step_desc, dependencies)
 
         goal.status = GoalStatus.IN_PROGRESS
@@ -419,17 +422,17 @@ class PersistentGoalSystem:
             time_remaining = goal.deadline - time.time()
 
         return {
-            'goal_id': goal.goal_id,
-            'title': goal.title,
-            'status': goal.status.value,
-            'priority': goal.priority.value,
-            'progress': goal.progress,
-            'completed_steps': completed_steps,
-            'total_steps': total_steps,
-            'blockers': goal.blockers,
-            'time_elapsed_hours': time_elapsed / 3600 if time_elapsed else None,
-            'time_remaining_hours': time_remaining / 3600 if time_remaining else None,
-            'is_overdue': goal.deadline and time.time() > goal.deadline
+            "goal_id": goal.goal_id,
+            "title": goal.title,
+            "status": goal.status.value,
+            "priority": goal.priority.value,
+            "progress": goal.progress,
+            "completed_steps": completed_steps,
+            "total_steps": total_steps,
+            "blockers": goal.blockers,
+            "time_elapsed_hours": time_elapsed / 3600 if time_elapsed else None,
+            "time_remaining_hours": time_remaining / 3600 if time_remaining else None,
+            "is_overdue": goal.deadline and time.time() > goal.deadline,
         }
 
     def get_all_goals_summary(self) -> Dict[str, Any]:
@@ -437,12 +440,16 @@ class PersistentGoalSystem:
         active = self.get_active_goals()
 
         return {
-            'total_goals': len(self.goals),
-            'active_goals': len(active),
-            'completed_goals': len([g for g in self.goals.values() if g.status == GoalStatus.COMPLETED]),
-            'blocked_goals': len([g for g in self.goals.values() if g.status == GoalStatus.BLOCKED]),
-            'critical_goals': len(self.get_goals_by_priority(GoalPriority.CRITICAL)),
-            'goals': [self.get_goal_summary(g.goal_id) for g in active]
+            "total_goals": len(self.goals),
+            "active_goals": len(active),
+            "completed_goals": len(
+                [g for g in self.goals.values() if g.status == GoalStatus.COMPLETED]
+            ),
+            "blocked_goals": len(
+                [g for g in self.goals.values() if g.status == GoalStatus.BLOCKED]
+            ),
+            "critical_goals": len(self.get_goals_by_priority(GoalPriority.CRITICAL)),
+            "goals": [self.get_goal_summary(g.goal_id) for g in active],
         }
 
     def resume_on_startup(self) -> List[Goal]:
@@ -453,7 +460,8 @@ class PersistentGoalSystem:
             List of goals that were in progress
         """
         in_progress = [
-            goal for goal in self.goals.values()
+            goal
+            for goal in self.goals.values()
             if goal.status in [GoalStatus.IN_PROGRESS, GoalStatus.PAUSED]
         ]
 

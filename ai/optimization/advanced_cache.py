@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CacheEntry:
     """Cache entry with metadata for intelligent eviction"""
+
     key: str
     value: Any
     size: int = 1
@@ -39,7 +40,7 @@ class CacheEntry:
         """Calculate access frequency (accesses per second)"""
         age = time.time() - self.created
         if age <= 0:
-            return float('inf')
+            return float("inf")
         return self.access_count / age
 
     def recency_score(self) -> float:
@@ -66,8 +67,8 @@ class AdvancedCache:
         self,
         max_size: int = 1000,
         max_memory: int = 100_000_000,  # 100 MB default
-        eviction_policy: str = 'arc',
-        ttl_default: Optional[float] = None
+        eviction_policy: str = "arc",
+        ttl_default: Optional[float] = None,
     ):
         self.max_size = max_size
         self.max_memory = max_memory
@@ -86,33 +87,41 @@ class AdvancedCache:
 
         # ARC - split cache into recent and frequent
         self.recent_keys: OrderedDict[str, bool] = OrderedDict()  # T1 - recent items
-        self.frequent_keys: OrderedDict[str, bool] = OrderedDict()  # T2 - frequent items
-        self.ghost_recent: OrderedDict[str, bool] = OrderedDict()  # B1 - evicted from recent
-        self.ghost_frequent: OrderedDict[str, bool] = OrderedDict()  # B2 - evicted from frequent
+        self.frequent_keys: OrderedDict[str, bool] = (
+            OrderedDict()
+        )  # T2 - frequent items
+        self.ghost_recent: OrderedDict[str, bool] = (
+            OrderedDict()
+        )  # B1 - evicted from recent
+        self.ghost_frequent: OrderedDict[str, bool] = (
+            OrderedDict()
+        )  # B2 - evicted from frequent
         self.arc_target = max_size // 2  # Target size for T1
 
         # Statistics
         self.stats = {
-            'hits': 0,
-            'misses': 0,
-            'evictions': 0,
-            'expirations': 0,
-            'total_accesses': 0
+            "hits": 0,
+            "misses": 0,
+            "evictions": 0,
+            "expirations": 0,
+            "total_accesses": 0,
         }
 
         # Predictive prefetching
-        self.access_patterns: Dict[str, List[str]] = defaultdict(list)  # key -> [next_keys]
+        self.access_patterns: Dict[str, List[str]] = defaultdict(
+            list
+        )  # key -> [next_keys]
 
     def get(self, key: str) -> Optional[Any]:
         """Get value from cache"""
-        self.stats['total_accesses'] += 1
+        self.stats["total_accesses"] += 1
 
         # Clean expired entries periodically
-        if self.stats['total_accesses'] % 100 == 0:
+        if self.stats["total_accesses"] % 100 == 0:
             self._clean_expired()
 
         if key not in self.entries:
-            self.stats['misses'] += 1
+            self.stats["misses"] += 1
             return None
 
         entry = self.entries[key]
@@ -120,21 +129,21 @@ class AdvancedCache:
         # Check if expired
         if entry.is_expired():
             self._remove(key)
-            self.stats['expirations'] += 1
-            self.stats['misses'] += 1
+            self.stats["expirations"] += 1
+            self.stats["misses"] += 1
             return None
 
         # Update access metadata
         entry.access_count += 1
         entry.last_access = time.time()
-        self.stats['hits'] += 1
+        self.stats["hits"] += 1
 
         # Update tracking structures based on policy
-        if self.eviction_policy == 'lru':
+        if self.eviction_policy == "lru":
             self._update_lru(key)
-        elif self.eviction_policy == 'lfu':
+        elif self.eviction_policy == "lfu":
             self.frequency_map[key] += 1
-        elif self.eviction_policy == 'arc':
+        elif self.eviction_policy == "arc":
             self._update_arc(key, hit=True)
 
         return entry.value
@@ -145,7 +154,7 @@ class AdvancedCache:
         value: Any,
         size: int = 1,
         ttl: Optional[float] = None,
-        priority: int = 0
+        priority: int = 0,
     ) -> bool:
         """
         Store value in cache.
@@ -165,21 +174,17 @@ class AdvancedCache:
             ttl = self.ttl_default
 
         # Check if we need to evict
-        while (len(self.entries) >= self.max_size or
-               self.current_memory + size > self.max_memory):
+        while (
+            len(self.entries) >= self.max_size
+            or self.current_memory + size > self.max_memory
+        ):
             if not self._evict():
                 # Couldn't evict anything
                 logger.warning(f"Cache full, cannot store key: {key}")
                 return False
 
         # Create entry
-        entry = CacheEntry(
-            key=key,
-            value=value,
-            size=size,
-            ttl=ttl,
-            priority=priority
-        )
+        entry = CacheEntry(key=key, value=value, size=size, ttl=ttl, priority=priority)
 
         # Remove old entry if exists
         if key in self.entries:
@@ -190,11 +195,11 @@ class AdvancedCache:
         self.current_memory += size
 
         # Update tracking structures
-        if self.eviction_policy == 'lru':
+        if self.eviction_policy == "lru":
             self._update_lru(key)
-        elif self.eviction_policy == 'lfu':
+        elif self.eviction_policy == "lfu":
             self.frequency_map[key] = 1
-        elif self.eviction_policy == 'arc':
+        elif self.eviction_policy == "arc":
             self._update_arc(key, hit=False)
 
         return True
@@ -239,13 +244,13 @@ class AdvancedCache:
 
         victim_key = None
 
-        if self.eviction_policy == 'lru':
+        if self.eviction_policy == "lru":
             victim_key = self._evict_lru()
-        elif self.eviction_policy == 'lfu':
+        elif self.eviction_policy == "lfu":
             victim_key = self._evict_lfu()
-        elif self.eviction_policy == 'arc':
+        elif self.eviction_policy == "arc":
             victim_key = self._evict_arc()
-        elif self.eviction_policy == 'priority':
+        elif self.eviction_policy == "priority":
             victim_key = self._evict_priority()
         else:
             # Default to LRU
@@ -253,7 +258,7 @@ class AdvancedCache:
 
         if victim_key:
             self._remove(victim_key)
-            self.stats['evictions'] += 1
+            self.stats["evictions"] += 1
             return True
 
         return False
@@ -271,13 +276,15 @@ class AdvancedCache:
 
         # Find key with minimum frequency, breaking ties with age
         min_key = None
-        min_freq = float('inf')
-        oldest_time = float('inf')
+        min_freq = float("inf")
+        oldest_time = float("inf")
 
         for key, freq in self.frequency_map.items():
             if key in self.entries:
                 entry = self.entries[key]
-                if freq < min_freq or (freq == min_freq and entry.created < oldest_time):
+                if freq < min_freq or (
+                    freq == min_freq and entry.created < oldest_time
+                ):
                     min_key = key
                     min_freq = freq
                     oldest_time = entry.created
@@ -317,12 +324,11 @@ class AdvancedCache:
         # Find lowest priority entries
         min_priority = min(entry.priority for entry in self.entries.values())
         candidates = [
-            key for key, entry in self.entries.items()
-            if entry.priority == min_priority
+            key for key, entry in self.entries.items() if entry.priority == min_priority
         ]
 
         # Among those, pick LRU
-        oldest_access = float('inf')
+        oldest_access = float("inf")
         victim = None
 
         for key in candidates:
@@ -355,13 +361,12 @@ class AdvancedCache:
     def _clean_expired(self):
         """Remove all expired entries"""
         expired_keys = [
-            key for key, entry in self.entries.items()
-            if entry.is_expired()
+            key for key, entry in self.entries.items() if entry.is_expired()
         ]
 
         for key in expired_keys:
             self._remove(key)
-            self.stats['expirations'] += 1
+            self.stats["expirations"] += 1
 
     def prefetch(self, key: str) -> List[str]:
         """
@@ -399,16 +404,16 @@ class AdvancedCache:
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
         hit_rate = 0.0
-        if self.stats['total_accesses'] > 0:
-            hit_rate = self.stats['hits'] / self.stats['total_accesses']
+        if self.stats["total_accesses"] > 0:
+            hit_rate = self.stats["hits"] / self.stats["total_accesses"]
 
         return {
             **self.stats,
-            'hit_rate': hit_rate,
-            'size': len(self.entries),
-            'memory_used': self.current_memory,
-            'memory_capacity': self.max_memory,
-            'capacity': self.max_size
+            "hit_rate": hit_rate,
+            "size": len(self.entries),
+            "memory_used": self.current_memory,
+            "memory_capacity": self.max_memory,
+            "capacity": self.max_size,
         }
 
     def clear(self):
@@ -427,15 +432,11 @@ class AdvancedCache:
 _global_cache = None
 
 
-def get_cache(
-    max_size: int = 1000,
-    eviction_policy: str = 'arc'
-) -> AdvancedCache:
+def get_cache(max_size: int = 1000, eviction_policy: str = "arc") -> AdvancedCache:
     """Get or create global cache instance"""
     global _global_cache
     if _global_cache is None:
         _global_cache = AdvancedCache(
-            max_size=max_size,
-            eviction_policy=eviction_policy
+            max_size=max_size, eviction_policy=eviction_policy
         )
     return _global_cache

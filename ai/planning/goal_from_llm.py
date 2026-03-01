@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GoalJSON:
     """Structured goal produced by the LLM when intent is unclear."""
+
     target_intent: str
     target_item: Optional[str] = None  # e.g. "the grocery list", "email 2"
     action: str = "execute"  # "execute" | "ask"
@@ -34,7 +35,9 @@ def _parse_goal_response(raw: str) -> Optional[GoalJSON]:
     if match:
         try:
             obj = json.loads(match.group(0))
-            target_intent = obj.get("target_intent") or obj.get("intent") or "conversation:general"
+            target_intent = (
+                obj.get("target_intent") or obj.get("intent") or "conversation:general"
+            )
             if not isinstance(target_intent, str):
                 target_intent = "conversation:general"
             action = obj.get("action", "execute")

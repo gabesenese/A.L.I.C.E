@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class ExecutionLoopState(Enum):
     """State of the execution loop"""
+
     STOPPED = "stopped"
     RUNNING = "running"
     PAUSED = "paused"
@@ -39,7 +40,7 @@ class AutonomousExecutionLoop:
         self,
         autonomous_agent=None,
         goal_system=None,
-        check_interval: int = 30  # seconds
+        check_interval: int = 30,  # seconds
     ):
         self.autonomous_agent = autonomous_agent
         self.goal_system = goal_system
@@ -67,9 +68,7 @@ class AutonomousExecutionLoop:
 
         self.state = ExecutionLoopState.RUNNING
         self.thread = threading.Thread(
-            target=self._execution_loop,
-            name="AutonomousExecutionLoop",
-            daemon=True
+            target=self._execution_loop, name="AutonomousExecutionLoop", daemon=True
         )
         self.thread.start()
 
@@ -132,23 +131,23 @@ class AutonomousExecutionLoop:
 
                 # Create execution context
                 from ai.planning.autonomous_agent import ExecutionContext
+
                 context = ExecutionContext(goal_id=goal.goal_id)
 
                 # Execute the step
                 result = self.autonomous_agent.execute_step(
                     {
-                        'type': 'implement',  # Determine from step metadata
-                        'description': next_step.description,
-                        'dependencies': next_step.dependencies
+                        "type": "implement",  # Determine from step metadata
+                        "description": next_step.description,
+                        "dependencies": next_step.dependencies,
                     },
-                    context
+                    context,
                 )
 
                 # Update goal based on result
-                if result.get('success'):
+                if result.get("success"):
                     self.goal_system.complete_current_step(
-                        goal.goal_id,
-                        result=result.get('output')
+                        goal.goal_id, result=result.get("output")
                     )
                     self.execution_count += 1
                     self.last_execution = time.time()
@@ -157,8 +156,7 @@ class AutonomousExecutionLoop:
                 else:
                     # Step failed - mark as failed and move on
                     self.goal_system.fail_step(
-                        next_step.step_id,
-                        error=result.get('error', 'Unknown error')
+                        next_step.step_id, error=result.get("error", "Unknown error")
                     )
                     self.error_count += 1
 
@@ -173,7 +171,10 @@ class AutonomousExecutionLoop:
 
         if self.quiet_start_hour < self.quiet_end_hour:
             # Normal case (e.g., 23 < 7 wraps around midnight)
-            return current_hour >= self.quiet_start_hour or current_hour < self.quiet_end_hour
+            return (
+                current_hour >= self.quiet_start_hour
+                or current_hour < self.quiet_end_hour
+            )
         else:
             # Day time quiet hours (e.g., 10 < 16)
             return self.quiet_start_hour <= current_hour < self.quiet_end_hour
@@ -181,12 +182,12 @@ class AutonomousExecutionLoop:
     def get_stats(self) -> Dict[str, Any]:
         """Get execution loop statistics"""
         return {
-            'state': self.state.value,
-            'execution_count': self.execution_count,
-            'error_count': self.error_count,
-            'last_execution': self.last_execution,
-            'check_interval_seconds': self.check_interval,
-            'quiet_hours': f"{self.quiet_start_hour}:00 - {self.quiet_end_hour}:00"
+            "state": self.state.value,
+            "execution_count": self.execution_count,
+            "error_count": self.error_count,
+            "last_execution": self.last_execution,
+            "check_interval_seconds": self.check_interval,
+            "quiet_hours": f"{self.quiet_start_hour}:00 - {self.quiet_end_hour}:00",
         }
 
 
@@ -195,9 +196,7 @@ _execution_loop = None
 
 
 def get_execution_loop(
-    autonomous_agent=None,
-    goal_system=None,
-    check_interval: int = 30
+    autonomous_agent=None, goal_system=None, check_interval: int = 30
 ) -> AutonomousExecutionLoop:
     """Get or create global execution loop"""
     global _execution_loop
@@ -205,6 +204,6 @@ def get_execution_loop(
         _execution_loop = AutonomousExecutionLoop(
             autonomous_agent=autonomous_agent,
             goal_system=goal_system,
-            check_interval=check_interval
+            check_interval=check_interval,
         )
     return _execution_loop

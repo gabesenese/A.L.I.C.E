@@ -37,17 +37,16 @@ class MultimodalContext:
             import win32process
 
             windows = []
+
             def enum_callback(hwnd, _):
                 if win32gui.IsWindowVisible(hwnd):
                     try:
                         title = win32gui.GetWindowText(hwnd)
                         _, pid = win32process.GetWindowThreadProcessId(hwnd)
                         if title.strip():
-                            windows.append({
-                                "title": title,
-                                "pid": pid,
-                                "visible": True
-                            })
+                            windows.append(
+                                {"title": title, "pid": pid, "visible": True}
+                            )
                     except:
                         pass
                 return True
@@ -78,7 +77,7 @@ class MultimodalContext:
         try:
             cpu_percent = psutil.cpu_percent(interval=0.1)
             memory = psutil.virtual_memory()
-            disk = psutil.disk_usage('/')
+            disk = psutil.disk_usage("/")
 
             return {
                 "timestamp": datetime.now().isoformat(),
@@ -88,14 +87,14 @@ class MultimodalContext:
                     "total_mb": memory.total / (1024 * 1024),
                     "available_mb": memory.available / (1024 * 1024),
                     "percent": memory.percent,
-                    "used_mb": memory.used / (1024 * 1024)
+                    "used_mb": memory.used / (1024 * 1024),
                 },
                 "disk": {
-                    "total_gb": disk.total / (1024 ** 3),
-                    "used_gb": disk.used / (1024 ** 3),
-                    "free_gb": disk.free / (1024 ** 3),
-                    "percent": disk.percent
-                }
+                    "total_gb": disk.total / (1024**3),
+                    "used_gb": disk.used / (1024**3),
+                    "free_gb": disk.free / (1024**3),
+                    "percent": disk.percent,
+                },
             }
         except Exception as e:
             return {"error": str(e)}
@@ -104,19 +103,23 @@ class MultimodalContext:
         """Get top N running processes by CPU/memory."""
         try:
             processes = []
-            for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+            for proc in psutil.process_iter(
+                ["pid", "name", "cpu_percent", "memory_percent"]
+            ):
                 try:
-                    processes.append({
-                        "pid": proc.info['pid'],
-                        "name": proc.info['name'],
-                        "cpu_percent": proc.info['cpu_percent'] or 0,
-                        "memory_percent": proc.info['memory_percent'] or 0
-                    })
+                    processes.append(
+                        {
+                            "pid": proc.info["pid"],
+                            "name": proc.info["name"],
+                            "cpu_percent": proc.info["cpu_percent"] or 0,
+                            "memory_percent": proc.info["memory_percent"] or 0,
+                        }
+                    )
                 except psutil.NoSuchProcess:
                     pass
 
             # Sort by CPU usage
-            processes.sort(key=lambda x: x['cpu_percent'], reverse=True)
+            processes.sort(key=lambda x: x["cpu_percent"], reverse=True)
             return processes[:top_n]
         except Exception as e:
             return [{"error": str(e)}]
@@ -129,13 +132,17 @@ class MultimodalContext:
                 "ide_running": False,
                 "terminal_open": False,
                 "files_open": [],
-                "git_status": None
+                "git_status": None,
             }
 
             # Check for VS Code
-            processes = [p.name() for p in psutil.process_iter(['name'])]
-            editor_state["vs_code_running"] = "code.exe" in processes or "code" in processes
-            editor_state["terminal_open"] = "conhost.exe" in processes or "bash" in processes
+            processes = [p.name() for p in psutil.process_iter(["name"])]
+            editor_state["vs_code_running"] = (
+                "code.exe" in processes or "code" in processes
+            )
+            editor_state["terminal_open"] = (
+                "conhost.exe" in processes or "bash" in processes
+            )
 
             return editor_state
         except Exception as e:
@@ -148,10 +155,12 @@ class MultimodalContext:
             "telemetry": self.get_system_telemetry(),
             "top_processes": self.get_running_processes(5),
             "editor_state": self.get_editor_state(),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
-    def correlate_with_interaction(self, user_input: str, response: str) -> Dict[str, Any]:
+    def correlate_with_interaction(
+        self, user_input: str, response: str
+    ) -> Dict[str, Any]:
         """
         Correlate user interaction with system context.
         Example: "VS Code + failing test output" → different help pattern needed.
@@ -163,7 +172,7 @@ class MultimodalContext:
             "response": response,
             "system_context": context,
             "patterns": self._infer_patterns(user_input, context),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         return correlation
@@ -174,7 +183,10 @@ class MultimodalContext:
 
         # VS Code + code-related query
         if context.get("editor_state", {}).get("vs_code_running"):
-            if any(keyword in user_input.lower() for keyword in ["error", "debug", "test", "run"]):
+            if any(
+                keyword in user_input.lower()
+                for keyword in ["error", "debug", "test", "run"]
+            ):
                 patterns.append("code_debugging_context")
 
         # High system load
@@ -200,15 +212,15 @@ class MultimodalContext:
 
     def save_interaction_context(self, correlation: Dict[str, Any]):
         """Save interaction context to history."""
-        os.makedirs(os.path.dirname(self.history_path) or '.', exist_ok=True)
-        with open(self.history_path, 'a') as f:
-            f.write(json.dumps(correlation) + '\n')
+        os.makedirs(os.path.dirname(self.history_path) or ".", exist_ok=True)
+        with open(self.history_path, "a") as f:
+            f.write(json.dumps(correlation) + "\n")
 
     def get_context_history(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Get recent interaction contexts."""
         history = []
         if os.path.exists(self.history_path):
-            with open(self.history_path, 'r') as f:
+            with open(self.history_path, "r") as f:
                 for line in f:
                     if line.strip():
                         history.append(json.loads(line))
@@ -224,12 +236,14 @@ class MultimodalContext:
             for pattern in item.get("patterns", []):
                 patterns[pattern] = patterns.get(pattern, 0) + 1
 
-        avg_cpu = sum(item.get("system_context", {}).get("telemetry", {}).get("cpu_percent", 0)
-                     for item in history) / max(len(history), 1)
+        avg_cpu = sum(
+            item.get("system_context", {}).get("telemetry", {}).get("cpu_percent", 0)
+            for item in history
+        ) / max(len(history), 1)
 
         return {
             "total_interactions": len(history),
             "pattern_frequencies": patterns,
             "avg_cpu_load": avg_cpu,
-            "timestamps": [item.get("timestamp") for item in history[-10:]]
+            "timestamps": [item.get("timestamp") for item in history[-10:]],
         }

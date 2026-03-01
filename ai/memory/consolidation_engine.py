@@ -20,7 +20,7 @@ class ConsolidationEngine:
         self,
         memory_store: MemoryStore,
         embedding_manager: EmbeddingManager,
-        persistence_manager: PersistenceManager
+        persistence_manager: PersistenceManager,
     ) -> None:
         self.store = memory_store
         self.embedding = embedding_manager
@@ -39,7 +39,9 @@ class ConsolidationEngine:
         self.turns_since_consolidation += 1
 
         if self.turns_since_consolidation >= self.consolidation_interval:
-            logger.info(f" Running periodic consolidation (after {self.turns_since_consolidation} turns)")
+            logger.info(
+                f" Running periodic consolidation (after {self.turns_since_consolidation} turns)"
+            )
             result = self.consolidate(max_episodic=1000, auto_deduplicate=True)
             self.turns_since_consolidation = 0
             return result
@@ -81,7 +83,9 @@ class ConsolidationEngine:
             tag_score = min(len(memory.tags) / 3.0, 1.0) * 0.1
 
             # Combined score
-            total_score = importance + recency_score + access_score + context_score + tag_score
+            total_score = (
+                importance + recency_score + access_score + context_score + tag_score
+            )
 
             return min(total_score, 1.0)
 
@@ -102,8 +106,7 @@ class ConsolidationEngine:
         try:
             all_memories = self.store.get_all()
             memories_with_embeddings = [
-                m for m in all_memories
-                if m.embedding is not None
+                m for m in all_memories if m.embedding is not None
             ]
 
             if len(memories_with_embeddings) < 2:
@@ -115,7 +118,7 @@ class ConsolidationEngine:
                 if mem1.id in duplicates_to_remove:
                     continue
 
-                for mem2 in memories_with_embeddings[i + 1:]:
+                for mem2 in memories_with_embeddings[i + 1 :]:
                     if mem2.id in duplicates_to_remove:
                         continue
 
@@ -149,9 +152,7 @@ class ConsolidationEngine:
             return 0
 
     def consolidate(
-        self,
-        max_episodic: int = 1000,
-        auto_deduplicate: bool = True
+        self, max_episodic: int = 1000, auto_deduplicate: bool = True
     ) -> bool:
         """
         Consolidate memories by archiving old/unimportant ones
@@ -175,13 +176,14 @@ class ConsolidationEngine:
             episodic_memories = self.store.get_all(memory_type="episodic")
 
             if len(episodic_memories) <= max_episodic:
-                logger.info(f"   Episodic memory count ({len(episodic_memories)}) within limit ({max_episodic})")
+                logger.info(
+                    f"   Episodic memory count ({len(episodic_memories)}) within limit ({max_episodic})"
+                )
                 return True
 
             # Step 3: Calculate importance scores
             scored_memories = [
-                (mem, self.calculate_importance(mem))
-                for mem in episodic_memories
+                (mem, self.calculate_importance(mem)) for mem in episodic_memories
             ]
 
             # Step 4: Sort by importance
@@ -221,7 +223,7 @@ _consolidation_engine: OptionalType[ConsolidationEngine] = None
 def get_consolidation_engine(
     memory_store: MemoryStore = None,
     embedding_manager: EmbeddingManager = None,
-    persistence_manager: PersistenceManager = None
+    persistence_manager: PersistenceManager = None,
 ) -> ConsolidationEngine:
     """Get or create the ConsolidationEngine singleton"""
     global _consolidation_engine

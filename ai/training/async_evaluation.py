@@ -28,10 +28,7 @@ class AsyncEvaluationWrapper:
     """
 
     def __init__(
-        self,
-        ollama_evaluator=None,
-        response_formulator=None,
-        realtime_logger=None
+        self, ollama_evaluator=None, response_formulator=None, realtime_logger=None
     ):
         self.ollama_evaluator = ollama_evaluator
         self.response_formulator = response_formulator
@@ -56,7 +53,7 @@ class AsyncEvaluationWrapper:
         user_input: str,
         alice_response: str,
         plugin_result: Dict[str, Any],
-        alice_confidence: float = 0.5
+        alice_confidence: float = 0.5,
     ):
         """
         Queue evaluation for async processing.
@@ -64,13 +61,13 @@ class AsyncEvaluationWrapper:
         """
 
         evaluation_task = {
-            'user_input': user_input,
-            'alice_response': alice_response,
-            'action': plugin_result.get('action', 'unknown'),
-            'data': self._make_json_serializable(plugin_result.get('data', {})),
-            'success': plugin_result.get('success', True),
-            'alice_confidence': alice_confidence,
-            'timestamp': datetime.now().isoformat()
+            "user_input": user_input,
+            "alice_response": alice_response,
+            "action": plugin_result.get("action", "unknown"),
+            "data": self._make_json_serializable(plugin_result.get("data", {})),
+            "success": plugin_result.get("success", True),
+            "alice_confidence": alice_confidence,
+            "timestamp": datetime.now().isoformat(),
         }
 
         self.evaluation_queue.append(evaluation_task)
@@ -78,10 +75,9 @@ class AsyncEvaluationWrapper:
         # Process async (non-blocking)
         try:
             import threading
+
             thread = threading.Thread(
-                target=self._process_evaluation,
-                args=(evaluation_task,),
-                daemon=True
+                target=self._process_evaluation, args=(evaluation_task,), daemon=True
             )
             thread.start()
         except Exception as e:
@@ -99,15 +95,16 @@ class AsyncEvaluationWrapper:
             # Small delay to avoid resource contention with main response
             # Ensures Ollama isn't hit by two requests simultaneously
             import time
+
             time.sleep(2)
 
             # Ollama evaluates (this is slow, but user already has response)
             evaluation = self.ollama_evaluator.evaluate_response(
-                user_input=task['user_input'],
-                alice_response=task['alice_response'],
-                expected_data=task['data'],
-                action_type=task['action'],
-                alice_confidence=task['alice_confidence']
+                user_input=task["user_input"],
+                alice_response=task["alice_response"],
+                expected_data=task["data"],
+                action_type=task["action"],
+                alice_confidence=task["alice_confidence"],
             )
 
             # Alice learns from evaluation
@@ -129,18 +126,15 @@ class AsyncEvaluationWrapper:
                 return
 
             # Learn from Ollama's suggestion using correct PhrasingLearner API
-            if hasattr(self.response_formulator, 'phrasing_learner'):
+            if hasattr(self.response_formulator, "phrasing_learner"):
                 self.response_formulator.phrasing_learner.record_phrasing(
-                    alice_thought={
-                        "type": task['action'],
-                        "data": task['data']
-                    },
+                    alice_thought={"type": task["action"], "data": task["data"]},
                     ollama_phrasing=evaluation.suggested_improvement,
                     context={
                         "tone": "helpful",
-                        "user_input": task['user_input'],
-                        "timestamp": task['timestamp']
-                    }
+                        "user_input": task["user_input"],
+                        "timestamp": task["timestamp"],
+                    },
                 )
 
                 logger.debug(f"[AsyncEval] Learned correction for {task['action']}")
@@ -152,10 +146,9 @@ class AsyncEvaluationWrapper:
 # Singleton instance
 _async_eval = None
 
+
 def get_async_evaluator(
-    ollama_evaluator=None,
-    response_formulator=None,
-    realtime_logger=None
+    ollama_evaluator=None, response_formulator=None, realtime_logger=None
 ) -> AsyncEvaluationWrapper:
     """Get or create the async evaluator singleton"""
     global _async_eval
@@ -163,6 +156,6 @@ def get_async_evaluator(
         _async_eval = AsyncEvaluationWrapper(
             ollama_evaluator=ollama_evaluator,
             response_formulator=response_formulator,
-            realtime_logger=realtime_logger
+            realtime_logger=realtime_logger,
         )
     return _async_eval

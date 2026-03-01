@@ -35,7 +35,7 @@ class PersistenceManager:
             True if saved successfully
         """
         try:
-            with open(self.memory_file, 'wb') as f:
+            with open(self.memory_file, "wb") as f:
                 pickle.dump(memories, f)
             logger.info(f"Saved {len(memories)} memories to {self.memory_file}")
             return True
@@ -55,7 +55,7 @@ class PersistenceManager:
             return []
 
         try:
-            with open(self.memory_file, 'rb') as f:
+            with open(self.memory_file, "rb") as f:
                 memories = pickle.load(f)
             logger.info(f"Loaded {len(memories)} memories from {self.memory_file}")
             return memories
@@ -74,7 +74,7 @@ class PersistenceManager:
             True if saved successfully
         """
         try:
-            with open(self.document_registry_file, 'w', encoding='utf-8') as f:
+            with open(self.document_registry_file, "w", encoding="utf-8") as f:
                 json.dump(registry, f, indent=2, ensure_ascii=False)
             logger.debug(f"Saved document registry: {len(registry)} documents")
             return True
@@ -93,7 +93,7 @@ class PersistenceManager:
             return {}
 
         try:
-            with open(self.document_registry_file, 'r', encoding='utf-8') as f:
+            with open(self.document_registry_file, "r", encoding="utf-8") as f:
                 registry = json.load(f)
             logger.info(f"Loaded document registry: {len(registry)} documents")
             return registry
@@ -115,7 +115,7 @@ class PersistenceManager:
         existing_archive = []
         if self.archive_file.exists():
             try:
-                with open(self.archive_file, 'r', encoding='utf-8') as f:
+                with open(self.archive_file, "r", encoding="utf-8") as f:
                     existing_archive = json.load(f)
             except (json.JSONDecodeError, OSError, FileNotFoundError) as e:
                 logger.debug(f"Could not load existing archive: {e}")
@@ -123,16 +123,18 @@ class PersistenceManager:
         # Append new archived memories
         try:
             for memory in archived:
-                existing_archive.append({
-                    'id': memory.id,
-                    'content': memory.content,
-                    'memory_type': memory.memory_type,
-                    'timestamp': memory.timestamp,
-                    'importance': memory.importance,
-                    'archived_on': str(datetime.now())
-                })
+                existing_archive.append(
+                    {
+                        "id": memory.id,
+                        "content": memory.content,
+                        "memory_type": memory.memory_type,
+                        "timestamp": memory.timestamp,
+                        "importance": memory.importance,
+                        "archived_on": str(datetime.now()),
+                    }
+                )
 
-            with open(self.archive_file, 'w', encoding='utf-8') as f:
+            with open(self.archive_file, "w", encoding="utf-8") as f:
                 json.dump(existing_archive, f, indent=2, ensure_ascii=False)
 
             logger.info(f"Archived {len(archived)} memories")
@@ -152,7 +154,7 @@ class PersistenceManager:
             return []
 
         try:
-            with open(self.archive_file, 'r', encoding='utf-8') as f:
+            with open(self.archive_file, "r", encoding="utf-8") as f:
                 archived = json.load(f)
             return archived
         except (OSError, json.JSONDecodeError) as e:

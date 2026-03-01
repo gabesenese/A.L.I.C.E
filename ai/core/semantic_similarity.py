@@ -29,10 +29,43 @@ class SemanticSimilarity:
     def __init__(self):
         # Common stop words to filter out
         self.stop_words = {
-            'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
-            'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the',
-            'to', 'was', 'will', 'with', 'the', 'this', 'but', 'they', 'have',
-            'had', 'what', 'when', 'where', 'who', 'which', 'why', 'how'
+            "a",
+            "an",
+            "and",
+            "are",
+            "as",
+            "at",
+            "be",
+            "by",
+            "for",
+            "from",
+            "has",
+            "he",
+            "in",
+            "is",
+            "it",
+            "its",
+            "of",
+            "on",
+            "that",
+            "the",
+            "to",
+            "was",
+            "will",
+            "with",
+            "the",
+            "this",
+            "but",
+            "they",
+            "have",
+            "had",
+            "what",
+            "when",
+            "where",
+            "who",
+            "which",
+            "why",
+            "how",
         }
 
         # Document frequency for IDF calculation
@@ -45,7 +78,7 @@ class SemanticSimilarity:
         text = text.lower()
 
         # Extract words (alphanumeric sequences)
-        words = re.findall(r'\b\w+\b', text)
+        words = re.findall(r"\b\w+\b", text)
 
         # Filter out stop words and very short words
         words = [w for w in words if w not in self.stop_words and len(w) > 2]
@@ -57,7 +90,7 @@ class SemanticSimilarity:
         if len(tokens) < n:
             return set()
 
-        return {' '.join(tokens[i:i+n]) for i in range(len(tokens) - n + 1)}
+        return {" ".join(tokens[i : i + n]) for i in range(len(tokens) - n + 1)}
 
     def cosine_similarity(self, text1: str, text2: str) -> float:
         """
@@ -176,10 +209,7 @@ class SemanticSimilarity:
         return sum(similarities) / len(similarities) if similarities else 0.0
 
     def combined_similarity(
-        self,
-        text1: str,
-        text2: str,
-        weights: Dict[str, float] = None
+        self, text1: str, text2: str, weights: Dict[str, float] = None
     ) -> float:
         """
         Calculate combined similarity using multiple algorithms.
@@ -194,18 +224,13 @@ class SemanticSimilarity:
             Combined similarity score (0-1)
         """
         if weights is None:
-            weights = {
-                'cosine': 0.3,
-                'jaccard': 0.2,
-                'ngram': 0.3,
-                'fuzzy': 0.2
-            }
+            weights = {"cosine": 0.3, "jaccard": 0.2, "ngram": 0.3, "fuzzy": 0.2}
 
         scores = {
-            'cosine': self.cosine_similarity(text1, text2),
-            'jaccard': self.jaccard_similarity(text1, text2),
-            'ngram': self.ngram_similarity(text1, text2),
-            'fuzzy': self.fuzzy_similarity(text1, text2)
+            "cosine": self.cosine_similarity(text1, text2),
+            "jaccard": self.jaccard_similarity(text1, text2),
+            "ngram": self.ngram_similarity(text1, text2),
+            "fuzzy": self.fuzzy_similarity(text1, text2),
         }
 
         # Weighted average
@@ -214,10 +239,7 @@ class SemanticSimilarity:
         return combined
 
     def find_best_match(
-        self,
-        query: str,
-        candidates: List[str],
-        threshold: float = 0.3
+        self, query: str, candidates: List[str], threshold: float = 0.3
     ) -> Tuple[str, float]:
         """
         Find the best matching candidate for a query.
@@ -248,10 +270,7 @@ class SemanticSimilarity:
         return best_match, best_score
 
     def rank_candidates(
-        self,
-        query: str,
-        candidates: List[str],
-        top_n: int = 5
+        self, query: str, candidates: List[str], top_n: int = 5
     ) -> List[Tuple[str, float]]:
         """
         Rank candidates by similarity to query.
@@ -281,6 +300,7 @@ class SemanticSimilarity:
 
 # Global singleton instance
 _semantic_similarity = None
+
 
 def get_semantic_similarity() -> SemanticSimilarity:
     """Get global semantic similarity instance"""

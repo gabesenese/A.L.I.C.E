@@ -33,13 +33,11 @@ class FactChecker:
             "maybe",
             "possibly",
             "likely",
-            "could be"
+            "could be",
         ]
 
     def check_code_claim(
-        self,
-        claim: str,
-        actual_analysis: Dict[str, Any]
+        self, claim: str, actual_analysis: Dict[str, Any]
     ) -> Tuple[bool, Optional[str]]:
         """
         Check if a claim about code is factual.
@@ -55,22 +53,22 @@ class FactChecker:
 
         # Check for claimed features that don't exist
         feature_claims = {
-            'graph': ['graph', 'node', 'edge', 'vertex'],
-            'database': ['database', 'sql', 'query', 'table'],
-            'network': ['network', 'socket', 'connection', 'request'],
-            'encryption': ['encrypt', 'decrypt', 'cipher', 'hash'],
-            'ai': ['neural', 'machine learning', 'deep learning', 'model']
+            "graph": ["graph", "node", "edge", "vertex"],
+            "database": ["database", "sql", "query", "table"],
+            "network": ["network", "socket", "connection", "request"],
+            "encryption": ["encrypt", "decrypt", "cipher", "hash"],
+            "ai": ["neural", "machine learning", "deep learning", "model"],
         }
 
         for feature, keywords in feature_claims.items():
             if any(kw in claim_lower for kw in keywords):
                 # Check if this feature actually exists in imports or function names
-                imports_str = ' '.join(actual_analysis.get('imports', [])).lower()
-                functions_str = ' '.join(
-                    f['name'] for f in actual_analysis.get('functions', [])
+                imports_str = " ".join(actual_analysis.get("imports", [])).lower()
+                functions_str = " ".join(
+                    f["name"] for f in actual_analysis.get("functions", [])
                 ).lower()
-                classes_str = ' '.join(
-                    c['name'] for c in actual_analysis.get('classes', [])
+                classes_str = " ".join(
+                    c["name"] for c in actual_analysis.get("classes", [])
                 ).lower()
 
                 all_code = imports_str + functions_str + classes_str
@@ -83,9 +81,7 @@ class FactChecker:
         return True, None
 
     def check_file_existence_claim(
-        self,
-        claimed_file: str,
-        available_files: List[str]
+        self, claimed_file: str, available_files: List[str]
     ) -> Tuple[bool, Optional[str]]:
         """
         Check if a claimed file actually exists.
@@ -102,7 +98,10 @@ class FactChecker:
 
         for actual_file in available_files:
             actual_normalized = Path(actual_file).as_posix().lower()
-            if claimed_normalized in actual_normalized or actual_normalized in claimed_normalized:
+            if (
+                claimed_normalized in actual_normalized
+                or actual_normalized in claimed_normalized
+            ):
                 return True, None
 
         correction = f"File '{claimed_file}' not found in codebase."
@@ -121,8 +120,7 @@ class FactChecker:
         response_lower = response.lower()
 
         uncertainty_count = sum(
-            1 for marker in self.uncertain_markers
-            if marker in response_lower
+            1 for marker in self.uncertain_markers if marker in response_lower
         )
 
         # Normalize to 0-1
@@ -145,33 +143,34 @@ class FactChecker:
             return response
 
         # Check for definitive claims without sources
-        has_definitive_claim = any(phrase in response.lower() for phrase in [
-            'uses a',
-            'employs',
-            'implements',
-            'contains',
-            'has a',
-            'includes a'
-        ])
+        has_definitive_claim = any(
+            phrase in response.lower()
+            for phrase in [
+                "uses a",
+                "employs",
+                "implements",
+                "contains",
+                "has a",
+                "includes a",
+            ]
+        )
 
-        has_source_citation = any(marker in response for marker in [
-            'line',
-            'function',
-            'class',
-            'import',
-            '```'
-        ])
+        has_source_citation = any(
+            marker in response
+            for marker in ["line", "function", "class", "import", "```"]
+        )
 
         if has_definitive_claim and not has_source_citation:
             # Add disclaimer
-            return response + "\n\n(Note: This is based on general patterns, not verified against the actual code)"
+            return (
+                response
+                + "\n\n(Note: This is based on general patterns, not verified against the actual code)"
+            )
 
         return response
 
     def require_evidence(
-        self,
-        claim_type: str,
-        evidence: Optional[Dict[str, Any]] = None
+        self, claim_type: str, evidence: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Check if sufficient evidence exists for a claim type.
@@ -186,17 +185,17 @@ class FactChecker:
         if not evidence:
             return False
 
-        if claim_type == 'code_feature':
+        if claim_type == "code_feature":
             # Need actual AST analysis
-            return 'functions' in evidence or 'classes' in evidence
+            return "functions" in evidence or "classes" in evidence
 
-        elif claim_type == 'file_content':
+        elif claim_type == "file_content":
             # Need actual file content
-            return 'content' in evidence and len(evidence['content']) > 0
+            return "content" in evidence and len(evidence["content"]) > 0
 
-        elif claim_type == 'data_value':
+        elif claim_type == "data_value":
             # Need actual data
-            return 'value' in evidence
+            return "value" in evidence
 
         return False
 

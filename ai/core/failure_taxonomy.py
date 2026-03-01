@@ -40,18 +40,19 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-SLOT_MISS     = "SLOT_MISS"
-FRAME_MISS    = "FRAME_MISS"
-COREF_MISS    = "COREF_MISS"
-ROUTE_MISS    = "ROUTE_MISS"
-PLUGIN_MISS   = "PLUGIN_MISS"
-CONFIDENCE    = "CONFIDENCE"
+SLOT_MISS = "SLOT_MISS"
+FRAME_MISS = "FRAME_MISS"
+COREF_MISS = "COREF_MISS"
+ROUTE_MISS = "ROUTE_MISS"
+PLUGIN_MISS = "PLUGIN_MISS"
+CONFIDENCE = "CONFIDENCE"
 
 _ALL_TYPES = {SLOT_MISS, FRAME_MISS, COREF_MISS, ROUTE_MISS, PLUGIN_MISS, CONFIDENCE}
 
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class FailureRecord:
@@ -91,21 +92,37 @@ class FailureRecord:
 # Classifier
 # ---------------------------------------------------------------------------
 
+
 class FailureTaxonomy:
     """
     Classify and log NLP/plugin failures for targeted retraining.
     """
 
     # Pronouns / referential phrases that indicate a coref attempt
-    _COREF_TOKENS = frozenset([
-        "it", "this", "that", "the note", "the file", "the one",
-        "the first", "the second", "the last", "the previous",
-    ])
+    _COREF_TOKENS = frozenset(
+        [
+            "it",
+            "this",
+            "that",
+            "the note",
+            "the file",
+            "the one",
+            "the first",
+            "the second",
+            "the last",
+            "the previous",
+        ]
+    )
 
     def __init__(self, log_path: Optional[str] = None):
         if log_path is None:
             log_path = os.path.join(
-                os.path.dirname(__file__), "..", "..", "data", "analytics", "failure_log.jsonl"
+                os.path.dirname(__file__),
+                "..",
+                "..",
+                "data",
+                "analytics",
+                "failure_log.jsonl",
             )
         self.log_path = Path(log_path).resolve()
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -138,7 +155,9 @@ class FailureTaxonomy:
         error_code = data.get("error") or data.get("message_code")
 
         parsed_cmd = nlp_result.get("parsed_command", {}) or {}
-        modifiers = parsed_cmd.get("modifiers", {}) if isinstance(parsed_cmd, dict) else {}
+        modifiers = (
+            parsed_cmd.get("modifiers", {}) if isinstance(parsed_cmd, dict) else {}
+        )
         frame = modifiers.get("frame", {}) if isinstance(modifiers, dict) else {}
         frame_name = frame.get("name") if isinstance(frame, dict) else None
 
@@ -195,7 +214,9 @@ class FailureTaxonomy:
             )
 
         # ── 4. Frame parser had no match or low confidence → FRAME_MISS
-        if frame_name is None or (isinstance(frame, dict) and frame.get("confidence", 1.0) < 0.50):
+        if frame_name is None or (
+            isinstance(frame, dict) and frame.get("confidence", 1.0) < 0.50
+        ):
             return FailureRecord(
                 failure_type=FRAME_MISS,
                 utterance=utterance,
@@ -237,7 +258,12 @@ class FailureTaxonomy:
         try:
             with self.log_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(record.as_dict(), ensure_ascii=False) + "\n")
-            logger.debug("[FAILURE] %s | %s | %s", record.failure_type, record.intent, record.utterance[:60])
+            logger.debug(
+                "[FAILURE] %s | %s | %s",
+                record.failure_type,
+                record.intent,
+                record.utterance[:60],
+            )
         except Exception as exc:
             logger.warning("[FAILURE] Could not write failure log: %s", exc)
 
@@ -289,7 +315,11 @@ class FailureTaxonomy:
     def _find_missing_slots(action: str, data: Dict[str, Any]) -> List[str]:
         """Infer which slots are missing based on action + error data."""
         missing: List[str] = []
-        clarify_q = data.get("clarification_question", "").lower() if isinstance(data, dict) else ""
+        clarify_q = (
+            data.get("clarification_question", "").lower()
+            if isinstance(data, dict)
+            else ""
+        )
         msg_code = data.get("message_code", "") if isinstance(data, dict) else ""
 
         if "search" in msg_code or "query" in clarify_q:

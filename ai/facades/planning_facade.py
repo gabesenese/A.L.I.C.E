@@ -61,11 +61,7 @@ class PlanningFacade:
             logger.error(f"Failed to detect goal: {e}")
             return None
 
-    def create_goal(
-        self,
-        description: str,
-        user_input: str
-    ) -> Optional[str]:
+    def create_goal(self, description: str, user_input: str) -> Optional[str]:
         """
         Create and store a new goal
 
@@ -85,10 +81,7 @@ class PlanningFacade:
             logger.error(f"Failed to create goal: {e}")
             return None
 
-    def decompose_goal(
-        self,
-        goal_description: str
-    ) -> List[Dict[str, Any]]:
+    def decompose_goal(self, goal_description: str) -> List[Dict[str, Any]]:
         """
         Break down goal into actionable steps
 
@@ -108,9 +101,7 @@ class PlanningFacade:
             return []
 
     def execute_task(
-        self,
-        task_type: str,
-        parameters: Dict[str, Any]
+        self, task_type: str, parameters: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Execute a task with given parameters
@@ -123,36 +114,27 @@ class PlanningFacade:
             Execution result
         """
         if not self.executor:
-            return {
-                "success": False,
-                "error": "Task executor not available"
-            }
+            return {"success": False, "error": "Task executor not available"}
 
         try:
             # Route to appropriate executor method
             if task_type == "open_application":
-                app_path = parameters.get('app_path', '')
+                app_path = parameters.get("app_path", "")
                 result = self.executor.open_application(app_path)
             elif task_type == "run_command":
-                command = parameters.get('command', '')
+                command = parameters.get("command", "")
                 result = self.executor.run_command(command)
             else:
-                return {
-                    "success": False,
-                    "error": f"Unknown task type: {task_type}"
-                }
+                return {"success": False, "error": f"Unknown task type: {task_type}"}
 
             return {
                 "success": result.success,
                 "output": result.output,
-                "error": result.error
+                "error": result.error,
             }
         except Exception as e:
             logger.error(f"Failed to execute task: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     def get_active_goals(self) -> List[Dict[str, Any]]:
         """

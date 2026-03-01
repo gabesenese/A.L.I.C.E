@@ -14,13 +14,16 @@ from datetime import datetime
 
 
 class PatternMiner:
-    def __init__(self, logged_interactions_path: str = "data/training/logged_interactions.jsonl",
-                 proposed_patterns_path: str = "data/training/proposed_patterns.json",
-                 threshold: int = 3,
-                 similarity_threshold: float = 0.7):
+    def __init__(
+        self,
+        logged_interactions_path: str = "data/training/logged_interactions.jsonl",
+        proposed_patterns_path: str = "data/training/proposed_patterns.json",
+        threshold: int = 3,
+        similarity_threshold: float = 0.7,
+    ):
         """
         Initialize pattern miner.
-        
+
         Args:
             logged_interactions_path: Path to logged interactions JSONL file
             proposed_patterns_path: Path to proposed patterns JSON file
@@ -36,21 +39,24 @@ class PatternMiner:
     def _load_proposed_patterns(self) -> Dict[str, Any]:
         """Load existing proposed patterns."""
         if os.path.exists(self.proposed_patterns_path):
-            with open(self.proposed_patterns_path, 'r') as f:
+            with open(self.proposed_patterns_path, "r") as f:
                 return json.load(f)
-        return {"proposals": [], "metadata": {"total_proposals": 0, "approved": 0, "rejected": 0}}
+        return {
+            "proposals": [],
+            "metadata": {"total_proposals": 0, "approved": 0, "rejected": 0},
+        }
 
     def _save_proposed_patterns(self):
         """Save proposed patterns to disk."""
-        os.makedirs(os.path.dirname(self.proposed_patterns_path) or '.', exist_ok=True)
-        with open(self.proposed_patterns_path, 'w') as f:
+        os.makedirs(os.path.dirname(self.proposed_patterns_path) or ".", exist_ok=True)
+        with open(self.proposed_patterns_path, "w") as f:
             json.dump(self.proposed_patterns, f, indent=2)
 
     def _load_logged_interactions(self) -> List[Dict[str, Any]]:
         """Load logged interactions from JSONL file."""
         interactions = []
         if os.path.exists(self.logged_interactions_path):
-            with open(self.logged_interactions_path, 'r') as f:
+            with open(self.logged_interactions_path, "r") as f:
                 for line in f:
                     if line.strip():
                         interactions.append(json.loads(line))
@@ -60,7 +66,9 @@ class PatternMiner:
         """Calculate similarity between two strings (0-1)."""
         return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
 
-    def _cluster_by_intent(self, interactions: List[Dict[str, Any]]) -> Dict[str, List[Dict]]:
+    def _cluster_by_intent(
+        self, interactions: List[Dict[str, Any]]
+    ) -> Dict[str, List[Dict]]:
         """Group interactions by intent."""
         clusters = defaultdict(list)
         for interaction in interactions:
@@ -68,7 +76,9 @@ class PatternMiner:
             clusters[intent].append(interaction)
         return clusters
 
-    def _cluster_by_similarity(self, interactions: List[Dict[str, Any]]) -> List[List[Dict]]:
+    def _cluster_by_similarity(
+        self, interactions: List[Dict[str, Any]]
+    ) -> List[List[Dict]]:
         """Cluster interactions by semantic similarity of user inputs."""
         if not interactions:
             return []
@@ -84,8 +94,7 @@ class PatternMiner:
             remaining = []
             for interaction in unclustered:
                 sim = self._similarity(
-                    seed.get("user_input", ""),
-                    interaction.get("user_input", "")
+                    seed.get("user_input", ""), interaction.get("user_input", "")
                 )
                 if sim >= self.similarity_threshold:
                     cluster.append(interaction)
@@ -123,7 +132,9 @@ class PatternMiner:
 
         return proposed
 
-    def _create_pattern_proposal(self, intent: str, cluster: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _create_pattern_proposal(
+        self, intent: str, cluster: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         """Create a pattern proposal from a cluster of interactions."""
         user_inputs = [i.get("user_input", "") for i in cluster]
         responses = [i.get("llm_response", "") for i in cluster]
@@ -147,11 +158,14 @@ class PatternMiner:
             "common_entities": list(common_entities),
             "tool": tool_used,
             "cluster_size": len(cluster),
-            "avg_quality": sum(c.get("quality_score", 0.8) for c in cluster) / len(cluster),
+            "avg_quality": sum(c.get("quality_score", 0.8) for c in cluster)
+            / len(cluster),
             "approval_status": "pending",
             "created": datetime.now().isoformat(),
             "approved_by": None,
-            "confidence": min(0.99, 0.8 + (len(cluster) * 0.05))  # Higher with more examples
+            "confidence": min(
+                0.99, 0.8 + (len(cluster) * 0.05)
+            ),  # Higher with more examples
         }
 
         return pattern
@@ -177,7 +191,9 @@ class PatternMiner:
 
         if truly_new:
             self.proposed_patterns["proposals"].extend(truly_new)
-            self.proposed_patterns["metadata"]["total_proposals"] = len(self.proposed_patterns["proposals"])
+            self.proposed_patterns["metadata"]["total_proposals"] = len(
+                self.proposed_patterns["proposals"]
+            )
             self._save_proposed_patterns()
 
         return truly_new[:min_new]
@@ -205,13 +221,19 @@ class PatternMiner:
 
     def get_pending_patterns(self) -> List[Dict[str, Any]]:
         """Get all patterns awaiting approval."""
-        return [p for p in self.proposed_patterns["proposals"]
-                if p.get("approval_status") == "pending"]
+        return [
+            p
+            for p in self.proposed_patterns["proposals"]
+            if p.get("approval_status") == "pending"
+        ]
 
     def get_approved_patterns(self) -> List[Dict[str, Any]]:
         """Get all approved patterns."""
-        return [p for p in self.proposed_patterns["proposals"]
-                if p.get("approval_status") == "approved"]
+        return [
+            p
+            for p in self.proposed_patterns["proposals"]
+            if p.get("approval_status") == "approved"
+        ]
 
     def get_pattern_stats(self) -> Dict[str, Any]:
         """Get statistics about proposed patterns."""
@@ -223,8 +245,7 @@ class PatternMiner:
             "pending_approval": len(pending),
             "approved": self.proposed_patterns["metadata"]["approved"],
             "rejected": self.proposed_patterns["metadata"]["rejected"],
-            "approval_rate": self.proposed_patterns["metadata"]["approved"] / max(
-                self.proposed_patterns["metadata"]["total_proposals"], 1
-            ),
-            "pending_patterns": pending
+            "approval_rate": self.proposed_patterns["metadata"]["approved"]
+            / max(self.proposed_patterns["metadata"]["total_proposals"], 1),
+            "pending_patterns": pending,
         }

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CodeFile:
     """Represents a code file with rich metadata"""
+
     path: str
     name: str
     content: str
@@ -47,18 +48,18 @@ class SelfReflectionSystem:
     """
     Allows A.L.I.C.E to read and analyze her own codebase.
     Read-only access for safety.
-    
+
     Advanced Features:
     - Smart caching with 1-hour TTL
     - AST-based analysis for accuracy
     - Parallel file processing
     - Purpose extraction from docstrings/comments
     """
-    
+
     def __init__(self, base_path: Optional[str] = None):
         """
         Initialize self-reflection system
-        
+
         Args:
             base_path: Base path to A.L.I.C.E codebase (defaults to current directory)
         """
@@ -67,69 +68,106 @@ class SelfReflectionSystem:
             self.base_path = Path(__file__).parent.parent.resolve()
         else:
             self.base_path = Path(base_path).resolve()
-        
-        self.allowed_extensions = {'.py', '.md', '.txt', '.json', '.yaml', '.yml'}
+
+        self.allowed_extensions = {".py", ".md", ".txt", ".json", ".yaml", ".yml"}
         self.ignored_patterns = {
-            '__pycache__', '.pyc', '.git', 'node_modules',
-            'venv', 'env', '.venv', 'data/', 'memory/', 'config/cred/',
-            '.pytest_cache', '.mypy_cache'
+            "__pycache__",
+            ".pyc",
+            ".git",
+            "node_modules",
+            "venv",
+            "env",
+            ".venv",
+            "data/",
+            "memory/",
+            "config/cred/",
+            ".pytest_cache",
+            ".mypy_cache",
         }
-        
+
         # Map of module types
         self.module_map = {
-            'plugin': ['plugin', 'notes', 'email', 'music', 'calendar', 'document', 'maps'],
-            'core': ['main', 'llm_engine', 'nlp_processor', 'context', 'core', 'reasoning', 'learning'],
-            'system': ['world_state', 'goal', 'reference', 'verifier', 'router', 'policy'],
-            'utility': ['memory_system', 'intent_classifier', 'task_executor', 'formatter']
+            "plugin": [
+                "plugin",
+                "notes",
+                "email",
+                "music",
+                "calendar",
+                "document",
+                "maps",
+            ],
+            "core": [
+                "main",
+                "llm_engine",
+                "nlp_processor",
+                "context",
+                "core",
+                "reasoning",
+                "learning",
+            ],
+            "system": [
+                "world_state",
+                "goal",
+                "reference",
+                "verifier",
+                "router",
+                "policy",
+            ],
+            "utility": [
+                "memory_system",
+                "intent_classifier",
+                "task_executor",
+                "formatter",
+            ],
         }
-        
+
         # Smart caching
         self._analysis_cache: Dict[str, Tuple[Dict[str, Any], datetime]] = {}
         self._cache_ttl = timedelta(hours=1)
-        
+
         # File hash tracking for change detection
         self._file_hashes: Dict[str, str] = {}
-        
+
         logger.info(f"[SelfReflection] Initialized with base path: {self.base_path}")
-    
+
     def _is_allowed_file(self, file_path: Path) -> bool:
         """Check if file should be accessible"""
         path_str = str(file_path)
-        
+
         # Check extension
         if file_path.suffix not in self.allowed_extensions:
             return False
-        
+
         # Check ignored patterns
         for pattern in self.ignored_patterns:
             if pattern in path_str:
                 return False
-        
+
         # Must be within base path
         try:
             file_path.resolve().relative_to(self.base_path)
         except ValueError:
             return False
-        
+
         return True
-    
+
     def _classify_module(self, file_path: Path) -> str:
         """Classify what type of module a file is"""
         name_lower = file_path.stem.lower()
-        
+
         for module_type, keywords in self.module_map.items():
             if any(keyword in name_lower for keyword in keywords):
                 return module_type
-        
+
         # Check directory
         parent = file_path.parent.name.lower()
-        if 'plugin' in parent or 'plugins' in parent:
-            return 'plugin'
-        if parent in ['ai', 'core']:
-            return 'core'
-        
-        return 'utility'
-    
+        if "plugin" in parent or "plugins" in parent:
+            return "plugin"
+        if parent in ["ai", "core"]:
+            return "core"
+
+        return "utility"
+
     def read_file(self, file_path: str, max_lines: int = 1000) -> Optional[CodeFile]:
         """
         Read a code file (read-only)
@@ -158,10 +196,19 @@ class SelfReflectionSystem:
             if not full_path.exists():
                 # Try searching all directories for the filename
                 filename = os.path.basename(file_path)
-                search_dirs = ['ai', 'app', 'features', 'plugins', 'speech', 'ui', 'self_learning', '.']
+                search_dirs = [
+                    "ai",
+                    "app",
+                    "features",
+                    "plugins",
+                    "speech",
+                    "ui",
+                    "self_learning",
+                    ".",
+                ]
 
                 for search_dir in search_dirs:
-                    if search_dir == '.':
+                    if search_dir == ".":
                         # Search root
                         candidate = self.base_path / filename
                     else:
@@ -177,17 +224,19 @@ class SelfReflectionSystem:
 
                     if candidate.exists() and self._is_allowed_file(candidate):
                         full_path = candidate.resolve()
-                        logger.debug(f"[SelfReflection] Found {filename} at {full_path}")
+                        logger.debug(
+                            f"[SelfReflection] Found {filename} at {full_path}"
+                        )
                         break
                 else:
                     # Still not found
                     return None
 
             # Read file
-            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
 
-            content = ''.join(lines[:max_lines])
+            content = "".join(lines[:max_lines])
             if len(lines) > max_lines:
                 content += f"\n... ({len(lines) - max_lines} more lines truncated)"
 
@@ -196,14 +245,16 @@ class SelfReflectionSystem:
                 name=full_path.name,
                 content=content,
                 lines=len(lines),
-                language=full_path.suffix[1:] if full_path.suffix else 'text',
-                module_type=self._classify_module(full_path)
+                language=full_path.suffix[1:] if full_path.suffix else "text",
+                module_type=self._classify_module(full_path),
             )
         except Exception as e:
             logger.error(f"[SelfReflection] Error reading file {file_path}: {e}")
             return None
-    
-    def list_codebase(self, directory: Optional[str] = None, pattern: Optional[str] = None) -> List[Dict[str, Any]]:
+
+    def list_codebase(
+        self, directory: Optional[str] = None, pattern: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
         List files in codebase
 
@@ -219,19 +270,31 @@ class SelfReflectionSystem:
 
             # If no directory specified, scan all relevant directories
             if directory is None:
-                directories = ['ai', 'app', 'features', 'plugins', 'speech', 'ui', 'self_learning']
+                directories = [
+                    "ai",
+                    "app",
+                    "features",
+                    "plugins",
+                    "speech",
+                    "ui",
+                    "self_learning",
+                ]
                 # Also include root-level Python files (alice.py, etc.)
                 root_files = list(self.base_path.glob("*.py"))
                 for root_file in root_files:
                     if self._is_allowed_file(root_file):
                         rel_path = root_file.relative_to(self.base_path)
-                        files.append({
-                            'path': str(rel_path),
-                            'name': root_file.name,
-                            'size': root_file.stat().st_size,
-                            'module_type': self._classify_module(root_file),
-                            'language': root_file.suffix[1:] if root_file.suffix else 'text'
-                        })
+                        files.append(
+                            {
+                                "path": str(rel_path),
+                                "name": root_file.name,
+                                "size": root_file.stat().st_size,
+                                "module_type": self._classify_module(root_file),
+                                "language": (
+                                    root_file.suffix[1:] if root_file.suffix else "text"
+                                ),
+                            }
+                        )
             else:
                 directories = [directory]
 
@@ -244,20 +307,26 @@ class SelfReflectionSystem:
                 for file_path in dir_path.rglob(pattern or "*.py"):
                     if self._is_allowed_file(file_path):
                         rel_path = file_path.relative_to(self.base_path)
-                        files.append({
-                            'path': str(rel_path),
-                            'name': file_path.name,
-                            'size': file_path.stat().st_size,
-                            'module_type': self._classify_module(file_path),
-                            'language': file_path.suffix[1:] if file_path.suffix else 'text'
-                        })
+                        files.append(
+                            {
+                                "path": str(rel_path),
+                                "name": file_path.name,
+                                "size": file_path.stat().st_size,
+                                "module_type": self._classify_module(file_path),
+                                "language": (
+                                    file_path.suffix[1:] if file_path.suffix else "text"
+                                ),
+                            }
+                        )
 
-            return sorted(files, key=lambda x: x['path'])
+            return sorted(files, key=lambda x: x["path"])
         except Exception as e:
             logger.error(f"[SelfReflection] Error listing codebase: {e}")
             return []
-    
-    def search_code(self, query: str, directory: Optional[str] = None, max_results: int = 10) -> List[Dict[str, Any]]:
+
+    def search_code(
+        self, query: str, directory: Optional[str] = None, max_results: int = 10
+    ) -> List[Dict[str, Any]]:
         """
         Search for text in codebase
 
@@ -275,7 +344,15 @@ class SelfReflectionSystem:
         try:
             # If no directory specified, search all relevant directories
             if directory is None:
-                directories = ['ai', 'app', 'features', 'plugins', 'speech', 'ui', 'self_learning']
+                directories = [
+                    "ai",
+                    "app",
+                    "features",
+                    "plugins",
+                    "speech",
+                    "ui",
+                    "self_learning",
+                ]
                 search_paths = []
                 for dir_name in directories:
                     dir_path = self.base_path / dir_name
@@ -301,7 +378,9 @@ class SelfReflectionSystem:
                         continue
 
                     try:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        with open(
+                            file_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
                             lines = f.readlines()
 
                         matches = []
@@ -310,21 +389,25 @@ class SelfReflectionSystem:
                                 # Get context (2 lines before and after)
                                 start = max(0, i - 3)
                                 end = min(len(lines), i + 2)
-                                context = ''.join(lines[start:end])
+                                context = "".join(lines[start:end])
 
-                                matches.append({
-                                    'line': i,
-                                    'content': line.strip(),
-                                    'context': context
-                                })
+                                matches.append(
+                                    {
+                                        "line": i,
+                                        "content": line.strip(),
+                                        "context": context,
+                                    }
+                                )
 
                         if matches:
                             rel_path = file_path.relative_to(self.base_path)
-                            results.append({
-                                'file': str(rel_path),
-                                'matches': matches[:5],  # Max 5 matches per file
-                                'match_count': len(matches)
-                            })
+                            results.append(
+                                {
+                                    "file": str(rel_path),
+                                    "matches": matches[:5],  # Max 5 matches per file
+                                    "match_count": len(matches),
+                                }
+                            )
 
                             if len(results) >= max_results:
                                 return results
@@ -335,93 +418,101 @@ class SelfReflectionSystem:
             logger.error(f"[SelfReflection] Error searching code: {e}")
 
         return results
-    
+
     def _compute_file_hash(self, file_path: Path) -> str:
         """Compute SHA256 hash of file for change detection"""
         try:
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 return hashlib.sha256(f.read()).hexdigest()
         except Exception:
             return ""
-    
+
     def _is_cache_valid(self, file_path: str) -> bool:
         """Check if cached analysis is still valid"""
         if file_path not in self._analysis_cache:
             return False
-        
+
         _, cached_time = self._analysis_cache[file_path]
         if datetime.now() - cached_time > self._cache_ttl:
             return False
-        
+
         # Check if file was modified
-        full_path = self.base_path / file_path if not os.path.isabs(file_path) else Path(file_path)
+        full_path = (
+            self.base_path / file_path
+            if not os.path.isabs(file_path)
+            else Path(file_path)
+        )
         current_hash = self._compute_file_hash(full_path)
-        if file_path in self._file_hashes and self._file_hashes[file_path] != current_hash:
+        if (
+            file_path in self._file_hashes
+            and self._file_hashes[file_path] != current_hash
+        ):
             return False
-        
+
         return True
-    
+
     def _extract_purpose_from_ast(self, tree: ast.Module, content: str) -> str:
         """Extract file purpose from module docstring or initial comments"""
         # Try module docstring first
-        if (isinstance(tree.body[0], ast.Expr) and 
-            isinstance(tree.body[0].value, (ast.Str, ast.Constant))):
+        if isinstance(tree.body[0], ast.Expr) and isinstance(
+            tree.body[0].value, (ast.Str, ast.Constant)
+        ):
             docstring = ast.get_docstring(tree)
             if docstring:
                 # Get first meaningful line
-                lines = [l.strip() for l in docstring.split('\n') if l.strip()]
+                lines = [l.strip() for l in docstring.split("\n") if l.strip()]
                 if lines:
                     return lines[0][:100]
-        
+
         # Fall back to initial comments
-        lines = content.split('\n')
+        lines = content.split("\n")
         for line in lines[:10]:
-            if line.strip().startswith('#') and len(line.strip()) > 5:
-                purpose = line.strip('#').strip()
+            if line.strip().startswith("#") and len(line.strip()) > 5:
+                purpose = line.strip("#").strip()
                 if len(purpose) > 20:
                     return purpose[:100]
-        
+
         return "No description available"
-    
+
     def _calculate_complexity(self, tree: ast.Module) -> float:
         """Estimate cyclomatic complexity using AST"""
         complexity = 1.0
-        
+
         for node in ast.walk(tree):
             # Decision points add complexity
             if isinstance(node, (ast.If, ast.While, ast.For, ast.ExceptHandler)):
                 complexity += 1
             elif isinstance(node, ast.BoolOp):
                 complexity += len(node.values) - 1
-        
+
         return complexity
-    
+
     def _extract_dependencies(self, tree: ast.Module) -> List[str]:
         """Extract external dependencies from imports"""
         dependencies = set()
-        
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     # Only external packages (not local modules)
-                    pkg = alias.name.split('.')[0]
-                    if pkg not in ['ai', 'speech', 'ui', 'features', 'memory']:
+                    pkg = alias.name.split(".")[0]
+                    if pkg not in ["ai", "speech", "ui", "features", "memory"]:
                         dependencies.add(pkg)
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
-                    pkg = node.module.split('.')[0]
-                    if pkg not in ['ai', 'speech', 'ui', 'features', 'memory']:
+                    pkg = node.module.split(".")[0]
+                    if pkg not in ["ai", "speech", "ui", "features", "memory"]:
                         dependencies.add(pkg)
-        
+
         return sorted(list(dependencies))
-    
+
     def analyze_file_advanced(self, file_path: str) -> Dict[str, Any]:
         """
         Advanced AST-based file analysis with caching
-        
+
         Args:
             file_path: Path to file
-        
+
         Returns:
             Comprehensive analysis dictionary
         """
@@ -430,172 +521,196 @@ class SelfReflectionSystem:
             cached_data, _ = self._analysis_cache[file_path]
             logger.debug(f"[SelfReflection] Using cached analysis for {file_path}")
             return cached_data
-        
+
         code_file = self.read_file(file_path)
         if not code_file:
-            return {'error': 'File not accessible or not found'}
-        
+            return {"error": "File not accessible or not found"}
+
         analysis = {
-            'path': code_file.path,
-            'name': code_file.name,
-            'lines': code_file.lines,
-            'module_type': code_file.module_type,
-            'language': code_file.language,
-            'purpose': None,
-            'classes': [],
-            'functions': [],
-            'imports': [],
-            'dependencies': [],
-            'docstrings': [],
-            'complexity_score': 0.0
+            "path": code_file.path,
+            "name": code_file.name,
+            "lines": code_file.lines,
+            "module_type": code_file.module_type,
+            "language": code_file.language,
+            "purpose": None,
+            "classes": [],
+            "functions": [],
+            "imports": [],
+            "dependencies": [],
+            "docstrings": [],
+            "complexity_score": 0.0,
         }
-        
+
         try:
             # Parse AST for accurate analysis
             tree = ast.parse(code_file.content)
-            
+
             # Extract purpose
-            analysis['purpose'] = self._extract_purpose_from_ast(tree, code_file.content)
-            
+            analysis["purpose"] = self._extract_purpose_from_ast(
+                tree, code_file.content
+            )
+
             # Calculate complexity
-            analysis['complexity_score'] = self._calculate_complexity(tree)
-            
+            analysis["complexity_score"] = self._calculate_complexity(tree)
+
             # Extract dependencies
-            analysis['dependencies'] = self._extract_dependencies(tree)
-            
+            analysis["dependencies"] = self._extract_dependencies(tree)
+
             # Extract classes with methods
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
-                    methods = [m.name for m in node.body if isinstance(m, ast.FunctionDef)]
-                    analysis['classes'].append({
-                        'name': node.name,
-                        'methods': methods[:5],  # Top 5 methods
-                        'method_count': len(methods)
-                    })
+                    methods = [
+                        m.name for m in node.body if isinstance(m, ast.FunctionDef)
+                    ]
+                    analysis["classes"].append(
+                        {
+                            "name": node.name,
+                            "methods": methods[:5],  # Top 5 methods
+                            "method_count": len(methods),
+                        }
+                    )
                 elif isinstance(node, ast.FunctionDef) and node.col_offset == 0:
                     # Top-level functions only
-                    analysis['functions'].append(node.name)
-            
+                    analysis["functions"].append(node.name)
+
             # Extract imports
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
-                        analysis['imports'].append(alias.name)
+                        analysis["imports"].append(alias.name)
                 elif isinstance(node, ast.ImportFrom):
                     if node.module:
-                        analysis['imports'].append(node.module)
-            
+                        analysis["imports"].append(node.module)
+
             # Extract docstrings
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.Module)):
                     docstring = ast.get_docstring(node)
                     if docstring and len(docstring) > 20:
-                        analysis['docstrings'].append(docstring[:200])
-        
+                        analysis["docstrings"].append(docstring[:200])
+
         except SyntaxError:
             # Fall back to regex if AST fails
-            logger.warning(f"[SelfReflection] AST parse failed for {file_path}, using regex")
+            logger.warning(
+                f"[SelfReflection] AST parse failed for {file_path}, using regex"
+            )
             analysis.update(self._fallback_regex_analysis(code_file.content))
-        
+
         # Cache the result
-        full_path = self.base_path / file_path if not os.path.isabs(file_path) else Path(file_path)
+        full_path = (
+            self.base_path / file_path
+            if not os.path.isabs(file_path)
+            else Path(file_path)
+        )
         self._file_hashes[file_path] = self._compute_file_hash(full_path)
         self._analysis_cache[file_path] = (analysis, datetime.now())
-        
+
         return analysis
-    
+
     def _fallback_regex_analysis(self, content: str) -> Dict[str, Any]:
         """Fallback regex-based analysis when AST fails"""
         analysis = {
-            'purpose': "Regex analysis (AST unavailable)",
-            'classes': [],
-            'functions': [],
-            'imports': [],
-            'complexity_score': 1.0
+            "purpose": "Regex analysis (AST unavailable)",
+            "classes": [],
+            "functions": [],
+            "imports": [],
+            "complexity_score": 1.0,
         }
-        
+
         # Extract classes
-        class_pattern = r'^class\s+(\w+).*?:'
+        class_pattern = r"^class\s+(\w+).*?:"
         for match in re.finditer(class_pattern, content, re.MULTILINE):
-            analysis['classes'].append({'name': match.group(1), 'methods': [], 'method_count': 0})
-        
+            analysis["classes"].append(
+                {"name": match.group(1), "methods": [], "method_count": 0}
+            )
+
         # Extract functions
-        func_pattern = r'^def\s+(\w+)\s*\([^)]*\)\s*:'
+        func_pattern = r"^def\s+(\w+)\s*\([^)]*\)\s*:"
         for match in re.finditer(func_pattern, content, re.MULTILINE):
-            analysis['functions'].append(match.group(1))
-        
+            analysis["functions"].append(match.group(1))
+
         # Extract imports
-        import_pattern = r'^import\s+(\S+)|^from\s+(\S+)\s+import'
+        import_pattern = r"^import\s+(\S+)|^from\s+(\S+)\s+import"
         for match in re.finditer(import_pattern, content, re.MULTILINE):
             imp = match.group(1) or match.group(2)
             if imp:
-                analysis['imports'].append(imp)
-        
+                analysis["imports"].append(imp)
+
         return analysis
-    
+
     def generate_file_summary(self, file_path: str) -> str:
         """
         Generate a concise, human-readable summary of a file
-        
+
         Args:
             file_path: Path to file
-        
+
         Returns:
             Natural language summary
         """
         analysis = self.analyze_file_advanced(file_path)
-        
-        if 'error' in analysis:
+
+        if "error" in analysis:
             return f"**{file_path}**: {analysis['error']}"
-        
+
         summary_parts = []
-        
+
         # Header
-        summary_parts.append(f"**{analysis['name']}** ({analysis['lines']} lines, {analysis['module_type']})")
-        
+        summary_parts.append(
+            f"**{analysis['name']}** ({analysis['lines']} lines, {analysis['module_type']})"
+        )
+
         # Purpose
-        if analysis.get('purpose'):
+        if analysis.get("purpose"):
             summary_parts.append(f"  Purpose: {analysis['purpose']}")
-        
+
         # Key components
-        if analysis.get('classes'):
-            class_names = [c['name'] if isinstance(c, dict) else c for c in analysis['classes'][:3]]
+        if analysis.get("classes"):
+            class_names = [
+                c["name"] if isinstance(c, dict) else c for c in analysis["classes"][:3]
+            ]
             summary_parts.append(f"  Classes: {', '.join(class_names)}")
-        
-        if analysis.get('functions') and len(analysis['functions']) > 0:
+
+        if analysis.get("functions") and len(analysis["functions"]) > 0:
             summary_parts.append(f"  Functions: {', '.join(analysis['functions'][:5])}")
-        
+
         # Dependencies
-        if analysis.get('dependencies') and len(analysis['dependencies']) > 0:
-            summary_parts.append(f"  Dependencies: {', '.join(analysis['dependencies'][:5])}")
-        
+        if analysis.get("dependencies") and len(analysis["dependencies"]) > 0:
+            summary_parts.append(
+                f"  Dependencies: {', '.join(analysis['dependencies'][:5])}"
+            )
+
         # Complexity
-        if analysis.get('complexity_score', 0) > 20:
-            summary_parts.append(f"   Complexity: {analysis['complexity_score']:.0f} (consider refactoring)")
-        
-        return '\n'.join(summary_parts)
-    
-    def batch_summarize_files(self, file_paths: List[str], parallel: bool = True) -> Dict[str, str]:
+        if analysis.get("complexity_score", 0) > 20:
+            summary_parts.append(
+                f"   Complexity: {analysis['complexity_score']:.0f} (consider refactoring)"
+            )
+
+        return "\n".join(summary_parts)
+
+    def batch_summarize_files(
+        self, file_paths: List[str], parallel: bool = True
+    ) -> Dict[str, str]:
         """
         Generate summaries for multiple files efficiently
-        
+
         Args:
             file_paths: List of file paths
             parallel: Use parallel processing for speed
-        
+
         Returns:
             Dictionary mapping file paths to summaries
         """
         summaries = {}
-        
+
         if parallel and len(file_paths) > 3:
             # Use parallel processing for speed
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                 future_to_path = {
-                    executor.submit(self.generate_file_summary, path): path 
+                    executor.submit(self.generate_file_summary, path): path
                     for path in file_paths
                 }
-                
+
                 for future in concurrent.futures.as_completed(future_to_path):
                     path = future_to_path[future]
                     try:
@@ -611,129 +726,134 @@ class SelfReflectionSystem:
                 except Exception as e:
                     summaries[path] = f"Error analyzing {path}: {e}"
                     logger.error(f"[SelfReflection] Error in analysis: {e}")
-        
+
         return summaries
-    
+
     def analyze_file(self, file_path: str) -> Dict[str, Any]:
         """
         Analyze a code file and extract information
-        
+
         Args:
             file_path: Path to file
-        
+
         Returns:
             Analysis dictionary
         """
         code_file = self.read_file(file_path)
         if not code_file:
-            return {'error': 'File not accessible or not found'}
-        
+            return {"error": "File not accessible or not found"}
+
         analysis = {
-            'path': code_file.path,
-            'name': code_file.name,
-            'lines': code_file.lines,
-            'module_type': code_file.module_type,
-            'language': code_file.language,
-            'classes': [],
-            'functions': [],
-            'imports': [],
-            'docstrings': []
+            "path": code_file.path,
+            "name": code_file.name,
+            "lines": code_file.lines,
+            "module_type": code_file.module_type,
+            "language": code_file.language,
+            "classes": [],
+            "functions": [],
+            "imports": [],
+            "docstrings": [],
         }
-        
+
         # Extract classes
-        class_pattern = r'^class\s+(\w+).*?:'
+        class_pattern = r"^class\s+(\w+).*?:"
         for match in re.finditer(class_pattern, code_file.content, re.MULTILINE):
-            analysis['classes'].append(match.group(1))
-        
+            analysis["classes"].append(match.group(1))
+
         # Extract functions
-        func_pattern = r'^def\s+(\w+)\s*\([^)]*\)\s*:'
+        func_pattern = r"^def\s+(\w+)\s*\([^)]*\)\s*:"
         for match in re.finditer(func_pattern, code_file.content, re.MULTILINE):
-            analysis['functions'].append(match.group(1))
-        
+            analysis["functions"].append(match.group(1))
+
         # Extract imports
-        import_pattern = r'^import\s+(\S+)|^from\s+(\S+)\s+import'
+        import_pattern = r"^import\s+(\S+)|^from\s+(\S+)\s+import"
         for match in re.finditer(import_pattern, code_file.content, re.MULTILINE):
             imp = match.group(1) or match.group(2)
             if imp:
-                analysis['imports'].append(imp)
-        
+                analysis["imports"].append(imp)
+
         # Extract docstrings
         docstring_pattern = r'"""(.*?)"""'
         for match in re.finditer(docstring_pattern, code_file.content, re.DOTALL):
             doc = match.group(1).strip()
             if len(doc) > 20:  # Only significant docstrings
-                analysis['docstrings'].append(doc[:200])
-        
+                analysis["docstrings"].append(doc[:200])
+
         return analysis
-    
+
     def get_codebase_summary(self) -> Dict[str, Any]:
         """Get a summary of the codebase structure"""
         summary = {
-            'base_path': str(self.base_path),
-            'modules': {
-                'plugins': [],
-                'core': [],
-                'system': [],
-                'utility': []
-            },
-            'total_files': 0
+            "base_path": str(self.base_path),
+            "modules": {"plugins": [], "core": [], "system": [], "utility": []},
+            "total_files": 0,
         }
-        
+
         try:
-            ai_dir = self.base_path / 'ai'
+            ai_dir = self.base_path / "ai"
             if ai_dir.exists():
                 for file_path in ai_dir.rglob("*.py"):
                     if self._is_allowed_file(file_path):
                         module_type = self._classify_module(file_path)
                         rel_path = str(file_path.relative_to(self.base_path))
                         # Map module_type to summary key (plugin -> plugins)
-                        summary_key = 'plugins' if module_type == 'plugin' else module_type
-                        if summary_key in summary['modules']:
-                            summary['modules'][summary_key].append(rel_path)
-                            summary['total_files'] += 1
+                        summary_key = (
+                            "plugins" if module_type == "plugin" else module_type
+                        )
+                        if summary_key in summary["modules"]:
+                            summary["modules"][summary_key].append(rel_path)
+                            summary["total_files"] += 1
         except Exception as e:
             logger.error(f"[SelfReflection] Error generating summary: {e}")
-        
+
         return summary
-    
+
     def get_improvement_suggestions(self, file_path: str) -> List[str]:
         """
         Analyze code and suggest improvements
         This is a simple heuristic-based analyzer
-        
+
         Args:
             file_path: Path to file to analyze
-        
+
         Returns:
             List of improvement suggestions
         """
         code_file = self.read_file(file_path)
         if not code_file:
             return []
-        
+
         suggestions = []
         content = code_file.content
-        
+
         # Check for error handling
-        if 'try:' in content and 'except Exception as e:' not in content:
-            suggestions.append("Consider adding specific exception handling instead of bare 'except'")
-        
+        if "try:" in content and "except Exception as e:" not in content:
+            suggestions.append(
+                "Consider adding specific exception handling instead of bare 'except'"
+            )
+
         # Check for type hints
-        if 'def ' in content and '->' not in content[:500]:
-            suggestions.append("Consider adding type hints to function signatures for better code clarity")
-        
+        if "def " in content and "->" not in content[:500]:
+            suggestions.append(
+                "Consider adding type hints to function signatures for better code clarity"
+            )
+
         # Check for docstrings
-        if 'def ' in content and '"""' not in content[:1000]:
+        if "def " in content and '"""' not in content[:1000]:
             suggestions.append("Consider adding docstrings to functions and classes")
-        
+
         # Check for logging
-        if 'print(' in content and 'logger.' not in content:
-            suggestions.append("Consider using logger instead of print() for better logging control")
-        
+        if "print(" in content and "logger." not in content:
+            suggestions.append(
+                "Consider using logger instead of print() for better logging control"
+            )
+
         # Check for hardcoded values
         if re.search(r'=\s*["\'](?:localhost|127\.0\.0\.1|api_key|password)', content):
-            suggestions.append("Check for hardcoded values that should be in configuration")
-        
+            suggestions.append(
+                "Check for hardcoded values that should be in configuration"
+            )
+
         return suggestions
 
 

@@ -40,19 +40,35 @@ class FileOperationsPlugin(PluginInterface):
         super().__init__()
         self.name = "File Operations Plugin"
         self.version = "1.0.0"
-        self.description = "File system operations: create, read, delete, move, list, search files"
+        self.description = (
+            "File system operations: create, read, delete, move, list, search files"
+        )
         self.enabled = True
         self.capabilities = [
-            "create_file", "read_file", "delete_file",
-            "move_file", "copy_file", "list_files", "search_files"
+            "create_file",
+            "read_file",
+            "delete_file",
+            "move_file",
+            "copy_file",
+            "list_files",
+            "search_files",
         ]
         self.commands = [
-            "create file", "make file", "new file",
-            "read file", "open file", "show file contents",
-            "delete file", "remove file",
-            "move file", "rename file", "copy file",
-            "list files", "show files",
-            "search files", "find files"
+            "create file",
+            "make file",
+            "new file",
+            "read file",
+            "open file",
+            "show file contents",
+            "delete file",
+            "remove file",
+            "move file",
+            "rename file",
+            "copy file",
+            "list files",
+            "show files",
+            "search files",
+            "find files",
         ]
         # Safety: Only allow operations in safe directories
         self.safe_base_dir = os.getcwd()
@@ -74,35 +90,48 @@ class FileOperationsPlugin(PluginInterface):
         """Check if this plugin can handle the given intent"""
         # Check if intent matches file operations
         file_intents = [
-            'file_operations:create', 'file_operations:read', 'file_operations:write',
-            'file_operations:delete', 'file_operations:move', 'file_operations:copy',
-            'file_operations:list', 'file_operations:search',
-            'create_file', 'read_file', 'delete_file', 'move_file',
-            'copy_file', 'list_files', 'search_files', 'file_create',
-            'file_read', 'file_write', 'file_delete', 'file_move', 'file_copy'
+            "file_operations:create",
+            "file_operations:read",
+            "file_operations:write",
+            "file_operations:delete",
+            "file_operations:move",
+            "file_operations:copy",
+            "file_operations:list",
+            "file_operations:search",
+            "create_file",
+            "read_file",
+            "delete_file",
+            "move_file",
+            "copy_file",
+            "list_files",
+            "search_files",
+            "file_create",
+            "file_read",
+            "file_write",
+            "file_delete",
+            "file_move",
+            "file_copy",
         ]
         return intent in file_intents
 
-    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
+    def execute(
+        self, intent: str, query: str, entities: Dict, context: Dict
+    ) -> Dict[str, Any]:
         """Execute file operation based on intent"""
         try:
             # Use the existing handle_request method
             result = self.handle_request(intent, entities, context)
 
             # Ensure result has required fields
-            if 'success' not in result:
-                result['success'] = result.get('status') == 'success'
-            if 'response' not in result:
-                result['response'] = result.get('message', 'Operation completed')
+            if "success" not in result:
+                result["success"] = result.get("status") == "success"
+            if "response" not in result:
+                result["response"] = result.get("message", "Operation completed")
 
             return result
         except Exception as e:
             logger.error(f"Error executing file operation: {e}")
-            return {
-                'success': False,
-                'response': f"Error: {str(e)}",
-                'error': str(e)
-            }
+            return {"success": False, "response": f"Error: {str(e)}", "error": str(e)}
 
     def get_name(self) -> str:
         return self.name
@@ -127,7 +156,9 @@ class FileOperationsPlugin(PluginInterface):
             logger.warning(f"Path validation failed for '{filepath}': {e}")
             return False
 
-    def handle_request(self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_request(
+        self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Handle file operation requests
 
@@ -140,7 +171,9 @@ class FileOperationsPlugin(PluginInterface):
             Response dictionary with result
         """
         try:
-            action = intent.split(":")[-1] if ":" in intent else entities.get("action", "")
+            action = (
+                intent.split(":")[-1] if ":" in intent else entities.get("action", "")
+            )
 
             if action == "create":
                 return self._create_file(entities)
@@ -160,7 +193,7 @@ class FileOperationsPlugin(PluginInterface):
                 return {
                     "success": False,
                     "message": f"Unknown file operation: {action}",
-                    "action": action
+                    "action": action,
                 }
 
         except Exception as e:
@@ -168,12 +201,16 @@ class FileOperationsPlugin(PluginInterface):
             return {
                 "success": False,
                 "message": f"File operation failed: {str(e)}",
-                "error": str(e)
+                "error": str(e),
             }
 
     def _create_file(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new file"""
-        filename = entities.get("filename") or entities.get("file_name") or entities.get("name")
+        filename = (
+            entities.get("filename")
+            or entities.get("file_name")
+            or entities.get("name")
+        )
         content = entities.get("content", "")
 
         if not filename:
@@ -189,20 +226,24 @@ class FileOperationsPlugin(PluginInterface):
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
             # Write the file
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 f.write(content)
 
             return {
                 "success": True,
                 "message": f"Created file: {filename}",
-                "filepath": filepath
+                "filepath": filepath,
             }
         except Exception as e:
             return {"success": False, "message": f"Failed to create file: {str(e)}"}
 
     def _read_file(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Read a file's contents"""
-        filename = entities.get("filename") or entities.get("file_name") or entities.get("name")
+        filename = (
+            entities.get("filename")
+            or entities.get("file_name")
+            or entities.get("name")
+        )
 
         if not filename:
             return {"success": False, "message": "No filename specified"}
@@ -216,21 +257,25 @@ class FileOperationsPlugin(PluginInterface):
             return {"success": False, "message": f"File not found: {filename}"}
 
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
+            with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
 
             return {
                 "success": True,
                 "message": f"Read file: {filename}",
                 "content": content,
-                "filepath": filepath
+                "filepath": filepath,
             }
         except Exception as e:
             return {"success": False, "message": f"Failed to read file: {str(e)}"}
 
     def _delete_file(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Delete a file"""
-        filename = entities.get("filename") or entities.get("file_name") or entities.get("name")
+        filename = (
+            entities.get("filename")
+            or entities.get("file_name")
+            or entities.get("name")
+        )
 
         if not filename:
             return {"success": False, "message": "No filename specified"}
@@ -248,18 +293,29 @@ class FileOperationsPlugin(PluginInterface):
             return {
                 "success": True,
                 "message": f"Deleted file: {filename}",
-                "filepath": filepath
+                "filepath": filepath,
             }
         except Exception as e:
             return {"success": False, "message": f"Failed to delete file: {str(e)}"}
 
     def _move_file(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Move or rename a file"""
-        source = entities.get("source") or entities.get("filename") or entities.get("file_name")
-        destination = entities.get("destination") or entities.get("dest") or entities.get("new_name")
+        source = (
+            entities.get("source")
+            or entities.get("filename")
+            or entities.get("file_name")
+        )
+        destination = (
+            entities.get("destination")
+            or entities.get("dest")
+            or entities.get("new_name")
+        )
 
         if not source or not destination:
-            return {"success": False, "message": "Source and destination must be specified"}
+            return {
+                "success": False,
+                "message": "Source and destination must be specified",
+            }
 
         src_path = os.path.join(self.safe_base_dir, source)
         dest_path = os.path.join(self.safe_base_dir, destination)
@@ -279,7 +335,7 @@ class FileOperationsPlugin(PluginInterface):
                 "success": True,
                 "message": f"Moved {source} to {destination}",
                 "source": src_path,
-                "destination": dest_path
+                "destination": dest_path,
             }
         except Exception as e:
             return {"success": False, "message": f"Failed to move file: {str(e)}"}
@@ -290,7 +346,10 @@ class FileOperationsPlugin(PluginInterface):
         destination = entities.get("destination") or entities.get("dest")
 
         if not source or not destination:
-            return {"success": False, "message": "Source and destination must be specified"}
+            return {
+                "success": False,
+                "message": "Source and destination must be specified",
+            }
 
         src_path = os.path.join(self.safe_base_dir, source)
         dest_path = os.path.join(self.safe_base_dir, destination)
@@ -310,7 +369,7 @@ class FileOperationsPlugin(PluginInterface):
                 "success": True,
                 "message": f"Copied {source} to {destination}",
                 "source": src_path,
-                "destination": dest_path
+                "destination": dest_path,
             }
         except Exception as e:
             return {"success": False, "message": f"Failed to copy file: {str(e)}"}
@@ -333,17 +392,21 @@ class FileOperationsPlugin(PluginInterface):
                 item_path = os.path.join(dirpath, item)
                 if os.path.isfile(item_path):
                     stat = os.stat(item_path)
-                    files.append({
-                        "name": item,
-                        "size": stat.st_size,
-                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
-                    })
+                    files.append(
+                        {
+                            "name": item,
+                            "size": stat.st_size,
+                            "modified": datetime.fromtimestamp(
+                                stat.st_mtime
+                            ).isoformat(),
+                        }
+                    )
 
             return {
                 "success": True,
                 "message": f"Found {len(files)} files in {directory}",
                 "files": files,
-                "count": len(files)
+                "count": len(files),
             }
         except Exception as e:
             return {"success": False, "message": f"Failed to list files: {str(e)}"}
@@ -372,7 +435,7 @@ class FileOperationsPlugin(PluginInterface):
                 "success": True,
                 "message": f"Found {len(matches)} files matching '{pattern}'",
                 "files": matches,
-                "count": len(matches)
+                "count": len(matches),
             }
         except Exception as e:
             return {"success": False, "message": f"Failed to search files: {str(e)}"}

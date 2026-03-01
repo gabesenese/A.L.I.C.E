@@ -55,17 +55,13 @@ class LearningFacade:
                 self._autolearn = get_autolearn(
                     ollama_evaluator=self.evaluator,
                     realtime_logger=self.realtime_logger,
-                    auto_start=False
+                    auto_start=False,
                 )
             except Exception as e:
                 logger.error(f"Failed to initialize autolearn: {e}")
         return self._autolearn
 
-    def can_phrase_independently(
-        self,
-        thought: Dict[str, Any],
-        tone: str
-    ) -> bool:
+    def can_phrase_independently(self, thought: Dict[str, Any], tone: str) -> bool:
         """
         Check if Alice can phrase this thought independently
 
@@ -85,11 +81,7 @@ class LearningFacade:
             logger.error(f"Failed to check phrasing independence: {e}")
             return False
 
-    def phrase_independently(
-        self,
-        thought: Dict[str, Any],
-        tone: str
-    ) -> Optional[str]:
+    def phrase_independently(self, thought: Dict[str, Any], tone: str) -> Optional[str]:
         """
         Phrase thought independently using learned patterns
 
@@ -110,10 +102,7 @@ class LearningFacade:
             return None
 
     def learn_phrasing(
-        self,
-        thought: Dict[str, Any],
-        phrasing: str,
-        context: Dict[str, Any]
+        self, thought: Dict[str, Any], phrasing: str, context: Dict[str, Any]
     ) -> bool:
         """
         Record new phrasing example for learning
@@ -142,7 +131,7 @@ class LearningFacade:
         alice_response: str,
         intent: str,
         confidence: float,
-        success: bool
+        success: bool,
     ) -> bool:
         """
         Log interaction for realtime learning
@@ -163,21 +152,21 @@ class LearningFacade:
         try:
             if success:
                 self.realtime_logger.log_success(
-                    event_type='interaction',
+                    event_type="interaction",
                     user_input=user_input,
                     alice_response=alice_response,
                     intent=intent,
                     route=intent,
-                    confidence=confidence
+                    confidence=confidence,
                 )
             else:
                 self.realtime_logger.log_error(
-                    error_type='interaction_failure',
+                    error_type="interaction_failure",
                     user_input=user_input,
                     expected="successful response",
                     actual=alice_response,
                     intent=intent,
-                    severity='medium'
+                    severity="medium",
                 )
             return True
         except Exception as e:
@@ -217,26 +206,26 @@ class LearningFacade:
         # Phrasing stats
         if self.phrasing:
             try:
-                stats['phrasing'] = self.phrasing.get_stats()
+                stats["phrasing"] = self.phrasing.get_stats()
             except Exception as e:
                 logger.error(f"Failed to get phrasing stats: {e}")
-                stats['phrasing'] = {"error": str(e)}
+                stats["phrasing"] = {"error": str(e)}
 
         # AutoLearn stats
         if self.autolearn:
             try:
-                stats['autolearn'] = self.autolearn.get_status()
+                stats["autolearn"] = self.autolearn.get_status()
             except Exception as e:
                 logger.error(f"Failed to get autolearn stats: {e}")
-                stats['autolearn'] = {"error": str(e)}
+                stats["autolearn"] = {"error": str(e)}
 
         # Evaluator stats
         if self.evaluator:
             try:
-                stats['evaluator'] = self.evaluator.get_statistics(days=7)
+                stats["evaluator"] = self.evaluator.get_statistics(days=7)
             except Exception as e:
                 logger.error(f"Failed to get evaluator stats: {e}")
-                stats['evaluator'] = {"error": str(e)}
+                stats["evaluator"] = {"error": str(e)}
 
         return stats
 

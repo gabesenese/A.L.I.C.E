@@ -10,12 +10,14 @@ logger = logging.getLogger(__name__)
 
 try:
     from ai.core.knowledge_engine import KnowledgeEngine
+
     _knowledge_engine_available = True
 except ImportError:
     _knowledge_engine_available = False
 
 try:
     from ai.learning.user_profile_engine import UserProfileEngine
+
     _user_profile_available = True
 except ImportError:
     _user_profile_available = False
@@ -42,11 +44,7 @@ class KnowledgeFacade:
         logger.info("[KnowledgeFacade] Initialized knowledge systems")
 
     def add_fact(
-        self,
-        subject: str,
-        predicate: str,
-        object: str,
-        confidence: float = 1.0
+        self, subject: str, predicate: str, object: str, confidence: float = 1.0
     ) -> bool:
         """
         Add fact to knowledge graph
@@ -70,10 +68,7 @@ class KnowledgeFacade:
             logger.error(f"Failed to add fact: {e}")
             return False
 
-    def query_knowledge(
-        self,
-        query: str
-    ) -> List[Dict[str, Any]]:
+    def query_knowledge(self, query: str) -> List[Dict[str, Any]]:
         """
         Query knowledge graph
 
@@ -93,10 +88,7 @@ class KnowledgeFacade:
             return []
 
     def update_user_preference(
-        self,
-        category: str,
-        preference: str,
-        value: Any
+        self, category: str, preference: str, value: Any
     ) -> bool:
         """
         Update user preference
@@ -120,10 +112,7 @@ class KnowledgeFacade:
             return False
 
     def get_user_preference(
-        self,
-        category: str,
-        preference: str,
-        default: Any = None
+        self, category: str, preference: str, default: Any = None
     ) -> Any:
         """
         Get user preference

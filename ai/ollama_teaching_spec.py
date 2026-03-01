@@ -10,6 +10,7 @@ from dataclasses import dataclass
 @dataclass
 class TeachingVector:
     """What Alice must learn in a domain"""
+
     domain: str
     skill: str
     description: str
@@ -28,8 +29,8 @@ TEACHING_VECTORS = {
                 "Correctly identifies high/low temps",
                 "Mentions precipitation chance",
                 "Recommends appropriate clothing",
-                "Notes any warnings (frost, heat, etc.)"
-            ]
+                "Notes any warnings (frost, heat, etc.)",
+            ],
         ),
         TeachingVector(
             domain="weather",
@@ -40,9 +41,9 @@ TEACHING_VECTORS = {
                 "Checks actual weather data",
                 "Answers yes/no decisively",
                 "Explains reasoning",
-                "Suggests alternatives if needed"
-            ]
-        )
+                "Suggests alternatives if needed",
+            ],
+        ),
     ],
     "email": [
         TeachingVector(
@@ -54,8 +55,8 @@ TEACHING_VECTORS = {
                 "Includes sender names",
                 "Captures main points",
                 "No fabricated details",
-                "Preserves tone/urgency"
-            ]
+                "Preserves tone/urgency",
+            ],
         ),
         TeachingVector(
             domain="email",
@@ -67,9 +68,9 @@ TEACHING_VECTORS = {
                 "Clear subject line",
                 "Logical flow",
                 "Appropriate length",
-                "No grammar errors"
-            ]
-        )
+                "No grammar errors",
+            ],
+        ),
     ],
     "code": [
         TeachingVector(
@@ -82,8 +83,8 @@ TEACHING_VECTORS = {
                 "Notes performance issues",
                 "Suggests improvements",
                 "Explains reasoning",
-                "Code example syntax correct"
-            ]
+                "Code example syntax correct",
+            ],
         ),
         TeachingVector(
             domain="code",
@@ -95,9 +96,9 @@ TEACHING_VECTORS = {
                 "Correct terminology",
                 "Step-by-step logic",
                 "Mentions edge cases",
-                "Beginner-understandable"
-            ]
-        )
+                "Beginner-understandable",
+            ],
+        ),
     ],
     "calendar": [
         TeachingVector(
@@ -110,8 +111,8 @@ TEACHING_VECTORS = {
                 "Avoids conflicts",
                 "Respects constraints",
                 "Confirms before scheduling",
-                "Suggests alternatives if blocked"
-            ]
+                "Suggests alternatives if blocked",
+            ],
         )
     ],
     "notes": [
@@ -125,8 +126,8 @@ TEACHING_VECTORS = {
                 "Logical structure",
                 "Appropriate tags",
                 "Easy to retrieve",
-                "Metadata complete"
-            ]
+                "Metadata complete",
+            ],
         )
     ],
     "reasoning": [
@@ -140,8 +141,8 @@ TEACHING_VECTORS = {
                 "Chains logic correctly",
                 "Explains assumptions",
                 "Reaches justified conclusion",
-                "Considers alternatives"
-            ]
+                "Considers alternatives",
+            ],
         )
     ],
     "conversation": [
@@ -155,10 +156,10 @@ TEACHING_VECTORS = {
                 "Maintains topic",
                 "Answers new questions",
                 "Connects ideas logically",
-                "No contradictions"
-            ]
+                "No contradictions",
+            ],
         )
-    ]
+    ],
 }
 
 

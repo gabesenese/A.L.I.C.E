@@ -37,7 +37,7 @@ class AutoLearn:
         response_formulator=None,
         realtime_logger=None,
         check_interval_hours: int = 6,
-        auto_start: bool = False
+        auto_start: bool = False,
     ):
         self.ollama_evaluator = ollama_evaluator
         self.learning_engine = learning_engine
@@ -62,7 +62,9 @@ class AutoLearn:
         if auto_start:
             self.start()
 
-        logger.info(f"AutoLearn initialized - will run every {check_interval_hours} hours")
+        logger.info(
+            f"AutoLearn initialized - will run every {check_interval_hours} hours"
+        )
 
     def start(self) -> None:
         """Start the automated learning loop"""
@@ -126,16 +128,18 @@ class AutoLearn:
 
         improvements_made = 0
         stats = {
-            'cycle_number': self.cycles_completed + 1,
-            'timestamp': cycle_start.isoformat(),
-            'evaluations_analyzed': 0,
-            'improvements_made': 0,
-            'patterns_reinforced': 0
+            "cycle_number": self.cycles_completed + 1,
+            "timestamp": cycle_start.isoformat(),
+            "evaluations_analyzed": 0,
+            "improvements_made": 0,
+            "patterns_reinforced": 0,
         }
 
         try:
             # Step 1: Get evaluations since last cycle
-            logger.info(f"[Step 1] Loading evaluations from last {self.check_interval_hours} hours...")
+            logger.info(
+                f"[Step 1] Loading evaluations from last {self.check_interval_hours} hours..."
+            )
 
             if not self.ollama_evaluator:
                 logger.warning("[AutoLearn] No evaluator available - skipping cycle")
@@ -145,11 +149,13 @@ class AutoLearn:
                 days=self.check_interval_hours / 24
             )
 
-            stats['evaluations_analyzed'] = len(evaluations)
+            stats["evaluations_analyzed"] = len(evaluations)
             logger.info(f"[Step 1] Loaded {len(evaluations)} evaluations")
 
             if len(evaluations) == 0:
-                logger.info("[AutoLearn] No evaluations - Alice hasn't been used recently")
+                logger.info(
+                    "[AutoLearn] No evaluations - Alice hasn't been used recently"
+                )
                 self._finalize_cycle(stats)
                 return
 
@@ -157,20 +163,24 @@ class AutoLearn:
             failures = [e for e in evaluations if e.failed]
             successes = [e for e in evaluations if e.passed]
 
-            logger.info(f"[Step 2] Failures: {len(failures)}, Successes: {len(successes)}")
+            logger.info(
+                f"[Step 2] Failures: {len(failures)}, Successes: {len(successes)}"
+            )
 
             # Step 3: Learn from failures
             if failures:
                 logger.info(f"[Step 3] Learning from {len(failures)} failures...")
                 improvements = self._learn_from_failures(failures)
                 improvements_made += improvements
-                stats['improvements_made'] = improvements
+                stats["improvements_made"] = improvements
 
             # Step 4: Reinforce successes
             if successes:
-                logger.info(f"[Step 4] Reinforcing {len(successes)} successful patterns...")
+                logger.info(
+                    f"[Step 4] Reinforcing {len(successes)} successful patterns..."
+                )
                 reinforcements = self._reinforce_successes(successes)
-                stats['patterns_reinforced'] = reinforcements
+                stats["patterns_reinforced"] = reinforcements
 
             # Step 5: Log cycle results
             self._finalize_cycle(stats)
@@ -179,7 +189,9 @@ class AutoLearn:
             self.total_evaluations += len(evaluations)
             self.total_improvements += improvements_made
 
-            logger.info(f"[AutoLearn] Cycle complete: {improvements_made} improvements made")
+            logger.info(
+                f"[AutoLearn] Cycle complete: {improvements_made} improvements made"
+            )
             logger.info("=" * 70)
 
         except Exception as e:
@@ -208,10 +220,10 @@ class AutoLearn:
                         self.response_formulator.phrasing_learner.record_phrasing(
                             alice_thought={
                                 "type": action_type,
-                                "data": failure.expected_data
+                                "data": failure.expected_data,
                             },
                             ollama_phrasing=failure.suggested_improvement,
-                            context={'tone': 'helpful'}
+                            context={"tone": "helpful"},
                         )
                         improvements += 1
 
@@ -226,8 +238,8 @@ class AutoLearn:
                             actual=failure.alice_response,
                             intent=action_type,
                             entities=failure.expected_data,
-                            context={'ollama_score': failure.overall_score},
-                            severity='high' if failure.critical_failure else 'medium'
+                            context={"ollama_score": failure.overall_score},
+                            severity="high" if failure.critical_failure else "medium",
                         )
 
                 except Exception as e:
@@ -250,19 +262,21 @@ class AutoLearn:
         for action_type, action_successes in by_action.items():
             # Only reinforce if consistently successful
             if len(action_successes) >= 3:
-                logger.info(f"  - {action_type}: {len(action_successes)} successes - reinforcing")
+                logger.info(
+                    f"  - {action_type}: {len(action_successes)} successes - reinforcing"
+                )
 
                 try:
                     # Log successes to realtime logger
                     if self.realtime_logger:
                         for success in action_successes:
                             self.realtime_logger.log_success(
-                                event_type='evaluated_success',
+                                event_type="evaluated_success",
                                 user_input=success.user_input,
                                 alice_response=success.alice_response,
                                 intent=action_type,
                                 route=action_type,
-                                confidence=success.overall_score / 100.0
+                                confidence=success.overall_score / 100.0,
                             )
 
                     reinforcements += len(action_successes)
@@ -280,21 +294,21 @@ class AutoLearn:
         # Save cycle stats
         cycle_file = self.storage_path / "cycle_history.jsonl"
         try:
-            with open(cycle_file, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(stats) + '\n')
+            with open(cycle_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(stats) + "\n")
         except Exception as e:
             logger.error(f"Failed to save cycle stats: {e}")
 
     def get_status(self) -> Dict[str, Any]:
         """Get current status"""
         return {
-            'running': self.running,
-            'paused': self.paused,
-            'check_interval_hours': self.check_interval_hours,
-            'cycles_completed': self.cycles_completed,
-            'total_evaluations': self.total_evaluations,
-            'total_improvements': self.total_improvements,
-            'last_run': self.last_run
+            "running": self.running,
+            "paused": self.paused,
+            "check_interval_hours": self.check_interval_hours,
+            "cycles_completed": self.cycles_completed,
+            "total_evaluations": self.total_evaluations,
+            "total_improvements": self.total_improvements,
+            "last_run": self.last_run,
         }
 
     def get_performance_report(self, days: int = 7) -> Dict[str, Any]:
@@ -303,15 +317,14 @@ class AutoLearn:
         Shows aggregate metrics, not individual interactions.
         """
         if not self.ollama_evaluator:
-            return {'error': 'No evaluator available'}
+            return {"error": "No evaluator available"}
 
         # Get statistics from evaluator
         stats = self.ollama_evaluator.get_statistics(days=days)
 
         # Get recent failures for attention
         failures = self.ollama_evaluator.get_recent_evaluations(
-            days=days,
-            max_score=69  # Failed evaluations
+            days=days, max_score=69  # Failed evaluations
         )
 
         # Identify problem areas
@@ -319,55 +332,53 @@ class AutoLearn:
         for failure in failures:
             action = failure.action_type
             if action not in problem_areas:
-                problem_areas[action] = {
-                    'count': 0,
-                    'avg_score': [],
-                    'examples': []
-                }
+                problem_areas[action] = {"count": 0, "avg_score": [], "examples": []}
 
-            problem_areas[action]['count'] += 1
-            problem_areas[action]['avg_score'].append(failure.overall_score)
+            problem_areas[action]["count"] += 1
+            problem_areas[action]["avg_score"].append(failure.overall_score)
 
-            if len(problem_areas[action]['examples']) < 3:
-                problem_areas[action]['examples'].append({
-                    'input': failure.user_input,
-                    'response': failure.alice_response,
-                    'score': failure.overall_score,
-                    'issue': failure.what_needs_improvement
-                })
+            if len(problem_areas[action]["examples"]) < 3:
+                problem_areas[action]["examples"].append(
+                    {
+                        "input": failure.user_input,
+                        "response": failure.alice_response,
+                        "score": failure.overall_score,
+                        "issue": failure.what_needs_improvement,
+                    }
+                )
 
         # Calculate averages
         for action in problem_areas:
-            scores = problem_areas[action]['avg_score']
-            problem_areas[action]['avg_score'] = sum(scores) / len(scores)
+            scores = problem_areas[action]["avg_score"]
+            problem_areas[action]["avg_score"] = sum(scores) / len(scores)
 
         return {
-            'period_days': days,
-            'overall_stats': stats,
-            'autolearn_stats': {
-                'cycles_run': self.cycles_completed,
-                'total_improvements': self.total_improvements,
-                'last_run': self.last_run
+            "period_days": days,
+            "overall_stats": stats,
+            "autolearn_stats": {
+                "cycles_run": self.cycles_completed,
+                "total_improvements": self.total_improvements,
+                "last_run": self.last_run,
             },
-            'problem_areas': problem_areas,
-            'recommendation': self._generate_recommendation(stats, problem_areas)
+            "problem_areas": problem_areas,
+            "recommendation": self._generate_recommendation(stats, problem_areas),
         }
 
     def _generate_recommendation(
-        self,
-        stats: Dict[str, Any],
-        problem_areas: Dict[str, Any]
+        self, stats: Dict[str, Any], problem_areas: Dict[str, Any]
     ) -> str:
         """Generate recommendation for user based on performance"""
 
-        avg_score = stats.get('average_score', 0)
+        avg_score = stats.get("average_score", 0)
 
         if avg_score >= 90:
             return "Excellent performance. Alice is learning well across all domains."
         elif avg_score >= 80:
             return "Good performance. Minor improvements in progress."
         elif avg_score >= 70:
-            return "Acceptable performance. AutoLearn is addressing issues automatically."
+            return (
+                "Acceptable performance. AutoLearn is addressing issues automatically."
+            )
         elif avg_score >= 60:
             return "Below target. Review problem areas - AutoLearn may need more training data."
         else:
@@ -377,13 +388,14 @@ class AutoLearn:
 # Singleton instance
 _autolearn = None
 
+
 def get_autolearn(
     ollama_evaluator=None,
     learning_engine=None,
     response_formulator=None,
     realtime_logger=None,
     check_interval_hours: int = 6,
-    auto_start: bool = False
+    auto_start: bool = False,
 ) -> AutoLearn:
     """Get or create the AutoLearn singleton"""
     global _autolearn
@@ -394,6 +406,6 @@ def get_autolearn(
             response_formulator=response_formulator,
             realtime_logger=realtime_logger,
             check_interval_hours=check_interval_hours,
-            auto_start=auto_start
+            auto_start=auto_start,
         )
     return _autolearn

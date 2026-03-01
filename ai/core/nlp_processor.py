@@ -33,10 +33,14 @@ try:
     word_tokenize = nltk_mod.word_tokenize
     SentimentIntensityAnalyzer = sentiment_mod.SentimentIntensityAnalyzer
 except ImportError:  # pragma: no cover
+
     def word_tokenize(text: str):
         return text.split()
+
     SentimentIntensityAnalyzer = None
-    logging.warning("[WARN] NLTK not available. Using basic tokenization and neutral sentiment.")
+    logging.warning(
+        "[WARN] NLTK not available. Using basic tokenization and neutral sentiment."
+    )
 
 try:
     sklearn_text = importlib.import_module("sklearn.feature_extraction.text")
@@ -52,29 +56,48 @@ try:
     dateparser = importlib.import_module("dateparser")
 except ImportError:  # pragma: no cover
     dateparser = None
-    logging.warning("[WARN] dateparser not available. Temporal parsing will be limited.")
+    logging.warning(
+        "[WARN] dateparser not available. Temporal parsing will be limited."
+    )
 
 try:
     parsedatetime_mod = importlib.import_module("parsedatetime")
     Calendar = parsedatetime_mod.Calendar
 except ImportError:  # pragma: no cover
     Calendar = None
-    logging.warning("[WARN] parsedatetime not available. Temporal parsing will be limited.")
+    logging.warning(
+        "[WARN] parsedatetime not available. Temporal parsing will be limited."
+    )
 
 # Semantic intent classification
 try:
     from ai.core.intent_classifier import get_intent_classifier
+
     SEMANTIC_CLASSIFIER_AVAILABLE = True
 except ImportError:
     SEMANTIC_CLASSIFIER_AVAILABLE = False
-    logging.warning("[WARN] Semantic intent classifier not available. Using fallback patterns.")
+    logging.warning(
+        "[WARN] Semantic intent classifier not available. Using fallback patterns."
+    )
 
 # Advanced NLP stack — Frame Parser, Probabilistic Slot Filler, Advanced Coreference
 try:
-    from ai.core.frame_parser import FrameParser as _FrameParser, FrameMatchResult as _FrameMatchResult
-    from ai.core.prob_slot_filler import ProbabilisticSlotFiller as _ProbSlotFiller, FilledSlots as _FilledSlots
-    from ai.core.coreference import LegacyCoreferenceResolverCompat as _AdvancedCoref, DialogueMemory as _DialogueMemory
-    from ai.core.utterance_fingerprint import get_fingerprint_store as _get_fingerprint_store
+    from ai.core.frame_parser import (
+        FrameParser as _FrameParser,
+        FrameMatchResult as _FrameMatchResult,
+    )
+    from ai.core.prob_slot_filler import (
+        ProbabilisticSlotFiller as _ProbSlotFiller,
+        FilledSlots as _FilledSlots,
+    )
+    from ai.core.coreference import (
+        LegacyCoreferenceResolverCompat as _AdvancedCoref,
+        DialogueMemory as _DialogueMemory,
+    )
+    from ai.core.utterance_fingerprint import (
+        get_fingerprint_store as _get_fingerprint_store,
+    )
+
     ADVANCED_NLP_AVAILABLE = True
 except ImportError:
     ADVANCED_NLP_AVAILABLE = False
@@ -92,9 +115,11 @@ logger = logging.getLogger(__name__)
 # DATA STRUCTURES
 # ============================================================================
 
+
 @dataclass
 class Entity:
     """Represents an extracted entity with metadata"""
+
     type: str
     value: str
     confidence: float
@@ -106,6 +131,7 @@ class Entity:
 @dataclass
 class Slot:
     """Represents a filled slot in structured extraction"""
+
     name: str
     value: Any
     confidence: float
@@ -115,6 +141,7 @@ class Slot:
 @dataclass
 class ProcessedQuery:
     """Complete NLP processing result"""
+
     original_text: str
     clean_text: str
     tokens: List[str]
@@ -136,6 +163,7 @@ class ProcessedQuery:
 @dataclass
 class ConversationContext:
     """Tracks conversation state for coreference resolution"""
+
     last_intent: Optional[str] = None
     last_entities: Dict[str, Any] = field(default_factory=dict)
     mentioned_notes: deque = field(default_factory=lambda: deque(maxlen=5))
@@ -150,6 +178,7 @@ class ConversationContext:
 @dataclass
 class TokenSegment:
     """Surface-level segment prior to lexical tokenization."""
+
     text: str
     kind: str  # utterance | meta_command | plugin_phrase
     start_pos: int
@@ -159,6 +188,7 @@ class TokenSegment:
 @dataclass
 class RichToken:
     """Token with lexical, semantic, and positional metadata."""
+
     text: str
     normalized: str
     kind: str  # word | number | ordinal | symbol | hashtag | quoted_span | pronoun | date_like | command
@@ -171,6 +201,7 @@ class RichToken:
 @dataclass
 class ParsedCommand:
     """Structured interpretation produced from rich tokens."""
+
     action: str = "unknown"
     object_type: str = "unknown"
     title_hint: Optional[str] = None
@@ -182,6 +213,7 @@ class ParsedCommand:
 @dataclass
 class RouteDecision:
     """Calibrated routing output used by final intent selection."""
+
     intent: str
     confidence: float
     plugin: str
@@ -193,10 +225,11 @@ class RouteDecision:
 # SLOT FILLING SYSTEM
 # ============================================================================
 
+
 class SlotFiller:
     """
     Extracts structured data from queries
-    
+
     Example:
         "Create note about meeting tomorrow at 2pm tagged work high priority"
         -> {
@@ -207,154 +240,184 @@ class SlotFiller:
             'priority': 'high'
         }
     """
-    
+
     # Slot templates per intent category
     SLOT_TEMPLATES = {
-        'note_create': ['title', 'content', 'tags', 'priority', 'category', 'date', 'time', 'note_type'],
-        'note_search': ['query', 'tags', 'date_range', 'priority', 'category'],
-        'note_update': ['note_id', 'title', 'content', 'tags', 'priority'],
-        'note_delete': ['note_id', 'query'],
-        
-        'music_play': ['song', 'artist', 'album', 'playlist', 'genre', 'mood', 'service'],
-        'music_control': ['action', 'volume'],
-        
-        'calendar_create': ['event', 'date', 'time', 'duration', 'location', 'attendees', 'recurring'],
-        'calendar_search': ['query', 'date_range', 'event_type'],
-        
-        'email_compose': ['recipient', 'subject', 'body', 'cc', 'bcc', 'attachments'],
-        'email_search': ['sender', 'subject', 'date_range', 'has_attachment', 'status'],
+        "note_create": [
+            "title",
+            "content",
+            "tags",
+            "priority",
+            "category",
+            "date",
+            "time",
+            "note_type",
+        ],
+        "note_search": ["query", "tags", "date_range", "priority", "category"],
+        "note_update": ["note_id", "title", "content", "tags", "priority"],
+        "note_delete": ["note_id", "query"],
+        "music_play": [
+            "song",
+            "artist",
+            "album",
+            "playlist",
+            "genre",
+            "mood",
+            "service",
+        ],
+        "music_control": ["action", "volume"],
+        "calendar_create": [
+            "event",
+            "date",
+            "time",
+            "duration",
+            "location",
+            "attendees",
+            "recurring",
+        ],
+        "calendar_search": ["query", "date_range", "event_type"],
+        "email_compose": ["recipient", "subject", "body", "cc", "bcc", "attachments"],
+        "email_search": ["sender", "subject", "date_range", "has_attachment", "status"],
     }
-    
+
     def __init__(self, temporal_parser):
         self.temporal_parser = temporal_parser
-        
+
         # Priority keywords
         self.priority_map = {
-            'urgent': 'urgent',
-            'critical': 'urgent',
-            'asap': 'urgent',
-            'immediately': 'urgent',
-            'high': 'high',
-            'important': 'high',
-            'medium': 'medium',
-            'normal': 'medium',
-            'low': 'low',
-            'minor': 'low',
+            "urgent": "urgent",
+            "critical": "urgent",
+            "asap": "urgent",
+            "immediately": "urgent",
+            "high": "high",
+            "important": "high",
+            "medium": "medium",
+            "normal": "medium",
+            "low": "low",
+            "minor": "low",
         }
-        
+
         # Note type keywords
         self.note_type_map = {
-            'todo': 'todo',
-            'task': 'todo',
-            'checklist': 'todo',
-            'idea': 'idea',
-            'thought': 'idea',
-            'brainstorm': 'idea',
-            'meeting': 'meeting',
-            'notes': 'meeting',
-            'reminder': 'reminder',
-            'alert': 'reminder',
+            "todo": "todo",
+            "task": "todo",
+            "checklist": "todo",
+            "idea": "idea",
+            "thought": "idea",
+            "brainstorm": "idea",
+            "meeting": "meeting",
+            "notes": "meeting",
+            "reminder": "reminder",
+            "alert": "reminder",
         }
-        
+
         # Category keywords
         self.category_map = {
-            'work': 'work',
-            'business': 'work',
-            'office': 'work',
-            'personal': 'personal',
-            'home': 'personal',
-            'family': 'personal',
-            'project': 'project',
-            'dev': 'project',
-            'development': 'project',
-            'health': 'health',
-            'fitness': 'health',
-            'study': 'study',
-            'learning': 'study',
-            'education': 'study',
+            "work": "work",
+            "business": "work",
+            "office": "work",
+            "personal": "personal",
+            "home": "personal",
+            "family": "personal",
+            "project": "project",
+            "dev": "project",
+            "development": "project",
+            "health": "health",
+            "fitness": "health",
+            "study": "study",
+            "learning": "study",
+            "education": "study",
         }
-    
-    def extract_slots(self, text: str, intent: str, entities: Dict[str, List[Entity]]) -> Dict[str, Slot]:
+
+    def extract_slots(
+        self, text: str, intent: str, entities: Dict[str, List[Entity]]
+    ) -> Dict[str, Slot]:
         """Extract slots based on intent and entities"""
         slots = {}
         text_lower = text.lower()
-        
+
         # Determine template
         template_key = self._get_template_key(intent)
         if template_key not in self.SLOT_TEMPLATES:
             return slots
-        
+
         slot_names = self.SLOT_TEMPLATES[template_key]
-        
+
         # Extract each slot
         for slot_name in slot_names:
-            extractor = getattr(self, f'_extract_{slot_name}', None)
+            extractor = getattr(self, f"_extract_{slot_name}", None)
             if extractor:
                 value, confidence, raw = extractor(text, text_lower, entities)
                 if value is not None:
                     slots[slot_name] = Slot(slot_name, value, confidence, raw)
-        
+
         return slots
-    
+
     def _get_template_key(self, intent: str) -> str:
         """Map intent to slot template"""
         # Note intents
-        if 'create' in intent or 'add' in intent:
-            if 'note' in intent:
-                return 'note_create'
-            elif 'event' in intent or 'calendar' in intent:
-                return 'calendar_create'
-        elif 'search' in intent or 'find' in intent or 'list' in intent:
-            if 'note' in intent:
-                return 'note_search'
-            elif 'calendar' in intent:
-                return 'calendar_search'
-            elif 'email' in intent:
-                return 'email_search'
-        elif 'play' in intent or 'music' in intent:
-            return 'music_play'
-        elif 'email' in intent and ('compose' in intent or 'send' in intent):
-            return 'email_compose'
-        
+        if "create" in intent or "add" in intent:
+            if "note" in intent:
+                return "note_create"
+            elif "event" in intent or "calendar" in intent:
+                return "calendar_create"
+        elif "search" in intent or "find" in intent or "list" in intent:
+            if "note" in intent:
+                return "note_search"
+            elif "calendar" in intent:
+                return "calendar_search"
+            elif "email" in intent:
+                return "email_search"
+        elif "play" in intent or "music" in intent:
+            return "music_play"
+        elif "email" in intent and ("compose" in intent or "send" in intent):
+            return "email_compose"
+
         return intent
-    
+
     # ==================== NOTE SLOT EXTRACTORS ====================
-    
-    def _extract_title(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_title(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract note title"""
         # Patterns like "note about X", "create X note", "X task"
         patterns = [
-            r'(?:note|task|reminder)\s+(?:about|for|titled?)\s+([^,\n]+)',
-            r'(?:create|add|make)\s+(?:a\s+)?(?:note\s+)?(?:about\s+)?([^,\n]+)',
-            r'(?:called|named|titled)\s+([^,\n]+)',
+            r"(?:note|task|reminder)\s+(?:about|for|titled?)\s+([^,\n]+)",
+            r"(?:create|add|make)\s+(?:a\s+)?(?:note\s+)?(?:about\s+)?([^,\n]+)",
+            r"(?:called|named|titled)\s+([^,\n]+)",
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, text_lower)
             if match:
                 title = match.group(1).strip()
                 # Clean up common trailing words
-                title = re.sub(r'\s+(tagged?|with|priority|at|on|tomorrow|today).*$', '', title)
+                title = re.sub(
+                    r"\s+(tagged?|with|priority|at|on|tomorrow|today).*$", "", title
+                )
                 if len(title) > 2:
                     return title, 0.85, match.group(0)
-        
+
         # Fallback: extract first noun phrase (simple heuristic)
         words = text_lower.split()
         if len(words) >= 3:
             # Look for pattern after action words
-            action_words = {'create', 'add', 'make', 'new', 'note', 'task', 'reminder'}
+            action_words = {"create", "add", "make", "new", "note", "task", "reminder"}
             for i, word in enumerate(words):
                 if word in action_words and i + 1 < len(words):
                     # Take next 2-4 words as title
-                    title_words = words[i+1:min(i+5, len(words))]
-                    title = ' '.join(title_words)
-                    title = re.sub(r'\s+(tagged?|with|priority|at|on).*$', '', title)
+                    title_words = words[i + 1 : min(i + 5, len(words))]
+                    title = " ".join(title_words)
+                    title = re.sub(r"\s+(tagged?|with|priority|at|on).*$", "", title)
                     if len(title) > 2:
-                        return title, 0.6, ' '.join(words[i:i+5])
-        
+                        return title, 0.6, " ".join(words[i : i + 5])
+
         return None, 0.0, ""
-    
-    def _extract_content(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_content(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract note content"""
         # Content is usually after title or in quotes
         patterns = [
@@ -362,37 +425,41 @@ class SlotFiller:
             r'body[:\s]+"?([^"\n]+)"?',
             r'text[:\s]+"?([^"\n]+)"?',
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, text_lower)
             if match:
                 return match.group(1).strip(), 0.9, match.group(0)
-        
+
         return None, 0.0, ""
-    
-    def _extract_tags(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[List[str]], float, str]:
+
+    def _extract_tags(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[List[str]], float, str]:
         """Extract tags from #tagname or 'tagged X'"""
         tags = []
-        
+
         # Hashtag style: #work #urgent
-        hashtag_pattern = r'#(\w+)'
+        hashtag_pattern = r"#(\w+)"
         hashtags = re.findall(hashtag_pattern, text_lower)
         tags.extend(hashtags)
-        
+
         # Explicit tagging: "tagged work urgent" or "tag it as work"
         tag_patterns = [
-            r'tagged?\s+(?:as\s+)?(?:with\s+)?([a-z,\s]+?)(?:\s+priority|\s+category|$)',
-            r'tags?\s+(?:are\s+)?(?:with\s+)?([a-z,\s]+?)(?:\s+priority|\s+category|$)',
+            r"tagged?\s+(?:as\s+)?(?:with\s+)?([a-z,\s]+?)(?:\s+priority|\s+category|$)",
+            r"tags?\s+(?:are\s+)?(?:with\s+)?([a-z,\s]+?)(?:\s+priority|\s+category|$)",
         ]
-        
+
         for pattern in tag_patterns:
             match = re.search(pattern, text_lower)
             if match:
                 tag_text = match.group(1).strip()
                 # Split by comma or space
-                new_tags = [t.strip() for t in re.split(r'[,\s]+', tag_text) if t.strip()]
+                new_tags = [
+                    t.strip() for t in re.split(r"[,\s]+", tag_text) if t.strip()
+                ]
                 tags.extend(new_tags)
-        
+
         if tags:
             # Remove duplicates, keep order
             seen = set()
@@ -401,160 +468,237 @@ class SlotFiller:
                 if tag not in seen:
                     seen.add(tag)
                     unique_tags.append(tag)
-            return unique_tags, 0.9, ' '.join(f'#{t}' for t in unique_tags)
-        
+            return unique_tags, 0.9, " ".join(f"#{t}" for t in unique_tags)
+
         return None, 0.0, ""
-    
-    def _extract_priority(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_priority(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract priority level"""
         for keyword, priority in self.priority_map.items():
-            if re.search(rf'\b{keyword}\b', text_lower):
+            if re.search(rf"\b{keyword}\b", text_lower):
                 return priority, 0.95, keyword
-        
+
         # Check for explicit priority syntax
-        priority_pattern = r'priority[:\s]+(urgent|high|medium|low)'
+        priority_pattern = r"priority[:\s]+(urgent|high|medium|low)"
         match = re.search(priority_pattern, text_lower)
         if match:
             return match.group(1), 0.98, match.group(0)
-        
+
         return None, 0.0, ""
-    
-    def _extract_category(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_category(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract category"""
         for keyword, category in self.category_map.items():
-            if re.search(rf'\b{keyword}\b', text_lower):
+            if re.search(rf"\b{keyword}\b", text_lower):
                 return category, 0.8, keyword
-        
+
         # Explicit category syntax
-        cat_pattern = r'category[:\s]+(\w+)'
+        cat_pattern = r"category[:\s]+(\w+)"
         match = re.search(cat_pattern, text_lower)
         if match:
             return match.group(1), 0.95, match.group(0)
-        
+
         return None, 0.0, ""
-    
-    def _extract_note_type(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_note_type(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract note type"""
         for keyword, note_type in self.note_type_map.items():
-            if re.search(rf'\b{keyword}\b', text_lower):
+            if re.search(rf"\b{keyword}\b", text_lower):
                 return note_type, 0.85, keyword
-        
+
         return None, 0.0, ""
-    
-    def _extract_date(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_date(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract and normalize date"""
         result = self.temporal_parser.parse_temporal_expression(text)
-        if result and result.get('date'):
-            return result['date'], result.get('confidence', 0.8), result.get('raw_text', '')
+        if result and result.get("date"):
+            return (
+                result["date"],
+                result.get("confidence", 0.8),
+                result.get("raw_text", ""),
+            )
         return None, 0.0, ""
-    
-    def _extract_time(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_time(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract and normalize time"""
         result = self.temporal_parser.parse_temporal_expression(text)
-        if result and result.get('time'):
-            return result['time'], result.get('confidence', 0.8), result.get('raw_text', '')
+        if result and result.get("time"):
+            return (
+                result["time"],
+                result.get("confidence", 0.8),
+                result.get("raw_text", ""),
+            )
         return None, 0.0, ""
-    
+
     # ==================== MUSIC SLOT EXTRACTORS ====================
-    
-    def _extract_song(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_song(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract song name"""
         patterns = [
             r'"([^"]+)"',  # Quoted
-            r'play\s+([^,\n]+?)(?:\s+by|\s+from|$)',
+            r"play\s+([^,\n]+?)(?:\s+by|\s+from|$)",
             r'song\s+"?([^"]+?)"?(?:\s+by|$)',
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 song = match.group(1).strip()
                 if len(song) > 1:
                     return song, 0.85, match.group(0)
-        
+
         return None, 0.0, ""
-    
-    def _extract_artist(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_artist(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract artist name"""
         patterns = [
-            r'\bby\s+([A-Za-z\s&\']+?)(?:\s+from|\s+on|$)',
-            r'\bartist\s+([A-Za-z\s&\']+?)(?:\s+from|$)',
+            r"\bby\s+([A-Za-z\s&\']+?)(?:\s+from|\s+on|$)",
+            r"\bartist\s+([A-Za-z\s&\']+?)(?:\s+from|$)",
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 artist = match.group(1).strip()
                 if len(artist) > 1:
                     return artist, 0.9, match.group(0)
-        
+
         return None, 0.0, ""
-    
-    def _extract_genre(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_genre(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract music genre"""
-        genres = ['rock', 'pop', 'jazz', 'classical', 'hip hop', 'rap', 'country', 
-                 'electronic', 'blues', 'reggae', 'folk', 'metal', 'indie']
-        
+        genres = [
+            "rock",
+            "pop",
+            "jazz",
+            "classical",
+            "hip hop",
+            "rap",
+            "country",
+            "electronic",
+            "blues",
+            "reggae",
+            "folk",
+            "metal",
+            "indie",
+        ]
+
         for genre in genres:
-            if re.search(rf'\b{genre}\b', text_lower):
+            if re.search(rf"\b{genre}\b", text_lower):
                 return genre, 0.95, genre
-        
+
         return None, 0.0, ""
-    
-    def _extract_mood(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_mood(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract mood/vibe"""
-        moods = ['upbeat', 'relaxing', 'chill', 'energetic', 'slow', 'happy', 'sad', 
-                'workout', 'study', 'sleep', 'party', 'romantic']
-        
+        moods = [
+            "upbeat",
+            "relaxing",
+            "chill",
+            "energetic",
+            "slow",
+            "happy",
+            "sad",
+            "workout",
+            "study",
+            "sleep",
+            "party",
+            "romantic",
+        ]
+
         for mood in moods:
-            if re.search(rf'\b{mood}\b', text_lower):
+            if re.search(rf"\b{mood}\b", text_lower):
                 return mood, 0.85, mood
-        
+
         return None, 0.0, ""
-    
-    def _extract_action(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_action(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract music action"""
-        actions = ['play', 'pause', 'stop', 'skip', 'next', 'previous', 'resume', 'shuffle', 'repeat']
-        
+        actions = [
+            "play",
+            "pause",
+            "stop",
+            "skip",
+            "next",
+            "previous",
+            "resume",
+            "shuffle",
+            "repeat",
+        ]
+
         for action in actions:
-            if re.search(rf'\b{action}\b', text_lower):
+            if re.search(rf"\b{action}\b", text_lower):
                 return action, 0.95, action
-        
+
         return None, 0.0, ""
-    
-    def _extract_volume(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[int], float, str]:
+
+    def _extract_volume(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[int], float, str]:
         """Extract volume level"""
-        volume_match = re.search(r'\b(?:volume|sound)\s+(?:to\s+)?(\d{1,3})(?:%|percent)?\b', text_lower)
+        volume_match = re.search(
+            r"\b(?:volume|sound)\s+(?:to\s+)?(\d{1,3})(?:%|percent)?\b", text_lower
+        )
         if volume_match:
             volume = int(volume_match.group(1))
             return min(100, max(0, volume)), 0.98, volume_match.group(0)
-        
+
         return None, 0.0, ""
-    
+
     # ==================== OTHER SLOT EXTRACTORS ====================
-    
-    def _extract_query(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_query(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract search query"""
         # For search intents, the main query is usually the text minus action words
-        query = re.sub(r'\b(search|find|show|list|get|fetch)\s+', '', text_lower, count=1)
-        query = re.sub(r'\b(notes?|emails?|events?|tasks?)\b', '', query).strip()
-        
+        query = re.sub(
+            r"\b(search|find|show|list|get|fetch)\s+", "", text_lower, count=1
+        )
+        query = re.sub(r"\b(notes?|emails?|events?|tasks?)\b", "", query).strip()
+
         if len(query) > 2:
             return query, 0.7, query
-        
+
         return None, 0.0, ""
-    
-    def _extract_album(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_album(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract album name"""
         return None, 0.0, ""  # Implement if needed
-    
-    def _extract_playlist(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_playlist(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract playlist name"""
         return None, 0.0, ""  # Implement if needed
-    
-    def _extract_service(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
+
+    def _extract_service(
+        self, text: str, text_lower: str, entities: Dict
+    ) -> Tuple[Optional[str], float, str]:
         """Extract music service"""
-        services = ['spotify', 'apple music', 'youtube music', 'pandora']
+        services = ["spotify", "apple music", "youtube music", "pandora"]
         for service in services:
             if service in text_lower:
                 return service, 0.98, service
@@ -565,58 +709,61 @@ class SlotFiller:
 # TEMPORAL EXPRESSION NORMALIZATION
 # ============================================================================
 
+
 class TemporalParser:
     """
     Parse and normalize temporal expressions
-    
+
     Examples:
         "tomorrow at 2pm" -> {'date': '2025-01-26', 'time': '14:00'}
         "next week" -> {'date': '2025-02-02'}
         "in 3 days" -> {'date': '2025-01-28'}
         "morning" -> {'time': '09:00'}
     """
-    
+
     def __init__(self):
         if Calendar is not None:
-            version_context_style = getattr(parsedatetime_mod, "VERSION_CONTEXT_STYLE", None)
+            version_context_style = getattr(
+                parsedatetime_mod, "VERSION_CONTEXT_STYLE", None
+            )
             if version_context_style is not None:
                 self.cal = Calendar(version=version_context_style)
             else:
                 self.cal = Calendar()
         else:
             self.cal = None
-        
+
         # Time of day mappings
         self.time_of_day = {
-            'morning': '09:00',
-            'noon': '12:00',
-            'afternoon': '14:00',
-            'evening': '18:00',
-            'night': '20:00',
-            'midnight': '00:00',
+            "morning": "09:00",
+            "noon": "12:00",
+            "afternoon": "14:00",
+            "evening": "18:00",
+            "night": "20:00",
+            "midnight": "00:00",
         }
-    
+
     def parse_temporal_expression(self, text: str) -> Optional[Dict[str, Any]]:
         """Parse temporal expressions from text"""
         result = {}
         confidence = 0.0
         raw_text = ""
-        
+
         # Try dateparser first (most comprehensive)
         parsed_date = None
         if dateparser is not None:
             parsed_date = dateparser.parse(
                 text,
                 settings={
-                    'PREFER_DATES_FROM': 'future',
-                    'RETURN_AS_TIMEZONE_AWARE': False,
-                    'RELATIVE_BASE': datetime.now()
-                }
+                    "PREFER_DATES_FROM": "future",
+                    "RETURN_AS_TIMEZONE_AWARE": False,
+                    "RELATIVE_BASE": datetime.now(),
+                },
             )
-        
+
         if parsed_date:
-            result['date'] = parsed_date.strftime('%Y-%m-%d')
-            result['time'] = parsed_date.strftime('%H:%M')
+            result["date"] = parsed_date.strftime("%Y-%m-%d")
+            result["time"] = parsed_date.strftime("%H:%M")
             confidence = 0.9
             raw_text = text
         else:
@@ -625,43 +772,43 @@ class TemporalParser:
                 time_struct, parse_status = self.cal.parse(text)
                 if parse_status > 0:
                     parsed_dt = datetime(*time_struct[:6])
-                    result['date'] = parsed_dt.strftime('%Y-%m-%d')
-                    result['time'] = parsed_dt.strftime('%H:%M')
+                    result["date"] = parsed_dt.strftime("%Y-%m-%d")
+                    result["time"] = parsed_dt.strftime("%H:%M")
                     confidence = 0.8
                     raw_text = text
-        
+
         # Check for time of day keywords
         text_lower = text.lower()
         for keyword, time_str in self.time_of_day.items():
             if keyword in text_lower:
-                result['time'] = time_str
+                result["time"] = time_str
                 confidence = max(confidence, 0.85)
                 if not raw_text:
                     raw_text = keyword
-        
+
         if result:
-            result['confidence'] = confidence
-            result['raw_text'] = raw_text
+            result["confidence"] = confidence
+            result["raw_text"] = raw_text
             return result
-        
+
         return None
-    
+
     def normalize_duration(self, text: str) -> Optional[Dict[str, Any]]:
         """Parse duration expressions"""
         patterns = [
-            (r'(\d+)\s*(?:minute|min)s?', 'minutes'),
-            (r'(\d+)\s*(?:hour|hr)s?', 'hours'),
-            (r'(\d+)\s*(?:day)s?', 'days'),
-            (r'(\d+)\s*(?:week)s?', 'weeks'),
-            (r'(\d+)\s*(?:month)s?', 'months'),
+            (r"(\d+)\s*(?:minute|min)s?", "minutes"),
+            (r"(\d+)\s*(?:hour|hr)s?", "hours"),
+            (r"(\d+)\s*(?:day)s?", "days"),
+            (r"(\d+)\s*(?:week)s?", "weeks"),
+            (r"(\d+)\s*(?:month)s?", "months"),
         ]
-        
+
         for pattern, unit in patterns:
             match = re.search(pattern, text.lower())
             if match:
                 value = int(match.group(1))
-                return {'value': value, 'unit': unit, 'raw_text': match.group(0)}
-        
+                return {"value": value, "unit": unit, "raw_text": match.group(0)}
+
         return None
 
 
@@ -669,10 +816,11 @@ class TemporalParser:
 # CUSTOM NER FOR DOMAIN ENTITIES
 # ============================================================================
 
+
 class DomainEntityExtractor:
     """
     Extract domain-specific entities
-    
+
     Entities:
     - NOTE_TAG: #work, #personal
     - PRIORITY: urgent, high, low
@@ -681,21 +829,21 @@ class DomainEntityExtractor:
     - MUSIC_GENRE: rock, pop, jazz
     - MUSIC_MOOD: upbeat, chill, relaxing
     """
-    
+
     ENTITY_PATTERNS = {
-        'NOTE_TAG': r'#(\w+)',
-        'PRIORITY': r'\b(urgent|critical|high|important|medium|normal|low|minor)\b',
-        'NOTE_TYPE': r'\b(todo|task|idea|thought|meeting|reminder)\b',
-        'CATEGORY': r'\b(work|personal|project|health|study)\b',
-        'MUSIC_GENRE': r'\b(rock|pop|jazz|classical|hip hop|rap|country|electronic|blues|metal)\b',
-        'MUSIC_MOOD': r'\b(upbeat|relaxing|chill|energetic|happy|sad|workout|study)\b',
+        "NOTE_TAG": r"#(\w+)",
+        "PRIORITY": r"\b(urgent|critical|high|important|medium|normal|low|minor)\b",
+        "NOTE_TYPE": r"\b(todo|task|idea|thought|meeting|reminder)\b",
+        "CATEGORY": r"\b(work|personal|project|health|study)\b",
+        "MUSIC_GENRE": r"\b(rock|pop|jazz|classical|hip hop|rap|country|electronic|blues|metal)\b",
+        "MUSIC_MOOD": r"\b(upbeat|relaxing|chill|energetic|happy|sad|workout|study)\b",
     }
-    
+
     def extract(self, text: str) -> Dict[str, List[Entity]]:
         """Extract all domain entities"""
         entities = defaultdict(list)
         text_lower = text.lower()
-        
+
         for entity_type, pattern in self.ENTITY_PATTERNS.items():
             matches = re.finditer(pattern, text_lower)
             for match in matches:
@@ -704,10 +852,10 @@ class DomainEntityExtractor:
                     value=match.group(1) if match.groups() else match.group(0),
                     confidence=0.95,
                     start_pos=match.start(),
-                    end_pos=match.end()
+                    end_pos=match.end(),
                 )
                 entities[entity_type].append(entity)
-        
+
         return dict(entities)
 
 
@@ -715,27 +863,37 @@ class DomainEntityExtractor:
 # COREFERENCE RESOLUTION
 # ============================================================================
 
+
 class CoreferenceResolver:
     """
     Resolve pronouns to entities mentioned in conversation
-    
+
     Examples:
         User: "Create note shopping list"
         Then: "Add eggs to it" -> "it" resolves to "shopping list" note
-        
+
         User: "Play Bohemian Rhapsody"
         Then: "pause it" -> "it" resolves to "Bohemian Rhapsody"
     """
-    
+
     def __init__(self):
-        self.pronouns = ['it', 'this', 'that', 'the note', 'the event', 'the song', 
-                        'the task', 'the email', 'the reminder']
-    
+        self.pronouns = [
+            "it",
+            "this",
+            "that",
+            "the note",
+            "the event",
+            "the song",
+            "the task",
+            "the email",
+            "the reminder",
+        ]
+
     def resolve(self, text: str, context: ConversationContext) -> str:
         """Resolve coreferences in text using conversation context"""
         resolved_text = text
         text_lower = text.lower()
-        
+
         # Check if text contains pronouns
         for pronoun in self.pronouns:
             if pronoun in text_lower:
@@ -743,34 +901,36 @@ class CoreferenceResolver:
                 if replacement:
                     # Replace pronoun with actual entity
                     resolved_text = re.sub(
-                        rf'\b{re.escape(pronoun)}\b',
+                        rf"\b{re.escape(pronoun)}\b",
                         replacement,
                         resolved_text,
                         count=1,
-                        flags=re.IGNORECASE
+                        flags=re.IGNORECASE,
                     )
                     logger.info(f"[COREF] Resolved '{pronoun}' -> '{replacement}'")
-        
+
         return resolved_text
-    
-    def _find_referent(self, pronoun: str, context: ConversationContext) -> Optional[str]:
+
+    def _find_referent(
+        self, pronoun: str, context: ConversationContext
+    ) -> Optional[str]:
         """Find what the pronoun refers to"""
         # Check based on last intent
         if context.last_intent:
-            if 'note' in context.last_intent and context.mentioned_notes:
+            if "note" in context.last_intent and context.mentioned_notes:
                 return str(context.mentioned_notes[-1])
-            elif 'calendar' in context.last_intent and context.mentioned_events:
+            elif "calendar" in context.last_intent and context.mentioned_events:
                 return str(context.mentioned_events[-1])
-            elif 'music' in context.last_intent and context.mentioned_songs:
+            elif "music" in context.last_intent and context.mentioned_songs:
                 return str(context.mentioned_songs[-1])
-        
+
         # Check generic entities
         if context.last_entities:
             # Return most recent entity of appropriate type
-            for entity_type in ['title', 'song', 'event', 'note_id']:
+            for entity_type in ["title", "song", "event", "note_id"]:
                 if entity_type in context.last_entities:
                     return str(context.last_entities[entity_type])
-        
+
         return None
 
 
@@ -778,78 +938,94 @@ class CoreferenceResolver:
 # ENHANCED EMOTION & URGENCY DETECTION
 # ============================================================================
 
+
 class EmotionDetector:
     """
     Multi-label emotion detection + urgency analysis
-    
+
     Emotions: angry, excited, worried, confused, satisfied, frustrated
     Urgency: none, low, medium, high, critical
     """
-    
+
     EMOTION_KEYWORDS = {
-        'angry': ['angry', 'mad', 'pissed', 'furious', 'annoyed', 'irritated'],
-        'excited': ['excited', 'awesome', 'amazing', 'great', 'fantastic', 'wonderful'],
-        'worried': ['worried', 'concerned', 'anxious', 'nervous', 'stressed'],
-        'confused': ['confused', 'lost', 'unclear', 'dont understand'],
-        'satisfied': ['thanks', 'thank you', 'perfect', 'exactly', 'good'],
-        'frustrated': ['not working', 'broken', 'frustrated', 'cant', 'wont', 'doesnt work'],
+        "angry": ["angry", "mad", "pissed", "furious", "annoyed", "irritated"],
+        "excited": ["excited", "awesome", "amazing", "great", "fantastic", "wonderful"],
+        "worried": ["worried", "concerned", "anxious", "nervous", "stressed"],
+        "confused": ["confused", "lost", "unclear", "dont understand"],
+        "satisfied": ["thanks", "thank you", "perfect", "exactly", "good"],
+        "frustrated": [
+            "not working",
+            "broken",
+            "frustrated",
+            "cant",
+            "wont",
+            "doesnt work",
+        ],
     }
-    
+
     URGENCY_KEYWORDS = {
-        'critical': ['emergency', 'critical', 'asap', 'immediately', 'right now', 'urgent'],
-        'high': ['urgent', 'important', 'soon', 'quickly', 'hurry'],
-        'medium': ['when you can', 'sometime', 'later'],
-        'low': ['no rush', 'whenever', 'eventually'],
+        "critical": [
+            "emergency",
+            "critical",
+            "asap",
+            "immediately",
+            "right now",
+            "urgent",
+        ],
+        "high": ["urgent", "important", "soon", "quickly", "hurry"],
+        "medium": ["when you can", "sometime", "later"],
+        "low": ["no rush", "whenever", "eventually"],
     }
-    
+
     def detect_emotions(self, text: str, sentiment_scores: Dict) -> List[str]:
         """Detect emotions from text"""
         emotions = []
         text_lower = text.lower()
-        
+
         for emotion, keywords in self.EMOTION_KEYWORDS.items():
             for keyword in keywords:
                 if keyword in text_lower:
                     emotions.append(emotion)
                     break
-        
+
         # Infer from sentiment if no explicit emotions
         if not emotions:
-            compound = sentiment_scores.get('compound', 0)
+            compound = sentiment_scores.get("compound", 0)
             if compound > 0.5:
-                emotions.append('satisfied')
+                emotions.append("satisfied")
             elif compound < -0.5:
-                emotions.append('frustrated')
-        
+                emotions.append("frustrated")
+
         return emotions
-    
+
     def detect_urgency(self, text: str) -> str:
         """Detect urgency level"""
         text_lower = text.lower()
-        
+
         # Check from highest to lowest
-        for level in ['critical', 'high', 'medium', 'low']:
+        for level in ["critical", "high", "medium", "low"]:
             for keyword in self.URGENCY_KEYWORDS[level]:
                 if keyword in text_lower:
                     return level
-        
-        return 'none'
+
+        return "none"
 
 
 # ============================================================================
 # MAIN NLP PROCESSOR V2
 # ============================================================================
 
+
 class NLPProcessor:
     """
     NLP processing for A.L.I.C.E.
-    
+
     No more regex hell. Pure intelligence.
     """
-    
+
     _instance = None
     _lock = threading.Lock()
-    
+
     def __new__(cls):
         """Singleton pattern for performance"""
         if cls._instance is None:
@@ -857,17 +1033,23 @@ class NLPProcessor:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self):
-        if hasattr(self, '_initialized'):
+        if hasattr(self, "_initialized"):
             return
-        
+
         self._initialized = True
-        
+
         # Core components
-        self.sentiment_analyzer = SentimentIntensityAnalyzer() if SentimentIntensityAnalyzer else None
-        self.vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2)) if TfidfVectorizer else None
-        
+        self.sentiment_analyzer = (
+            SentimentIntensityAnalyzer() if SentimentIntensityAnalyzer else None
+        )
+        self.vectorizer = (
+            TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
+            if TfidfVectorizer
+            else None
+        )
+
         # Advanced components
         self.temporal_parser = TemporalParser()
         self.slot_filler = SlotFiller(self.temporal_parser)
@@ -886,10 +1068,10 @@ class NLPProcessor:
             self.frame_parser = None
             self.prob_slot_filler = None
             self.dialogue_memory = None
-        
+
         # Conversation context
         self.context = ConversationContext()
-        
+
         # Semantic intent classifier
         self.semantic_classifier = None
         if SEMANTIC_CLASSIFIER_AVAILABLE:
@@ -898,18 +1080,31 @@ class NLPProcessor:
                 logger.info("[OK] Semantic intent classifier loaded")
             except Exception as e:
                 logger.warning(f"[WARN] Failed to load semantic classifier: {e}")
-        
+
         # Load learned corrections into pattern matching
         self.learned_corrections = self._load_learned_corrections()
         self.tokenizer_profile = "default"
         self.command_vocabulary = self._load_command_vocabulary()
         self._plugin_actions = {
-            "notes": {"create", "append", "read", "list", "search", "delete", "query_exist"},
+            "notes": {
+                "create",
+                "append",
+                "read",
+                "list",
+                "search",
+                "delete",
+                "query_exist",
+            },
             "email": {"compose", "read", "list", "search", "delete", "reply"},
             "calendar": {"create", "list", "search", "update", "delete"},
             "music": {"play", "pause", "next", "previous", "queue"},
             "system": {"status", "debug_tokens"},
-            "conversation": {"general", "question", "meta_question", "clarification_needed"},
+            "conversation": {
+                "general",
+                "question",
+                "meta_question",
+                "clarification_needed",
+            },
         }
         self._intent_action_defaults = {
             "notes": "list",
@@ -938,10 +1133,24 @@ class NLPProcessor:
         self._noisy_channel_lexicon = {
             *(self.command_vocabulary.get("verbs", set())),
             *(self.command_vocabulary.get("objects", set())),
-            "calendar", "email", "music", "notes", "note", "todo", "task", "tasks",
-            "read", "open", "show", "create", "append", "list", "search", "delete",
+            "calendar",
+            "email",
+            "music",
+            "notes",
+            "note",
+            "todo",
+            "task",
+            "tasks",
+            "read",
+            "open",
+            "show",
+            "create",
+            "append",
+            "list",
+            "search",
+            "delete",
         }
-        
+
         # Cache for performance
         self._entity_cache = {}
         self._cache_lock = threading.Lock()
@@ -956,13 +1165,48 @@ class NLPProcessor:
     def _load_command_vocabulary(self) -> Dict[str, Set[str]]:
         """Load shared command vocabulary from command directory with safe defaults."""
         verbs = {
-            "create", "add", "make", "write", "append", "show", "list", "read", "open",
-            "find", "search", "delete", "remove", "edit", "update", "summarize", "archive",
-            "unarchive", "pin", "unpin", "play", "pause", "send", "check",
+            "create",
+            "add",
+            "make",
+            "write",
+            "append",
+            "show",
+            "list",
+            "read",
+            "open",
+            "find",
+            "search",
+            "delete",
+            "remove",
+            "edit",
+            "update",
+            "summarize",
+            "archive",
+            "unarchive",
+            "pin",
+            "unpin",
+            "play",
+            "pause",
+            "send",
+            "check",
         }
         objects = {
-            "note", "notes", "list", "lists", "task", "tasks", "email", "emails", "calendar",
-            "event", "events", "music", "song", "songs", "reminder", "reminders",
+            "note",
+            "notes",
+            "list",
+            "lists",
+            "task",
+            "tasks",
+            "email",
+            "emails",
+            "calendar",
+            "event",
+            "events",
+            "music",
+            "song",
+            "songs",
+            "reminder",
+            "reminders",
         }
         meta = {"/help", "/plugins", "/debug", "/debug tokens", "/profile"}
 
@@ -979,7 +1223,9 @@ class NLPProcessor:
                     if len(parts) > 1:
                         objects.add(parts[-1])
         except Exception as e:
-            logger.debug(f"Could not load command vocabulary from command_directory.md: {e}")
+            logger.debug(
+                f"Could not load command vocabulary from command_directory.md: {e}"
+            )
 
         return {
             "verbs": verbs,
@@ -1000,7 +1246,9 @@ class NLPProcessor:
         for i, source_char in enumerate(source, start=1):
             current = [i]
             for j, target_char in enumerate(target, start=1):
-                substitution = previous[j - 1] + (0 if source_char == target_char else 1)
+                substitution = previous[j - 1] + (
+                    0 if source_char == target_char else 1
+                )
                 insertion = current[j - 1] + 1
                 deletion = previous[j] + 1
                 current.append(min(substitution, insertion, deletion))
@@ -1017,11 +1265,19 @@ class NLPProcessor:
         def _is_adjacent_transposition(source: str, target: str) -> bool:
             if len(source) != len(target):
                 return False
-            mismatches = [index for index, pair in enumerate(zip(source, target)) if pair[0] != pair[1]]
+            mismatches = [
+                index
+                for index, pair in enumerate(zip(source, target))
+                if pair[0] != pair[1]
+            ]
             if len(mismatches) != 2:
                 return False
             first, second = mismatches
-            return second == first + 1 and source[first] == target[second] and source[second] == target[first]
+            return (
+                second == first + 1
+                and source[first] == target[second]
+                and source[second] == target[first]
+            )
 
         candidate = None
         best_distance = max_distance + 1
@@ -1055,17 +1311,24 @@ class NLPProcessor:
         for part in parts:
             if part.isalpha():
                 lower = part.lower()
-                replacement = self._typo_replacements.get(lower) or self._closest_lexicon_term(lower)
+                replacement = self._typo_replacements.get(
+                    lower
+                ) or self._closest_lexicon_term(lower)
                 adjusted.append(replacement if replacement else part)
             else:
                 adjusted.append(part)
 
         return "".join(adjusted)
 
-    def _build_weighted_parse(self, parsed: ParsedCommand, plugin_scores: Dict[str, float], text: str) -> List[Tuple[str, float]]:
+    def _build_weighted_parse(
+        self, parsed: ParsedCommand, plugin_scores: Dict[str, float], text: str
+    ) -> List[Tuple[str, float]]:
         """Produce weighted intent candidates from parsed command and plugin scores."""
         candidates: List[Tuple[str, float]] = []
-        if parsed.object_type == "note" and parsed.action in self._plugin_actions["notes"]:
+        if (
+            parsed.object_type == "note"
+            and parsed.action in self._plugin_actions["notes"]
+        ):
             weight = self._grammar_action_weights.get(parsed.action, 1.0)
             confidence = min(0.96, 0.68 * weight)
             candidates.append((f"notes:{parsed.action}", confidence))
@@ -1073,40 +1336,71 @@ class NLPProcessor:
         if parsed.object_type == "unknown":
             lower = text.lower()
             if re.search(r"\b(email|mail|inbox)\b", lower):
-                action = "compose" if re.search(r"\b(send|compose|draft|write)\b", lower) else "list"
+                action = (
+                    "compose"
+                    if re.search(r"\b(send|compose|draft|write)\b", lower)
+                    else "list"
+                )
                 candidates.append((f"email:{action}", 0.66))
             if re.search(r"\b(calendar|meeting|event|schedule)\b", lower):
-                action = "create" if re.search(r"\b(create|add|schedule|book)\b", lower) else "list"
+                action = (
+                    "create"
+                    if re.search(r"\b(create|add|schedule|book)\b", lower)
+                    else "list"
+                )
                 candidates.append((f"calendar:{action}", 0.66))
 
         if plugin_scores:
-            ranked = sorted(plugin_scores.items(), key=lambda item: item[1], reverse=True)
+            ranked = sorted(
+                plugin_scores.items(), key=lambda item: item[1], reverse=True
+            )
             if ranked:
                 plugin, score = ranked[0]
                 if plugin in self._intent_action_defaults and score > 1.0:
                     action = self._intent_action_defaults[plugin]
-                    if plugin == "notes" and parsed.action in self._plugin_actions["notes"]:
+                    if (
+                        plugin == "notes"
+                        and parsed.action in self._plugin_actions["notes"]
+                    ):
                         action = parsed.action
-                    candidates.append((f"{plugin}:{action}", min(0.85, 0.5 + (score / 12.0))))
+                    candidates.append(
+                        (f"{plugin}:{action}", min(0.85, 0.5 + (score / 12.0)))
+                    )
 
         deduped: Dict[str, float] = {}
         for intent, score in candidates:
             deduped[intent] = max(score, deduped.get(intent, 0.0))
         return sorted(deduped.items(), key=lambda item: item[1], reverse=True)
 
-    def _retrieval_first_parse(self, tokens: List[RichToken]) -> Optional[Tuple[str, float]]:
+    def _retrieval_first_parse(
+        self, tokens: List[RichToken]
+    ) -> Optional[Tuple[str, float]]:
         """Resolve very short follow-up queries using context before broad intent matching."""
         content_tokens = [token for token in tokens if token.kind != "symbol"]
         if len(content_tokens) > 5:
             return None
 
         token_words = {token.normalized for token in content_tokens}
-        action_cues = {"read", "show", "open", "list", "play", "pause", "reply", "send", "schedule"}
+        action_cues = {
+            "read",
+            "show",
+            "open",
+            "list",
+            "play",
+            "pause",
+            "reply",
+            "send",
+            "schedule",
+        }
         if token_words.isdisjoint(action_cues):
             return None
 
-        reference_present = any(token.flags.get("is_reference") for token in content_tokens)
-        if not reference_present and token_words.isdisjoint({"read", "show", "open", "list", "reply", "send"}):
+        reference_present = any(
+            token.flags.get("is_reference") for token in content_tokens
+        )
+        if not reference_present and token_words.isdisjoint(
+            {"read", "show", "open", "list", "reply", "send"}
+        ):
             return None
 
         last_intent = self.context.last_intent or ""
@@ -1140,14 +1434,21 @@ class NLPProcessor:
 
         if semantic_intent:
             semantic_name, semantic_score = semantic_intent
-            combined[semantic_name] = max(combined.get(semantic_name, 0.0), semantic_score * 0.92)
+            combined[semantic_name] = max(
+                combined.get(semantic_name, 0.0), semantic_score * 0.92
+            )
 
         if plugin_scores:
-            plugin_name, plugin_value = max(plugin_scores.items(), key=lambda item: item[1])
+            plugin_name, plugin_value = max(
+                plugin_scores.items(), key=lambda item: item[1]
+            )
             if plugin_name in self._intent_action_defaults and plugin_value > 1.4:
                 plugin_action = self._intent_action_defaults[plugin_name]
                 plugin_intent = f"{plugin_name}:{plugin_action}"
-                combined[plugin_intent] = max(combined.get(plugin_intent, 0.0), min(0.82, 0.42 + (plugin_value / 10.0)))
+                combined[plugin_intent] = max(
+                    combined.get(plugin_intent, 0.0),
+                    min(0.82, 0.42 + (plugin_value / 10.0)),
+                )
 
         if not combined:
             return RouteDecision(
@@ -1160,7 +1461,11 @@ class NLPProcessor:
 
         best_intent, best_score = max(combined.items(), key=lambda item: item[1])
         sorted_scores = sorted(combined.values(), reverse=True)
-        margin = sorted_scores[0] - sorted_scores[1] if len(sorted_scores) > 1 else sorted_scores[0]
+        margin = (
+            sorted_scores[0] - sorted_scores[1]
+            if len(sorted_scores) > 1
+            else sorted_scores[0]
+        )
         calibrated = max(0.2, min(0.97, best_score * (0.88 + min(0.2, margin))))
 
         if ":" in best_intent:
@@ -1170,7 +1475,9 @@ class NLPProcessor:
 
         trace["calibration"] = {
             "margin": margin,
-            "combined": sorted(combined.items(), key=lambda item: item[1], reverse=True)[:5],
+            "combined": sorted(
+                combined.items(), key=lambda item: item[1], reverse=True
+            )[:5],
         }
 
         return RouteDecision(
@@ -1181,12 +1488,19 @@ class NLPProcessor:
             trace=trace,
         )
 
-    def _build_uncertainty_prompt(self, route: RouteDecision, parsed: ParsedCommand, plugin_scores: Dict[str, float]) -> Dict[str, Any]:
+    def _build_uncertainty_prompt(
+        self,
+        route: RouteDecision,
+        parsed: ParsedCommand,
+        plugin_scores: Dict[str, float],
+    ) -> Dict[str, Any]:
         """Build disambiguation metadata when intent confidence is weak."""
         if route.confidence >= 0.55:
             return {}
 
-        ranked_plugins = sorted(plugin_scores.items(), key=lambda item: item[1], reverse=True)
+        ranked_plugins = sorted(
+            plugin_scores.items(), key=lambda item: item[1], reverse=True
+        )
         options = [name for name, score in ranked_plugins[:3] if score > 0.5]
         if route.plugin not in options:
             options.insert(0, route.plugin)
@@ -1222,10 +1536,16 @@ class NLPProcessor:
             offset = end
 
             kind = "meta_command" if segment_text.startswith("/") else "utterance"
-            if re.search(r"\b(?:plugin|note|email|calendar|music|task|reminder)s?\b", segment_text, re.IGNORECASE):
+            if re.search(
+                r"\b(?:plugin|note|email|calendar|music|task|reminder)s?\b",
+                segment_text,
+                re.IGNORECASE,
+            ):
                 kind = "plugin_phrase" if kind == "utterance" else kind
 
-            segments.append(TokenSegment(text=segment_text, kind=kind, start_pos=start, end_pos=end))
+            segments.append(
+                TokenSegment(text=segment_text, kind=kind, start_pos=start, end_pos=end)
+            )
 
         return segments
 
@@ -1243,7 +1563,9 @@ class NLPProcessor:
             "it's": "it is",
         }
         for source, target in contractions.items():
-            normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE)
+            normalized = re.sub(
+                rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE
+            )
 
         typo_map = {
             "notets": "notes",
@@ -1252,14 +1574,20 @@ class NLPProcessor:
             "calender": "calendar",
         }
         for source, target in typo_map.items():
-            normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE)
+            normalized = re.sub(
+                rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE
+            )
 
         normalized = re.sub(r"\binside of\b", "in", normalized, flags=re.IGNORECASE)
-        normalized = re.sub(r"\bi wanna\b", "i want to", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(
+            r"\bi wanna\b", "i want to", normalized, flags=re.IGNORECASE
+        )
         normalized = self._apply_noisy_channel_normalization(normalized)
 
         if self.tokenizer_profile == "strict":
-            normalized = re.sub(r"\b(?:please|kindly)\b", "", normalized, flags=re.IGNORECASE)
+            normalized = re.sub(
+                r"\b(?:please|kindly)\b", "", normalized, flags=re.IGNORECASE
+            )
             normalized = re.sub(r"\s+", " ", normalized).strip()
 
         return normalized
@@ -1267,14 +1595,24 @@ class NLPProcessor:
     def _lexical_tokenize(self, segments: List[TokenSegment]) -> List[RichToken]:
         """Lexical layer: tokenize segments into rich tokens with type/role/span metadata."""
         tokens: List[RichToken] = []
-        token_pattern = re.compile(r'"[^"]+"|#\w+|\d+(?:st|nd|rd|th)?|[A-Za-z]+|[^\w\s]')
+        token_pattern = re.compile(
+            r'"[^"]+"|#\w+|\d+(?:st|nd|rd|th)?|[A-Za-z]+|[^\w\s]'
+        )
 
         action_words = self.command_vocabulary.get("verbs", set())
         object_words = self.command_vocabulary.get("objects", set())
         pronouns = {"this", "that", "it", "them", "those", "these", "one", "last"}
         ordinal_words = {
-            "first", "second", "third", "fourth", "fifth", "sixth",
-            "seventh", "eighth", "ninth", "tenth",
+            "first",
+            "second",
+            "third",
+            "fourth",
+            "fifth",
+            "sixth",
+            "seventh",
+            "eighth",
+            "ninth",
+            "tenth",
         }
         meta_words = self.command_vocabulary.get("meta", set())
 
@@ -1328,79 +1666,122 @@ class NLPProcessor:
                     flags={
                         "is_ordinal": kind == "ordinal",
                         "is_reference": role == "reference",
-                        "is_meta_command": segment.kind == "meta_command" or norm in meta_words,
+                        "is_meta_command": segment.kind == "meta_command"
+                        or norm in meta_words,
                     },
                 )
                 tokens.append(token)
 
         return tokens
 
-    def _extract_semantic_hints(self, text: str, tokens: List[RichToken]) -> ParsedCommand:
+    def _extract_semantic_hints(
+        self, text: str, tokens: List[RichToken]
+    ) -> ParsedCommand:
         """Semantic hint layer: derive structured command from token sequence."""
         token_text = [token.normalized for token in tokens if token.kind != "symbol"]
         lower = text.lower()
         parsed = ParsedCommand()
 
-        if text.endswith("?") or (token_text and token_text[0] in {"what", "when", "where", "who", "why", "how", "do", "is", "are", "can"}):
+        if text.endswith("?") or (
+            token_text
+            and token_text[0]
+            in {"what", "when", "where", "who", "why", "how", "do", "is", "are", "can"}
+        ):
             parsed.sentence_type = "question"
-        elif token_text and token_text[0] in self.command_vocabulary.get("verbs", set()):
+        elif token_text and token_text[0] in self.command_vocabulary.get(
+            "verbs", set()
+        ):
             parsed.sentence_type = "imperative"
 
-        if re.search(r"\b(do i have|is there)\b", lower) and re.search(r"\bnote|notes|list|lists\b", lower):
+        if re.search(r"\b(do i have|is there)\b", lower) and re.search(
+            r"\bnote|notes|list|lists\b", lower
+        ):
             parsed.action = "query_exist"
             parsed.object_type = "note"
-        elif re.search(r"\b(list|show)\b", lower) and re.search(r"\bnotes?|lists?\b", lower):
+        elif re.search(r"\b(list|show)\b", lower) and re.search(
+            r"\bnotes?|lists?\b", lower
+        ):
             parsed.action = "list"
             parsed.object_type = "note"
-        elif re.search(r"\b(read|open|show)\b", lower) and re.search(r"\bnotes?|lists?|it|that|this\b", lower):
+        elif re.search(r"\b(read|open|show)\b", lower) and re.search(
+            r"\bnotes?|lists?|it|that|this\b", lower
+        ):
             parsed.action = "read"
             parsed.object_type = "note"
-        elif re.search(r"\b(create|make|new|add)\b", lower) and re.search(r"\bnotes?|memo\b", lower):
+        elif re.search(r"\b(create|make|new|add)\b", lower) and re.search(
+            r"\bnotes?|memo\b", lower
+        ):
             parsed.action = "create"
             parsed.object_type = "note"
-        elif re.search(r"\b(add|append|put|include)\b", lower) and re.search(r"\bto\b", lower) and re.search(r"\bnotes?|lists?\b", lower):
+        elif (
+            re.search(r"\b(add|append|put|include)\b", lower)
+            and re.search(r"\bto\b", lower)
+            and re.search(r"\bnotes?|lists?\b", lower)
+        ):
             parsed.action = "append"
             parsed.object_type = "note"
-        elif re.search(r"\b(send|compose|draft|reply)\b", lower) and re.search(r"\bemail|mail|inbox\b", lower):
+        elif re.search(r"\b(send|compose|draft|reply)\b", lower) and re.search(
+            r"\bemail|mail|inbox\b", lower
+        ):
             parsed.action = "compose" if not re.search(r"\breply\b", lower) else "reply"
             parsed.object_type = "email"
-        elif re.search(r"\b(read|open|show|list)\b", lower) and re.search(r"\bemail|mail|inbox\b", lower):
+        elif re.search(r"\b(read|open|show|list)\b", lower) and re.search(
+            r"\bemail|mail|inbox\b", lower
+        ):
             parsed.action = "read" if re.search(r"\b(read|open)\b", lower) else "list"
             parsed.object_type = "email"
-        elif re.search(r"\b(schedule|create|add|book)\b", lower) and re.search(r"\bcalendar|event|meeting\b", lower):
+        elif re.search(r"\b(schedule|create|add|book)\b", lower) and re.search(
+            r"\bcalendar|event|meeting\b", lower
+        ):
             parsed.action = "create"
             parsed.object_type = "calendar"
-        elif re.search(r"\b(show|list|find|search)\b", lower) and re.search(r"\bcalendar|event|meeting|schedule\b", lower):
+        elif re.search(r"\b(show|list|find|search)\b", lower) and re.search(
+            r"\bcalendar|event|meeting|schedule\b", lower
+        ):
             parsed.action = "list" if re.search(r"\b(show|list)\b", lower) else "search"
             parsed.object_type = "calendar"
-        elif re.search(r"\b(play|pause|skip|next)\b", lower) and re.search(r"\bmusic|song|songs|playlist|album\b", lower):
+        elif re.search(r"\b(play|pause|skip|next)\b", lower) and re.search(
+            r"\bmusic|song|songs|playlist|album\b", lower
+        ):
             parsed.action = "play" if re.search(r"\bplay\b", lower) else "pause"
             parsed.object_type = "music"
 
-        title_match = re.search(r"(?:called|named|titled|about)\s+([a-z0-9\s'\-]+)$", lower)
+        title_match = re.search(
+            r"(?:called|named|titled|about)\s+([a-z0-9\s'\-]+)$", lower
+        )
         if not title_match:
-            title_match = re.search(r"(?:read|open|show)\s+(?:the\s+)?([a-z0-9\s'\-]+?)\s+notes?\b", lower)
+            title_match = re.search(
+                r"(?:read|open|show)\s+(?:the\s+)?([a-z0-9\s'\-]+?)\s+notes?\b", lower
+            )
         if title_match:
             parsed.title_hint = title_match.group(1).strip(" .,!?")
 
         for token in tokens:
             if token.flags.get("is_reference"):
-                parsed.references.append({
-                    "text": token.normalized,
-                    "start": token.start_pos,
-                    "end": token.end_pos,
-                })
+                parsed.references.append(
+                    {
+                        "text": token.normalized,
+                        "start": token.start_pos,
+                        "end": token.end_pos,
+                    }
+                )
 
         if re.search(r"\b(?:my|mine)\b", lower):
             parsed.modifiers["scope"] = "my"
         if re.search(r"\b(today|tomorrow|yesterday|this week|next week)\b", lower):
-            parsed.modifiers["time"] = re.search(r"\b(today|tomorrow|yesterday|this week|next week)\b", lower).group(1)
+            parsed.modifiers["time"] = re.search(
+                r"\b(today|tomorrow|yesterday|this week|next week)\b", lower
+            ).group(1)
         if re.search(r"\b(low|medium|high|urgent)\b", lower):
-            parsed.modifiers["priority"] = re.search(r"\b(low|medium|high|urgent)\b", lower).group(1)
+            parsed.modifiers["priority"] = re.search(
+                r"\b(low|medium|high|urgent)\b", lower
+            ).group(1)
 
         return parsed
 
-    def _compute_plugin_scores(self, tokens: List[RichToken], parsed: ParsedCommand) -> Dict[str, float]:
+    def _compute_plugin_scores(
+        self, tokens: List[RichToken], parsed: ParsedCommand
+    ) -> Dict[str, float]:
         """Compute plugin routing scores from token features and parsed command."""
         scores = {
             "notes": 0.0,
@@ -1412,7 +1793,9 @@ class NLPProcessor:
         }
 
         normalized = [token.normalized for token in tokens]
-        bigrams = {f"{normalized[i]} {normalized[i + 1]}" for i in range(len(normalized) - 1)}
+        bigrams = {
+            f"{normalized[i]} {normalized[i + 1]}" for i in range(len(normalized) - 1)
+        }
         note_terms = {"note", "notes", "list", "lists", "todo", "task", "tasks"}
         email_terms = {"email", "emails", "mail", "inbox", "sender", "subject"}
         cal_terms = {"calendar", "event", "events", "meeting", "schedule"}
@@ -1433,11 +1816,20 @@ class NLPProcessor:
             scores["calendar"] += 1.5
         if parsed.object_type == "music":
             scores["music"] += 1.5
-        if parsed.action in {"read", "append", "create", "list", "query_exist"} and parsed.object_type == "note":
+        if (
+            parsed.action in {"read", "append", "create", "list", "query_exist"}
+            and parsed.object_type == "note"
+        ):
             scores["notes"] += 1.0
-        if parsed.action in {"compose", "read", "list", "search", "reply"} and parsed.object_type == "email":
+        if (
+            parsed.action in {"compose", "read", "list", "search", "reply"}
+            and parsed.object_type == "email"
+        ):
             scores["email"] += 1.0
-        if parsed.action in {"create", "list", "search"} and parsed.object_type == "calendar":
+        if (
+            parsed.action in {"create", "list", "search"}
+            and parsed.object_type == "calendar"
+        ):
             scores["calendar"] += 1.0
         if parsed.action in {"play", "pause"} and parsed.object_type == "music":
             scores["music"] += 1.0
@@ -1446,7 +1838,9 @@ class NLPProcessor:
 
         if "read it" in bigrams or "show it" in bigrams:
             scores["notes"] += 0.5
-            if self.context.last_intent and self.context.last_intent.startswith("email:"):
+            if self.context.last_intent and self.context.last_intent.startswith(
+                "email:"
+            ):
                 scores["email"] += 0.5
         if "next song" in bigrams:
             scores["music"] += 0.7
@@ -1496,36 +1890,45 @@ class NLPProcessor:
             "parsed_command": parsed.__dict__,
             "plugin_scores": scores,
         }
-    
+
     def _load_learned_corrections(self) -> Dict[str, str]:
         """Load learned corrections to override pattern matching"""
         try:
             corrections_file = Path("memory/curated_patterns.json")
             if corrections_file.exists():
-                with open(corrections_file, 'r', encoding='utf-8') as f:
+                with open(corrections_file, "r", encoding="utf-8") as f:
                     patterns = json.load(f)
-                
-                if isinstance(patterns, dict) and 'corrections' in patterns:
+
+                if isinstance(patterns, dict) and "corrections" in patterns:
                     learned = {}
-                    for correction in patterns['corrections']:
-                        if 'user_input' in correction and 'expected_intent' in correction:
+                    for correction in patterns["corrections"]:
+                        if (
+                            "user_input" in correction
+                            and "expected_intent" in correction
+                        ):
                             # Map user input to learned intent for fast override
-                            learned[correction['user_input'].lower()] = correction['expected_intent']
-                    
+                            learned[correction["user_input"].lower()] = correction[
+                                "expected_intent"
+                            ]
+
                     if learned:
-                        logger.info(f"Loaded {len(learned)} learned corrections into NLP processor")
+                        logger.info(
+                            f"Loaded {len(learned)} learned corrections into NLP processor"
+                        )
                     return learned
         except Exception as e:
             logger.debug(f"Could not load learned corrections: {e}")
-        
+
         return {}
-        
-        logger.info("[OK] NLPProcessor initialized with advanced semantic understanding")
-    
+
+        logger.info(
+            "[OK] NLPProcessor initialized with advanced semantic understanding"
+        )
+
     def process(self, text: str, use_context: bool = True) -> ProcessedQuery:
         """
         Complete NLP processing pipeline
-        
+
         Steps:
         1. Check learned corrections (HIGHEST PRIORITY)
         2. Resolve coreferences (if context enabled)
@@ -1537,7 +1940,7 @@ class NLPProcessor:
         8. Extract keywords
         9. Update conversation context
         """
-        
+
         # Step 1: Coreference resolution
         if use_context:
             resolved_text = self.coref_resolver.resolve(text, self.context)
@@ -1547,12 +1950,14 @@ class NLPProcessor:
         # Step 1.5: Fingerprint lookup — use cached parse as a strong prior
         _fp_prior_intent: Optional[str] = None
         _fp_prior_conf: float = 0.0
-        if hasattr(self, '_fp_store') and self._fp_store is not None:
+        if hasattr(self, "_fp_store") and self._fp_store is not None:
             _fp_hit = self._fp_store.lookup(resolved_text)
             if _fp_hit and _fp_hit.confidence >= 0.80:
                 _fp_prior_intent = _fp_hit.intent
                 _fp_prior_conf = _fp_hit.confidence
-                logger.debug("[FINGERPRINT] Prior: %s (%.2f)", _fp_prior_intent, _fp_prior_conf)
+                logger.debug(
+                    "[FINGERPRINT] Prior: %s (%.2f)", _fp_prior_intent, _fp_prior_conf
+                )
 
         # Step 2: Clean + normalize for tokenizer layers
         clean_text = self._clean_text(resolved_text)
@@ -1567,13 +1972,27 @@ class NLPProcessor:
         tokens = [
             token.normalized
             for token in rich_tokens
-            if token.kind in {"word", "number", "ordinal", "pronoun", "hashtag", "quoted_span", "date_like"}
+            if token.kind
+            in {
+                "word",
+                "number",
+                "ordinal",
+                "pronoun",
+                "hashtag",
+                "quoted_span",
+                "date_like",
+            }
         ]
 
         # Step 4: Check learned corrections FIRST (highest priority)
-        if self.learned_corrections and normalized_text.lower() in self.learned_corrections:
+        if (
+            self.learned_corrections
+            and normalized_text.lower() in self.learned_corrections
+        ):
             learned_intent = self.learned_corrections[normalized_text.lower()]
-            logger.info(f"[LEARNED] Using correction for '{normalized_text}' -> {learned_intent}")
+            logger.info(
+                f"[LEARNED] Using correction for '{normalized_text}' -> {learned_intent}"
+            )
             intent = learned_intent
             intent_confidence = 0.95  # High confidence for learned patterns
         else:
@@ -1594,12 +2013,18 @@ class NLPProcessor:
                     plugin_scores=plugin_scores,
                     return_structured=False,
                 )
-                weighted_candidates = self._build_weighted_parse(parsed_command, plugin_scores, normalized_text)
-                route = self._calibrate_route_decision(weighted_candidates, plugin_scores, semantic_intent, parsed_command)
+                weighted_candidates = self._build_weighted_parse(
+                    parsed_command, plugin_scores, normalized_text
+                )
+                route = self._calibrate_route_decision(
+                    weighted_candidates, plugin_scores, semantic_intent, parsed_command
+                )
                 intent = route.intent
                 intent_confidence = route.confidence
 
-            uncertainty = self._build_uncertainty_prompt(route, parsed_command, plugin_scores)
+            uncertainty = self._build_uncertainty_prompt(
+                route, parsed_command, plugin_scores
+            )
             if intent.startswith("vague_") and not uncertainty:
                 uncertainty = {
                     "needs_clarification": True,
@@ -1608,7 +2033,10 @@ class NLPProcessor:
                     "route_confidence": intent_confidence,
                     "parsed_action": parsed_command.action,
                 }
-            if not uncertainty and re.search(r"\b(do that thing|this thing|that thing|what about that|who is that)\b", normalized_text.lower()):
+            if not uncertainty and re.search(
+                r"\b(do that thing|this thing|that thing|what about that|who is that)\b",
+                normalized_text.lower(),
+            ):
                 uncertainty = {
                     "needs_clarification": True,
                     "question": "Could you clarify what you want me to do?",
@@ -1618,21 +2046,34 @@ class NLPProcessor:
                 }
             if uncertainty:
                 parsed_command.modifiers["disambiguation"] = uncertainty
-                if intent_confidence < 0.45 and not intent.startswith(("notes:", "email:", "calendar:", "music:", "system:")):
+                if intent_confidence < 0.45 and not intent.startswith(
+                    ("notes:", "email:", "calendar:", "music:", "system:")
+                ):
                     intent = "conversation:clarification_needed"
                     intent_confidence = max(intent_confidence, 0.41)
 
             parsed_command.modifiers["routing_trace"] = route.trace
 
         # Fingerprint prior: if we have a cached high-confidence parse, use it as a boost
-        if _fp_prior_intent and _fp_prior_intent == intent and _fp_prior_conf > intent_confidence:
+        if (
+            _fp_prior_intent
+            and _fp_prior_intent == intent
+            and _fp_prior_conf > intent_confidence
+        ):
             intent_confidence = min(0.97, _fp_prior_conf)
-            logger.debug("[FINGERPRINT] Boosted confidence %.2f → %.2f", intent_confidence, _fp_prior_conf)
+            logger.debug(
+                "[FINGERPRINT] Boosted confidence %.2f → %.2f",
+                intent_confidence,
+                _fp_prior_conf,
+            )
         elif _fp_prior_intent and _fp_prior_conf >= 0.85 and intent_confidence < 0.70:
             # Prior disagrees but is very confident — override
             logger.info(
                 "[FINGERPRINT] Prior override: %s (%.2f) → %s (%.2f)",
-                intent, intent_confidence, _fp_prior_intent, _fp_prior_conf,
+                intent,
+                intent_confidence,
+                _fp_prior_intent,
+                _fp_prior_conf,
             )
             intent = _fp_prior_intent
             intent_confidence = _fp_prior_conf
@@ -1643,9 +2084,17 @@ class NLPProcessor:
         if self.frame_parser is not None:
             _ctx_dict = {
                 "last_plugin": self.context.last_plugin,
-                "last_note_title": str(self.context.mentioned_notes[-1]) if self.context.mentioned_notes else None,
+                "last_note_title": (
+                    str(self.context.mentioned_notes[-1])
+                    if self.context.mentioned_notes
+                    else None
+                ),
                 "last_entities": self.context.last_entities,
-                "entity_chain": self.dialogue_memory.entity_chain_dict() if self.dialogue_memory else [],
+                "entity_chain": (
+                    self.dialogue_memory.entity_chain_dict()
+                    if self.dialogue_memory
+                    else []
+                ),
             }
             frame_result = self.frame_parser.parse(normalized_text, context=_ctx_dict)
             if frame_result is not None and frame_result.confidence > 0.50:
@@ -1659,8 +2108,10 @@ class NLPProcessor:
                 if frame_result.confidence > intent_confidence + 0.07:
                     logger.info(
                         "[FRAME] Override route %s (%.2f) → frame %s (%.2f)",
-                        intent, intent_confidence,
-                        frame_result.frame_name, frame_result.confidence,
+                        intent,
+                        intent_confidence,
+                        frame_result.frame_name,
+                        frame_result.confidence,
                     )
                     intent = f"{frame_result.plugin}:{frame_result.action}"
                     intent_confidence = min(0.97, frame_result.confidence)
@@ -1669,37 +2120,49 @@ class NLPProcessor:
                     "confidence": frame_result.confidence,
                     "keywords": frame_result.matched_keywords,
                     "slots": filled_slots.as_dict() if filled_slots else {},
-                    "fill_confidence": filled_slots.fill_confidence if filled_slots else 0.0,
+                    "fill_confidence": (
+                        filled_slots.fill_confidence if filled_slots else 0.0
+                    ),
                 }
 
         # Continue with rest of processing
 
         # Step 3: Entity extraction
         entities = self._extract_all_entities(normalized_text)
-        
+
         # Step 4: Slot filling
         slots = self.slot_filler.extract_slots(normalized_text, intent, entities)
-        
+
         # Step 5: Sentiment analysis
         if self.sentiment_analyzer is not None:
             sentiment = self.sentiment_analyzer.polarity_scores(normalized_text)
-            compound = sentiment.get('compound', 0)
-            sentiment['category'] = 'positive' if compound >= 0.05 else ('negative' if compound <= -0.05 else 'neutral')
+            compound = sentiment.get("compound", 0)
+            sentiment["category"] = (
+                "positive"
+                if compound >= 0.05
+                else ("negative" if compound <= -0.05 else "neutral")
+            )
         else:
-            sentiment = {'compound': 0.0, 'pos': 0.0, 'neu': 1.0, 'neg': 0.0, 'category': 'neutral'}
-        
+            sentiment = {
+                "compound": 0.0,
+                "pos": 0.0,
+                "neu": 1.0,
+                "neg": 0.0,
+                "category": "neutral",
+            }
+
         # Step 6: Emotion detection
         emotions = self.emotion_detector.detect_emotions(normalized_text, sentiment)
-        
+
         # Step 7: Urgency detection
         urgency = self.emotion_detector.detect_urgency(normalized_text)
-        
+
         # Step 8: Keyword extraction
         keywords = self._extract_keywords(normalized_text)
-        
+
         # Step 9: Check if question
         is_question = self._is_question(normalized_text)
-        
+
         # Build result
         result = ProcessedQuery(
             original_text=text,
@@ -1718,7 +2181,7 @@ class NLPProcessor:
             plugin_scores=plugin_scores,
             token_debug=[token.__dict__ for token in rich_tokens],
         )
-        
+
         # Step 10: Update conversation context
         if use_context:
             self._update_context(result)
@@ -1727,20 +2190,29 @@ class NLPProcessor:
                 _filled = filled_slots.as_dict() if filled_slots else {}
                 self.dialogue_memory.update_from_nlp_result(intent, _filled)
             # Store successful high-confidence parses in the fingerprint cache
-            if hasattr(self, '_fp_store') and self._fp_store is not None and intent_confidence >= 0.80:
+            if (
+                hasattr(self, "_fp_store")
+                and self._fp_store is not None
+                and intent_confidence >= 0.80
+            ):
                 _frame_name = frame_result.frame_name if frame_result else None
                 _fp_slots = filled_slots.as_dict() if filled_slots else {}
-                self._fp_store.store(resolved_text, intent, _frame_name, _fp_slots, intent_confidence)
+                self._fp_store.store(
+                    resolved_text, intent, _frame_name, _fp_slots, intent_confidence
+                )
 
         logger.info(
             "[NLP] Intent: %s (%.2f) | Frame: %s | Slots: %d | Emotions: %s | Urgency: %s",
-            intent, intent_confidence,
+            intent,
+            intent_confidence,
             frame_result.frame_name if frame_result else "none",
-            len(slots), emotions, urgency,
+            len(slots),
+            emotions,
+            urgency,
         )
-        
+
         return result
-    
+
     def _detect_intent_semantic(
         self,
         text: str,
@@ -1749,225 +2221,376 @@ class NLPProcessor:
         return_structured: bool = False,
     ) -> Tuple[str, float]:
         """Detect intent using explicit patterns (primary) then semantic classifier (fallback)"""
-        
+
         text_lower = text.lower()
 
-        if text_lower.startswith('/debug tokens'):
-            return 'system:debug_tokens', 0.98
+        if text_lower.startswith("/debug tokens"):
+            return "system:debug_tokens", 0.98
 
-        if parsed_command and parsed_command.object_type == 'note':
+        if parsed_command and parsed_command.object_type == "note":
             action_map = {
-                'query_exist': 'notes:list',
-                'list': 'notes:list',
-                'read': 'notes:read',
-                'append': 'notes:append',
-                'create': 'notes:create',
+                "query_exist": "notes:list",
+                "list": "notes:list",
+                "read": "notes:read",
+                "append": "notes:append",
+                "create": "notes:create",
             }
             mapped = action_map.get(parsed_command.action)
             if mapped:
                 return mapped, 0.88
-        
+
         # PHASE 1: HIGH-CONFIDENCE EXPLICIT PATTERNS (these override semantic classification)
         # System intents - check BEFORE time (system has "how's" pattern that could match time)
-        if 'system' in text_lower and any(word in text_lower for word in ['status', 'doing', 'health', 'how']):
-            return 'system:status', 0.9
+        if "system" in text_lower and any(
+            word in text_lower for word in ["status", "doing", "health", "how"]
+        ):
+            return "system:status", 0.9
         # Resource check: "how is/is my + cpu/memory/disk/battery"
-        if any(word in text_lower for word in ['how is', 'is my', 'is the']) and any(word in text_lower for word in ['cpu', 'memory', 'disk', 'battery', 'gpu']):
-            return 'system:status', 0.9
-        if any(word in text_lower for word in ['cpu', 'memory', 'disk', 'battery']) and any(word in text_lower for word in ['usage', 'available', 'how much', 'low', 'check', 'is']):
-            return 'system:status', 0.9
+        if any(word in text_lower for word in ["how is", "is my", "is the"]) and any(
+            word in text_lower for word in ["cpu", "memory", "disk", "battery", "gpu"]
+        ):
+            return "system:status", 0.9
+        if any(
+            word in text_lower for word in ["cpu", "memory", "disk", "battery"]
+        ) and any(
+            word in text_lower
+            for word in ["usage", "available", "how much", "low", "check", "is"]
+        ):
+            return "system:status", 0.9
 
         # Email intents - VERY explicit: action word + email word (0.85-0.9 confidence)
         # Compose: "compose/draft/write + email/mail"
-        if any(word in text_lower for word in ['compose', 'draft', 'write', 'send']) and any(word in text_lower for word in ['email', 'mail', 'message', 'to']):
-            return 'email:compose', 0.9
+        if any(
+            word in text_lower for word in ["compose", "draft", "write", "send"]
+        ) and any(word in text_lower for word in ["email", "mail", "message", "to"]):
+            return "email:compose", 0.9
         # Delete: "delete/remove/trash + email/mail"
-        if any(word in text_lower for word in ['delete', 'remove', 'trash']) and any(word in text_lower for word in ['email', 'mail', 'message']):
-            return 'email:delete', 0.9
+        if any(word in text_lower for word in ["delete", "remove", "trash"]) and any(
+            word in text_lower for word in ["email", "mail", "message"]
+        ):
+            return "email:delete", 0.9
         # Reply: "reply/respond to email/mail"
-        if any(word in text_lower for word in ['reply', 'respond']) and any(word in text_lower for word in ['email', 'mail', 'message']):
-            return 'email:reply', 0.85
+        if any(word in text_lower for word in ["reply", "respond"]) and any(
+            word in text_lower for word in ["email", "mail", "message"]
+        ):
+            return "email:reply", 0.85
         # Search: "find/search + email/mail + (from/subject/sender)"
-        if any(word in text_lower for word in ['search', 'find', 'look for']) and any(word in text_lower for word in ['email', 'mail', 'inbox', 'message', 'from']):
-            return 'email:search', 0.85
+        if any(word in text_lower for word in ["search", "find", "look for"]) and any(
+            word in text_lower for word in ["email", "mail", "inbox", "message", "from"]
+        ):
+            return "email:search", 0.85
         # List: "show/list/recent + email(s)/mail(s)"
-        if any(word in text_lower for word in ['show', 'list', 'recent', 'latest']) and any(word in text_lower for word in ['email', 'emails', 'mail', 'mails', 'inbox']):
-            return 'email:list', 0.85
+        if any(
+            word in text_lower for word in ["show", "list", "recent", "latest"]
+        ) and any(
+            word in text_lower for word in ["email", "emails", "mail", "mails", "inbox"]
+        ):
+            return "email:list", 0.85
         # Read: "read/open/display + email(s)/mail/message + optional (first/last/latest/number)"
-        if any(word in text_lower for word in ['read', 'open', 'display', 'view']) and any(word in text_lower for word in ['email', 'emails', 'mail', 'message']):
-            return 'email:read', 0.85
+        if any(
+            word in text_lower for word in ["read", "open", "display", "view"]
+        ) and any(
+            word in text_lower for word in ["email", "emails", "mail", "message"]
+        ):
+            return "email:read", 0.85
 
         # Notes intents - distinguish VERY clearly
         # Append/add to existing note: must come BEFORE create to prevent misclassification
         # Patterns: "add X to the list", "add X to my note", "put X on the list"
-        if any(word in text_lower for word in ['add', 'put', 'append', 'include']) and \
-           any(phrase in text_lower for phrase in ['to the list', 'to my list', 'to the note', 'to my note', 'on the list', 'on my list', 'to grocery', 'to shopping']):
-            return 'notes:append', 0.9
+        if any(
+            word in text_lower for word in ["add", "put", "append", "include"]
+        ) and any(
+            phrase in text_lower
+            for phrase in [
+                "to the list",
+                "to my list",
+                "to the note",
+                "to my note",
+                "on the list",
+                "on my list",
+                "to grocery",
+                "to shopping",
+            ]
+        ):
+            return "notes:append", 0.9
         # Create: "create/new/make + note" - requires explicit note/memo keyword
-        if any(word in text_lower for word in ['create', 'new', 'make', 'write']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
-            return 'notes:create', 0.9
+        if any(
+            word in text_lower for word in ["create", "new", "make", "write"]
+        ) and any(word in text_lower for word in ["note", "notes", "memo"]):
+            return "notes:create", 0.9
         # "add a note" - create, not append (no "to the" structure)
-        if text_lower.startswith('add') and any(word in text_lower for word in ['note', 'memo']):
-            return 'notes:create', 0.9
+        if text_lower.startswith("add") and any(
+            word in text_lower for word in ["note", "memo"]
+        ):
+            return "notes:create", 0.9
         # List: "show/list + note(s)"
-        if any(word in text_lower for word in ['show', 'list', 'display', 'see']) and any(word in text_lower for word in ['note', 'notes', 'all notes']):
-            return 'notes:list', 0.9
+        if any(
+            word in text_lower for word in ["show", "list", "display", "see"]
+        ) and any(word in text_lower for word in ["note", "notes", "all notes"]):
+            return "notes:list", 0.9
         # Search: "find/search + note(s)"
-        if any(word in text_lower for word in ['find', 'search']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
-            return 'notes:search', 0.9
+        if any(word in text_lower for word in ["find", "search"]) and any(
+            word in text_lower for word in ["note", "notes", "memo"]
+        ):
+            return "notes:search", 0.9
         # Delete: "delete/remove + note(s)"
-        if any(word in text_lower for word in ['delete', 'remove']) and any(word in text_lower for word in ['note', 'notes', 'memo']):
-            return 'notes:delete', 0.85
+        if any(word in text_lower for word in ["delete", "remove"]) and any(
+            word in text_lower for word in ["note", "notes", "memo"]
+        ):
+            return "notes:delete", 0.85
 
         # Thanks - check BEFORE greetings (to prevent "thanks" being matched by semantic classifier)
-        if any(phrase in text_lower for phrase in ['thanks', 'thank you', 'thx', 'thank', 'thanks for']):
-            return 'thanks', 0.9
+        if any(
+            phrase in text_lower
+            for phrase in ["thanks", "thank you", "thx", "thank", "thanks for"]
+        ):
+            return "thanks", 0.9
 
         # Status inquiry: "how are you", "how is alice", "how are you doing"
-        if any(phrase in text_lower for phrase in ['how are you', 'how are you doing', 'how is it going', 'how have you been']):
-            return 'status_inquiry', 0.85
+        if any(
+            phrase in text_lower
+            for phrase in [
+                "how are you",
+                "how are you doing",
+                "how is it going",
+                "how have you been",
+            ]
+        ):
+            return "status_inquiry", 0.85
 
         # Greetings (high confidence) - must be after Thanks to not interfere
-        greeting_words = ['hi', 'hey', 'hello', 'yo', 'sup', 'hiya']
-        if any(word in text_lower for word in greeting_words) and len(text_lower.split()) <= 4:
-            return 'greeting', 0.9
+        greeting_words = ["hi", "hey", "hello", "yo", "sup", "hiya"]
+        if (
+            any(word in text_lower for word in greeting_words)
+            and len(text_lower.split()) <= 4
+        ):
+            return "greeting", 0.9
 
         # Knowledge/definition questions: "what is X?", "what are X?", "who is X?", "define X"
         # Must be before vague patterns to prevent misclassification
-        if text_lower.startswith('what is ') or text_lower.startswith('what are ') or \
-           text_lower.startswith('who is ') and len(text_lower.split()) > 2 or \
-           text_lower.startswith('define ') or text_lower.startswith('explain ') or \
-           'can you explain' in text_lower or 'can you tell me what' in text_lower:
+        if (
+            text_lower.startswith("what is ")
+            or text_lower.startswith("what are ")
+            or text_lower.startswith("who is ")
+            and len(text_lower.split()) > 2
+            or text_lower.startswith("define ")
+            or text_lower.startswith("explain ")
+            or "can you explain" in text_lower
+            or "can you tell me what" in text_lower
+        ):
             # Exclude vague pronouns: "what is that", "who is he/she"
-            if not any(vague in text_lower for vague in ['what is that', 'who is he', 'who is she', 'who is that person']):
-                return 'conversation:question', 0.85
+            if not any(
+                vague in text_lower
+                for vague in [
+                    "what is that",
+                    "who is he",
+                    "who is she",
+                    "who is that person",
+                ]
+            ):
+                return "conversation:question", 0.85
 
         # CLARIFICATION INTENTS (must run before semantic to catch vague patterns)
         # Vague pronouns without context: "who is he/she", "what is that", "who is that"
-        if any(pattern in text_lower for pattern in ['who is he', 'who is she', 'who is that', 'what is that', 'who is that person']):
-            return 'vague_question', 0.8
-        
+        if any(
+            pattern in text_lower
+            for pattern in [
+                "who is he",
+                "who is she",
+                "who is that",
+                "what is that",
+                "who is that person",
+            ]
+        ):
+            return "vague_question", 0.8
+
         # Vague temporal questions: "what about yesterday/tomorrow", "what happened last week"
-        if any(word in text_lower for word in ['yesterday', 'tomorrow', 'last week', 'last month', 'next week', 'next month']) and ('what' in text_lower or 'when' in text_lower or 'what about' in text_lower or 'what happened' in text_lower):
-            return 'vague_temporal_question', 0.8
-        
+        if any(
+            word in text_lower
+            for word in [
+                "yesterday",
+                "tomorrow",
+                "last week",
+                "last month",
+                "next week",
+                "next month",
+            ]
+        ) and (
+            "what" in text_lower
+            or "when" in text_lower
+            or "what about" in text_lower
+            or "what happened" in text_lower
+        ):
+            return "vague_temporal_question", 0.8
+
         # Vague requests without clear object: "add this to", "put this in", "do that thing", "can you do that thing"
-        if any(pattern in text_lower for pattern in ['add this to', 'put this in', 'do that thing', 'can you do that', 'that thing', 'this thing']):
-            return 'vague_request', 0.8
-        
+        if any(
+            pattern in text_lower
+            for pattern in [
+                "add this to",
+                "put this in",
+                "do that thing",
+                "can you do that",
+                "that thing",
+                "this thing",
+            ]
+        ):
+            return "vague_request", 0.8
+
         # Schedule action without specifics
-        if 'schedule' in text_lower and any(word in text_lower for word in ['it', 'that', 'this']) and any(word in text_lower for word in ['for', 'at']):
-            return 'schedule_action', 0.8
-        
+        if (
+            "schedule" in text_lower
+            and any(word in text_lower for word in ["it", "that", "this"])
+            and any(word in text_lower for word in ["for", "at"])
+        ):
+            return "schedule_action", 0.8
+
         # Tell me about - ambiguous topic
-        if any(pattern in text_lower for pattern in ['tell me about the', 'tell me about a', 'about the sun', 'about the moon', 'about the']):
+        if any(
+            pattern in text_lower
+            for pattern in [
+                "tell me about the",
+                "tell me about a",
+                "about the sun",
+                "about the moon",
+                "about the",
+            ]
+        ):
             if len(text_lower.split()) <= 6:  # Short phrase = likely vague
-                return 'vague_question', 0.75
+                return "vague_question", 0.75
 
         # PHASE 2: Fallback to semantic classification
         # Try semantic classification for lower-confidence cases
         if self.semantic_classifier:
             try:
                 result = self.semantic_classifier.get_plugin_action(text, threshold=0.4)
-                if result and result.get('confidence', 0) > 0.5:
+                if result and result.get("confidence", 0) > 0.5:
                     # Map plugin:action to intent
-                    plugin = result.get('plugin', '')
-                    action = result.get('action', '')
+                    plugin = result.get("plugin", "")
+                    action = result.get("action", "")
                     intent = f"{plugin}:{action}"
-                    confidence = result.get('confidence', 0.0)
-                    
+                    confidence = result.get("confidence", 0.0)
+
                     logger.debug(f"[NLP] Semantic intent: {intent} ({confidence:.3f})")
                     return intent, confidence
             except Exception as e:
                 logger.warning(f"[WARN] Semantic classification failed: {e}")
-        
+
         # PHASE 3: Additional fallback patterns
 
         # Clarification/meta-question cues
-        if any(phrase in text_lower for phrase in [
-            'can i ask you something about',
-            'i have a question about',
-            'let me ask you about',
-            'can i ask you about'
-        ]):
-            return 'conversation:meta_question', 0.8
+        if any(
+            phrase in text_lower
+            for phrase in [
+                "can i ask you something about",
+                "i have a question about",
+                "let me ask you about",
+                "can i ask you about",
+            ]
+        ):
+            return "conversation:meta_question", 0.8
 
         # Thanks
-        if any(phrase in text_lower for phrase in ['thanks', 'thank you', 'thx']):
-            return 'thanks', 0.9
+        if any(phrase in text_lower for phrase in ["thanks", "thank you", "thx"]):
+            return "thanks", 0.9
 
         # Status inquiry
-        if any(phrase in text_lower for phrase in ['how are you', 'how are you doing', 'how is it going']):
-            return 'status_inquiry', 0.85
+        if any(
+            phrase in text_lower
+            for phrase in ["how are you", "how are you doing", "how is it going"]
+        ):
+            return "status_inquiry", 0.85
 
         # Weather intents - CHECK EARLY before vague patterns
         # This ensures "is that wednesday?" triggers weather:forecast, not vague_question
         forecast_phrases = [
-            'forecast', 'this week', 'next week', 'weekend', 'tomorrow',
-            '7 day', '7-day', 'next few days', 'next 7 days',
-            'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
+            "forecast",
+            "this week",
+            "next week",
+            "weekend",
+            "tomorrow",
+            "7 day",
+            "7-day",
+            "next few days",
+            "next 7 days",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
         ]
         if any(phrase in text_lower for phrase in forecast_phrases):
-            return 'weather:forecast', 0.8
+            return "weather:forecast", 0.8
 
-        if any(word in text_lower for word in ['weather', 'temperature', 'outside']):
-            return 'weather:current', 0.75
+        if any(word in text_lower for word in ["weather", "temperature", "outside"]):
+            return "weather:current", 0.75
 
         # Vague patterns requiring clarification
         vague_patterns = [
-            'who is he', 'who is she', 'who is that',  # Pronoun ref without context
-            'what is that', 'what about that',         # Ambiguous reference
-            'add this to', 'put this in',              # Action without object context
-            'what happened', 'what about',             # Vague temporal/domain
-            'how do i', 'how can i',                   # Generic how questions
-            'tell me about the', 'tell me about a',    # Ambiguous topic
+            "who is he",
+            "who is she",
+            "who is that",  # Pronoun ref without context
+            "what is that",
+            "what about that",  # Ambiguous reference
+            "add this to",
+            "put this in",  # Action without object context
+            "what happened",
+            "what about",  # Vague temporal/domain
+            "how do i",
+            "how can i",  # Generic how questions
+            "tell me about the",
+            "tell me about a",  # Ambiguous topic
         ]
         if any(pattern in text_lower for pattern in vague_patterns):
-            return 'vague_question', 0.75
-        if '?' in text:
-            return 'conversation:question', 0.5
+            return "vague_question", 0.75
+        if "?" in text:
+            return "conversation:question", 0.5
 
         if plugin_scores:
             best_plugin = max(plugin_scores.items(), key=lambda item: item[1])
             plugin_name, score = best_plugin
             if score >= 2.2:
                 plugin_intent_map = {
-                    'notes': 'notes:list',
-                    'email': 'email:list',
-                    'calendar': 'calendar:list',
-                    'music': 'music:play',
-                    'system': 'system:status',
+                    "notes": "notes:list",
+                    "email": "email:list",
+                    "calendar": "calendar:list",
+                    "music": "music:play",
+                    "system": "system:status",
                 }
                 if plugin_name in plugin_intent_map:
-                    return plugin_intent_map[plugin_name], min(0.85, 0.55 + (score / 10.0))
+                    return plugin_intent_map[plugin_name], min(
+                        0.85, 0.55 + (score / 10.0)
+                    )
 
-        return 'conversation:general', 0.3
-    
+        return "conversation:general", 0.3
+
     def _extract_all_entities(self, text: str) -> Dict[str, List[Entity]]:
         """Extract all entities (domain-specific + general)"""
-        
+
         # Check cache
         cache_key = hash(text)
         with self._cache_lock:
             if cache_key in self._entity_cache:
                 return self._entity_cache[cache_key]
-        
+
         entities = {}
         text_lower = text.lower()
-        
+
         # Domain-specific entities (custom NER)
         domain_entities = self.domain_ner.extract(text)
         entities.update(domain_entities)
-        
+
         # General entities (regex patterns)
         general_patterns = {
-            'EMAIL': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-            'PHONE': r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
-            'URL': r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
-            'NUMBER': r'\b\d+\b',
-            'PERCENTAGE': r'\b\d+(?:\.\d+)?%\b',
+            "EMAIL": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+            "PHONE": r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b",
+            "URL": r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+",
+            "NUMBER": r"\b\d+\b",
+            "PERCENTAGE": r"\b\d+(?:\.\d+)?%\b",
         }
-        
+
         for entity_type, pattern in general_patterns.items():
             matches = re.finditer(pattern, text)
             entity_list = []
@@ -1977,45 +2600,47 @@ class NLPProcessor:
                     value=match.group(0),
                     confidence=0.9,
                     start_pos=match.start(),
-                    end_pos=match.end()
+                    end_pos=match.end(),
                 )
                 entity_list.append(entity)
-            
+
             if entity_list:
                 entities[entity_type] = entity_list
 
         # Time range entities (for forecast queries)
         time_range_patterns = {
-            'this week': 'week',
-            'next week': 'next_week',
-            'weekend': 'weekend',
-            'tomorrow': 'tomorrow',
-            'next few days': 'next_few_days',
-            'next 7 days': '7_days',
-            '7 day': '7_days',
-            '7-day': '7_days',
-            'monday': 'monday',
-            'tuesday': 'tuesday',
-            'wednesday': 'wednesday',
-            'thursday': 'thursday',
-            'friday': 'friday',
-            'saturday': 'saturday',
-            'sunday': 'sunday'
+            "this week": "week",
+            "next week": "next_week",
+            "weekend": "weekend",
+            "tomorrow": "tomorrow",
+            "next few days": "next_few_days",
+            "next 7 days": "7_days",
+            "7 day": "7_days",
+            "7-day": "7_days",
+            "monday": "monday",
+            "tuesday": "tuesday",
+            "wednesday": "wednesday",
+            "thursday": "thursday",
+            "friday": "friday",
+            "saturday": "saturday",
+            "sunday": "sunday",
         }
 
         time_range_entities = []
         for phrase, normalized in time_range_patterns.items():
             if phrase in text_lower:
-                time_range_entities.append(Entity(
-                    type='TIME_RANGE',
-                    value=phrase,
-                    confidence=0.85,
-                    normalized_value=normalized
-                ))
+                time_range_entities.append(
+                    Entity(
+                        type="TIME_RANGE",
+                        value=phrase,
+                        confidence=0.85,
+                        normalized_value=normalized,
+                    )
+                )
 
         if time_range_entities:
-            entities['TIME_RANGE'] = time_range_entities
-        
+            entities["TIME_RANGE"] = time_range_entities
+
         # Cache result
         with self._cache_lock:
             self._entity_cache[cache_key] = entities
@@ -2025,72 +2650,137 @@ class NLPProcessor:
                 to_remove = list(self._entity_cache.keys())[:200]
                 for key in to_remove:
                     del self._entity_cache[key]
-        
+
         return entities
-    
+
     def _update_context(self, result: ProcessedQuery):
         """Update conversation context"""
         self.context.last_intent = result.intent
         self.context.query_history.append(result.original_text)
-        self.context.last_plugin = result.intent.split(':', 1)[0] if ':' in result.intent else 'conversation'
-        self.context.dialogue_state = 'clarifying' if result.intent == 'conversation:clarification_needed' else 'active'
+        self.context.last_plugin = (
+            result.intent.split(":", 1)[0] if ":" in result.intent else "conversation"
+        )
+        self.context.dialogue_state = (
+            "clarifying"
+            if result.intent == "conversation:clarification_needed"
+            else "active"
+        )
 
         disambiguation = {}
         if isinstance(result.parsed_command, dict):
-            disambiguation = result.parsed_command.get('modifiers', {}).get('disambiguation', {})
+            disambiguation = result.parsed_command.get("modifiers", {}).get(
+                "disambiguation", {}
+            )
         self.context.pending_clarification = disambiguation if disambiguation else {}
-        
+
         # Extract entities to context
         self.context.last_entities = {}
-        
+
         # From slots
         for slot_name, slot in result.slots.items():
             self.context.last_entities[slot_name] = slot.value
-            
+
             # Track specific entity types
-            if slot_name == 'title' and 'note' in result.intent:
+            if slot_name == "title" and "note" in result.intent:
                 self.context.mentioned_notes.append(slot.value)
-            elif slot_name == 'song':
+            elif slot_name == "song":
                 self.context.mentioned_songs.append(slot.value)
-            elif slot_name == 'event':
+            elif slot_name == "event":
                 self.context.mentioned_events.append(slot.value)
-    
+
     def _clean_text(self, text: str) -> str:
         """Clean and normalize text"""
-        text = re.sub(r'\s+', ' ', text).strip()
-        text = re.sub(r'[^\w\s.,!?\'\-/#:;]', '', text)
+        text = re.sub(r"\s+", " ", text).strip()
+        text = re.sub(r"[^\w\s.,!?\'\-/#:;]", "", text)
         return text
-    
+
     def _is_question(self, text: str) -> bool:
         """Check if text is a question"""
-        if '?' in text:
+        if "?" in text:
             return True
-        
-        question_words = ['what', 'when', 'where', 'who', 'why', 'how', 'which', 
-                         'can', 'could', 'would', 'should', 'is', 'are', 'do', 'does']
-        
+
+        question_words = [
+            "what",
+            "when",
+            "where",
+            "who",
+            "why",
+            "how",
+            "which",
+            "can",
+            "could",
+            "would",
+            "should",
+            "is",
+            "are",
+            "do",
+            "does",
+        ]
+
         text_lower = text.lower()
         return any(text_lower.startswith(qw) for qw in question_words)
-    
+
     def _extract_keywords(self, text: str, top_n: int = 5) -> List[str]:
         """Extract top keywords"""
         tokens = word_tokenize(text.lower())
-        
-        stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-                    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be',
-                    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-                    'should', 'may', 'might', 'can', 'i', 'you', 'he', 'she', 'it', 'we', 'they'}
-        
-        keywords = [token for token in tokens if token.isalnum() and token not in stopwords]
-        
+
+        stopwords = {
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "from",
+            "as",
+            "is",
+            "was",
+            "are",
+            "were",
+            "be",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "can",
+            "i",
+            "you",
+            "he",
+            "she",
+            "it",
+            "we",
+            "they",
+        }
+
+        keywords = [
+            token for token in tokens if token.isalnum() and token not in stopwords
+        ]
+
         from collections import Counter
+
         keyword_freq = Counter(keywords)
         return [word for word, _ in keyword_freq.most_common(top_n)]
-    
+
     def get_context(self) -> ConversationContext:
         """Get current conversation context"""
         return self.context
-    
+
     def reset_context(self):
         """Reset conversation context"""
         self.context = ConversationContext()
@@ -2100,6 +2790,7 @@ class NLPProcessor:
 # ============================================================================
 # FACTORY FUNCTION (for compatibility with existing code)
 # ============================================================================
+
 
 def get_nlp_processor() -> NLPProcessor:
     """Get singleton NLP processor instance"""

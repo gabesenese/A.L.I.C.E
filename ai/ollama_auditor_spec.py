@@ -10,6 +10,7 @@ from enum import Enum
 
 class ScoringDimension(Enum):
     """Audit scoring dimensions"""
+
     ACCURACY = "accuracy"  # Factual correctness
     RELEVANCE = "relevance"  # Answer matches question
     CLARITY = "clarity"  # Easy to understand
@@ -23,6 +24,7 @@ class ScoringDimension(Enum):
 @dataclass
 class DimensionRubric:
     """Scoring rubric for one dimension"""
+
     dimension: ScoringDimension
     description: str
     scale: int  # Usually 1-5
@@ -41,8 +43,8 @@ AUDIT_DIMENSIONS = {
                 2: "Off by 5+ degrees or wrong condition",
                 3: "Minor temp variance (±2°), condition correct",
                 4: "Exact match with forecast",
-                5: "Perfect match + mentions confidence level"
-            }
+                5: "Perfect match + mentions confidence level",
+            },
         ),
         ScoringDimension.CLARITY: DimensionRubric(
             dimension=ScoringDimension.CLARITY,
@@ -53,8 +55,8 @@ AUDIT_DIMENSIONS = {
                 2: "Clear but missing context",
                 3: "Clear main info, some ambiguity",
                 4: "Very clear, well-organized",
-                5: "Crystal clear + proactive guidance"
-            }
+                5: "Crystal clear + proactive guidance",
+            },
         ),
         ScoringDimension.ACTIONABILITY: DimensionRubric(
             dimension=ScoringDimension.ACTIONABILITY,
@@ -65,9 +67,9 @@ AUDIT_DIMENSIONS = {
                 2: "Basic info, user has to infer",
                 3: "Implied actions, somewhat clear",
                 4: "Clear recommendation (bring umbrella)",
-                5: "Clear rec + why + alternatives"
-            }
-        )
+                5: "Clear rec + why + alternatives",
+            },
+        ),
     },
     "email": {
         ScoringDimension.ACCURACY: DimensionRubric(
@@ -79,8 +81,8 @@ AUDIT_DIMENSIONS = {
                 2: "Mixed accuracy, some invented parts",
                 3: "Mostly accurate, minor omissions",
                 4: "Accurate with all key points",
-                5: "Perfect accuracy + tone/urgency preserved"
-            }
+                5: "Perfect accuracy + tone/urgency preserved",
+            },
         ),
         ScoringDimension.COMPLETENESS: DimensionRubric(
             dimension=ScoringDimension.COMPLETENESS,
@@ -91,8 +93,8 @@ AUDIT_DIMENSIONS = {
                 2: "Hits main point but misses context",
                 3: "Main points + some details",
                 4: "Comprehensive coverage",
-                5: "Complete + metadata (sender, date, importance)"
-            }
+                5: "Complete + metadata (sender, date, importance)",
+            },
         ),
         ScoringDimension.TONE: DimensionRubric(
             dimension=ScoringDimension.TONE,
@@ -103,9 +105,9 @@ AUDIT_DIMENSIONS = {
                 2: "Off-tone, misses urgency",
                 3: "Generally appropriate tone",
                 4: "Tone matches email urgency well",
-                5: "Perfect tone + conveys importance"
-            }
-        )
+                5: "Perfect tone + conveys importance",
+            },
+        ),
     },
     "code": {
         ScoringDimension.ACCURACY: DimensionRubric(
@@ -117,8 +119,8 @@ AUDIT_DIMENSIONS = {
                 2: "Some correct points but major errors",
                 3: "Mostly correct, minor inaccuracies",
                 4: "Correct analysis with valid reasoning",
-                5: "Perfect accuracy + edge cases covered"
-            }
+                5: "Perfect accuracy + edge cases covered",
+            },
         ),
         ScoringDimension.REASONING: DimensionRubric(
             dimension=ScoringDimension.REASONING,
@@ -129,8 +131,8 @@ AUDIT_DIMENSIONS = {
                 2: "Basic analysis, missing depth",
                 3: "Adequate depth, some missed nuances",
                 4: "Good depth, covers main issues",
-                5: "Deep analysis + performance + style notes"
-            }
+                5: "Deep analysis + performance + style notes",
+            },
         ),
         ScoringDimension.CLARITY: DimensionRubric(
             dimension=ScoringDimension.CLARITY,
@@ -141,9 +143,9 @@ AUDIT_DIMENSIONS = {
                 2: "Unclear with some jargon",
                 3: "Mostly clear, some jargon",
                 4: "Clear explanation for most developers",
-                5: "Crystal clear + beginner-friendly"
-            }
-        )
+                5: "Crystal clear + beginner-friendly",
+            },
+        ),
     },
     "conversation": {
         ScoringDimension.ACCURACY: DimensionRubric(
@@ -155,8 +157,8 @@ AUDIT_DIMENSIONS = {
                 2: "Mixed accuracy",
                 3: "Mostly correct",
                 4: "Accurate with minimal errors",
-                5: "Perfect accuracy"
-            }
+                5: "Perfect accuracy",
+            },
         ),
         ScoringDimension.RELEVANCE: DimensionRubric(
             dimension=ScoringDimension.RELEVANCE,
@@ -167,8 +169,8 @@ AUDIT_DIMENSIONS = {
                 2: "Tangentially related",
                 3: "Somewhat relevant, misses nuance",
                 4: "Directly answers question",
-                5: "Perfect match + anticipates follow-ups"
-            }
+                5: "Perfect match + anticipates follow-ups",
+            },
         ),
         ScoringDimension.REASONING: DimensionRubric(
             dimension=ScoringDimension.REASONING,
@@ -179,10 +181,10 @@ AUDIT_DIMENSIONS = {
                 2: "Some reasoning gaps",
                 3: "Generally sound, some assumptions unclear",
                 4: "Sound logic, well explained",
-                5: "Impeccable logic + acknowledges assumptions"
-            }
-        )
-    }
+                5: "Impeccable logic + acknowledges assumptions",
+            },
+        ),
+    },
 }
 
 
@@ -192,9 +194,7 @@ def get_domain_dimensions(domain: str) -> Dict[ScoringDimension, DimensionRubric
 
 
 def score_dimension(
-    dimension: ScoringDimension,
-    rubric: DimensionRubric,
-    score: int
+    dimension: ScoringDimension, rubric: DimensionRubric, score: int
 ) -> Tuple[int, str]:
     """
     Get indicator text for a given score

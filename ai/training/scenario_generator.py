@@ -22,18 +22,30 @@ DEFAULT_DOMAINS = [
     "system",
     "clarification",
     "memory",
-    "file"
+    "file",
 ]
 
 ALLOWED_INTENTS = {
-    "email": ["list_emails", "read_email", "search_emails", "compose_email", "delete_email", "reply_email"],
+    "email": [
+        "list_emails",
+        "read_email",
+        "search_emails",
+        "compose_email",
+        "delete_email",
+        "reply_email",
+    ],
     "notes": ["create_note", "search_notes", "list_notes", "delete_notes"],
     "weather": ["get_weather", "get_weather_forecast"],
     "time": ["get_time"],
     "system": ["system_status"],
-    "clarification": ["vague_question", "vague_request", "vague_temporal_question", "schedule_action"],
+    "clarification": [
+        "vague_question",
+        "vague_request",
+        "vague_temporal_question",
+        "schedule_action",
+    ],
     "memory": ["store_preference", "recall_memory", "search_memory"],
-    "file": ["create_file", "read_file", "delete_file", "move_file"]
+    "file": ["create_file", "read_file", "delete_file", "move_file"],
 }
 
 ALLOWED_ROUTES = ["CONVERSATIONAL", "TOOL", "CLARIFICATION", "RAG", "LLM_FALLBACK"]
@@ -47,7 +59,9 @@ class ScenarioGenerator:
         self.output_file = self.project_root / "scenarios" / "auto_generated.json"
         self.llm = LocalLLMEngine(LLMConfig(model=model))
 
-    def generate(self, domains: Optional[List[str]] = None, count_per_domain: int = 3) -> List[Dict[str, Any]]:
+    def generate(
+        self, domains: Optional[List[str]] = None, count_per_domain: int = 3
+    ) -> List[Dict[str, Any]]:
         """Generate scenarios for given domains."""
         domains = domains or DEFAULT_DOMAINS
         scenarios: List[Dict[str, Any]] = []
@@ -62,7 +76,9 @@ class ScenarioGenerator:
 
             parsed = self._safe_parse(raw)
             if not parsed:
-                logger.warning(f"[ScenarioGenerator] No scenarios generated for {domain}")
+                logger.warning(
+                    f"[ScenarioGenerator] No scenarios generated for {domain}"
+                )
                 continue
 
             scenarios.extend(parsed)
@@ -108,21 +124,23 @@ class ScenarioGenerator:
                         continue
                     seen.add(key)
 
-                    scenarios.append({
-                        "name": f"Auto: {expected_intent}",
-                        "description": "Auto-generated from error logs",
-                        "domain": domain,
-                        "tags": ["generated", "error_fix", domain],
-                        "steps": [
-                            {
-                                "user_input": user_input,
-                                "expected_intent": expected_intent,
-                                "expected_route": expected_route,
-                                "expected_entities": {},
-                                "notes": entry.get("error_type", "")
-                            }
-                        ]
-                    })
+                    scenarios.append(
+                        {
+                            "name": f"Auto: {expected_intent}",
+                            "description": "Auto-generated from error logs",
+                            "domain": domain,
+                            "tags": ["generated", "error_fix", domain],
+                            "steps": [
+                                {
+                                    "user_input": user_input,
+                                    "expected_intent": expected_intent,
+                                    "expected_route": expected_route,
+                                    "expected_entities": {},
+                                    "notes": entry.get("error_type", ""),
+                                }
+                            ],
+                        }
+                    )
 
                     if len(scenarios) >= max_scenarios:
                         break
@@ -144,7 +162,11 @@ class ScenarioGenerator:
             "Each scenario has: name, description, domain, tags, steps. "
             "Each step has: user_input, expected_intent, expected_route, expected_entities, notes. "
             "Use ONLY these routes: " + ", ".join(ALLOWED_ROUTES) + ". "
-            "Use ONLY these intents for domain '" + domain + "': " + ", ".join(intents) + ". "
+            "Use ONLY these intents for domain '"
+            + domain
+            + "': "
+            + ", ".join(intents)
+            + ". "
             f"Create {count} scenarios for domain '{domain}'. "
             "Make them realistic and concise. "
             "If forecast-related, include time_range in expected_entities."
@@ -168,13 +190,21 @@ class ScenarioGenerator:
                 return []
         return []
 
-    def _merge_existing(self, new_scenarios: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _merge_existing(
+        self, new_scenarios: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         existing = []
         if self.output_file.exists():
             try:
-                with open(self.output_file, "r", encoding="utf-8", errors="ignore") as f:
+                with open(
+                    self.output_file, "r", encoding="utf-8", errors="ignore"
+                ) as f:
                     payload = json.load(f)
-                    existing = payload.get("scenarios", []) if isinstance(payload, dict) else payload
+                    existing = (
+                        payload.get("scenarios", [])
+                        if isinstance(payload, dict)
+                        else payload
+                    )
             except Exception:
                 existing = []
 
@@ -189,7 +219,7 @@ class ScenarioGenerator:
                 key = (
                     (step.get("user_input") or "").lower(),
                     step.get("expected_intent"),
-                    step.get("expected_route")
+                    step.get("expected_route"),
                 )
             except Exception:
                 key = None
@@ -204,21 +234,24 @@ class ScenarioGenerator:
 
     def _save(self, scenarios: List[Dict[str, Any]]) -> None:
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "generated_at": datetime.now().isoformat(),
-            "scenarios": scenarios
-        }
+        payload = {"generated_at": datetime.now().isoformat(), "scenarios": scenarios}
         with open(self.output_file, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
 
 
-def generate_scenarios(project_root: Optional[Path] = None, domains: Optional[List[str]] = None, count_per_domain: int = 3) -> List[Dict[str, Any]]:
+def generate_scenarios(
+    project_root: Optional[Path] = None,
+    domains: Optional[List[str]] = None,
+    count_per_domain: int = 3,
+) -> List[Dict[str, Any]]:
     """Convenience function for scenario generation."""
     generator = ScenarioGenerator(project_root=project_root)
     return generator.generate(domains=domains, count_per_domain=count_per_domain)
 
 
-def generate_scenarios_from_errors(project_root: Optional[Path] = None, max_scenarios: int = 50) -> List[Dict[str, Any]]:
+def generate_scenarios_from_errors(
+    project_root: Optional[Path] = None, max_scenarios: int = 50
+) -> List[Dict[str, Any]]:
     """Generate scenarios from error logs."""
     generator = ScenarioGenerator(project_root=project_root)
     return generator.generate_from_errors(max_scenarios=max_scenarios)

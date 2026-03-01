@@ -11,7 +11,7 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 DEFAULT_THRESHOLDS = {
-    "tool_path_confidence": 0.7, # Above this -> tool path (plugins, code, etc.)
+    "tool_path_confidence": 0.7,  # Above this -> tool path (plugins, code, etc.)
     "goal_path_confidence": 0.6,
     "ask_threshold": 0.5,
 }
@@ -19,6 +19,7 @@ DEFAULT_THRESHOLDS = {
 _threshold_dir = Path("data/training")
 _threshold_file = _threshold_dir / "threshold.json"
 _cached: Dict[str, float] = {}
+
 
 def get_thresholds() -> Dict[str, float]:
     """Load thresholds from file: fall back to defaults."""
@@ -29,12 +30,15 @@ def get_thresholds() -> Dict[str, float]:
         try:
             with open(_threshold_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            _cached.update({k: float(v) for k, v in data.items() if k in DEFAULT_THRESHOLDS})
+            _cached.update(
+                {k: float(v) for k, v in data.items() if k in DEFAULT_THRESHOLDS}
+            )
             return _cached.copy()
         except Exception as e:
             logger.warning(f"[Thresholds] Failed to load {_threshold_file}: {e}")
     _cached = DEFAULT_THRESHOLDS.copy()
     return _cached.copy()
+
 
 def update_thresholds(updates: Dict[str, float]) -> None:
     """Write updated thresholds to file and refresh cache."""
@@ -50,11 +54,18 @@ def update_thresholds(updates: Dict[str, float]) -> None:
     except Exception as e:
         logger.error(f"[Thresholds] Failed ot save: {e}")
 
+
 def get_tool_path_confidence() -> float:
-    return get_thresholds().get("tool_path_confidence", DEFAULT_THRESHOLDS["tool_path_confidence"])
+    return get_thresholds().get(
+        "tool_path_confidence", DEFAULT_THRESHOLDS["tool_path_confidence"]
+    )
+
 
 def get_goal_path_confidence() -> float:
-    return get_thresholds().get("goal_path_confidence", DEFAULT_THRESHOLDS["goal_path_confidence"])
+    return get_thresholds().get(
+        "goal_path_confidence", DEFAULT_THRESHOLDS["goal_path_confidence"]
+    )
+
 
 def get_ask_threshold() -> float:
     return get_thresholds().get("ask_threshold", DEFAULT_THRESHOLDS["ask_threshold"])

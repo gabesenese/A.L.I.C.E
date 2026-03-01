@@ -25,7 +25,7 @@ sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
 logging.basicConfig(
     encoding="utf-8",
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,7 @@ DO NOT act as Alice - you are her quality checker."""
 
 class LLMConfig:
     """Configuration for LLM Engine"""
+
     def __init__(
         self,
         model: str = "llama3.3:70b",
@@ -79,7 +80,7 @@ class LLMConfig:
         temperature: float = 0.7,
         max_history: int = 30,  # Increased from 20 for better context retention
         timeout: int = 90,  # 90s timeout for llama3.3:70b reliability
-        use_fine_tuned: bool = True  # Use fine-tuned model if available
+        use_fine_tuned: bool = True,  # Use fine-tuned model if available
     ):
         self.model = model
         self.base_url = base_url
@@ -89,41 +90,41 @@ class LLMConfig:
         self.use_fine_tuned = use_fine_tuned
         self._fine_tuned_model = None
         self._check_fine_tuned_model()
-    
+
     def _check_fine_tuned_model(self) -> None:
         """Check if fine-tuned model exists and use it"""
         if not self.use_fine_tuned:
             return
-        
+
         try:
             import requests
             from requests.adapters import HTTPAdapter
             from requests.packages.urllib3.util.retry import Retry
-            
+
             session = requests.Session()
             retry = Retry(connect=1, backoff_factor=0)
             adapter = HTTPAdapter(max_retries=retry)
             session.mount("http://", adapter)
-            
+
             response = session.get(f"{self.base_url}/api/tags", timeout=0.5)
             if response.status_code == 200:
-                models = response.json().get('models', [])
+                models = response.json().get("models", [])
                 fine_tuned_name = f"alice-{self.model.replace(':', '-')}"
                 for model_info in models:
-                    model_name = model_info.get('name', '')
+                    model_name = model_info.get("name", "")
                     if fine_tuned_name in model_name:
                         self._fine_tuned_model = model_name
                         logger.info(f"[LLM] Using fine-tuned model: {model_name}")
                         return
         except (requests.RequestException, Exception):
             pass
-        
+
         logger.info(f"[LLM] Using base model: {self.model} (fine-tuned not found)")
-    
+
     @property
     def active_model(self) -> str:
         """Get the active model to use (fine-tuned if available, else base)"""
-        return self._fine_tuned_model or self.model 
+        return self._fine_tuned_model or self.model
 
 
 class LocalLLMEngine:
@@ -131,6 +132,7 @@ class LocalLLMEngine:
     High-performance LLM engine with GPU support
     Designed for powerful systems (RTX 5070 Ti, 32GB RAM)
     """
+
     def __init__(self, config: Optional[LLMConfig] = None):
         self.config = config or LLMConfig()
         self.conversation_history = []
@@ -182,27 +184,28 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
 
         # Check GPU availability and connection
         self._ensure_ollama_running()
-        
+
         # Re-check fine-tuned model after Ollama is running
-        if hasattr(self.config, '_check_fine_tuned_model'):
+        if hasattr(self.config, "_check_fine_tuned_model"):
             self.config._check_fine_tuned_model()
-        
+
     def _find_ollama_executable(self) -> Optional[str]:
         """Find Ollama executable path using smart detection"""
         possible_paths = [
             os.path.expanduser("~/AppData/Local/Programs/Ollama/ollama.exe"),
-            "C:\\Program Files\\Ollama\\ollama.exe", 
+            "C:\\Program Files\\Ollama\\ollama.exe",
             "C:\\Program Files (x86)\\Ollama\\ollama.exe",
             "ollama.exe",  # If in PATH
-            "ollama"       # Unix style if somehow present
+            "ollama",  # Unix style if somehow present
         ]
-        
+
         for path in possible_paths:
             if os.path.exists(path) or (path in ["ollama.exe", "ollama"]):
                 try:
                     # Test if executable works
-                    result = subprocess.run([path, "--version"],
-                                          capture_output=True, timeout=5)
+                    result = subprocess.run(
+                        [path, "--version"], capture_output=True, timeout=5
+                    )
                     if result.returncode == 0:
                         logger.info(f"Ollama found at: {path}")
                         return path
@@ -210,7 +213,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                     logger.debug(f"Failed to test Ollama at {path}: {e}")
                     continue
         return None
-    
+
     def _is_ollama_running(self) -> bool:
         """Check if Ollama service is already running"""
         try:
@@ -219,26 +222,29 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         except (requests.RequestException, ConnectionError, TimeoutError) as e:
             logger.debug(f"Ollama not running or unreachable: {e}")
             return False
-    
+
     def _start_ollama_service(self) -> bool:
         """Start Ollama service automatically"""
         ollama_path = self._find_ollama_executable()
         if not ollama_path:
             logger.error("Ollama executable not found. Please install Ollama.")
             return False
-            
+
         try:
             logger.info("Initializing Ollama service...")
-            
+
             # Start Ollama serve in background
-            if os.name == 'nt':  # Windows
-                subprocess.Popen([ollama_path, "serve"], 
-                               creationflags=subprocess.CREATE_NO_WINDOW)
+            if os.name == "nt":  # Windows
+                subprocess.Popen(
+                    [ollama_path, "serve"], creationflags=subprocess.CREATE_NO_WINDOW
+                )
             else:  # Unix-like
-                subprocess.Popen([ollama_path, "serve"], 
-                               stdout=subprocess.DEVNULL, 
-                               stderr=subprocess.DEVNULL)
-            
+                subprocess.Popen(
+                    [ollama_path, "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+
             # Wait for service to come online (with timeout)
             logger.info("Waiting for service initialization...")
             for attempt in range(15):  # 15 seconds max
@@ -248,20 +254,20 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                 time.sleep(1)
                 if attempt % 3 == 0:
                     logger.info(f"Still initializing... ({attempt + 1}/15)")
-                    
+
             logger.error("Service failed to start within timeout")
             return False
-            
+
         except Exception as e:
             logger.error(f"Failed to start Ollama: {e}")
             return False
-    
+
     def _ensure_ollama_running(self) -> bool:
         """Ensure Ollama is running, start if needed"""
         if self._is_ollama_running():
             logger.info("Ollama service already running")
             return self._check_connection()
-        
+
         logger.info("Ollama service not detected, auto-starting...")
         if self._start_ollama_service():
             return self._check_connection()
@@ -269,25 +275,27 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             logger.error("Could not establish Ollama connection")
             logger.info("[MANUAL] Please run manually: ollama serve")
             return False
-        
+
     def _check_connection(self) -> bool:
         """Check if Ollama server is running and GPU is available"""
         try:
             response = requests.get(f"{self.config.base_url}/api/tags", timeout=5)
             if response.status_code == 200:
-                models = response.json().get('models', [])
-                model_names = [m['name'] for m in models]
-                
+                models = response.json().get("models", [])
+                model_names = [m["name"] for m in models]
+
                 logger.info("Ollama connection established")
-                logger.info(f"Available models: {', '.join(model_names) if model_names else 'None'}")
-                
-                if self.config.model.split(':')[0] not in ' '.join(model_names):
+                logger.info(
+                    f"Available models: {', '.join(model_names) if model_names else 'None'}"
+                )
+
+                if self.config.model.split(":")[0] not in " ".join(model_names):
                     logger.warning(f"Model {self.config.model} not found")
                     logger.info(f"Run: ollama pull {self.config.model}")
                 else:
                     logger.info(f"Model {self.config.model} ready")
                     logger.info("GPU acceleration enabled")
-                
+
                 return True
         except requests.exceptions.ConnectionError:
             logger.error("Cannot connect to Ollama")
@@ -295,27 +303,27 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         except Exception as e:
             logger.error(f"Connection check failed: {e}")
             return False
-    
+
     def chat(self, user_input: str, use_history: bool = True) -> str:
         """
         Send message to LLM with GPU acceleration
-        
+
         Args:
             user_input: User's message
             use_history: Include conversation history for context
-        
+
         Returns:
             Assistant's response
         """
         try:
             # Build message history
             messages = [{"role": "system", "content": self.system_prompt}]
-            
+
             if use_history:
-                messages.extend(self.conversation_history[-self.config.max_history:])
-            
+                messages.extend(self.conversation_history[-self.config.max_history :])
+
             messages.append({"role": "user", "content": user_input})
-            
+
             # Call Ollama API with GPU optimization
             # Use fine-tuned model if available, otherwise base model
             active_model = self.config.active_model
@@ -329,29 +337,33 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                         "temperature": self.config.temperature,
                         "num_gpu": 1,  # Use GPU
                         "num_thread": 16,  # Utilize your i7-14700K cores
-                        "num_ctx": 4096  # Context window
-                    }
+                        "num_ctx": 4096,  # Context window
+                    },
                 },
-                timeout=self.config.timeout
+                timeout=self.config.timeout,
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
-                assistant_message = result['message']['content']
-                
+                assistant_message = result["message"]["content"]
+
                 # Store in conversation history
-                self.conversation_history.append({"role": "user", "content": user_input})
-                self.conversation_history.append({"role": "assistant", "content": assistant_message})
-                
+                self.conversation_history.append(
+                    {"role": "user", "content": user_input}
+                )
+                self.conversation_history.append(
+                    {"role": "assistant", "content": assistant_message}
+                )
+
                 # Log token usage if available
-                if 'eval_count' in result:
+                if "eval_count" in result:
                     logger.debug(f"Tokens generated: {result.get('eval_count', 'N/A')}")
-                
+
                 return assistant_message
             else:
                 logger.error(f"LLM API error: {response.status_code} - {response.text}")
                 raise Exception(f"LLM API error: {response.status_code}")
-                
+
         except requests.exceptions.Timeout:
             logger.error("Request timeout")
             raise Exception("Request timeout - please try again")
@@ -363,7 +375,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         except Exception as e:
             logger.error(f"Error in LLM chat: {e}")
             raise
-    
+
     def stream_chat(self, user_input: str) -> Generator[str, None, None]:
         """
         Stream response token-by-token (like ChatGPT typing effect)
@@ -376,9 +388,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         """
         try:
             messages = [{"role": "system", "content": self.system_prompt}]
-            messages.extend(self.conversation_history[-self.config.max_history:])
+            messages.extend(self.conversation_history[-self.config.max_history :])
             messages.append({"role": "user", "content": user_input})
-            
+
             # Use fine-tuned model if available
             active_model = self.config.active_model
             response = requests.post(
@@ -391,29 +403,31 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                         "temperature": self.config.temperature,
                         "num_gpu": 1,
                         "num_thread": 16,
-                        "num_ctx": 4096
-                    }
+                        "num_ctx": 4096,
+                    },
                 },
                 stream=True,
-                timeout=self.config.timeout
+                timeout=self.config.timeout,
             )
-            
+
             full_response = ""
             for line in response.iter_lines():
                 if line:
                     try:
                         chunk = json.loads(line)
-                        if 'message' in chunk:
-                            content = chunk['message'].get('content', '')
+                        if "message" in chunk:
+                            content = chunk["message"].get("content", "")
                             full_response += content
                             yield content
                     except json.JSONDecodeError:
                         continue
-            
+
             # Store in history
             self.conversation_history.append({"role": "user", "content": user_input})
-            self.conversation_history.append({"role": "assistant", "content": full_response})
-            
+            self.conversation_history.append(
+                {"role": "assistant", "content": full_response}
+            )
+
         except requests.exceptions.Timeout:
             yield "\n\n[TIMEOUT] Response timeout. Please try a shorter query."
         except requests.exceptions.ConnectionError:
@@ -421,7 +435,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         except Exception as e:
             logger.error(f"Error in stream chat: {e}")
             yield "\n\nI encountered an error. Please try again."
-    
+
     def query_knowledge(self, question: str) -> str:
         """
         Alice asks Ollama for knowledge about a topic.
@@ -436,7 +450,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         try:
             messages = [
                 {"role": "system", "content": KNOWLEDGE_PROMPT},
-                {"role": "user", "content": question}
+                {"role": "user", "content": question},
             ]
 
             active_model = self.config.active_model
@@ -450,15 +464,15 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                         "temperature": 0.3,  # Lower temp for factual accuracy
                         "num_gpu": 1,
                         "num_thread": 16,
-                        "num_ctx": 4096
-                    }
+                        "num_ctx": 4096,
+                    },
                 },
-                timeout=self.config.timeout
+                timeout=self.config.timeout,
             )
 
             if response.status_code == 200:
                 result = response.json()
-                return result['message']['content']
+                return result["message"]["content"]
             else:
                 logger.error(f"Knowledge query failed: {response.status_code}")
                 return "I couldn't retrieve that information right now."
@@ -489,7 +503,7 @@ Input: {user_input}"""
 
             messages = [
                 {"role": "system", "content": PARSER_PROMPT},
-                {"role": "user", "content": parse_request}
+                {"role": "user", "content": parse_request},
             ]
 
             active_model = self.config.active_model
@@ -503,34 +517,35 @@ Input: {user_input}"""
                         "temperature": 0.2,  # Low temp for consistent parsing
                         "num_gpu": 1,
                         "num_thread": 16,
-                        "num_ctx": 4096
-                    }
+                        "num_ctx": 4096,
+                    },
                 },
-                timeout=self.config.timeout
+                timeout=self.config.timeout,
             )
 
             if response.status_code == 200:
                 result = response.json()
-                content = result['message']['content']
+                content = result["message"]["content"]
 
                 # Try to parse as JSON, fallback to structured response
                 try:
                     import json
+
                     return json.loads(content)
                 except (json.JSONDecodeError, ValueError, TypeError) as e:
                     logger.debug(f"Failed to parse LLM response as JSON: {e}")
                     return {
-                        'intent': 'unknown',
-                        'raw_analysis': content,
-                        'entities': {}
+                        "intent": "unknown",
+                        "raw_analysis": content,
+                        "entities": {},
                     }
             else:
                 logger.error(f"Parse request failed: {response.status_code}")
-                return {'intent': 'parse_failed', 'entities': {}}
+                return {"intent": "parse_failed", "entities": {}}
 
         except Exception as e:
             logger.error(f"Error in parse_complex_input: {e}")
-            return {'intent': 'error', 'entities': {}, 'error': str(e)}
+            return {"intent": "error", "entities": {}, "error": str(e)}
 
     def phrase_with_tone(self, content: str, tone: str, context: Dict = None) -> str:
         """
@@ -552,7 +567,7 @@ Input: {user_input}"""
         """
         try:
             context = context or {}
-            user_name = context.get('user_name', 'the user')
+            user_name = context.get("user_name", "the user")
 
             phrasing_request = f"""Alice has formulated a response and needs it phrased naturally.
 
@@ -565,7 +580,7 @@ Please phrase this naturally using the specified tone. Keep Alice's personality 
 
             messages = [
                 {"role": "system", "content": PHRASER_PROMPT},
-                {"role": "user", "content": phrasing_request}
+                {"role": "user", "content": phrasing_request},
             ]
 
             active_model = self.config.active_model
@@ -579,15 +594,15 @@ Please phrase this naturally using the specified tone. Keep Alice's personality 
                         "temperature": 0.7,  # Higher temp for natural variation
                         "num_gpu": 1,
                         "num_thread": 16,
-                        "num_ctx": 4096
-                    }
+                        "num_ctx": 4096,
+                    },
                 },
-                timeout=self.config.timeout
+                timeout=self.config.timeout,
             )
 
             if response.status_code == 200:
                 result = response.json()
-                return result['message']['content']
+                return result["message"]["content"]
             else:
                 logger.error(f"Phrasing request failed: {response.status_code}")
                 # Fallback: return content as-is
@@ -609,7 +624,9 @@ Please phrase this naturally using the specified tone. Keep Alice's personality 
             Audit result with errors, inconsistencies, and suggestions
         """
         try:
-            reasoning_text = "\n".join([f"{i+1}. {step}" for i, step in enumerate(logic_chain)])
+            reasoning_text = "\n".join(
+                [f"{i+1}. {step}" for i, step in enumerate(logic_chain)]
+            )
 
             audit_request = f"""Please audit this reasoning chain for errors or inconsistencies:
 
@@ -623,7 +640,7 @@ Provide:
 
             messages = [
                 {"role": "system", "content": AUDITOR_PROMPT},
-                {"role": "user", "content": audit_request}
+                {"role": "user", "content": audit_request},
             ]
 
             active_model = self.config.active_model
@@ -637,42 +654,46 @@ Provide:
                         "temperature": 0.2,  # Low temp for consistent auditing
                         "num_gpu": 1,
                         "num_thread": 16,
-                        "num_ctx": 4096
-                    }
+                        "num_ctx": 4096,
+                    },
                 },
-                timeout=self.config.timeout
+                timeout=self.config.timeout,
             )
 
             if response.status_code == 200:
                 result = response.json()
-                content = result['message']['content']
+                content = result["message"]["content"]
 
                 # Try to parse structured response
                 try:
                     import json
+
                     return json.loads(content)
                 except (json.JSONDecodeError, ValueError, TypeError) as e:
                     logger.debug(f"Failed to parse audit response as JSON: {e}")
                     # Fallback: analyze content for issues
-                    has_errors = any(word in content.lower() for word in ['error', 'incorrect', 'inconsistent', 'flaw'])
+                    has_errors = any(
+                        word in content.lower()
+                        for word in ["error", "incorrect", "inconsistent", "flaw"]
+                    )
                     return {
-                        'has_errors': has_errors,
-                        'raw_audit': content,
-                        'suggestions': []
+                        "has_errors": has_errors,
+                        "raw_audit": content,
+                        "suggestions": [],
                     }
             else:
                 logger.error(f"Audit request failed: {response.status_code}")
-                return {'has_errors': False, 'audit_failed': True}
+                return {"has_errors": False, "audit_failed": True}
 
         except Exception as e:
             logger.error(f"Error in audit_logic: {e}")
-            return {'has_errors': False, 'error': str(e)}
+            return {"has_errors": False, "error": str(e)}
 
     def clear_history(self) -> None:
         """Clear conversation history"""
         self.conversation_history = []
         logger.info("Conversation history cleared")
-    
+
     def set_temperature(self, temp: float) -> None:
         """Set response creativity (0.0 = focused, 1.0 = creative)"""
         if 0 <= temp <= 1:
@@ -680,13 +701,13 @@ Provide:
             logger.info(f"Temperature set to: {temp}")
         else:
             logger.warning("Temperature must be between 0.0 and 1.0")
-    
+
     def get_stats(self) -> Dict:
         """Get conversation statistics"""
         return {
             "messages": len(self.conversation_history) // 2,
             "temperature": self.config.temperature,
-            "model": self.config.model
+            "model": self.config.model,
         }
 
 
@@ -701,17 +722,13 @@ if __name__ == "__main__":
     print("   - RAM: 32GB")
     print("\nModel: Llama 3.3 70B (ChatGPT-level performance)")
     print("=" * 80)
-    
+
     # Initialize config
-    config = LLMConfig(
-        model="llama3.3:70b",
-        temperature=0.7,
-        max_history=20
-    )
-    
+    config = LLMConfig(model="llama3.3:70b", temperature=0.7, max_history=20)
+
     try:
         assistant = LocalLLMEngine(config)
-        
+
         print("\n[OK] A.L.I.C.E initialized successfully!")
         print("[GPU] Acceleration: ENABLED")
         print("\nStart chatting! Available commands:")
@@ -721,28 +738,28 @@ if __name__ == "__main__":
         print("   /stats     - Show conversation stats")
         print("   exit       - End conversation")
         print("=" * 80)
-        
+
         stream_mode = True  # Enable streaming by default
-        
+
         while True:
             try:
                 user_input = input("\nYou: ").strip()
-                
+
                 if not user_input:
                     continue
-                
+
                 # Handle commands
-                if user_input.lower() == '/clear':
+                if user_input.lower() == "/clear":
                     assistant.clear_history()
                     print("[OK] Conversation history cleared")
                     continue
-                
-                if user_input.lower() == '/stream':
+
+                if user_input.lower() == "/stream":
                     stream_mode = not stream_mode
                     print(f"[OK] Streaming mode: {'ON' if stream_mode else 'OFF'}")
                     continue
-                
-                if user_input.lower().startswith('/temp'):
+
+                if user_input.lower().startswith("/temp"):
                     try:
                         parts = user_input.split()
                         if len(parts) == 2:
@@ -752,24 +769,26 @@ if __name__ == "__main__":
                         else:
                             print("[ERROR] Usage: /temp 0.7")
                     except ValueError:
-                        print("[ERROR] Invalid temperature value. Use a number between 0.0 and 1.0")
+                        print(
+                            "[ERROR] Invalid temperature value. Use a number between 0.0 and 1.0"
+                        )
                     continue
-                
-                if user_input.lower() == '/stats':
+
+                if user_input.lower() == "/stats":
                     stats = assistant.get_stats()
                     print(f"\nStatistics:")
                     print(f"   Messages: {stats['messages']}")
                     print(f"   Temperature: {stats['temperature']}")
                     print(f"   Model: {stats['model']}")
                     continue
-                
-                if user_input.lower() in ['exit', 'quit', 'bye', 'goodbye']:
+
+                if user_input.lower() in ["exit", "quit", "bye", "goodbye"]:
                     print("\nA.L.I.C.E: Goodbye! It was a pleasure assisting you!")
                     break
-                
+
                 # Get response
                 print("\nA.L.I.C.E: ", end="", flush=True)
-                
+
                 if stream_mode:
                     for chunk in assistant.stream_chat(user_input):
                         print(chunk, end="", flush=True)
@@ -777,14 +796,14 @@ if __name__ == "__main__":
                 else:
                     response = assistant.chat(user_input)
                     print(response)
-                
+
             except KeyboardInterrupt:
                 print("\n\nA.L.I.C.E: Goodbye!")
                 break
             except Exception as e:
                 logger.error(f"Error in conversation loop: {e}")
                 print(f"\n[ERROR] Error: {e}")
-    
+
     except Exception as e:
         logger.error(f"Failed to start A.L.I.C.E: {e}")
         print(f"\n[ERROR] Failed to start A.L.I.C.E: {e}")
