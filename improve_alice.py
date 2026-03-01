@@ -833,21 +833,21 @@ class ContinuousImprovementPipeline:
         
         improvement_pct = (len(now_passing) / len(real_failed) * 100) if real_failed else 0
         
-        # Calculate correct verification pass rate
-        # If retest didn't parse correctly (total=0), calculate from improvements
-        if retest_results['total'] == 0:
-            # Fall back to calculating from improvements
-            verification_pass_rate = original_results['pass_rate'] + (improvement_pct * (100 - original_results['pass_rate']) / 100)
-        else:
-            verification_pass_rate = retest_results['pass_rate']
+        # Calculate ACTUAL final pass rate based on original full test suite
+        # Not just the retest pass rate - we need to account for all originally passing tests
+        original_total = original_results['total']
+        original_passed_count = len(original_results['passed'])
+        new_total_passing = original_passed_count + len(now_passing)
+        final_pass_rate = (new_total_passing / original_total * 100) if original_total > 0 else 0
         
         print(f"\n✓ Verification complete:")
         print(f"  - Now passing: {len(now_passing)}/{len(real_failed)}")
         print(f"  - Still failing: {len(still_failing)}")
         print(f"  - Improvement: {improvement_pct:.1f}%")
+        print(f"  - Overall pass rate: {original_results['pass_rate']:.1f}% → {final_pass_rate:.1f}%")
         
         return {
-            "verification_pass_rate": verification_pass_rate,
+            "verification_pass_rate": final_pass_rate,
             "improvements": now_passing,
             "still_failing": still_failing,
             "improvement_pct": improvement_pct
