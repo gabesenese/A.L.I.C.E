@@ -54,95 +54,153 @@ class MetricsCollector:
     def _init_prometheus_metrics(self):
         """Initialize Prometheus metrics"""
 
+        def _get_registered_collector(metric_name: str):
+            names_to_collectors = getattr(REGISTRY, "_names_to_collectors", {})
+            if metric_name in names_to_collectors:
+                return names_to_collectors[metric_name]
+            if metric_name.endswith("_total"):
+                base_name = metric_name[: -len("_total")]
+                if base_name in names_to_collectors:
+                    return names_to_collectors[base_name]
+            return None
+
+        def _get_or_create(metric_name: str, factory: Callable[[], Any]):
+            existing = _get_registered_collector(metric_name)
+            if existing is not None:
+                return existing
+            return factory()
+
         # Request metrics
-        self.request_total = Counter(
+        self.request_total = _get_or_create(
             "alice_requests_total",
-            "Total number of requests processed",
-            ["intent", "success"],
+            lambda: Counter(
+                "alice_requests_total",
+                "Total number of requests processed",
+                ["intent", "success"],
+            ),
         )
 
-        self.request_duration = Histogram(
+        self.request_duration = _get_or_create(
             "alice_request_duration_seconds",
-            "Request processing duration in seconds",
-            ["intent", "route"],
-            buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0),
+            lambda: Histogram(
+                "alice_request_duration_seconds",
+                "Request processing duration in seconds",
+                ["intent", "route"],
+                buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0),
+            ),
         )
 
         # LLM metrics
-        self.llm_calls = Counter(
-            "alice_llm_calls_total", "Total LLM API calls", ["model", "success"]
+        self.llm_calls = _get_or_create(
+            "alice_llm_calls_total",
+            lambda: Counter(
+                "alice_llm_calls_total", "Total LLM API calls", ["model", "success"]
+            ),
         )
 
-        self.llm_duration = Histogram(
+        self.llm_duration = _get_or_create(
             "alice_llm_duration_seconds",
-            "LLM call duration",
-            ["model"],
-            buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
+            lambda: Histogram(
+                "alice_llm_duration_seconds",
+                "LLM call duration",
+                ["model"],
+                buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
+            ),
         )
 
-        self.llm_tokens = Counter(
+        self.llm_tokens = _get_or_create(
             "alice_llm_tokens_total",
-            "Total tokens processed by LLM",
-            ["model", "type"],  # type: input/output
+            lambda: Counter(
+                "alice_llm_tokens_total",
+                "Total tokens processed by LLM",
+                ["model", "type"],  # type: input/output
+            ),
         )
 
         # Plugin metrics
-        self.plugin_calls = Counter(
+        self.plugin_calls = _get_or_create(
             "alice_plugin_calls_total",
-            "Plugin invocations",
-            ["plugin", "action", "success"],
+            lambda: Counter(
+                "alice_plugin_calls_total",
+                "Plugin invocations",
+                ["plugin", "action", "success"],
+            ),
         )
 
-        self.plugin_duration = Histogram(
+        self.plugin_duration = _get_or_create(
             "alice_plugin_duration_seconds",
-            "Plugin execution duration",
-            ["plugin", "action"],
-            buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 5.0),
+            lambda: Histogram(
+                "alice_plugin_duration_seconds",
+                "Plugin execution duration",
+                ["plugin", "action"],
+                buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 5.0),
+            ),
         )
 
         # Cache metrics
-        self.cache_operations = Counter(
+        self.cache_operations = _get_or_create(
             "alice_cache_operations_total",
-            "Cache operations",
-            [
-                "operation",
-                "result",
-            ],  # operation: get/set/delete, result: hit/miss/success/fail
+            lambda: Counter(
+                "alice_cache_operations_total",
+                "Cache operations",
+                [
+                    "operation",
+                    "result",
+                ],  # operation: get/set/delete, result: hit/miss/success/fail
+            ),
         )
 
         # Error metrics
-        self.errors_total = Counter(
-            "alice_errors_total", "Total errors", ["type", "component"]
+        self.errors_total = _get_or_create(
+            "alice_errors_total",
+            lambda: Counter(
+                "alice_errors_total", "Total errors", ["type", "component"]
+            ),
         )
 
         # Learning metrics
-        self.learning_examples = Gauge(
-            "alice_learning_examples_total", "Total learning examples collected"
+        self.learning_examples = _get_or_create(
+            "alice_learning_examples_total",
+            lambda: Gauge(
+                "alice_learning_examples_total", "Total learning examples collected"
+            ),
         )
 
-        self.learning_quality = Histogram(
+        self.learning_quality = _get_or_create(
             "alice_learning_quality_score",
-            "Quality score of learning examples",
-            buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+            lambda: Histogram(
+                "alice_learning_quality_score",
+                "Quality score of learning examples",
+                buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+            ),
         )
 
         # System metrics
-        self.active_conversations = Gauge(
-            "alice_active_conversations", "Number of active conversation threads"
+        self.active_conversations = _get_or_create(
+            "alice_active_conversations",
+            lambda: Gauge(
+                "alice_active_conversations", "Number of active conversation threads"
+            ),
         )
 
-        self.memory_usage = Gauge(
+        self.memory_usage = _get_or_create(
             "alice_memory_usage_bytes",
-            "Memory usage in bytes",
-            ["type"],  # type: context/notes/cache/etc
+            lambda: Gauge(
+                "alice_memory_usage_bytes",
+                "Memory usage in bytes",
+                ["type"],  # type: context/notes/cache/etc
+            ),
         )
 
         # NLP metrics
-        self.intent_confidence = Histogram(
+        self.intent_confidence = _get_or_create(
             "alice_intent_confidence",
-            "Intent classification confidence",
-            ["intent"],
-            buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+            lambda: Histogram(
+                "alice_intent_confidence",
+                "Intent classification confidence",
+                ["intent"],
+                buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+            ),
         )
 
         logger.info("[Metrics] Prometheus metrics initialized")
