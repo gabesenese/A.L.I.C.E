@@ -2,7 +2,7 @@
 
 **Quick reference for all commands to run, test, and interact with A.L.I.C.E**
 
-Last Updated: 2026-02-16 (Added Analytics & Memory Management commands)
+Last Updated: 2026-02-28 (Added Production Infrastructure commands)
 
 ---
 
@@ -28,10 +28,11 @@ python app/main.py --test-mode
 3. [Training & Learning](#-training--learning)
 4. [Automation & Scheduling](#-automation--scheduling)
 5. [Monitoring & Debugging](#-monitoring--debugging)
-6. [Analytics & Memory Management](#-analytics--memory-management)
-7. [Development Tools](#%EF%B8%8F-development-tools)
-8. [Coverage & Quality](#-coverage--quality)
-9. [Git Operations](#-git-operations)
+6. [Production Infrastructure](#-production-infrastructure)
+7. [Analytics & Memory Management](#-analytics--memory-management)
+8. [Development Tools](#%EF%B8%8F-development-tools)
+9. [Coverage & Quality](#-coverage--quality)
+10. [Git Operations](#-git-operations)
 
 ---
 
@@ -248,6 +249,279 @@ grep -i "error\|exception\|traceback" logs/alice.log | grep -v "test"
 
 # Monitor logs in real-time
 tail -f logs/alice.log
+```
+
+---
+
+## 🏗️ Production Infrastructure
+
+### Infrastructure Testing
+
+```bash
+# Test all infrastructure components
+python test_infrastructure.py
+
+# Test specific component
+python -c "from ai.infrastructure.cache_manager import test_cache; test_cache()"
+
+# Verify infrastructure is loaded
+python -c "from ai.infrastructure import *; print('✓ All infrastructure modules loaded')"
+```
+
+### Docker Deployment
+
+```bash
+# Build Docker image
+docker build -t alice:latest .
+
+# Run full stack with docker-compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f alice
+
+# Stop all services
+docker-compose down
+
+# Restart specific service
+docker-compose restart alice
+docker-compose restart redis
+docker-compose restart postgres
+
+# View service status
+docker-compose ps
+
+# Access Prometheus metrics
+curl http://localhost:9090/metrics
+
+# Access Grafana dashboard
+# Open browser: http://localhost:3000 (admin/admin)
+
+# Scale celery workers
+docker-compose up -d --scale celery=3
+
+# View resource usage
+docker stats
+```
+
+### Redis Cache Operations
+
+```bash
+# Connect to Redis CLI (if running in Docker)
+docker-compose exec redis redis-cli
+
+# View all cache keys
+KEYS *
+
+# View keys by namespace
+KEYS responses:*
+KEYS nlp:*
+KEYS plugins:*
+
+# Get cache value
+GET "responses:123456789"
+
+# Check cache TTL
+TTL "responses:123456789"
+
+# Clear all cache
+FLUSHDB
+
+# View cache statistics
+INFO stats
+
+# Monitor cache operations in real-time
+MONITOR
+
+# Check memory usage
+INFO memory
+
+# Test cache manager in Python
+python -c "from ai.infrastructure.cache_manager import get_cache_manager; cache = get_cache_manager(); cache.set('test', 'key1', 'value1'); print(cache.get('test', 'key1'))"
+
+# View cache statistics
+python -c "from ai.infrastructure.cache_manager import get_cache_manager; print(get_cache_manager().get_stats())"
+```
+
+### Prometheus Metrics
+
+```bash
+# View metrics endpoint
+curl http://localhost:9090/metrics
+
+# Query specific metrics
+curl http://localhost:9090/metrics | grep alice_requests_total
+curl http://localhost:9090/metrics | grep alice_llm_calls_total
+curl http://localhost:9090/metrics | grep alice_cache_operations_total
+
+# View metrics in Python
+python -c "from ai.infrastructure.metrics_collector import get_metrics_collector; print(get_metrics_collector().get_metrics_summary())"
+
+# Start Prometheus server (if not using Docker)
+prometheus --config.file=config/prometheus.yml
+
+# Access Prometheus UI
+# Open browser: http://localhost:9090
+
+# Example Prometheus queries:
+# - Request rate: rate(alice_requests_total[5m])
+# - Average response time: rate(alice_request_duration_seconds_sum[5m]) / rate(alice_request_duration_seconds_count[5m])
+# - Cache hit rate: alice_cache_operations_total{operation="hit"} / (alice_cache_operations_total{operation="hit"} + alice_cache_operations_total{operation="miss"})
+# - Error rate: rate(alice_errors_total[5m])
+```
+
+### Structured Logging
+
+```bash
+# View JSON logs
+cat logs/alice.json | jq '.'
+
+# View recent logs
+tail -f logs/alice.json | jq '.'
+
+# Filter by log level
+cat logs/alice.json | jq 'select(.level == "ERROR")'
+
+# Filter by component
+cat logs/nlp.json | jq '.'
+cat logs/llm.json | jq '.'
+cat logs/plugins.json | jq '.'
+cat logs/learning.json | jq '.'
+cat logs/errors.json | jq '.'
+
+# Search by trace_id
+cat logs/alice.json | jq 'select(.context.trace_id == "abc123")'
+
+# View errors with full context
+cat logs/errors.json | jq '.'
+
+# Count errors by type
+cat logs/errors.json | jq -r '.error_type' | sort | uniq -c | sort -rn
+
+# Monitor logs in real-time with filtering
+tail -f logs/alice.json | jq 'select(.level == "ERROR" or .level == "WARNING")'
+
+# View request latency
+cat logs/alice.json | jq 'select(.message | contains("Request completed")) | {duration_ms, intent, route}'
+
+# Export logs for analysis
+cat logs/alice.json | jq -r '[.timestamp, .level, .message, .duration_ms] | @csv' > analysis.csv
+```
+
+### Database Operations
+
+```bash
+# Connect to PostgreSQL (if using Docker)
+docker-compose exec postgres psql -U alice -d alice_db
+
+# View database tables
+\dt
+
+# Query notes
+SELECT * FROM notes LIMIT 10;
+
+# Query memories
+SELECT * FROM memories ORDER BY timestamp DESC LIMIT 10;
+
+# Query conversations
+SELECT * FROM conversations ORDER BY timestamp DESC LIMIT 10;
+
+# Query learning examples
+SELECT * FROM learning_examples WHERE quality_score > 0.8;
+
+# Check database size
+SELECT pg_size_pretty(pg_database_size('alice_db'));
+
+# View table sizes
+SELECT 
+    schemaname,
+    tablename,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+
+# Test database pool in Python
+python -c "from ai.infrastructure.database_pool import get_connection_pool; pool = get_connection_pool(); print(pool.get_stats())"
+
+# Health check
+python -c "from ai.infrastructure.database_pool import get_connection_pool; print('Healthy' if get_connection_pool().health_check() else 'Unhealthy')"
+```
+
+### Task Queue Operations
+
+```bash
+# Start Celery worker (if not using Docker)
+celery -A ai.infrastructure.task_queue worker --loglevel=info
+
+# Monitor Celery tasks
+celery -A ai.infrastructure.task_queue inspect active
+
+# View registered tasks
+celery -A ai.infrastructure.task_queue inspect registered
+
+# Purge all tasks
+celery -A ai.infrastructure.task_queue purge
+
+# View task statistics
+celery -A ai.infrastructure.task_queue inspect stats
+
+# Connect to RabbitMQ management UI (if using Docker)
+# Open browser: http://localhost:15672 (guest/guest)
+
+# View queue status in Python
+python -c "from ai.infrastructure.task_queue import get_task_queue; print(get_task_queue().get_stats())"
+
+# Submit test task
+python -c "from ai.infrastructure.task_queue import get_task_queue; queue = get_task_queue(); @queue.register_task('test'); def task(): return 'success'; print(task.delay())"
+```
+
+### Infrastructure Health Checks
+
+```bash
+# Check all services
+./scripts/health_check.sh  # (if created)
+
+# Quick Python health check
+python -c "
+import sys
+from ai.infrastructure import (
+    get_cache_manager, get_metrics_collector, 
+    get_connection_pool, get_task_queue
+)
+
+print('Cache:', '✓' if get_cache_manager() else '✗')
+print('Metrics:', '✓' if get_metrics_collector() else '✗')
+print('Database:', '✓' if get_connection_pool().health_check() else '✗')
+print('Queue:', '✓' if get_task_queue() else '✗')
+"
+
+# View infrastructure configuration
+python -c "
+from ai.infrastructure.cache_manager import get_cache_manager
+from ai.infrastructure.metrics_collector import get_metrics_collector
+print('Cache backend:', 'redis' if get_cache_manager().redis_client else 'memory')
+print('Metrics backend:', 'prometheus' if get_metrics_collector().enable_prometheus else 'memory')
+"
+```
+
+### Performance Monitoring
+
+```bash
+# Monitor cache hit rate
+watch -n 1 'python -c "from ai.infrastructure.cache_manager import get_cache_manager; print(get_cache_manager().get_stats())"'
+
+# Monitor request metrics
+watch -n 1 'curl -s http://localhost:9090/metrics | grep alice_requests_total'
+
+# Monitor memory usage
+watch -n 1 'docker stats --no-stream alice redis postgres'
+
+# Export metrics for analysis
+curl http://localhost:9090/metrics > metrics_snapshot.txt
+
+# View latency percentiles
+cat logs/alice.json | jq -r 'select(.duration_ms) | .duration_ms' | sort -n | awk '{a[NR]=$1} END {print "p50:",a[int(NR*0.5)],"p95:",a[int(NR*0.95)],"p99:",a[int(NR*0.99)]}'
 ```
 
 ---

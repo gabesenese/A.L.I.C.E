@@ -169,16 +169,26 @@ class PluginManager:
                     plugin = self.plugins.get(actual_plugin_name)
                     
                     if plugin and plugin.enabled:
-                        logger.info(f" Semantic match: {plugin_name}:{semantic_result['action']} (confidence: {semantic_result['confidence']:.2f})")
+                        # Validate with can_handle before executing semantic result
                         try:
-                            # Execute plugin with semantic action hint
-                            result = plugin.execute(intent, query, entities, context)
-                            result['plugin'] = actual_plugin_name
-                            result['semantic_match'] = semantic_result
-                            return result
-                        except Exception as e:
-                            logger.error(f"[ERROR] Plugin execution error ({actual_plugin_name}): {e}")
+                            can_handle = plugin.can_handle(intent, entities, query)
+                        except TypeError:
+                            can_handle = plugin.can_handle(intent, entities)
+                        
+                        if not can_handle:
+                            logger.info(f" Semantic match {plugin_name} rejected by can_handle - trying traditional matching")
                             # Fall through to traditional matching
+                        else:
+                            logger.info(f" Semantic match: {plugin_name}:{semantic_result['action']} (confidence: {semantic_result['confidence']:.2f})")
+                            try:
+                                # Execute plugin with semantic action hint
+                                result = plugin.execute(intent, query, entities, context)
+                                result['plugin'] = actual_plugin_name
+                                result['semantic_match'] = semantic_result
+                                return result
+                            except Exception as e:
+                                logger.error(f"[ERROR] Plugin execution error ({actual_plugin_name}): {e}")
+                                # Fall through to traditional matching
             except Exception as e:
                 logger.warning(f"Semantic classification error: {e}")
         

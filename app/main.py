@@ -1358,19 +1358,39 @@ class ALICE:
             return msg
 
         # ── Weather ──────────────────────────────────────────────────────────
+        def _format_temp(value):
+            """Format temperature with proper minus sign (− instead of -)"""
+            if value is None:
+                return None
+            # Convert to numeric value
+            if isinstance(value, str):
+                # Replace any Unicode minus with hyphen for parsing
+                value = value.replace("−", "-")
+                try:
+                    value = float(value)
+                except (ValueError, TypeError):
+                    return str(value)  # Return as-is if can't parse
+            
+            rounded = int(round(float(value)))
+            if rounded < 0:
+                # Use proper Unicode minus sign (U+2212) instead of ASCII hyphen-minus (U+002D)
+                return f"−{abs(rounded)}"
+            return str(rounded)
+        
         if response_type == 'weather_report':
             temp = alice_response.get('temperature')
             condition = alice_response.get('condition', '')
             location = alice_response.get('location', '')
             is_followup = alice_response.get('is_followup', False)
-            if temp is not None:
-                temp = round(temp)
+            
             loc_str = f" in {location}" if location else ""
             cond_cap = condition.capitalize() if condition else ""
+            temp_str = f"{_format_temp(temp)}°C" if temp is not None else ""
+            
             if is_followup:
-                return (f"Still **{cond_cap}**{loc_str} — {temp}°C." if temp is not None
+                return (f"Still **{cond_cap}**{loc_str} {temp_str}." if temp is not None
                         else f"Still **{cond_cap}**{loc_str}.")
-            return (f"**{temp}°C** — {cond_cap}{loc_str}." if temp is not None
+            return (f"**{temp_str}** {cond_cap}{loc_str}." if temp is not None
                     else f"**{cond_cap}**{loc_str}.")
 
         if response_type == 'weather_advice':
@@ -1391,9 +1411,9 @@ class ALICE:
             
             # Format detail: only show if we have data
             if temp is not None and condition:
-                detail = f" ({temp}°C, {condition})"
+                detail = f" ({_format_temp(temp)}°C, {condition})"
             elif temp is not None:
-                detail = f" ({temp}°C)"
+                detail = f" ({_format_temp(temp)}°C)"
             else:
                 detail = ""
             return f"**{advice}**{loc_str}.{detail}"
@@ -1431,7 +1451,7 @@ class ALICE:
                 high  = day.get('high')
                 low   = day.get('low')
                 cond  = day.get('condition', 'unknown').title()
-                temp  = f"{int(low)}° to {int(high)}°C" if (high is not None and low is not None) else "—"
+                temp  = f"{_format_temp(low)}° to {_format_temp(high)}°C" if (high is not None and low is not None) else "—"
                 return f"| {label} | {cond} | {temp} |"
 
             TABLE_SEP = "| --- | --- | --- |"
@@ -1445,8 +1465,8 @@ class ALICE:
                         if d.weekday() == target_wd:
                             high, low = day.get('high'), day.get('low')
                             cond = day.get('condition', 'unknown').title()
-                            temp = f"{int(low)}° to {int(high)}°C" if (high is not None and low is not None) else ''
-                            return f"**{_day_label(d)}{loc_str}** — {cond}{', ' + temp if temp else ''}"
+                            temp = f"{_format_temp(low)}° to {_format_temp(high)}°C" if (high is not None and low is not None) else ''
+                            return f"**{_day_label(d)}{loc_str}** {cond}{', ' + temp if temp else ''}"
                     except Exception:
                         pass
 
@@ -1478,8 +1498,8 @@ class ALICE:
                         d = _dt.strptime(tomorrow_str, '%Y-%m-%d').date()
                         high, low = day.get('high'), day.get('low')
                         cond = day.get('condition', 'unknown').title()
-                        temp = f"{int(low)}° to {int(high)}°C" if (high is not None and low is not None) else ''
-                        return f"**Tomorrow{loc_str}** — {cond}{', ' + temp if temp else ''}"
+                        temp = f"{_format_temp(low)}° to {_format_temp(high)}°C" if (high is not None and low is not None) else ''
+                        return f"**Tomorrow{loc_str}** {cond}{', ' + temp if temp else ''}"
 
             # ── Full 7-day table ─────────────────────────────────────────────
             lines = [
@@ -4316,7 +4336,6 @@ class ALICE:
             # Analytics - log interaction metrics
             if hasattr(self, 'usage_analytics'):
                 try:
-                    import time
                     response_time = (time.time() - locals().get('start_time', time.time())) * 1000  # ms
                     plugin_name = None
                     if 'plugin_result' in locals() and isinstance(plugin_result, dict):

@@ -2943,7 +2943,7 @@ class NotesPlugin(PluginInterface):
         """Check if this plugin can handle the command"""
         # Explicit intent strings - always handle these
         notes_intents = ['notes:create', 'notes:append', 'notes:update', 'notes:list',
-                         'notes:search', 'notes:delete', 'notes:edit', 'notes:read']
+                         'notes:search', 'notes:delete', 'notes:edit', 'notes:read', 'notes:query_exist']
         if intent and intent.lower() in notes_intents:
             return True
 
