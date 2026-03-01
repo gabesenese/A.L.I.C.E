@@ -2,13 +2,21 @@
 
 **Quick reference for all commands to run, test, and interact with A.L.I.C.E**
 
-Last Updated: 2026-02-28 (Updated black commands to use python -m syntax)
+Last Updated: 2026-02-28 (Added virtual environment activation instructions)
 
 ---
 
 ## 🚀 Quick Start
 
 ```bash
+# FIRST: Activate the virtual environment
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# Windows CMD:
+.venv\Scripts\activate.bat
+# Linux/Mac:
+source .venv/bin/activate
+
 # Run A.L.I.C.E (interactive mode)
 python app/main.py
 
@@ -747,13 +755,21 @@ python -m pytest --cov=ai.facades --cov-report=term
 
 ### Code Quality
 ```bash
+# IMPORTANT: Activate virtual environment first!
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# Windows CMD:
+.venv\Scripts\activate.bat
+# Linux/Mac:
+source .venv/bin/activate
+
 # Run linter
 flake8 ai/ --max-line-length=120 --exclude=__pycache__
 
-# Check code formatting (run from project root)
+# Check code formatting (run from project root with venv activated)
 python -m black ai/ --check
 
-# Format code automatically (run from project root)
+# Format code automatically (run from project root with venv activated)
 python -m black ai/
 
 # Format all Python files
@@ -913,13 +929,15 @@ python app/main.py
 
 ### Before Committing
 ```bash
+# 0. Ensure virtual environment is activated (.venv)
+
 # 1. Run all tests
 python -m pytest tests/ -v
 
 # 2. Check code quality
 flake8 ai/ --max-line-length=120 --exclude=__pycache__
 
-# 3. Format code (from project root)
+# 3. Format code (from project root with venv activated)
 python -m black ai/ --check
 
 # 4. Check git status
@@ -1001,7 +1019,7 @@ python tools/auditing/training_data_auditor.py
    python -m pytest tests/ --cov=ai --cov-fail-under=70
    ```
 
-7. **Use black to auto-format code (from project root)**
+7. **Use black to auto-format code (venv must be activated)**
    ```bash
    python -m black ai/ app/ tests/
    ```
@@ -1016,6 +1034,23 @@ python tools/auditing/training_data_auditor.py
 ## 🆘 Troubleshooting
 
 ### Common Issues
+
+**Virtual Environment Not Activated:**
+```bash
+# ALWAYS activate the virtual environment first!
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# Windows CMD:
+.venv\Scripts\activate.bat
+# Linux/Mac:
+source .venv/bin/activate
+
+# Verify it's activated (should show (.venv) in prompt)
+# Check Python location:
+where python  # Windows
+which python  # Linux/Mac
+# Should point to .venv directory
+```
 
 **Import Errors:**
 ```bash
@@ -1077,10 +1112,11 @@ taskmgr  # Windows
 ---
 
 **Remember:**
+- **ALWAYS activate virtual environment first** (`.venv\Scripts\Activate.ps1` on Windows)
 - Always run tests before committing (`python -m pytest tests/ -v`)
 - Maintain >70% test coverage
 - Check logs after major changes
 - Monitor memory usage for large refactors
 - Use `--debug` flag when troubleshooting
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-02-28
