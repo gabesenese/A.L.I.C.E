@@ -217,6 +217,7 @@ todo.md
 
 # notes files
 md
+command_directory.md
 
 # Local runtime data (root data/)
 data/memory/memories.json
