@@ -29,7 +29,24 @@ python app/main.py --test-mode
 
 ### Auto-Activate Virtual Environment
 
-**Option 1: VS Code Settings (Recommended)**
+**Option 1: Use dev.bat (Easiest for CMD users!) ⭐**
+A `dev.bat` file is included in the project root. Just:
+```batch
+# From anywhere, run:
+C:\Users\Gabriel\Desktop\dev\A.L.I.C.E\dev.bat
+
+# Or double-click dev.bat in File Explorer
+# Or create a desktop shortcut to dev.bat
+```
+This opens CMD with venv activated and shows quick commands!
+
+**Option 2: Create CMD Shortcut with Auto-Activation**
+1. Right-click Desktop → New → Shortcut
+2. Target: `cmd.exe /k "cd /d C:\Users\Gabriel\Desktop\dev\A.L.I.C.E && .venv\Scripts\activate.bat"`
+3. Name it "A.L.I.C.E Dev"
+4. Pin to taskbar for quick access!
+
+**Option 3: VS Code Settings (For VS Code Terminal)**
 Create `.vscode/settings.json` in project root:
 ```json
 {
@@ -37,9 +54,9 @@ Create `.vscode/settings.json` in project root:
     "python.terminal.activateEnvironment": true
 }
 ```
-VS Code will now auto-activate venv in integrated terminals!
+VS Code will auto-activate venv in integrated terminals!
 
-**Option 2: PowerShell Profile (Global)**
+**Option 4: PowerShell Profile (For PowerShell users)**
 ```powershell
 # Edit PowerShell profile
 notepad $PROFILE
@@ -49,16 +66,6 @@ Set-Location C:\Users\Gabriel\Desktop\dev\A.L.I.C.E
 & C:\Users\Gabriel\Desktop\dev\A.L.I.C.E\.venv\Scripts\Activate.ps1
 ```
 ⚠️ Warning: Activates venv in ALL PowerShell sessions
-
-**Option 3: Create dev.bat (Project-Specific)**
-Create `dev.bat` in project root:
-```batch
-@echo off
-cd /d C:\Users\Gabriel\Desktop\dev\A.L.I.C.E
-call .venv\Scripts\activate.bat
-cmd /k
-```
-Double-click or run `dev.bat` to open CMD with venv activated
 
 ---
 
