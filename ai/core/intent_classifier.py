@@ -20,6 +20,8 @@ import json
 import os
 import time
 import hashlib
+import io
+import contextlib
 from typing import Dict, List, Tuple, Optional, Set
 from dataclasses import dataclass, asdict, field
 from collections import defaultdict, deque
@@ -327,11 +329,17 @@ class SemanticIntentClassifier:
                 )
                 # Set longer timeout for model download
                 os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60"  # 60 seconds timeout
+                os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 
-                self.model = SentenceTransformer(
-                    self.model_name,
-                    device="cpu",  # Explicitly use CPU to avoid GPU issues
-                )
+                logging.getLogger("paddlenlp").setLevel(logging.ERROR)
+                logging.getLogger("paddlenlp.transformers").setLevel(logging.ERROR)
+                logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    self.model = SentenceTransformer(
+                        self.model_name,
+                        device="cpu",  # Explicitly use CPU to avoid GPU issues
+                    )
                 logger.info("Semantic intent classifier loaded successfully")
                 return
             except Exception as e:

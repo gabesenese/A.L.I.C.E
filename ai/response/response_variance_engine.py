@@ -266,11 +266,7 @@ class ResponseVarianceEngine:
         # Use LLM to generate (if available)
         if self.llm_generator:
             try:
-                response = self.llm_generator.generate(
-                    prompt=prompt,
-                    max_tokens=constraints["max_length"] // 4,
-                    temperature=0.8,  # Higher temp for more variance
-                )
+                response = self._generate_with_llm(prompt, constraints)
                 return response.strip()
             except Exception as e:
                 logger.error(f"LLM generation failed: {e}")
@@ -293,9 +289,7 @@ class ResponseVarianceEngine:
             return self._generate_basic_response(context, constraints)
 
         try:
-            patterns = self.phrasing_learner.get_successful_patterns(
-                context.intent_type, n=5
-            )
+            patterns = self._get_successful_patterns(context.intent_type, n=5)
 
             if patterns:
                 # Use pattern features to guide generation
@@ -371,6 +365,56 @@ class ResponseVarianceEngine:
 
         # Generic fallback
         return "Got it."
+
+    def _generate_with_llm(self, prompt: str, constraints: Dict[str, Any]) -> str:
+        """Compatibility wrapper for different LLM engine APIs."""
+        max_tokens = constraints.get("max_length", 200) // 4
+
+        if hasattr(self.llm_generator, "generate") and callable(
+            getattr(self.llm_generator, "generate")
+        ):
+            return self.llm_generator.generate(
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=0.8,
+            )
+
+        if hasattr(self.llm_generator, "chat") and callable(
+            getattr(self.llm_generator, "chat")
+        ):
+            return self.llm_generator.chat(prompt, use_history=False)
+
+        raise AttributeError(
+            "LLM generator must provide either 'generate(prompt=...)' or 'chat(user_input, use_history=...)'"
+        )
+
+    def _get_successful_patterns(self, intent_type: str, n: int = 5) -> List[Dict[str, Any]]:
+        """Compatibility wrapper for phrasing learner pattern access APIs."""
+        if not self.phrasing_learner:
+            return []
+
+        if hasattr(self.phrasing_learner, "get_successful_patterns") and callable(
+            getattr(self.phrasing_learner, "get_successful_patterns")
+        ):
+            patterns = self.phrasing_learner.get_successful_patterns(intent_type, n=n)
+            return patterns if isinstance(patterns, list) else []
+
+        if hasattr(self.phrasing_learner, "learned_patterns"):
+            learned_patterns = getattr(self.phrasing_learner, "learned_patterns", {})
+            if not isinstance(learned_patterns, dict):
+                return []
+
+            matches: List[Dict[str, Any]] = []
+            for pattern_key, examples in learned_patterns.items():
+                if intent_type in str(pattern_key) and isinstance(examples, list):
+                    for example in examples[-n:]:
+                        if isinstance(example, dict):
+                            matches.append(example)
+                if len(matches) >= n:
+                    break
+            return matches[:n]
+
+        return []
 
     def generate_response(self, context: ResponseContext) -> str:
         """

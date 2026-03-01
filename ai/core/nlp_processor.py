@@ -1074,12 +1074,7 @@ class NLPProcessor:
 
         # Semantic intent classifier
         self.semantic_classifier = None
-        if SEMANTIC_CLASSIFIER_AVAILABLE:
-            try:
-                self.semantic_classifier = get_intent_classifier()
-                logger.info("[OK] Semantic intent classifier loaded")
-            except Exception as e:
-                logger.warning(f"[WARN] Failed to load semantic classifier: {e}")
+        self._semantic_classifier_init_attempted = False
 
         # Load learned corrections into pattern matching
         self.learned_corrections = self._load_learned_corrections()
@@ -1154,6 +1149,26 @@ class NLPProcessor:
         # Cache for performance
         self._entity_cache = {}
         self._cache_lock = threading.Lock()
+
+    def _ensure_semantic_classifier(self):
+        """Lazily initialize semantic classifier only when needed."""
+        if self.semantic_classifier is not None:
+            return self.semantic_classifier
+
+        if self._semantic_classifier_init_attempted:
+            return None
+
+        self._semantic_classifier_init_attempted = True
+        if not SEMANTIC_CLASSIFIER_AVAILABLE:
+            return None
+
+        try:
+            self.semantic_classifier = get_intent_classifier()
+            logger.info("[OK] Semantic intent classifier loaded (lazy)")
+            return self.semantic_classifier
+        except Exception as e:
+            logger.warning(f"[WARN] Failed to load semantic classifier: {e}")
+            return None
 
     def set_tokenizer_profile(self, profile: str) -> None:
         """Set tokenizer behavior profile: strict, default, llm-assisted."""
@@ -1377,10 +1392,85 @@ class NLPProcessor:
     ) -> Optional[Tuple[str, float]]:
         """Resolve very short follow-up queries using context before broad intent matching."""
         content_tokens = [token for token in tokens if token.kind != "symbol"]
-        if len(content_tokens) > 5:
+        if len(content_tokens) > 8:
             return None
 
         token_words = {token.normalized for token in content_tokens}
+        last_intent = self.context.last_intent or ""
+        recent_queries = [q.lower() for q in list(self.context.query_history)[-3:]]
+
+        reference_present = any(
+            token.flags.get("is_reference") for token in content_tokens
+        )
+
+        followup_connectors = {
+            "what",
+            "about",
+            "and",
+            "also",
+            "that",
+            "this",
+            "it",
+            "same",
+        }
+        time_range_cues = {
+            "today",
+            "tomorrow",
+            "tonight",
+            "week",
+            "weekend",
+            "month",
+            "next",
+        }
+        weather_cues = {
+            "weather",
+            "forecast",
+            "rain",
+            "snow",
+            "cold",
+            "warm",
+            "umbrella",
+            "coat",
+            "jacket",
+            "wear",
+            "outside",
+            "temperature",
+        }
+
+        recent_weather_context = last_intent.startswith("weather:") or any(
+            "weather" in query or "forecast" in query for query in recent_queries
+        )
+
+        if recent_weather_context:
+            weather_followup = bool(token_words & weather_cues)
+            temporal_followup = bool(token_words & time_range_cues)
+            connector_followup = (
+                reference_present or bool(token_words & followup_connectors)
+            )
+
+            if temporal_followup or (
+                connector_followup and not token_words.isdisjoint(time_range_cues)
+            ):
+                return "weather:forecast", 0.86
+
+            if weather_followup or connector_followup:
+                if token_words & {"week", "weekend", "next", "tomorrow", "tonight"}:
+                    return "weather:forecast", 0.84
+                return "weather:current", 0.83
+
+        # Generic short ambiguous follow-up: keep same topic intent family
+        if last_intent and (reference_present or bool(token_words & followup_connectors)):
+            if last_intent.startswith("notes:"):
+                return "notes:read", 0.79
+            if last_intent.startswith("email:"):
+                return "email:read", 0.77
+            if last_intent.startswith("calendar:"):
+                return "calendar:list", 0.76
+            if ":" in last_intent and not last_intent.startswith(
+                ("conversation:", "system:")
+            ):
+                return last_intent, 0.75
+
         action_cues = {
             "read",
             "show",
@@ -1395,15 +1485,11 @@ class NLPProcessor:
         if token_words.isdisjoint(action_cues):
             return None
 
-        reference_present = any(
-            token.flags.get("is_reference") for token in content_tokens
-        )
         if not reference_present and token_words.isdisjoint(
             {"read", "show", "open", "list", "reply", "send"}
         ):
             return None
 
-        last_intent = self.context.last_intent or ""
         if last_intent.startswith("notes:") or self.context.mentioned_notes:
             if "list" in token_words:
                 return "notes:list", 0.81
@@ -2360,8 +2446,9 @@ class NLPProcessor:
 
         # Greetings (high confidence) - must be after Thanks to not interfere
         greeting_words = ["hi", "hey", "hello", "yo", "sup", "hiya"]
+        greeting_tokens = set(re.findall(r"\b[a-z']+\b", text_lower))
         if (
-            any(word in text_lower for word in greeting_words)
+            any(word in greeting_tokens for word in greeting_words)
             and len(text_lower.split()) <= 4
         ):
             return "greeting", 0.9
@@ -2461,9 +2548,10 @@ class NLPProcessor:
 
         # PHASE 2: Fallback to semantic classification
         # Try semantic classification for lower-confidence cases
-        if self.semantic_classifier:
+        semantic_classifier = self._ensure_semantic_classifier()
+        if semantic_classifier:
             try:
-                result = self.semantic_classifier.get_plugin_action(text, threshold=0.4)
+                result = semantic_classifier.get_plugin_action(text, threshold=0.4)
                 if result and result.get("confidence", 0) > 0.5:
                     # Map plugin:action to intent
                     plugin = result.get("plugin", "")
