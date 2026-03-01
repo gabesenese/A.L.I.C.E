@@ -198,36 +198,84 @@ class ContinuousImprovementPipeline:
         if not console_output:
             return {"pass_rate": 0, "passed": [], "failed": [], "total": 0}
         
-        # Parse the summary line
-        passed, failed = [], []
+        # Parse the summary line first as most reliable source
+        passed_list, failed_list = [], []
         
         lines = console_output.split('\n')
+        
+        # Try to find summary line: "Results: X passed, Y failed (Z% pass rate)"
+        summary_pass_rate = None
+        summary_passed = None
+        summary_failed = None
+        
+        for line in lines:
+            if 'Results:' in line and 'passed' in line and 'failed' in line:
+                # Extract numbers from summary
+                import re
+                match = re.search(r'(\d+)\s+passed,\s+(\d+)\s+failed\s+\((\d+\.?\d*)%', line)
+                if match:
+                    summary_passed = int(match.group(1))
+                    summary_failed = int(match.group(2))
+                    summary_pass_rate = float(match.group(3))
+                    break
+        
+        # Parse individual test results to get scenario IDs
         for i, line in enumerate(lines):
-            if line.startswith('[') and ']' in line:
-                # Parse individual test results
-                # Look for PASS or FAIL markers (handle encoding issues)
-                next_line = lines[i + 1] if i + 1 < len(lines) else ""
+            if line.startswith('[') and ']' in line and ':' in line:
+                # Extract scenario ID
+                scenario_id = self._extract_scenario_id(line)
+                if not scenario_id:
+                    continue
                 
-                if 'PASS' in next_line or '✓' in next_line:
-                    scenario_id = self._extract_scenario_id(line)
-                    if scenario_id:
-                        passed.append(scenario_id)
-                elif 'FAIL' in next_line or '✗' in next_line:
-                    scenario_id = self._extract_scenario_id(line)
-                    if scenario_id:
-                        # Extract failure details from following lines
-                        failure_info = self._extract_failure_details_console(line, lines, i)
-                        failed.append(failure_info)
+                # Look ahead in next few lines for PASS/FAIL marker
+                found_result = False
+                for offset in range(1, min(100, len(lines) - i)):  # Look ahead up to 100 lines
+                    check_line = lines[i + offset]
+                    
+                    # Check for next test starting (stop looking)
+                    if check_line.startswith('[') and ']' in check_line and offset > 5:
+                        break
+                    
+                    # Check for PASS marker (use multiple patterns for encoding issues)
+                    if any(marker in check_line for marker in ['✓ PASS', 'PASS', '\u2713 PASS', 'OK']):
+                        if scenario_id not in passed_list:
+                            passed_list.append(scenario_id)
+                        found_result = True
+                        break
+                    
+                    # Check for FAIL marker
+                    if any(marker in check_line for marker in ['✗ FAIL', 'FAIL', '\u2717 FAIL', 'ERROR']):
+                        if scenario_id not in [f['scenario_id'] for f in failed_list]:
+                            failure_info = self._extract_failure_details_console(line, lines, i)
+                            failed_list.append(failure_info)
+                        found_result = True
+                        break
         
-        total = len(passed) + len(failed)
-        pass_rate = (len(passed) / total * 100) if total > 0 else 0
+        # Use summary line counts if available and more accurate
+        if summary_passed is not None and summary_failed is not None:
+            total = summary_passed + summary_failed
+            pass_rate = summary_pass_rate if summary_pass_rate else 0
+            
+            # If we didn't parse individual IDs, use counts from summary
+            if len(passed_list) == 0 and len(failed_list) == 0:
+                print(f"  Parsed from summary: {summary_passed} passed, {summary_failed} failed")
+                return {
+                    "pass_rate": pass_rate,
+                    "passed": [f"test_{i}" for i in range(summary_passed)],  # Generic IDs
+                    "failed": [{"scenario_id": f"test_{i}", "error_type": "unknown"} for i in range(summary_failed)],
+                    "total": total
+                }
         
-        print(f"  Parsed: {len(passed)} passed, {len(failed)} failed")
+        # Use individual parsing results
+        total = len(passed_list) + len(failed_list)
+        pass_rate = (len(passed_list) / total * 100) if total > 0 else 0
+        
+        print(f"  Parsed: {len(passed_list)} passed, {len(failed_list)} failed")
         
         return {
             "pass_rate": pass_rate,
-            "passed": passed,
-            "failed": failed,
+            "passed": passed_list,
+            "failed": failed_list,
             "total": total
         }
     
