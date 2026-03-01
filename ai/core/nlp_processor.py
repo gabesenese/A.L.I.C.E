@@ -1113,16 +1113,17 @@ class NLPProcessor:
 
         # Intent-Entity Cross-Validation Matrix (P0 Improvement)
         # Maps intent prefixes to required/expected entity types
+        # Note: 'query' can be empty for list-all operations
         self._validation_matrix = {
             "notes:create": {"required": [], "expected": ["title", "content", "tags"]},
-            "notes:search": {"required": ["query"], "expected": ["tags", "date_range"]},
+            "notes:search": {"required": [], "expected": ["query", "tags", "date_range"]},  # Changed: query not required for list-all
             "notes:update": {"required": ["note_id", "title"], "expected": ["content", "tags"]},
-            "notes:delete": {"required": ["note_id", "query"], "expected": []},
+            "notes:delete": {"required": ["note_id", "title", "query"], "expected": []},  # Need something to identify the note
             "music:play": {"required": ["song", "artist"], "expected": ["album", "playlist"]},
             "calendar:create": {"required": ["event", "date"], "expected": ["time", "location"]},
-            "calendar:search": {"required": ["query", "date_range"], "expected": []},
+            "calendar:search": {"required": [], "expected": ["query", "date_range"]},  # List-all allowed
             "email:compose": {"required": ["recipient", "subject"], "expected": ["body"]},
-            "email:search": {"required": ["sender", "subject"], "expected": ["date_range"]},
+            "email:search": {"required": [], "expected": ["sender", "subject", "date_range"]},  # List-all allowed
         }
         self.tokenizer_profile = "default"
         self.command_vocabulary = self._load_command_vocabulary()
@@ -2939,14 +2940,15 @@ class NLPProcessor:
             validation_score -= penalty
             issues.append(f"Missing required: {', '.join(missing_required)}")
         
-        # Check expected entities (soft bonus/penalty)
+        # Check expected entities (soft guidance, not critical)
         expected = set(rules.get("expected", []))
         if expected:
             present_expected = expected & present_slots
             match_ratio = len(present_expected) / len(expected)
-            if match_ratio < 0.5:  # Less than half of expected entities
-                validation_score -= 0.1
-                issues.append(f"Few expected entities: {match_ratio:.0%}")
+            # Only penalize if NO expected entities present AND there's a clear expectation
+            if match_ratio == 0.0 and len(expected) <= 2:
+                validation_score -= 0.05  # Small penalty for completely missing simple expectations
+                # Don't add to issues - this is just informational
         
         # Bonus for having unexpected but relevant entities (don't penalize creativity)
         validation_score = max(0.0, min(1.0, validation_score))

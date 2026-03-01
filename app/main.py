@@ -85,6 +85,8 @@ from ai.core.llm_gateway import get_llm_gateway, LLMGateway
 from ai.core.llm_policy import LLMCallType
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
+from ai.lab_simulator import LabSimulator
+from ai.red_team_tester import RedTeamTester
 
 # Continuous learning system
 from ai.learning.realtime_logger import get_realtime_logger
@@ -505,7 +507,7 @@ class ALICE:
             # 4.2. Configure LLM Policy based on startup flag
             if self.llm_policy != "default":
                 logger.info(f"  Configuring LLM policy: {self.llm_policy}")
-                from ai.llm_policy import configure_minimal_policy
+                from ai.core.llm_policy import configure_minimal_policy
                 
                 if self.llm_policy == "minimal":
                     configure_minimal_policy()
@@ -2823,15 +2825,23 @@ class ALICE:
             else:
                 show_clarification = True  # Default enabled
             
-            if show_clarification and (validation_score < 0.60 or validation_issues):
+            # Only prompt if there are CRITICAL issues (missing required entities)
+            # Don't prompt for missing optional/expected entities
+            has_critical_issue = any("Missing required" in issue for issue in validation_issues)
+            
+            if show_clarification and (validation_score < 0.50 and has_critical_issue):
                 # Track clarification prompt
                 self.metrics.track_clarification_prompt("validation_low")
                 
-                # Build clarification message
-                clarification_parts = [f"I'm {int(validation_score * 100)}% confident I understood you correctly."]
+                # Build clarification message focusing on what's missing
+                clarification_parts = []
                 if validation_issues:
-                    clarification_parts.append(f"I noticed: {'; '.join(validation_issues[:2])}")  # Show top 2 issues
-                clarification_parts.append("Can you clarify what you'd like me to do?")
+                    # Only show critical issues
+                    critical_issues = [issue for issue in validation_issues if "Missing required" in issue]
+                    if critical_issues:
+                        clarification_parts.append(f"I need more information: {'; '.join(critical_issues[:2])}")
+                if not clarification_parts:
+                    clarification_parts.append("Can you provide more details about what you'd like me to do?")
                 
                 return " ".join(clarification_parts)
             
