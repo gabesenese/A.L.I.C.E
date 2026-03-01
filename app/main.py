@@ -2052,6 +2052,101 @@ class ALICE:
             return False
         
         return True
+
+    def _is_explicit_greeting_input(self, user_input: str) -> bool:
+        """Return True only when the utterance clearly looks like a greeting."""
+        if not user_input:
+            return False
+
+        normalized = user_input.strip().lower()
+        tokens = re.findall(r"\b[a-z']+\b", normalized)
+        if not tokens:
+            return False
+
+        greeting_words = {
+            "hi",
+            "hey",
+            "hello",
+            "yo",
+            "hiya",
+            "sup",
+            "morning",
+            "afternoon",
+            "evening",
+        }
+        polite_words = {"there", "alice", "gabriel", "good", "howdy"}
+        non_greeting_action_words = {
+            "open",
+            "launch",
+            "play",
+            "send",
+            "create",
+            "delete",
+            "search",
+            "show",
+            "list",
+            "check",
+            "email",
+            "note",
+            "calendar",
+            "music",
+            "weather",
+            "time",
+            "find",
+            "remind",
+            "file",
+            "document",
+        }
+
+        if any(token in non_greeting_action_words for token in tokens):
+            return False
+
+        if len(tokens) > 6:
+            return False
+
+        has_greeting = any(token in greeting_words for token in tokens)
+        if not has_greeting:
+            return False
+
+        return all(token in greeting_words or token in polite_words for token in tokens)
+
+    def _learned_greeting_response(
+        self,
+        user_input: str,
+        user_name: str,
+        asked_how: bool,
+        time_context: Optional[str] = None,
+    ) -> Optional[str]:
+        """Get a greeting from learned patterns (no hardcoded greeting text)."""
+        try:
+            if hasattr(self, 'conversational_engine') and self.conversational_engine:
+                if hasattr(self.conversational_engine, 'learned_greetings') and self.conversational_engine.learned_greetings:
+                    if hasattr(self.conversational_engine, '_pick_non_repeating'):
+                        picked = self.conversational_engine._pick_non_repeating(
+                            self.conversational_engine.learned_greetings
+                        )
+                        if picked:
+                            return picked
+        except Exception:
+            pass
+
+        if self.phrasing_learner:
+            greeting_thought = {
+                'type': 'greeting',
+                'data': {
+                    'user_input': user_input,
+                    'user_name': user_name,
+                    'asked_how': asked_how,
+                    'time_context': time_context,
+                },
+            }
+            try:
+                if self.phrasing_learner.can_phrase_myself(greeting_thought, 'friendly'):
+                    return self.phrasing_learner.phrase_myself(greeting_thought, 'friendly')
+            except Exception:
+                pass
+
+        return None
     
     def _should_reuse_goal_intent(self, user_input: str, goal_description: str) -> bool:
         """
@@ -2413,6 +2508,49 @@ class ALICE:
         input_lower = user_input.lower()
 
         weekday_keywords = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        time_range_keywords = [
+            'this week', 'next week', 'weekend', 'tomorrow', 'tonight', 'this weekend'
+        ]
+
+        # Check for time-range follow-up mentions (e.g., "what about this week?")
+        mentioned_time_range = None
+        for time_range in time_range_keywords:
+            if time_range in input_lower:
+                mentioned_time_range = time_range
+                break
+
+        if mentioned_time_range:
+            self._think(f"Detected weather time-range follow-up: {mentioned_time_range} (intent was {intent})")
+            if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
+                self._think("Reasoning engine not available for weather follow-up")
+                return None
+
+            forecast_entity = self.reasoning_engine.get_entity('weather_forecast')
+            if not forecast_entity or not forecast_entity.data:
+                self._think(f"No forecast entity found for '{mentioned_time_range}' follow-up")
+                return None
+
+            forecast_data = forecast_entity.data
+            self._think(
+                f"Using stored forecast data for time-range '{mentioned_time_range}' with {len(forecast_data.get('forecast', []))} days"
+            )
+
+            from ai.models.simple_formatters import WeatherFormatter
+            try:
+                result = WeatherFormatter.format(
+                    forecast_data,
+                    entities={'TIME_RANGE': [mentioned_time_range]}
+                )
+                if result:
+                    self._think(f"Forecast formatter returned: {result[:60]}...")
+                    logger.info(f"Weather follow-up (stored, time-range) → {result[:60]}...")
+                    return result
+                self._think(f"Formatter returned None for time-range '{mentioned_time_range}'")
+                return None
+            except Exception as e:
+                logger.error(f"Error formatting forecast for time-range '{mentioned_time_range}': {e}", exc_info=True)
+                self._think(f"Error formatting forecast: {e}")
+                return None
         
         # Check for weekday mentions (indicates a forecast follow-up like "is that wednesday?")
         mentioned_day = None
@@ -2686,27 +2824,67 @@ class ALICE:
             if entities:
                 self._think(f"     entities={str(entities)[:120]}...")
 
-            # 1.2. Follow-up Detection - Detect if this is a follow-up to previous topic
-            # If low confidence on generic intent + recent weather/note/etc topic → bias towards that
-            if intent_confidence < 0.7 and self.conversation_topics:
-                recent_intent = self.conversation_topics[-1] if self.conversation_topics else None
-                user_lower = user_input.lower()
+            # 1.2. Follow-up Detection - continue current topic across adjacent turns
+            # This handles short follow-ups like "what about this week?", "and tomorrow?", "what about that?"
+            recent_intent = self.last_intent or (self.conversation_topics[-1] if self.conversation_topics else None)
+            if recent_intent:
+                user_lower = user_input.lower().strip()
+                conversational_or_ambiguous_intents = {
+                    'greeting',
+                    'conversation:general',
+                    'conversation:question',
+                    'vague_question',
+                    'vague_temporal_question',
+                }
+                followup_cues = [
+                    'what about', 'how about', 'and ', 'also', 'same for',
+                    'that', 'this', 'it', 'them', 'tomorrow', 'tonight', 'this week', 'next week', 'weekend'
+                ]
+                followup_phrase_detected = any(cue in user_lower for cue in followup_cues)
 
-                # Weather follow-ups: "should i wear...", "do i need...", "is it..."
-                if recent_intent and recent_intent.startswith('weather'):
-                    followup_phrases = ['wear', 'layer', 'coat', 'jacket', 'bring', 'umbrella', 'need', 'cold', 'warm']
-                    if any(phrase in user_lower for phrase in followup_phrases):
-                        self._think(f"Follow-up detected: {intent} → {recent_intent} (continuing weather context)")
-                        intent = recent_intent  # Inherit previous weather intent
-                        intent_confidence = 0.75  # Boost confidence
+                should_inherit_topic = (
+                    (intent_confidence < 0.7)
+                    or (intent in conversational_or_ambiguous_intents and followup_phrase_detected)
+                )
 
-                # Note follow-ups: "add to it", "delete that", "show it"
-                elif recent_intent and recent_intent.startswith('note'):
-                    followup_phrases = ['add to', 'delete', 'remove', 'modify', 'change', 'show']
-                    if any(phrase in user_lower for phrase in followup_phrases):
-                        self._think(f"Follow-up detected: {intent} → {recent_intent} (continuing note context)")
+                if should_inherit_topic:
+                    # Weather follow-ups
+                    if recent_intent.startswith('weather'):
+                        weather_followup_phrases = [
+                            'wear', 'layer', 'coat', 'jacket', 'bring', 'umbrella',
+                            'need', 'cold', 'warm', 'snow', 'rain', 'forecast',
+                            'tomorrow', 'tonight', 'this week', 'next week', 'weekend', 'what about'
+                        ]
+                        if followup_phrase_detected or any(phrase in user_lower for phrase in weather_followup_phrases):
+                            self._think(f"Follow-up detected: {intent} → {recent_intent} (continuing weather context)")
+                            intent = recent_intent
+                            intent_confidence = max(intent_confidence, 0.82)
+
+                    # Notes follow-ups
+                    elif recent_intent.startswith('notes:'):
+                        note_followup_phrases = ['add to', 'delete', 'remove', 'modify', 'change', 'show', 'that note', 'it']
+                        if followup_phrase_detected or any(phrase in user_lower for phrase in note_followup_phrases):
+                            self._think(f"Follow-up detected: {intent} → {recent_intent} (continuing notes context)")
+                            intent = recent_intent
+                            intent_confidence = max(intent_confidence, 0.8)
+
+                    # Email follow-ups
+                    elif recent_intent.startswith('email:'):
+                        email_followup_phrases = ['that email', 'reply', 'delete it', 'archive', 'the first one', 'the latest']
+                        if followup_phrase_detected or any(phrase in user_lower for phrase in email_followup_phrases):
+                            self._think(f"Follow-up detected: {intent} → {recent_intent} (continuing email context)")
+                            intent = recent_intent
+                            intent_confidence = max(intent_confidence, 0.8)
+
+                    # General follow-up inheritance for any actionable domain intent
+                    elif (
+                        ':' in recent_intent
+                        and not recent_intent.startswith('conversation:')
+                        and not recent_intent.startswith('system:')
+                    ):
+                        self._think(f"General follow-up detected: {intent} → {recent_intent} (continuing topic context)")
                         intent = recent_intent
-                        intent_confidence = 0.75
+                        intent_confidence = max(intent_confidence, 0.78)
 
             # 1.5. Reference Resolution - Handle "it", "that", "them", etc.
             if hasattr(self, 'conversation_context'):
@@ -2726,7 +2904,28 @@ class ALICE:
 
             
             # FAST PATH: Check cache and conversational shortcuts
-            intent_confidence = getattr(nlp_result, 'intent_confidence', 0.5)
+            # Keep adjusted follow-up confidence if it was updated above.
+
+            # 0.55 PRIORITY WEATHER FOLLOW-UP PATH: handle weather context BEFORE
+            # conversational fast path so weather follow-ups don't depend on LLM.
+            weather_followup_early = None
+            weather_followup_indicators = [
+                'weather', 'week', 'weekend', 'tomorrow', 'tonight',
+                'umbrella', 'jacket', 'coat', 'layer', 'wear', 'outside',
+                'rain', 'snow', 'cold', 'warm', 'forecast'
+            ]
+            if (
+                'weather' in intent.lower()
+                or any(keyword in user_input.lower() for keyword in weather_followup_indicators)
+            ):
+                weather_followup_early = self._handle_weather_followup(user_input, intent)
+            if weather_followup_early:
+                self._think("Weather follow-up (early) → answering from stored data (no LLM)")
+                self._store_interaction(user_input, weather_followup_early, intent, entities)
+                if use_voice and self.speech:
+                    self.speech.speak(weather_followup_early, blocking=False)
+                logger.info(f"A.L.I.C.E: {weather_followup_early[:100]}...")
+                return weather_followup_early
             
             # 0.5 Check if cached response exists (with 5-minute expiry for variation)
             # Cache conversational intents for faster responses to repeated questions
@@ -2775,8 +2974,14 @@ class ALICE:
                     else:
                         self._think("Conversational engine → no learned pattern, will use LLM")
 
-                # If this is a greeting, respond directly via gateway
-                if intent == "greeting" and getattr(self, "llm_gateway", None):
+                # If this is a true greeting utterance, respond directly via gateway
+                explicit_greeting_input = self._is_explicit_greeting_input(user_input)
+                if intent == "greeting" and not explicit_greeting_input:
+                    self._think("Intent labeled greeting, but input is not explicit greeting → continue normal routing")
+                    intent = "conversation:general"
+                    intent_confidence = min(intent_confidence, 0.55)
+
+                if intent == "greeting" and explicit_greeting_input and getattr(self, "llm_gateway", None):
                     # Check conversational engine first for learned greetings
                     if hasattr(self, 'conversational_engine') and self.conversational_engine:
                         conv_context = ConversationalContext(
@@ -2818,21 +3023,12 @@ class ALICE:
                     if llm_response.success and llm_response.response:
                         response = llm_response.response
                     else:
-                        # Policy denied or error - use safe greeting fallback
-                        if getattr(llm_response, "denied_by_policy", False):
-                            # If user asked how we're doing, answer that
-                            if asked_how:
-                                wellbeing_responses = [
-                                    f"I'm doing well, thanks{f' {user_name}' if user_name else ''}! How about you?",
-                                    f"Pretty good{f', {user_name}' if user_name else ''}! How are you?",
-                                    f"Great{f', {user_name}' if user_name else ''}! How's yours going?"
-                                ]
-                                import random
-                                response = random.choice(wellbeing_responses)
-                            else:
-                                response = f"Hi {user_name}! How can I help?" if user_name else "Hi! How can I help?"
-                        else:
-                            response = llm_response.response or "Hi there!"
+                        # No hardcoded greetings: use learned greetings if LLM unavailable/denied
+                        response = self._learned_greeting_response(
+                            user_input=user_input,
+                            user_name=user_name,
+                            asked_how=asked_how,
+                        ) or llm_response.response
                     
                     if response and not asked_how:
                         response = re.sub(
@@ -2841,7 +3037,7 @@ class ALICE:
                             response,
                             flags=re.IGNORECASE
                         ).strip()
-                        if not response:
+                        if not response and getattr(self, "llm_gateway", None):
                             # Retry via gateway without wellbeing
                             retry_response = self.llm_gateway.request(
                                 prompt="Give a short greeting only. Do not comment on your wellbeing.",
@@ -2849,7 +3045,7 @@ class ALICE:
                                 use_history=False,
                                 user_input=user_input
                             )
-                            response = retry_response.response if retry_response.success else "Hi there!"
+                            response = retry_response.response if retry_response.success else None
                     if response:
                         # Store as learned pattern for future use
                         if getattr(self, 'learning_engine', None):
@@ -5085,9 +5281,10 @@ class ALICE:
             
             # Greet user
             greeting = self._get_greeting()
-            print(f"\nA.L.I.C.E: {greeting}\n")
-            
-            if self.speech and self.voice_enabled:
+            if greeting:
+                print(f"\nA.L.I.C.E: {greeting}\n")
+
+            if greeting and self.speech and self.voice_enabled:
                 self.speech.speak(greeting, blocking=False)
         
         while self.running:
@@ -5628,6 +5825,15 @@ class ALICE:
             if hasattr(self.conversational_engine, 'learned_greetings') and self.conversational_engine.learned_greetings:
                 if hasattr(self.conversational_engine, '_pick_non_repeating'):
                     return self.conversational_engine._pick_non_repeating(self.conversational_engine.learned_greetings)
+
+        learned = self._learned_greeting_response(
+            user_input="greeting",
+            user_name=name,
+            asked_how=False,
+            time_context=time_context,
+        )
+        if learned:
+            return learned
         
         # Fallback to Gateway for natural greeting generation
         prompt = f"""Generate a brief, natural greeting for the user who just started the session.
@@ -5647,13 +5853,31 @@ Generate only the greeting (1 sentence), no other text. Be friendly and offer to
             )
             if llm_response.success and llm_response.response:
                 greeting = llm_response.response.strip().strip('"').strip("'")
+                if self.phrasing_learner:
+                    self.phrasing_learner.record_phrasing(
+                        alice_thought={
+                            'type': 'greeting',
+                            'data': {
+                                'user_input': 'greeting',
+                                'user_name': name,
+                                'asked_how': False,
+                                'time_context': time_context,
+                            },
+                        },
+                        ollama_phrasing=greeting,
+                        context={
+                            'tone': 'friendly',
+                            'intent': 'greeting',
+                            'user_input': 'greeting',
+                            'time_context': time_context,
+                        },
+                    )
                 return greeting
-            else:
-                # Policy denied - use simple greeting
-                return f"Hey {name}, how can I help?"
-        except Exception as e:
-            # Ultimate fallback
-            return f"Hey {name}, how can I help?"
+        except Exception:
+            pass
+
+        # No hardcoded greeting fallback: if no LLM and no learned greeting yet, stay silent.
+        return ""
     
     def _get_farewell(self) -> str:
         """Generate context-aware farewell using ALICE's conversational abilities"""

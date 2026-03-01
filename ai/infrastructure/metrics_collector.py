@@ -221,11 +221,26 @@ class MetricsCollector:
         self,
         model: str,
         duration: float,
-        success: bool,
+        success: bool = True,
         input_tokens: int = 0,
         output_tokens: int = 0,
+        tokens: Optional[int] = None,
     ):
         """Track LLM API call"""
+        # Backward compatibility:
+        # - Some callers pass `tokens=` as a single combined count
+        # - Older positional usage: track_llm_call(model, duration, tokens, success)
+        if not isinstance(success, bool) and isinstance(success, (int, float)):
+            if isinstance(input_tokens, bool):
+                tokens = int(success)
+                success = bool(input_tokens)
+                input_tokens = 0
+
+        if tokens is not None:
+            token_value = max(0, int(tokens))
+            if output_tokens <= 0 and token_value > 0:
+                output_tokens = token_value
+
         if self.enable_prometheus:
             self.llm_calls.labels(model=model, success=str(success)).inc()
             self.llm_duration.labels(model=model).observe(duration)
