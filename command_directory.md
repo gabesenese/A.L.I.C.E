@@ -27,6 +27,39 @@ python app/main.py --debug
 python app/main.py --test-mode
 ```
 
+### Auto-Activate Virtual Environment
+
+**Option 1: VS Code Settings (Recommended)**
+Create `.vscode/settings.json` in project root:
+```json
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+    "python.terminal.activateEnvironment": true
+}
+```
+VS Code will now auto-activate venv in integrated terminals!
+
+**Option 2: PowerShell Profile (Global)**
+```powershell
+# Edit PowerShell profile
+notepad $PROFILE
+
+# Add these lines:
+Set-Location C:\Users\Gabriel\Desktop\dev\A.L.I.C.E
+& C:\Users\Gabriel\Desktop\dev\A.L.I.C.E\.venv\Scripts\Activate.ps1
+```
+⚠️ Warning: Activates venv in ALL PowerShell sessions
+
+**Option 3: Create dev.bat (Project-Specific)**
+Create `dev.bat` in project root:
+```batch
+@echo off
+cd /d C:\Users\Gabriel\Desktop\dev\A.L.I.C.E
+call .venv\Scripts\activate.bat
+cmd /k
+```
+Double-click or run `dev.bat` to open CMD with venv activated
+
 ---
 
 ## 📋 Table of Contents
