@@ -789,8 +789,11 @@ class TemporalParser:
         else:
             # Try parsedatetime for relative expressions
             if self.cal is not None:
-                time_struct, parse_status = self.cal.parse(text)
-                if parse_status > 0:
+                time_struct, parse_context = self.cal.parse(text)
+                # In parsedatetime 2.x+, parse returns (time_struct, pdtContext)
+                # pdtContext.hasDateOrTime returns True if parsing was successful
+                parse_success = parse_context.hasDateOrTime if hasattr(parse_context, 'hasDateOrTime') else parse_context > 0
+                if parse_success:
                     parsed_dt = datetime(*time_struct[:6])
                     result["date"] = parsed_dt.strftime("%Y-%m-%d")
                     result["time"] = parsed_dt.strftime("%H:%M")
@@ -2439,15 +2442,31 @@ class NLPProcessor:
         if text_lower.startswith("/debug tokens"):
             return "system:debug_tokens", 0.98
 
+        mapped = None  # Initialize to prevent UnboundLocalError
         if parsed_command and parsed_command.object_type == "note":
-            action_map = {
-                "query_exist": "notes:list",
-                "list": "notes:list",
-                "read": "notes:read",
-                "append": "notes:append",
-                "create": "notes:create",
-            }
-            mapped = action_map.get(parsed_command.action)
+            # Check if this is actually a file operation (e.g., "read the file called notes.txt")
+            has_file_context = (
+                "file" in text_lower or 
+                ".txt" in text_lower or 
+                ".pdf" in text_lower or 
+                ".csv" in text_lower or 
+                ".json" in text_lower or
+                ".yaml" in text_lower or 
+                ".md" in text_lower or
+                "folder" in text_lower or 
+                "directory" in text_lower
+            )
+            
+            # If file context exists, skip note mapping and let file patterns handle it
+            if not has_file_context:
+                action_map = {
+                    "query_exist": "notes:list",
+                    "list": "notes:list",
+                    "read": "notes:read",
+                    "append": "notes:append",
+                    "create": "notes:create",
+                }
+                mapped = action_map.get(parsed_command.action)
             if mapped:
                 return mapped, 0.88
 
@@ -2469,6 +2488,53 @@ class NLPProcessor:
             for word in ["usage", "available", "how much", "low", "check", "is"]
         ):
             return "system:status", 0.9
+
+        # File operations - MUST CHECK BEFORE notes (to prevent "notes.txt" matching notes plugin)
+        # These patterns check for explicit file context markers like "file", "document", file extensions
+        has_file_marker = (
+            "file" in text_lower or 
+            "document" in text_lower or
+            ".txt" in text_lower or 
+            ".pdf" in text_lower or 
+            ".csv" in text_lower or 
+            ".json" in text_lower or 
+            ".yaml" in text_lower or 
+            ".md" in text_lower or
+            "folder" in text_lower or 
+            "directory" in text_lower
+        )
+        
+        if has_file_marker:
+            # Create: "create/make/new + file" 
+            if any(word in text_lower for word in ["create", "make", "new"]):
+                return "file_operations:create", 0.95
+            # Read: "read/open/show + file/contents"
+            if any(word in text_lower for word in ["read", "open", "show", "display", "view"]):
+                return "file_operations:read", 0.95
+            # Delete: "delete/remove + file"
+            if any(word in text_lower for word in ["delete", "remove", "trash"]):
+                return "file_operations:delete", 0.95
+            # Move: "move/rename + file"
+            if any(word in text_lower for word in ["move", "rename", "relocate"]):
+                return "file_operations:move", 0.95
+            # List: "list/show + files"
+            if any(word in text_lower for word in ["list", "show"]):
+                return "file_operations:list", 0.95
+
+        # Memory operations - user preference/recall patterns
+        # Store: "remember/save/keep + that/this"
+        if any(word in text_lower for word in ["remember", "keep in mind", "save this"]) and any(
+            word in text_lower for word in ["that", "this", "i", "my", "prefer"]
+        ):
+            return "memory:store", 0.95
+        # Recall: "what do you remember/know about"
+        if any(phrase in text_lower for phrase in ["what do you remember", "do you remember", "what do you know"]):
+            return "memory:recall", 0.95
+        # Search: "what did we talk about/discuss"
+        if any(phrase in text_lower for phrase in ["what did we", "what have we", "what did i"]) and any(
+            word in text_lower for word in ["talk", "discuss", "say", "tell"]
+        ):
+            return "memory:search", 0.95
 
         # Email intents - VERY explicit: action word + email word (0.85-0.9 confidence)
         # Compose: "compose/draft/write + email/mail"

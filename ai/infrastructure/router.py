@@ -311,8 +311,8 @@ class RequestRouter:
         self, intent: str, confidence: float, entities: Dict[str, Any], user_text: str
     ) -> bool:
         """Check if we should ask for clarification instead of executing tool"""
-        # Always clarify if confidence is very low
-        if confidence < 0.7:
+        # Always clarify if confidence is very low (reduced from 0.7 to 0.4)
+        if confidence < 0.4:
             # Check if text has strong domain keywords
             text_lower = user_text.lower()
 
@@ -336,26 +336,35 @@ class RequestRouter:
             # If we detected a domain, check for domain keywords
             if domain and domain in self.DOMAIN_KEYWORDS:
                 keywords = self.DOMAIN_KEYWORDS[domain]
-                # If text contains at least 2 domain keywords, don't clarify
+                # If text contains at least 1 strong domain keyword (lowered from 2), don't clarify
                 keyword_count = sum(1 for kw in keywords if kw in text_lower)
-                if keyword_count >= 2:
+                if keyword_count >= 1:
                     return False
 
-            # Check for vague patterns
-            vague_patterns = [
-                "question about",
-                "tell me about",
-                "what about",
-                "curious about",
-                "wondering about",
-                "ask you about",
-                "know about",
-                "information on",
-                "details on",
-            ]
+            # Check for vague patterns - but only if there's no clear action verb
+            # Action verbs indicate specific intent, not vagueness
+            action_verbs = ["create", "make", "read", "open", "delete", "remove", "move", "rename", 
+                          "send", "reply", "search", "find", "list", "show", "get", "set",
+                          "remember", "recall", "forget", "store", "save"]
+            
+            has_action = any(verb in text_lower for verb in action_verbs)
+            
+            # Only check vague patterns if there's no clear action
+            if not has_action:
+                vague_patterns = [
+                    "question about",
+                    "tell me about",
+                    "what about",
+                    "curious about",
+                    "wondering about",
+                    "ask you about",
+                    "know about",
+                    "information on",
+                    "details on",
+                ]
 
-            if any(pattern in text_lower for pattern in vague_patterns):
-                return True
+                if any(pattern in text_lower for pattern in vague_patterns):
+                    return True
 
         return False
 

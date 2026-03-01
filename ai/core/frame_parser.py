@@ -73,7 +73,7 @@ _FRAMES: List[FrameDefinition] = [
     FrameDefinition(
         name="CREATE_NOTE",
         plugin="notes",
-        action="create_note",
+        action="create",
         trigger_keywords=[
             "create",
             "write",
@@ -105,7 +105,7 @@ _FRAMES: List[FrameDefinition] = [
     FrameDefinition(
         name="READ_NOTE",
         plugin="notes",
-        action="get_note_content",
+        action="read",
         trigger_keywords=[
             "read",
             "open",
@@ -135,7 +135,7 @@ _FRAMES: List[FrameDefinition] = [
     FrameDefinition(
         name="SEARCH_NOTE",
         plugin="notes",
-        action="search_notes",
+        action="search",
         trigger_keywords=[
             "find",
             "search",
@@ -164,7 +164,7 @@ _FRAMES: List[FrameDefinition] = [
     FrameDefinition(
         name="LIST_NOTES",
         plugin="notes",
-        action="list_notes",
+        action="list",
         trigger_keywords=[
             "list",
             "show all",
@@ -191,7 +191,7 @@ _FRAMES: List[FrameDefinition] = [
     FrameDefinition(
         name="UPDATE_NOTE",
         plugin="notes",
-        action="update_note",
+        action="update",
         trigger_keywords=[
             "update",
             "edit",
@@ -217,7 +217,7 @@ _FRAMES: List[FrameDefinition] = [
     FrameDefinition(
         name="DELETE_NOTE",
         plugin="notes",
-        action="delete_note",
+        action="delete",
         trigger_keywords=[
             "delete",
             "remove",
@@ -240,7 +240,7 @@ _FRAMES: List[FrameDefinition] = [
     FrameDefinition(
         name="ARCHIVE_NOTE",
         plugin="notes",
-        action="archive_note",
+        action="archive",
         trigger_keywords=["archive", "store away", "put away", "stash"],
         trigger_patterns=[
             r"\b(archive|store\s+away|put\s+away|stash)\b.{0,20}\bnote\b",
