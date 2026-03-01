@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Ignore JSON artifacts globally
+*.json
+*.jsonl
+!data/samples/
+!data/samples/**/*.json
+
 
 # logs
 *.log

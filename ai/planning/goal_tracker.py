@@ -7,7 +7,8 @@ and learn patterns about what sequences of tool calls typically succeed.
 
 import json
 import os
-from typing import Dict, List, Any, Optional, Set
+import re
+from typing import Dict, List, Any, Optional, Set, Tuple
 from enum import Enum
 from datetime import datetime
 from dataclasses import dataclass, asdict, field
@@ -167,12 +168,105 @@ class GoalTracker:
         self.history_file = history_file
         self.active_goals: Dict[str, GoalRecord] = {}
         self.goal_counter = 0
-        self.tool_sequence_stats: Dict[str, Dict[str, Any]] = (
+        self.tool_sequence_stats: Dict[Tuple[Tuple[str, str], ...], Dict[str, Any]] = (
             {}
         )  # Sequence → success rate
+        self.intent_sequence_stats: Dict[
+            str, Dict[Tuple[Tuple[str, str], ...], Dict[str, Any]]
+        ] = {}
 
         os.makedirs(os.path.dirname(history_file) or ".", exist_ok=True)
         self._load_history()
+
+    def _normalize_sequence(
+        self, sequence: Optional[List[Any]]
+    ) -> Tuple[Tuple[str, str], ...]:
+        """Normalize sequence values loaded from JSON into hashable ((tool, action), ...)."""
+        if not sequence:
+            return tuple()
+
+        normalized: List[Tuple[str, str]] = []
+        for step in sequence:
+            if isinstance(step, (list, tuple)) and len(step) >= 2:
+                tool = str(step[0])
+                action = str(step[1])
+                normalized.append((tool, action))
+        return tuple(normalized)
+
+    def _update_stats_bucket(
+        self,
+        bucket: Dict[Tuple[Tuple[str, str], ...], Dict[str, Any]],
+        sequence: Tuple[Tuple[str, str], ...],
+        success: bool,
+    ):
+        """Update cumulative stats for a sequence bucket."""
+        if sequence not in bucket:
+            bucket[sequence] = {
+                "count": 0,
+                "successes": 0,
+                "failures": 0,
+                "success_rate": 0.0,
+            }
+
+        stats = bucket[sequence]
+        stats["count"] += 1
+        if success:
+            stats["successes"] += 1
+        else:
+            stats["failures"] += 1
+        stats["success_rate"] = stats["successes"] / stats["count"]
+
+    def detect_goal(self, user_input: str) -> Optional[Dict[str, Any]]:
+        """Best-effort goal detection used by planning facade."""
+        if not user_input:
+            return None
+
+        text = user_input.strip()
+        lowered = text.lower()
+        if len(text) < 8:
+            return None
+
+        goal_patterns = [
+            r"\b(i need to|i want to|help me|can you|please)\b",
+            r"\b(plan|schedule|organize|set up|create|draft|summarize)\b",
+        ]
+        if not any(re.search(pattern, lowered) for pattern in goal_patterns):
+            return None
+
+        intent = "conversation:general"
+        if "email" in lowered:
+            intent = "email:compose"
+        elif "note" in lowered or "notes" in lowered:
+            intent = "notes:create"
+        elif "calendar" in lowered or "schedule" in lowered:
+            intent = "calendar:create"
+        elif "weather" in lowered or "forecast" in lowered:
+            intent = "weather:forecast"
+
+        return {
+            "description": text[:240],
+            "intent": intent,
+            "confidence": 0.68,
+        }
+
+    def get_active_goals(self) -> List[Dict[str, Any]]:
+        """Return active goals in a UI-friendly structure."""
+        goals: List[Dict[str, Any]] = []
+        for goal in self.active_goals.values():
+            goals.append(
+                {
+                    "id": goal.id,
+                    "description": goal.description,
+                    "intent": goal.intent,
+                    "status": goal.status.value
+                    if isinstance(goal.status, GoalStatus)
+                    else str(goal.status),
+                    "created_at": goal.created_at,
+                    "subgoal_count": len(goal.subgoals),
+                    "tool_call_count": len(goal.tool_call_sequence),
+                }
+            )
+        return sorted(goals, key=lambda item: item.get("created_at", ""), reverse=True)
 
     def create_goal(self, description: str, intent: str) -> str:
         """
@@ -298,25 +392,17 @@ class GoalTracker:
         Learn from a completed goal.
         Track which tool sequences succeed/fail.
         """
-        sequence = tuple(goal.get_tool_sequence())
+        sequence = self._normalize_sequence(goal.get_tool_sequence())
 
-        if sequence not in self.tool_sequence_stats:
-            self.tool_sequence_stats[sequence] = {
-                "count": 0,
-                "successes": 0,
-                "failures": 0,
-                "success_rate": 0.0,
-            }
+        self._update_stats_bucket(self.tool_sequence_stats, sequence, goal.success)
+
+        if goal.intent not in self.intent_sequence_stats:
+            self.intent_sequence_stats[goal.intent] = {}
+        self._update_stats_bucket(
+            self.intent_sequence_stats[goal.intent], sequence, goal.success
+        )
 
         stats = self.tool_sequence_stats[sequence]
-        stats["count"] += 1
-
-        if goal.success:
-            stats["successes"] += 1
-        else:
-            stats["failures"] += 1
-
-        stats["success_rate"] = stats["successes"] / stats["count"]
 
         logger.info(
             f"[GoalTracker] Learned sequence {sequence}: "
@@ -333,24 +419,24 @@ class GoalTracker:
         if not os.path.exists(self.history_file):
             return
 
-        with open(self.history_file, "r") as f:
+        with open(self.history_file, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     try:
                         record = json.loads(line)
-                        sequence = tuple(record["tool_sequence"])
-                        if "success_rate" in record or record.get("success"):
-                            self.tool_sequence_stats[sequence] = {
-                                "count": 1,
-                                "successes": 1 if record.get("success") else 0,
-                                "failures": 0 if record.get("success") else 1,
-                                "success_rate": float(
-                                    record.get(
-                                        "success_rate",
-                                        1.0 if record.get("success") else 0.0,
-                                    )
-                                ),
-                            }
+                        sequence = self._normalize_sequence(record.get("tool_sequence"))
+                        if not sequence:
+                            continue
+                        success = bool(record.get("success"))
+                        self._update_stats_bucket(self.tool_sequence_stats, sequence, success)
+
+                        intent = str(record.get("intent") or "").strip()
+                        if intent:
+                            if intent not in self.intent_sequence_stats:
+                                self.intent_sequence_stats[intent] = {}
+                            self._update_stats_bucket(
+                                self.intent_sequence_stats[intent], sequence, success
+                            )
                     except Exception as e:
                         logger.warning(f"Failed to load history record: {e}")
 
@@ -393,11 +479,13 @@ class GoalTracker:
         Returns:
             List of recommended sequences or None
         """
-        # Find goals with this intent that succeeded
+        intent_bucket = self.intent_sequence_stats.get(intent, {})
+        source_bucket = intent_bucket if intent_bucket else self.tool_sequence_stats
+
         successful_sequences = [
             seq
-            for seq, stats in self.tool_sequence_stats.items()
-            if stats["success_rate"] > 0.7  # High success rate
+            for seq, stats in source_bucket.items()
+            if stats["success_rate"] > 0.7
         ]
 
         if successful_sequences:
@@ -426,6 +514,7 @@ class GoalTracker:
             "total_sequences_learned": total_sequences,
             "successful_sequences": successful_sequences,
             "average_success_rate": avg_success_rate,
+            "intents_tracked": len(self.intent_sequence_stats),
             "top_sequences": [
                 {
                     "sequence": seq,
