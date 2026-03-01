@@ -102,7 +102,7 @@ class ContinuousImprovementPipeline:
         
         output_file = self.results_dir / f"test_run_iter{self.current_iteration}.txt"
         
-        cmd = [sys.executable, "test_scenarios.py", "--output", str(output_file)]
+        cmd = [sys.executable, "test_scenarios.py"]
         
         if only_failed:
             # Create temporary scenarios file with only failed tests
@@ -111,16 +111,61 @@ class ContinuousImprovementPipeline:
             cmd.extend(["--scenarios", str(temp_scenarios)])
         
         print(f"Running command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
         
-        # Parse results from output
-        results = self._parse_test_output(output_file)
+        # Save console output to file
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(result.stdout)
+            if result.stderr:
+                f.write("\n\n=== STDERR ===\n")
+                f.write(result.stderr)
+        
+        # Parse results from console output
+        results = self._parse_test_output_console(result.stdout)
         
         print(f"\n✓ Tests completed: {results['pass_rate']:.1f}% pass rate")
         print(f"  - Passed: {len(results['passed'])}")
         print(f"  - Failed: {len(results['failed'])}")
         
         return results
+    
+    def _parse_test_output_console(self, console_output: str) -> Dict[str, Any]:
+        """Parse test console output to extract results."""
+        if not console_output:
+            return {"pass_rate": 0, "passed": [], "failed": [], "total": 0}
+        
+        # Parse the summary line
+        passed, failed = [], []
+        
+        lines = console_output.split('\n')
+        for i, line in enumerate(lines):
+            if line.startswith('[') and ']' in line:
+                # Parse individual test results
+                # Look for PASS or FAIL markers (handle encoding issues)
+                next_line = lines[i + 1] if i + 1 < len(lines) else ""
+                
+                if 'PASS' in next_line or '✓' in next_line:
+                    scenario_id = self._extract_scenario_id(line)
+                    if scenario_id:
+                        passed.append(scenario_id)
+                elif 'FAIL' in next_line or '✗' in next_line:
+                    scenario_id = self._extract_scenario_id(line)
+                    if scenario_id:
+                        # Extract failure details from following lines
+                        failure_info = self._extract_failure_details_console(line, lines, i)
+                        failed.append(failure_info)
+        
+        total = len(passed) + len(failed)
+        pass_rate = (len(passed) / total * 100) if total > 0 else 0
+        
+        print(f"  Parsed: {len(passed)} passed, {len(failed)} failed")
+        
+        return {
+            "pass_rate": pass_rate,
+            "passed": passed,
+            "failed": failed,
+            "total": total
+        }
     
     def _parse_test_output(self, output_file: Path) -> Dict[str, Any]:
         """Parse test output file to extract results."""
@@ -188,6 +233,41 @@ class ContinuousImprovementPipeline:
                                 "expected": parts[1],
                                 "actual": parts[3]
                             }
+                return {
+                    "scenario_id": scenario_id,
+                    "error_type": "unknown",
+                    "details": error_line
+                }
+        
+        return {"scenario_id": scenario_id, "error_type": "unknown"}
+    
+    def _extract_failure_details_console(self, test_line: str, lines: List[str], line_index: int) -> Dict[str, Any]:
+        """Extract detailed failure information from console output."""
+        scenario_id = self._extract_scenario_id(test_line)
+        
+        # Look for error details in the next few lines after the test line
+        for offset in range(1, min(5, len(lines) - line_index)):
+            error_line = lines[line_index + offset].strip()
+            
+            # Skip empty lines and progress indicators
+            if not error_line or error_line.startswith('[') or 'timestamp' in error_line.lower():
+                continue
+            
+            # Check for intent mismatch
+            if 'Intent mismatch' in error_line or 'intent mismatch' in error_line.lower():
+                # Extract expected and actual from the error line
+                # Format: "Intent mismatch: expected 'X', got 'Y'"
+                parts = error_line.split("'")
+                if len(parts) >= 4:
+                    return {
+                        "scenario_id": scenario_id,
+                        "error_type": "intent_mismatch",
+                        "expected": parts[1],
+                        "actual": parts[3]
+                    }
+            
+            # Check for other error types
+            if 'error' in error_line.lower() or 'fail' in error_line.lower():
                 return {
                     "scenario_id": scenario_id,
                     "error_type": "unknown",
