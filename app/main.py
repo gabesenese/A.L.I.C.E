@@ -114,6 +114,9 @@ from ai.infrastructure.structured_logging import get_structured_logger, configur
 from ai.infrastructure.task_queue import get_task_queue, initialize_task_queue
 from ai.infrastructure.database_pool import get_connection_pool, initialize_database, DatabaseConfig, DatabaseType
 
+# Foundation Systems - Response Variance, Personality Evolution, Context Graph
+from ai.foundation_integration import FoundationIntegration
+
 # Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -212,6 +215,20 @@ class ALICE:
         self.structured_logger.info("Production infrastructure ready", component='infrastructure')
         
         # ===== END PRODUCTION INFRASTRUCTURE =====
+        
+        # ===== FOUNDATION SYSTEMS INITIALIZATION =====
+        logger.info("=" * 80)
+        logger.info("Initializing Foundation Systems")
+        logger.info("=" * 80)
+        
+        # Initialize foundation systems (Response Variance, Personality Evolution, Context Graph)
+        # These will be used alongside existing systems during migration
+        self.foundations = None  # Will be initialized after LLM engine is ready
+        self.foundation_mode = "parallel"  # "parallel", "primary", or "exclusive"
+        self.structured_logger.info("Foundation systems will initialize after LLM engine", component='foundations')
+        
+        logger.info("=" * 80)
+        # ===== END FOUNDATION SYSTEMS =====
         
         # Conversation state for context-aware operations
         self.last_email_list = []  # Store last displayed email list
@@ -416,9 +433,27 @@ class ALICE:
             logger.info("[OK] Capability registry ready - Alice knows her own capabilities")
 
             # 4. LLM Engine
-            logger.info(" Loading LLM engine...")
+            logger.info("🧠 Loading LLM engine...")
             llm_config = LLMConfig(model=llm_model)
             self.llm = LocalLLMEngine(llm_config)
+
+            # 4.0. Foundation Systems Integration
+            logger.info("🎯 Initializing Foundation Systems...")
+            try:
+                self.foundations = FoundationIntegration(
+                    llm_generator=self.llm,
+                    phrasing_learner=getattr(self, 'phrasing_learner', None)
+                )
+                self.structured_logger.info(
+                    "Foundation systems initialized",
+                    component='foundations',
+                    mode=self.foundation_mode
+                )
+                logger.info("[OK] Foundation systems ready - Response Variance, Personality Evolution, Context Graph active")
+            except Exception as e:
+                logger.error(f"[ERROR] Foundation systems initialization failed: {e}")
+                self.foundations = None
+                self.structured_logger.error(f"Foundation systems failed: {e}", component='foundations')
 
             # Inject LLM engine into autonomous agent now that it's loaded
             if hasattr(self, 'autonomous_agent'):
@@ -2601,6 +2636,25 @@ class ALICE:
             
             logger.info(f"User: {user_input}")
             
+            # ===== FOUNDATION FEEDBACK LEARNING =====
+            # Learn from previous interaction based on user's current input
+            if self.foundations and hasattr(self, '_last_interaction'):
+                try:
+                    last_input = self._last_interaction.get('input')
+                    last_response = self._last_interaction.get('response')
+                    if last_input and last_response:
+                        # Current user input serves as implicit feedback
+                        self.foundations.learn_from_feedback(
+                            user_id="Gabriel",
+                            user_input=last_input,
+                            alice_response=last_response,
+                            user_reaction=user_input
+                        )
+                        self._think("Foundation learning from previous interaction")
+                except Exception as e:
+                    logger.debug(f"Foundation feedback learning error: {e}")
+            # ===== END FOUNDATION FEEDBACK =====
+            
             # 0. Check for commands first (before any processing)
             if user_input.startswith('/'):
                 # This is a command, not a conversational input
@@ -3730,6 +3784,42 @@ class ALICE:
                 if plugin_result.get('formulate', False):
                     self._think(f"Plugin requested formulation → Alice will learn to respond")
 
+                # Foundation System Integration: Context-aware response generation
+                if self.foundations and self.foundation_mode in ["primary", "exclusive"]:
+                    try:
+                        self._think(f"Foundation systems active (mode={self.foundation_mode}) → generating context-aware response")
+                        foundation_result = self.foundations.process_interaction(
+                            user_id="Gabriel",  # TODO: Extract from session/context
+                            user_input=user_input,
+                            intent=intent,
+                            entities=entities or {},
+                            plugin_result=plugin_result
+                        )
+                        response = foundation_result.get('response')
+                        route_taken = 'foundations'
+                        self._think(f"Foundation response generated: {response[:100] if response else 'None'}...")
+                    except Exception as e:
+                        logger.error(f"Foundation system error: {e}", exc_info=True)
+                        if self.foundation_mode == "exclusive":
+                            response = "I encountered an issue formulating my response."
+                        # If mode is "primary", fall through to existing system
+                        
+                elif self.foundations and self.foundation_mode == "parallel":
+                    # Parallel mode: Run foundation system but still use old system for output
+                    try:
+                        self._think("Foundation parallel mode → running both systems for comparison")
+                        foundation_result = self.foundations.process_interaction(
+                            user_id="Gabriel",
+                            user_input=user_input,
+                            intent=intent,
+                            entities=entities or {},
+                            plugin_result=plugin_result
+                        )
+                        foundation_response = foundation_result.get('response')
+                        logger.info(f"Foundation (parallel): {foundation_response[:100] if foundation_response else 'None'}...")
+                    except Exception as e:
+                        logger.error(f"Foundation parallel error: {e}", exc_info=True)
+
                 # Existing flow: Formulate response if not already done
                 if not response:
                     # Step 1: Alice formulates her response based on plugin data
@@ -4411,6 +4501,14 @@ class ALICE:
             )
 
             logger.info(f"A.L.I.C.E: {response[:100]}...")
+            
+            # Store interaction for next-turn feedback learning
+            if self.foundations:
+                self._last_interaction = {
+                    'input': user_input,
+                    'response': response
+                }
+            
             return response
             
         except Exception as e:
