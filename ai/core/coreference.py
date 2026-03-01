@@ -62,7 +62,7 @@ class EntityMention:
 
 @dataclass
 class ResolvedText:
-    """Output of the coreference resolver."""
+    """Output of the coreference resolver with ambiguity support."""
 
     text: str  # resolved utterance
     resolved: bool  # was any substitution made?
@@ -70,6 +70,8 @@ class ResolvedText:
     resolved_value: Any  # the actual value substituted
     confidence: float  # 0.0–1.0
     substitution_map: Dict[str, str] = field(default_factory=dict)
+    candidates: List[Any] = field(default_factory=list)  # Alternative resolutions (ambiguity)
+    needs_clarification: bool = False  # True if confidence < threshold with multiple candidates
 
 
 # ---------------------------------------------------------------------------
@@ -307,11 +309,13 @@ class AdvancedCoreferenceResolver:
 
     def __init__(self, memory: Optional[DialogueMemory] = None):
         self.memory = memory or DialogueMemory()
+        self.ambiguity_threshold = 0.75  # Confidence threshold for ambiguity detection
 
     def resolve(self, text: str, context: Dict[str, Any]) -> ResolvedText:
         """
-        Main entry point.  Returns ResolvedText — always contains final `text`
-        (possibly identical to input if nothing was resolved).
+        Main entry point.  Returns ResolvedText with ambiguity detection.
+        
+        If confidence < threshold and multiple candidates exist, marks needs_clarification.
         """
         # Skip resolution for idiomatic/vague phrases
         if self._RE_NO_RESOLVE.search(text):
@@ -323,9 +327,15 @@ class AdvancedCoreferenceResolver:
                 confidence=0.0,
             )
         original = text
-        text, sub_map, etype, evalue, conf = self._apply_resolutions(text, context)
+        text, sub_map, etype, evalue, conf, candidates = self._apply_resolutions(text, context)
 
         resolved = text != original
+        needs_clarification = (
+            conf < self.ambiguity_threshold 
+            and len(candidates) > 1 
+            and resolved
+        )
+        
         return ResolvedText(
             text=text,
             resolved=resolved,
@@ -333,6 +343,8 @@ class AdvancedCoreferenceResolver:
             resolved_value=evalue,
             confidence=conf,
             substitution_map=sub_map,
+            candidates=candidates,
+            needs_clarification=needs_clarification,
         )
 
     def resolve_text(self, text: str, context: Dict[str, Any]) -> str:
@@ -348,6 +360,7 @@ class AdvancedCoreferenceResolver:
         etype: Optional[str] = None
         evalue: Any = None
         conf: float = 0.0
+        candidates: List[Any] = []  # Track alternative resolutions
 
         result_set = self.memory.get_result_set()
 
@@ -374,6 +387,7 @@ class AdvancedCoreferenceResolver:
                     text = text[: m.start()] + replacement + text[m.end() :]
                     sub_map[old] = replacement
                     etype, evalue, conf = "ORDINAL_REF", target, 0.92
+                    candidates = [target]  # Ordinal is unambiguous
                     logger.info("[COREF] ORDINAL '%s' -> '%s'", old, replacement)
                 except IndexError:
                     pass
@@ -382,27 +396,31 @@ class AdvancedCoreferenceResolver:
         m = self._RE_ATTRIBUTE_TAG.search(text)
         if m and not etype:
             tag_query = m.group(1).strip().lower()
-            # Find the first note in results that has this tag (if we have tag info)
-            candidate = self._find_by_attribute(tag_query, "tags", result_set)
-            if candidate:
+            # Find ALL notes that match this tag for ambiguity detection
+            all_candidates = self._find_all_by_attribute(tag_query, "tags", result_set)
+            if all_candidates:
+                candidate = all_candidates[0]  # Pick first
                 old = m.group(0)
                 replacement = f'"{candidate}"'
                 text = text.replace(old, replacement, 1)
                 sub_map[old] = replacement
                 etype, evalue, conf = "ATTRIBUTE_REF", candidate, 0.85
+                candidates = all_candidates
                 logger.info("[COREF] ATTRIBUTE-TAG '%s' -> '%s'", old, replacement)
 
         # 3. ATTRIBUTE_REF by keyword
         m = self._RE_ATTRIBUTE_WORD.search(text)
         if m and not etype:
             keyword = m.group(1).strip().lower()
-            candidate = self._find_by_keyword(keyword, result_set)
-            if candidate:
+            all_candidates = self._find_all_by_keyword(keyword, result_set)
+            if all_candidates:
+                candidate = all_candidates[0]
                 old = m.group(0)
                 replacement = f'"{candidate}"'
                 text = text.replace(old, replacement, 1)
                 sub_map[old] = replacement
                 etype, evalue, conf = "ATTRIBUTE_REF", candidate, 0.82
+                candidates = all_candidates
                 logger.info("[COREF] ATTRIBUTE-KW '%s' -> '%s'", old, replacement)
 
         # 4. RECENCY_REF
@@ -412,10 +430,12 @@ class AdvancedCoreferenceResolver:
             candidate = None
             if result_set:
                 candidate = result_set[-1]
+                candidates = [candidate]
             else:
                 mention = self.memory.last_of_type("NOTE_REF")
                 if mention:
                     candidate = str(mention.value)
+                    candidates = [candidate]
             if candidate:
                 old = m.group(0)
                 replacement = f'"{candidate}"'
@@ -428,40 +448,56 @@ class AdvancedCoreferenceResolver:
         m = self._RE_DESCRIPTIVE.search(text)
         if m and not etype:
             descriptor = m.group(1).lower()
-            candidate = self._find_by_keyword(descriptor, result_set)
-            if candidate:
+            all_candidates = self._find_all_by_keyword(descriptor, result_set)
+            if all_candidates:
+                candidate = all_candidates[0]
                 old = m.group(0)
                 replacement = f'"{candidate}"'
                 text = text.replace(old, replacement, 1)
                 sub_map[old] = replacement
                 etype, evalue, conf = "DESCRIPTIVE_REF", candidate, 0.80
+                candidates = all_candidates
                 logger.info("[COREF] DESCRIPTIVE '%s' -> '%s'", old, replacement)
 
         # 6. DOMAIN_PRONOUN ("the note", "the file")
         m = self._RE_DOMAIN.search(text)
         if m and not etype:
             candidate = self._last_note_ref(ctx)
+            # Check if multiple notes could apply (ambiguous context)
             if candidate:
+                if result_set and len(result_set) > 1:
+                    candidates = result_set  # Multiple options = ambiguity
+                    conf = 0.65  # Lower confidence due to ambiguity
+                else:
+                    candidates = [candidate]
+                    conf = 0.82
                 old = m.group(0)
                 replacement = f'"{candidate}"'
                 text = text.replace(old, replacement, 1)
                 sub_map[old] = replacement
-                etype, evalue, conf = "DOMAIN_PRONOUN", candidate, 0.82
+                etype, evalue = "DOMAIN_PRONOUN", candidate
                 logger.info("[COREF] DOMAIN '%s' -> '%s'", old, replacement)
 
         # 7. PRONOUN_GENERIC ("it", "that", "this")
         m = self._RE_PRONOUN.search(text)
         if m and not etype:
             candidate = self._last_note_ref(ctx)
+            # Generic pronouns are highly ambiguous with multiple context items
             if candidate:
+                if result_set and len(result_set) > 1:
+                    candidates = result_set
+                    conf = 0.60  # Even lower for generic pronouns
+                else:
+                    candidates = [candidate]
+                    conf = 0.75
                 old = m.group(0)
                 replacement = f'"{candidate}"'
                 text = text.replace(old, replacement, 1)
                 sub_map[old] = replacement
-                etype, evalue, conf = "PRONOUN_GENERIC", candidate, 0.75
+                etype, evalue = "PRONOUN_GENERIC", candidate
                 logger.info("[COREF] PRONOUN '%s' -> '%s'", old, replacement)
 
-        return text, sub_map, etype, evalue, conf
+        return text, sub_map, etype, evalue, conf, candidates
 
     # ------------------------------------------------------------------
     # Lookup helpers
@@ -498,6 +534,28 @@ class AdvancedCoreferenceResolver:
                 return title
         return None
 
+    def _find_all_by_attribute(
+        self, attribute: str, attribute_type: str, result_set: List[str]
+    ) -> List[str]:
+        """Find ALL notes matching an attribute (for ambiguity detection)."""
+        matches = []
+        seen = set()
+        # Check entity chain
+        for mention in reversed(self.memory.all_of_type("NOTE_REF")):
+            if attribute_type == "tags":
+                note_tags = [t.lower() for t in mention.tags]
+                if attribute.lower() in note_tags:
+                    val = str(mention.value)
+                    if val not in seen:
+                        matches.append(val)
+                        seen.add(val)
+        # Check result_set
+        for title in result_set:
+            if attribute in title.lower() and title not in seen:
+                matches.append(title)
+                seen.add(title)
+        return matches
+
     def _find_by_keyword(self, keyword: str, result_set: List[str]) -> Optional[str]:
         """Find a result_set entry whose title contains the keyword."""
         for title in result_set:
@@ -508,6 +566,23 @@ class AdvancedCoreferenceResolver:
             if keyword in str(mention.value).lower():
                 return str(mention.value)
         return None
+
+    def _find_all_by_keyword(self, keyword: str, result_set: List[str]) -> List[str]:
+        """Find ALL entries matching keyword (for ambiguity detection)."""
+        matches = []
+        seen = set()
+        # Check result_set first (most relevant)
+        for title in result_set:
+            if keyword in title.lower():
+                matches.append(title)
+                seen.add(title)
+        # Check entity chain
+        for mention in reversed(self.memory.all_of_type("NOTE_REF")):
+            val = str(mention.value)
+            if keyword in val.lower() and val not in seen:
+                matches.append(val)
+                seen.add(val)
+        return matches
 
 
 # ---------------------------------------------------------------------------

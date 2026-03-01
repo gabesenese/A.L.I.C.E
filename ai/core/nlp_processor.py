@@ -80,6 +80,15 @@ except ImportError:
         "[WARN] Semantic intent classifier not available. Using fallback patterns."
     )
 
+# Entity normalizer (P0 Improvement)
+try:
+    from ai.core.entity_normalizer import get_normalizer as _get_entity_normalizer
+
+    ENTITY_NORMALIZER_AVAILABLE = True
+except ImportError:
+    ENTITY_NORMALIZER_AVAILABLE = False
+    logging.warning("[WARN] Entity normalizer not available. Using raw entities.")
+
 # Advanced NLP stack — Frame Parser, Probabilistic Slot Filler, Advanced Coreference
 try:
     from ai.core.frame_parser import (
@@ -158,6 +167,8 @@ class ProcessedQuery:
     parsed_command: Dict[str, Any] = field(default_factory=dict)
     plugin_scores: Dict[str, float] = field(default_factory=dict)
     token_debug: List[Dict[str, Any]] = field(default_factory=list)
+    validation_score: float = 1.0  # Intent-entity cross-validation (0.0-1.0)
+    validation_issues: List[str] = field(default_factory=list)  # Detected mismatches
 
 
 @dataclass
@@ -1069,6 +1080,12 @@ class NLPProcessor:
             self.prob_slot_filler = None
             self.dialogue_memory = None
 
+        # Entity normalizer (P0 Improvement)
+        if ENTITY_NORMALIZER_AVAILABLE:
+            self.entity_normalizer = _get_entity_normalizer()
+        else:
+            self.entity_normalizer = None
+
         # Conversation context
         self.context = ConversationContext()
 
@@ -1078,6 +1095,20 @@ class NLPProcessor:
 
         # Load learned corrections into pattern matching
         self.learned_corrections = self._load_learned_corrections()
+
+        # Intent-Entity Cross-Validation Matrix (P0 Improvement)
+        # Maps intent prefixes to required/expected entity types
+        self._validation_matrix = {
+            "notes:create": {"required": [], "expected": ["title", "content", "tags"]},
+            "notes:search": {"required": ["query"], "expected": ["tags", "date_range"]},
+            "notes:update": {"required": ["note_id", "title"], "expected": ["content", "tags"]},
+            "notes:delete": {"required": ["note_id", "query"], "expected": []},
+            "music:play": {"required": ["song", "artist"], "expected": ["album", "playlist"]},
+            "calendar:create": {"required": ["event", "date"], "expected": ["time", "location"]},
+            "calendar:search": {"required": ["query", "date_range"], "expected": []},
+            "email:compose": {"required": ["recipient", "subject"], "expected": ["body"]},
+            "email:search": {"required": ["sender", "subject"], "expected": ["date_range"]},
+        }
         self.tokenizer_profile = "default"
         self.command_vocabulary = self._load_command_vocabulary()
         self._plugin_actions = {
@@ -2219,6 +2250,25 @@ class NLPProcessor:
         # Step 4: Slot filling
         slots = self.slot_filler.extract_slots(normalized_text, intent, entities)
 
+        # Step 4.5: Entity Normalization (P0 Improvement)
+        if self.entity_normalizer:
+            for slot_name, slot in slots.items():
+                if not slot.value:
+                    continue
+                # Normalize based on slot type
+                if slot_name == "tags" and isinstance(slot.value, list):
+                    normalized_tags = self.entity_normalizer.normalize_batch(slot.value, "tag")
+                    slot.value = [nt.normalized for nt in normalized_tags]
+                elif slot_name in ("title", "query", "note_id"):
+                    normalized = self.entity_normalizer.normalize(slot.value, "title")
+                    slot.value = normalized.normalized
+                    slot.confidence = min(slot.confidence, normalized.confidence)
+                elif slot_name in ("date", "time", "date_range"):
+                    normalized = self.entity_normalizer.normalize(str(slot.value), "datetime")
+                    if normalized.normalized != str(slot.value):
+                        slot.value = normalized.normalized
+                        slot.confidence = min(slot.confidence, normalized.confidence)
+
         # Step 5: Sentiment analysis
         if self.sentiment_analyzer is not None:
             sentiment = self.sentiment_analyzer.polarity_scores(normalized_text)
@@ -2249,6 +2299,9 @@ class NLPProcessor:
         # Step 9: Check if question
         is_question = self._is_question(normalized_text)
 
+        # Step 10: Intent-Entity Cross-Validation (P0 Improvement)
+        validation_score, validation_issues = self._validate_intent_entity_match(intent, slots)
+
         # Build result
         result = ProcessedQuery(
             original_text=text,
@@ -2266,9 +2319,11 @@ class NLPProcessor:
             parsed_command=parsed_command.__dict__,
             plugin_scores=plugin_scores,
             token_debug=[token.__dict__ for token in rich_tokens],
+            validation_score=validation_score,
+            validation_issues=validation_issues,
         )
 
-        # Step 10: Update conversation context
+        # Step 11: Update conversation context
         if use_context:
             self._update_context(result)
             # Update dialogue memory
@@ -2775,6 +2830,58 @@ class NLPProcessor:
                 self.context.mentioned_songs.append(slot.value)
             elif slot_name == "event":
                 self.context.mentioned_events.append(slot.value)
+
+    def _validate_intent_entity_match(
+        self, intent: str, slots: Dict[str, Slot]
+    ) -> Tuple[float, List[str]]:
+        """
+        Cross-validate intent with extracted entities (P0 Improvement).
+        
+        Returns:
+            (validation_score, issues): Score 0.0-1.0 and list of detected issues
+            
+        Algorithm: Penalize missing required entities, boost matching expected entities
+        Complexity: O(n) where n = number of slots
+        """
+        validation_score = 1.0
+        issues = []
+        
+        # Find matching validation rule
+        rules = self._validation_matrix.get(intent)
+        if not rules:
+            # Try prefix match (e.g., "notes:create_tagged" -> "notes:create")
+            for pattern, rule in self._validation_matrix.items():
+                if intent.startswith(pattern.split(":")[0] + ":"):
+                    rules = rule
+                    break
+        
+        if not rules:
+            return validation_score, issues  # No validation rule for this intent
+        
+        # Extract present slot keys
+        present_slots = {k for k, v in slots.items() if v.value}
+        
+        # Check required entities
+        required = set(rules.get("required", []))
+        missing_required = required - present_slots
+        if missing_required:
+            penalty = 0.25 * len(missing_required)  # -0.25 per missing required entity
+            validation_score -= penalty
+            issues.append(f"Missing required: {', '.join(missing_required)}")
+        
+        # Check expected entities (soft bonus/penalty)
+        expected = set(rules.get("expected", []))
+        if expected:
+            present_expected = expected & present_slots
+            match_ratio = len(present_expected) / len(expected)
+            if match_ratio < 0.5:  # Less than half of expected entities
+                validation_score -= 0.1
+                issues.append(f"Few expected entities: {match_ratio:.0%}")
+        
+        # Bonus for having unexpected but relevant entities (don't penalize creativity)
+        validation_score = max(0.0, min(1.0, validation_score))
+        
+        return validation_score, issues
 
     def _clean_text(self, text: str) -> str:
         """Clean and normalize text"""
