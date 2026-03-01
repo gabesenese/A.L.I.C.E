@@ -28,7 +28,7 @@ def test_foundation_instantiation():
     """Test that foundation systems can be instantiated"""
     try:
         from ai.foundation_integration import FoundationIntegration
-        from ai.llm_engine import LocalLLMEngine
+        from ai.core.llm_engine import LocalLLMEngine
         
         # Mock LLM engine
         class MockLLM:
