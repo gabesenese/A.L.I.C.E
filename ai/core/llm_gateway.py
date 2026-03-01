@@ -149,11 +149,11 @@ class LLMGateway:
             self.stats["policy_denials"] += 1
             logger.warning(f"[LLMGateway] [DENIED] LLM call denied: {reason}")
 
-            # Return appropriate fallback message
-            fallback = self._get_policy_fallback(call_type, reason)
+            # Do not return hardcoded user-facing text here.
+            # Upstream layers should decide how to proceed (learned phrasing, formatter, retry, etc.).
             return LLMResponse(
                 success=False,
-                response=fallback,
+                response=None,
                 denied_by_policy=True,
                 policy_reason=reason,
             )
@@ -315,35 +315,6 @@ class LLMGateway:
 
         except Exception as e:
             logger.error(f"[LLMGateway] Failed to log LLM fallback: {e}")
-
-    def _get_policy_fallback(self, call_type: LLMCallType, reason: str) -> str:
-        """
-        Get appropriate fallback message when LLM denied by policy
-
-        Args:
-            call_type: Type of LLM call that was denied
-            reason: Reason for denial
-
-        Returns:
-            User-friendly fallback message
-        """
-        if call_type == LLMCallType.CHITCHAT:
-            # Better message: offer to learn, don't just say "not learned yet"
-            return (
-                "I'm still learning that one. Keep talking with me and I'll pick it up!"
-            )
-
-        elif call_type == LLMCallType.TOOL_FORMATTING:
-            return "I have the information but need to format it better. Here is what I found:"
-
-        elif call_type == LLMCallType.GENERATION:
-            return "I need more examples of that to answer confidently. Try asking something I've learned!"
-
-        elif call_type == LLMCallType.CLARIFICATION:
-            return "Could you rephrase that? I'm not quite sure what you mean."
-
-        else:
-            return f"Let me think about that. Could you give me more context?"
 
     def format_tool_result(
         self,

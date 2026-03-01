@@ -2932,7 +2932,6 @@ class ALICE:
             cacheable_intents = [
                 'conversation:ack',
                 'conversation:general',
-                'greeting',
                 'farewell'
                 # Removed 'status_inquiry' - we want varied responses to "how are you?"
             ]
