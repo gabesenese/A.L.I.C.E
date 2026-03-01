@@ -107,6 +107,13 @@ from ai.memory.embedding_manager import get_embedding_manager
 from ai.memory.bg_embedding_generator import get_bg_embedding_generator
 from ai.memory.memory_pruner import get_memory_pruner
 
+# Production Infrastructure
+from ai.infrastructure.cache_manager import get_cache_manager, initialize_cache
+from ai.infrastructure.metrics_collector import get_metrics_collector, initialize_metrics
+from ai.infrastructure.structured_logging import get_structured_logger, configure_logging
+from ai.infrastructure.task_queue import get_task_queue, initialize_task_queue
+from ai.infrastructure.database_pool import get_connection_pool, initialize_database, DatabaseConfig, DatabaseType
+
 # Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -135,6 +142,76 @@ class ALICE:
         self.privacy_mode = privacy_mode
         self.llm_policy = llm_policy
         self.running = False
+        
+        # ===== PRODUCTION INFRASTRUCTURE INITIALIZATION =====
+        logger.info("=" * 80)
+        logger.info("Initializing Production Infrastructure")
+        logger.info("=" * 80)
+        
+        # 0.1: Structured Logging System
+        configure_logging(
+            level='DEBUG' if debug else 'INFO',
+            enable_json=not debug,  # Use JSON in production, human-readable in debug
+            log_dir='logs'
+        )
+        self.structured_logger = get_structured_logger('alice')
+        self.structured_logger.info("Structured logging initialized", component='infrastructure')
+        
+        # 0.2: Redis Cache Manager
+        try:
+            self.cache = initialize_cache(
+                redis_host='localhost',
+                redis_port=6379,
+                default_ttl=3600
+            )
+            cache_stats = self.cache.get_stats()
+            self.structured_logger.info(
+                f"Cache initialized: {cache_stats['backend']}",
+                component='cache',
+                backend=cache_stats['backend']
+            )
+        except Exception as e:
+            self.structured_logger.warning(f"Cache initialization failed: {e}, using fallback", component='cache')
+            self.cache = get_cache_manager()  # Fallback to in-memory
+        
+        # 0.3: Prometheus Metrics Collector
+        self.metrics = initialize_metrics(enable_prometheus=True)
+        self.structured_logger.info("Metrics collector initialized", component='metrics')
+        
+        # 0.4: Async Task Queue
+        try:
+            self.task_queue = initialize_task_queue(
+                broker_url='redis://localhost:6379/0',
+                backend_url='redis://localhost:6379/1',
+                num_workers=4
+            )
+            queue_stats = self.task_queue.get_stats()
+            self.structured_logger.info(
+                f"Task queue initialized: {queue_stats['backend']}",
+                component='task_queue',
+                workers=queue_stats['workers']
+            )
+        except Exception as e:
+            self.structured_logger.warning(f"Task queue initialization failed: {e}", component='task_queue')
+            self.task_queue = get_task_queue()  # Fallback to thread pool
+        
+        # 0.5: Database Connection Pool (optional - for future PostgreSQL migration)
+        try:
+            db_config = DatabaseConfig(
+                db_type=DatabaseType.SQLITE,
+                database="data/alice.db",
+                min_connections=2,
+                max_connections=10
+            )
+            self.db_pool = initialize_database(db_config)
+            self.structured_logger.info("Database pool initialized", component='database')
+        except Exception as e:
+            self.structured_logger.warning(f"Database pool initialization failed: {e}", component='database')
+            self.db_pool = None
+        
+        self.structured_logger.info("Production infrastructure ready", component='infrastructure')
+        
+        # ===== END PRODUCTION INFRASTRUCTURE =====
         
         # Conversation state for context-aware operations
         self.last_email_list = []  # Store last displayed email list
@@ -199,6 +276,9 @@ class ALICE:
         
         # Initialize components
         try:
+            # Set up logging context for this session
+            self.structured_logger.set_context(user=user_name, session_id=f"{time.time()}")
+            
             # 1. NLP Processor
             logger.info("Loading NLP processor...")
             self.nlp = NLPProcessor()
@@ -1351,7 +1431,7 @@ class ALICE:
                 high  = day.get('high')
                 low   = day.get('low')
                 cond  = day.get('condition', 'unknown').title()
-                temp  = f"{int(low)}° – {int(high)}°C" if (high is not None and low is not None) else "—"
+                temp  = f"{int(low)}° to {int(high)}°C" if (high is not None and low is not None) else "—"
                 return f"| {label} | {cond} | {temp} |"
 
             TABLE_SEP = "| --- | --- | --- |"
@@ -1365,7 +1445,7 @@ class ALICE:
                         if d.weekday() == target_wd:
                             high, low = day.get('high'), day.get('low')
                             cond = day.get('condition', 'unknown').title()
-                            temp = f"{int(low)}° – {int(high)}°C" if (high is not None and low is not None) else ''
+                            temp = f"{int(low)}° to {int(high)}°C" if (high is not None and low is not None) else ''
                             return f"**{_day_label(d)}{loc_str}** — {cond}{', ' + temp if temp else ''}"
                     except Exception:
                         pass
@@ -1398,7 +1478,7 @@ class ALICE:
                         d = _dt.strptime(tomorrow_str, '%Y-%m-%d').date()
                         high, low = day.get('high'), day.get('low')
                         cond = day.get('condition', 'unknown').title()
-                        temp = f"{int(low)}° – {int(high)}°C" if (high is not None and low is not None) else ''
+                        temp = f"{int(low)}° to {int(high)}°C" if (high is not None and low is not None) else ''
                         return f"**Tomorrow{loc_str}** — {cond}{', ' + temp if temp else ''}"
 
             # ── Full 7-day table ─────────────────────────────────────────────
@@ -2467,6 +2547,38 @@ class ALICE:
             Assistant's response
         """
         try:
+            # ===== PRODUCTION METRICS & LOGGING =====
+            start_time = time.time()
+            route_taken = 'unknown'
+            success = False
+            
+            # Set logging context
+            self.structured_logger.set_context(
+                user_input=user_input[:100],  # Truncate for privacy
+                timestamp=datetime.utcnow().isoformat()
+            )
+            
+            self.structured_logger.info("Processing input", input_length=len(user_input))
+            logger.info(f"User: {user_input}")
+            
+            # ===== DISTRIBUTED CACHE CHECK =====
+            # Check if we have a cached response for this exact input
+            cache_key = f"response_{hash(user_input)}"
+            cached_response = self.cache.get('responses', cache_key)
+            if cached_response:
+                duration = time.time() - start_time
+                self.metrics.track_cache('get', 'hit')
+                self.metrics.track_request('cached', True, duration, 'cache')
+                self.structured_logger.info(
+                    "Cache hit - returning cached response",
+                    duration_ms=round(duration * 1000, 2)
+                )
+                self._think("Distributed cache hit → ultra-fast response")
+                return cached_response
+            else:
+                self.metrics.track_cache('get', 'miss')
+            # ===== END CACHE CHECK =====
+            
             logger.info(f"User: {user_input}")
             
             # 0. Check for commands first (before any processing)
@@ -2477,18 +2589,31 @@ class ALICE:
                 return "Commands should be handled by the interface. Use /help to see available commands."
             
             # 1. NLP Processing
+            nlp_start = time.time()
             nlp_result = self.nlp.process(user_input)
             intent = nlp_result.intent
             entities = nlp_result.entities
             sentiment = nlp_result.sentiment
+            nlp_duration = time.time() - nlp_start
+            
+            # Track NLP metrics
+            self.metrics.record_histogram('nlp_duration', nlp_duration)
+            intent_confidence = getattr(nlp_result, 'intent_confidence', 0.5)
+            self.metrics.track_intent_confidence(intent, intent_confidence)
 
-            self._think(f"NLP → intent={intent!r} confidence={getattr(nlp_result, 'intent_confidence', '?')}")
+            self._think(f"NLP → intent={intent!r} confidence={intent_confidence}")
+            self.structured_logger.debug(
+                "NLP processing complete",
+                intent=intent,
+                confidence=intent_confidence,
+                entities_count=len(entities),
+                duration_ms=round(nlp_duration * 1000, 2)
+            )
             if entities:
                 self._think(f"     entities={str(entities)[:120]}...")
 
             # 1.2. Follow-up Detection - Detect if this is a follow-up to previous topic
             # If low confidence on generic intent + recent weather/note/etc topic → bias towards that
-            intent_confidence = getattr(nlp_result, 'intent_confidence', 0.5)
             if intent_confidence < 0.7 and self.conversation_topics:
                 recent_intent = self.conversation_topics[-1] if self.conversation_topics else None
                 user_lower = user_input.lower()
@@ -3514,9 +3639,25 @@ class ALICE:
                         'token_debug': getattr(nlp_result, 'token_debug', [])[:30],
                         'dialogue_memory': self.dialogue_memory.entity_chain_dict() if self.dialogue_memory else [],
                     }
+                # Track plugin execution timing
+                plugin_start = time.time()
                 plugin_result = self.plugins.execute_for_intent(
                     intent, user_input, entities, context_summary
                 )
+                plugin_duration = time.time() - plugin_start
+                if plugin_result:
+                    plugin_name = plugin_result.get('plugin', 'Unknown')
+                    action = plugin_result.get('action', 'unknown')
+                    success = plugin_result.get('success', False)
+                    self.metrics.track_plugin(plugin_name, action, plugin_duration, success)
+                    self.structured_logger.debug(
+                        "Plugin execution complete",
+                        plugin=plugin_name,
+                        action=action,
+                        success=success,
+                        duration_ms=round(plugin_duration * 1000, 2)
+                    )
+                
                 # Failure taxonomy: classify and log failed turns for retraining
                 if self.failure_taxonomy and plugin_result:
                     self.failure_taxonomy.classify_and_log(
@@ -3926,12 +4067,31 @@ class ALICE:
                 llm_input = user_input_processed + goal_note
             
             try:
+                # Track LLM execution timing
+                llm_start = time.time()
                 llm_response = self.llm_gateway.request(
                     prompt=llm_input,
                     call_type=LLMCallType.GENERATION,
                     use_history=True,
                     user_input=user_input,
                     context={'intent': intent, 'entities': entities, 'goal': goal_res.goal if goal_res else None}
+                )
+                llm_duration = time.time() - llm_start
+                
+                # Track LLM metrics
+                model_name = getattr(self.llm.config, 'model', 'llama3.1')
+                self.metrics.track_llm_call(
+                    model=model_name,
+                    duration=llm_duration,
+                    tokens=getattr(llm_response, 'token_count', 0),
+                    success=llm_response.success
+                )
+                self.structured_logger.debug(
+                    "LLM generation complete",
+                    model=model_name,
+                    success=llm_response.success,
+                    duration_ms=round(llm_duration * 1000, 2),
+                    tokens=getattr(llm_response, 'token_count', 0)
                 )
                 
                 if llm_response.success and llm_response.response:
@@ -4204,11 +4364,57 @@ class ALICE:
                 except Exception as e:
                     logger.debug(f"[MemoryMgmt] Error in periodic tasks: {e}")
 
+            # ===== PRODUCTION: CACHE & METRICS =====
+            # Cache successful responses for future fast retrieval
+            if response and len(response) > 10:  # Don't cache trivial/error responses
+                try:
+                    self.cache.set('responses', cache_key, response, ttl=300)
+                    self.metrics.track_cache('set', 'success')
+                    self.structured_logger.debug("Response cached", cache_key=cache_key[:50])
+                except Exception as cache_err:
+                    logger.debug(f"[Cache] Failed to cache response: {cache_err}")
+            
+            # Track final request metrics
+            duration = time.time() - start_time
+            route_taken = 'plugin' if 'plugin_result' in locals() and plugin_result else 'llm'
+            self.metrics.track_request(
+                intent=intent or 'unknown',
+                success=True,
+                duration=duration,
+                route=route_taken
+            )
+            self.structured_logger.info(
+                "Request completed successfully",
+                intent=intent,
+                route=route_taken,
+                duration_ms=round(duration * 1000, 2),
+                response_length=len(response)
+            )
+
             logger.info(f"A.L.I.C.E: {response[:100]}...")
             return response
             
         except Exception as e:
             import traceback
+            
+            # ===== PRODUCTION: ERROR METRICS & LOGGING =====
+            error_type = type(e).__name__
+            duration = time.time() - start_time if 'start_time' in locals() else 0
+            self.metrics.track_error(error_type, 'process_input')
+            self.metrics.track_request(
+                intent=intent if 'intent' in locals() else 'unknown',
+                success=False,
+                duration=duration,
+                route='error'
+            )
+            self.structured_logger.exception(
+                "Request failed with exception",
+                error_type=error_type,
+                error_message=str(e),
+                user_input=user_input[:100],
+                duration_ms=round(duration * 1000, 2)
+            )
+            
             logger.error(f"[ERROR] Error processing input: {e}")
             logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
 
