@@ -203,6 +203,53 @@ class MetricsCollector:
             ),
         )
 
+        # P0 NLP Improvement Metrics
+        self.intent_entity_validation = _get_or_create(
+            "alice_intent_entity_validation_score",
+            lambda: Histogram(
+                "alice_intent_entity_validation_score",
+                "Intent-entity cross-validation score (P0-1)",
+                ["intent"],
+                buckets=(0.0, 0.25, 0.5, 0.75, 0.85, 0.95, 1.0),
+            ),
+        )
+
+        self.validation_issues = _get_or_create(
+            "alice_validation_issues_total",
+            lambda: Counter(
+                "alice_validation_issues_total",
+                "Validation issues detected (P0-1)",
+                ["intent", "issue_type"],  # issue_type: missing_required, few_expected
+            ),
+        )
+
+        self.ambiguity_detected = _get_or_create(
+            "alice_ambiguity_detected_total",
+            lambda: Counter(
+                "alice_ambiguity_detected_total",
+                "Ambiguous references detected (P0-2)",
+                ["ref_type", "candidate_count"],  # ref_type: PRONOUN_GENERIC, DOMAIN_PRONOUN, etc.
+            ),
+        )
+
+        self.entity_normalized = _get_or_create(
+            "alice_entity_normalized_total",
+            lambda: Counter(
+                "alice_entity_normalized_total",
+                "Entities normalized (P0-3)",
+                ["category", "rule_applied"],  # category: tag, title, datetime
+            ),
+        )
+
+        self.clarification_prompted = _get_or_create(
+            "alice_clarification_prompted_total",
+            lambda: Counter(
+                "alice_clarification_prompted_total",
+                "Clarification prompts shown to user",
+                ["reason"],  # reason: validation_low, ambiguity, other
+            ),
+        )
+
         logger.info("[Metrics] Prometheus metrics initialized")
 
     # ===== Convenience Methods =====
@@ -298,6 +345,50 @@ class MetricsCollector:
         else:
             with self.lock:
                 self.histograms[f"confidence_{intent}"].append(confidence)
+
+    def track_intent_entity_validation(self, intent: str, validation_score: float, issues: list):
+        """Track intent-entity cross-validation metrics (P0-1)"""
+        if self.enable_prometheus:
+            self.intent_entity_validation.labels(intent=intent).observe(validation_score)
+            
+            # Track specific validation issues
+            for issue in issues:
+                if "missing required" in issue.lower():
+                    self.validation_issues.labels(intent=intent, issue_type="missing_required").inc()
+                elif "few expected" in issue.lower():
+                    self.validation_issues.labels(intent=intent, issue_type="few_expected").inc()
+        else:
+            with self.lock:
+                self.histograms[f"validation_score_{intent}"].append(validation_score)
+                if issues:
+                    self.counters[f"validation_issues_{intent}"] += len(issues)
+
+    def track_ambiguity_detection(self, ref_type: str, candidate_count: int):
+        """Track ambiguity detection from coreference resolver (P0-2)"""
+        if self.enable_prometheus:
+            self.ambiguity_detected.labels(
+                ref_type=ref_type, 
+                candidate_count=str(min(candidate_count, 5))  # Cap at 5+ for cardinality
+            ).inc()
+        else:
+            with self.lock:
+                self.counters[f"ambiguity_{ref_type}"] += 1
+
+    def track_entity_normalization(self, category: str, rule_applied: str):
+        """Track entity normalization events (P0-3)"""
+        if self.enable_prometheus:
+            self.entity_normalized.labels(category=category, rule_applied=rule_applied).inc()
+        else:
+            with self.lock:
+                self.counters[f"normalized_{category}_{rule_applied}"] += 1
+
+    def track_clarification_prompt(self, reason: str):
+        """Track when clarification prompts are shown to user"""
+        if self.enable_prometheus:
+            self.clarification_prompted.labels(reason=reason).inc()
+        else:
+            with self.lock:
+                self.counters[f"clarification_{reason}"] += 1
 
     def set_gauge(
         self, name: str, value: float, labels: Optional[Dict[str, str]] = None

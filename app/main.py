@@ -2813,13 +2813,55 @@ class ALICE:
             intent_confidence = getattr(nlp_result, 'intent_confidence', 0.5)
             self.metrics.track_intent_confidence(intent, intent_confidence)
 
+            # 1.1 Check for validation issues and ambiguity (P0 Clarification Loop)
+            validation_score = getattr(nlp_result, 'validation_score', 1.0)
+            validation_issues = getattr(nlp_result, 'validation_issues', [])
+            
+            # Feature flag check for clarification prompts
+            if hasattr(self.nlp, 'feature_flags') and self.nlp.feature_flags:
+                show_clarification = self.nlp.feature_flags.is_enabled("nlp_validation_prompts")
+            else:
+                show_clarification = True  # Default enabled
+            
+            if show_clarification and (validation_score < 0.60 or validation_issues):
+                # Track clarification prompt
+                self.metrics.track_clarification_prompt("validation_low")
+                
+                # Build clarification message
+                clarification_parts = [f"I'm {int(validation_score * 100)}% confident I understood you correctly."]
+                if validation_issues:
+                    clarification_parts.append(f"I noticed: {'; '.join(validation_issues[:2])}")  # Show top 2 issues
+                clarification_parts.append("Can you clarify what you'd like me to do?")
+                
+                return " ".join(clarification_parts)
+            
+            # Check for ambiguity in coreference resolution
+            if hasattr(self.nlp.context, 'pending_clarification'):
+                pending = self.nlp.context.pending_clarification
+                if pending.get('type') == 'ambiguity' and show_clarification:
+                    # Track ambiguity clarification
+                    self.metrics.track_clarification_prompt("ambiguity")
+                    
+                    candidates = pending.get('candidates', [])
+                    if len(candidates) > 1:
+                        # Show disambiguation options
+                        options = ", ".join(f'"{c}"' for c in candidates[:5])  # Show max 5
+                        clarification_msg = f"I found multiple matches: {options}. Which one did you mean?"
+                        
+                        # Clear pending clarification
+                        self.nlp.context.pending_clarification = {}
+                        
+                        return clarification_msg
+
             self._think(f"NLP → intent={intent!r} confidence={intent_confidence}")
             self.structured_logger.debug(
                 "NLP processing complete",
                 intent=intent,
                 confidence=intent_confidence,
                 entities_count=len(entities),
-                duration_ms=round(nlp_duration * 1000, 2)
+                duration_ms=round(nlp_duration * 1000, 2),
+                validation_score=validation_score,
+                validation_issues_count=len(validation_issues)
             )
             if entities:
                 self._think(f"     entities={str(entities)[:120]}...")

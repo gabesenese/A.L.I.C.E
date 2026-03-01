@@ -89,6 +89,15 @@ except ImportError:
     ENTITY_NORMALIZER_AVAILABLE = False
     logging.warning("[WARN] Entity normalizer not available. Using raw entities.")
 
+# Feature flags for A/B testing
+try:
+    from ai.core.feature_flags import get_feature_flags as _get_feature_flags
+
+    FEATURE_FLAGS_AVAILABLE = True
+except ImportError:
+    FEATURE_FLAGS_AVAILABLE = False
+    logging.warning("[WARN] Feature flags not available. All features enabled.")
+
 # Advanced NLP stack — Frame Parser, Probabilistic Slot Filler, Advanced Coreference
 try:
     from ai.core.frame_parser import (
@@ -1086,6 +1095,12 @@ class NLPProcessor:
         else:
             self.entity_normalizer = None
 
+        # Feature flags for A/B testing
+        if FEATURE_FLAGS_AVAILABLE:
+            self.feature_flags = _get_feature_flags()
+        else:
+            self.feature_flags = None
+
         # Conversation context
         self.context = ConversationContext()
 
@@ -2060,7 +2075,35 @@ class NLPProcessor:
 
         # Step 1: Coreference resolution
         if use_context:
-            resolved_text = self.coref_resolver.resolve(text, self.context)
+            # Check if using advanced coreference with ambiguity detection
+            if hasattr(self.coref_resolver, '_engine'):
+                # Using AdvancedCoref through compat wrapper
+                resolved_result = self.coref_resolver._engine.resolve(text, self.context.__dict__ if hasattr(self.context, '__dict__') else {})
+                resolved_text = resolved_result.text
+                
+                # Track ambiguity detection (P0-2)
+                if (
+                    self.feature_flags 
+                    and self.feature_flags.is_enabled("nlp_ambiguity_resolver")
+                    and resolved_result.needs_clarification
+                ):
+                    from ai.infrastructure.metrics_collector import MetricsCollector
+                    metrics = MetricsCollector()
+                    metrics.track_ambiguity_detection(
+                        resolved_result.entity_type or "unknown",
+                        len(resolved_result.candidates)
+                    )
+                    # Store ambiguity info for clarification prompts
+                    if hasattr(self.context, 'pending_clarification'):
+                        self.context.pending_clarification = {
+                            "type": "ambiguity",
+                            "candidates": resolved_result.candidates,
+                            "entity_type": resolved_result.entity_type,
+                            "confidence": resolved_result.confidence,
+                        }
+            else:
+                # Fallback to simple resolve
+                resolved_text = self.coref_resolver.resolve(text, self.context)
         else:
             resolved_text = text
 
@@ -2251,23 +2294,39 @@ class NLPProcessor:
         slots = self.slot_filler.extract_slots(normalized_text, intent, entities)
 
         # Step 4.5: Entity Normalization (P0 Improvement)
-        if self.entity_normalizer:
+        if (
+            self.entity_normalizer
+            and self.feature_flags
+            and self.feature_flags.is_enabled("nlp_entity_normalizer")
+        ):
+            from ai.infrastructure.metrics_collector import MetricsCollector
+            metrics = MetricsCollector()
+            
             for slot_name, slot in slots.items():
                 if not slot.value:
                     continue
                 # Normalize based on slot type
                 if slot_name == "tags" and isinstance(slot.value, list):
                     normalized_tags = self.entity_normalizer.normalize_batch(slot.value, "tag")
+                    for nt in normalized_tags:
+                        if nt.normalized != nt.original:
+                            metrics.track_entity_normalization("tag", nt.rule_applied or "default")
                     slot.value = [nt.normalized for nt in normalized_tags]
                 elif slot_name in ("title", "query", "note_id"):
                     normalized = self.entity_normalizer.normalize(slot.value, "title")
+                    if normalized.normalized != normalized.original:
+                        metrics.track_entity_normalization("title", normalized.rule_applied or "default")
                     slot.value = normalized.normalized
                     slot.confidence = min(slot.confidence, normalized.confidence)
                 elif slot_name in ("date", "time", "date_range"):
                     normalized = self.entity_normalizer.normalize(str(slot.value), "datetime")
                     if normalized.normalized != str(slot.value):
+                        metrics.track_entity_normalization("datetime", normalized.rule_applied or "default")
                         slot.value = normalized.normalized
                         slot.confidence = min(slot.confidence, normalized.confidence)
+        elif not self.feature_flags or not self.feature_flags.is_enabled("nlp_entity_normalizer"):
+            # Feature disabled for A/B testing
+            pass
 
         # Step 5: Sentiment analysis
         if self.sentiment_analyzer is not None:
@@ -2300,7 +2359,18 @@ class NLPProcessor:
         is_question = self._is_question(normalized_text)
 
         # Step 10: Intent-Entity Cross-Validation (P0 Improvement)
-        validation_score, validation_issues = self._validate_intent_entity_match(intent, slots)
+        validation_score = 1.0
+        validation_issues = []
+        if self.feature_flags and self.feature_flags.is_enabled("nlp_intent_entity_validation"):
+            validation_score, validation_issues = self._validate_intent_entity_match(intent, slots)
+            
+            # Track validation metrics
+            from ai.infrastructure.metrics_collector import MetricsCollector
+            metrics = MetricsCollector()
+            metrics.track_intent_entity_validation(intent, validation_score, validation_issues)
+        elif not self.feature_flags or not self.feature_flags.is_enabled("nlp_intent_entity_validation"):
+            # Feature disabled for A/B testing
+            pass
 
         # Build result
         result = ProcessedQuery(
