@@ -2,7 +2,7 @@
 
 **Quick reference for all commands to run, test, and interact with A.L.I.C.E**
 
-Last Updated: 2026-02-28 (Added Production Infrastructure commands)
+Last Updated: 2026-02-28 (Updated black commands to use python -m syntax)
 
 ---
 
@@ -750,11 +750,14 @@ python -m pytest --cov=ai.facades --cov-report=term
 # Run linter
 flake8 ai/ --max-line-length=120 --exclude=__pycache__
 
-# Check code formatting
-black ai/ --check
+# Check code formatting (run from project root)
+python -m black ai/ --check
 
-# Format code automatically
-black ai/
+# Format code automatically (run from project root)
+python -m black ai/
+
+# Format all Python files
+python -m black ai/ app/ tests/
 
 # Security scan
 bandit -r ai/ -ll
@@ -916,8 +919,8 @@ python -m pytest tests/ -v
 # 2. Check code quality
 flake8 ai/ --max-line-length=120 --exclude=__pycache__
 
-# 3. Format code
-black ai/ --check
+# 3. Format code (from project root)
+python -m black ai/ --check
 
 # 4. Check git status
 git status
@@ -998,9 +1001,9 @@ python tools/auditing/training_data_auditor.py
    python -m pytest tests/ --cov=ai --cov-fail-under=70
    ```
 
-7. **Use black to auto-format code**
+7. **Use black to auto-format code (from project root)**
    ```bash
-   black ai/ app/ tests/
+   python -m black ai/ app/ tests/
    ```
 
 8. **Profile before optimizing**
@@ -1068,7 +1071,7 @@ taskmgr  # Windows
 | **View RAG config** | `cat config/rag_indexer_config.json \| jq '.'` |
 | **Check imports** | `python -c "from ai.facades import *"` |
 | **Run benchmarks** | `python scripts/benchmark_response_time.py` |
-| **Format code** | `black ai/ app/ tests/` |
+| **Format code** | `python -m black ai/ app/ tests/` |
 | **Git status** | `git status` |
 
 ---
