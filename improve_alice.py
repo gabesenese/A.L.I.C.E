@@ -52,12 +52,18 @@ class TrainingExample:
 class ContinuousImprovementPipeline:
     """Main pipeline for continuous improvement."""
     
-    def __init__(self, workspace_root: Path = None):
-        """Initialize the pipeline."""
+    def __init__(self, workspace_root: Path = None, verbose: bool = False):
+        """Initialize the pipeline.
+        
+        Args:
+            workspace_root: Root directory of the project
+            verbose: Show real-time test output and progress
+        """
         self.workspace_root = workspace_root or Path(__file__).parent
         self.data_dir = self.workspace_root / "data"
         self.training_dir = self.data_dir / "training"
         self.results_dir = self.workspace_root / "test_results"
+        self.verbose = verbose
         
         # Ensure directories exist
         self.training_dir.mkdir(parents=True, exist_ok=True)
@@ -111,23 +117,81 @@ class ContinuousImprovementPipeline:
             cmd.extend(["--scenarios", str(temp_scenarios)])
         
         print(f"Running command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
         
-        # Save console output to file
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(result.stdout)
-            if result.stderr:
-                f.write("\n\n=== STDERR ===\n")
-                f.write(result.stderr)
-        
-        # Parse results from console output
-        results = self._parse_test_output_console(result.stdout)
+        if self.verbose:
+            # Stream output in real-time for verbose mode
+            results = self._run_with_streaming(cmd, output_file)
+        else:
+            # Capture output silently
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+            
+            # Save console output to file
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(result.stdout)
+                if result.stderr:
+                    f.write("\n\n=== STDERR ===\n")
+                    f.write(result.stderr)
+            
+            # Parse results from console output
+            results = self._parse_test_output_console(result.stdout)
         
         print(f"\n✓ Tests completed: {results['pass_rate']:.1f}% pass rate")
         print(f"  - Passed: {len(results['passed'])}")
         print(f"  - Failed: {len(results['failed'])}")
         
         return results
+    
+    def _run_with_streaming(self, cmd: List[str], output_file: Path) -> Dict[str, Any]:
+        """Run command with real-time output streaming."""
+        print("\n" + "-"*80)
+        print("STREAMING TEST OUTPUT (live):")
+        print("-"*80 + "\n")
+        
+        # Start process
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            bufsize=1,  # Line buffered
+            universal_newlines=True
+        )
+        
+        # Collect output while streaming
+        output_lines = []
+        
+        try:
+            # Read and display output line by line
+            for line in process.stdout:
+                # Print to console
+                print(line, end='')
+                # Save for parsing
+                output_lines.append(line)
+            
+            # Wait for process to complete
+            process.wait()
+            
+        except KeyboardInterrupt:
+            print("\n\n⚠ Interrupted by user")
+            process.terminate()
+            process.wait()
+            raise
+        
+        # Combine all output
+        full_output = ''.join(output_lines)
+        
+        # Save to file
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(full_output)
+        
+        print("\n" + "-"*80)
+        print("TEST OUTPUT COMPLETE")
+        print("-"*80)
+        
+        # Parse results
+        return self._parse_test_output_console(full_output)
     
     def _parse_test_output_console(self, console_output: str) -> Dict[str, Any]:
         """Parse test console output to extract results."""
@@ -849,11 +913,17 @@ def main():
         action='store_true',
         help='Skip the training phase (useful for testing)'
     )
+    parser.add_argument(
+        '--verbose',
+        '-v',
+        action='store_true',
+        help='Show real-time test output and detailed progress'
+    )
     
     args = parser.parse_args()
     
-    # Initialize pipeline
-    pipeline = ContinuousImprovementPipeline()
+    # Initialize pipeline with verbose flag
+    pipeline = ContinuousImprovementPipeline(verbose=args.verbose)
     
     # Run iterations
     for i in range(args.iterations):
