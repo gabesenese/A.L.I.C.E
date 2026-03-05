@@ -486,6 +486,8 @@ class MemorySystem:
                 from sklearn.feature_extraction.text import TfidfVectorizer
 
                 self._embedding_model = TfidfVectorizer(max_features=384)
+                self._tfidf_fitted = False  # Track if TF-IDF has been fitted
+                self._tfidf_corpus = []  # Collect texts for fitting
             except Exception as e:
                 logger.warning(
                     f"[WARNING] Failed to load sentence-transformers model: {e}"
@@ -496,6 +498,8 @@ class MemorySystem:
                     from sklearn.feature_extraction.text import TfidfVectorizer
 
                     self._embedding_model = TfidfVectorizer(max_features=384)
+                    self._tfidf_fitted = False  # Track if TF-IDF has been fitted
+                    self._tfidf_corpus = []  # Collect texts for fitting
                 except ImportError:
                     logger.error(
                         "sklearn not available either. Embeddings will be disabled."
@@ -514,7 +518,24 @@ class MemorySystem:
                 embedding = model.encode(text, convert_to_numpy=True)
                 return embedding
             else:
-                # Fallback to TF-IDF
+                # TF-IDF fallback - need to fit on first use
+                if not hasattr(self, '_tfidf_fitted') or not self._tfidf_fitted:
+                    # Add current text to corpus
+                    if not hasattr(self, '_tfidf_corpus'):
+                        self._tfidf_corpus = []
+                    
+                    self._tfidf_corpus.append(text)
+                    
+                    # Fit with accumulated corpus (or at least current text)
+                    if len(self._tfidf_corpus) >= 1:
+                        model.fit(self._tfidf_corpus)
+                        self._tfidf_fitted = True
+                    else:
+                        # Fit with just current text as minimum
+                        model.fit([text, "dummy text for fitting"])
+                        self._tfidf_fitted = True
+                
+                # Now transform
                 embedding = model.transform([text]).toarray()[0]
                 # Pad or truncate to 384 dimensions
                 if len(embedding) < 384:
