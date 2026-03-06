@@ -119,6 +119,21 @@ from ai.infrastructure.database_pool import get_connection_pool, initialize_data
 # Foundation Systems - Response Variance, Personality Evolution, Context Graph
 from ai.foundation_integration import FoundationIntegration
 
+# NLP perception & policy layer
+from ai.core.nlp_processor import Perception, FollowUpResolver
+from ai.core.interaction_policy import InteractionPolicy
+from ai.learning.learning_engine import get_nlp_error_logger
+
+# Area 1-8: advanced intelligence components (merged into existing modules)
+from ai.core.intent_classifier import get_bayesian_router, IntentCandidate
+from ai.memory.context_graph import get_world_graph
+from ai.core.interaction_policy import get_knob_bandit
+from ai.memory.memory_system import get_memory_replay
+from ai.core.failure_taxonomy import get_self_debugger, TurnPostmortem
+from ai.plugins.plugin_system import get_capability_graph
+from ai.learning.pattern_miner import get_habit_miner
+from ai.infrastructure.metrics_collector import get_adaptive_controller
+
 # Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -304,6 +319,32 @@ class ALICE:
             # Shared session objects from NLP stack
             self.dialogue_memory = getattr(self.nlp, 'dialogue_memory', None)
             self.fp_store = getattr(self.nlp, '_fp_store', None)
+
+            # NLP perception & policy layer (sit between NLP and routing)
+            self.perception = Perception()
+            self.followup_resolver = FollowUpResolver()
+            self.interaction_policy = InteractionPolicy()
+            self.nlp_error_logger = get_nlp_error_logger()
+
+            # Area 1–8: advanced intelligence components
+            try:
+                self.bayesian_router = get_bayesian_router()
+                self.world_graph = get_world_graph(
+                    persistence_path="memory/world_graph.json"
+                )
+                self.knob_bandit = get_knob_bandit()
+                self.memory_replay = get_memory_replay()
+                self.self_debugger = get_self_debugger()
+                self.capability_graph = get_capability_graph()
+                self.habit_miner = get_habit_miner()
+                self.adaptive_controller = get_adaptive_controller()
+            except Exception as _adv_err:
+                logger.warning("Advanced components init failed (non-fatal): %s", _adv_err)
+                for _attr in ("bayesian_router", "world_graph", "knob_bandit",
+                              "memory_replay", "self_debugger", "capability_graph",
+                              "habit_miner", "adaptive_controller"):
+                    if not hasattr(self, _attr):
+                        setattr(self, _attr, None)
             
             # 1.5. Unified Context Engine (combines context_manager + advanced_context_handler)
             logger.info("Loading unified context engine...")
@@ -834,6 +875,41 @@ class ALICE:
         Returns:
             Tone identifier for phrasing
         """
+        # ── Interaction policy overrides (mood-driven) ────────────────────────
+        # If the perception layer detected a strong mood this turn, honour it
+        # before falling back to Alice's content-based tone selection.
+        policy = getattr(self, '_last_policy', None)
+        if policy is not None:
+            if policy.tone == "empathetic":
+                return "calm and understanding"
+            if policy.tone == "direct":
+                return "professional and precise"
+            if policy.tone == "encouraging":
+                return "casual and friendly"
+
+        # ── Response knob bandit override ─────────────────────────────────────
+        # Consult the learned style policy.  High empathy → calm tone; high
+        # directness → precise tone.  Only overrides when the bandit has enough
+        # signal (arm.count check is inside propose()).
+        try:
+            if getattr(self, 'knob_bandit', None) is not None:
+                _sentiment_label = getattr(self, '_last_sentiment', None) or 'neutral'
+                _topic = (self.conversation_topics[-1]
+                          if getattr(self, 'conversation_topics', None) else "")
+                _key, _knobs = self.knob_bandit.propose(
+                    intent=intent,
+                    sentiment=_sentiment_label,
+                    topic=_topic,
+                )
+                self._knob_context_key = _key
+                self._last_knobs = _knobs
+                if _knobs.empathy_level > 0.70:
+                    return "calm and understanding"
+                if _knobs.directness > 0.75 and _knobs.formality > 0.6:
+                    return "professional and precise"
+        except Exception:
+            pass
+
         # Alice's core personality (consistent and reliable)
         base_tone = "warm and helpful"
 
@@ -2815,52 +2891,112 @@ class ALICE:
             intent_confidence = getattr(nlp_result, 'intent_confidence', 0.5)
             self.metrics.track_intent_confidence(intent, intent_confidence)
 
-            # 1.1 Check for validation issues and ambiguity (P0 Clarification Loop)
-            validation_score = getattr(nlp_result, 'validation_score', 1.0)
-            validation_issues = getattr(nlp_result, 'validation_issues', [])
-            
+            # ── 1.1  Perception layer ─────────────────────────────────────────────
+            # Build a unified "what is the user actually trying to do?" object that
+            # captures mood, ambiguity, and follow-up domain in one place.
+            perception = self.perception.build(
+                nlp_result,
+                last_intent=self.last_intent,
+                conversation_topics=self.conversation_topics,
+            )
+
+            # ── 1.2  Interaction policy ───────────────────────────────────────────
+            # Derive tone/length/clarification settings from the user's inferred mood.
+            urgency_level = getattr(nlp_result, 'urgency_level', 'low')
+            policy = self.interaction_policy.derive(
+                perception.inferred_mood, sentiment, urgency_level
+            )
+            if perception.inferred_mood not in ("neutral", "positive"):
+                self._think(
+                    f"Mood={perception.inferred_mood!r} → "
+                    f"skip_clarification={policy.skip_clarification}, tone={policy.tone!r}"
+                )
+
+            # ── 1.3  Follow-up resolution ─────────────────────────────────────────
+            # MUST run before the validation gate so that a follow-up that was
+            # mis-classified (e.g. "umbrella" → music:play when weather was the
+            # active topic) gets the correct intent before slot-validation fires.
+            followup = self.followup_resolver.resolve(
+                user_input=user_input,
+                nlp_intent=intent,
+                nlp_confidence=intent_confidence,
+                last_intent=self.last_intent,
+                conversation_topics=self.conversation_topics,
+                perception_followup_domain=perception.followup_domain,
+            )
+            if followup.was_followup:
+                self._think(
+                    f"Follow-up detected [{followup.reason}]: "
+                    f"{intent} → {followup.resolved_intent} "
+                    f"(confidence {intent_confidence:.2f} → {followup.confidence:.2f})"
+                )
+                self.nlp_error_logger.log_followup_resolved(
+                    user_input=user_input,
+                    nlp_intent=intent,
+                    resolved_intent=followup.resolved_intent,
+                    nlp_confidence=intent_confidence,
+                    domain=followup.domain or "",
+                    reason=followup.reason,
+                    session_id=getattr(self, '_session_id', None),
+                )
+                intent = followup.resolved_intent
+                intent_confidence = followup.confidence
+
+            # ── 1.4  Validation / clarification gate ─────────────────────────────
+            # Now validates the *resolved* intent — follow-up corrections are
+            # already applied above so mis-classified intents won't fire spurious
+            # "Missing required" prompts.
             # Feature flag check for clarification prompts
             if hasattr(self.nlp, 'feature_flags') and self.nlp.feature_flags:
                 show_clarification = self.nlp.feature_flags.is_enabled("nlp_validation_prompts")
             else:
                 show_clarification = True  # Default enabled
-            
-            # Only prompt if there are CRITICAL issues (missing required entities)
-            # Don't prompt for missing optional/expected entities
+
+            # Policy suppresses clarification when the user is frustrated or urgent.
+            if policy.skip_clarification:
+                show_clarification = False
+                self.nlp_error_logger.log_clarification_skip(
+                    user_input=user_input,
+                    intent=intent,
+                    confidence=intent_confidence,
+                    mood=perception.inferred_mood,
+                    reason="interaction_policy",
+                    session_id=getattr(self, '_session_id', None),
+                )
+            # Also suppress if follow-up resolution changed the intent — the
+            # original validation issues no longer apply to the new intent.
+            if followup.was_followup:
+                show_clarification = False
+
+            validation_score = getattr(nlp_result, 'validation_score', 1.0)
+            validation_issues = getattr(nlp_result, 'validation_issues', [])
             has_critical_issue = any("Missing required" in issue for issue in validation_issues)
-            
+
             if show_clarification and (validation_score < 0.50 and has_critical_issue):
-                # Track clarification prompt
                 self.metrics.track_clarification_prompt("validation_low")
-                
-                # Build clarification message focusing on what's missing
                 clarification_parts = []
                 if validation_issues:
-                    # Only show critical issues
-                    critical_issues = [issue for issue in validation_issues if "Missing required" in issue]
+                    critical_issues = [i for i in validation_issues if "Missing required" in i]
                     if critical_issues:
-                        clarification_parts.append(f"I need more information: {'; '.join(critical_issues[:2])}")
+                        clarification_parts.append(
+                            f"I need more information: {'; '.join(critical_issues[:2])}"
+                        )
                 if not clarification_parts:
-                    clarification_parts.append("Can you provide more details about what you'd like me to do?")
-                
+                    clarification_parts.append(
+                        "Can you provide more details about what you'd like me to do?"
+                    )
                 return " ".join(clarification_parts)
-            
-            # Check for ambiguity in coreference resolution
+
+            # Coreference ambiguity clarification
             if hasattr(self.nlp.context, 'pending_clarification'):
                 pending = self.nlp.context.pending_clarification
                 if pending.get('type') == 'ambiguity' and show_clarification:
-                    # Track ambiguity clarification
                     self.metrics.track_clarification_prompt("ambiguity")
-                    
                     candidates = pending.get('candidates', [])
                     if len(candidates) > 1:
-                        # Show disambiguation options
-                        options = ", ".join(f'"{c}"' for c in candidates[:5])  # Show max 5
+                        options = ", ".join(f'"{c}"' for c in candidates[:5])
                         clarification_msg = f"I found multiple matches: {options}. Which one did you mean?"
-                        
-                        # Clear pending clarification
                         self.nlp.context.pending_clarification = {}
-                        
                         return clarification_msg
 
             self._think(f"NLP → intent={intent!r} confidence={intent_confidence}")
@@ -2871,85 +3007,20 @@ class ALICE:
                 entities_count=len(entities),
                 duration_ms=round(nlp_duration * 1000, 2),
                 validation_score=validation_score,
-                validation_issues_count=len(validation_issues)
+                validation_issues_count=len(validation_issues),
             )
             if entities:
                 self._think(f"     entities={str(entities)[:120]}...")
 
-            # 1.2. Follow-up Detection - continue current topic across adjacent turns
-            # This handles short follow-ups like "what about this week?", "and tomorrow?", "what about that?"
-            recent_intent = self.last_intent or (self.conversation_topics[-1] if self.conversation_topics else None)
-            if recent_intent:
-                user_lower = user_input.lower().strip()
-                conversational_or_ambiguous_intents = {
-                    'greeting',
-                    'conversation:general',
-                    'conversation:question',
-                    'vague_question',
-                    'vague_temporal_question',
-                }
-                followup_cues = [
-                    'what about', 'how about', 'and ', 'also', 'same for',
-                    'that', 'this', 'it', 'them', 'tomorrow', 'tonight', 'this week', 'next week', 'weekend'
-                ]
-                followup_phrase_detected = any(cue in user_lower for cue in followup_cues)
-
-                should_inherit_topic = (
-                    (intent_confidence < 0.7)
-                    or (intent in conversational_or_ambiguous_intents and followup_phrase_detected)
-                )
-
-                if should_inherit_topic:
-                    # Weather follow-ups
-                    if recent_intent.startswith('weather'):
-                        weather_followup_phrases = [
-                            'wear', 'layer', 'coat', 'jacket', 'bring', 'umbrella',
-                            'need', 'cold', 'warm', 'snow', 'rain', 'forecast',
-                            'tomorrow', 'tonight', 'this week', 'next week', 'weekend', 'what about'
-                        ]
-                        if followup_phrase_detected or any(phrase in user_lower for phrase in weather_followup_phrases):
-                            self._think(f"Follow-up detected: {intent} → {recent_intent} (continuing weather context)")
-                            intent = recent_intent
-                            intent_confidence = max(intent_confidence, 0.82)
-
-                    # Notes follow-ups
-                    elif recent_intent.startswith('notes:'):
-                        note_followup_phrases = ['add to', 'delete', 'remove', 'modify', 'change', 'show', 'that note', 'it']
-                        if followup_phrase_detected or any(phrase in user_lower for phrase in note_followup_phrases):
-                            self._think(f"Follow-up detected: {intent} → {recent_intent} (continuing notes context)")
-                            intent = recent_intent
-                            intent_confidence = max(intent_confidence, 0.8)
-
-                    # Email follow-ups
-                    elif recent_intent.startswith('email:'):
-                        email_followup_phrases = ['that email', 'reply', 'delete it', 'archive', 'the first one', 'the latest']
-                        if followup_phrase_detected or any(phrase in user_lower for phrase in email_followup_phrases):
-                            self._think(f"Follow-up detected: {intent} → {recent_intent} (continuing email context)")
-                            intent = recent_intent
-                            intent_confidence = max(intent_confidence, 0.8)
-
-                    # General follow-up inheritance for any actionable domain intent
-                    elif (
-                        ':' in recent_intent
-                        and not recent_intent.startswith('conversation:')
-                        and not recent_intent.startswith('system:')
-                    ):
-                        self._think(f"General follow-up detected: {intent} → {recent_intent} (continuing topic context)")
-                        intent = recent_intent
-                        intent_confidence = max(intent_confidence, 0.78)
-
-            # 1.5. Reference Resolution - Handle "it", "that", "them", etc.
+            # ── 1.5  Reference resolution ─────────────────────────────────────────
             if hasattr(self, 'conversation_context'):
-                # Check for pronouns that need resolution
                 pronouns = ['it', 'that', 'this', 'them', 'he', 'she', 'they']
                 words = user_input.lower().split()
-
                 for pronoun in pronouns:
                     if pronoun in words:
                         resolved = self.conversation_context.resolve_reference(pronoun)
                         if resolved:
                             self._think(f"Reference resolution: '{pronoun}' → '{resolved}'")
-                            # Add resolved entity to entities dict
                             if 'resolved_reference' not in entities:
                                 entities['resolved_reference'] = resolved
                         break
@@ -3157,12 +3228,45 @@ class ALICE:
             # 1.5. Apply Active Learning improvements
             improved_nlp_result = self.learning_manager.apply_learning(user_input, vars(nlp_result))
             if improved_nlp_result != vars(nlp_result):
+                original_intent_before_al = intent
                 logger.info("Active learning improved NLP result")
                 intent = improved_nlp_result['intent']
                 entities = improved_nlp_result['entities']
                 sentiment = improved_nlp_result.get('sentiment', sentiment)
                 self._think(f"     active learning → intent={intent!r}")
-            
+                # Log as a training signal so the NLP layer can self-tune
+                if intent != original_intent_before_al:
+                    self.nlp_error_logger.log_intent_override(
+                        user_input=user_input,
+                        original_intent=original_intent_before_al,
+                        corrected_intent=intent,
+                        original_confidence=intent_confidence,
+                        corrected_confidence=improved_nlp_result.get('intent_confidence', intent_confidence),
+                        reason="active_learning",
+                        session_id=getattr(self, '_session_id', None),
+                    )
+
+            # Store policy hints for downstream tone/length use
+            self._last_policy = policy
+            self._last_perception = perception
+            self._last_intent_confidence = intent_confidence
+
+            # World graph: persist entities/topics from this resolved turn
+            try:
+                if self.world_graph is not None:
+                    _wg_entities = {
+                        k: str(v) for k, v in (entities or {}).items()
+                        if isinstance(v, (str, int, float)) and v
+                    }
+                    _wg_topics = list(self.conversation_topics[-5:]) if self.conversation_topics else []
+                    self.world_graph.update_from_turn(
+                        intent=intent,
+                        entities=_wg_entities,
+                        sentiment=self._last_sentiment if hasattr(self, '_last_sentiment') else None,
+                        topics=_wg_topics,
+                    )
+            except Exception as _wg_err:
+                logger.debug("WorldGraph update skipped: %s", _wg_err)
             # Store sentiment for use in conversation summarizer
             self._last_sentiment = sentiment['category'] if sentiment else None
             
@@ -3987,6 +4091,23 @@ class ALICE:
                         plugin_result=plugin_result,
                         nlp_result=vars(nlp_result) if nlp_result else {},
                     )
+
+                # Capability graph + Habit miner: record execution signal
+                if plugin_result:
+                    _p_name = plugin_result.get('plugin', '')
+                    _p_action = plugin_result.get('action', '')
+                    _p_success = plugin_result.get('success', False)
+                    self._last_plugin_result = plugin_result
+                    try:
+                        if self.capability_graph is not None:
+                            self.capability_graph.record_execution(_p_name, intent, _p_success)
+                    except Exception:
+                        pass
+                    try:
+                        if self.habit_miner is not None and _p_name:
+                            self.habit_miner.update(intent, _p_name, _p_action)
+                    except Exception:
+                        pass
                 # Update dialogue memory with plugin response titles
                 if self.dialogue_memory and plugin_result and plugin_result.get('success'):
                     _dm_titles = plugin_result.get('data', {}).get('titles', []) or []
@@ -4755,7 +4876,18 @@ class ALICE:
                     'input': user_input,
                     'response': response
                 }
-            
+
+            # Adaptive controller: record turn latency + response quality
+            try:
+                if self.adaptive_controller is not None:
+                    self.adaptive_controller.observe_turn(
+                        duration_ms=duration * 1000,
+                        response_len=len(response),
+                        intent=intent or "unknown",
+                    )
+            except Exception:
+                pass
+
             return response
             
         except Exception as e:
@@ -5283,6 +5415,33 @@ class ALICE:
                 self.memory.periodic_consolidation_check()
             else:
                 logger.info("[PRIVACY] Episodic memory storage skipped (privacy mode enabled)")
+
+            # Self-debugger: post-turn root-cause analysis
+            try:
+                if getattr(self, 'self_debugger', None) is not None:
+                    _last_res = getattr(self, '_last_plugin_result', {}) or {}
+                    _pm = TurnPostmortem(
+                        utterance=user_input,
+                        intent=intent,
+                        plugin=_last_res.get('plugin', ''),
+                        action=_last_res.get('action', ''),
+                        confidence=getattr(self, '_last_intent_confidence', 0.5),
+                        plugin_success=_last_res.get('success', True),
+                        plugin_error_code=(
+                            _last_res.get('data', {}).get('error')
+                            if isinstance(_last_res.get('data'), dict) else None
+                        ),
+                    )
+                    _components = {
+                        'intent_classifier': getattr(self.nlp, 'classifier', None),
+                        'nlp_processor': self.nlp,
+                        'task_planner': getattr(self, 'task_planner', None),
+                        'memory_system': getattr(self, 'memory', None),
+                        'response_formulator': getattr(self, 'response_formulator', None),
+                    }
+                    self.self_debugger.analyse_turn(_pm, _components)
+            except Exception:
+                pass
             
         except Exception as e:
             logger.warning(f"[WARNING] Error storing interaction: {e}")

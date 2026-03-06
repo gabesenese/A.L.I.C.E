@@ -3,11 +3,14 @@ Production-Grade Metrics Collection System
 Prometheus-compatible metrics with automatic export
 """
 
+import math
+import statistics
 import time
 import logging
-from typing import Dict, Callable, Any, Optional
+from typing import Deque, Dict, Callable, Any, List, Optional
 from functools import wraps
-from collections import defaultdict
+from collections import defaultdict, deque
+from dataclasses import dataclass, field
 from datetime import datetime
 import threading
 
@@ -519,3 +522,250 @@ def initialize_metrics(enable_prometheus: bool = True) -> MetricsCollector:
     global _metrics_collector
     _metrics_collector = MetricsCollector(enable_prometheus=enable_prometheus)
     return _metrics_collector
+
+
+# ---------------------------------------------------------------------------
+# Adaptive Controller  (closed-loop latency PI + response anomaly detection)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TurnObservation:
+    """Raw signals from one completed turn."""
+    duration_ms: float
+    response_len: int
+    corrections: int = 0
+    intent: str = ""
+    plugin: str = ""
+    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+@dataclass
+class ResponseAnomaly:
+    """Fired when a metric deviates significantly from its running mean."""
+    metric: str
+    z_score: float
+    current_value: float
+    mean: float
+    std: float
+    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+@dataclass
+class _EMAState:
+    ema: float = 0.0
+    ema_var: float = 0.0
+    count: int = 0
+
+    def update(self, value: float, alpha: float) -> None:
+        diff = value - self.ema
+        self.ema += alpha * diff
+        self.ema_var = (1 - alpha) * (self.ema_var + alpha * diff ** 2)
+
+    def check(self, value: float, z_thresh: float) -> tuple:
+        std = math.sqrt(max(self.ema_var, 1e-9))
+        z = abs(value - self.ema) / std
+        return z, z > z_thresh
+
+
+class LatencyController:
+    """
+    PI (proportional-integral) controller that adjusts the LLM request timeout
+    so that the observed p95 latency stays near a configurable target.
+
+    error[t]    = target_p95 − current_p95_estimate
+    integral[t] = integral[t-1] + error[t]
+    adjustment  = Kp × error[t] + Ki × integral[t]
+    new_timeout = clamp(old_timeout + adjustment, min_t, max_t)
+    """
+
+    def __init__(
+        self,
+        target_p95_ms: float = 3000.0,
+        min_timeout_ms: float = 500.0,
+        max_timeout_ms: float = 15000.0,
+        kp: float = 0.10,
+        ki: float = 0.01,
+        window_size: int = 50,
+    ) -> None:
+        self._target = target_p95_ms
+        self._min = min_timeout_ms
+        self._max = max_timeout_ms
+        self._kp = kp
+        self._ki = ki
+        self._window: Deque[float] = deque(maxlen=window_size)
+        self._integral: float = 0.0
+        self._timeout_ms: float = target_p95_ms * 1.5
+        self._lc_lock = threading.Lock()
+
+    def observe(self, duration_ms: float) -> float:
+        """Record a new latency observation and return the updated timeout."""
+        with self._lc_lock:
+            self._window.append(duration_ms)
+            if len(self._window) < 5:
+                return self._timeout_ms
+            p95 = self._p95()
+            error = self._target - p95
+            self._integral += error
+            self._integral = max(-5000.0, min(5000.0, self._integral))
+            adjustment = self._kp * error + self._ki * self._integral
+            new_timeout = self._timeout_ms + adjustment
+            self._timeout_ms = max(self._min, min(self._max, new_timeout))
+            return self._timeout_ms
+
+    @property
+    def current_timeout_ms(self) -> float:
+        with self._lc_lock:
+            return self._timeout_ms
+
+    def p95_estimate(self) -> float:
+        with self._lc_lock:
+            return self._p95()
+
+    def stats(self) -> Dict[str, float]:
+        with self._lc_lock:
+            return {
+                "current_timeout_ms": round(self._timeout_ms, 1),
+                "target_p95_ms": self._target,
+                "p95_estimate_ms": round(self._p95(), 1),
+                "integral": round(self._integral, 2),
+                "observations": len(self._window),
+            }
+
+    def _p95(self) -> float:
+        if not self._window:
+            return self._target
+        n = len(self._window)
+        if n < 2:
+            return self._window[0]
+        idx = int(math.ceil(0.95 * n)) - 1
+        return sorted(self._window)[max(0, idx)]
+
+
+class ResponseAnomalyDetector:
+    """
+    Detects statistically unusual observations via EMA + z-score threshold.
+
+    Tracks three metrics independently: response_len, latency, correction_rate.
+    """
+
+    def __init__(
+        self,
+        ema_alpha: float = 0.1,
+        z_threshold: float = 3.0,
+        warmup_turns: int = 10,
+    ) -> None:
+        self._alpha = ema_alpha
+        self._z_thresh = z_threshold
+        self._warmup = warmup_turns
+        self._state: Dict[str, _EMAState] = {
+            "response_len": _EMAState(),
+            "latency": _EMAState(),
+            "correction_rate": _EMAState(),
+        }
+        self._ad_lock = threading.Lock()
+
+    def observe(self, obs: TurnObservation) -> List[ResponseAnomaly]:
+        measurements = {
+            "response_len": float(obs.response_len),
+            "latency": obs.duration_ms,
+            "correction_rate": float(min(obs.corrections, 1)),
+        }
+        anomalies: List[ResponseAnomaly] = []
+        with self._ad_lock:
+            for metric, value in measurements.items():
+                state = self._state[metric]
+                state.count += 1
+                if state.count <= self._warmup:
+                    state.update(value, self._alpha)
+                    continue
+                z_score, is_anomaly = state.check(value, self._z_thresh)
+                state.update(value, self._alpha)
+                if is_anomaly:
+                    anomalies.append(ResponseAnomaly(
+                        metric=metric, z_score=round(z_score, 2),
+                        current_value=value, mean=round(state.ema, 2),
+                        std=round(math.sqrt(max(state.ema_var, 1e-9)), 2),
+                    ))
+        return anomalies
+
+    def metric_summary(self) -> Dict[str, dict]:
+        with self._ad_lock:
+            return {
+                metric: {"ema": round(s.ema, 2),
+                         "std": round(math.sqrt(max(s.ema_var, 1e-9)), 2),
+                         "count": s.count}
+                for metric, s in self._state.items()
+            }
+
+
+class AdaptiveController:
+    """
+    Orchestrates LatencyController + ResponseAnomalyDetector per turn.
+
+    Call observe_turn() once per completed turn.  Use recommended_timeout_ms()
+    to read the current PI-adjusted LLM timeout before the next request.
+    """
+
+    def __init__(
+        self,
+        target_p95_ms: float = 3000.0,
+        min_timeout_ms: float = 500.0,
+        max_timeout_ms: float = 15000.0,
+        anomaly_z_threshold: float = 3.0,
+    ) -> None:
+        self._latency = LatencyController(
+            target_p95_ms=target_p95_ms,
+            min_timeout_ms=min_timeout_ms,
+            max_timeout_ms=max_timeout_ms,
+        )
+        self._anomaly = ResponseAnomalyDetector(z_threshold=anomaly_z_threshold)
+        self._recent_anomalies: deque = deque(maxlen=50)
+
+    def observe_turn(
+        self,
+        duration_ms: float,
+        response_len: int,
+        corrections: int = 0,
+        intent: str = "",
+        plugin: str = "",
+    ) -> List[ResponseAnomaly]:
+        obs = TurnObservation(duration_ms=duration_ms, response_len=response_len,
+                              corrections=corrections, intent=intent, plugin=plugin)
+        self._latency.observe(duration_ms)
+        anomalies = self._anomaly.observe(obs)
+        for a in anomalies:
+            self._recent_anomalies.append(a)
+            logger.warning("AdaptiveController: anomaly metric=%s z=%.2f val=%.1f mean=%.1f",
+                           a.metric, a.z_score, a.current_value, a.mean)
+        return anomalies
+
+    def recommended_timeout_ms(self) -> float:
+        return self._latency.current_timeout_ms
+
+    def recent_anomalies(self) -> List[ResponseAnomaly]:
+        return list(self._recent_anomalies)
+
+    def is_degraded(self, window: int = 5) -> bool:
+        recent = list(self._recent_anomalies)[-window:]
+        return len(recent) >= window // 2 + 1
+
+    def stats(self) -> Dict[str, object]:
+        return {
+            "latency": self._latency.stats(),
+            "anomaly_detection": self._anomaly.metric_summary(),
+            "recent_anomaly_count": len(self._recent_anomalies),
+        }
+
+
+_adaptive_ctrl_instance: Optional[AdaptiveController] = None
+_ctrl_lock = threading.Lock()
+
+
+def get_adaptive_controller(target_p95_ms: float = 3000.0) -> AdaptiveController:
+    """Return the process-wide singleton AdaptiveController."""
+    global _adaptive_ctrl_instance
+    if _adaptive_ctrl_instance is None:
+        with _ctrl_lock:
+            if _adaptive_ctrl_instance is None:
+                _adaptive_ctrl_instance = AdaptiveController(target_p95_ms=target_p95_ms)
+    return _adaptive_ctrl_instance

@@ -12,13 +12,16 @@ Features:
 import os
 import json
 import logging
+import math
 import pickle
 import importlib
 import io
 import contextlib
+import random
+import threading
 from typing import List, Dict, Optional, Any, Tuple
-from datetime import datetime
-from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
+from dataclasses import dataclass, asdict, field
 import numpy as np
 from pathlib import Path
 import hashlib
@@ -1459,6 +1462,206 @@ def get_memory_system(data_dir: str = "data/memory") -> MemorySystem:
     if _memory_system is None:
         _memory_system = MemorySystem(data_dir=data_dir)
     return _memory_system
+
+
+# ---------------------------------------------------------------------------
+# Prioritized Memory Replay  (priority-weighted context sampling)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MemoryPriorityWeights:
+    recency: float = 0.35
+    surprise: float = 0.30
+    outcome: float = 0.20
+    access: float = 0.15
+
+    def __post_init__(self) -> None:
+        total = self.recency + self.surprise + self.outcome + self.access
+        if abs(total - 1.0) > 0.01:
+            raise ValueError(f"MemoryPriorityWeights must sum to 1.0, got {total:.3f}")
+
+
+class MemoryPriorityScorer:
+    """
+    Computes a composite priority score for a single memory entry.
+
+    priority = w_recency * recency_score(t)
+             + w_surprise * surprise_score(entry)
+             + w_outcome  * outcome_score(entry)
+             + w_access   * access_score(entry)
+    """
+
+    def __init__(
+        self,
+        weights: Optional[MemoryPriorityWeights] = None,
+        decay_lambda: float = 0.05,
+    ) -> None:
+        self._w = weights or MemoryPriorityWeights()
+        self._decay_lambda = decay_lambda
+        self._lock = threading.Lock()
+        self._importance_sum: float = 0.0
+        self._importance_sq_sum: float = 0.0
+        self._count: int = 0
+        self._max_access: int = 1
+
+    def score(self, entry: Any) -> float:
+        self._update_stats(entry)
+        r = self._recency(entry)
+        s = self._surprise(entry)
+        o = self._outcome(entry)
+        a = self._access(entry)
+        return self._w.recency * r + self._w.surprise * s + self._w.outcome * o + self._w.access * a
+
+    def batch_score(self, entries: List[Any]) -> List[float]:
+        for e in entries:
+            self._update_stats(e)
+        return [self.score(e) for e in entries]
+
+    def _recency(self, entry: Any) -> float:
+        ts = getattr(entry, "timestamp", None) or getattr(entry, "created_at", None)
+        if not ts:
+            return 0.5
+        try:
+            if isinstance(ts, str):
+                ts_clean = ts.rstrip("Z")
+                dt = datetime.fromisoformat(ts_clean)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = ts
+            from datetime import timezone as _tz
+            now = datetime.now(tz=_tz.utc)
+            age_hours = (now - dt).total_seconds() / 3600.0
+            return math.exp(-self._decay_lambda * age_hours)
+        except (ValueError, TypeError):
+            return 0.5
+
+    def _surprise(self, entry: Any) -> float:
+        importance = float(getattr(entry, "importance", 0.5))
+        with self._lock:
+            if self._count < 2:
+                return 0.5
+            mean = self._importance_sum / self._count
+            variance = (self._importance_sq_sum / self._count) - mean ** 2
+            std = math.sqrt(max(variance, 1e-9))
+            z = abs(importance - mean) / std
+        return 1.0 / (1.0 + math.exp(-z + 1))
+
+    def _outcome(self, entry: Any) -> float:
+        for attr_name in ("context", "attrs"):
+            ctx = getattr(entry, attr_name, None)
+            if isinstance(ctx, dict):
+                outcome = ctx.get("outcome")
+                if outcome == "positive":
+                    return 1.0
+                if outcome == "negative":
+                    return 0.0
+        return 0.5
+
+    def _access(self, entry: Any) -> float:
+        count = int(getattr(entry, "access_count", 0))
+        with self._lock:
+            max_ac = max(self._max_access, count, 1)
+        return math.log1p(count) / math.log1p(max_ac)
+
+    def _update_stats(self, entry: Any) -> None:
+        importance = float(getattr(entry, "importance", 0.5))
+        access_count = int(getattr(entry, "access_count", 0))
+        with self._lock:
+            self._importance_sum += importance
+            self._importance_sq_sum += importance ** 2
+            self._count += 1
+            if access_count > self._max_access:
+                self._max_access = access_count
+
+
+class PrioritizedMemoryReplay:
+    """
+    Context sampler that draws entries with probability proportional to their
+    priority score. Use instead of recency-only selection.
+    """
+
+    def __init__(self, scorer: Optional[MemoryPriorityScorer] = None) -> None:
+        self._scorer = scorer or MemoryPriorityScorer()
+
+    def sample_context(
+        self,
+        entries: List[Any],
+        k: int,
+        *,
+        exclude_ids: Optional[List[str]] = None,
+    ) -> List[Any]:
+        """Draw up to k entries without replacement using priority-weighted sampling."""
+        if not entries:
+            return []
+        exclude = set(exclude_ids or [])
+        pool = [e for e in entries if getattr(e, "id", None) not in exclude]
+        if not pool:
+            return []
+        k = min(k, len(pool))
+        scores = self._scorer.batch_score(pool)
+        total = sum(scores)
+        if total <= 0.0:
+            return random.sample(pool, k)
+        weights = [s / total for s in scores]
+        selected: List[Any] = []
+        remaining_pool = list(pool)
+        remaining_weights = list(weights)
+        for _ in range(k):
+            if not remaining_pool:
+                break
+            rw_total = sum(remaining_weights)
+            if rw_total <= 0:
+                break
+            r = random.random() * rw_total
+            cumulative = 0.0
+            chosen_idx = len(remaining_pool) - 1
+            for idx, w in enumerate(remaining_weights):
+                cumulative += w
+                if r <= cumulative:
+                    chosen_idx = idx
+                    break
+            selected.append(remaining_pool.pop(chosen_idx))
+            remaining_weights.pop(chosen_idx)
+        return selected
+
+    def top_k(self, entries: List[Any], k: int) -> List[Any]:
+        """Return the top-k entries by priority score (deterministic)."""
+        if not entries:
+            return []
+        scores = self._scorer.batch_score(entries)
+        ranked = sorted(zip(scores, entries), key=lambda x: x[0], reverse=True)
+        return [e for _, e in ranked[:k]]
+
+    def compress_context(
+        self,
+        entries: List[Any],
+        target_count: int,
+        *,
+        always_keep_ids: Optional[List[str]] = None,
+    ) -> List[Any]:
+        """Reduce entries to target_count, never dropping always_keep_ids entries."""
+        keep_set = set(always_keep_ids or [])
+        pinned = [e for e in entries if getattr(e, "id", None) in keep_set]
+        rest = [e for e in entries if getattr(e, "id", None) not in keep_set]
+        budget = target_count - len(pinned)
+        if budget <= 0:
+            return pinned[:target_count]
+        return pinned + self.top_k(rest, budget)
+
+
+_memory_replay_instance: Optional[PrioritizedMemoryReplay] = None
+_memory_replay_lock = threading.Lock()
+
+
+def get_memory_replay(scorer: Optional[MemoryPriorityScorer] = None) -> PrioritizedMemoryReplay:
+    """Return the process-wide singleton PrioritizedMemoryReplay."""
+    global _memory_replay_instance
+    if _memory_replay_instance is None:
+        with _memory_replay_lock:
+            if _memory_replay_instance is None:
+                _memory_replay_instance = PrioritizedMemoryReplay(scorer=scorer)
+    return _memory_replay_instance
 
 
 # Example usage

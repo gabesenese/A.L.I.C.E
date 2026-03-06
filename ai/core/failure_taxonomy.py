@@ -28,11 +28,14 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
+import random
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -353,3 +356,327 @@ def get_failure_taxonomy() -> FailureTaxonomy:
     if _instance is None:
         _instance = FailureTaxonomy()
     return _instance
+
+
+# ---------------------------------------------------------------------------
+# Self-Debugger  (post-turn root-cause analysis + fix scheduler)
+# ---------------------------------------------------------------------------
+
+PHRASING_MISS = "PHRASING_MISS"
+MEMORY_MISS   = "MEMORY_MISS"
+
+
+@dataclass
+class TurnPostmortem:
+    """All observable signals from a completed turn."""
+    utterance: str
+    intent: str
+    plugin: str
+    action: str
+    confidence: float
+    missing_slots: List[str] = field(default_factory=list)
+    plugin_success: bool = True
+    plugin_error_code: Optional[str] = None
+    user_corrected_immediately: bool = False
+    response_repeated_request: bool = False
+    memory_retrieval_failures: int = 0
+    coref_failures: int = 0
+    frame_parse_score: float = 1.0
+    session_id: Optional[str] = None
+    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+class RootCauseClassifier(FailureTaxonomy):
+    """
+    Extends FailureTaxonomy with two new failure types (PHRASING_MISS,
+    MEMORY_MISS) and a classify_postmortem() method.
+    """
+
+    def classify_postmortem(self, pm: TurnPostmortem) -> Optional[FailureRecord]:
+        failure_type = self._decide(pm)
+        if failure_type is None:
+            return None
+        return FailureRecord(
+            failure_type=failure_type,
+            utterance=pm.utterance,
+            intent=pm.intent,
+            plugin=pm.plugin,
+            action=pm.action,
+            confidence=pm.confidence,
+            missing_slots=pm.missing_slots,
+            error_code=pm.plugin_error_code,
+            extra={
+                "memory_retrieval_failures": pm.memory_retrieval_failures,
+                "coref_failures": pm.coref_failures,
+                "frame_parse_score": pm.frame_parse_score,
+                "user_corrected": pm.user_corrected_immediately,
+                "response_repeated": pm.response_repeated_request,
+            },
+        )
+
+    def _decide(self, pm: TurnPostmortem) -> Optional[str]:
+        if pm.missing_slots and not pm.plugin_success:
+            return SLOT_MISS
+        if pm.coref_failures > 0:
+            return COREF_MISS
+        if pm.frame_parse_score < 0.5:
+            return FRAME_MISS
+        if not pm.plugin_success:
+            if pm.plugin_error_code == "clarification_required":
+                return SLOT_MISS
+            if pm.confidence < 0.45:
+                return ROUTE_MISS
+            return PLUGIN_MISS
+        if pm.confidence < 0.45 and not pm.plugin_success:
+            return CONFIDENCE
+        if pm.memory_retrieval_failures > 0:
+            return MEMORY_MISS
+        if pm.response_repeated_request:
+            return PHRASING_MISS
+        if pm.user_corrected_immediately:
+            return ROUTE_MISS
+        return None
+
+
+@dataclass
+class FixAction:
+    """A concrete action proposed by the FixScheduler."""
+    strategy: str
+    failure_type: str
+    target: str
+    parameter: Any
+    confidence: float
+    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+FixFn = Callable[[FailureRecord, Dict[str, Any]], bool]
+
+
+def _fix_threshold_adjust(record: FailureRecord, components: Dict[str, Any]) -> bool:
+    classifier = components.get("intent_classifier")
+    if not classifier:
+        return False
+    try:
+        thresh_attr = getattr(classifier, "confidence_thresholds", {})
+        current = thresh_attr.get(record.intent, 0.5)
+        thresh_attr[record.intent] = max(0.2, current - 0.05)
+        logger.info("SelfDebugger: lowered threshold for %s → %.2f",
+                    record.intent, thresh_attr[record.intent])
+        return True
+    except Exception as exc:
+        logger.debug("SelfDebugger: threshold_adjust failed: %s", exc)
+        return False
+
+
+def _fix_add_domain_rule(record: FailureRecord, components: Dict[str, Any]) -> bool:
+    nlp = components.get("nlp_processor")
+    if not nlp:
+        return False
+    try:
+        hints = getattr(nlp, "_debug_hints", [])
+        hints.append({"utterance": record.utterance, "expected_intent": record.intent})
+        nlp._debug_hints = hints
+        logger.info("SelfDebugger: added domain rule hint for %r → %s",
+                    record.utterance[:50], record.intent)
+        return True
+    except Exception as exc:
+        logger.debug("SelfDebugger: add_domain_rule failed: %s", exc)
+        return False
+
+
+def _fix_alter_planner_weight(record: FailureRecord, components: Dict[str, Any]) -> bool:
+    planner = components.get("task_planner")
+    if not planner:
+        return False
+    try:
+        weights = getattr(planner, "_action_weights", {})
+        key = f"{record.plugin}:{record.action}"
+        weights[key] = min(2.0, weights.get(key, 1.0) + 0.1)
+        planner._action_weights = weights
+        logger.info("SelfDebugger: nudged planner weight %s → %.2f", key, weights[key])
+        return True
+    except Exception as exc:
+        logger.debug("SelfDebugger: alter_planner_weight failed: %s", exc)
+        return False
+
+
+def _fix_phrasing_swap(record: FailureRecord, components: Dict[str, Any]) -> bool:
+    formulator = components.get("response_formulator")
+    if not formulator:
+        return False
+    try:
+        bad = getattr(formulator, "_deprioritised_templates", set())
+        intent_key = f"{record.intent}:default"
+        bad.add(intent_key)
+        formulator._deprioritised_templates = bad
+        logger.info("SelfDebugger: deprioritised phrasing template %s", intent_key)
+        return True
+    except Exception as exc:
+        logger.debug("SelfDebugger: phrasing_swap failed: %s", exc)
+        return False
+
+
+def _fix_memory_search_boost(record: FailureRecord, components: Dict[str, Any]) -> bool:
+    mem_sys = components.get("memory_system")
+    if not mem_sys:
+        return False
+    try:
+        current = getattr(mem_sys, "search_top_k", 5)
+        mem_sys.search_top_k = min(current + 2, 20)
+        logger.info("SelfDebugger: boosted memory search top-k → %d", mem_sys.search_top_k)
+        return True
+    except Exception as exc:
+        logger.debug("SelfDebugger: memory_search_boost failed: %s", exc)
+        return False
+
+
+_FAILURE_STRATEGY_MAP: Dict[str, List[str]] = {
+    SLOT_MISS:     ["threshold_adjust", "add_domain_rule"],
+    ROUTE_MISS:    ["threshold_adjust", "add_domain_rule", "alter_planner_weight"],
+    FRAME_MISS:    ["add_domain_rule", "threshold_adjust"],
+    COREF_MISS:    ["memory_search_boost", "add_domain_rule"],
+    PLUGIN_MISS:   ["alter_planner_weight", "threshold_adjust"],
+    CONFIDENCE:    ["threshold_adjust", "alter_planner_weight"],
+    PHRASING_MISS: ["phrasing_swap", "threshold_adjust"],
+    MEMORY_MISS:   ["memory_search_boost", "add_domain_rule"],
+}
+
+_STRATEGY_FNS: Dict[str, FixFn] = {
+    "threshold_adjust":     _fix_threshold_adjust,
+    "add_domain_rule":      _fix_add_domain_rule,
+    "alter_planner_weight": _fix_alter_planner_weight,
+    "phrasing_swap":        _fix_phrasing_swap,
+    "memory_search_boost":  _fix_memory_search_boost,
+}
+
+
+@dataclass
+class _StrategyArm:
+    successes: int = 0
+    failures: int = 0
+
+    def update(self, success: bool) -> None:
+        if success:
+            self.successes += 1
+        else:
+            self.failures += 1
+
+    def ucb_score(self, total_pulls: int, c: float = 1.41) -> float:
+        pulls = self.successes + self.failures
+        if pulls == 0:
+            return float("inf")
+        mean = self.successes / pulls
+        exploration = c * math.sqrt(math.log(total_pulls + 1) / pulls)
+        return mean + exploration
+
+
+class FixScheduler:
+    """Multi-armed bandit (UCB1) over fix strategies, per failure type."""
+
+    def __init__(self, log_path: Optional[str] = None) -> None:
+        self._arms: Dict[str, _StrategyArm] = {}
+        self._total_pulls: int = 0
+        self._sched_lock = threading.Lock()
+        self._log_path = Path(log_path) if log_path else None
+
+    def schedule(self, record: FailureRecord) -> Optional[FixAction]:
+        candidates = _FAILURE_STRATEGY_MAP.get(record.failure_type, [])
+        if not candidates:
+            return None
+        with self._sched_lock:
+            self._total_pulls += 1
+            best_strategy = max(
+                candidates,
+                key=lambda s: self._arm(record.failure_type, s).ucb_score(self._total_pulls),
+            )
+            arm = self._arm(record.failure_type, best_strategy)
+            confidence = (arm.successes + 1) / (arm.successes + arm.failures + 2)
+        return FixAction(
+            strategy=best_strategy, failure_type=record.failure_type,
+            target=record.intent,
+            parameter={"utterance": record.utterance, "plugin": record.plugin},
+            confidence=confidence,
+        )
+
+    def record_fix_outcome(self, action: FixAction, success: bool) -> None:
+        with self._sched_lock:
+            self._arm(action.failure_type, action.strategy).update(success)
+        if self._log_path:
+            self._append_log(action, success)
+
+    def _arm(self, failure_type: str, strategy: str) -> _StrategyArm:
+        key = f"{failure_type}:{strategy}"
+        if key not in self._arms:
+            self._arms[key] = _StrategyArm()
+        return self._arms[key]
+
+    def _append_log(self, action: FixAction, success: bool) -> None:
+        try:
+            self._log_path.parent.mkdir(parents=True, exist_ok=True)
+            entry = {"timestamp": action.timestamp, "strategy": action.strategy,
+                     "failure_type": action.failure_type, "target": action.target,
+                     "success": success}
+            with open(self._log_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry) + "\n")
+        except Exception as exc:
+            logger.debug("FixScheduler: log write failed: %s", exc)
+
+
+class SelfDebugger:
+    """
+    Wires RootCauseClassifier → FixScheduler → fix application for each turn.
+
+    Typical call site (post-turn):
+        debugger.analyse_turn(postmortem, components_dict)
+    """
+
+    def __init__(
+        self,
+        fix_log_path: Optional[str] = None,
+        failure_log_path: Optional[str] = None,
+    ) -> None:
+        self._classifier = RootCauseClassifier(
+            log_path=failure_log_path or "memory/self_debug_failures.jsonl"
+        )
+        self._scheduler = FixScheduler(
+            log_path=fix_log_path or "memory/self_debug_fixes.jsonl"
+        )
+        self._pending_fixes: List[FixAction] = []
+
+    def analyse_turn(
+        self,
+        postmortem: TurnPostmortem,
+        components: Dict[str, Any],
+    ) -> Optional[FixAction]:
+        """Classify, schedule, and apply a fix. Returns the FixAction or None."""
+        record = self._classifier.classify_postmortem(postmortem)
+        if record is None:
+            return None
+        self._classifier.log(record)
+        action = self._scheduler.schedule(record)
+        if action is None:
+            return None
+        fix_fn = _STRATEGY_FNS.get(action.strategy)
+        if fix_fn:
+            success = fix_fn(record, components)
+            self._scheduler.record_fix_outcome(action, success)
+            logger.info("SelfDebugger: applied %s for %s → %s",
+                        action.strategy, record.failure_type, "ok" if success else "failed")
+        return action
+
+    def pending_fixes(self) -> List[FixAction]:
+        return list(self._pending_fixes)
+
+
+_self_debugger_instance: Optional[SelfDebugger] = None
+_self_debugger_lock = threading.Lock()
+
+
+def get_self_debugger() -> SelfDebugger:
+    """Return the process-wide singleton SelfDebugger."""
+    global _self_debugger_instance
+    if _self_debugger_instance is None:
+        with _self_debugger_lock:
+            if _self_debugger_instance is None:
+                _self_debugger_instance = SelfDebugger()
+    return _self_debugger_instance

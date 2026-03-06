@@ -1079,6 +1079,10 @@ class NLPProcessor:
         self.domain_ner = DomainEntityExtractor()
         self.emotion_detector = EmotionDetector()
 
+        # Stable temporal abstraction — consumers should use this instead of
+        # calling temporal_parser directly so parser API changes stay local.
+        self.temporal = TemporalUnderstanding(self.temporal_parser)
+
         # Advanced NLP stack
         if ADVANCED_NLP_AVAILABLE:
             self.coref_resolver = _AdvancedCoref()
@@ -3128,3 +3132,470 @@ class NLPProcessor:
 def get_nlp_processor() -> NLPProcessor:
     """Get singleton NLP processor instance"""
     return NLPProcessor()
+
+
+# ============================================================================
+# PERCEPTION LAYER
+# ============================================================================
+
+
+@dataclass
+class PerceptionResult:
+    """
+    Unified perception object produced between raw NLP output and the pipeline.
+
+    Centralises ambiguity score, inferred mood, follow-up domain detection,
+    and clarification need so that all downstream decisions can be made from
+    one place rather than being patched across individual methods.
+
+    Convenience properties proxy the most-used fields of the inner
+    ProcessedQuery so callers don't have to drill through `.query`.
+    """
+
+    query: "ProcessedQuery"
+    inferred_mood: str            # positive | negative | neutral | frustrated | urgent
+    ambiguity: float              # 0.0 = unambiguous, 1.0 = completely unclear
+    followup_domain: Optional[str]        # e.g. "weather", "notes", "email"
+    needs_clarification: bool
+    clarification_question: Optional[str]
+    interaction_hints: Dict[str, Any]     # downstream policy hints
+
+    # ── Convenience proxies ──────────────────────────────────────────
+    @property
+    def intent(self) -> str:
+        return self.query.intent
+
+    @property
+    def confidence(self) -> float:
+        return self.query.intent_confidence
+
+    @property
+    def entities(self) -> Dict[str, Any]:
+        return self.query.entities
+
+    @property
+    def sentiment(self) -> Dict[str, float]:
+        return self.query.sentiment
+
+
+class Perception:
+    """
+    Builds a PerceptionResult from a ProcessedQuery and session context.
+
+    Usage
+    -----
+        perception = Perception()
+        result = perception.build(nlp_result, last_intent, conversation_topics)
+    """
+
+    FRUSTRATION_MARKERS: Set[str] = {
+        "no", "wrong", "stop", "ugh", "again", "not", "don't", "didn't",
+        "why", "broken", "useless", "terrible", "awful", "hate", "redo",
+        "fix", "what", "seriously", "come on",
+    }
+
+    # Domain signals reused from FollowUpResolver (kept here so Perception
+    # is self-contained and doesn't create a circular import).
+    _DOMAIN_SIGNALS: Dict[str, Set[str]] = {
+        "weather": {
+            "weather", "rain", "snow", "temp", "cold", "warm", "umbrella",
+            "wear", "coat", "jacket", "forecast", "tomorrow", "tonight",
+            "humidity", "wind", "chilly", "freezing", "hot", "sunny",
+        },
+        "notes": {"note", "task", "todo", "reminder", "list"},
+        "email": {"email", "mail", "reply", "inbox", "send", "draft"},
+        "music": {"song", "play", "pause", "next", "music", "skip", "volume"},
+        "calendar": {"event", "meeting", "schedule", "appointment", "calendar"},
+    }
+
+    def build(
+        self,
+        query: "ProcessedQuery",
+        last_intent: Optional[str] = None,
+        conversation_topics: Optional[List[str]] = None,
+    ) -> PerceptionResult:
+        """Derive a PerceptionResult from *query* and session history."""
+        mood = self._infer_mood(query)
+        ambiguity = self._calc_ambiguity(query)
+        followup_domain = self._detect_followup_domain(
+            query, last_intent, conversation_topics or []
+        )
+        needs_clarif, clarif_q = self._clarification_need(query, ambiguity)
+        hints: Dict[str, Any] = {
+            "mood": mood,
+            "ambiguity": ambiguity,
+            "followup_domain": followup_domain,
+            "response_length": "brief" if mood in ("frustrated", "urgent") else "normal",
+            "empathy": mood in ("frustrated", "negative"),
+        }
+        return PerceptionResult(
+            query=query,
+            inferred_mood=mood,
+            ambiguity=ambiguity,
+            followup_domain=followup_domain,
+            needs_clarification=needs_clarif,
+            clarification_question=clarif_q,
+            interaction_hints=hints,
+        )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _infer_mood(self, query: "ProcessedQuery") -> str:
+        sentiment = query.sentiment or {}
+        compound = sentiment.get("compound", 0.0)
+        lower = query.original_text.lower()
+        tokens = set(lower.split())
+
+        if query.urgency_level == "high" or tokens & {"asap", "urgent", "now", "immediately"}:
+            return "urgent"
+        # Frustration: negative sentiment AND at least one frustration marker
+        if tokens & self.FRUSTRATION_MARKERS and compound < -0.05:
+            return "frustrated"
+        if compound >= 0.2:
+            return "positive"
+        if compound <= -0.2:
+            return "negative"
+        return "neutral"
+
+    def _calc_ambiguity(self, query: "ProcessedQuery") -> float:
+        conf_part = max(0.0, 1.0 - query.intent_confidence)
+        val_part = 1.0 - getattr(query, "validation_score", 1.0)
+        base = conf_part * 0.6 + val_part * 0.4
+        intent = query.intent or ""
+        if intent.startswith("vague_") or intent == "conversation:clarification_needed":
+            base = min(1.0, base + 0.3)
+        return round(base, 3)
+
+    def _detect_followup_domain(
+        self,
+        query: "ProcessedQuery",
+        last_intent: Optional[str],
+        topics: List[str],
+    ) -> Optional[str]:
+        recent = last_intent or (topics[-1] if topics else None)
+        if not recent:
+            return None
+        domain = recent.split(":")[0] if ":" in recent else recent
+        signals = self._DOMAIN_SIGNALS.get(domain, set())
+        if not signals:
+            return None
+        lower = query.original_text.lower()
+        # Strip punctuation from each word so "umbrella?" matches "umbrella"
+        import re as _re
+        clean_words = set(_re.sub(r"[^\w\s]", "", lower).split())
+        if signals & clean_words:
+            return domain
+        # Substring fallback: catches partial spellings like "umbrela" ⊂ "umbrella"
+        # or abbreviated signals.
+        if any(word.startswith(sig[:5]) or sig.startswith(word[:5])
+               for sig in signals for word in clean_words if len(word) >= 5):
+            return domain
+        # Generic cues with any domain — only if low confidence
+        generic_cues = {"and", "also", "that", "this", "it", "then", "what about"}
+        if generic_cues & clean_words and query.intent_confidence < 0.65:
+            return domain
+        return None
+
+    def _clarification_need(
+        self,
+        query: "ProcessedQuery",
+        ambiguity: float,
+    ) -> Tuple[bool, Optional[str]]:
+        parsed_cmd = query.parsed_command or {}
+        modifiers = parsed_cmd if isinstance(parsed_cmd, dict) else getattr(parsed_cmd, "modifiers", {})
+        disamb = modifiers.get("disambiguation") or modifiers.get("modifiers", {}).get("disambiguation")
+        if disamb and disamb.get("needs_clarification"):
+            return True, disamb.get("question")
+        if ambiguity >= 0.65 and query.intent_confidence < 0.4:
+            return True, "Could you clarify what you'd like me to do?"
+        return False, None
+
+
+# ============================================================================
+# TEMPORAL UNDERSTANDING  (stable abstraction over TemporalParser)
+# ============================================================================
+
+
+@dataclass
+class TemporalResult:
+    """
+    Normalised time/date extraction result.
+
+    Fields
+    ------
+    start:
+        ISO-8601 date string (YYYY-MM-DD) or None.
+    end:
+        ISO-8601 date string for range end, or None.
+    time:
+        Wall-clock time (HH:MM) or None.
+    grain:
+        Coarsest meaningful unit: 'minute' | 'hour' | 'day' | 'week' |
+        'month' | 'unknown'.
+    raw:
+        The original text fragment that was parsed.
+    confidence:
+        Parser confidence, 0–1.
+    """
+
+    start: Optional[str]
+    end: Optional[str]
+    time: Optional[str]
+    grain: str
+    raw: str
+    confidence: float
+
+    def as_dict(self) -> Dict[str, Any]:
+        """Backward-compatible dict for callers that still expect raw parser output."""
+        return {
+            "date": self.start,
+            "end_date": self.end,
+            "time": self.time,
+            "grain": self.grain,
+            "raw_text": self.raw,
+            "confidence": self.confidence,
+        }
+
+
+class TemporalUnderstanding:
+    """
+    Thin stable wrapper around TemporalParser.
+
+    Usage
+    -----
+        tu = TemporalUnderstanding(temporal_parser)
+        result = tu.parse("tomorrow at 3pm")
+        if result:
+            print(result.start, result.time, result.grain)
+    """
+
+    def __init__(self, temporal_parser: Any) -> None:
+        self._parser = temporal_parser
+
+    def parse(self, text: str) -> Optional[TemporalResult]:
+        """
+        Parse a text fragment for temporal expressions.
+
+        Returns a TemporalResult on success, None if no temporal
+        expression was detected.
+        """
+        try:
+            raw = self._parser.parse_temporal_expression(text)
+        except Exception as exc:
+            logger.debug("[TemporalUnderstanding] parse error for %r: %s", text, exc)
+            return None
+
+        if not raw:
+            return None
+
+        grain = self._infer_grain(raw, text)
+
+        return TemporalResult(
+            start=raw.get("date"),
+            end=raw.get("end_date"),
+            time=raw.get("time"),
+            grain=grain,
+            raw=raw.get("raw_text", text),
+            confidence=raw.get("confidence", 0.7),
+        )
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    _WEEK_CUES = {"week", "monday", "tuesday", "wednesday", "thursday",
+                  "friday", "saturday", "sunday", "weekend"}
+    _MONTH_CUES = {"month", "january", "february", "march", "april", "may",
+                   "june", "july", "august", "september", "october",
+                   "november", "december"}
+
+    def _infer_grain(self, raw: Dict[str, Any], text: str) -> str:
+        lower = text.lower()
+        words = set(lower.split())
+
+        if raw.get("end_date"):
+            return "week" if words & self._WEEK_CUES else "day"
+        if raw.get("time") and raw.get("date"):
+            return "minute"
+        if raw.get("time"):
+            return "hour"
+        if raw.get("date"):
+            if words & self._WEEK_CUES:
+                return "week"
+            if words & self._MONTH_CUES:
+                return "month"
+            return "day"
+        return "unknown"
+
+
+def get_temporal_understanding(temporal_parser: Any) -> TemporalUnderstanding:
+    """Factory helper — creates a TemporalUnderstanding bound to *temporal_parser*."""
+    return TemporalUnderstanding(temporal_parser)
+
+
+# ============================================================================
+# FOLLOW-UP RESOLVER  (cross-turn topic-inheritance logic)
+# ============================================================================
+
+
+@dataclass
+class FollowUpResult:
+    """Result of a follow-up resolution attempt."""
+
+    resolved_intent: str
+    confidence: float
+    was_followup: bool
+    domain: Optional[str]
+    reason: str  # human-readable trace for logs / learning
+
+
+class FollowUpResolver:
+    """
+    Determines whether the current turn continues a previous topic and,
+    if so, which intent and confidence should be used instead of the raw
+    NLP output.
+
+    Design goals
+    ------------
+    * One class, all domains — add a new domain by adding an entry to
+      DOMAIN_SIGNALS; no changes anywhere else needed.
+    * Layered priority:
+        1. Strong domain signal (fires regardless of NLP confidence)
+        2. Perception layer already flagged a follow-up domain
+        3. Low-confidence NLP + conversational filler + generic cue
+    * Never silently drops an already-resolved intent — if none of the
+      layers activate the raw NLP result passes through unchanged.
+    """
+
+    DOMAIN_SIGNALS: Dict[str, List[str]] = {
+        "weather": [
+            "wear", "layer", "coat", "jacket", "bring", "umbrella",
+            "need", "cold", "warm", "snow", "rain", "forecast",
+            "tomorrow", "tonight", "this week", "next week", "weekend",
+            "what about", "humidity", "wind", "feel like", "chilly",
+            "freezing", "hot", "sunny", "cloudy", "dress",
+        ],
+        "notes": [
+            "add to", "delete", "remove", "modify", "change",
+            "show", "that note", "edit", "update",
+        ],
+        "email": [
+            "that email", "reply", "delete it", "archive",
+            "the first one", "the latest", "forward", "respond",
+        ],
+        "music": [
+            "that song", "skip", "pause", "volume", "louder", "quieter",
+            "next track", "previous", "shuffle",
+        ],
+        "calendar": [
+            "reschedule", "cancel", "that event", "the meeting",
+            "move it", "postpone",
+        ],
+    }
+
+    GENERIC_CUES: List[str] = [
+        "what about", "how about", "and ", "also", "same for",
+        "that", "this", "it", "them", "tomorrow", "tonight",
+        "this week", "next week", "weekend",
+    ]
+
+    CONVERSATIONAL_INTENTS = frozenset({
+        "greeting",
+        "conversation:general",
+        "conversation:question",
+        "vague_question",
+        "vague_temporal_question",
+    })
+
+    def resolve(
+        self,
+        user_input: str,
+        nlp_intent: str,
+        nlp_confidence: float,
+        last_intent: Optional[str],
+        conversation_topics: Optional[List[str]] = None,
+        perception_followup_domain: Optional[str] = None,
+    ) -> FollowUpResult:
+        """
+        Return the final (possibly inherited) intent and confidence.
+
+        Parameters
+        ----------
+        user_input:
+            Raw user utterance for the current turn.
+        nlp_intent:
+            Intent produced by the NLP processor.
+        nlp_confidence:
+            Classifier confidence in that intent, 0–1.
+        last_intent:
+            The intent that was resolved on the previous turn, if any.
+        conversation_topics:
+            Ordered list of recent topic strings (e.g. ["weather:current"]).
+            The last element is used when last_intent is not set.
+        perception_followup_domain:
+            Domain that the Perception layer independently identified as
+            likely for a follow-up (can be None).
+        """
+        topics = conversation_topics or []
+        recent_intent: Optional[str] = last_intent or (topics[-1] if topics else None)
+        lower = user_input.lower().strip()
+
+        if not recent_intent:
+            return FollowUpResult(nlp_intent, nlp_confidence, False, None, "no_recent_context")
+
+        recent_domain = (
+            recent_intent.split(":")[0] if ":" in recent_intent else recent_intent
+        )
+
+        generic_cue = any(cue in lower for cue in self.GENERIC_CUES)
+        domain_signals = self.DOMAIN_SIGNALS.get(recent_domain, [])
+        domain_signal_hit = any(sig in lower for sig in domain_signals)
+
+        is_conversational = nlp_intent in self.CONVERSATIONAL_INTENTS
+        low_confidence = nlp_confidence < 0.7
+
+        # ── Layer 1: Strong domain signal ──────────────────────────────────
+        if domain_signal_hit and recent_domain in self.DOMAIN_SIGNALS:
+            new_conf = max(nlp_confidence, 0.82)
+            logger.debug(
+                "[FollowUpResolver] domain_signal:%s → %s (%.2f)",
+                recent_domain, recent_intent, new_conf,
+            )
+            return FollowUpResult(
+                recent_intent, new_conf, True, recent_domain,
+                f"domain_signal:{recent_domain}",
+            )
+
+        # ── Layer 2: Perception layer already identified a follow-up domain ─
+        if (
+            perception_followup_domain
+            and perception_followup_domain == recent_domain
+        ):
+            new_conf = max(nlp_confidence, 0.80)
+            logger.debug(
+                "[FollowUpResolver] perception_signal:%s → %s (%.2f)",
+                recent_domain, recent_intent, new_conf,
+            )
+            return FollowUpResult(
+                recent_intent, new_conf, True, recent_domain,
+                f"perception_signal:{recent_domain}",
+            )
+
+        # ── Layer 3: Low-confidence NLP + conversational + generic cue ──────
+        if low_confidence and (is_conversational or generic_cue):
+            if ":" in recent_intent and not recent_intent.startswith(
+                ("conversation:", "system:")
+            ):
+                new_conf = max(nlp_confidence, 0.78)
+                logger.debug(
+                    "[FollowUpResolver] generic_followup → %s (%.2f)",
+                    recent_intent, new_conf,
+                )
+                return FollowUpResult(
+                    recent_intent, new_conf, True, recent_domain,
+                    "generic_followup",
+                )
+
+        return FollowUpResult(nlp_intent, nlp_confidence, False, None, "no_followup")

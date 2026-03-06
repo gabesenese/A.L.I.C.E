@@ -7,9 +7,10 @@ Replaces multiple overlapping memory systems with single source of truth
 import logging
 import json
 import time
-from typing import Dict, List, Optional, Set, Any, Tuple
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional, Set, Any, Tuple, Callable
+from dataclasses import dataclass, asdict, field
 from collections import defaultdict, deque
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 import hashlib
@@ -526,3 +527,335 @@ class ContextGraph:
             )
             / max(1, len(self.entities)),
         }
+
+
+# ---------------------------------------------------------------------------
+# Symbolic World Graph  (typed knowledge graph with forward-chaining inference)
+# ---------------------------------------------------------------------------
+
+class NodeType:
+    USER = "user"
+    PERSON = "person"
+    TOPIC = "topic"
+    EVENT = "event"
+    LOCATION = "location"
+    ARTIST = "artist"
+    PREFERENCE = "preference"
+    DEADLINE = "deadline"
+    TASK = "task"
+    EMOTION = "emotion"
+
+
+class RelationType:
+    CONCERNED_ABOUT = "concerned_about"
+    PREFERS = "prefers"
+    DISLIKES = "dislikes"
+    RELATED_TO = "related_to"
+    CLUSTER_WITH = "cluster_with"
+    HAS_ATTRIBUTE = "has_attribute"
+    OCCURRED_AT = "occurred_at"
+    ASSIGNED_TO = "assigned_to"
+    CAUSED_BY = "caused_by"
+    MAY_NEED = "may_need"
+
+
+@dataclass
+class GraphNode:
+    node_id: str
+    node_type: str
+    attrs: Dict[str, Any] = field(default_factory=dict)
+    tags: List[str] = field(default_factory=list)
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    access_count: int = 0
+
+    def touch(self) -> None:
+        self.updated_at = datetime.utcnow().isoformat()
+        self.access_count += 1
+
+
+@dataclass
+class GraphEdge:
+    from_id: str
+    to_id: str
+    relation: str
+    weight: float = 1.0
+    attrs: Dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    inferred: bool = False   # True if materialised by a rule
+
+
+@dataclass
+class ForwardRule:
+    """
+    IF a node of head_type has >= min_count outgoing edges of relation pointing
+    to nodes with tag tail_tag, THEN fire action(graph, head_node_id).
+    """
+    name: str
+    head_type: str
+    relation: str
+    tail_tag: str
+    min_count: int
+    action: Callable[["WorldGraph", str], None]
+
+
+def _fire_overwhelm(graph: "WorldGraph", node_id: str) -> None:
+    node = graph.get_node(node_id)
+    if node and not node.attrs.get("may_be_overwhelmed"):
+        node.attrs["may_be_overwhelmed"] = True
+        node.touch()
+        logger.debug("WorldGraph: overwhelm detected for node %s", node_id)
+
+
+_DEFAULT_WORLD_RULES: List[ForwardRule] = [
+    ForwardRule(
+        name="overwhelm_detection",
+        head_type=NodeType.USER,
+        relation=RelationType.CONCERNED_ABOUT,
+        tail_tag="deadline",
+        min_count=3,
+        action=_fire_overwhelm,
+    ),
+]
+
+
+class ForwardChainingRuleEngine:
+    """Evaluates all registered rules against the current graph state."""
+
+    def __init__(self, rules: Optional[List[ForwardRule]] = None) -> None:
+        self._rules: List[ForwardRule] = list(rules or _DEFAULT_WORLD_RULES)
+
+    def add_rule(self, rule: ForwardRule) -> None:
+        self._rules.append(rule)
+
+    def run(self, graph: "WorldGraph") -> int:
+        """Run one inference pass. Returns number of rules that fired."""
+        fired = 0
+        for rule in self._rules:
+            for node in graph.nodes_of_type(rule.head_type):
+                matching = [
+                    e for e in graph.outgoing_edges(node.node_id)
+                    if e.relation == rule.relation
+                    and rule.tail_tag in (graph.get_node(e.to_id) or GraphNode("", "")).tags
+                ]
+                if len(matching) >= rule.min_count:
+                    rule.action(graph, node.node_id)
+                    fired += 1
+        return fired
+
+
+def _wg_infer_preferences(graph: "WorldGraph") -> None:
+    """If a user has >= 3 play references to the same artist, add a PREFERS edge."""
+    for user_node in graph.nodes_of_type(NodeType.USER):
+        artist_counts: Dict[str, int] = defaultdict(int)
+        for edge in graph.outgoing_edges(user_node.node_id):
+            t = graph.get_node(edge.to_id)
+            if t and t.node_type == NodeType.ARTIST:
+                artist_counts[edge.to_id] += 1
+        for artist_id, count in artist_counts.items():
+            if count >= 3:
+                graph.add_edge(GraphEdge(
+                    from_id=user_node.node_id,
+                    to_id=artist_id,
+                    relation=RelationType.PREFERS,
+                    weight=min(1.0, count / 10.0),
+                    inferred=True,
+                ))
+
+
+class WorldGraph:
+    """
+    In-memory typed knowledge graph with forward-chaining inference.
+
+    Extracts facts from conversation turns (entities, topics, sentiment) and
+    materialises implied edges/attributes via the ForwardChainingRuleEngine.
+    Thread-safe for concurrent reads/writes in the main ALICE event loop.
+    """
+
+    def __init__(
+        self,
+        persistence_path: Optional[str] = None,
+        rule_engine: Optional[ForwardChainingRuleEngine] = None,
+    ) -> None:
+        self._nodes: Dict[str, GraphNode] = {}
+        self._out_edges: Dict[str, List[GraphEdge]] = defaultdict(list)
+        self._wg_lock = threading.RLock()
+        self._rule_engine = rule_engine or ForwardChainingRuleEngine()
+        self._persistence_path = Path(persistence_path) if persistence_path else None
+        if self._persistence_path and self._persistence_path.exists():
+            self._load()
+
+    def upsert_node(self, node: GraphNode) -> GraphNode:
+        with self._wg_lock:
+            existing = self._nodes.get(node.node_id)
+            if existing:
+                existing.attrs.update(node.attrs)
+                existing.tags = list(set(existing.tags + node.tags))
+                existing.touch()
+                return existing
+            self._nodes[node.node_id] = node
+            return node
+
+    def get_node(self, node_id: str) -> Optional[GraphNode]:
+        return self._nodes.get(node_id)
+
+    def nodes_of_type(self, node_type: str) -> List[GraphNode]:
+        with self._wg_lock:
+            return [n for n in self._nodes.values() if n.node_type == node_type]
+
+    def add_edge(self, edge: GraphEdge) -> None:
+        with self._wg_lock:
+            for existing in self._out_edges[edge.from_id]:
+                if existing.to_id == edge.to_id and existing.relation == edge.relation:
+                    existing.weight = max(existing.weight, edge.weight)
+                    return
+            self._out_edges[edge.from_id].append(edge)
+
+    def outgoing_edges(self, node_id: str) -> List[GraphEdge]:
+        with self._wg_lock:
+            return list(self._out_edges.get(node_id, []))
+
+    def edges_of_relation(self, relation: str) -> List[GraphEdge]:
+        with self._wg_lock:
+            return [e for edges in self._out_edges.values()
+                    for e in edges if e.relation == relation]
+
+    def update_from_turn(
+        self,
+        intent: str,
+        entities: Dict[str, Any],
+        sentiment: Optional[str] = None,
+        topics: Optional[List[str]] = None,
+        user_id: str = "alice_user",
+    ) -> int:
+        """Extract facts from a turn and persist them in the graph. Returns edges added."""
+        added = 0
+        with self._wg_lock:
+            self.upsert_node(GraphNode(node_id=user_id, node_type=NodeType.USER))
+            domain, _, action = intent.partition(":")
+            for key, value in (entities or {}).items():
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                node_id = f"{key}:{value.lower()}"
+                ntype = self._infer_node_type(key, domain)
+                n = GraphNode(node_id=node_id, node_type=ntype, attrs={"value": value})
+                if ntype == NodeType.DEADLINE:
+                    n.tags.append("deadline")
+                self.upsert_node(n)
+                if ntype in (NodeType.DEADLINE, NodeType.EVENT, NodeType.TASK):
+                    self.add_edge(GraphEdge(from_id=user_id, to_id=node_id,
+                                           relation=RelationType.CONCERNED_ABOUT, weight=0.8))
+                    added += 1
+                if ntype == NodeType.ARTIST and action == "play":
+                    self.add_edge(GraphEdge(from_id=user_id, to_id=node_id,
+                                           relation="played", weight=0.5))
+                    added += 1
+            for topic in (topics or []):
+                tid = f"topic:{topic.lower()}"
+                self.upsert_node(GraphNode(node_id=tid, node_type=NodeType.TOPIC,
+                                          attrs={"name": topic}))
+                self.add_edge(GraphEdge(from_id=user_id, to_id=tid,
+                                       relation=RelationType.CONCERNED_ABOUT, weight=0.5))
+                added += 1
+            if sentiment and sentiment != "neutral":
+                user_node = self._nodes[user_id]
+                user_node.attrs[f"last_sentiment_{domain}"] = sentiment
+        self._rule_engine.run(self)
+        _wg_infer_preferences(self)
+        if self._persistence_path:
+            self._save()
+        return added
+
+    def may_be_overwhelmed(self, user_id: str = "alice_user") -> bool:
+        node = self.get_node(user_id)
+        return bool(node and node.attrs.get("may_be_overwhelmed"))
+
+    def preferred_artists(self, user_id: str = "alice_user") -> List[str]:
+        return [e.to_id.split(":", 1)[-1]
+                for e in self.outgoing_edges(user_id)
+                if e.relation == RelationType.PREFERS]
+
+    def stats(self) -> Dict[str, int]:
+        with self._wg_lock:
+            return {
+                "nodes": len(self._nodes),
+                "edges": sum(len(v) for v in self._out_edges.values()),
+            }
+
+    def _save(self) -> None:
+        try:
+            data = {
+                "nodes": [
+                    {"node_id": n.node_id, "node_type": n.node_type,
+                     "attrs": n.attrs, "tags": n.tags,
+                     "created_at": n.created_at, "updated_at": n.updated_at,
+                     "access_count": n.access_count}
+                    for n in self._nodes.values()
+                ],
+                "edges": [
+                    {"from_id": e.from_id, "to_id": e.to_id,
+                     "relation": e.relation, "weight": e.weight,
+                     "attrs": e.attrs, "created_at": e.created_at, "inferred": e.inferred}
+                    for edges in self._out_edges.values() for e in edges
+                ],
+            }
+            self._persistence_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._persistence_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            tmp.replace(self._persistence_path)
+        except Exception as exc:
+            logger.warning("WorldGraph: save failed: %s", exc)
+
+    def _load(self) -> None:
+        try:
+            data = json.loads(self._persistence_path.read_text(encoding="utf-8"))
+            for nd in data.get("nodes", []):
+                self._nodes[nd["node_id"]] = GraphNode(
+                    node_id=nd["node_id"], node_type=nd["node_type"],
+                    attrs=nd.get("attrs", {}), tags=nd.get("tags", []),
+                    created_at=nd.get("created_at", ""),
+                    updated_at=nd.get("updated_at", ""),
+                    access_count=nd.get("access_count", 0),
+                )
+            for ed in data.get("edges", []):
+                self._out_edges[ed["from_id"]].append(GraphEdge(
+                    from_id=ed["from_id"], to_id=ed["to_id"],
+                    relation=ed["relation"], weight=ed.get("weight", 1.0),
+                    attrs=ed.get("attrs", {}), created_at=ed.get("created_at", ""),
+                    inferred=ed.get("inferred", False),
+                ))
+            logger.info("WorldGraph: loaded %d nodes, %d edges",
+                        len(self._nodes), sum(len(v) for v in self._out_edges.values()))
+        except Exception as exc:
+            logger.warning("WorldGraph: load failed: %s", exc)
+
+    @staticmethod
+    def _infer_node_type(entity_key: str, domain: str) -> str:
+        key = entity_key.lower()
+        if "artist" in key or "band" in key:
+            return NodeType.ARTIST
+        if "location" in key or "city" in key or "place" in key:
+            return NodeType.LOCATION
+        if "date" in key or "time" in key or "deadline" in key:
+            return NodeType.DEADLINE
+        if "person" in key or "contact" in key or "who" in key:
+            return NodeType.PERSON
+        if domain in ("calendar", "schedule"):
+            return NodeType.EVENT
+        if domain in ("tasks", "todo"):
+            return NodeType.TASK
+        return NodeType.TOPIC
+
+
+_world_graph_instance: Optional[WorldGraph] = None
+_world_graph_lock = threading.Lock()
+
+
+def get_world_graph(persistence_path: Optional[str] = None) -> WorldGraph:
+    """Return the process-wide singleton WorldGraph."""
+    global _world_graph_instance
+    if _world_graph_instance is None:
+        with _world_graph_lock:
+            if _world_graph_instance is None:
+                _world_graph_instance = WorldGraph(persistence_path=persistence_path)
+    return _world_graph_instance

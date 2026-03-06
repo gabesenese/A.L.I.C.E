@@ -870,6 +870,198 @@ def get_intent_classifier() -> SemanticIntentClassifier:
     return _classifier_instance
 
 
+# ---------------------------------------------------------------------------
+# Bayesian Intent Router
+# ---------------------------------------------------------------------------
+
+@dataclass
+class IntentCandidate:
+    """A single intent hypothesis produced by the upstream NLP system."""
+    intent: str
+    confidence: float
+    plugin: str = ""
+    action: str = ""
+
+
+@dataclass
+class RouterDecision:
+    """The final routing decision produced by BayesianIntentRouter."""
+    intent: str
+    plugin: str
+    action: str
+    raw_confidence: float
+    calibrated_confidence: float
+    expected_regret: float
+    runner_up: Optional[str] = None
+    runner_up_regret: Optional[float] = None
+
+
+class IntentCostMatrix:
+    """
+    Asymmetric cost matrix C[decision][true_intent].
+
+    Default cost of a wrong decision is 1.0.  Biases semantically close intents
+    so near-misses cost less than gross misfires.
+    """
+
+    _HIGH_COST_PAIRS: Dict[Tuple[str, str], float] = {
+        ("chitchat:general", "email:send"): 1.8,
+        ("chitchat:general", "notes:create"): 1.6,
+        ("chitchat:general", "calendar:create_event"): 1.6,
+        ("music:play", "weather:current"): 1.4,   # umbrella trap
+        ("music:play", "weather:forecast"): 1.4,
+    }
+    _LOW_COST_PAIRS: Dict[Tuple[str, str], float] = {
+        ("weather:current", "weather:forecast"): 0.3,
+        ("notes:create", "notes:append"): 0.2,
+        ("calendar:query", "calendar:create_event"): 0.3,
+    }
+
+    def __init__(self) -> None:
+        self._overrides: Dict[Tuple[str, str], float] = {}
+
+    def cost(self, decision: str, true_intent: str) -> float:
+        if decision == true_intent:
+            return 0.0
+        key = (decision, true_intent)
+        if key in self._overrides:
+            return self._overrides[key]
+        if key in self._HIGH_COST_PAIRS:
+            return self._HIGH_COST_PAIRS[key]
+        if key in self._LOW_COST_PAIRS:
+            return self._LOW_COST_PAIRS[key]
+        return 1.0
+
+    def set_cost(self, decision: str, true_intent: str, value: float) -> None:
+        self._overrides[(decision, true_intent)] = float(value)
+
+
+class _BinCalibrator:
+    """Lightweight bin-based calibrator used when ConfidenceCalibrator is not injected."""
+
+    def __init__(self, history_size: int = 2000) -> None:
+        self._predictions: deque = deque(maxlen=history_size)
+        self._bins: dict = defaultdict(lambda: {"correct": 0, "total": 0})
+        self._lock = threading.Lock()
+
+    def record(self, confidence: float, was_correct: bool) -> None:
+        with self._lock:
+            self._predictions.append((confidence, was_correct))
+            key = round(confidence, 1)
+            self._bins[key]["total"] += 1
+            if was_correct:
+                self._bins[key]["correct"] += 1
+
+    def calibrate(self, confidence: float) -> float:
+        with self._lock:
+            key = round(confidence, 1)
+            stats = self._bins.get(key)
+            if stats and stats["total"] >= 10:
+                empirical = stats["correct"] / stats["total"]
+                return 0.7 * empirical + 0.3 * confidence
+            return confidence
+
+    def overall_accuracy(self) -> float:
+        with self._lock:
+            if not self._predictions:
+                return 0.0
+            return sum(1 for _, ok in self._predictions if ok) / len(self._predictions)
+
+
+class BayesianIntentRouter:
+    """
+    Selects the best intent candidate by minimising expected regret.
+
+    Uses a cost matrix to avoid high-cost misclassifications (e.g. routing
+    weather queries to music). Calibrates confidence scores and falls back
+    to the internal _BinCalibrator if no external calibrator is injected.
+    """
+
+    def __init__(
+        self,
+        cost_matrix: Optional[IntentCostMatrix] = None,
+        calibrator=None,
+        min_candidates_for_regret: int = 2,
+    ) -> None:
+        self.cost_matrix = cost_matrix or IntentCostMatrix()
+        self._ext_calibrator = calibrator
+        self._local_calibrator = _BinCalibrator()
+        self._min_candidates = min_candidates_for_regret
+
+    def decide(self, candidates: List[IntentCandidate]) -> RouterDecision:
+        """Choose the best intent candidate by minimising expected regret."""
+        if not candidates:
+            raise ValueError("candidates list must not be empty")
+
+        if len(candidates) < self._min_candidates:
+            top = candidates[0]
+            cal = self._calibrate(top.confidence)
+            return RouterDecision(
+                intent=top.intent, plugin=top.plugin, action=top.action,
+                raw_confidence=top.confidence, calibrated_confidence=cal,
+                expected_regret=0.0,
+            )
+
+        calibrated = [(c, self._calibrate(c.confidence)) for c in candidates]
+        total = sum(p for _, p in calibrated) or 1.0
+        posteriors = [(c, p / total) for c, p in calibrated]
+
+        best: Optional[Tuple[IntentCandidate, float]] = None
+        second: Optional[Tuple[IntentCandidate, float]] = None
+
+        for candidate, _ in posteriors:
+            regret = sum(
+                posterior * self.cost_matrix.cost(candidate.intent, hyp.intent)
+                for hyp, posterior in posteriors
+            )
+            if best is None or regret < best[1]:
+                second = best
+                best = (candidate, regret)
+            elif second is None or regret < second[1]:
+                second = (candidate, regret)
+
+        assert best is not None
+        winner, best_regret = best
+        cal_conf = self._calibrate(winner.confidence)
+        return RouterDecision(
+            intent=winner.intent, plugin=winner.plugin, action=winner.action,
+            raw_confidence=winner.confidence, calibrated_confidence=cal_conf,
+            expected_regret=round(best_regret, 4),
+            runner_up=second[0].intent if second else None,
+            runner_up_regret=round(second[1], 4) if second else None,
+        )
+
+    def record_outcome(self, intent: str, was_correct: bool, confidence: float) -> None:
+        self._local_calibrator.record(confidence, was_correct)
+        if self._ext_calibrator is not None:
+            try:
+                self._ext_calibrator.record_prediction(confidence, was_correct)
+            except Exception:
+                pass
+
+    def _calibrate(self, confidence: float) -> float:
+        if self._ext_calibrator is not None:
+            try:
+                return self._ext_calibrator.calibrate(confidence)
+            except Exception:
+                pass
+        return self._local_calibrator.calibrate(confidence)
+
+
+_bayesian_router_instance: Optional[BayesianIntentRouter] = None
+_bayesian_router_lock = threading.Lock()
+
+
+def get_bayesian_router(calibrator=None) -> BayesianIntentRouter:
+    """Return the process-wide singleton BayesianIntentRouter."""
+    global _bayesian_router_instance
+    if _bayesian_router_instance is None:
+        with _bayesian_router_lock:
+            if _bayesian_router_instance is None:
+                _bayesian_router_instance = BayesianIntentRouter(calibrator=calibrator)
+    return _bayesian_router_instance
+
+
 if __name__ == "__main__":
     # Test the classifier
     logging.basicConfig(level=logging.INFO)

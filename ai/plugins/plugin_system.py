@@ -5,8 +5,11 @@ Supports: Weather, Calendar, File Operations, System Control, Web Search, etc.
 """
 
 import logging
+import math
+import threading
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any, Set, Tuple
 import importlib
 import os
 from datetime import datetime
@@ -1068,6 +1071,198 @@ class WebSearchPlugin(PluginInterface):
 
     def shutdown(self):
         logger.info(" Web Search plugin shutdown")
+
+
+# ---------------------------------------------------------------------------
+# Capability Graph  (plugin routing bias via Beta-distribution success model)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CapabilityNode:
+    """
+    Describes what one plugin can do — which intents it handles, what slots
+    it requires, and what data it produces.
+    """
+    name: str
+    handles_intents: Set[str] = field(default_factory=set)
+    requires: Set[str] = field(default_factory=set)
+    provides: Set[str] = field(default_factory=set)
+    priority: float = 1.0
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CapabilityEdge:
+    """source provides something that target requires."""
+    source: str
+    target: str
+    shared_token: str
+    weight: float = 1.0
+
+
+@dataclass
+class _BetaArm:
+    """Beta(α, β) conjugate prior for Bernoulli success observations."""
+    alpha: float = 2.0
+    beta: float = 2.0
+
+    def update(self, success: bool) -> None:
+        if success:
+            self.alpha += 1.0
+        else:
+            self.beta += 1.0
+
+    def mean(self) -> float:
+        return self.alpha / (self.alpha + self.beta)
+
+    def lower_bound(self, z: float = 1.28) -> float:
+        n = self.alpha + self.beta
+        p = self.mean()
+        se = math.sqrt(p * (1 - p) / n)
+        return max(0.0, p - z * se)
+
+    def sample_count(self) -> int:
+        return int(self.alpha + self.beta - 4)
+
+
+class ToolSuccessModel:
+    """
+    Per-(plugin, intent) success rate tracker using a Beta prior.
+
+    get_routing_bias(plugin, intent) returns a confidence multiplier in [0.5, 1.5].
+    """
+
+    def __init__(self) -> None:
+        self._arms: Dict[Tuple[str, str], _BetaArm] = {}
+        self._tsm_lock = threading.Lock()
+
+    def update(self, plugin: str, intent: str, success: bool) -> None:
+        key = (plugin, intent)
+        with self._tsm_lock:
+            arm = self._arms.setdefault(key, _BetaArm())
+            arm.update(success)
+
+    def get_routing_bias(self, plugin: str, intent: str) -> float:
+        key = (plugin, intent)
+        with self._tsm_lock:
+            arm = self._arms.get(key)
+            if arm is None or arm.sample_count() < 3:
+                return 1.0
+            score = arm.lower_bound() if arm.sample_count() < 15 else arm.mean()
+        return 0.5 + score
+
+    def stats(self) -> Dict[str, dict]:
+        with self._tsm_lock:
+            return {
+                f"{p}:{i}": {"mean": round(arm.mean(), 3), "samples": arm.sample_count(),
+                             "alpha": round(arm.alpha, 1), "beta": round(arm.beta, 1)}
+                for (p, i), arm in self._arms.items() if arm.sample_count() > 0
+            }
+
+
+class CapabilityGraph:
+    """
+    Directed graph of plugin capabilities with Beta-distribution routing bias.
+
+    Edges denote data-flow (provides → requires relationships).  The graph
+    answers "given these available slots, which plugins can run right now?"
+    and recommends the plugin with the best success history.
+    """
+
+    _DEFAULT_CAPABILITIES: List[CapabilityNode] = [
+        CapabilityNode(name="music",
+                       handles_intents={"music:play", "music:pause", "music:skip",
+                                        "music:status", "music:volume"},
+                       provides={"track_id", "artist_name"}),
+        CapabilityNode(name="weather",
+                       handles_intents={"weather:current", "weather:forecast"},
+                       provides={"temperature", "conditions", "location_name"}),
+        CapabilityNode(name="calendar",
+                       handles_intents={"calendar:query", "calendar:create_event",
+                                        "calendar:delete_event", "calendar:update_event"},
+                       provides={"event_id", "event_title"}),
+        CapabilityNode(name="notes",
+                       handles_intents={"notes:create", "notes:search_notes",
+                                        "notes:list", "notes:delete"},
+                       provides={"note_id"}),
+        CapabilityNode(name="email",
+                       handles_intents={"email:send", "email:list", "email:read",
+                                        "email:delete"},
+                       provides={"email_id"}),
+        CapabilityNode(name="memory",
+                       handles_intents={"memory:store", "memory:recall", "memory:search"},
+                       provides={"memory_id"}),
+    ]
+
+    def __init__(self, success_model: Optional[ToolSuccessModel] = None) -> None:
+        self._nodes: Dict[str, CapabilityNode] = {}
+        self._edges: List[CapabilityEdge] = []
+        self.success_model = success_model or ToolSuccessModel()
+        self._cg_lock = threading.Lock()
+        for cap in self._DEFAULT_CAPABILITIES:
+            self.register(cap)
+
+    def register(self, cap: CapabilityNode) -> None:
+        with self._cg_lock:
+            self._nodes[cap.name] = cap
+
+    def get_capability(self, plugin_name: str) -> Optional[CapabilityNode]:
+        return self._nodes.get(plugin_name)
+
+    def plugins_for_intent(self, intent: str) -> List[str]:
+        with self._cg_lock:
+            return [
+                name for name, cap in self._nodes.items()
+                if intent in cap.handles_intents
+                or any(intent.startswith(h.rstrip("*")) for h in cap.handles_intents)
+            ]
+
+    def can_execute(self, plugin_name: str, available_slots: Set[str]) -> bool:
+        cap = self._nodes.get(plugin_name)
+        if cap is None:
+            return True
+        return cap.requires.issubset(available_slots)
+
+    def best_plugin_for_intent(
+        self,
+        intent: str,
+        available_slots: Optional[Set[str]] = None,
+    ) -> Optional[str]:
+        slots = available_slots or set()
+        candidates = [p for p in self.plugins_for_intent(intent)
+                      if self.can_execute(p, slots)]
+        if not candidates:
+            return None
+        def _score(name: str) -> float:
+            cap = self._nodes.get(name)
+            base = cap.priority if cap else 1.0
+            bias = self.success_model.get_routing_bias(name, intent)
+            return base * bias
+        return max(candidates, key=_score)
+
+    def record_execution(self, plugin: str, intent: str, success: bool) -> None:
+        self.success_model.update(plugin, intent, success)
+
+    def stats(self) -> Dict[str, Any]:
+        with self._cg_lock:
+            return {
+                "registered_plugins": list(self._nodes.keys()),
+                "success_model": self.success_model.stats(),
+            }
+
+
+_capability_graph_instance: Optional[CapabilityGraph] = None
+_capability_graph_lock = threading.Lock()
+
+
+def get_capability_graph() -> CapabilityGraph:
+    """Return the process-wide singleton CapabilityGraph."""
+    global _capability_graph_instance
+    if _capability_graph_instance is None:
+        with _capability_graph_lock:
+            if _capability_graph_instance is None:
+                _capability_graph_instance = CapabilityGraph()
+    return _capability_graph_instance
 
 
 # Example usage

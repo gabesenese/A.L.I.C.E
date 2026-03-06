@@ -207,6 +207,15 @@ class LearningEngine:
         applied_summary = correction_engine.apply_corrections_to_thresholds()
 
         error_entries = self._load_error_entries(log_path)
+
+        # Also consume the NLP-layer error log written by NLPErrorLogger
+        nlp_error_path = project_root / "memory" / "nlp_errors.jsonl"
+        nlp_error_entries = self._load_error_entries(nlp_error_path)
+        if nlp_error_entries:
+            error_entries.extend(nlp_error_entries)
+            logger.info("[Learning] Loaded %d NLP error entries for hard-lesson extraction",
+                        len(nlp_error_entries))
+
         hard_lessons = self._extract_hard_lessons(error_entries)
 
         hard_lesson_summary = {}
@@ -1231,3 +1240,125 @@ def get_pattern_promotion_engine(
     if _pattern_promotion_engine is None:
         _pattern_promotion_engine = PatternPromotionEngine(project_root)
     return _pattern_promotion_engine
+
+
+# ============================================================================
+# NLP ERROR LOGGER  (structured training-signal logger for NLP mistakes)
+# ============================================================================
+
+_NLP_ERROR_LOG_FILE = Path("memory/nlp_errors.jsonl")
+
+
+class NLPErrorLogger:
+    """
+    Thread-safe append-only JSONL logger for NLP correction events.
+
+    Each line is a valid JSON object compatible with the schema that
+    LearningEngine._load_error_entries() expects:
+        success        bool   — False flags the entry as a training error
+        domain         str    — plugin/domain prefix
+        actual_intent  str    — what NLP actually produced
+        expected_intent str   — what the correct intent was
+        error_type     str    — event category
+    """
+
+    def __init__(self, log_file: Path = _NLP_ERROR_LOG_FILE) -> None:
+        self._log_file = log_file
+        self._lock = threading.Lock()
+        self._log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    def log_intent_override(
+        self,
+        user_input: str,
+        original_intent: str,
+        corrected_intent: str,
+        original_confidence: float,
+        corrected_confidence: float,
+        reason: str,
+        session_id: Optional[str] = None,
+    ) -> None:
+        """Record when the pipeline overrides NLP's intent classification."""
+        self._write({
+            "type": "intent_override",
+            "user_input": user_input,
+            "original_intent": original_intent,
+            "corrected_intent": corrected_intent,
+            "original_confidence": round(original_confidence, 4),
+            "corrected_confidence": round(corrected_confidence, 4),
+            "reason": reason,
+            "session_id": session_id,
+            "success": False,
+            "domain": original_intent.split(":")[0] if ":" in original_intent else original_intent,
+            "actual_intent": original_intent,
+            "expected_intent": corrected_intent,
+            "error_type": "intent_override",
+        })
+
+    def log_followup_resolved(
+        self,
+        user_input: str,
+        nlp_intent: str,
+        resolved_intent: str,
+        nlp_confidence: float,
+        domain: str,
+        reason: str,
+        session_id: Optional[str] = None,
+    ) -> None:
+        """Record every follow-up resolution event."""
+        self._write({
+            "type": "followup_resolved",
+            "user_input": user_input,
+            "nlp_intent": nlp_intent,
+            "resolved_intent": resolved_intent,
+            "nlp_confidence": round(nlp_confidence, 4),
+            "domain": domain,
+            "reason": reason,
+            "session_id": session_id,
+            "success": False,
+            "actual_intent": nlp_intent,
+            "expected_intent": resolved_intent,
+            "error_type": "followup_missed",
+        })
+
+    def log_clarification_skip(
+        self,
+        user_input: str,
+        intent: str,
+        confidence: float,
+        mood: str,
+        reason: str,
+        session_id: Optional[str] = None,
+    ) -> None:
+        """Record when a clarification was suppressed by the interaction policy."""
+        self._write({
+            "type": "clarification_skip",
+            "user_input": user_input,
+            "intent": intent,
+            "confidence": round(confidence, 4),
+            "mood": mood,
+            "reason": reason,
+            "session_id": session_id,
+            "success": True,
+            "domain": intent.split(":")[0] if ":" in intent else intent,
+            "error_type": "clarification_skip",
+        })
+
+    def _write(self, entry: dict) -> None:
+        entry["timestamp"] = datetime.now().isoformat()
+        try:
+            with self._lock:
+                with open(self._log_file, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception as exc:
+            logger.warning("[NLPErrorLogger] Write failed: %s", exc)
+
+
+_nlp_error_logger: Optional[NLPErrorLogger] = None
+
+
+def get_nlp_error_logger() -> NLPErrorLogger:
+    """Return the process-wide NLPErrorLogger singleton."""
+    global _nlp_error_logger
+    if _nlp_error_logger is None:
+        _nlp_error_logger = NLPErrorLogger()
+    return _nlp_error_logger
