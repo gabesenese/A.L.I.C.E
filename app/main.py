@@ -131,7 +131,7 @@ from ai.core.interaction_policy import get_knob_bandit
 from ai.memory.memory_system import get_memory_replay
 from ai.core.failure_taxonomy import get_self_debugger, TurnPostmortem
 from ai.plugins.plugin_system import get_capability_graph
-from ai.learning.pattern_miner import get_habit_miner
+from ai.learning.pattern_miner import get_habit_miner, get_htn_planner, HTNMethod
 from ai.infrastructure.metrics_collector import get_adaptive_controller
 
 # Logging
@@ -338,13 +338,41 @@ class ALICE:
                 self.capability_graph = get_capability_graph()
                 self.habit_miner = get_habit_miner()
                 self.adaptive_controller = get_adaptive_controller()
+                self.htn_planner = get_htn_planner()
             except Exception as _adv_err:
                 logger.warning("Advanced components init failed (non-fatal): %s", _adv_err)
                 for _attr in ("bayesian_router", "world_graph", "knob_bandit",
                               "memory_replay", "self_debugger", "capability_graph",
-                              "habit_miner", "adaptive_controller"):
+                              "habit_miner", "adaptive_controller", "htn_planner"):
                     if not hasattr(self, _attr):
                         setattr(self, _attr, None)
+
+            # Seed hand-crafted HTN decomposition methods for common workflows
+            try:
+                if getattr(self, 'htn_planner', None) is not None:
+                    _htn = self.htn_planner
+                    _htn.add_method(HTNMethod(
+                        goal="research:topic",
+                        subtasks=["web:search", "notes:create"],
+                        priority=1.0,
+                    ))
+                    _htn.add_method(HTNMethod(
+                        goal="calendar:plan_meeting",
+                        subtasks=["calendar:query", "calendar:create_event"],
+                        priority=1.0,
+                    ))
+                    _htn.add_method(HTNMethod(
+                        goal="music:playlist_session",
+                        subtasks=["music:play", "music:status"],
+                        priority=1.0,
+                    ))
+                    _htn.add_method(HTNMethod(
+                        goal="notes:research_note",
+                        subtasks=["web:search", "notes:create", "notes:append"],
+                        priority=0.9,
+                    ))
+            except Exception as _htn_seed_err:
+                logger.debug("HTN method seeding skipped: %s", _htn_seed_err)
             
             # 1.5. Unified Context Engine (combines context_manager + advanced_context_handler)
             logger.info("Loading unified context engine...")
@@ -2004,13 +2032,36 @@ class ALICE:
                 context_parts.append(active_context)
                 context_types.append("general")
         
-        # 6. Relevant memories (RAG) - smart retrieval
+        # 6. Relevant memories (RAG) - priority-weighted retrieval
         # Only fetch memories if query is substantial (not just "yes" or "ok")
         if len(user_input.split()) >= 3 or intent not in ["conversation:ack", "conversation:general"]:
-            memory_context = self.memory.get_context_for_llm(user_input, max_memories=5)
-            if memory_context:
-                context_parts.append(memory_context)
-                context_types.append("memory")
+            try:
+                # Prefer PrioritizedMemoryReplay when raw MemoryEntry objects are
+                # available: it ranks by 35% recency + 30% surprise + 20% outcome
+                # + 15% access-frequency rather than recency alone.
+                _replay = getattr(self, 'memory_replay', None)
+                _raw_entries = (
+                    list(getattr(self.memory, 'episodic_memory', []))
+                    + list(getattr(self.memory, 'semantic_memory', []))
+                )
+                if _replay is not None and _raw_entries:
+                    _top = _replay.top_k(_raw_entries, k=5)
+                    if _top:
+                        _lines = ["Relevant information from memory (priority-ranked):"]
+                        for _i, _e in enumerate(_top, 1):
+                            _ts = getattr(_e, 'timestamp', '')[:10]
+                            _lines.append(f"{_i}. {_e.content} (from {_ts})")
+                        context_parts.append("\n".join(_lines))
+                        context_types.append("memory")
+                    else:
+                        raise ValueError("no top entries")
+                else:
+                    raise ValueError("replay unavailable or no raw entries")
+            except Exception:
+                memory_context = self.memory.get_context_for_llm(user_input, max_memories=5)
+                if memory_context:
+                    context_parts.append(memory_context)
+                    context_types.append("memory")
         
         # 7. System capabilities (only if relevant)
         if intent and any(cap in intent for cap in ['note', 'email', 'calendar', 'music']):
@@ -3246,6 +3297,44 @@ class ALICE:
                         session_id=getattr(self, '_session_id', None),
                     )
 
+            # ── BayesianIntentRouter: minimise expected regret across candidates ─
+            # Build candidate list from primary intent + plugin_score runners-up,
+            # then let the router apply its cost matrix before final routing.
+            try:
+                if getattr(self, 'bayesian_router', None) is not None and intent:
+                    _ps = getattr(nlp_result, 'plugin_scores', {}) or {}
+                    _candidates: List[IntentCandidate] = [
+                        IntentCandidate(
+                            intent=intent,
+                            confidence=float(intent_confidence or 0.5),
+                        )
+                    ]
+                    for _alt_plugin, _alt_score in sorted(
+                        _ps.items(), key=lambda x: x[1], reverse=True
+                    )[:3]:
+                        # Normalise bare plugin name to a colon-separated intent
+                        _alt_intent = (
+                            _alt_plugin if ':' in _alt_plugin
+                            else f"{_alt_plugin}:general"
+                        )
+                        if _alt_intent != intent:
+                            _candidates.append(
+                                IntentCandidate(
+                                    intent=_alt_intent,
+                                    confidence=float(_alt_score),
+                                )
+                            )
+                    _rd = self.bayesian_router.decide(_candidates)
+                    if _rd.intent != intent:
+                        self._think(
+                            f"BayesianRouter overrides {intent!r} → {_rd.intent!r} "
+                            f"(expected_regret={_rd.expected_regret:.3f})"
+                        )
+                        intent = _rd.intent
+                    intent_confidence = _rd.calibrated_confidence
+            except Exception as _br_err:
+                logger.debug("BayesianIntentRouter skipped: %s", _br_err)
+
             # Store policy hints for downstream tone/length use
             self._last_policy = policy
             self._last_perception = perception
@@ -4064,6 +4153,30 @@ class ALICE:
                         'token_debug': getattr(nlp_result, 'token_debug', [])[:30],
                         'dialogue_memory': self.dialogue_memory.entity_chain_dict() if self.dialogue_memory else [],
                     }
+                # HTN planning: surface sub-task sequence for complex intents
+                try:
+                    if getattr(self, 'htn_planner', None) is not None and intent:
+                        _plan = self.htn_planner.decompose(intent)
+                        if len(_plan) > 1:
+                            self._think(
+                                f"HTN plan for {intent!r}: "
+                                + " → ".join(_plan[:4])
+                                + (" …" if len(_plan) > 4 else "")
+                            )
+                except Exception:
+                    pass
+
+                # CapabilityGraph: consult success-weighted routing before dispatch
+                try:
+                    if getattr(self, 'capability_graph', None) is not None and intent:
+                        _best_cap = self.capability_graph.best_plugin_for_intent(intent)
+                        if _best_cap:
+                            self._think(
+                                f"CapabilityGraph recommends {_best_cap!r} for {intent!r}"
+                            )
+                except Exception:
+                    pass
+
                 # Track plugin execution timing
                 plugin_start = time.time()
                 plugin_result = self.plugins.execute_for_intent(
@@ -4885,6 +4998,54 @@ class ALICE:
                         response_len=len(response),
                         intent=intent or "unknown",
                     )
+                    # Safe-mode gate: throttle advanced tooling when the system degrades
+                    if self.adaptive_controller.is_degraded():
+                        if not getattr(self, '_safe_mode', False):
+                            self._safe_mode = True
+                            logger.warning(
+                                "[AdaptiveController] Degradation detected → safe mode ON"
+                            )
+                    elif getattr(self, '_safe_mode', False):
+                        self._safe_mode = False
+                        logger.info(
+                            "[AdaptiveController] Recovery detected → safe mode OFF"
+                        )
+            except Exception:
+                pass
+
+            # SelfDebugger: analyse the completed turn for failure patterns
+            try:
+                if getattr(self, 'self_debugger', None) is not None:
+                    _pm = TurnPostmortem(
+                        utterance=user_input,
+                        intent=intent if 'intent' in dir() else 'unknown',
+                        plugin=(
+                            plugin_result.get('plugin', '')
+                            if 'plugin_result' in locals() and plugin_result
+                            else ''
+                        ),
+                        action=(
+                            plugin_result.get('action', '')
+                            if 'plugin_result' in locals() and plugin_result
+                            else ''
+                        ),
+                        confidence=float(
+                            intent_confidence
+                            if 'intent_confidence' in locals()
+                            else 0.5
+                        ),
+                        plugin_success=(
+                            plugin_result.get('success', True)
+                            if 'plugin_result' in locals() and plugin_result
+                            else True
+                        ),
+                    )
+                    _sd_components = {
+                        'intent_classifier': getattr(self, 'nlp', None),
+                        'nlp_processor': getattr(self, 'nlp', None),
+                        'task_planner': getattr(self, 'planner', None),
+                    }
+                    self.self_debugger.analyse_turn(_pm, _sd_components)
             except Exception:
                 pass
 
