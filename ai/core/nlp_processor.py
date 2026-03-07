@@ -1513,8 +1513,13 @@ class NLPProcessor:
                 return "weather:current", 0.83
 
         # Generic short ambiguous follow-up: keep same topic intent family
+        _delete_words = {"delete", "remove", "trash", "erase", "discard"}
         if last_intent and (reference_present or bool(token_words & followup_connectors)):
             if last_intent.startswith("notes:"):
+                # Delete-action verbs take priority over generic read (coreference case:
+                # "delete the first one", "remove it", "delete that")
+                if not token_words.isdisjoint(_delete_words):
+                    return "notes:delete", 0.85
                 return "notes:read", 0.79
             if last_intent.startswith("email:"):
                 return "email:read", 0.77

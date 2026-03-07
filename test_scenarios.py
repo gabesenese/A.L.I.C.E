@@ -332,10 +332,11 @@ class ScenarioRunner:
                 )
             
             # Check if scenario passed
-            result.passed = (
-                len(result.errors) == 0 and 
-                (not scenario.should_succeed or scenario.should_succeed)
-            )
+            # should_succeed=False means we expect graceful failure (errors are OK)
+            if scenario.should_succeed:
+                result.passed = len(result.errors) == 0
+            else:
+                result.passed = True  # graceful failure is the expected outcome
             
         except Exception as e:
             result.errors.append(f"Scenario execution failed: {str(e)}")

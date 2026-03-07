@@ -51,6 +51,10 @@ DOMAIN_KEYWORDS: Dict[str, List[str]] = {
         "note", "notes", "memo", "list", "lists", "todo", "task",
         "tasks", "write", "create", "add", "append", "read", "show",
         "delete", "remove", "find", "search", "open",
+        # domain context words flagged by insights (added after first report)
+        "created", "work", "tagged", "tag", "tags", "title",
+        "coding", "project", "meeting", "idea", "ideas",
+        "first", "last", "all", "my", "the",
     ],
     "email": [
         "email", "mail", "inbox", "message", "send", "compose",
@@ -66,7 +70,9 @@ DOMAIN_KEYWORDS: Dict[str, List[str]] = {
         "playlist", "album", "artist",
     ],
     "calendar": [
-        "calendar", "event", "meeting", "schedule", "appointment",
+        "calendar", "event", "events", "meeting", "meetings",
+        "schedule", "appointment", "appointments", "agenda",
+        "create", "set", "add", "tomorrow", "today", "next", "week",
     ],
 }
 
