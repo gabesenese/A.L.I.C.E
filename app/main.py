@@ -2733,9 +2733,12 @@ class ALICE:
         
         # Check if this is a clothing/outside question — answer from stored weather data
         # NOTE: Run this regardless of intent (NLP may have already classified as weather:*)
-        clothing_indicators = ['umbrella', 'jacket', 'coat', 'layer', 'wear', 'bring', 'outside', 'go out']
+        clothing_items = [
+            'umbrella', 'jacket', 'coat', 'layer', 'wear', 'bring', 'outside', 'go out',
+            'scarf', 'hat', 'gloves', 'boots', 'sweater', 'hoodie',
+        ]
         weather_condition_indicators = ['rain', 'snow', 'cold', 'warm', 'hot', 'freeze', 'thunderstorm', 'hail']
-        weather_question_indicators = clothing_indicators + weather_condition_indicators
+        weather_question_indicators = clothing_items + weather_condition_indicators
 
         if any(keyword in input_lower for keyword in weather_question_indicators):
             if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
@@ -2758,47 +2761,65 @@ class ALICE:
             location = wd.get('location', 'your area')
             is_should = any(w in input_lower for w in ['should i', 'do i need', 'do i have to', 'need a', 'need to'])
 
+            # Detect if this is a follow-up clothing question (user already knows the weather)
+            is_follow_up = False
+            if hasattr(self, 'conversation_topics') and self.conversation_topics:
+                recent_weather = [t for t in self.conversation_topics[-4:] if t.startswith('weather')]
+                is_follow_up = len(recent_weather) >= 2
+
+            # When follow-up: omit temperature/location — user already knows
+            loc_str = f" in {location}" if (location and not is_follow_up) else ""
+
             # Detect specific clothing item asked about
             item_map = {
                 'coat': 'coat', 'jacket': 'jacket', 'umbrella': 'umbrella',
                 'layer': 'layers', 'scarf': 'scarf', 'hat': 'hat',
                 'gloves': 'gloves', 'boots': 'boots', 'sweater': 'sweater',
+                'hoodie': 'hoodie',
             }
             asked_item = next((label for word, label in item_map.items() if word in input_lower), 'jacket')
 
             if 'umbrella' in input_lower:
                 rainy = any(word in condition for word in ['rain', 'drizzle', 'shower', 'storm'])
                 if rainy:
-                    return f"Yes, bring an umbrella — it's {condition} in {location}."
+                    return f"Yes, bring an umbrella — it's {condition}{loc_str}."
                 else:
-                    return f"No need for an umbrella — it's {condition}, no rain expected in {location}."
+                    cond_str = f"it's {condition}" if not is_follow_up else "no rain in the forecast"
+                    return f"No need for an umbrella — {cond_str}."
 
-            if any(w in input_lower for w in ['jacket', 'coat', 'layer', 'wear', 'bring', 'outside', 'go out']):
+            if any(w in input_lower for w in clothing_items):
                 if temp is None:
                     return None
-                loc_str = f" in {location}" if location else ""
                 if temp < 0:
+                    temp_str = f" — {temp}°C{loc_str}" if not is_follow_up else ""
                     if is_should:
-                        return f"Yes, definitely bring your {asked_item} — it's {temp}°C{loc_str}, well below freezing."
-                    return f"Wear a warm {asked_item}{loc_str} — it's {temp}°C, quite cold."
+                        return f"Yes, definitely{temp_str}."
+                    return f"Yeah, a {asked_item} is a must{temp_str}."
                 elif temp < 10:
+                    temp_str = f" — {temp}°C{loc_str}" if not is_follow_up else ""
                     if is_should:
-                        return f"Yes, a {asked_item} is a good idea — it's {temp}°C{loc_str}."
-                    return f"I'd bring a {asked_item} — it's {temp}°C{loc_str}."
+                        return f"Yes, good call{temp_str}."
+                    return f"A {asked_item} is a good idea{temp_str}."
                 elif temp < 18:
+                    temp_str = f" ({temp}°C{loc_str})" if not is_follow_up else ""
                     if is_should:
-                        return f"Maybe — it's {temp}°C{loc_str}. A light {asked_item} wouldn't hurt."
-                    return f"A light layer might be nice — {temp}°C{loc_str}."
+                        return f"Maybe — a light {asked_item} wouldn't hurt{temp_str}."
+                    return f"A light {asked_item} might be useful{temp_str}."
                 else:
+                    temp_str = f" — {temp}°C{loc_str}" if not is_follow_up else ""
                     if is_should:
-                        return f"No need — it's {temp}°C{loc_str}, pretty warm."
-                    return f"No {asked_item} needed — it's {temp}°C{loc_str}, quite warm."
+                        return f"Probably not{temp_str}, it's warm enough."
+                    return f"No {asked_item} needed{temp_str}."
 
             # General cold/warm condition questions
             if any(w in input_lower for w in ['cold', 'warm', 'hot', 'freeze']):
                 if temp is None:
                     return None
-                loc_str = f" in {location}" if location else ""
+                if is_follow_up:
+                    if temp < 0: return "Yes, definitely cold."
+                    elif temp < 12: return "Yeah, it's chilly."
+                    elif temp < 22: return "Mild — not really."
+                    else: return "Nope, it's warm."
                 if temp < 0:
                     return f"Yes, it's cold — {temp}°C{loc_str}. Bundle up!"
                 elif temp < 12:
@@ -3194,7 +3215,8 @@ class ALICE:
             weather_followup_indicators = [
                 'weather', 'week', 'weekend', 'tomorrow', 'tonight',
                 'umbrella', 'jacket', 'coat', 'layer', 'wear', 'outside',
-                'rain', 'snow', 'cold', 'warm', 'forecast'
+                'rain', 'snow', 'cold', 'warm', 'forecast',
+                'scarf', 'hat', 'gloves', 'boots', 'sweater', 'hoodie',
             ]
             if (
                 'weather' in intent.lower()
