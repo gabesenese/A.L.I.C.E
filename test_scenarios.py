@@ -250,6 +250,88 @@ class ScenarioRunner:
                 expected_intent="notes:create",
                 tags=["edge-cases", "special-chars"]
             ),
+
+            # Notes search / delete multi-turn (new NLP fix coverage)
+            TestScenario(
+                id="notes_001",
+                suite="notes",
+                description="Search notes by topic",
+                inputs=["search my notes for project ideas"],
+                expected_intent="notes:search",
+                min_confidence=0.7,
+                should_not_clarify=True,
+                tags=["notes", "search", "phrasing"]
+            ),
+            TestScenario(
+                id="notes_002",
+                suite="notes",
+                description="Delete note by title",
+                inputs=["delete note titled meeting agenda"],
+                expected_intent="notes:delete",
+                min_confidence=0.7,
+                should_not_clarify=True,
+                tags=["notes", "delete"]
+            ),
+            TestScenario(
+                id="notes_003",
+                suite="notes",
+                description="List all notes",
+                inputs=["show all my notes"],
+                expected_intent="notes:list",
+                min_confidence=0.65,
+                should_not_clarify=True,
+                tags=["notes", "list"]
+            ),
+            TestScenario(
+                id="notes_004",
+                suite="notes",
+                description="Read a specific note",
+                inputs=["read my work note"],
+                expected_intent="notes:read",
+                min_confidence=0.65,
+                should_not_clarify=True,
+                tags=["notes", "read"]
+            ),
+
+            # Time / status queries
+            TestScenario(
+                id="time_001",
+                suite="time",
+                description="Current time query",
+                inputs=["what time is it?"],
+                expected_intent="time:current",
+                should_not_clarify=True,
+                tags=["time", "query"]
+            ),
+            TestScenario(
+                id="time_002",
+                suite="time",
+                description="Current date query",
+                inputs=["what's today's date?"],
+                expected_intent="time:current",
+                should_not_clarify=True,
+                tags=["time", "date"]
+            ),
+
+            # Weather multi-turn
+            TestScenario(
+                id="weather_001",
+                suite="weather",
+                description="Weather query with location",
+                inputs=["what's the weather in London?"],
+                expected_intent="weather:current",
+                min_confidence=0.5,
+                should_not_clarify=True,
+                tags=["weather", "location"]
+            ),
+            TestScenario(
+                id="weather_002",
+                suite="weather",
+                description="Weather follow-up query",
+                inputs=["what's the weather in London?", "what about tomorrow?"],
+                expected_intent="weather:forecast",
+                tags=["weather", "follow-up"]
+            ),
         ]
         
         self.scenarios = default_scenarios

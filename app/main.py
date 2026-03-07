@@ -3447,6 +3447,10 @@ class ALICE:
                             confidence=float(intent_confidence or 0.5),
                         )
                     ]
+                    # Derive the plugin prefix of the primary intent (e.g. "notes"
+                    # from "notes:search") so we can skip redundant :general
+                    # alternatives that would silently downgrade a specific intent.
+                    _primary_plugin = intent.split(':')[0] if ':' in intent else intent
                     for _alt_plugin, _alt_score in sorted(
                         _ps.items(), key=lambda x: x[1], reverse=True
                     )[:3]:
@@ -3455,6 +3459,12 @@ class ALICE:
                             _alt_plugin if ':' in _alt_plugin
                             else f"{_alt_plugin}:general"
                         )
+                        # Skip alternatives that are just a :general downgrade of
+                        # the already-specific primary intent (e.g. don't add
+                        # notes:general when intent is already notes:search).
+                        _alt_plugin_prefix = _alt_plugin.split(':')[0]
+                        if _alt_plugin_prefix == _primary_plugin and _alt_intent.endswith(':general'):
+                            continue
                         if _alt_intent != intent:
                             _candidates.append(
                                 IntentCandidate(
@@ -3464,11 +3474,19 @@ class ALICE:
                             )
                     _rd = self.bayesian_router.decide(_candidates)
                     if _rd.intent != intent:
-                        self._think(
-                            f"BayesianRouter overrides {intent!r} → {_rd.intent!r} "
-                            f"(expected_regret={_rd.expected_regret:.3f})"
+                        # Never downgrade a high-confidence specific intent to
+                        # a bare `:general` catch-all — let the NLP win.
+                        _is_downgrade = (
+                            _rd.intent.endswith(':general')
+                            and not intent.endswith(':general')
+                            and intent_confidence >= 0.85
                         )
-                        intent = _rd.intent
+                        if not _is_downgrade:
+                            self._think(
+                                f"BayesianRouter overrides {intent!r} → {_rd.intent!r} "
+                                f"(expected_regret={_rd.expected_regret:.3f})"
+                            )
+                            intent = _rd.intent
                     intent_confidence = _rd.calibrated_confidence
             except Exception as _br_err:
                 logger.debug("BayesianIntentRouter skipped: %s", _br_err)

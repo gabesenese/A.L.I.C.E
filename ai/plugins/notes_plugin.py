@@ -4224,6 +4224,8 @@ class NotesPlugin(PluginInterface):
         patterns = [
             r"(?:search|find)\s+(?:my\s+)?notes?\s+(?:for|about|containing)\s+(.+)",
             r"(?:search|find)\s+(?:my\s+)?notes?\s+(.+)",
+            # "find my work notes" / "search my coding notes" → topic before "notes"
+            r"(?:search|find)\s+(?:my\s+)?(.+?)\s+notes?\b",
         ]
 
         query = None

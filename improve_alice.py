@@ -165,8 +165,13 @@ class ContinuousImprovementPipeline:
         try:
             # Read and display output line by line
             for line in process.stdout:
-                # Print to console
-                print(line, end='')
+                # Print to console – encode with 'replace' so emoji/non-cp1252 chars
+                # don't crash the pipeline on Windows terminals (cp1252 encoding)
+                try:
+                    print(line, end='')
+                except UnicodeEncodeError:
+                    safe = line.encode(sys.stdout.encoding or 'utf-8', errors='replace').decode(sys.stdout.encoding or 'utf-8', errors='replace')
+                    print(safe, end='')
                 # Save for parsing
                 output_lines.append(line)
             
@@ -174,7 +179,7 @@ class ContinuousImprovementPipeline:
             process.wait()
             
         except KeyboardInterrupt:
-            print("\n\n⚠ Interrupted by user")
+            print("\n\n! Interrupted by user")
             process.terminate()
             process.wait()
             raise

@@ -644,8 +644,21 @@ class ActiveLearningManager:
         """Apply learned patterns to improve current output"""
         modified_output = current_output.copy()
 
+        # Don't override intent when NLP is already highly confident.
+        # A score ≥ 0.85 means the classifier is very sure; learned patterns
+        # from historical data are less reliable than a fresh high-confidence
+        # classification and must not silently downgrade it.
+        nlp_confidence = current_output.get(
+            'intent_confidence', current_output.get('confidence', 0.0)
+        )
+        high_confidence_nlp = nlp_confidence >= 0.85
+
         for pattern in self.learning_patterns:
             if self._pattern_matches(pattern, user_input, current_output):
+                if high_confidence_nlp and pattern.pattern_type == "intent_classification":
+                    # Preserve the high-confidence NLP intent; only allow entity
+                    # and quality patterns to still apply.
+                    continue
                 modified_output = self._apply_pattern(pattern, modified_output)
                 pattern.usage_count += 1
                 pattern.last_updated = datetime.now().isoformat()

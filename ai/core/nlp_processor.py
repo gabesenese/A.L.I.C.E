@@ -1495,6 +1495,45 @@ class NLPProcessor:
             "weather" in query or "forecast" in query for query in recent_queries
         )
 
+        # Domain-pivot guard: certain content words signal a completely new
+        # topic that the follow-up resolver must NOT hijack.  E.g. "what time
+        # is it?" hits followup_connectors ("what", "it") but belongs to its
+        # own domain.
+        domain_pivot_words = {
+            "time", "clock", "hour", "minute",
+            "date", "today", "calendar",
+            "weather", "forecast", "temperature", "rain", "sunny",
+            "reminder", "alarm",
+            "email", "message",
+            "music", "song", "play",
+        }
+        if (token_words & domain_pivot_words) and not last_intent.startswith(
+            tuple(
+                prefix + ":"
+                for prefix in (w.split("_")[0] for w in token_words & domain_pivot_words)
+            )
+        ):
+            # Only bail if the pivot word's domain differs from the current context.
+            # We do a quick check: if ANY pivot word suggests a domain that the
+            # last_intent does NOT belong to, let the semantic classifier handle it.
+            _time_words = {"time", "clock", "hour", "minute"}
+            _date_words = {"date", "today"}
+            _weather_words = {"weather", "forecast", "temperature", "rain", "sunny"}
+            _reminder_words = {"reminder", "alarm"}
+            _email_words = {"email", "message"}
+            _music_words = {"music", "song", "play"}
+
+            _pivot_detected = (
+                (token_words & _time_words and not last_intent.startswith(("status_inquiry", "time:")))
+                or (token_words & _date_words and not last_intent.startswith(("status_inquiry", "time:", "calendar:")))
+                or (token_words & _weather_words and not last_intent.startswith("weather:"))
+                or (token_words & _reminder_words and not last_intent.startswith("reminder:"))
+                or (token_words & _email_words and not last_intent.startswith("email:"))
+                or (token_words & _music_words and not last_intent.startswith("music:"))
+            )
+            if _pivot_detected:
+                return None
+
         if recent_weather_context:
             weather_followup = bool(token_words & weather_cues)
             temporal_followup = bool(token_words & time_range_cues)
@@ -2716,8 +2755,14 @@ class NLPProcessor:
             or "can you explain" in text_lower
             or "can you tell me what" in text_lower
         ):
+            # Exclude weather queries: "what is the weather in London?"
+            if any(word in text_lower for word in ["weather", "temperature", "forecast", "rain", "snow", "sunny"]):
+                pass  # Fall through to weather detection below
+            # Exclude time queries: "what is the time?"
+            elif any(word in text_lower for word in ["time", "clock", "date"]) and len(text_lower.split()) <= 6:
+                pass  # Fall through to time detection below
             # Exclude vague pronouns: "what is that", "who is he/she"
-            if not any(
+            elif not any(
                 vague in text_lower
                 for vague in [
                     "what is that",
@@ -2796,6 +2841,15 @@ class NLPProcessor:
         ):
             if len(text_lower.split()) <= 6:  # Short phrase = likely vague
                 return "vague_question", 0.75
+
+        # Weather intents: "what's the weather in X", "will it rain", "is it cold outside?"
+        # Must be in PHASE 1 (before semantic classifier) since semantic may misclassify.
+        _weather_keywords = {"weather", "forecast", "temperature", "rain", "snow", "sunny", "cloudy", "humid", "cold", "hot"}
+        _forecast_words = {"tomorrow", "tonight", "weekend", "next week", "forecast", "this week", "7 day", "7-day"}
+        if any(word in text_lower for word in _weather_keywords):
+            if any(word in text_lower for word in _forecast_words):
+                return "weather:forecast", 0.88
+            return "weather:current", 0.88
 
         # PHASE 2: Fallback to semantic classification
         # Try semantic classification for lower-confidence cases

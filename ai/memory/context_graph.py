@@ -502,8 +502,16 @@ class ContextGraph:
                 "saved_at": time.time(),
             }
 
+            def _default_serializer(obj):
+                """Fallback: convert non-serializable objects to their string representation."""
+                if hasattr(obj, "to_dict"):
+                    return obj.to_dict()
+                if hasattr(obj, "__dict__"):
+                    return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+                return str(obj)
+
             with open(graph_file, "w") as f:
-                json.dump(data, f, indent=2)
+                json.dump(data, f, indent=2, default=_default_serializer)
 
             logger.debug(f"Saved context graph to {graph_file}")
         except Exception as e:
