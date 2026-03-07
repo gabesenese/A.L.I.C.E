@@ -72,7 +72,11 @@ from ai.optimization.system_monitor import get_system_monitor
 from ai.planning.task_planner import get_planner
 from ai.planning.plan_executor import initialize_executor, get_executor
 from ai.core.reasoning_engine import get_reasoning_engine, WorldEntity, EntityKind
-from ai.planning.proactive_assistant import get_proactive_assistant
+from ai.planning.proactive_assistant import (
+    get_proactive_assistant,
+    parse_reminder_time,
+    make_reminder_id,
+)
 from ai.infrastructure.error_recovery import get_error_recovery
 from ai.memory.smart_context_cache import get_context_cache
 from ai.memory.adaptive_context_selector import get_context_selector
@@ -1538,26 +1542,28 @@ class ALICE:
             temp = alice_response.get('temperature')
             condition = alice_response.get('condition', '').strip()
             location = alice_response.get('location', '')
+            clothing_item = alice_response.get('clothing_item')  # specific item (coat, jacket, etc.)
+            user_question = (alice_response.get('user_question') or '').lower()
             if temp is not None:
                 temp = round(temp)
             loc_str = f" in {location}" if location else ""
-            if temp is not None and temp < 5:
-                advice = "Bundle up — it's very cold"
-            elif temp is not None and temp < 15:
-                advice = "A jacket would be a good idea"
-            elif temp is not None and temp < 22:
-                advice = "It's mild — a light layer should be fine"
-            else:
-                advice = "It's warm, no jacket needed"
-            
-            # Format detail: only show if we have data
-            if temp is not None and condition:
-                detail = f" ({_format_temp(temp)}°C, {condition})"
+            item = clothing_item or 'jacket'
+            is_should = any(w in user_question for w in ['should i', 'do i need', 'do i have to', 'need a'])
+
+            # Build natural, direct advice based on temp + specific item asked about
+            if temp is not None and temp < 0:
+                advice = f"Yes, definitely — it's {_format_temp(temp)}°C{loc_str}, bring your {item}" if is_should else f"Wrap up — it's {_format_temp(temp)}°C{loc_str}"
+            elif temp is not None and temp < 10:
+                advice = f"Yes, a {item} is a smart call — {_format_temp(temp)}°C{loc_str}" if is_should else f"Bring a {item} — {_format_temp(temp)}°C{loc_str}"
+            elif temp is not None and temp < 18:
+                advice = f"Maybe — {_format_temp(temp)}°C{loc_str}, a light {item} wouldn't hurt" if is_should else f"A light {item} might be useful — {_format_temp(temp)}°C{loc_str}"
             elif temp is not None:
-                detail = f" ({_format_temp(temp)}°C)"
+                advice = f"No need — it's {_format_temp(temp)}°C{loc_str}, pretty warm" if is_should else f"No {item} needed — {_format_temp(temp)}°C{loc_str}"
             else:
-                detail = ""
-            return f"**{advice}**{loc_str}.{detail}"
+                advice = f"Dress for the weather{loc_str}"
+
+            detail = f" ({condition})" if condition else ""
+            return f"**{advice}**{detail}."
 
         if response_type == 'weather_prediction':
             answer = alice_response.get('answer', '').capitalize()
@@ -2725,18 +2731,16 @@ class ALICE:
                 self._think(f"Error formatting forecast: {e}")
                 return None
         
-        # Check if this is explicitly a weather-related follow-up question without a specific weekday
-        # e.g., "will it rain tomorrow?" "is it going to snow?"
-        weather_question_indicators = [
-            'rain', 'snow', 'cold', 'warm', 'hot', 'freeze', 'umbrella', 'jacket',
-            'coat', 'layer', 'wear', 'bring', 'outside', 'go out', 'thunderstorm', 'hail'
-        ]
-        
-        # Only use as follow-up if we have a recent weather context
-        if any(keyword in input_lower for keyword in weather_question_indicators) and 'weather' not in intent.lower():
+        # Check if this is a clothing/outside question — answer from stored weather data
+        # NOTE: Run this regardless of intent (NLP may have already classified as weather:*)
+        clothing_indicators = ['umbrella', 'jacket', 'coat', 'layer', 'wear', 'bring', 'outside', 'go out']
+        weather_condition_indicators = ['rain', 'snow', 'cold', 'warm', 'hot', 'freeze', 'thunderstorm', 'hail']
+        weather_question_indicators = clothing_indicators + weather_condition_indicators
+
+        if any(keyword in input_lower for keyword in weather_question_indicators):
             if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
                 return None
-            
+
             # Check if we have recent weather data
             weather_entity = self.reasoning_engine.get_entity('current_weather')
             if not weather_entity or not weather_entity.data:
@@ -2744,36 +2748,66 @@ class ALICE:
                 weather_entity = self.reasoning_engine.get_entity('weather_forecast')
                 if not weather_entity or not weather_entity.data:
                     return None
-            
-            # We have weather data! A.L.I.C.E answers directly using her own reasoning
+
+            # We have weather data — A.L.I.C.E answers directly using her own reasoning
             wd = weather_entity.data
             temp = wd.get('temperature')
+            if temp is not None:
+                temp = round(temp)
             condition = wd.get('condition', '').lower()
             location = wd.get('location', 'your area')
-            
-            # A.L.I.C.E thinks about the question and weather data
+            is_should = any(w in input_lower for w in ['should i', 'do i need', 'do i have to', 'need a', 'need to'])
+
+            # Detect specific clothing item asked about
+            item_map = {
+                'coat': 'coat', 'jacket': 'jacket', 'umbrella': 'umbrella',
+                'layer': 'layers', 'scarf': 'scarf', 'hat': 'hat',
+                'gloves': 'gloves', 'boots': 'boots', 'sweater': 'sweater',
+            }
+            asked_item = next((label for word, label in item_map.items() if word in input_lower), 'jacket')
+
             if 'umbrella' in input_lower:
-                # Check for rain conditions
                 rainy = any(word in condition for word in ['rain', 'drizzle', 'shower', 'storm'])
                 if rainy:
-                    return f"Yes, bring an umbrella - it's {condition} in {location}."
+                    return f"Yes, bring an umbrella — it's {condition} in {location}."
                 else:
-                    return f"No need for an umbrella - it's {condition}, no rain expected."
-            
-            elif any(word in input_lower for word in ['jacket', 'coat', 'layer', 'wear']):
-                # Temperature-based clothing advice
+                    return f"No need for an umbrella — it's {condition}, no rain expected in {location}."
+
+            if any(w in input_lower for w in ['jacket', 'coat', 'layer', 'wear', 'bring', 'outside', 'go out']):
                 if temp is None:
                     return None
-                
-                if temp < -20:
-                    return f"Definitely wear heavy layers - it's {temp}°C in {location}. That's very cold!"
-                elif temp < 0:
-                    return f"Wear a warm coat and layers - it's {temp}°C in {location}."
+                loc_str = f" in {location}" if location else ""
+                if temp < 0:
+                    if is_should:
+                        return f"Yes, definitely bring your {asked_item} — it's {temp}°C{loc_str}, well below freezing."
+                    return f"Wear a warm {asked_item}{loc_str} — it's {temp}°C, quite cold."
                 elif temp < 10:
-                    return f"A light jacket should work - it's {temp}°C in {location}."
+                    if is_should:
+                        return f"Yes, a {asked_item} is a good idea — it's {temp}°C{loc_str}."
+                    return f"I'd bring a {asked_item} — it's {temp}°C{loc_str}."
+                elif temp < 18:
+                    if is_should:
+                        return f"Maybe — it's {temp}°C{loc_str}. A light {asked_item} wouldn't hurt."
+                    return f"A light layer might be nice — {temp}°C{loc_str}."
                 else:
-                    return f"It's mild ({temp}°C), no heavy coat needed in {location}."
-        
+                    if is_should:
+                        return f"No need — it's {temp}°C{loc_str}, pretty warm."
+                    return f"No {asked_item} needed — it's {temp}°C{loc_str}, quite warm."
+
+            # General cold/warm condition questions
+            if any(w in input_lower for w in ['cold', 'warm', 'hot', 'freeze']):
+                if temp is None:
+                    return None
+                loc_str = f" in {location}" if location else ""
+                if temp < 0:
+                    return f"Yes, it's cold — {temp}°C{loc_str}. Bundle up!"
+                elif temp < 12:
+                    return f"It's a bit chilly — {temp}°C{loc_str}."
+                elif temp < 22:
+                    return f"Mild — {temp}°C{loc_str}. Not particularly cold or warm."
+                else:
+                    return f"It's warm — {temp}°C{loc_str}. Enjoy it!"
+
         return None
         
         # Check if this is a weather-related question
@@ -3079,6 +3113,80 @@ class ALICE:
             
             # FAST PATH: Check cache and conversational shortcuts
             # Keep adjusted follow-up confidence if it was updated above.
+
+            # ── REMINDER FAST PATH ────────────────────────────────────────────────
+            # Handle reminder:set / reminder:list / reminder:cancel before any
+            # plugin dispatch or LLM fallback so they are always crisp and instant.
+            if intent == "reminder:set":
+                proactive = getattr(self, "proactive_assistant", None)
+                if proactive:
+                    trigger = parse_reminder_time(user_input)
+                    if trigger is None:
+                        from datetime import timedelta
+                        trigger = datetime.now() + timedelta(minutes=30)
+                    # Extract what to be reminded about: text after "remind me to/about"
+                    match = re.search(
+                        r"remind\s+me\s+(?:to|about|that)?\s+(.+?)(?:\s+(?:in|at|tomorrow|tonight|on)\s+|$)",
+                        user_input.lower(),
+                    )
+                    if match:
+                        subject = match.group(1).strip()
+                    else:
+                        subject = re.sub(
+                            r"\b(?:remind\s+me|set\s+a?\s*reminder)\b",
+                            "",
+                            user_input,
+                            flags=re.IGNORECASE,
+                        ).strip() or user_input
+
+                    rid = make_reminder_id()
+                    proactive.add_reminder(
+                        reminder_id=rid,
+                        message=f"Reminder: {subject}",
+                        trigger_time=trigger,
+                    )
+                    try:
+                        time_str = trigger.strftime("%I:%M %p").lstrip("0") or trigger.strftime("%I:%M %p")
+                    except Exception:
+                        time_str = str(trigger)
+                    response = f"Got it — I'll remind you to {subject} at {time_str}."
+                    self._store_interaction(user_input, response, intent, entities)
+                    return response
+                else:
+                    return "Reminder system is not available right now."
+
+            if intent == "reminder:list":
+                proactive = getattr(self, "proactive_assistant", None)
+                if proactive:
+                    pending = proactive.list_reminders()
+                    if not pending:
+                        return "You have no pending reminders."
+                    lines = []
+                    for r in pending[:10]:
+                        try:
+                            t = r.trigger_time.strftime("%a %b %d at %I:%M %p")
+                        except Exception:
+                            t = str(r.trigger_time)
+                        lines.append(f"• {r.message}  ({t})")
+                    return "Your pending reminders:\n" + "\n".join(lines)
+                else:
+                    return "Reminder system is not available right now."
+
+            if intent == "reminder:cancel":
+                proactive = getattr(self, "proactive_assistant", None)
+                if proactive:
+                    kw_match = re.search(
+                        r"(?:cancel|delete|remove)\s+(?:the\s+)?reminder\s+(?:about|for|to)?\s*(.+)",
+                        user_input.lower(),
+                    )
+                    keyword = kw_match.group(1).strip() if kw_match else user_input
+                    if proactive.cancel_reminder(keyword):
+                        return f"Done — I've cancelled the reminder about \"{keyword}\"."
+                    else:
+                        return f"I couldn't find a reminder matching \"{keyword}\". Use 'show reminders' to see what's pending."
+                else:
+                    return "Reminder system is not available right now."
+            # ─────────────────────────────────────────────────────────────────────
 
             # 0.55 PRIORITY WEATHER FOLLOW-UP PATH: handle weather context BEFORE
             # conversational fast path so weather follow-ups don't depend on LLM.

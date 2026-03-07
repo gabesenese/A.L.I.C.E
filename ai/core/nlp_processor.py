@@ -2164,8 +2164,39 @@ class NLPProcessor:
             intent = learned_intent
             intent_confidence = 0.95  # High confidence for learned patterns
         else:
+            # ── Reminder early override: runs BEFORE retrieval_first_parse so
+            # no context-based short-query logic can shadow reminder intents. ──
+            _tl = normalized_text.lower()
+            _reminder_intent = None
+            if any(phrase in _tl for phrase in [
+                "remind me", "set a reminder", "add a reminder", "create a reminder",
+                "alert me", "notify me when",
+                "don't let me forget", "do not let me forget", "dont let me forget",
+            ]):
+                _reminder_intent = "reminder:set"
+            elif any(phrase in _tl for phrase in [
+                "my reminders", "what reminders", "show reminders", "list reminders",
+                "any reminders", "upcoming reminders", "pending reminders",
+            ]) or ("reminder" in _tl and "do i have" in _tl):
+                _reminder_intent = "reminder:list"
+            elif (
+                any(w in _tl for w in ["cancel", "delete", "remove"])
+                and "reminder" in _tl
+            ):
+                _reminder_intent = "reminder:cancel"
+
+            if _reminder_intent:
+                route = RouteDecision(
+                    intent=_reminder_intent,
+                    confidence=0.95,
+                    plugin="reminder",
+                    action=_reminder_intent.split(":", 1)[1],
+                    trace={"source": "reminder_early_override"},
+                )
+                intent = _reminder_intent
+                intent_confidence = 0.95
             # Step 5: Intent detection (retrieval-first + semantic + calibrated routing)
-            if retrieval_route:
+            elif retrieval_route:
                 intent, intent_confidence = retrieval_route
                 route = RouteDecision(
                     intent=intent,
@@ -2620,6 +2651,25 @@ class NLPProcessor:
             word in text_lower for word in ["note", "notes", "memo"]
         ):
             return "notes:delete", 0.85
+
+        # ── Reminder intents (must come BEFORE thanks/greetings) ─────────────────
+        # Set: "remind me to X", "set a reminder", "alert me", "notify me"
+        if any(phrase in text_lower for phrase in [
+            "remind me", "set a reminder", "add a reminder", "create a reminder",
+            "alert me", "notify me when", "don't let me forget",
+        ]):
+            return "reminder:set", 0.95
+        # List: "what reminders", "show my reminders", "do I have any reminders"
+        if any(phrase in text_lower for phrase in [
+            "my reminders", "what reminders", "show reminders", "list reminders",
+            "any reminders", "upcoming reminders", "pending reminders",
+        ]):
+            return "reminder:list", 0.95
+        # Cancel: "cancel reminder", "delete reminder", "remove reminder"
+        if any(word in text_lower for word in ["cancel", "delete", "remove"]) and \
+                "reminder" in text_lower:
+            return "reminder:cancel", 0.95
+        # ─────────────────────────────────────────────────────────────────────────
 
         # Thanks - check BEFORE greetings (to prevent "thanks" being matched by semantic classifier)
         if any(
@@ -3206,6 +3256,7 @@ class Perception:
         "email": {"email", "mail", "reply", "inbox", "send", "draft"},
         "music": {"song", "play", "pause", "next", "music", "skip", "volume"},
         "calendar": {"event", "meeting", "schedule", "appointment", "calendar"},
+        "reminder": {"remind", "reminder", "alert", "notify", "forget", "alarm"},
     }
 
     def build(
@@ -3492,6 +3543,10 @@ class FollowUpResolver:
         "calendar": [
             "reschedule", "cancel", "that event", "the meeting",
             "move it", "postpone",
+        ],
+        "reminder": [
+            "that reminder", "cancel it", "postpone", "snooze",
+            "remind me again", "change the time",
         ],
     }
 
