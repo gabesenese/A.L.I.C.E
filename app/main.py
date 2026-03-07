@@ -95,6 +95,7 @@ from ai.red_team_tester import RedTeamTester
 # Continuous learning system
 from ai.learning.realtime_logger import get_realtime_logger
 from ai.learning.continuous_learning import get_continuous_learning_loop
+from ai.learning.response_quality_checker import get_quality_checker
 
 # Automated learning system (Ollama-driven)
 from ai.training.ollama_evaluator import get_ollama_evaluator
@@ -2762,10 +2763,12 @@ class ALICE:
             is_should = any(w in input_lower for w in ['should i', 'do i need', 'do i have to', 'need a', 'need to'])
 
             # Detect if this is a follow-up clothing question (user already knows the weather)
+            # NOTE: conversation_topics is a deduplicated list, so we use conversation_summary
+            # (per-turn history, not deduplicated) to check if the previous turn was also weather.
             is_follow_up = False
-            if hasattr(self, 'conversation_topics') and self.conversation_topics:
-                recent_weather = [t for t in self.conversation_topics[-4:] if t.startswith('weather')]
-                is_follow_up = len(recent_weather) >= 2
+            if hasattr(self, 'conversation_summary') and self.conversation_summary:
+                last_turn = self.conversation_summary[-1]
+                is_follow_up = last_turn.get('intent', '').startswith('weather')
 
             # When follow-up: omit temperature/location — user already knows
             loc_str = f" in {location}" if (location and not is_follow_up) else ""
@@ -2928,6 +2931,10 @@ class ALICE:
             start_time = time.time()
             route_taken = 'unknown'
             success = False
+
+            # Per-turn quality tracking flags (read by _store_interaction)
+            self._last_plugin_called = None
+            self._last_had_stored_data = False
             
             # Set logging context
             self.structured_logger.set_context(
@@ -3224,6 +3231,7 @@ class ALICE:
             ):
                 weather_followup_early = self._handle_weather_followup(user_input, intent)
             if weather_followup_early:
+                self._last_had_stored_data = True   # fast-path used stored data; no plugin needed
                 self._think("Weather follow-up (early) → answering from stored data (no LLM)")
                 self._store_interaction(user_input, weather_followup_early, intent, entities)
                 if use_voice and self.speech:
@@ -4568,6 +4576,9 @@ class ALICE:
                     self.reasoning_engine.record_turn(user_input, intent, entities or {}, response, success)
                     self.reasoning_engine.record_plugin_result(plugin_name, success)
 
+                    # Track which plugin ran (used by quality checker to detect unnecessary calls)
+                    self._last_plugin_called = plugin_name
+
                     # Feature #3: Feed conversation turn into notes plugin so
                     # "save this" / "remember that" can capture recent context.
                     try:
@@ -5707,6 +5718,22 @@ class ALICE:
             else:
                 logger.info("[PRIVACY] Episodic memory storage skipped (privacy mode enabled)")
 
+            # Quality checker: automatic detection of soft issues (vocab gaps, directness, repetition)
+            try:
+                _qc = get_quality_checker()
+                # conversation_summary[-1] is the turn just appended above; [-2] is the previous turn
+                _prev = self.conversation_summary[-2] if len(self.conversation_summary) >= 2 else None
+                _qc.analyze(
+                    user_input=user_input,
+                    response=response,
+                    intent=intent,
+                    plugin_called=getattr(self, '_last_plugin_called', None),
+                    had_stored_data=getattr(self, '_last_had_stored_data', False),
+                    previous_turn=_prev,
+                )
+            except Exception as _qc_err:
+                logger.debug("[QualityChecker] %s", _qc_err)
+
             # Self-debugger: post-turn root-cause analysis
             try:
                 if getattr(self, 'self_debugger', None) is not None:
@@ -5972,6 +5999,11 @@ class ALICE:
                     print(f"   Learned Greetings: {len(self.conversational_engine.learned_greetings) if self.conversational_engine.learned_greetings else 0}")
                 print(f"   Status: Active")
         
+        elif cmd == '/analyze-learning':
+            from ai.learning.learning_insights import LearningInsights
+            insights = LearningInsights(lookback_days=30).load()
+            print(insights.generate_report())
+
         elif cmd.startswith('/location'):
             # Set location manually: /location City, Country
             parts = command.split(maxsplit=1)
