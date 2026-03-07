@@ -4,7 +4,11 @@ Anticipates needs, provides reminders, and delivers proactive information.
 Makes A.L.I.C.E feel like a real assistant, not just a chatbot.
 """
 
+import json
 import logging
+import re
+import uuid
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -12,6 +16,8 @@ from threading import Thread, Event
 import time
 
 logger = logging.getLogger(__name__)
+
+_REMINDERS_PATH = Path("app/data/reminders.json")
 
 
 @dataclass
@@ -60,6 +66,7 @@ class ProactiveAssistant:
 
         self.notification_callback: Optional[callable] = None
 
+        self._load_reminders()
         logger.info("[ProactiveAssistant] Initialized")
 
     def set_notification_callback(self, callback: callable):
@@ -182,7 +189,7 @@ class ProactiveAssistant:
                 "high": "high",
                 "urgent": "critical",
             }
-            from .event_bus import EventPriority
+            from ai.infrastructure.event_bus import EventPriority
 
             priority = EventPriority[
                 priority_map.get(reminder.priority, "normal").upper()
@@ -200,7 +207,7 @@ class ProactiveAssistant:
         priority: str = "normal",
         context: Dict = None,
     ):
-        """Add a proactive reminder"""
+        """Add a proactive reminder and persist to disk."""
         self.reminders[reminder_id] = Reminder(
             reminder_id=reminder_id,
             message=message,
@@ -208,9 +215,75 @@ class ProactiveAssistant:
             priority=priority,
             context=context or {},
         )
+        self._save_reminders()
         logger.debug(
             f"[ProactiveAssistant] Added reminder: {message[:50]} at {trigger_time}"
         )
+
+    def list_reminders(self) -> List[Reminder]:
+        """Return pending (not yet delivered) reminders sorted by trigger time."""
+        pending = [r for r in self.reminders.values() if not r.delivered]
+        return sorted(pending, key=lambda r: r.trigger_time)
+
+    def cancel_reminder(self, keyword: str) -> bool:
+        """Cancel the first pending reminder whose message contains *keyword*.
+
+        Returns True if a reminder was cancelled, False otherwise.
+        """
+        keyword_lower = keyword.lower()
+        for rid, reminder in list(self.reminders.items()):
+            if not reminder.delivered and keyword_lower in reminder.message.lower():
+                del self.reminders[rid]
+                self._save_reminders()
+                logger.info(f"[ProactiveAssistant] Cancelled reminder: {reminder.message[:50]}")
+                return True
+        return False
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+
+    def _save_reminders(self) -> None:
+        """Persist reminders to disk so they survive restarts."""
+        try:
+            _REMINDERS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            data = [
+                {
+                    "reminder_id": r.reminder_id,
+                    "message": r.message,
+                    "trigger_time": r.trigger_time.isoformat(),
+                    "priority": r.priority,
+                    "context": r.context,
+                    "delivered": r.delivered,
+                }
+                for r in self.reminders.values()
+            ]
+            _REMINDERS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as exc:
+            logger.warning(f"[ProactiveAssistant] Failed to save reminders: {exc}")
+
+    def _load_reminders(self) -> None:
+        """Load previously persisted reminders from disk."""
+        if not _REMINDERS_PATH.exists():
+            return
+        try:
+            data = json.loads(_REMINDERS_PATH.read_text(encoding="utf-8"))
+            for item in data:
+                if item.get("delivered"):
+                    continue  # skip already-delivered reminders
+                self.reminders[item["reminder_id"]] = Reminder(
+                    reminder_id=item["reminder_id"],
+                    message=item["message"],
+                    trigger_time=datetime.fromisoformat(item["trigger_time"]),
+                    priority=item.get("priority", "normal"),
+                    context=item.get("context", {}),
+                    delivered=False,
+                )
+            logger.info(
+                f"[ProactiveAssistant] Loaded {len(self.reminders)} pending reminder(s) from disk"
+            )
+        except Exception as exc:
+            logger.warning(f"[ProactiveAssistant] Failed to load reminders: {exc}")
 
     def track_incomplete_task(
         self, task_id: str, description: str, context: Dict = None
@@ -312,3 +385,93 @@ def get_proactive_assistant(
             notes_plugin=notes_plugin,
         )
     return _proactive_assistant
+
+
+# ---------------------------------------------------------------------------
+# Time-parsing utility (used by main.py when wiring reminder:set intent)
+# ---------------------------------------------------------------------------
+
+def parse_reminder_time(text: str, now: Optional[datetime] = None) -> Optional[datetime]:
+    """Parse a natural-language time expression from *text* and return an
+    absolute ``datetime``.  Returns ``None`` when no time could be parsed.
+
+    Supports:
+    * Relative: ``in 30 minutes``, ``in 2 hours``, ``in 3 days``
+    * Clock time today: ``at 3pm``, ``at 14:30``, ``at 9:30 am``
+    * Tomorrow: ``tomorrow at 9am``
+    * Named times: ``tonight``, ``this evening``, ``morning``, ``noon``
+    """
+    base = now or datetime.now()
+    text_lower = text.lower()
+
+    # -- relative: "in X minutes/hours/days/weeks" --
+    rel = re.search(
+        r"\bin\s+(\d+)\s+(minute|min|hour|hr|day|week)s?",
+        text_lower,
+    )
+    if rel:
+        amount = int(rel.group(1))
+        unit = rel.group(2)
+        if unit in ("minute", "min"):
+            return base + timedelta(minutes=amount)
+        if unit in ("hour", "hr"):
+            return base + timedelta(hours=amount)
+        if unit == "day":
+            return base + timedelta(days=amount)
+        if unit == "week":
+            return base + timedelta(weeks=amount)
+
+    # -- named times --
+    named: Dict[str, tuple] = {
+        "midnight": (0, 0),
+        "this morning": (9, 0),
+        "morning": (9, 0),
+        "noon": (12, 0),
+        "this afternoon": (14, 0),
+        "afternoon": (14, 0),
+        "this evening": (18, 0),
+        "evening": (18, 0),
+        "tonight": (20, 0),
+        "night": (20, 0),
+    }
+    for phrase, (h, m) in named.items():
+        if phrase in text_lower:
+            target = base.replace(hour=h, minute=m, second=0, microsecond=0)
+            if target <= base:
+                target += timedelta(days=1)
+            return target
+
+    # -- tomorrow flag --
+    is_tomorrow = "tomorrow" in text_lower
+
+    # -- clock time: "at 3pm", "at 14:30", "at 9:30 am" --
+    clock = re.search(
+        r"(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?",
+        text_lower,
+    )
+    if clock:
+        hour = int(clock.group(1))
+        minute = int(clock.group(2) or 0)
+        meridiem = clock.group(3)
+        if meridiem == "pm" and hour != 12:
+            hour += 12
+        elif meridiem == "am" and hour == 12:
+            hour = 0
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            hour, minute = 9, 0  # fallback if parse produced garbage
+        target = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if is_tomorrow:
+            target += timedelta(days=1)
+        elif target <= base:
+            target += timedelta(days=1)
+        return target
+
+    if is_tomorrow:
+        return (base + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+
+    return None
+
+
+def make_reminder_id() -> str:
+    """Generate a short unique reminder ID."""
+    return f"rem_{uuid.uuid4().hex[:8]}"
