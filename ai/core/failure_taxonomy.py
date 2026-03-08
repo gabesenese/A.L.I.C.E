@@ -363,12 +363,13 @@ def get_failure_taxonomy() -> FailureTaxonomy:
 # ---------------------------------------------------------------------------
 
 PHRASING_MISS = "PHRASING_MISS"
-MEMORY_MISS   = "MEMORY_MISS"
+MEMORY_MISS = "MEMORY_MISS"
 
 
 @dataclass
 class TurnPostmortem:
     """All observable signals from a completed turn."""
+
     utterance: str
     intent: str
     plugin: str
@@ -441,6 +442,7 @@ class RootCauseClassifier(FailureTaxonomy):
 @dataclass
 class FixAction:
     """A concrete action proposed by the FixScheduler."""
+
     strategy: str
     failure_type: str
     target: str
@@ -460,8 +462,11 @@ def _fix_threshold_adjust(record: FailureRecord, components: Dict[str, Any]) -> 
         thresh_attr = getattr(classifier, "confidence_thresholds", {})
         current = thresh_attr.get(record.intent, 0.5)
         thresh_attr[record.intent] = max(0.2, current - 0.05)
-        logger.info("SelfDebugger: lowered threshold for %s → %.2f",
-                    record.intent, thresh_attr[record.intent])
+        logger.info(
+            "SelfDebugger: lowered threshold for %s → %.2f",
+            record.intent,
+            thresh_attr[record.intent],
+        )
         return True
     except Exception as exc:
         logger.debug("SelfDebugger: threshold_adjust failed: %s", exc)
@@ -476,15 +481,20 @@ def _fix_add_domain_rule(record: FailureRecord, components: Dict[str, Any]) -> b
         hints = getattr(nlp, "_debug_hints", [])
         hints.append({"utterance": record.utterance, "expected_intent": record.intent})
         nlp._debug_hints = hints
-        logger.info("SelfDebugger: added domain rule hint for %r → %s",
-                    record.utterance[:50], record.intent)
+        logger.info(
+            "SelfDebugger: added domain rule hint for %r → %s",
+            record.utterance[:50],
+            record.intent,
+        )
         return True
     except Exception as exc:
         logger.debug("SelfDebugger: add_domain_rule failed: %s", exc)
         return False
 
 
-def _fix_alter_planner_weight(record: FailureRecord, components: Dict[str, Any]) -> bool:
+def _fix_alter_planner_weight(
+    record: FailureRecord, components: Dict[str, Any]
+) -> bool:
     planner = components.get("task_planner")
     if not planner:
         return False
@@ -523,7 +533,9 @@ def _fix_memory_search_boost(record: FailureRecord, components: Dict[str, Any]) 
     try:
         current = getattr(mem_sys, "search_top_k", 5)
         mem_sys.search_top_k = min(current + 2, 20)
-        logger.info("SelfDebugger: boosted memory search top-k → %d", mem_sys.search_top_k)
+        logger.info(
+            "SelfDebugger: boosted memory search top-k → %d", mem_sys.search_top_k
+        )
         return True
     except Exception as exc:
         logger.debug("SelfDebugger: memory_search_boost failed: %s", exc)
@@ -531,22 +543,22 @@ def _fix_memory_search_boost(record: FailureRecord, components: Dict[str, Any]) 
 
 
 _FAILURE_STRATEGY_MAP: Dict[str, List[str]] = {
-    SLOT_MISS:     ["threshold_adjust", "add_domain_rule"],
-    ROUTE_MISS:    ["threshold_adjust", "add_domain_rule", "alter_planner_weight"],
-    FRAME_MISS:    ["add_domain_rule", "threshold_adjust"],
-    COREF_MISS:    ["memory_search_boost", "add_domain_rule"],
-    PLUGIN_MISS:   ["alter_planner_weight", "threshold_adjust"],
-    CONFIDENCE:    ["threshold_adjust", "alter_planner_weight"],
+    SLOT_MISS: ["threshold_adjust", "add_domain_rule"],
+    ROUTE_MISS: ["threshold_adjust", "add_domain_rule", "alter_planner_weight"],
+    FRAME_MISS: ["add_domain_rule", "threshold_adjust"],
+    COREF_MISS: ["memory_search_boost", "add_domain_rule"],
+    PLUGIN_MISS: ["alter_planner_weight", "threshold_adjust"],
+    CONFIDENCE: ["threshold_adjust", "alter_planner_weight"],
     PHRASING_MISS: ["phrasing_swap", "threshold_adjust"],
-    MEMORY_MISS:   ["memory_search_boost", "add_domain_rule"],
+    MEMORY_MISS: ["memory_search_boost", "add_domain_rule"],
 }
 
 _STRATEGY_FNS: Dict[str, FixFn] = {
-    "threshold_adjust":     _fix_threshold_adjust,
-    "add_domain_rule":      _fix_add_domain_rule,
+    "threshold_adjust": _fix_threshold_adjust,
+    "add_domain_rule": _fix_add_domain_rule,
     "alter_planner_weight": _fix_alter_planner_weight,
-    "phrasing_swap":        _fix_phrasing_swap,
-    "memory_search_boost":  _fix_memory_search_boost,
+    "phrasing_swap": _fix_phrasing_swap,
+    "memory_search_boost": _fix_memory_search_boost,
 }
 
 
@@ -587,12 +599,15 @@ class FixScheduler:
             self._total_pulls += 1
             best_strategy = max(
                 candidates,
-                key=lambda s: self._arm(record.failure_type, s).ucb_score(self._total_pulls),
+                key=lambda s: self._arm(record.failure_type, s).ucb_score(
+                    self._total_pulls
+                ),
             )
             arm = self._arm(record.failure_type, best_strategy)
             confidence = (arm.successes + 1) / (arm.successes + arm.failures + 2)
         return FixAction(
-            strategy=best_strategy, failure_type=record.failure_type,
+            strategy=best_strategy,
+            failure_type=record.failure_type,
             target=record.intent,
             parameter={"utterance": record.utterance, "plugin": record.plugin},
             confidence=confidence,
@@ -613,9 +628,13 @@ class FixScheduler:
     def _append_log(self, action: FixAction, success: bool) -> None:
         try:
             self._log_path.parent.mkdir(parents=True, exist_ok=True)
-            entry = {"timestamp": action.timestamp, "strategy": action.strategy,
-                     "failure_type": action.failure_type, "target": action.target,
-                     "success": success}
+            entry = {
+                "timestamp": action.timestamp,
+                "strategy": action.strategy,
+                "failure_type": action.failure_type,
+                "target": action.target,
+                "success": success,
+            }
             with open(self._log_path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(entry) + "\n")
         except Exception as exc:
@@ -660,8 +679,12 @@ class SelfDebugger:
         if fix_fn:
             success = fix_fn(record, components)
             self._scheduler.record_fix_outcome(action, success)
-            logger.info("SelfDebugger: applied %s for %s → %s",
-                        action.strategy, record.failure_type, "ok" if success else "failed")
+            logger.info(
+                "SelfDebugger: applied %s for %s → %s",
+                action.strategy,
+                record.failure_type,
+                "ok" if success else "failed",
+            )
         return action
 
     def pending_fixes(self) -> List[FixAction]:

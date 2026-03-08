@@ -70,8 +70,12 @@ class ResolvedText:
     resolved_value: Any  # the actual value substituted
     confidence: float  # 0.0–1.0
     substitution_map: Dict[str, str] = field(default_factory=dict)
-    candidates: List[Any] = field(default_factory=list)  # Alternative resolutions (ambiguity)
-    needs_clarification: bool = False  # True if confidence < threshold with multiple candidates
+    candidates: List[Any] = field(
+        default_factory=list
+    )  # Alternative resolutions (ambiguity)
+    needs_clarification: bool = (
+        False  # True if confidence < threshold with multiple candidates
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -314,7 +318,7 @@ class AdvancedCoreferenceResolver:
     def resolve(self, text: str, context: Dict[str, Any]) -> ResolvedText:
         """
         Main entry point.  Returns ResolvedText with ambiguity detection.
-        
+
         If confidence < threshold and multiple candidates exist, marks needs_clarification.
         """
         # Skip resolution for idiomatic/vague phrases
@@ -327,15 +331,15 @@ class AdvancedCoreferenceResolver:
                 confidence=0.0,
             )
         original = text
-        text, sub_map, etype, evalue, conf, candidates = self._apply_resolutions(text, context)
+        text, sub_map, etype, evalue, conf, candidates = self._apply_resolutions(
+            text, context
+        )
 
         resolved = text != original
         needs_clarification = (
-            conf < self.ambiguity_threshold 
-            and len(candidates) > 1 
-            and resolved
+            conf < self.ambiguity_threshold and len(candidates) > 1 and resolved
         )
-        
+
         return ResolvedText(
             text=text,
             resolved=resolved,

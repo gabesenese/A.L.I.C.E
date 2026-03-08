@@ -137,32 +137,39 @@ class InteractionPolicy:
 # Response Knob Policy  (contextual bandit for per-turn style adjustments)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ResponseKnobs:
     """Five continuous style parameters, each in [0.0, 1.0]."""
-    length: float = 0.5          # 0 = terse, 1 = verbose
-    directness: float = 0.5      # 0 = hedging, 1 = blunt
-    technical_depth: float = 0.3 # 0 = plain, 1 = technical
-    empathy_level: float = 0.4   # 0 = dry, 1 = high-empathy
-    formality: float = 0.5       # 0 = casual, 1 = formal
+
+    length: float = 0.5  # 0 = terse, 1 = verbose
+    directness: float = 0.5  # 0 = hedging, 1 = blunt
+    technical_depth: float = 0.3  # 0 = plain, 1 = technical
+    empathy_level: float = 0.4  # 0 = dry, 1 = high-empathy
+    formality: float = 0.5  # 0 = casual, 1 = formal
 
     def blend(self, other: "ResponseKnobs", weight: float) -> "ResponseKnobs":
         w = max(0.0, min(1.0, weight))
         return ResponseKnobs(
             length=self.length + w * (other.length - self.length),
             directness=self.directness + w * (other.directness - self.directness),
-            technical_depth=self.technical_depth + w * (other.technical_depth - self.technical_depth),
-            empathy_level=self.empathy_level + w * (other.empathy_level - self.empathy_level),
+            technical_depth=self.technical_depth
+            + w * (other.technical_depth - self.technical_depth),
+            empathy_level=self.empathy_level
+            + w * (other.empathy_level - self.empathy_level),
             formality=self.formality + w * (other.formality - self.formality),
         )
 
     def clamp(self) -> "ResponseKnobs":
         def _c(v: float) -> float:
             return max(0.0, min(1.0, v))
+
         return ResponseKnobs(
-            length=_c(self.length), directness=_c(self.directness),
+            length=_c(self.length),
+            directness=_c(self.directness),
             technical_depth=_c(self.technical_depth),
-            empathy_level=_c(self.empathy_level), formality=_c(self.formality),
+            empathy_level=_c(self.empathy_level),
+            formality=_c(self.formality),
         )
 
     def to_dict(self) -> Dict[str, float]:
@@ -170,17 +177,28 @@ class ResponseKnobs:
 
 
 _SENTIMENT_DEFAULTS: Dict[str, ResponseKnobs] = {
-    "positive":   ResponseKnobs(length=0.5, directness=0.6, empathy_level=0.5, formality=0.4),
-    "negative":   ResponseKnobs(length=0.4, directness=0.4, empathy_level=0.8, formality=0.5),
-    "frustrated": ResponseKnobs(length=0.3, directness=0.7, empathy_level=0.7, formality=0.4),
-    "excited":    ResponseKnobs(length=0.6, directness=0.6, empathy_level=0.5, formality=0.3),
-    "neutral":    ResponseKnobs(length=0.5, directness=0.5, empathy_level=0.4, formality=0.5),
+    "positive": ResponseKnobs(
+        length=0.5, directness=0.6, empathy_level=0.5, formality=0.4
+    ),
+    "negative": ResponseKnobs(
+        length=0.4, directness=0.4, empathy_level=0.8, formality=0.5
+    ),
+    "frustrated": ResponseKnobs(
+        length=0.3, directness=0.7, empathy_level=0.7, formality=0.4
+    ),
+    "excited": ResponseKnobs(
+        length=0.6, directness=0.6, empathy_level=0.5, formality=0.3
+    ),
+    "neutral": ResponseKnobs(
+        length=0.5, directness=0.5, empathy_level=0.4, formality=0.5
+    ),
 }
 
 
 @dataclass
 class KnobArm:
     """Running statistics for one context arm."""
+
     count: int = 0
     knobs_sum: ResponseKnobs = field(default_factory=ResponseKnobs)
     reward_sum: float = 0.0
@@ -191,8 +209,10 @@ class KnobArm:
         self.reward_sum += reward
         self.last_reward = reward
         n = self.count
+
         def _m(old: float, new: float) -> float:
             return old + (new - old) / n
+
         self.knobs_sum = ResponseKnobs(
             length=_m(self.knobs_sum.length, knobs.length),
             directness=_m(self.knobs_sum.directness, knobs.directness),
@@ -266,9 +286,13 @@ class KnobBandit:
             arm.update(proposed_knobs, reward)
             self._turn_count += 1
             if self._turn_count % 100 == 0:
-                self._epsilon = max(self._epsilon_min, self._epsilon - self._anneal_rate)
+                self._epsilon = max(
+                    self._epsilon_min, self._epsilon - self._anneal_rate
+                )
 
-    def best_knobs_for(self, intent: str, sentiment: str = "neutral", topic: str = "") -> ResponseKnobs:
+    def best_knobs_for(
+        self, intent: str, sentiment: str = "neutral", topic: str = ""
+    ) -> ResponseKnobs:
         key = self._context_key(intent, sentiment, topic)
         with self._bandit_lock:
             arm = self._arms.get(key)
@@ -279,9 +303,13 @@ class KnobBandit:
     def stats(self) -> Dict[str, dict]:
         with self._bandit_lock:
             return {
-                key: {"count": arm.count, "mean_reward": round(arm.mean_reward(), 3),
-                      "knobs": arm.mean_knobs().to_dict()}
-                for key, arm in self._arms.items() if arm.count > 0
+                key: {
+                    "count": arm.count,
+                    "mean_reward": round(arm.mean_reward(), 3),
+                    "knobs": arm.mean_knobs().to_dict(),
+                }
+                for key, arm in self._arms.items()
+                if arm.count > 0
             }
 
     @staticmethod
@@ -296,10 +324,13 @@ class KnobBandit:
     def _explore(base: ResponseKnobs) -> ResponseKnobs:
         def _n(v: float) -> float:
             return v + random.gauss(0, 0.15)
+
         return ResponseKnobs(
-            length=_n(base.length), directness=_n(base.directness),
+            length=_n(base.length),
+            directness=_n(base.directness),
             technical_depth=_n(base.technical_depth),
-            empathy_level=_n(base.empathy_level), formality=_n(base.formality),
+            empathy_level=_n(base.empathy_level),
+            formality=_n(base.formality),
         ).clamp()
 
 

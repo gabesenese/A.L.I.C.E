@@ -47,7 +47,7 @@ class NormalizedEntity:
 class EntityNormalizer:
     """
     Fast, rule-based entity normalizer with user customization.
-    
+
     Algorithm: Trie-based pattern matching + edit distance fallback
     Complexity: O(m) where m = entity length
     """
@@ -62,11 +62,13 @@ class EntityNormalizer:
         {"pattern": r"\b(todo|tdo)\b", "canonical": "todo", "category": "tag"},
         {"pattern": r"\b(imp|impt)\b", "canonical": "important", "category": "tag"},
         {"pattern": r"\b(urg|urgt)\b", "canonical": "urgent", "category": "tag"},
-        
         # Title normalization - remove common filler
         {"pattern": r"^(my|the|a|an)\s+", "canonical": "", "category": "title"},
-        {"pattern": r"\s+(note|task|item|entry)$", "canonical": "", "category": "title"},
-        
+        {
+            "pattern": r"\s+(note|task|item|entry)$",
+            "canonical": "",
+            "category": "title",
+        },
         # Datetime normalization - relative to absolute
         # (handled separately in _normalize_datetime)
     ]
@@ -91,7 +93,9 @@ class EntityNormalizer:
                     )
                 )
             except re.error as e:
-                logger.warning(f"[NORMALIZER] Invalid pattern {rule_def['pattern']}: {e}")
+                logger.warning(
+                    f"[NORMALIZER] Invalid pattern {rule_def['pattern']}: {e}"
+                )
 
         # Load user rules if available
         if self.user_rules_path and self.user_rules_path.exists():
@@ -121,11 +125,11 @@ class EntityNormalizer:
     ) -> NormalizedEntity:
         """
         Normalize an entity using applicable rules.
-        
+
         Args:
             entity: Raw entity text
             category: Optional category hint ("tag", "title", "datetime")
-            
+
         Returns:
             NormalizedEntity with normalized value and metadata
         """
@@ -149,7 +153,7 @@ class EntityNormalizer:
         # Category-specific normalization
         if category == "datetime":
             return self._normalize_datetime(entity)
-        
+
         # Apply pattern rules
         normalized = entity.strip()
         applied_rule: Optional[str] = None
@@ -159,7 +163,7 @@ class EntityNormalizer:
             # Skip non-matching categories if hint provided
             if category and rule.category != category:
                 continue
-            
+
             match = rule.pattern.search(normalized)
             if match:
                 if rule.canonical:  # Replace with canonical form
@@ -190,7 +194,7 @@ class EntityNormalizer:
         """Normalize datetime expressions to ISO format."""
         entity_lower = entity.lower().strip()
         now = datetime.now()
-        
+
         # Common relative expressions
         RELATIVE_MAP = {
             "today": now.date().isoformat(),
@@ -200,9 +204,12 @@ class EntityNormalizer:
             "this week": now.date().isoformat(),
             "next week": (now + timedelta(weeks=1)).date().isoformat(),
             "this month": now.replace(day=1).date().isoformat(),
-            "next month": (now.replace(day=1) + timedelta(days=32)).replace(day=1).date().isoformat(),
+            "next month": (now.replace(day=1) + timedelta(days=32))
+            .replace(day=1)
+            .date()
+            .isoformat(),
         }
-        
+
         if entity_lower in RELATIVE_MAP:
             return NormalizedEntity(
                 original=entity,
@@ -210,9 +217,17 @@ class EntityNormalizer:
                 confidence=0.95,
                 rule_applied="datetime:relative",
             )
-        
+
         # Weekday names
-        WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        WEEKDAYS = [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ]
         if entity_lower in WEEKDAYS:
             target_weekday = WEEKDAYS.index(entity_lower)
             current_weekday = now.weekday()
@@ -226,7 +241,7 @@ class EntityNormalizer:
                 confidence=0.90,
                 rule_applied="datetime:weekday",
             )
-        
+
         # No normalization applied
         return NormalizedEntity(
             original=entity,
@@ -250,7 +265,7 @@ class EntityNormalizer:
         """Persist user overrides to disk."""
         if not self.user_rules_path:
             return
-        
+
         try:
             data = {"overrides": self._user_overrides, "custom_rules": []}
             self.user_rules_path.parent.mkdir(parents=True, exist_ok=True)

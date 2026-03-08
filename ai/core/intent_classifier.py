@@ -335,7 +335,9 @@ class SemanticIntentClassifier:
                 logging.getLogger("paddlenlp.transformers").setLevel(logging.ERROR)
                 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
-                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with contextlib.redirect_stdout(
+                    io.StringIO()
+                ), contextlib.redirect_stderr(io.StringIO()):
                     self.model = SentenceTransformer(
                         self.model_name,
                         device="cpu",  # Explicitly use CPU to avoid GPU issues
@@ -874,9 +876,11 @@ def get_intent_classifier() -> SemanticIntentClassifier:
 # Bayesian Intent Router
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class IntentCandidate:
     """A single intent hypothesis produced by the upstream NLP system."""
+
     intent: str
     confidence: float
     plugin: str = ""
@@ -886,6 +890,7 @@ class IntentCandidate:
 @dataclass
 class RouterDecision:
     """The final routing decision produced by BayesianIntentRouter."""
+
     intent: str
     plugin: str
     action: str
@@ -908,7 +913,7 @@ class IntentCostMatrix:
         ("chitchat:general", "email:send"): 1.8,
         ("chitchat:general", "notes:create"): 1.6,
         ("chitchat:general", "calendar:create_event"): 1.6,
-        ("music:play", "weather:current"): 1.4,   # umbrella trap
+        ("music:play", "weather:current"): 1.4,  # umbrella trap
         ("music:play", "weather:forecast"): 1.4,
     }
     _LOW_COST_PAIRS: Dict[Tuple[str, str], float] = {
@@ -997,8 +1002,11 @@ class BayesianIntentRouter:
             top = candidates[0]
             cal = self._calibrate(top.confidence)
             return RouterDecision(
-                intent=top.intent, plugin=top.plugin, action=top.action,
-                raw_confidence=top.confidence, calibrated_confidence=cal,
+                intent=top.intent,
+                plugin=top.plugin,
+                action=top.action,
+                raw_confidence=top.confidence,
+                calibrated_confidence=cal,
                 expected_regret=0.0,
             )
 
@@ -1024,8 +1032,11 @@ class BayesianIntentRouter:
         winner, best_regret = best
         cal_conf = self._calibrate(winner.confidence)
         return RouterDecision(
-            intent=winner.intent, plugin=winner.plugin, action=winner.action,
-            raw_confidence=winner.confidence, calibrated_confidence=cal_conf,
+            intent=winner.intent,
+            plugin=winner.plugin,
+            action=winner.action,
+            raw_confidence=winner.confidence,
+            calibrated_confidence=cal_conf,
             expected_regret=round(best_regret, 4),
             runner_up=second[0].intent if second else None,
             runner_up_regret=round(second[1], 4) if second else None,

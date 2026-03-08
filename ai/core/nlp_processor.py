@@ -792,7 +792,11 @@ class TemporalParser:
                 time_struct, parse_context = self.cal.parse(text)
                 # In parsedatetime 2.x+, parse returns (time_struct, pdtContext)
                 # pdtContext.hasDateOrTime returns True if parsing was successful
-                parse_success = parse_context.hasDateOrTime if hasattr(parse_context, 'hasDateOrTime') else parse_context > 0
+                parse_success = (
+                    parse_context.hasDateOrTime
+                    if hasattr(parse_context, "hasDateOrTime")
+                    else parse_context > 0
+                )
                 if parse_success:
                     parsed_dt = datetime(*time_struct[:6])
                     result["date"] = parsed_dt.strftime("%Y-%m-%d")
@@ -1123,14 +1127,38 @@ class NLPProcessor:
         # Note: 'query' can be empty for list-all operations
         self._validation_matrix = {
             "notes:create": {"required": [], "expected": ["title", "content", "tags"]},
-            "notes:search": {"required": [], "expected": ["query", "tags", "date_range"]},  # Changed: query not required for list-all
-            "notes:update": {"required": ["note_id", "title"], "expected": ["content", "tags"]},
-            "notes:delete": {"required": ["note_id", "title", "query"], "expected": []},  # Need something to identify the note
-            "music:play": {"required": ["song", "artist"], "expected": ["album", "playlist"]},
-            "calendar:create": {"required": ["event", "date"], "expected": ["time", "location"]},
-            "calendar:search": {"required": [], "expected": ["query", "date_range"]},  # List-all allowed
-            "email:compose": {"required": ["recipient", "subject"], "expected": ["body"]},
-            "email:search": {"required": [], "expected": ["sender", "subject", "date_range"]},  # List-all allowed
+            "notes:search": {
+                "required": [],
+                "expected": ["query", "tags", "date_range"],
+            },  # Changed: query not required for list-all
+            "notes:update": {
+                "required": ["note_id", "title"],
+                "expected": ["content", "tags"],
+            },
+            "notes:delete": {
+                "required": ["note_id", "title", "query"],
+                "expected": [],
+            },  # Need something to identify the note
+            "music:play": {
+                "required": ["song", "artist"],
+                "expected": ["album", "playlist"],
+            },
+            "calendar:create": {
+                "required": ["event", "date"],
+                "expected": ["time", "location"],
+            },
+            "calendar:search": {
+                "required": [],
+                "expected": ["query", "date_range"],
+            },  # List-all allowed
+            "email:compose": {
+                "required": ["recipient", "subject"],
+                "expected": ["body"],
+            },
+            "email:search": {
+                "required": [],
+                "expected": ["sender", "subject", "date_range"],
+            },  # List-all allowed
         }
         self.tokenizer_profile = "default"
         self.command_vocabulary = self._load_command_vocabulary()
@@ -1500,17 +1528,32 @@ class NLPProcessor:
         # is it?" hits followup_connectors ("what", "it") but belongs to its
         # own domain.
         domain_pivot_words = {
-            "time", "clock", "hour", "minute",
-            "date", "today", "calendar",
-            "weather", "forecast", "temperature", "rain", "sunny",
-            "reminder", "alarm",
-            "email", "message",
-            "music", "song", "play",
+            "time",
+            "clock",
+            "hour",
+            "minute",
+            "date",
+            "today",
+            "calendar",
+            "weather",
+            "forecast",
+            "temperature",
+            "rain",
+            "sunny",
+            "reminder",
+            "alarm",
+            "email",
+            "message",
+            "music",
+            "song",
+            "play",
         }
         if (token_words & domain_pivot_words) and not last_intent.startswith(
             tuple(
                 prefix + ":"
-                for prefix in (w.split("_")[0] for w in token_words & domain_pivot_words)
+                for prefix in (
+                    w.split("_")[0] for w in token_words & domain_pivot_words
+                )
             )
         ):
             # Only bail if the pivot word's domain differs from the current context.
@@ -1524,10 +1567,24 @@ class NLPProcessor:
             _music_words = {"music", "song", "play"}
 
             _pivot_detected = (
-                (token_words & _time_words and not last_intent.startswith(("status_inquiry", "time:")))
-                or (token_words & _date_words and not last_intent.startswith(("status_inquiry", "time:", "calendar:")))
-                or (token_words & _weather_words and not last_intent.startswith("weather:"))
-                or (token_words & _reminder_words and not last_intent.startswith("reminder:"))
+                (
+                    token_words & _time_words
+                    and not last_intent.startswith(("status_inquiry", "time:"))
+                )
+                or (
+                    token_words & _date_words
+                    and not last_intent.startswith(
+                        ("status_inquiry", "time:", "calendar:")
+                    )
+                )
+                or (
+                    token_words & _weather_words
+                    and not last_intent.startswith("weather:")
+                )
+                or (
+                    token_words & _reminder_words
+                    and not last_intent.startswith("reminder:")
+                )
                 or (token_words & _email_words and not last_intent.startswith("email:"))
                 or (token_words & _music_words and not last_intent.startswith("music:"))
             )
@@ -1537,8 +1594,8 @@ class NLPProcessor:
         if recent_weather_context:
             weather_followup = bool(token_words & weather_cues)
             temporal_followup = bool(token_words & time_range_cues)
-            connector_followup = (
-                reference_present or bool(token_words & followup_connectors)
+            connector_followup = reference_present or bool(
+                token_words & followup_connectors
             )
 
             if temporal_followup or (
@@ -1553,7 +1610,9 @@ class NLPProcessor:
 
         # Generic short ambiguous follow-up: keep same topic intent family
         _delete_words = {"delete", "remove", "trash", "erase", "discard"}
-        if last_intent and (reference_present or bool(token_words & followup_connectors)):
+        if last_intent and (
+            reference_present or bool(token_words & followup_connectors)
+        ):
             if last_intent.startswith("notes:"):
                 # Delete-action verbs take priority over generic read (coreference case:
                 # "delete the first one", "remove it", "delete that")
@@ -2128,25 +2187,29 @@ class NLPProcessor:
         # Step 1: Coreference resolution
         if use_context:
             # Check if using advanced coreference with ambiguity detection
-            if hasattr(self.coref_resolver, '_engine'):
+            if hasattr(self.coref_resolver, "_engine"):
                 # Using AdvancedCoref through compat wrapper
-                resolved_result = self.coref_resolver._engine.resolve(text, self.context.__dict__ if hasattr(self.context, '__dict__') else {})
+                resolved_result = self.coref_resolver._engine.resolve(
+                    text,
+                    self.context.__dict__ if hasattr(self.context, "__dict__") else {},
+                )
                 resolved_text = resolved_result.text
-                
+
                 # Track ambiguity detection (P0-2)
                 if (
-                    self.feature_flags 
+                    self.feature_flags
                     and self.feature_flags.is_enabled("nlp_ambiguity_resolver")
                     and resolved_result.needs_clarification
                 ):
                     from ai.infrastructure.metrics_collector import MetricsCollector
+
                     metrics = MetricsCollector()
                     metrics.track_ambiguity_detection(
                         resolved_result.entity_type or "unknown",
-                        len(resolved_result.candidates)
+                        len(resolved_result.candidates),
                     )
                     # Store ambiguity info for clarification prompts
-                    if hasattr(self.context, 'pending_clarification'):
+                    if hasattr(self.context, "pending_clarification"):
                         self.context.pending_clarification = {
                             "type": "ambiguity",
                             "candidates": resolved_result.candidates,
@@ -2212,16 +2275,33 @@ class NLPProcessor:
             # no context-based short-query logic can shadow reminder intents. ──
             _tl = normalized_text.lower()
             _reminder_intent = None
-            if any(phrase in _tl for phrase in [
-                "remind me", "set a reminder", "add a reminder", "create a reminder",
-                "alert me", "notify me when",
-                "don't let me forget", "do not let me forget", "dont let me forget",
-            ]):
+            if any(
+                phrase in _tl
+                for phrase in [
+                    "remind me",
+                    "set a reminder",
+                    "add a reminder",
+                    "create a reminder",
+                    "alert me",
+                    "notify me when",
+                    "don't let me forget",
+                    "do not let me forget",
+                    "dont let me forget",
+                ]
+            ):
                 _reminder_intent = "reminder:set"
-            elif any(phrase in _tl for phrase in [
-                "my reminders", "what reminders", "show reminders", "list reminders",
-                "any reminders", "upcoming reminders", "pending reminders",
-            ]) or ("reminder" in _tl and "do i have" in _tl):
+            elif any(
+                phrase in _tl
+                for phrase in [
+                    "my reminders",
+                    "what reminders",
+                    "show reminders",
+                    "list reminders",
+                    "any reminders",
+                    "upcoming reminders",
+                    "pending reminders",
+                ]
+            ) or ("reminder" in _tl and "do i have" in _tl):
                 _reminder_intent = "reminder:list"
             elif (
                 any(w in _tl for w in ["cancel", "delete", "remove"])
@@ -2383,31 +2463,44 @@ class NLPProcessor:
             and self.feature_flags.is_enabled("nlp_entity_normalizer")
         ):
             from ai.infrastructure.metrics_collector import MetricsCollector
+
             metrics = MetricsCollector()
-            
+
             for slot_name, slot in slots.items():
                 if not slot.value:
                     continue
                 # Normalize based on slot type
                 if slot_name == "tags" and isinstance(slot.value, list):
-                    normalized_tags = self.entity_normalizer.normalize_batch(slot.value, "tag")
+                    normalized_tags = self.entity_normalizer.normalize_batch(
+                        slot.value, "tag"
+                    )
                     for nt in normalized_tags:
                         if nt.normalized != nt.original:
-                            metrics.track_entity_normalization("tag", nt.rule_applied or "default")
+                            metrics.track_entity_normalization(
+                                "tag", nt.rule_applied or "default"
+                            )
                     slot.value = [nt.normalized for nt in normalized_tags]
                 elif slot_name in ("title", "query", "note_id"):
                     normalized = self.entity_normalizer.normalize(slot.value, "title")
                     if normalized.normalized != normalized.original:
-                        metrics.track_entity_normalization("title", normalized.rule_applied or "default")
+                        metrics.track_entity_normalization(
+                            "title", normalized.rule_applied or "default"
+                        )
                     slot.value = normalized.normalized
                     slot.confidence = min(slot.confidence, normalized.confidence)
                 elif slot_name in ("date", "time", "date_range"):
-                    normalized = self.entity_normalizer.normalize(str(slot.value), "datetime")
+                    normalized = self.entity_normalizer.normalize(
+                        str(slot.value), "datetime"
+                    )
                     if normalized.normalized != str(slot.value):
-                        metrics.track_entity_normalization("datetime", normalized.rule_applied or "default")
+                        metrics.track_entity_normalization(
+                            "datetime", normalized.rule_applied or "default"
+                        )
                         slot.value = normalized.normalized
                         slot.confidence = min(slot.confidence, normalized.confidence)
-        elif not self.feature_flags or not self.feature_flags.is_enabled("nlp_entity_normalizer"):
+        elif not self.feature_flags or not self.feature_flags.is_enabled(
+            "nlp_entity_normalizer"
+        ):
             # Feature disabled for A/B testing
             pass
 
@@ -2444,14 +2537,23 @@ class NLPProcessor:
         # Step 10: Intent-Entity Cross-Validation (P0 Improvement)
         validation_score = 1.0
         validation_issues = []
-        if self.feature_flags and self.feature_flags.is_enabled("nlp_intent_entity_validation"):
-            validation_score, validation_issues = self._validate_intent_entity_match(intent, slots)
-            
+        if self.feature_flags and self.feature_flags.is_enabled(
+            "nlp_intent_entity_validation"
+        ):
+            validation_score, validation_issues = self._validate_intent_entity_match(
+                intent, slots
+            )
+
             # Track validation metrics
             from ai.infrastructure.metrics_collector import MetricsCollector
+
             metrics = MetricsCollector()
-            metrics.track_intent_entity_validation(intent, validation_score, validation_issues)
-        elif not self.feature_flags or not self.feature_flags.is_enabled("nlp_intent_entity_validation"):
+            metrics.track_intent_entity_validation(
+                intent, validation_score, validation_issues
+            )
+        elif not self.feature_flags or not self.feature_flags.is_enabled(
+            "nlp_intent_entity_validation"
+        ):
             # Feature disabled for A/B testing
             pass
 
@@ -2525,17 +2627,17 @@ class NLPProcessor:
         if parsed_command and parsed_command.object_type == "note":
             # Check if this is actually a file operation (e.g., "read the file called notes.txt")
             has_file_context = (
-                "file" in text_lower or 
-                ".txt" in text_lower or 
-                ".pdf" in text_lower or 
-                ".csv" in text_lower or 
-                ".json" in text_lower or
-                ".yaml" in text_lower or 
-                ".md" in text_lower or
-                "folder" in text_lower or 
-                "directory" in text_lower
+                "file" in text_lower
+                or ".txt" in text_lower
+                or ".pdf" in text_lower
+                or ".csv" in text_lower
+                or ".json" in text_lower
+                or ".yaml" in text_lower
+                or ".md" in text_lower
+                or "folder" in text_lower
+                or "directory" in text_lower
             )
-            
+
             # If file context exists, skip note mapping and let file patterns handle it
             if not has_file_context:
                 action_map = {
@@ -2571,24 +2673,27 @@ class NLPProcessor:
         # File operations - MUST CHECK BEFORE notes (to prevent "notes.txt" matching notes plugin)
         # These patterns check for explicit file context markers like "file", "document", file extensions
         has_file_marker = (
-            "file" in text_lower or 
-            "document" in text_lower or
-            ".txt" in text_lower or 
-            ".pdf" in text_lower or 
-            ".csv" in text_lower or 
-            ".json" in text_lower or 
-            ".yaml" in text_lower or 
-            ".md" in text_lower or
-            "folder" in text_lower or 
-            "directory" in text_lower
+            "file" in text_lower
+            or "document" in text_lower
+            or ".txt" in text_lower
+            or ".pdf" in text_lower
+            or ".csv" in text_lower
+            or ".json" in text_lower
+            or ".yaml" in text_lower
+            or ".md" in text_lower
+            or "folder" in text_lower
+            or "directory" in text_lower
         )
-        
+
         if has_file_marker:
-            # Create: "create/make/new + file" 
+            # Create: "create/make/new + file"
             if any(word in text_lower for word in ["create", "make", "new"]):
                 return "file_operations:create", 0.95
             # Read: "read/open/show + file/contents"
-            if any(word in text_lower for word in ["read", "open", "show", "display", "view"]):
+            if any(
+                word in text_lower
+                for word in ["read", "open", "show", "display", "view"]
+            ):
                 return "file_operations:read", 0.95
             # Delete: "delete/remove + file"
             if any(word in text_lower for word in ["delete", "remove", "trash"]):
@@ -2602,17 +2707,25 @@ class NLPProcessor:
 
         # Memory operations - user preference/recall patterns
         # Store: "remember/save/keep + that/this"
-        if any(word in text_lower for word in ["remember", "keep in mind", "save this"]) and any(
-            word in text_lower for word in ["that", "this", "i", "my", "prefer"]
-        ):
+        if any(
+            word in text_lower for word in ["remember", "keep in mind", "save this"]
+        ) and any(word in text_lower for word in ["that", "this", "i", "my", "prefer"]):
             return "memory:store", 0.95
         # Recall: "what do you remember/know about"
-        if any(phrase in text_lower for phrase in ["what do you remember", "do you remember", "what do you know"]):
+        if any(
+            phrase in text_lower
+            for phrase in [
+                "what do you remember",
+                "do you remember",
+                "what do you know",
+            ]
+        ):
             return "memory:recall", 0.95
         # Search: "what did we talk about/discuss"
-        if any(phrase in text_lower for phrase in ["what did we", "what have we", "what did i"]) and any(
-            word in text_lower for word in ["talk", "discuss", "say", "tell"]
-        ):
+        if any(
+            phrase in text_lower
+            for phrase in ["what did we", "what have we", "what did i"]
+        ) and any(word in text_lower for word in ["talk", "discuss", "say", "tell"]):
             return "memory:search", 0.95
 
         # Email intents - VERY explicit: action word + email word (0.85-0.9 confidence)
@@ -2698,20 +2811,38 @@ class NLPProcessor:
 
         # ── Reminder intents (must come BEFORE thanks/greetings) ─────────────────
         # Set: "remind me to X", "set a reminder", "alert me", "notify me"
-        if any(phrase in text_lower for phrase in [
-            "remind me", "set a reminder", "add a reminder", "create a reminder",
-            "alert me", "notify me when", "don't let me forget",
-        ]):
+        if any(
+            phrase in text_lower
+            for phrase in [
+                "remind me",
+                "set a reminder",
+                "add a reminder",
+                "create a reminder",
+                "alert me",
+                "notify me when",
+                "don't let me forget",
+            ]
+        ):
             return "reminder:set", 0.95
         # List: "what reminders", "show my reminders", "do I have any reminders"
-        if any(phrase in text_lower for phrase in [
-            "my reminders", "what reminders", "show reminders", "list reminders",
-            "any reminders", "upcoming reminders", "pending reminders",
-        ]):
+        if any(
+            phrase in text_lower
+            for phrase in [
+                "my reminders",
+                "what reminders",
+                "show reminders",
+                "list reminders",
+                "any reminders",
+                "upcoming reminders",
+                "pending reminders",
+            ]
+        ):
             return "reminder:list", 0.95
         # Cancel: "cancel reminder", "delete reminder", "remove reminder"
-        if any(word in text_lower for word in ["cancel", "delete", "remove"]) and \
-                "reminder" in text_lower:
+        if (
+            any(word in text_lower for word in ["cancel", "delete", "remove"])
+            and "reminder" in text_lower
+        ):
             return "reminder:cancel", 0.95
         # ─────────────────────────────────────────────────────────────────────────
 
@@ -2756,10 +2887,23 @@ class NLPProcessor:
             or "can you tell me what" in text_lower
         ):
             # Exclude weather queries: "what is the weather in London?"
-            if any(word in text_lower for word in ["weather", "temperature", "forecast", "rain", "snow", "sunny"]):
+            if any(
+                word in text_lower
+                for word in [
+                    "weather",
+                    "temperature",
+                    "forecast",
+                    "rain",
+                    "snow",
+                    "sunny",
+                ]
+            ):
                 pass  # Fall through to weather detection below
             # Exclude time queries: "what is the time?"
-            elif any(word in text_lower for word in ["time", "clock", "date"]) and len(text_lower.split()) <= 6:
+            elif (
+                any(word in text_lower for word in ["time", "clock", "date"])
+                and len(text_lower.split()) <= 6
+            ):
                 pass  # Fall through to time detection below
             # Exclude vague pronouns: "what is that", "who is he/she"
             elif not any(
@@ -2844,8 +2988,28 @@ class NLPProcessor:
 
         # Weather intents: "what's the weather in X", "will it rain", "is it cold outside?"
         # Must be in PHASE 1 (before semantic classifier) since semantic may misclassify.
-        _weather_keywords = {"weather", "forecast", "temperature", "rain", "snow", "sunny", "cloudy", "humid", "cold", "hot"}
-        _forecast_words = {"tomorrow", "tonight", "weekend", "next week", "forecast", "this week", "7 day", "7-day"}
+        _weather_keywords = {
+            "weather",
+            "forecast",
+            "temperature",
+            "rain",
+            "snow",
+            "sunny",
+            "cloudy",
+            "humid",
+            "cold",
+            "hot",
+        }
+        _forecast_words = {
+            "tomorrow",
+            "tonight",
+            "weekend",
+            "next week",
+            "forecast",
+            "this week",
+            "7 day",
+            "7-day",
+        }
         if any(word in text_lower for word in _weather_keywords):
             if any(word in text_lower for word in _forecast_words):
                 return "weather:forecast", 0.88
@@ -3086,16 +3250,16 @@ class NLPProcessor:
     ) -> Tuple[float, List[str]]:
         """
         Cross-validate intent with extracted entities (P0 Improvement).
-        
+
         Returns:
             (validation_score, issues): Score 0.0-1.0 and list of detected issues
-            
+
         Algorithm: Penalize missing required entities, boost matching expected entities
         Complexity: O(n) where n = number of slots
         """
         validation_score = 1.0
         issues = []
-        
+
         # Find matching validation rule
         rules = self._validation_matrix.get(intent)
         if not rules:
@@ -3104,13 +3268,13 @@ class NLPProcessor:
                 if intent.startswith(pattern.split(":")[0] + ":"):
                     rules = rule
                     break
-        
+
         if not rules:
             return validation_score, issues  # No validation rule for this intent
-        
+
         # Extract present slot keys
         present_slots = {k for k, v in slots.items() if v.value}
-        
+
         # Check required entities
         required = set(rules.get("required", []))
         missing_required = required - present_slots
@@ -3118,7 +3282,7 @@ class NLPProcessor:
             penalty = 0.25 * len(missing_required)  # -0.25 per missing required entity
             validation_score -= penalty
             issues.append(f"Missing required: {', '.join(missing_required)}")
-        
+
         # Check expected entities (soft guidance, not critical)
         expected = set(rules.get("expected", []))
         if expected:
@@ -3126,12 +3290,14 @@ class NLPProcessor:
             match_ratio = len(present_expected) / len(expected)
             # Only penalize if NO expected entities present AND there's a clear expectation
             if match_ratio == 0.0 and len(expected) <= 2:
-                validation_score -= 0.05  # Small penalty for completely missing simple expectations
+                validation_score -= (
+                    0.05  # Small penalty for completely missing simple expectations
+                )
                 # Don't add to issues - this is just informational
-        
+
         # Bonus for having unexpected but relevant entities (don't penalize creativity)
         validation_score = max(0.0, min(1.0, validation_score))
-        
+
         return validation_score, issues
 
     def _clean_text(self, text: str) -> str:
@@ -3262,12 +3428,12 @@ class PerceptionResult:
     """
 
     query: "ProcessedQuery"
-    inferred_mood: str            # positive | negative | neutral | frustrated | urgent
-    ambiguity: float              # 0.0 = unambiguous, 1.0 = completely unclear
-    followup_domain: Optional[str]        # e.g. "weather", "notes", "email"
+    inferred_mood: str  # positive | negative | neutral | frustrated | urgent
+    ambiguity: float  # 0.0 = unambiguous, 1.0 = completely unclear
+    followup_domain: Optional[str]  # e.g. "weather", "notes", "email"
     needs_clarification: bool
     clarification_question: Optional[str]
-    interaction_hints: Dict[str, Any]     # downstream policy hints
+    interaction_hints: Dict[str, Any]  # downstream policy hints
 
     # ── Convenience proxies ──────────────────────────────────────────
     @property
@@ -3298,18 +3464,50 @@ class Perception:
     """
 
     FRUSTRATION_MARKERS: Set[str] = {
-        "no", "wrong", "stop", "ugh", "again", "not", "don't", "didn't",
-        "why", "broken", "useless", "terrible", "awful", "hate", "redo",
-        "fix", "what", "seriously", "come on",
+        "no",
+        "wrong",
+        "stop",
+        "ugh",
+        "again",
+        "not",
+        "don't",
+        "didn't",
+        "why",
+        "broken",
+        "useless",
+        "terrible",
+        "awful",
+        "hate",
+        "redo",
+        "fix",
+        "what",
+        "seriously",
+        "come on",
     }
 
     # Domain signals reused from FollowUpResolver (kept here so Perception
     # is self-contained and doesn't create a circular import).
     _DOMAIN_SIGNALS: Dict[str, Set[str]] = {
         "weather": {
-            "weather", "rain", "snow", "temp", "cold", "warm", "umbrella",
-            "wear", "coat", "jacket", "forecast", "tomorrow", "tonight",
-            "humidity", "wind", "chilly", "freezing", "hot", "sunny",
+            "weather",
+            "rain",
+            "snow",
+            "temp",
+            "cold",
+            "warm",
+            "umbrella",
+            "wear",
+            "coat",
+            "jacket",
+            "forecast",
+            "tomorrow",
+            "tonight",
+            "humidity",
+            "wind",
+            "chilly",
+            "freezing",
+            "hot",
+            "sunny",
         },
         "notes": {"note", "task", "todo", "reminder", "list"},
         "email": {"email", "mail", "reply", "inbox", "send", "draft"},
@@ -3335,7 +3533,9 @@ class Perception:
             "mood": mood,
             "ambiguity": ambiguity,
             "followup_domain": followup_domain,
-            "response_length": "brief" if mood in ("frustrated", "urgent") else "normal",
+            "response_length": (
+                "brief" if mood in ("frustrated", "urgent") else "normal"
+            ),
             "empathy": mood in ("frustrated", "negative"),
         }
         return PerceptionResult(
@@ -3358,7 +3558,12 @@ class Perception:
         lower = query.original_text.lower()
         tokens = set(lower.split())
 
-        if query.urgency_level == "high" or tokens & {"asap", "urgent", "now", "immediately"}:
+        if query.urgency_level == "high" or tokens & {
+            "asap",
+            "urgent",
+            "now",
+            "immediately",
+        }:
             return "urgent"
         # Frustration: negative sentiment AND at least one frustration marker
         if tokens & self.FRUSTRATION_MARKERS and compound < -0.05:
@@ -3394,13 +3599,18 @@ class Perception:
         lower = query.original_text.lower()
         # Strip punctuation from each word so "umbrella?" matches "umbrella"
         import re as _re
+
         clean_words = set(_re.sub(r"[^\w\s]", "", lower).split())
         if signals & clean_words:
             return domain
         # Substring fallback: catches partial spellings like "umbrela" ⊂ "umbrella"
         # or abbreviated signals.
-        if any(word.startswith(sig[:5]) or sig.startswith(word[:5])
-               for sig in signals for word in clean_words if len(word) >= 5):
+        if any(
+            word.startswith(sig[:5]) or sig.startswith(word[:5])
+            for sig in signals
+            for word in clean_words
+            if len(word) >= 5
+        ):
             return domain
         # Generic cues with any domain — only if low confidence
         generic_cues = {"and", "also", "that", "this", "it", "then", "what about"}
@@ -3414,8 +3624,14 @@ class Perception:
         ambiguity: float,
     ) -> Tuple[bool, Optional[str]]:
         parsed_cmd = query.parsed_command or {}
-        modifiers = parsed_cmd if isinstance(parsed_cmd, dict) else getattr(parsed_cmd, "modifiers", {})
-        disamb = modifiers.get("disambiguation") or modifiers.get("modifiers", {}).get("disambiguation")
+        modifiers = (
+            parsed_cmd
+            if isinstance(parsed_cmd, dict)
+            else getattr(parsed_cmd, "modifiers", {})
+        )
+        disamb = modifiers.get("disambiguation") or modifiers.get("modifiers", {}).get(
+            "disambiguation"
+        )
         if disamb and disamb.get("needs_clarification"):
             return True, disamb.get("question")
         if ambiguity >= 0.65 and query.intent_confidence < 0.4:
@@ -3515,11 +3731,32 @@ class TemporalUnderstanding:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    _WEEK_CUES = {"week", "monday", "tuesday", "wednesday", "thursday",
-                  "friday", "saturday", "sunday", "weekend"}
-    _MONTH_CUES = {"month", "january", "february", "march", "april", "may",
-                   "june", "july", "august", "september", "october",
-                   "november", "december"}
+    _WEEK_CUES = {
+        "week",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "weekend",
+    }
+    _MONTH_CUES = {
+        "month",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+    }
 
     def _infer_grain(self, raw: Dict[str, Any], text: str) -> str:
         lower = text.lower()
@@ -3581,47 +3818,110 @@ class FollowUpResolver:
 
     DOMAIN_SIGNALS: Dict[str, List[str]] = {
         "weather": [
-            "wear", "layer", "coat", "jacket", "bring", "umbrella",
-            "need", "cold", "warm", "snow", "rain", "forecast",
-            "tomorrow", "tonight", "this week", "next week", "weekend",
-            "what about", "humidity", "wind", "feel like", "chilly",
-            "freezing", "hot", "sunny", "cloudy", "dress",
+            "wear",
+            "layer",
+            "coat",
+            "jacket",
+            "bring",
+            "umbrella",
+            "need",
+            "cold",
+            "warm",
+            "snow",
+            "rain",
+            "forecast",
+            "tomorrow",
+            "tonight",
+            "this week",
+            "next week",
+            "weekend",
+            "what about",
+            "humidity",
+            "wind",
+            "feel like",
+            "chilly",
+            "freezing",
+            "hot",
+            "sunny",
+            "cloudy",
+            "dress",
         ],
         "notes": [
-            "add to", "delete", "remove", "modify", "change",
-            "show", "that note", "edit", "update",
+            "add to",
+            "delete",
+            "remove",
+            "modify",
+            "change",
+            "show",
+            "that note",
+            "edit",
+            "update",
         ],
         "email": [
-            "that email", "reply", "delete it", "archive",
-            "the first one", "the latest", "forward", "respond",
+            "that email",
+            "reply",
+            "delete it",
+            "archive",
+            "the first one",
+            "the latest",
+            "forward",
+            "respond",
         ],
         "music": [
-            "that song", "skip", "pause", "volume", "louder", "quieter",
-            "next track", "previous", "shuffle",
+            "that song",
+            "skip",
+            "pause",
+            "volume",
+            "louder",
+            "quieter",
+            "next track",
+            "previous",
+            "shuffle",
         ],
         "calendar": [
-            "reschedule", "cancel", "that event", "the meeting",
-            "move it", "postpone",
+            "reschedule",
+            "cancel",
+            "that event",
+            "the meeting",
+            "move it",
+            "postpone",
         ],
         "reminder": [
-            "that reminder", "cancel it", "postpone", "snooze",
-            "remind me again", "change the time",
+            "that reminder",
+            "cancel it",
+            "postpone",
+            "snooze",
+            "remind me again",
+            "change the time",
         ],
     }
 
     GENERIC_CUES: List[str] = [
-        "what about", "how about", "and ", "also", "same for",
-        "that", "this", "it", "them", "tomorrow", "tonight",
-        "this week", "next week", "weekend",
+        "what about",
+        "how about",
+        "and ",
+        "also",
+        "same for",
+        "that",
+        "this",
+        "it",
+        "them",
+        "tomorrow",
+        "tonight",
+        "this week",
+        "next week",
+        "weekend",
     ]
 
-    CONVERSATIONAL_INTENTS = frozenset({
-        "greeting",
-        "conversation:general",
-        "conversation:question",
-        "vague_question",
-        "vague_temporal_question",
-    })
+    CONVERSATIONAL_INTENTS = frozenset(
+        {
+            "greeting",
+            "conversation:general",
+            "conversation:question",
+            "vague_question",
+            "vague_temporal_question",
+        }
+    )
 
     def resolve(
         self,
@@ -3657,7 +3957,9 @@ class FollowUpResolver:
         lower = user_input.lower().strip()
 
         if not recent_intent:
-            return FollowUpResult(nlp_intent, nlp_confidence, False, None, "no_recent_context")
+            return FollowUpResult(
+                nlp_intent, nlp_confidence, False, None, "no_recent_context"
+            )
 
         recent_domain = (
             recent_intent.split(":")[0] if ":" in recent_intent else recent_intent
@@ -3682,14 +3984,23 @@ class FollowUpResolver:
         )
 
         # ── Layer 1: Strong domain signal ──────────────────────────────────
-        if domain_signal_hit and recent_domain in self.DOMAIN_SIGNALS and not _same_domain_specific:
+        if (
+            domain_signal_hit
+            and recent_domain in self.DOMAIN_SIGNALS
+            and not _same_domain_specific
+        ):
             new_conf = max(nlp_confidence, 0.82)
             logger.debug(
                 "[FollowUpResolver] domain_signal:%s → %s (%.2f)",
-                recent_domain, recent_intent, new_conf,
+                recent_domain,
+                recent_intent,
+                new_conf,
             )
             return FollowUpResult(
-                recent_intent, new_conf, True, recent_domain,
+                recent_intent,
+                new_conf,
+                True,
+                recent_domain,
                 f"domain_signal:{recent_domain}",
             )
 
@@ -3702,10 +4013,15 @@ class FollowUpResolver:
             new_conf = max(nlp_confidence, 0.80)
             logger.debug(
                 "[FollowUpResolver] perception_signal:%s → %s (%.2f)",
-                recent_domain, recent_intent, new_conf,
+                recent_domain,
+                recent_intent,
+                new_conf,
             )
             return FollowUpResult(
-                recent_intent, new_conf, True, recent_domain,
+                recent_intent,
+                new_conf,
+                True,
+                recent_domain,
                 f"perception_signal:{recent_domain}",
             )
 
@@ -3717,10 +4033,14 @@ class FollowUpResolver:
                 new_conf = max(nlp_confidence, 0.78)
                 logger.debug(
                     "[FollowUpResolver] generic_followup → %s (%.2f)",
-                    recent_intent, new_conf,
+                    recent_intent,
+                    new_conf,
                 )
                 return FollowUpResult(
-                    recent_intent, new_conf, True, recent_domain,
+                    recent_intent,
+                    new_conf,
+                    True,
+                    recent_domain,
                     "generic_followup",
                 )
 
