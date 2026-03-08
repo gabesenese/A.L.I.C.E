@@ -106,8 +106,6 @@ class ContinuousImprovementPipeline:
         print("PHASE 1: Running Test Scenarios")
         print("="*80)
         
-        output_file = self.results_dir / f"test_run_iter{self.current_iteration}.txt"
-        
         cmd = [sys.executable, "test_scenarios.py"]
         
         if only_failed:
@@ -120,27 +118,11 @@ class ContinuousImprovementPipeline:
         
         if self.verbose:
             # Stream output in real-time for verbose mode
-            results = self._run_with_streaming(cmd, output_file)
+            results = self._run_with_streaming(cmd)
         else:
-            # Capture output silently
+            # Capture output silently and parse directly from memory
             result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
-            
-            # Save console output to file
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(result.stdout)
-                if result.stderr:
-                    f.write("\n\n=== STDERR ===\n")
-                    f.write(result.stderr)
-            
-            # Parse results from console output
             results = self._parse_test_output_console(result.stdout)
-        
-        # Delete the raw output file — content is already parsed into memory;
-        # keeping it wastes disk space.
-        try:
-            output_file.unlink(missing_ok=True)
-        except Exception:
-            pass
         
         print(f"\n✓ Tests completed: {results['pass_rate']:.1f}% pass rate")
         print(f"  - Passed: {len(results['passed'])}")
@@ -148,7 +130,7 @@ class ContinuousImprovementPipeline:
         
         return results
     
-    def _run_with_streaming(self, cmd: List[str], output_file: Path) -> Dict[str, Any]:
+    def _run_with_streaming(self, cmd: List[str]) -> Dict[str, Any]:
         """Run command with real-time output streaming."""
         print("\n" + "-"*80)
         print("STREAMING TEST OUTPUT (live):")
@@ -194,20 +176,11 @@ class ContinuousImprovementPipeline:
         # Combine all output
         full_output = ''.join(output_lines)
         
-        # Write temporarily so the file exists on disk during parsing,
-        # then immediately delete — results are kept in memory.
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(full_output)
-        try:
-            output_file.unlink(missing_ok=True)
-        except Exception:
-            pass
-        
         print("\n" + "-"*80)
         print("TEST OUTPUT COMPLETE")
         print("-"*80)
         
-        # Parse results
+        # Parse results directly from memory — no file written
         return self._parse_test_output_console(full_output)
     
     def _parse_test_output_console(self, console_output: str) -> Dict[str, Any]:
