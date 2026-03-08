@@ -3998,7 +3998,7 @@ class NotesPlugin(PluginInterface):
 
         # Pattern 1: "create a note and call it X"
         match = re.search(
-            r"(?:create|add|make|new)\s+(?:a\s+)?note\s+and\s+call\s+it\s+(.+)",
+            r"(?:create|add|make|new)\s+(?:a\s+)?notes?\s+and\s+call\s+it\s+(.+)",
             command,
             re.IGNORECASE,
         )
@@ -4009,7 +4009,7 @@ class NotesPlugin(PluginInterface):
         # Pattern 2: "create a note called X"
         if not content:
             match = re.search(
-                r"(?:create|add|make|new)\s+(?:a\s+)?note\s+called\s+(.+)",
+                r"(?:create|add|make|new)\s+(?:a\s+)?notes?\s+called\s+(.+)",
                 command,
                 re.IGNORECASE,
             )
@@ -4020,9 +4020,9 @@ class NotesPlugin(PluginInterface):
         # Pattern 3: "create a note about X" or "create note: X"
         if not content:
             patterns = [
-                r"(?:create|add|make|new)\s+(?:a\s+)?note\s+about\s+(.+)",
-                r"(?:create|add|make|new)\s+(?:a\s+)?note:\s*(.+)",
-                r"(?:create|add|make|new)\s+(?:a\s+)?note\s+(.+)",
+                r"(?:create|add|make|new)\s+(?:a\s+)?notes?\s+about\s+(.+)",
+                r"(?:create|add|make|new)\s+(?:a\s+)?notes?:\s*(.+)",
+                r"(?:create|add|make|new)\s+(?:a\s+)?notes?\s+(.+)",
                 r"(?:write down|jot down|remember)\s+(.+)",
             ]
 
