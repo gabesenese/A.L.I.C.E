@@ -3475,8 +3475,8 @@ class NotesPlugin(PluginInterface):
         ):
             return True
 
-        # Check for "add X to list/note" pattern (context-aware update)
-        if re.search(r"add\s+.+\s+to\s+(?:the\s+)?(?:list|note)", command_lower):
+        # Check for "add X to list/note" or "add X to the TITLE note/list" pattern
+        if re.search(r"add\s+.+\s+to\s+(?:the\s+)?(?:\w+\s+)?(?:list|note)", command_lower):
             return True
 
         # "delete/remove the X list" (e.g. "delete the grocery list") — notes are often called "lists"
@@ -3575,9 +3575,10 @@ class NotesPlugin(PluginInterface):
             elif result is None and re.search(r"\bappend\b", command_lower):
                 result = self._append_note(command)
 
-            # Add to list/note (context-aware update)
+            # Add to list/note (context-aware update) — also handles named notes
+            # e.g. "add milk to the grocery note" / "add item to list"
             elif result is None and re.search(
-                r"add\s+.+\s+to\s+(?:the\s+)?(?:list|note)", command_lower
+                r"add\s+.+\s+to\s+(?:the\s+)?(?:\w+\s+)?(?:list|note)", command_lower
             ):
                 result = self._add_to_note(command)
 
@@ -4031,6 +4032,18 @@ class NotesPlugin(PluginInterface):
                     content = match.group(1).strip()
                     break
 
+        # Pattern: "create a TITLE note" / "let's make a grocery note"
+        # Title comes BEFORE the word "note" — capture it as the note name.
+        if not content:
+            match = re.search(
+                r"(?:create|add|make|new|let'?s\s+create|let'?s\s+make)\s+(?:a\s+)?(.+?)\s+note\b",
+                command,
+                re.IGNORECASE,
+            )
+            if match:
+                title = match.group(1).strip()
+                content = title  # use title as the note's initial content
+
         if not content:
             return {
                 "success": False,
@@ -4121,9 +4134,9 @@ class NotesPlugin(PluginInterface):
 
     def _add_to_note(self, command: str) -> Dict[str, Any]:
         """Add content to an existing note (context-aware)"""
-        # Extract what to add: "add X to the list/note"
+        # Extract what to add: "add X to the [TITLE] list/note"
         match = re.search(
-            r"add\s+(.+?)\s+to\s+(?:the\s+)?(?:list|note)", command, re.IGNORECASE
+            r"add\s+(.+?)\s+to\s+(?:the\s+)?(?:\w+\s+)?(?:list|note)", command, re.IGNORECASE
         )
 
         if not match:

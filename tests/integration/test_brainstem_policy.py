@@ -310,6 +310,36 @@ class TestFollowUpResolver:
         # system: intents are excluded from layer-3 promotion
         assert r.resolved_intent != "system:status" or r.was_followup is False
 
+    def test_layer2_does_not_override_specific_same_domain_intent(self):
+        """notes:create must survive when perception also flags 'notes' domain.
+
+        Bug: NLP correctly returns notes:create but Layer 2 was replacing it
+        with notes:query_exist (the previous turn's intent).
+        """
+        r = self._resolve(
+            "let's create a grocery note",
+            nlp_intent="notes:create",
+            nlp_confidence=0.97,
+            last_intent="notes:query_exist",
+            topics=["notes:query_exist"],
+            perception_domain="notes",
+        )
+        assert r.was_followup is False
+        assert r.resolved_intent == "notes:create"
+
+    def test_layer1_does_not_override_specific_same_domain_intent(self):
+        """notes:read must survive even when a notes domain signal is present."""
+        r = self._resolve(
+            "add banana eggs and milk to the grocery note",
+            nlp_intent="notes:read",
+            nlp_confidence=0.80,
+            last_intent="notes:query_exist",
+            topics=["notes:query_exist"],
+            perception_domain="notes",
+        )
+        assert r.was_followup is False
+        assert r.resolved_intent == "notes:read"
+
 
 # ── end-to-end brainstem integration ─────────────────────────────────────────
 

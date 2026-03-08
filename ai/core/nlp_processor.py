@@ -3670,8 +3670,19 @@ class FollowUpResolver:
         is_conversational = nlp_intent in self.CONVERSATIONAL_INTENTS
         low_confidence = nlp_confidence < 0.7
 
+        # Guard: if NLP already resolved to a specific action within the same
+        # domain as recent_intent, don't override it — doing so would downgrade
+        # precision (e.g. notes:create → notes:query_exist).
+        # Layers 1 & 2 are only needed for cross-domain / generic NLP output.
+        nlp_domain = nlp_intent.split(":")[0] if ":" in nlp_intent else nlp_intent
+        _same_domain_specific = (
+            nlp_domain == recent_domain
+            and nlp_intent not in self.CONVERSATIONAL_INTENTS
+            and not nlp_intent.endswith(":general")
+        )
+
         # ── Layer 1: Strong domain signal ──────────────────────────────────
-        if domain_signal_hit and recent_domain in self.DOMAIN_SIGNALS:
+        if domain_signal_hit and recent_domain in self.DOMAIN_SIGNALS and not _same_domain_specific:
             new_conf = max(nlp_confidence, 0.82)
             logger.debug(
                 "[FollowUpResolver] domain_signal:%s → %s (%.2f)",
@@ -3686,6 +3697,7 @@ class FollowUpResolver:
         if (
             perception_followup_domain
             and perception_followup_domain == recent_domain
+            and not _same_domain_specific
         ):
             new_conf = max(nlp_confidence, 0.80)
             logger.debug(
