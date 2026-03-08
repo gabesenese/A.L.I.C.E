@@ -962,6 +962,9 @@ class ContinuousImprovementPipeline:
         
         # Phase 2: Analyze failures
         analyses = self.analyze_failures(test_results['failed'])
+
+        # Phase 2b: NLP status report
+        self.generate_nlp_status_report()
         
         if not analyses:
             print("\n⚠ No failures could be analyzed")
@@ -1031,6 +1034,69 @@ class ContinuousImprovementPipeline:
         
         with open(self.history_file, 'a', encoding='utf-8') as f:
             f.write(json.dumps(record) + '\n')
+
+    # ==================== NLP STATUS REPORT ====================
+
+    def generate_nlp_status_report(self) -> Dict[str, Any]:
+        """
+        Aggregate NLP failure taxonomy data and write ``reports/nlp_status.json``.
+
+        Reads the failure log maintained by ``FailureTaxonomy.log()`` / 
+        ``classify_and_log()`` and produces a structured JSON report with:
+
+        * ``top_failing_intents`` — 3 intents with most logged failures
+        * ``top_failing_patterns`` — 3 failure types by count
+        * ``suggested_changes``   — actionable remedies
+
+        The report is written to ``reports/nlp_status.json`` next to this script.
+
+        Returns the generated report dict.
+        """
+        print("\n" + "=" * 80)
+        print("NLP STATUS REPORT")
+        print("=" * 80)
+
+        try:
+            from ai.core.failure_taxonomy import FailureTaxonomy
+        except ImportError as exc:
+            print(f"  [WARN] Could not import FailureTaxonomy: {exc}")
+            return {}
+
+        tax = FailureTaxonomy()
+        report = tax.generate_nlp_report(n=2000)
+
+        # Ensure reports/ directory exists
+        reports_dir = self.workspace_root / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        report_path = reports_dir / "nlp_status.json"
+
+        try:
+            with open(report_path, "w", encoding="utf-8") as fh:
+                json.dump(report, fh, indent=2, ensure_ascii=False)
+            print(f"  Wrote NLP status report to {report_path}")
+        except Exception as exc:
+            print(f"  [WARN] Could not write nlp_status.json: {exc}")
+
+        # Print summary
+        print(f"  Records analysed: {report.get('records_analysed', 0)}")
+        top_intents = report.get("top_failing_intents", [])
+        if top_intents:
+            print("  Top failing intents:")
+            for item in top_intents:
+                print(f"    {item['intent']}: {item['total_failures']} failures "
+                      f"(dominant: {item['dominant_type']})")
+        top_patterns = report.get("top_failing_patterns", [])
+        if top_patterns:
+            print("  Top failure types:")
+            for item in top_patterns:
+                print(f"    {item['failure_type']}: {item['count']}")
+        suggested = report.get("suggested_changes", [])
+        if suggested:
+            print("  Suggested changes:")
+            for s in suggested:
+                print(f"    → {s}")
+
+        return report
 
 
 def main():

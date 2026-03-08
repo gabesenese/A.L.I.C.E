@@ -1132,11 +1132,12 @@ class ALICE:
                 temp = round(temp)
 
             # Check if we recently gave weather info (avoid repetition)
+            # "Still" only makes sense when the immediately preceding turn was
+            # also a weather response — not whenever weather appeared anywhere.
             recent_weather_given = False
-            if hasattr(self, 'conversation_topics') and self.conversation_topics:
-                # Check last 3 topics for weather
-                recent_weather = [t for t in self.conversation_topics[-3:] if t.startswith('weather')]
-                if len(recent_weather) >= 2:  # Already answered weather question recently
+            if hasattr(self, 'conversation_summary') and self.conversation_summary:
+                last_turn = self.conversation_summary[-1]
+                if last_turn.get('intent', '').startswith('weather'):
                     recent_weather_given = True
 
             # User asking about clothing/layers/what to wear
@@ -2169,6 +2170,7 @@ class ALICE:
             'conversation:general',
             'conversation:ack',
             'conversation:question',
+            'conversation:meta_question',
             'greeting',
             'farewell'
         ]
@@ -2741,7 +2743,8 @@ class ALICE:
         weather_condition_indicators = ['rain', 'snow', 'cold', 'warm', 'hot', 'freeze', 'thunderstorm', 'hail']
         weather_question_indicators = clothing_items + weather_condition_indicators
 
-        if any(keyword in input_lower for keyword in weather_question_indicators):
+        if any(re.search(r'\b' + re.escape(kw) + r'\b', input_lower)
+               for kw in weather_question_indicators):
             if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
                 return None
 
@@ -3225,10 +3228,23 @@ class ALICE:
                 'rain', 'snow', 'cold', 'warm', 'forecast',
                 'scarf', 'hat', 'gloves', 'boots', 'sweater', 'hoodie',
             ]
-            if (
-                'weather' in intent.lower()
-                or any(keyword in user_input.lower() for keyword in weather_followup_indicators)
-            ):
+            _wfu_input_lower = user_input.lower()
+            # Only attempt weather fast-path when the NLP intent is NOT already
+            # resolved to a different high-confidence domain (notes, email, calendar, etc.)
+            _non_weather_domains = ('notes:', 'email:', 'calendar:', 'music:', 'file_operations:',
+                                    'memory:', 'reminder:', 'system:', 'conversation:')
+            _intent_is_non_weather = any(intent.startswith(d) for d in _non_weather_domains)
+            _wfu_hit = (
+                not _intent_is_non_weather
+                and (
+                    'weather' in intent.lower()
+                    or any(
+                        re.search(r'\b' + re.escape(kw) + r'\b', _wfu_input_lower)
+                        for kw in weather_followup_indicators
+                    )
+                )
+            )
+            if _wfu_hit:
                 weather_followup_early = self._handle_weather_followup(user_input, intent)
             if weather_followup_early:
                 self._last_had_stored_data = True   # fast-path used stored data; no plugin needed

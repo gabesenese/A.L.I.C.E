@@ -92,6 +92,27 @@ class FeatureFlagManager:
                 enabled=True,
                 description="Show clarification prompts when validation fails",
             ),
+            # ── Data-driven policy & diagnostics flags (added with policy_trainer) ──
+            "policy_learned_model": FeatureFlag(
+                name="policy_learned_model",
+                enabled=False,  # Off until a model has been trained
+                description="Use trained LogisticRegression model for InteractionPolicy decisions",
+            ),
+            "policy_logging": FeatureFlag(
+                name="policy_logging",
+                enabled=True,
+                description="Log per-turn policy decisions to data/analytics/turn_log.jsonl",
+            ),
+            "adaptive_thresholds": FeatureFlag(
+                name="adaptive_thresholds",
+                enabled=False,
+                description="Adjust per-intent routing thresholds based on observed error rates",
+            ),
+            "thought_trace": FeatureFlag(
+                name="thought_trace",
+                enabled=False,
+                description="Emit compact ThoughtTrace per turn for pipeline debugging",
+            ),
         }
 
         self._load_config()

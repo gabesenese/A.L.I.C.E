@@ -328,6 +328,10 @@ class ConversationContext:
     last_plugin: Optional[str] = None
     pending_clarification: Dict[str, Any] = field(default_factory=dict)
     turn_index: int = 0
+    # Semantic frame of the most-recently completed turn.
+    # Stored as a plain dict (a copy of parsed_command.modifiers["frame"])
+    # so it survives across turns without carrying live object references.
+    last_frame: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -1647,8 +1651,14 @@ class NLPProcessor:
             | _P1_WEATHER_KEYWORDS
         )
 
-        recent_weather_context = last_intent.startswith("weather:") or any(
-            "weather" in query or "forecast" in query for query in recent_queries
+        recent_weather_context = last_intent.startswith("weather:") or (
+            # Only the *immediately preceding* query counts — once the user
+            # switches to a different topic the weather context is stale.
+            len(recent_queries) > 0
+            and (
+                "weather" in recent_queries[-1]
+                or "forecast" in recent_queries[-1]
+            )
         )
 
         # Domain-pivot guard: certain content words signal a completely new
@@ -1858,6 +1868,95 @@ class NLPProcessor:
             action=action,
             trace=trace,
         )
+
+    # -------------------------------------------------------------------------
+    # Semantic frame editing for follow-ups (Improvement 2)
+    # -------------------------------------------------------------------------
+
+    def _merge_followup_frame(
+        self,
+        text: str,
+        parsed_command: ParsedCommand,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        When a short follow-up mutates only part of the previous frame (e.g.
+        "and tomorrow?", "for my notes instead", "make it 5pm"), produce a
+        merged frame dict that inherits unchanged slots from ``context.last_frame``
+        and overwrites only the slot(s) that appear in *text*.
+
+        Returns the merged frame dict, or None if no merge is applicable.
+
+        Merge rules
+        -----------
+        * **Temporal slot** — if a time/date expression is detected in text,
+          update the ``slots.date`` and/or ``slots.time`` entries.
+        * **Target slot** — if text contains a domain-pivot (e.g. "in my notes",
+          "for the calendar") update the ``target`` slot and (optionally) the
+          frame name.
+        * All other slots are inherited from ``last_frame["slots"]``.
+
+        The merged frame is tagged ``"merged": true`` so downstream consumers
+        know it is a synthesised result.
+        """
+        if self.context.last_frame is None:
+            return None
+
+        text_lower = text.lower().strip()
+        last_frame = self.context.last_frame
+
+        # Only apply merging for genuinely short follow-ups
+        word_count = len(text_lower.split())
+        if word_count > 10:
+            return None
+
+        # Clone the last frame, stripping stale result fields
+        merged: Dict[str, Any] = {
+            "name": last_frame.get("name"),
+            "confidence": max(0.60, last_frame.get("confidence", 0.60) * 0.90),
+            "keywords": list(last_frame.get("keywords", [])),
+            "slots": dict(last_frame.get("slots", {})),
+            "fill_confidence": last_frame.get("fill_confidence", 0.5),
+            "merged": True,
+        }
+        mutated = False
+
+        # ── Temporal mutation ─────────────────────────────────────────────────
+        temporal = self.temporal_parser.parse_temporal_expression(text)
+        if temporal:
+            if temporal.get("date"):
+                merged["slots"]["date"] = temporal["date"]
+                mutated = True
+            if temporal.get("time"):
+                merged["slots"]["time"] = temporal["time"]
+                mutated = True
+
+        # ── Target / domain mutation ──────────────────────────────────────────
+        _target_pivots: Dict[str, str] = {
+            "note": "notes",
+            "notes": "notes",
+            "memo": "notes",
+            "email": "email",
+            "calendar": "calendar",
+            "reminder": "reminder",
+            "music": "music",
+        }
+        for kw, domain in _target_pivots.items():
+            if re.search(rf"\b{kw}\b", text_lower):
+                if merged["slots"].get("target") != domain:
+                    merged["slots"]["target"] = domain
+                    mutated = True
+                break
+
+        if not mutated:
+            return None
+
+        logger.debug(
+            "[FRAME_MERGE] Follow-up '%s' merged into frame '%s' with updated slots: %s",
+            text[:60],
+            merged["name"],
+            {k: v for k, v in merged["slots"].items() if k in ("date", "time", "target")},
+        )
+        return merged
 
     def _build_uncertainty_prompt(
         self,
@@ -2628,6 +2727,15 @@ class NLPProcessor:
                         filled_slots.fill_confidence if filled_slots else 0.0
                     ),
                 }
+            elif retrieval_route is not None:
+                # ── Semantic frame editing for short follow-ups ───────────────
+                # Even when the frame parser finds no strong match for a terse
+                # follow-up ("and tomorrow?", "for my notes", "make it 5pm"),
+                # we can synthesize a merged frame by mutating only the changed
+                # slot(s) from context.last_frame.
+                _merged = self._merge_followup_frame(normalized_text, parsed_command)
+                if _merged:
+                    parsed_command.modifiers["frame"] = _merged
 
         # ── Dialogue-state gate ────────────────────────────────────────────────
         # If Alice is waiting for the user to disambiguate (dialogue_state ==
@@ -2865,7 +2973,113 @@ class NLPProcessor:
             urgency,
         )
 
+        # Emit thought trace (dev diagnostic — controlled by 'thought_trace' flag)
+        if self.feature_flags and self.feature_flags.is_enabled("thought_trace"):
+            _correction_source = "unknown"
+            _routing_trace = (
+                parsed_command.modifiers.get("routing_trace") or {}
+                if hasattr(parsed_command, "modifiers")
+                else {}
+            )
+            _src = _routing_trace.get("source", "")
+            if "learned" in _src:
+                _correction_source = "learned"
+            elif "fingerprint" in _src:
+                _correction_source = "fingerprint"
+            elif "retrieval" in _src:
+                _correction_source = "retrieval"
+            elif "semantic" in _src or "calibrat" in _src:
+                _correction_source = "semantic"
+            elif "phase1" in _src or "pattern" in _src:
+                _correction_source = "phase1"
+            elif "reminder_early_override" in _src or "dialogue_state_gate" in _src:
+                _correction_source = _src
+
+            _frame_merged = bool(
+                parsed_command.modifiers.get("frame", {}).get("merged")
+                if hasattr(parsed_command, "modifiers")
+                else False
+            )
+            _followup = _frame_merged or (
+                hasattr(self.context, "turn_count")
+                and getattr(self.context, "turn_count", 0) > 0
+                and len(normalized_text.split()) <= 6
+            )
+
+            self._emit_thought_trace(
+                turn_index=getattr(self.context, "turn_count", 0),
+                raw_text=text,
+                normalized_text=normalized_text,
+                intent=intent,
+                intent_conf=intent_confidence,
+                frame_result=frame_result,
+                followup_detected=_followup,
+                frame_merged=_frame_merged,
+                correction_source=_correction_source,
+                emotions=emotions,
+                urgency=urgency,
+            )
+
         return result
+
+    def _emit_thought_trace(
+        self,
+        *,
+        turn_index: int,
+        raw_text: str,
+        normalized_text: str,
+        intent: str,
+        intent_conf: float,
+        frame_result,
+        followup_detected: bool,
+        frame_merged: bool,
+        correction_source: str,
+        emotions: List[str],
+        urgency: str,
+    ) -> None:
+        """
+        Build and log a ``ThoughtTrace`` for the current turn.
+
+        Written as a JSONL line to ``data/analytics/thought_trace.jsonl``
+        and emitted at DEBUG level.
+        """
+        try:
+            from ai.core.failure_taxonomy import ThoughtTrace
+        except ImportError:
+            return
+
+        _policy_src = "hand_tuned"
+        if self.feature_flags:
+            if self.feature_flags.is_enabled("policy_learned_model"):
+                _policy_src = "learned_model"
+
+        trace = ThoughtTrace(
+            turn_index=turn_index,
+            raw_text=raw_text,
+            normalized_text=normalized_text,
+            intent=intent,
+            intent_conf=intent_conf,
+            frame_name=frame_result.frame_name if frame_result else None,
+            frame_conf=frame_result.confidence if frame_result else 0.0,
+            followup_detected=followup_detected,
+            frame_merged=frame_merged,
+            correction_source=correction_source,
+            dialogue_state=getattr(self.context, "dialogue_state", "active"),
+            policy_source=_policy_src,
+            emotions=list(emotions) if emotions else [],
+            urgency=urgency,
+        )
+
+        logger.debug("[THOUGHT_TRACE] %s", trace.compact())
+
+        import pathlib, json as _json
+        _log_dir = pathlib.Path("data") / "analytics"
+        try:
+            _log_dir.mkdir(parents=True, exist_ok=True)
+            with open(_log_dir / "thought_trace.jsonl", "a", encoding="utf-8") as _fh:
+                _fh.write(_json.dumps(trace.to_dict()) + "\n")
+        except Exception as _exc:
+            logger.debug("[THOUGHT_TRACE] Could not write log: %s", _exc)
 
     def _detect_intent_semantic(
         self,
@@ -2883,6 +3097,26 @@ class NLPProcessor:
 
         if text_lower.startswith("/debug tokens"):
             return "system:debug_tokens", 0.98
+
+        # PHASE 0: Meta-conversational questions directed *at* Alice.
+        # These ask about Alice's previous output or behaviour and must be
+        # routed to conversation before any domain classifier can misfire.
+        # Examples: "why are you saying still?", "what do you mean by that?",
+        #           "why did you say mainly clear?", "what are you talking about?"
+        _META_QUESTION_PHRASES = (
+            "why are you",
+            "why did you",
+            "why do you",
+            "what do you mean",
+            "what did you mean",
+            "why would you",
+            "how come you",
+            "what are you talking",
+            "what are you saying",
+            "who told you",
+        )
+        if any(phrase in text_lower for phrase in _META_QUESTION_PHRASES):
+            return "conversation:meta_question", 0.93
 
         mapped = None  # Initialize to prevent UnboundLocalError
         if parsed_command and parsed_command.object_type == "note":
@@ -3348,6 +3582,12 @@ class NLPProcessor:
                 "disambiguation", {}
             )
         self.context.pending_clarification = disambiguation if disambiguation else {}
+
+        # Persist the semantic frame for follow-up merging
+        if isinstance(result.parsed_command, dict):
+            _frame_data = result.parsed_command.get("modifiers", {}).get("frame")
+            if _frame_data and isinstance(_frame_data, dict) and _frame_data.get("name"):
+                self.context.last_frame = dict(_frame_data)
 
         # Extract entities to context
         self.context.last_entities = {}

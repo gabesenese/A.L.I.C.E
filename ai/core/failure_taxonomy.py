@@ -50,7 +50,16 @@ ROUTE_MISS = "ROUTE_MISS"
 PLUGIN_MISS = "PLUGIN_MISS"
 CONFIDENCE = "CONFIDENCE"
 
-_ALL_TYPES = {SLOT_MISS, FRAME_MISS, COREF_MISS, ROUTE_MISS, PLUGIN_MISS, CONFIDENCE}
+# NLP-specific failure tags (Improvement 4)
+NLP_WRONG_INTENT = "NLP_WRONG_INTENT"    # classified intent != expected intent
+NLP_WRONG_ENTITY = "NLP_WRONG_ENTITY"   # entity extraction produced wrong value
+BAD_FOLLOWUP = "BAD_FOLLOWUP"           # follow-up resolution did not carry context
+BAD_TEMPORAL = "BAD_TEMPORAL"           # temporal expression was misparse or absent
+
+_ALL_TYPES = {
+    SLOT_MISS, FRAME_MISS, COREF_MISS, ROUTE_MISS, PLUGIN_MISS, CONFIDENCE,
+    NLP_WRONG_INTENT, NLP_WRONG_ENTITY, BAD_FOLLOWUP, BAD_TEMPORAL,
+}
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -310,6 +319,127 @@ class FailureTaxonomy:
             counts[ft] = counts.get(ft, 0) + 1
         return counts
 
+    def per_intent_failures(self, n: int = 1000) -> Dict[str, Dict[str, int]]:
+        """
+        Aggregate failure counts grouped by (intent, failure_type).
+
+        Returns::
+
+            {
+              "notes:create": {
+                "SLOT_MISS": 12,
+                "FRAME_MISS": 3,
+                ...
+              }, ...
+            }
+        """
+        records = self.load_recent(n)
+        result: Dict[str, Dict[str, int]] = {}
+        for r in records:
+            intent = r.get("intent", "unknown")
+            ft = r.get("failure_type", "UNKNOWN")
+            bucket = result.setdefault(intent, {})
+            bucket[ft] = bucket.get(ft, 0) + 1
+        return result
+
+    def generate_nlp_report(self, n: int = 1000) -> Dict[str, Any]:
+        """
+        Aggregate NLP failures and produce a structured report suitable for
+        writing to ``reports/nlp_status.json``.
+
+        Report schema::
+
+            {
+              "generated_at": "2025-…",
+              "records_analysed": 450,
+              "failure_type_summary": {…},
+              "top_failing_intents": [
+                {"intent": "notes:search", "total_failures": 34,
+                 "dominant_type": "SLOT_MISS"}, …   (top 3)
+              ],
+              "top_failing_patterns": [
+                {"failure_type": "SLOT_MISS", "count": 78}, …   (top 3)
+              ],
+              "suggested_changes": [
+                "Add 'query' slot extractor for notes:search (SLOT_MISS ×34)",
+                …
+              ]
+            }
+        """
+        records = self.load_recent(n)
+        type_summary = self.failure_summary()
+        per_intent = self.per_intent_failures(n)
+
+        # Top-3 failing intents by total failures
+        intent_totals = {
+            intent: sum(counts.values())
+            for intent, counts in per_intent.items()
+        }
+        top_intents = sorted(intent_totals.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_failing_intents = []
+        for intent, total in top_intents:
+            dominant_type = max(per_intent[intent].items(), key=lambda x: x[1])[0]
+            top_failing_intents.append({
+                "intent": intent,
+                "total_failures": total,
+                "dominant_type": dominant_type,
+            })
+
+        # Top-3 failing patterns by failure_type count
+        top_patterns = sorted(type_summary.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_failing_patterns = [
+            {"failure_type": ft, "count": cnt}
+            for ft, cnt in top_patterns
+            if cnt > 0
+        ]
+
+        # Suggested changes (heuristic rules)
+        suggested: List[str] = []
+        for item in top_failing_intents:
+            intent = item["intent"]
+            dtype = item["dominant_type"]
+            total = item["total_failures"]
+            if dtype == SLOT_MISS:
+                # Extract which slots are most often missing
+                missing_counts: Dict[str, int] = {}
+                for r in records:
+                    if r.get("intent") == intent and r.get("failure_type") == SLOT_MISS:
+                        for s in r.get("missing_slots", []):
+                            missing_counts[s] = missing_counts.get(s, 0) + 1
+                top_slot = max(missing_counts, key=missing_counts.get) if missing_counts else "unknown"
+                suggested.append(
+                    f"Add '{top_slot}' slot extractor for {intent} ({dtype} ×{total})"
+                )
+            elif dtype == FRAME_MISS:
+                suggested.append(
+                    f"Expand FrameDefinition trigger keywords/patterns for {intent} ({dtype} ×{total})"
+                )
+            elif dtype == COREF_MISS:
+                suggested.append(
+                    f"Improve coreference resolution for {intent} context chain ({dtype} ×{total})"
+                )
+            elif dtype == NLP_WRONG_INTENT:
+                suggested.append(
+                    f"Add training examples or adjust PHASE 1 patterns for {intent} ({dtype} ×{total})"
+                )
+            elif dtype == BAD_TEMPORAL:
+                suggested.append(
+                    f"Improve TemporalParser coverage for {intent} expressions ({dtype} ×{total})"
+                )
+            else:
+                suggested.append(
+                    f"Investigate {dtype} failures in {intent} (×{total})"
+                )
+
+        return {
+            "generated_at": datetime.utcnow().isoformat(),
+            "records_analysed": len(records),
+            "failure_type_summary": {k: v for k, v in type_summary.items() if v > 0},
+            "top_failing_intents": top_failing_intents,
+            "top_failing_patterns": top_failing_patterns,
+            "suggested_changes": suggested,
+        }
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -385,6 +515,62 @@ class TurnPostmortem:
     frame_parse_score: float = 1.0
     session_id: Optional[str] = None
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+@dataclass
+class ThoughtTrace:
+    """
+    Compact per-turn pipeline trace emitted in dev mode.
+
+    Enabled by the ``thought_trace`` feature flag.  One ``ThoughtTrace`` is
+    created per call to ``NLPProcessor.process()`` and logged at DEBUG level
+    (and optionally to ``data/analytics/thought_trace.jsonl``).
+    """
+
+    turn_index: int
+    raw_text: str
+    normalized_text: str
+    intent: str
+    intent_conf: float
+    frame_name: Optional[str]
+    frame_conf: float
+    followup_detected: bool
+    frame_merged: bool
+    # Which routing/correction path produced the final intent:
+    # "learned" | "fingerprint" | "retrieval" | "semantic" | "phase1" | "unknown"
+    correction_source: str
+    dialogue_state: str
+    policy_source: str  # "hand_tuned" | "learned_model" | "blend"
+    emotions: List[str]
+    urgency: str
+    ts: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+    def compact(self) -> str:
+        """One-line summary suitable for a DEBUG log."""
+        return (
+            f"[{self.turn_index}] intent={self.intent} conf={self.intent_conf:.2f} "
+            f"frame={self.frame_name or 'none'} src={self.correction_source} "
+            f"state={self.dialogue_state} policy={self.policy_source}"
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "turn_index": self.turn_index,
+            "raw_text": self.raw_text,
+            "normalized_text": self.normalized_text,
+            "intent": self.intent,
+            "intent_conf": self.intent_conf,
+            "frame_name": self.frame_name,
+            "frame_conf": self.frame_conf,
+            "followup_detected": self.followup_detected,
+            "frame_merged": self.frame_merged,
+            "correction_source": self.correction_source,
+            "dialogue_state": self.dialogue_state,
+            "policy_source": self.policy_source,
+            "emotions": self.emotions,
+            "urgency": self.urgency,
+            "ts": self.ts,
+        }
 
 
 class RootCauseClassifier(FailureTaxonomy):

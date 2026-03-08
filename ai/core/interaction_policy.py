@@ -18,6 +18,20 @@ import time
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
 
+# Optional integrations — imported lazily so the module can still be loaded
+# in environments without turn_logger / policy_trainer on the path.
+try:
+    from ai.core.turn_logger import get_turn_logger as _get_turn_logger, TurnEntry, TopKEntry, PolicySnapshot
+    _TURN_LOGGER_AVAILABLE = True
+except ImportError:
+    _TURN_LOGGER_AVAILABLE = False
+
+try:
+    from ai.core.policy_trainer import get_policy_trainer as _get_policy_trainer
+    _POLICY_TRAINER_AVAILABLE = True
+except ImportError:
+    _POLICY_TRAINER_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,6 +69,10 @@ class InteractionPolicy:
     Derive a PolicySettings object from the user's inferred mood,
     raw VADER sentiment, and urgency signal.
 
+    When the feature flag ``policy_learned_model`` is enabled *and* a
+    trained PolicyTrainer model is available, ``derive()`` will blend the
+    learned predictions with (or fully replace) the hand-tuned thresholds.
+
     Usage
     -----
         policy = InteractionPolicy()
@@ -68,23 +86,129 @@ class InteractionPolicy:
         mood: str,
         sentiment: Dict[str, Any],
         urgency: str,
+        # Optional turn metadata used for logging + learned-model inference
+        intent: str = "conversation:general",
+        intent_conf: float = 0.0,
+        frame_name: Optional[str] = None,
+        frame_conf: float = 0.0,
+        n_slots: int = 0,
+        top_k: Optional[List[Dict[str, Any]]] = None,
+        session_id: str = "",
+        turn_index: int = 0,
+        use_learned_model: bool = False,
     ) -> PolicySettings:
         """
         Parameters
         ----------
         mood:
             One of: 'positive' | 'negative' | 'neutral' | 'frustrated' | 'urgent'
-            (as produced by Perception._infer_mood).
         sentiment:
             VADER result dict with at least a 'compound' key (-1 → +1).
         urgency:
-            'low' | 'medium' | 'high' (as produced by NLP EmotionDetector).
+            'low' | 'medium' | 'high' | 'critical' | 'none'
+        intent / intent_conf / frame_name / frame_conf / n_slots:
+            Turn signals fed to the PolicyTrainer and TurnLogger.
+        top_k / session_id / turn_index:
+            Router traffic signals for TurnLogger.
+        use_learned_model:
+            Override feature-flag check: force learned-model path when True.
         """
         compound = (sentiment or {}).get("compound", 0.0)
 
+        # ── 1. Derive hand-tuned settings ────────────────────────────────────
+        policy_source = "hand_tuned"
+        settings = self._hand_tuned_derive(mood, urgency, compound)
+
+        # ── 2. Optionally blend with learned model ────────────────────────────
+        if (use_learned_model or self._is_learned_model_enabled()) and _POLICY_TRAINER_AVAILABLE:
+            try:
+                trainer = _get_policy_trainer()
+                if trainer.is_ready:
+                    clarify_prob = trainer.predict_clarify(
+                        mood=mood,
+                        sentiment=compound,
+                        urgency=urgency,
+                        intent_conf=intent_conf,
+                        frame_conf=frame_conf,
+                    )
+                    cautious_prob = trainer.predict_confidence(
+                        mood=mood,
+                        sentiment=compound,
+                        urgency=urgency,
+                        intent_conf=intent_conf,
+                        frame_conf=frame_conf,
+                    )
+                    if clarify_prob is not None and cautious_prob is not None:
+                        # Blend: learned thresholds replace hand-tuned ones
+                        # clarify_prob > 0.5 → should clarify (skip_clarification=False)
+                        skip_clarif = clarify_prob <= 0.5
+                        # cautious_prob > 0.5 → cautious (lower threshold, shorter)
+                        if cautious_prob > 0.5:
+                            new_threshold = max(0.30, settings.clarification_threshold - 0.10)
+                            new_length = "brief"
+                        else:
+                            new_threshold = settings.clarification_threshold
+                            new_length = settings.response_length
+                        settings = PolicySettings(
+                            clarification_threshold=new_threshold,
+                            response_length=new_length,
+                            tone=settings.tone,
+                            skip_clarification=skip_clarif,
+                            add_empathy_prefix=settings.add_empathy_prefix,
+                        )
+                        policy_source = "learned_model"
+            except Exception as exc:
+                logger.debug("[InteractionPolicy] Learned model inference failed: %s", exc)
+
+        # ── 3. Log this turn's policy decision ───────────────────────────────
+        if _TURN_LOGGER_AVAILABLE:
+            try:
+                _top_k_entries = [
+                    TopKEntry(intent=e.get("intent", ""), score=float(e.get("score", 0.0)))
+                    for e in (top_k or [])
+                ]
+                entry = TurnEntry(
+                    session_id=session_id,
+                    turn_index=turn_index,
+                    mood=mood,
+                    sentiment=round(compound, 4),
+                    urgency=urgency,
+                    intent=intent,
+                    intent_conf=round(intent_conf, 4),
+                    frame_name=frame_name,
+                    frame_conf=round(frame_conf, 4),
+                    n_slots=n_slots,
+                    policy=PolicySnapshot(
+                        clarification_threshold=settings.clarification_threshold,
+                        response_length=settings.response_length,
+                        tone=settings.tone,
+                        skip_clarification=settings.skip_clarification,
+                        add_empathy_prefix=settings.add_empathy_prefix,
+                    ),
+                    policy_source=policy_source,
+                    top_k=_top_k_entries,
+                    final_intent=intent,
+                )
+                get_turn_logger = _get_turn_logger
+                get_turn_logger().append(entry)
+            except Exception as exc:
+                logger.debug("[InteractionPolicy] Turn logging failed: %s", exc)
+
+        return settings
+
+    @staticmethod
+    def _is_learned_model_enabled() -> bool:
+        """Check feature flag 'policy_learned_model' if available."""
+        try:
+            from ai.core.feature_flags import get_feature_flags
+            return get_feature_flags().is_enabled("policy_learned_model")
+        except Exception:
+            return False
+
+    @staticmethod
+    def _hand_tuned_derive(mood: str, urgency: str, compound: float) -> PolicySettings:
+        """Original hand-tuned rule set — unchanged from V1."""
         if mood == "frustrated":
-            # User is annoyed — keep responses short, empathetic,
-            # and never trigger another clarification round.
             return PolicySettings(
                 clarification_threshold=0.35,
                 response_length="brief",
@@ -94,7 +218,6 @@ class InteractionPolicy:
             )
 
         if mood == "urgent" or urgency == "high":
-            # User needs a fast answer — be direct and skip friction.
             return PolicySettings(
                 clarification_threshold=0.30,
                 response_length="brief",
@@ -104,7 +227,6 @@ class InteractionPolicy:
             )
 
         if mood == "negative" or compound < -0.2:
-            # Mild negativity — still clarify when needed, but be warm.
             return PolicySettings(
                 clarification_threshold=0.50,
                 response_length="normal",
@@ -114,7 +236,6 @@ class InteractionPolicy:
             )
 
         if mood == "positive" or compound > 0.4:
-            # User is in a good mood — normal flow, slightly encouraging tone.
             return PolicySettings(
                 clarification_threshold=0.60,
                 response_length="normal",
@@ -123,7 +244,6 @@ class InteractionPolicy:
                 add_empathy_prefix=False,
             )
 
-        # Neutral default
         return PolicySettings(
             clarification_threshold=0.55,
             response_length="normal",
