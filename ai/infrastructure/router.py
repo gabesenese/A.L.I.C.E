@@ -343,12 +343,32 @@ class RequestRouter:
 
             # Check for vague patterns - but only if there's no clear action verb
             # Action verbs indicate specific intent, not vagueness
-            action_verbs = ["create", "make", "read", "open", "delete", "remove", "move", "rename", 
-                          "send", "reply", "search", "find", "list", "show", "get", "set",
-                          "remember", "recall", "forget", "store", "save"]
-            
+            action_verbs = [
+                "create",
+                "make",
+                "read",
+                "open",
+                "delete",
+                "remove",
+                "move",
+                "rename",
+                "send",
+                "reply",
+                "search",
+                "find",
+                "list",
+                "show",
+                "get",
+                "set",
+                "remember",
+                "recall",
+                "forget",
+                "store",
+                "save",
+            ]
+
             has_action = any(verb in text_lower for verb in action_verbs)
-            
+
             # Only check vague patterns if there's no clear action
             if not has_action:
                 vague_patterns = [

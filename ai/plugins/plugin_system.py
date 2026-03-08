@@ -1077,12 +1077,14 @@ class WebSearchPlugin(PluginInterface):
 # Capability Graph  (plugin routing bias via Beta-distribution success model)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CapabilityNode:
     """
     Describes what one plugin can do — which intents it handles, what slots
     it requires, and what data it produces.
     """
+
     name: str
     handles_intents: Set[str] = field(default_factory=set)
     requires: Set[str] = field(default_factory=set)
@@ -1094,6 +1096,7 @@ class CapabilityNode:
 @dataclass
 class CapabilityEdge:
     """source provides something that target requires."""
+
     source: str
     target: str
     shared_token: str
@@ -1103,6 +1106,7 @@ class CapabilityEdge:
 @dataclass
 class _BetaArm:
     """Beta(α, β) conjugate prior for Bernoulli success observations."""
+
     alpha: float = 2.0
     beta: float = 2.0
 
@@ -1154,9 +1158,14 @@ class ToolSuccessModel:
     def stats(self) -> Dict[str, dict]:
         with self._tsm_lock:
             return {
-                f"{p}:{i}": {"mean": round(arm.mean(), 3), "samples": arm.sample_count(),
-                             "alpha": round(arm.alpha, 1), "beta": round(arm.beta, 1)}
-                for (p, i), arm in self._arms.items() if arm.sample_count() > 0
+                f"{p}:{i}": {
+                    "mean": round(arm.mean(), 3),
+                    "samples": arm.sample_count(),
+                    "alpha": round(arm.alpha, 1),
+                    "beta": round(arm.beta, 1),
+                }
+                for (p, i), arm in self._arms.items()
+                if arm.sample_count() > 0
             }
 
 
@@ -1170,28 +1179,52 @@ class CapabilityGraph:
     """
 
     _DEFAULT_CAPABILITIES: List[CapabilityNode] = [
-        CapabilityNode(name="music",
-                       handles_intents={"music:play", "music:pause", "music:skip",
-                                        "music:status", "music:volume"},
-                       provides={"track_id", "artist_name"}),
-        CapabilityNode(name="weather",
-                       handles_intents={"weather:current", "weather:forecast"},
-                       provides={"temperature", "conditions", "location_name"}),
-        CapabilityNode(name="calendar",
-                       handles_intents={"calendar:query", "calendar:create_event",
-                                        "calendar:delete_event", "calendar:update_event"},
-                       provides={"event_id", "event_title"}),
-        CapabilityNode(name="notes",
-                       handles_intents={"notes:create", "notes:search_notes",
-                                        "notes:list", "notes:delete"},
-                       provides={"note_id"}),
-        CapabilityNode(name="email",
-                       handles_intents={"email:send", "email:list", "email:read",
-                                        "email:delete"},
-                       provides={"email_id"}),
-        CapabilityNode(name="memory",
-                       handles_intents={"memory:store", "memory:recall", "memory:search"},
-                       provides={"memory_id"}),
+        CapabilityNode(
+            name="music",
+            handles_intents={
+                "music:play",
+                "music:pause",
+                "music:skip",
+                "music:status",
+                "music:volume",
+            },
+            provides={"track_id", "artist_name"},
+        ),
+        CapabilityNode(
+            name="weather",
+            handles_intents={"weather:current", "weather:forecast"},
+            provides={"temperature", "conditions", "location_name"},
+        ),
+        CapabilityNode(
+            name="calendar",
+            handles_intents={
+                "calendar:query",
+                "calendar:create_event",
+                "calendar:delete_event",
+                "calendar:update_event",
+            },
+            provides={"event_id", "event_title"},
+        ),
+        CapabilityNode(
+            name="notes",
+            handles_intents={
+                "notes:create",
+                "notes:search_notes",
+                "notes:list",
+                "notes:delete",
+            },
+            provides={"note_id"},
+        ),
+        CapabilityNode(
+            name="email",
+            handles_intents={"email:send", "email:list", "email:read", "email:delete"},
+            provides={"email_id"},
+        ),
+        CapabilityNode(
+            name="memory",
+            handles_intents={"memory:store", "memory:recall", "memory:search"},
+            provides={"memory_id"},
+        ),
     ]
 
     def __init__(self, success_model: Optional[ToolSuccessModel] = None) -> None:
@@ -1212,7 +1245,8 @@ class CapabilityGraph:
     def plugins_for_intent(self, intent: str) -> List[str]:
         with self._cg_lock:
             return [
-                name for name, cap in self._nodes.items()
+                name
+                for name, cap in self._nodes.items()
                 if intent in cap.handles_intents
                 or any(intent.startswith(h.rstrip("*")) for h in cap.handles_intents)
             ]
@@ -1229,15 +1263,18 @@ class CapabilityGraph:
         available_slots: Optional[Set[str]] = None,
     ) -> Optional[str]:
         slots = available_slots or set()
-        candidates = [p for p in self.plugins_for_intent(intent)
-                      if self.can_execute(p, slots)]
+        candidates = [
+            p for p in self.plugins_for_intent(intent) if self.can_execute(p, slots)
+        ]
         if not candidates:
             return None
+
         def _score(name: str) -> float:
             cap = self._nodes.get(name)
             base = cap.priority if cap else 1.0
             bias = self.success_model.get_routing_bias(name, intent)
             return base * bias
+
         return max(candidates, key=_score)
 
     def record_execution(self, plugin: str, intent: str, success: bool) -> None:

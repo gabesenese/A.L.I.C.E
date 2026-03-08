@@ -231,7 +231,10 @@ class MetricsCollector:
             lambda: Counter(
                 "alice_ambiguity_detected_total",
                 "Ambiguous references detected (P0-2)",
-                ["ref_type", "candidate_count"],  # ref_type: PRONOUN_GENERIC, DOMAIN_PRONOUN, etc.
+                [
+                    "ref_type",
+                    "candidate_count",
+                ],  # ref_type: PRONOUN_GENERIC, DOMAIN_PRONOUN, etc.
             ),
         )
 
@@ -349,17 +352,25 @@ class MetricsCollector:
             with self.lock:
                 self.histograms[f"confidence_{intent}"].append(confidence)
 
-    def track_intent_entity_validation(self, intent: str, validation_score: float, issues: list):
+    def track_intent_entity_validation(
+        self, intent: str, validation_score: float, issues: list
+    ):
         """Track intent-entity cross-validation metrics (P0-1)"""
         if self.enable_prometheus:
-            self.intent_entity_validation.labels(intent=intent).observe(validation_score)
-            
+            self.intent_entity_validation.labels(intent=intent).observe(
+                validation_score
+            )
+
             # Track specific validation issues
             for issue in issues:
                 if "missing required" in issue.lower():
-                    self.validation_issues.labels(intent=intent, issue_type="missing_required").inc()
+                    self.validation_issues.labels(
+                        intent=intent, issue_type="missing_required"
+                    ).inc()
                 elif "few expected" in issue.lower():
-                    self.validation_issues.labels(intent=intent, issue_type="few_expected").inc()
+                    self.validation_issues.labels(
+                        intent=intent, issue_type="few_expected"
+                    ).inc()
         else:
             with self.lock:
                 self.histograms[f"validation_score_{intent}"].append(validation_score)
@@ -370,8 +381,10 @@ class MetricsCollector:
         """Track ambiguity detection from coreference resolver (P0-2)"""
         if self.enable_prometheus:
             self.ambiguity_detected.labels(
-                ref_type=ref_type, 
-                candidate_count=str(min(candidate_count, 5))  # Cap at 5+ for cardinality
+                ref_type=ref_type,
+                candidate_count=str(
+                    min(candidate_count, 5)
+                ),  # Cap at 5+ for cardinality
             ).inc()
         else:
             with self.lock:
@@ -380,7 +393,9 @@ class MetricsCollector:
     def track_entity_normalization(self, category: str, rule_applied: str):
         """Track entity normalization events (P0-3)"""
         if self.enable_prometheus:
-            self.entity_normalized.labels(category=category, rule_applied=rule_applied).inc()
+            self.entity_normalized.labels(
+                category=category, rule_applied=rule_applied
+            ).inc()
         else:
             with self.lock:
                 self.counters[f"normalized_{category}_{rule_applied}"] += 1
@@ -528,9 +543,11 @@ def initialize_metrics(enable_prometheus: bool = True) -> MetricsCollector:
 # Adaptive Controller  (closed-loop latency PI + response anomaly detection)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TurnObservation:
     """Raw signals from one completed turn."""
+
     duration_ms: float
     response_len: int
     corrections: int = 0
@@ -542,6 +559,7 @@ class TurnObservation:
 @dataclass
 class ResponseAnomaly:
     """Fired when a metric deviates significantly from its running mean."""
+
     metric: str
     z_score: float
     current_value: float
@@ -559,7 +577,7 @@ class _EMAState:
     def update(self, value: float, alpha: float) -> None:
         diff = value - self.ema
         self.ema += alpha * diff
-        self.ema_var = (1 - alpha) * (self.ema_var + alpha * diff ** 2)
+        self.ema_var = (1 - alpha) * (self.ema_var + alpha * diff**2)
 
     def check(self, value: float, z_thresh: float) -> tuple:
         std = math.sqrt(max(self.ema_var, 1e-9))
@@ -681,19 +699,25 @@ class ResponseAnomalyDetector:
                 z_score, is_anomaly = state.check(value, self._z_thresh)
                 state.update(value, self._alpha)
                 if is_anomaly:
-                    anomalies.append(ResponseAnomaly(
-                        metric=metric, z_score=round(z_score, 2),
-                        current_value=value, mean=round(state.ema, 2),
-                        std=round(math.sqrt(max(state.ema_var, 1e-9)), 2),
-                    ))
+                    anomalies.append(
+                        ResponseAnomaly(
+                            metric=metric,
+                            z_score=round(z_score, 2),
+                            current_value=value,
+                            mean=round(state.ema, 2),
+                            std=round(math.sqrt(max(state.ema_var, 1e-9)), 2),
+                        )
+                    )
         return anomalies
 
     def metric_summary(self) -> Dict[str, dict]:
         with self._ad_lock:
             return {
-                metric: {"ema": round(s.ema, 2),
-                         "std": round(math.sqrt(max(s.ema_var, 1e-9)), 2),
-                         "count": s.count}
+                metric: {
+                    "ema": round(s.ema, 2),
+                    "std": round(math.sqrt(max(s.ema_var, 1e-9)), 2),
+                    "count": s.count,
+                }
                 for metric, s in self._state.items()
             }
 
@@ -729,14 +753,24 @@ class AdaptiveController:
         intent: str = "",
         plugin: str = "",
     ) -> List[ResponseAnomaly]:
-        obs = TurnObservation(duration_ms=duration_ms, response_len=response_len,
-                              corrections=corrections, intent=intent, plugin=plugin)
+        obs = TurnObservation(
+            duration_ms=duration_ms,
+            response_len=response_len,
+            corrections=corrections,
+            intent=intent,
+            plugin=plugin,
+        )
         self._latency.observe(duration_ms)
         anomalies = self._anomaly.observe(obs)
         for a in anomalies:
             self._recent_anomalies.append(a)
-            logger.warning("AdaptiveController: anomaly metric=%s z=%.2f val=%.1f mean=%.1f",
-                           a.metric, a.z_score, a.current_value, a.mean)
+            logger.warning(
+                "AdaptiveController: anomaly metric=%s z=%.2f val=%.1f mean=%.1f",
+                a.metric,
+                a.z_score,
+                a.current_value,
+                a.mean,
+            )
         return anomalies
 
     def recommended_timeout_ms(self) -> float:
@@ -767,5 +801,7 @@ def get_adaptive_controller(target_p95_ms: float = 3000.0) -> AdaptiveController
     if _adaptive_ctrl_instance is None:
         with _ctrl_lock:
             if _adaptive_ctrl_instance is None:
-                _adaptive_ctrl_instance = AdaptiveController(target_p95_ms=target_p95_ms)
+                _adaptive_ctrl_instance = AdaptiveController(
+                    target_p95_ms=target_p95_ms
+                )
     return _adaptive_ctrl_instance

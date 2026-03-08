@@ -388,7 +388,9 @@ class ResponseVarianceEngine:
             "LLM generator must provide either 'generate(prompt=...)' or 'chat(user_input, use_history=...)'"
         )
 
-    def _get_successful_patterns(self, intent_type: str, n: int = 5) -> List[Dict[str, Any]]:
+    def _get_successful_patterns(
+        self, intent_type: str, n: int = 5
+    ) -> List[Dict[str, Any]]:
         """Compatibility wrapper for phrasing learner pattern access APIs."""
         if not self.phrasing_learner:
             return []

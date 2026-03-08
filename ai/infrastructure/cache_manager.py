@@ -18,9 +18,11 @@ logger = logging.getLogger(__name__)
 try:
     import redis
     from redis.exceptions import RedisError, ConnectionError as RedisConnectionError
+
     try:
         from redis.retry import Retry
         from redis.backoff import ExponentialBackoff
+
         _REDIS_RETRY = Retry(ExponentialBackoff(), 3)
     except ImportError:
         _REDIS_RETRY = None
@@ -109,7 +111,10 @@ class CacheManager:
                 )
                 if _REDIS_RETRY is not None:
                     _redis_kwargs["retry"] = _REDIS_RETRY
-                    _redis_kwargs["retry_on_error"] = [RedisConnectionError, TimeoutError]
+                    _redis_kwargs["retry_on_error"] = [
+                        RedisConnectionError,
+                        TimeoutError,
+                    ]
                 self.redis_client = redis.Redis(**_redis_kwargs)
                 # Test connection
                 self.redis_client.ping()
