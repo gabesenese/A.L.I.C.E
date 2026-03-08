@@ -940,6 +940,29 @@ class IntentCostMatrix:
     def set_cost(self, decision: str, true_intent: str, value: float) -> None:
         self._overrides[(decision, true_intent)] = float(value)
 
+    def update_from_error_log(
+        self, original_intent: str, corrected_intent: str, alpha: float = 0.1
+    ) -> None:
+        """EMA update: router chose *original* but correct was *corrected_intent*.
+
+        Gradually increases the cost for that (original, corrected) pair so the
+        Bayesian router becomes more cautious about making the same mistake again.
+        """
+        if original_intent == corrected_intent:
+            return
+        key = (original_intent, corrected_intent)
+        current = self._overrides.get(
+            key,
+            self._HIGH_COST_PAIRS.get(key, self._LOW_COST_PAIRS.get(key, 1.0)),
+        )
+        # Push cost toward 1.5 (penalise recurring confusion)
+        new_val = current * (1.0 - alpha) + 1.5 * alpha
+        self._overrides[key] = round(min(2.0, max(0.1, new_val)), 3)
+        logger.debug(
+            "[CostMatrix] (%s \u2192 %s): %.3f \u2192 %.3f",
+            original_intent, corrected_intent, current, self._overrides[key],
+        )
+
 
 class _BinCalibrator:
     """Lightweight bin-based calibrator used when ConfidenceCalibrator is not injected."""
@@ -1049,6 +1072,45 @@ class BayesianIntentRouter:
                 self._ext_calibrator.record_prediction(confidence, was_correct)
             except Exception:
                 pass
+
+    def drain_for_cost_update(
+        self, error_log_path: str, max_entries: int = 100
+    ) -> int:
+        """Read recent JSONL error-log entries and update the cost matrix via EMA.
+
+        Expected JSONL format per line:
+            {"original_intent": "...", "corrected_intent": "..."}
+        or
+            {"intent": "...", "correction": "..."}
+
+        Returns the number of entries processed.
+        """
+        import json
+        from pathlib import Path
+
+        path = Path(error_log_path)
+        if not path.exists():
+            return 0
+        count = 0
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                lines = fh.readlines()[-max_entries:]
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    original = entry.get("original_intent") or entry.get("intent")
+                    corrected = entry.get("corrected_intent") or entry.get("correction")
+                    if original and corrected and original != corrected:
+                        self.cost_matrix.update_from_error_log(original, corrected)
+                        count += 1
+                except Exception:
+                    pass
+        except Exception as exc:
+            logger.debug("[BayesianRouter] drain_for_cost_update error: %s", exc)
+        return count
 
     def _calibrate(self, confidence: float) -> float:
         if self._ext_calibrator is not None:

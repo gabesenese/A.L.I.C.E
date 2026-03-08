@@ -22,7 +22,8 @@ import json
 from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from collections import defaultdict, deque
+import math
+from collections import OrderedDict, defaultdict, deque
 from pathlib import Path
 import threading
 
@@ -128,6 +129,139 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# MODULE-LEVEL PATTERN CONSTANTS  (avoids per-call list allocation)
+# ============================================================================
+
+# Negation detection (shared by EmotionDetector and _detect_intent_semantic)
+_NEGATION_WORDS: frozenset = frozenset({
+    "not", "no", "never", "don't", "dont", "won't", "wont",
+    "can't", "cant", "stop", "isn't", "isnt", "aren't", "arent",
+    "didn't", "didnt", "wouldn't", "wouldnt", "shouldn't", "shouldnt",
+})
+
+
+def _has_negation_before(text_lower: str, keyword: str, window_chars: int = 40) -> bool:
+    """Return True if a negation word appears within *window_chars* before *keyword*."""
+    idx = text_lower.find(keyword)
+    if idx == -1:
+        return False
+    preceding = text_lower[max(0, idx - window_chars):idx]
+    return bool(_NEGATION_WORDS & set(preceding.split()))
+
+
+def _is_negated_command(text_lower: str) -> bool:
+    """Return True if any of the first 4 tokens is a negation word."""
+    return bool(_NEGATION_WORDS & set(text_lower.split()[:4]))
+
+
+# ── PHASE 1 pattern sets ──────────────────────────────────────────────────────
+# System
+_P1_SYSTEM_STATUS: frozenset = frozenset({"status", "doing", "health", "how"})
+_P1_SYSTEM_RESOURCES: frozenset = frozenset({"cpu", "memory", "disk", "battery", "gpu"})
+_P1_SYSTEM_RESOURCE_VERBS: frozenset = frozenset({"usage", "available", "how much", "low", "check", "is"})
+
+# File operations
+_P1_FILE_CREATE: frozenset = frozenset({"create", "make", "new"})
+_P1_FILE_READ: frozenset = frozenset({"read", "open", "show", "display", "view"})
+_P1_FILE_DELETE: frozenset = frozenset({"delete", "remove", "trash"})
+_P1_FILE_MOVE: frozenset = frozenset({"move", "rename", "relocate"})
+_P1_FILE_LIST: frozenset = frozenset({"list", "show"})
+_P1_FILE_MARKERS: frozenset = frozenset({
+    "file", "document", ".txt", ".pdf", ".csv", ".json", ".yaml", ".md",
+    "folder", "directory",
+})
+
+# Memory
+_P1_MEMORY_STORE: frozenset = frozenset({"remember", "keep in mind", "save this"})
+_P1_MEMORY_STORE_OBJ: frozenset = frozenset({"that", "this", "i", "my", "prefer"})
+_P1_MEMORY_RECALL: tuple = ("what do you remember", "do you remember", "what do you know")
+_P1_MEMORY_SEARCH_SUBJ: tuple = ("what did we", "what have we", "what did i")
+_P1_MEMORY_SEARCH_VERB: frozenset = frozenset({"talk", "discuss", "say", "tell"})
+
+# Email
+_P1_EMAIL_COMPOSE_VERBS: frozenset = frozenset({"compose", "draft", "write", "send"})
+_P1_EMAIL_NOUNS: frozenset = frozenset({"email", "mail", "message", "to"})
+_P1_EMAIL_DELETE_VERBS: frozenset = frozenset({"delete", "remove", "trash"})
+_P1_EMAIL_DELETE_NOUNS: frozenset = frozenset({"email", "mail", "message"})
+_P1_EMAIL_REPLY_VERBS: frozenset = frozenset({"reply", "respond"})
+_P1_EMAIL_SEARCH_VERBS: frozenset = frozenset({"search", "find", "look for"})
+_P1_EMAIL_SEARCH_NOUNS: frozenset = frozenset({"email", "mail", "inbox", "message", "from"})
+_P1_EMAIL_LIST_VERBS: frozenset = frozenset({"show", "list", "recent", "latest"})
+_P1_EMAIL_LIST_NOUNS: frozenset = frozenset({"email", "emails", "mail", "mails", "inbox"})
+_P1_EMAIL_READ_VERBS: frozenset = frozenset({"read", "open", "display", "view"})
+_P1_EMAIL_READ_NOUNS: frozenset = frozenset({"email", "emails", "mail", "message"})
+
+# Notes
+_P1_NOTES_APPEND_VERBS: frozenset = frozenset({"add", "put", "append", "include"})
+_P1_NOTES_APPEND_PHRASES: tuple = (
+    "to the list", "to my list", "to the note", "to my note",
+    "on the list", "on my list", "to grocery", "to shopping",
+)
+_P1_NOTES_CREATE_VERBS: frozenset = frozenset({"create", "new", "make", "write"})
+_P1_NOTES_KEYWORDS: frozenset = frozenset({"note", "notes", "memo"})
+_P1_NOTES_LIST_VERBS: frozenset = frozenset({"show", "list", "display", "see"})
+_P1_NOTES_LIST_NOUNS: frozenset = frozenset({"note", "notes", "all notes"})
+_P1_NOTES_SEARCH_VERBS: frozenset = frozenset({"find", "search"})
+_P1_NOTES_DELETE_VERBS: frozenset = frozenset({"delete", "remove"})
+
+# Reminders
+_P1_REMINDER_SET: tuple = (
+    "remind me", "set a reminder", "add a reminder", "create a reminder",
+    "alert me", "notify me when", "don't let me forget",
+)
+_P1_REMINDER_LIST: tuple = (
+    "my reminders", "what reminders", "show reminders", "list reminders",
+    "any reminders", "upcoming reminders", "pending reminders",
+)
+_P1_REMINDER_CANCEL_VERBS: frozenset = frozenset({"cancel", "delete", "remove"})
+
+# Greetings / thanks / status
+_P1_THANKS: tuple = ("thanks", "thank you", "thx", "thank", "thanks for")
+_P1_STATUS_INQUIRY: tuple = (
+    "how are you", "how are you doing", "how is it going", "how have you been"
+)
+_P1_GREETING_WORDS: frozenset = frozenset({"hi", "hey", "hello", "yo", "sup", "hiya"})
+
+# Vague / clarification
+_P1_VAGUE_PRONOUNS: tuple = (
+    "who is he", "who is she", "who is that", "what is that", "who is that person"
+)
+_P1_VAGUE_TEMPORAL: frozenset = frozenset({
+    "yesterday", "tomorrow", "last week", "last month", "next week", "next month"
+})
+_P1_VAGUE_REQUESTS: tuple = (
+    "add this to", "put this in", "do that thing",
+    "can you do that", "that thing", "this thing",
+)
+
+# Weather
+_P1_WEATHER_KEYWORDS: frozenset = frozenset({
+    "weather", "forecast", "temperature", "rain", "snow",
+    "sunny", "cloudy", "humid", "cold", "hot",
+})
+_P1_FORECAST_WORDS: frozenset = frozenset({
+    "tomorrow", "tonight", "weekend", "next week", "forecast",
+    "this week", "7 day", "7-day",
+})
+
+# PHASE 3 fallback
+_P3_FORECAST_PHRASES: tuple = (
+    "forecast", "this week", "next week", "weekend", "tomorrow",
+    "7 day", "7-day", "next few days", "next 7 days",
+    "monday", "tuesday", "wednesday", "thursday",
+    "friday", "saturday", "sunday",
+)
+_P3_WEATHER_WORDS: frozenset = frozenset({"weather", "temperature", "outside"})
+_P3_VAGUE_PATTERNS: tuple = (
+    "who is he", "who is she", "who is that",
+    "what is that", "what about that",
+    "add this to", "put this in",
+    "what happened", "what about",
+    "how do i", "how can i",
+    "tell me about the", "tell me about a",
+)
+
 
 # ============================================================================
 # DATA STRUCTURES
@@ -193,6 +327,7 @@ class ConversationContext:
     dialogue_state: str = "idle"
     last_plugin: Optional[str] = None
     pending_clarification: Dict[str, Any] = field(default_factory=dict)
+    turn_index: int = 0
 
 
 @dataclass
@@ -1011,7 +1146,7 @@ class EmotionDetector:
 
         for emotion, keywords in self.EMOTION_KEYWORDS.items():
             for keyword in keywords:
-                if keyword in text_lower:
+                if keyword in text_lower and not _has_negation_before(text_lower, keyword):
                     emotions.append(emotion)
                     break
 
@@ -1228,9 +1363,12 @@ class NLPProcessor:
             "delete",
         }
 
-        # Cache for performance
-        self._entity_cache = {}
+        # Cache for performance (OrderedDict enables true LRU eviction)
+        self._entity_cache: OrderedDict = OrderedDict()
         self._cache_lock = threading.Lock()
+        # Lazy-built embedding index for semantic learned-corrections lookup
+        self._correction_embeddings = None
+        self._correction_keys: Optional[List[str]] = None
 
     def _ensure_semantic_classifier(self):
         """Lazily initialize semantic classifier only when needed."""
@@ -1504,20 +1642,10 @@ class NLPProcessor:
             "month",
             "next",
         }
-        weather_cues = {
-            "weather",
-            "forecast",
-            "rain",
-            "snow",
-            "cold",
-            "warm",
-            "umbrella",
-            "coat",
-            "jacket",
-            "wear",
-            "outside",
-            "temperature",
-        }
+        weather_cues = (
+            frozenset(FollowUpResolver.DOMAIN_SIGNALS.get("weather", []))
+            | _P1_WEATHER_KEYWORDS
+        )
 
         recent_weather_context = last_intent.startswith("weather:") or any(
             "weather" in query or "forecast" in query for query in recent_queries
@@ -2168,6 +2296,59 @@ class NLPProcessor:
             "[OK] NLPProcessor initialized with advanced semantic understanding"
         )
 
+    def _ensure_correction_embeddings(self) -> None:
+        """Lazily build a normalised embedding matrix over all learned-correction keys."""
+        if self._correction_embeddings is not None or not self.learned_corrections:
+            return
+        classifier = self._ensure_semantic_classifier()
+        if classifier is None or not hasattr(classifier, "_model") or classifier._model is None:
+            return
+        try:
+            import numpy as np
+            keys = list(self.learned_corrections.keys())
+            embs = classifier._model.encode(keys, normalize_embeddings=True)
+            self._correction_keys = keys
+            self._correction_embeddings = embs
+            logger.info(
+                "[LEARNED-SEM] Built correction embedding index (%d entries)", len(keys)
+            )
+        except Exception as exc:
+            logger.debug("[LEARNED-SEM] Could not build correction embeddings: %s", exc)
+
+    def _try_semantic_correction(self, text: str) -> Optional[Tuple[str, float]]:
+        """Return (intent, confidence) if a learned correction matches semantically.
+
+        Uses cosine similarity over sentence-transformer embeddings.  Only fires
+        when similarity > 0.90 to avoid spurious overrides.
+        """
+        if not self.learned_corrections:
+            return None
+        self._ensure_correction_embeddings()
+        if self._correction_embeddings is None or self._correction_keys is None:
+            return None
+        classifier = self._ensure_semantic_classifier()
+        if classifier is None or not hasattr(classifier, "_model") or classifier._model is None:
+            return None
+        try:
+            import numpy as np
+            query_emb = classifier._model.encode(
+                [text.lower()], normalize_embeddings=True
+            )
+            sims = (self._correction_embeddings @ query_emb.T).flatten()
+            best_idx = int(np.argmax(sims))
+            best_sim = float(sims[best_idx])
+            if best_sim > 0.90:
+                matched_key = self._correction_keys[best_idx]
+                learned_intent = self.learned_corrections[matched_key]
+                logger.info(
+                    "[LEARNED-SEM] '%s' ~ '%s' (%.2f) -> %s",
+                    text, matched_key, best_sim, learned_intent,
+                )
+                return learned_intent, min(0.93, 0.80 + best_sim * 0.13)
+        except Exception as exc:
+            logger.debug("[LEARNED-SEM] Semantic lookup failed: %s", exc)
+        return None
+
     def process(self, text: str, use_context: bool = True) -> ProcessedQuery:
         """
         Complete NLP processing pipeline
@@ -2448,6 +2629,83 @@ class NLPProcessor:
                     ),
                 }
 
+        # ── Dialogue-state gate ────────────────────────────────────────────────
+        # If Alice is waiting for the user to disambiguate (dialogue_state ==
+        # "clarifying") and the current response looks like a clarification
+        # answer (an ordinal, yes/no, pronoun, etc.) rather than a new command,
+        # map it to the pending candidate plugin instead of a raw NLP intent.
+        _clarif_resolution_cues = (
+            "that one", "the first", "first one", "second one", "third one",
+            "yes", "no", "neither", "that", "option",
+        )
+        if (
+            self.context.dialogue_state == "clarifying"
+            and self.context.pending_clarification
+            and intent_confidence < 0.70
+            and any(cue in normalized_text.lower() for cue in _clarif_resolution_cues)
+        ):
+            _pending_plugins = self.context.pending_clarification.get("candidate_plugins", [])
+            if _pending_plugins:
+                _tl_low = normalized_text.lower()
+                _idx = 0
+                if any(w in _tl_low for w in ["second", " 2 ", "two"]):
+                    _idx = 1
+                elif any(w in _tl_low for w in ["third", " 3 ", "three"]):
+                    _idx = 2
+                _sel = _pending_plugins[min(_idx, len(_pending_plugins) - 1)]
+                intent = f"{_sel}:general"
+                intent_confidence = 0.78
+                route = RouteDecision(
+                    intent=intent,
+                    confidence=intent_confidence,
+                    plugin=_sel,
+                    action="general",
+                    trace={"source": "dialogue_state_gate"},
+                )
+                logger.debug("[DIALOGUE_GATE] Clarification resolved -> %s", intent)
+
+        # ── Semantic learned-correction fallback ──────────────────────────────
+        # If main intent confidence is low, attempt a nearest-neighbour lookup
+        # over the learned_corrections embedding index.  Only overrides when
+        # cosine similarity > 0.90 (see _try_semantic_correction).
+        if intent_confidence < 0.70 and self.learned_corrections:
+            _sem = self._try_semantic_correction(normalized_text)
+            if _sem:
+                _sem_intent, _sem_conf = _sem
+                logger.info(
+                    "[LEARNED-SEM] Override %s (%.2f) -> %s (%.2f)",
+                    intent, intent_confidence, _sem_intent, _sem_conf,
+                )
+                intent = _sem_intent
+                intent_confidence = _sem_conf
+
+        # ── Compound intent detection ─────────────────────────────────────────
+        # "create a note AND remind me tomorrow" -> primary intent + secondary_intents
+        _compound_sep = re.compile(r"\s+(?:and|then|also)\s+", re.IGNORECASE)
+        _compound_parts = _compound_sep.split(normalized_text.strip())
+        if len(_compound_parts) > 1:
+            _secondary_intents = []
+            for _part in _compound_parts[1:]:
+                _part = _part.strip()
+                if len(_part) > 8:
+                    try:
+                        _si, _sc = self._detect_intent_semantic(_part)
+                        if (
+                            _sc > 0.65
+                            and _si != "conversation:general"
+                            and _si != intent
+                        ):
+                            _secondary_intents.append(
+                                {"intent": _si, "confidence": _sc, "text": _part}
+                            )
+                    except Exception:
+                        pass
+            if _secondary_intents:
+                parsed_command.modifiers["secondary_intents"] = _secondary_intents
+                logger.debug(
+                    "[COMPOUND] Secondary intents: %s", _secondary_intents
+                )
+
         # Continue with rest of processing
 
         # Step 3: Entity extraction
@@ -2620,6 +2878,9 @@ class NLPProcessor:
 
         text_lower = text.lower()
 
+        # Negation guard: "don't create a note" should NOT fire notes:create
+        _negated = _is_negated_command(text_lower)
+
         if text_lower.startswith("/debug tokens"):
             return "system:debug_tokens", 0.98
 
@@ -2653,160 +2914,117 @@ class NLPProcessor:
 
         # PHASE 1: HIGH-CONFIDENCE EXPLICIT PATTERNS (these override semantic classification)
         # System intents - check BEFORE time (system has "how's" pattern that could match time)
-        if "system" in text_lower and any(
-            word in text_lower for word in ["status", "doing", "health", "how"]
-        ):
+        if "system" in text_lower and any(word in text_lower for word in _P1_SYSTEM_STATUS):
             return "system:status", 0.9
         # Resource check: "how is/is my + cpu/memory/disk/battery"
         if any(word in text_lower for word in ["how is", "is my", "is the"]) and any(
-            word in text_lower for word in ["cpu", "memory", "disk", "battery", "gpu"]
+            word in text_lower for word in _P1_SYSTEM_RESOURCES
         ):
             return "system:status", 0.9
-        if any(
-            word in text_lower for word in ["cpu", "memory", "disk", "battery"]
-        ) and any(
-            word in text_lower
-            for word in ["usage", "available", "how much", "low", "check", "is"]
+        if any(word in text_lower for word in _P1_SYSTEM_RESOURCES) and any(
+            word in text_lower for word in _P1_SYSTEM_RESOURCE_VERBS
         ):
             return "system:status", 0.9
 
         # File operations - MUST CHECK BEFORE notes (to prevent "notes.txt" matching notes plugin)
         # These patterns check for explicit file context markers like "file", "document", file extensions
-        has_file_marker = (
-            "file" in text_lower
-            or "document" in text_lower
-            or ".txt" in text_lower
-            or ".pdf" in text_lower
-            or ".csv" in text_lower
-            or ".json" in text_lower
-            or ".yaml" in text_lower
-            or ".md" in text_lower
-            or "folder" in text_lower
-            or "directory" in text_lower
-        )
+        has_file_marker = any(w in text_lower for w in _P1_FILE_MARKERS)
 
         if has_file_marker:
             # Create: "create/make/new + file"
-            if any(word in text_lower for word in ["create", "make", "new"]):
+            if any(word in text_lower for word in _P1_FILE_CREATE) and not _negated:
                 return "file_operations:create", 0.95
             # Read: "read/open/show + file/contents"
-            if any(
-                word in text_lower
-                for word in ["read", "open", "show", "display", "view"]
-            ):
+            if any(word in text_lower for word in _P1_FILE_READ):
                 return "file_operations:read", 0.95
             # Delete: "delete/remove + file"
-            if any(word in text_lower for word in ["delete", "remove", "trash"]):
+            if any(word in text_lower for word in _P1_FILE_DELETE) and not _negated:
                 return "file_operations:delete", 0.95
             # Move: "move/rename + file"
-            if any(word in text_lower for word in ["move", "rename", "relocate"]):
+            if any(word in text_lower for word in _P1_FILE_MOVE) and not _negated:
                 return "file_operations:move", 0.95
             # List: "list/show + files"
-            if any(word in text_lower for word in ["list", "show"]):
+            if any(word in text_lower for word in _P1_FILE_LIST):
                 return "file_operations:list", 0.95
 
         # Memory operations - user preference/recall patterns
         # Store: "remember/save/keep + that/this"
-        if any(
-            word in text_lower for word in ["remember", "keep in mind", "save this"]
-        ) and any(word in text_lower for word in ["that", "this", "i", "my", "prefer"]):
+        if any(word in text_lower for word in _P1_MEMORY_STORE) and any(
+            word in text_lower for word in _P1_MEMORY_STORE_OBJ
+        ):
             return "memory:store", 0.95
         # Recall: "what do you remember/know about"
-        if any(
-            phrase in text_lower
-            for phrase in [
-                "what do you remember",
-                "do you remember",
-                "what do you know",
-            ]
-        ):
+        if any(phrase in text_lower for phrase in _P1_MEMORY_RECALL):
             return "memory:recall", 0.95
         # Search: "what did we talk about/discuss"
-        if any(
-            phrase in text_lower
-            for phrase in ["what did we", "what have we", "what did i"]
-        ) and any(word in text_lower for word in ["talk", "discuss", "say", "tell"]):
+        if any(phrase in text_lower for phrase in _P1_MEMORY_SEARCH_SUBJ) and any(
+            word in text_lower for word in _P1_MEMORY_SEARCH_VERB
+        ):
             return "memory:search", 0.95
 
         # Email intents - VERY explicit: action word + email word (0.85-0.9 confidence)
         # Compose: "compose/draft/write + email/mail"
-        if any(
-            word in text_lower for word in ["compose", "draft", "write", "send"]
-        ) and any(word in text_lower for word in ["email", "mail", "message", "to"]):
+        if any(word in text_lower for word in _P1_EMAIL_COMPOSE_VERBS) and any(
+            word in text_lower for word in _P1_EMAIL_NOUNS
+        ) and not _negated:
             return "email:compose", 0.9
         # Delete: "delete/remove/trash + email/mail"
-        if any(word in text_lower for word in ["delete", "remove", "trash"]) and any(
-            word in text_lower for word in ["email", "mail", "message"]
-        ):
+        if any(word in text_lower for word in _P1_EMAIL_DELETE_VERBS) and any(
+            word in text_lower for word in _P1_EMAIL_DELETE_NOUNS
+        ) and not _negated:
             return "email:delete", 0.9
         # Reply: "reply/respond to email/mail"
-        if any(word in text_lower for word in ["reply", "respond"]) and any(
-            word in text_lower for word in ["email", "mail", "message"]
-        ):
+        if any(word in text_lower for word in _P1_EMAIL_REPLY_VERBS) and any(
+            word in text_lower for word in _P1_EMAIL_DELETE_NOUNS
+        ) and not _negated:
             return "email:reply", 0.85
         # Search: "find/search + email/mail + (from/subject/sender)"
-        if any(word in text_lower for word in ["search", "find", "look for"]) and any(
-            word in text_lower for word in ["email", "mail", "inbox", "message", "from"]
+        if any(word in text_lower for word in _P1_EMAIL_SEARCH_VERBS) and any(
+            word in text_lower for word in _P1_EMAIL_SEARCH_NOUNS
         ):
             return "email:search", 0.85
         # List: "show/list/recent + email(s)/mail(s)"
-        if any(
-            word in text_lower for word in ["show", "list", "recent", "latest"]
-        ) and any(
-            word in text_lower for word in ["email", "emails", "mail", "mails", "inbox"]
+        if any(word in text_lower for word in _P1_EMAIL_LIST_VERBS) and any(
+            word in text_lower for word in _P1_EMAIL_LIST_NOUNS
         ):
             return "email:list", 0.85
-        # Read: "read/open/display + email(s)/mail/message + optional (first/last/latest/number)"
-        if any(
-            word in text_lower for word in ["read", "open", "display", "view"]
-        ) and any(
-            word in text_lower for word in ["email", "emails", "mail", "message"]
+        # Read: "read/open/display + email(s)/mail/message"
+        if any(word in text_lower for word in _P1_EMAIL_READ_VERBS) and any(
+            word in text_lower for word in _P1_EMAIL_READ_NOUNS
         ):
             return "email:read", 0.85
 
         # Notes intents - distinguish VERY clearly
         # Append/add to existing note: must come BEFORE create to prevent misclassification
         # Patterns: "add X to the list", "add X to my note", "put X on the list"
-        if any(
-            word in text_lower for word in ["add", "put", "append", "include"]
-        ) and any(
-            phrase in text_lower
-            for phrase in [
-                "to the list",
-                "to my list",
-                "to the note",
-                "to my note",
-                "on the list",
-                "on my list",
-                "to grocery",
-                "to shopping",
-            ]
-        ):
+        if any(word in text_lower for word in _P1_NOTES_APPEND_VERBS) and any(
+            phrase in text_lower for phrase in _P1_NOTES_APPEND_PHRASES
+        ) and not _negated:
             return "notes:append", 0.9
         # Create: "create/new/make + note" - requires explicit note/memo keyword
-        if any(
-            word in text_lower for word in ["create", "new", "make", "write"]
-        ) and any(word in text_lower for word in ["note", "notes", "memo"]):
+        if any(word in text_lower for word in _P1_NOTES_CREATE_VERBS) and any(
+            word in text_lower for word in _P1_NOTES_KEYWORDS
+        ) and not _negated:
             return "notes:create", 0.9
         # "add a note" - create, not append (no "to the" structure)
         if text_lower.startswith("add") and any(
-            word in text_lower for word in ["note", "memo"]
-        ):
+            word in text_lower for word in _P1_NOTES_KEYWORDS
+        ) and not _negated:
             return "notes:create", 0.9
         # List: "show/list + note(s)"
-        if any(
-            word in text_lower for word in ["show", "list", "display", "see"]
-        ) and any(word in text_lower for word in ["note", "notes", "all notes"]):
+        if any(word in text_lower for word in _P1_NOTES_LIST_VERBS) and any(
+            word in text_lower for word in _P1_NOTES_LIST_NOUNS
+        ):
             return "notes:list", 0.9
         # Search: "find/search + note(s)"
-        if any(word in text_lower for word in ["find", "search"]) and any(
-            word in text_lower for word in ["note", "notes", "memo"]
+        if any(word in text_lower for word in _P1_NOTES_SEARCH_VERBS) and any(
+            word in text_lower for word in _P1_NOTES_KEYWORDS
         ):
             return "notes:search", 0.9
         # Delete: "delete/remove + note(s)"
-        if any(word in text_lower for word in ["delete", "remove"]) and any(
-            word in text_lower for word in ["note", "notes", "memo"]
-        ):
+        if any(word in text_lower for word in _P1_NOTES_DELETE_VERBS) and any(
+            word in text_lower for word in _P1_NOTES_KEYWORDS
+        ) and not _negated:
             return "notes:delete", 0.85
 
         # ── Reminder intents (must come BEFORE thanks/greetings) ─────────────────
@@ -2847,31 +3065,16 @@ class NLPProcessor:
         # ─────────────────────────────────────────────────────────────────────────
 
         # Thanks - check BEFORE greetings (to prevent "thanks" being matched by semantic classifier)
-        if any(
-            phrase in text_lower
-            for phrase in ["thanks", "thank you", "thx", "thank", "thanks for"]
-        ):
+        if any(phrase in text_lower for phrase in _P1_THANKS):
             return "thanks", 0.9
 
         # Status inquiry: "how are you", "how is alice", "how are you doing"
-        if any(
-            phrase in text_lower
-            for phrase in [
-                "how are you",
-                "how are you doing",
-                "how is it going",
-                "how have you been",
-            ]
-        ):
+        if any(phrase in text_lower for phrase in _P1_STATUS_INQUIRY):
             return "status_inquiry", 0.85
 
         # Greetings (high confidence) - must be after Thanks to not interfere
-        greeting_words = ["hi", "hey", "hello", "yo", "sup", "hiya"]
         greeting_tokens = set(re.findall(r"\b[a-z']+\b", text_lower))
-        if (
-            any(word in greeting_tokens for word in greeting_words)
-            and len(text_lower.split()) <= 4
-        ):
+        if _P1_GREETING_WORDS & greeting_tokens and len(text_lower.split()) <= 4:
             return "greeting", 0.9
 
         # Knowledge/definition questions: "what is X?", "what are X?", "who is X?", "define X"
@@ -2919,30 +3122,11 @@ class NLPProcessor:
 
         # CLARIFICATION INTENTS (must run before semantic to catch vague patterns)
         # Vague pronouns without context: "who is he/she", "what is that", "who is that"
-        if any(
-            pattern in text_lower
-            for pattern in [
-                "who is he",
-                "who is she",
-                "who is that",
-                "what is that",
-                "who is that person",
-            ]
-        ):
+        if any(pattern in text_lower for pattern in _P1_VAGUE_PRONOUNS):
             return "vague_question", 0.8
 
         # Vague temporal questions: "what about yesterday/tomorrow", "what happened last week"
-        if any(
-            word in text_lower
-            for word in [
-                "yesterday",
-                "tomorrow",
-                "last week",
-                "last month",
-                "next week",
-                "next month",
-            ]
-        ) and (
+        if any(word in text_lower for word in _P1_VAGUE_TEMPORAL) and (
             "what" in text_lower
             or "when" in text_lower
             or "what about" in text_lower
@@ -2950,18 +3134,8 @@ class NLPProcessor:
         ):
             return "vague_temporal_question", 0.8
 
-        # Vague requests without clear object: "add this to", "put this in", "do that thing", "can you do that thing"
-        if any(
-            pattern in text_lower
-            for pattern in [
-                "add this to",
-                "put this in",
-                "do that thing",
-                "can you do that",
-                "that thing",
-                "this thing",
-            ]
-        ):
+        # Vague requests without clear object: "add this to", "put this in", "do that thing"
+        if any(pattern in text_lower for pattern in _P1_VAGUE_REQUESTS):
             return "vague_request", 0.8
 
         # Schedule action without specifics
@@ -2988,30 +3162,8 @@ class NLPProcessor:
 
         # Weather intents: "what's the weather in X", "will it rain", "is it cold outside?"
         # Must be in PHASE 1 (before semantic classifier) since semantic may misclassify.
-        _weather_keywords = {
-            "weather",
-            "forecast",
-            "temperature",
-            "rain",
-            "snow",
-            "sunny",
-            "cloudy",
-            "humid",
-            "cold",
-            "hot",
-        }
-        _forecast_words = {
-            "tomorrow",
-            "tonight",
-            "weekend",
-            "next week",
-            "forecast",
-            "this week",
-            "7 day",
-            "7-day",
-        }
-        if any(word in text_lower for word in _weather_keywords):
-            if any(word in text_lower for word in _forecast_words):
+        if any(word in text_lower for word in _P1_WEATHER_KEYWORDS):
+            if any(word in text_lower for word in _P1_FORECAST_WORDS):
                 return "weather:forecast", 0.88
             return "weather:current", 0.88
 
@@ -3060,47 +3212,14 @@ class NLPProcessor:
 
         # Weather intents - CHECK EARLY before vague patterns
         # This ensures "is that wednesday?" triggers weather:forecast, not vague_question
-        forecast_phrases = [
-            "forecast",
-            "this week",
-            "next week",
-            "weekend",
-            "tomorrow",
-            "7 day",
-            "7-day",
-            "next few days",
-            "next 7 days",
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday",
-            "saturday",
-            "sunday",
-        ]
-        if any(phrase in text_lower for phrase in forecast_phrases):
+        if any(phrase in text_lower for phrase in _P3_FORECAST_PHRASES):
             return "weather:forecast", 0.8
 
-        if any(word in text_lower for word in ["weather", "temperature", "outside"]):
+        if any(word in text_lower for word in _P3_WEATHER_WORDS):
             return "weather:current", 0.75
 
         # Vague patterns requiring clarification
-        vague_patterns = [
-            "who is he",
-            "who is she",
-            "who is that",  # Pronoun ref without context
-            "what is that",
-            "what about that",  # Ambiguous reference
-            "add this to",
-            "put this in",  # Action without object context
-            "what happened",
-            "what about",  # Vague temporal/domain
-            "how do i",
-            "how can i",  # Generic how questions
-            "tell me about the",
-            "tell me about a",  # Ambiguous topic
-        ]
-        if any(pattern in text_lower for pattern in vague_patterns):
+        if any(pattern in text_lower for pattern in _P3_VAGUE_PATTERNS):
             return "vague_question", 0.75
         if "?" in text:
             return "conversation:question", 0.5
@@ -3126,10 +3245,11 @@ class NLPProcessor:
     def _extract_all_entities(self, text: str) -> Dict[str, List[Entity]]:
         """Extract all entities (domain-specific + general)"""
 
-        # Check cache
+        # Check cache (promote to most-recently-used on hit)
         cache_key = hash(text)
         with self._cache_lock:
             if cache_key in self._entity_cache:
+                self._entity_cache.move_to_end(cache_key)
                 return self._entity_cache[cache_key]
 
         entities = {}
@@ -3198,15 +3318,13 @@ class NLPProcessor:
         if time_range_entities:
             entities["TIME_RANGE"] = time_range_entities
 
-        # Cache result
+        # Cache result (OrderedDict LRU: move_to_end promotes recently used entries)
         with self._cache_lock:
             self._entity_cache[cache_key] = entities
-            # Limit cache size
-            if len(self._entity_cache) > 1000:
-                # Remove oldest 20%
-                to_remove = list(self._entity_cache.keys())[:200]
-                for key in to_remove:
-                    del self._entity_cache[key]
+            self._entity_cache.move_to_end(cache_key)
+            # Evict least-recently-used entries when cache exceeds limit
+            while len(self._entity_cache) > 1000:
+                self._entity_cache.popitem(last=False)
 
         return entities
 
@@ -3214,6 +3332,7 @@ class NLPProcessor:
         """Update conversation context"""
         self.context.last_intent = result.intent
         self.context.query_history.append(result.original_text)
+        self.context.turn_index += 1
         self.context.last_plugin = (
             result.intent.split(":", 1)[0] if ":" in result.intent else "conversation"
         )
@@ -3931,6 +4050,7 @@ class FollowUpResolver:
         last_intent: Optional[str],
         conversation_topics: Optional[List[str]] = None,
         perception_followup_domain: Optional[str] = None,
+        turn_distance: int = 0,
     ) -> FollowUpResult:
         """
         Return the final (possibly inherited) intent and confidence.
@@ -3989,12 +4109,14 @@ class FollowUpResolver:
             and recent_domain in self.DOMAIN_SIGNALS
             and not _same_domain_specific
         ):
-            new_conf = max(nlp_confidence, 0.82)
+            _decay = math.exp(-0.15 * max(0, turn_distance))
+            new_conf = max(nlp_confidence, 0.82 * _decay)
             logger.debug(
-                "[FollowUpResolver] domain_signal:%s → %s (%.2f)",
+                "[FollowUpResolver] domain_signal:%s → %s (%.2f, decay=%.2f)",
                 recent_domain,
                 recent_intent,
                 new_conf,
+                _decay,
             )
             return FollowUpResult(
                 recent_intent,
@@ -4010,12 +4132,14 @@ class FollowUpResolver:
             and perception_followup_domain == recent_domain
             and not _same_domain_specific
         ):
-            new_conf = max(nlp_confidence, 0.80)
+            _decay = math.exp(-0.15 * max(0, turn_distance))
+            new_conf = max(nlp_confidence, 0.80 * _decay)
             logger.debug(
-                "[FollowUpResolver] perception_signal:%s → %s (%.2f)",
+                "[FollowUpResolver] perception_signal:%s → %s (%.2f, decay=%.2f)",
                 recent_domain,
                 recent_intent,
                 new_conf,
+                _decay,
             )
             return FollowUpResult(
                 recent_intent,
@@ -4030,11 +4154,13 @@ class FollowUpResolver:
             if ":" in recent_intent and not recent_intent.startswith(
                 ("conversation:", "system:")
             ):
-                new_conf = max(nlp_confidence, 0.78)
+                _decay = math.exp(-0.15 * max(0, turn_distance))
+                new_conf = max(nlp_confidence, 0.78 * _decay)
                 logger.debug(
-                    "[FollowUpResolver] generic_followup → %s (%.2f)",
+                    "[FollowUpResolver] generic_followup → %s (%.2f, decay=%.2f)",
                     recent_intent,
                     new_conf,
+                    _decay,
                 )
                 return FollowUpResult(
                     recent_intent,
