@@ -341,3 +341,35 @@ class TestNotesTitleFollowup:
         assert followup.get("action") == "delete_note"
         assert followup.get("data", {}).get("note_title") == "Project Tasks Personal"
 
+    def test_show_me_the_named_note_routes_to_content(self, plugin):
+        """'show me the grocery note' must route to get_note_content, not list_notes."""
+        plugin.manager.create_note(title="grocery", content="milk, eggs, bread")
+        plugin.manager.create_note(title="work", content="standup at 10")
+
+        result = plugin.execute(
+            intent="notes:read",
+            query="show me the grocery note",
+            entities={},
+            context={},
+        )
+
+        assert result.get("success") is True
+        assert result.get("action") == "get_note_content"
+        assert result.get("data", {}).get("note_title").lower() == "grocery"
+
+    def test_normalize_title_strips_me_the_prefix(self, plugin):
+        """_normalize_title_query must strip 'me the' chains to find 'grocery'."""
+        plugin.manager.create_note(title="Grocery", content="butter, flour")
+
+        result = plugin.execute(
+            intent="notes:read",
+            query="show me the grocery note",
+            entities={},
+            context={},
+        )
+
+        assert result.get("success") is True
+        data = result.get("data", {})
+        assert data.get("note_title", "").lower() == "grocery"
+        assert "butter" in data.get("content", "")
+

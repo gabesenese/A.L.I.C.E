@@ -2113,14 +2113,23 @@ class NotesPlugin(PluginInterface):
             cleaned,
             flags=re.IGNORECASE,
         )
+        # Strip verb + optional 'me' + optional 'the' prefix
+        # Handles: "show me the grocery" → "grocery"
         cleaned = re.sub(
-            r"^(?:please\s+)?(?:read|show|open)(?:\s+(?:out\s+)?)?(?:the\s+)?",
+            r"^(?:please\s+)?(?:read|show|open)(?:\s+(?:me\s+)?(?:out\s+)?)?(?:the\s+)?",
             "",
             cleaned,
             flags=re.IGNORECASE,
         )
         cleaned = re.sub(r"^(?:of\s+)", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"^(?:the|my|this|that)\s+", "", cleaned, flags=re.IGNORECASE)
+        # Strip leading stop words iteratively (handles chains like "me the grocery")
+        for _ in range(3):
+            prev = cleaned
+            cleaned = re.sub(
+                r"^(?:me|the|my|this|that|a|an)\s+", "", cleaned, flags=re.IGNORECASE
+            )
+            if cleaned == prev:
+                break
         cleaned = re.sub(
             r"\s+(?:note|notes|list|lists)\b", "", cleaned, flags=re.IGNORECASE
         )
@@ -3476,7 +3485,9 @@ class NotesPlugin(PluginInterface):
             return True
 
         # Check for "add X to list/note" or "add X to the TITLE note/list" pattern
-        if re.search(r"add\s+.+\s+to\s+(?:the\s+)?(?:\w+\s+)?(?:list|note)", command_lower):
+        if re.search(
+            r"add\s+.+\s+to\s+(?:the\s+)?(?:\w+\s+)?(?:list|note)", command_lower
+        ):
             return True
 
         # "delete/remove the X list" (e.g. "delete the grocery list") — notes are often called "lists"
@@ -3627,6 +3638,12 @@ class NotesPlugin(PluginInterface):
                     any(
                         word in command_lower
                         for word in ["read", "open", "full content", "show content"]
+                    )
+                    # "show/display/let me see the NAMED note" — must match before
+                    # the generic "show" list guard catches it.
+                    or re.search(
+                        r"(?:show|display)\s+(?:me\s+)?(?:the\s+)?(?!(?:all|any|my|your)\s)[a-zA-Z]\S*\s+notes?\b",
+                        command_lower,
                     )
                     or re.search(r"what(?:\s+is|\s*\'s)\s+in\b", command_lower)
                     or re.search(
@@ -4136,7 +4153,9 @@ class NotesPlugin(PluginInterface):
         """Add content to an existing note (context-aware)"""
         # Extract what to add: "add X to the [TITLE] list/note"
         match = re.search(
-            r"add\s+(.+?)\s+to\s+(?:the\s+)?(?:\w+\s+)?(?:list|note)", command, re.IGNORECASE
+            r"add\s+(.+?)\s+to\s+(?:the\s+)?(?:\w+\s+)?(?:list|note)",
+            command,
+            re.IGNORECASE,
         )
 
         if not match:
