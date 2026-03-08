@@ -257,7 +257,7 @@ class PatternMiner:
 # Habit Miner + HTN Planner  (recurring action sequences → macro automations)
 # ---------------------------------------------------------------------------
 
-ActionTuple = Tuple[str, str, str]   # (intent, plugin, action)
+ActionTuple = Tuple[str, str, str]  # (intent, plugin, action)
 
 
 def _fmt(a: ActionTuple) -> str:
@@ -266,7 +266,7 @@ def _fmt(a: ActionTuple) -> str:
 
 def _ngrams(seq: List[ActionTuple], n: int) -> Iterator[Tuple[ActionTuple, ...]]:
     for i in range(len(seq) - n + 1):
-        yield tuple(seq[i:i + n])
+        yield tuple(seq[i : i + n])
 
 
 @dataclass
@@ -277,6 +277,7 @@ class HabitMacro:
     confidence = occurrence_count / threshold  (>= 1.0 means threshold met)
     trigger_length controls how many trailing actions must match to suggest.
     """
+
     name: str
     sequence: List[ActionTuple]
     trigger_length: int = 2
@@ -286,13 +287,13 @@ class HabitMacro:
     fire_count: int = 0
 
     def trigger_pattern(self) -> List[ActionTuple]:
-        return self.sequence[-self.trigger_length:]
+        return self.sequence[-self.trigger_length :]
 
     def matches_tail(self, recent: List[ActionTuple]) -> bool:
         pattern = self.trigger_pattern()
         if len(recent) < len(pattern):
             return False
-        return recent[-len(pattern):] == pattern
+        return recent[-len(pattern) :] == pattern
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -354,7 +355,9 @@ class HabitMiner:
             self._save()
         return newly_promoted
 
-    def suggest(self, recent: Optional[List[ActionTuple]] = None) -> Optional[HabitMacro]:
+    def suggest(
+        self, recent: Optional[List[ActionTuple]] = None
+    ) -> Optional[HabitMacro]:
         """Return the highest-confidence macro whose trigger matches the recent tail."""
         with self._hm_lock:
             tail = recent if recent is not None else list(self._window)
@@ -367,7 +370,9 @@ class HabitMiner:
 
     def all_macros(self) -> List[HabitMacro]:
         with self._hm_lock:
-            return sorted(self._macros.values(), key=lambda m: m.confidence, reverse=True)
+            return sorted(
+                self._macros.values(), key=lambda m: m.confidence, reverse=True
+            )
 
     def recent_actions(self, k: int = 10) -> List[ActionTuple]:
         with self._hm_lock:
@@ -378,8 +383,12 @@ class HabitMiner:
         seq = list(gram)
         intent_labels = [a[0].replace(":", "_") for a in seq]
         name = "→".join(dict.fromkeys(intent_labels))
-        return HabitMacro(name=name, sequence=seq,
-                         trigger_length=min(2, len(seq)), confidence=float(count))
+        return HabitMacro(
+            name=name,
+            sequence=seq,
+            trigger_length=min(2, len(seq)),
+            confidence=float(count),
+        )
 
     def _save(self) -> None:
         try:
@@ -407,6 +416,7 @@ class HabitMiner:
 @dataclass
 class HTNMethod:
     """A decomposition method: goal → list of sub-goals or primitive sequences."""
+
     goal: str
     conditions: List[str] = field(default_factory=list)
     subtasks: List[str] = field(default_factory=list)
@@ -439,8 +449,9 @@ class HTNPlanner:
                 if goal.lower() in macro.name.lower():
                     return [_fmt(a) for a in macro.sequence]
         with self._htn_lock:
-            methods = sorted(self._methods.get(goal, []),
-                             key=lambda m: m.priority, reverse=True)
+            methods = sorted(
+                self._methods.get(goal, []), key=lambda m: m.priority, reverse=True
+            )
         ctx = context or {}
         for method in methods:
             if all(ctx.get(cond) for cond in method.conditions):

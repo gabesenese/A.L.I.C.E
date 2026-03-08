@@ -38,7 +38,9 @@ class EmbeddingManager:
                 logging.getLogger("paddlenlp.transformers").setLevel(logging.ERROR)
                 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
-                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with contextlib.redirect_stdout(
+                    io.StringIO()
+                ), contextlib.redirect_stderr(io.StringIO()):
                     self._model = SentenceTransformer(self.model_name, device="cpu")
                 logger.info(f"Embedding model loaded: {self.model_name}")
             except ImportError:

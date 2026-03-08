@@ -507,7 +507,9 @@ class ContextGraph:
                 if hasattr(obj, "to_dict"):
                     return obj.to_dict()
                 if hasattr(obj, "__dict__"):
-                    return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+                    return {
+                        k: v for k, v in obj.__dict__.items() if not k.startswith("_")
+                    }
                 return str(obj)
 
             with open(graph_file, "w") as f:
@@ -540,6 +542,7 @@ class ContextGraph:
 # ---------------------------------------------------------------------------
 # Symbolic World Graph  (typed knowledge graph with forward-chaining inference)
 # ---------------------------------------------------------------------------
+
 
 class NodeType:
     USER = "user"
@@ -590,7 +593,7 @@ class GraphEdge:
     weight: float = 1.0
     attrs: Dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    inferred: bool = False   # True if materialised by a rule
+    inferred: bool = False  # True if materialised by a rule
 
 
 @dataclass
@@ -599,6 +602,7 @@ class ForwardRule:
     IF a node of head_type has >= min_count outgoing edges of relation pointing
     to nodes with tag tail_tag, THEN fire action(graph, head_node_id).
     """
+
     name: str
     head_type: str
     relation: str
@@ -642,9 +646,11 @@ class ForwardChainingRuleEngine:
         for rule in self._rules:
             for node in graph.nodes_of_type(rule.head_type):
                 matching = [
-                    e for e in graph.outgoing_edges(node.node_id)
+                    e
+                    for e in graph.outgoing_edges(node.node_id)
                     if e.relation == rule.relation
-                    and rule.tail_tag in (graph.get_node(e.to_id) or GraphNode("", "")).tags
+                    and rule.tail_tag
+                    in (graph.get_node(e.to_id) or GraphNode("", "")).tags
                 ]
                 if len(matching) >= rule.min_count:
                     rule.action(graph, node.node_id)
@@ -662,13 +668,15 @@ def _wg_infer_preferences(graph: "WorldGraph") -> None:
                 artist_counts[edge.to_id] += 1
         for artist_id, count in artist_counts.items():
             if count >= 3:
-                graph.add_edge(GraphEdge(
-                    from_id=user_node.node_id,
-                    to_id=artist_id,
-                    relation=RelationType.PREFERS,
-                    weight=min(1.0, count / 10.0),
-                    inferred=True,
-                ))
+                graph.add_edge(
+                    GraphEdge(
+                        from_id=user_node.node_id,
+                        to_id=artist_id,
+                        relation=RelationType.PREFERS,
+                        weight=min(1.0, count / 10.0),
+                        inferred=True,
+                    )
+                )
 
 
 class WorldGraph:
@@ -725,8 +733,12 @@ class WorldGraph:
 
     def edges_of_relation(self, relation: str) -> List[GraphEdge]:
         with self._wg_lock:
-            return [e for edges in self._out_edges.values()
-                    for e in edges if e.relation == relation]
+            return [
+                e
+                for edges in self._out_edges.values()
+                for e in edges
+                if e.relation == relation
+            ]
 
     def update_from_turn(
         self,
@@ -751,19 +763,40 @@ class WorldGraph:
                     n.tags.append("deadline")
                 self.upsert_node(n)
                 if ntype in (NodeType.DEADLINE, NodeType.EVENT, NodeType.TASK):
-                    self.add_edge(GraphEdge(from_id=user_id, to_id=node_id,
-                                           relation=RelationType.CONCERNED_ABOUT, weight=0.8))
+                    self.add_edge(
+                        GraphEdge(
+                            from_id=user_id,
+                            to_id=node_id,
+                            relation=RelationType.CONCERNED_ABOUT,
+                            weight=0.8,
+                        )
+                    )
                     added += 1
                 if ntype == NodeType.ARTIST and action == "play":
-                    self.add_edge(GraphEdge(from_id=user_id, to_id=node_id,
-                                           relation="played", weight=0.5))
+                    self.add_edge(
+                        GraphEdge(
+                            from_id=user_id,
+                            to_id=node_id,
+                            relation="played",
+                            weight=0.5,
+                        )
+                    )
                     added += 1
-            for topic in (topics or []):
+            for topic in topics or []:
                 tid = f"topic:{topic.lower()}"
-                self.upsert_node(GraphNode(node_id=tid, node_type=NodeType.TOPIC,
-                                          attrs={"name": topic}))
-                self.add_edge(GraphEdge(from_id=user_id, to_id=tid,
-                                       relation=RelationType.CONCERNED_ABOUT, weight=0.5))
+                self.upsert_node(
+                    GraphNode(
+                        node_id=tid, node_type=NodeType.TOPIC, attrs={"name": topic}
+                    )
+                )
+                self.add_edge(
+                    GraphEdge(
+                        from_id=user_id,
+                        to_id=tid,
+                        relation=RelationType.CONCERNED_ABOUT,
+                        weight=0.5,
+                    )
+                )
                 added += 1
             if sentiment and sentiment != "neutral":
                 user_node = self._nodes[user_id]
@@ -779,9 +812,11 @@ class WorldGraph:
         return bool(node and node.attrs.get("may_be_overwhelmed"))
 
     def preferred_artists(self, user_id: str = "alice_user") -> List[str]:
-        return [e.to_id.split(":", 1)[-1]
-                for e in self.outgoing_edges(user_id)
-                if e.relation == RelationType.PREFERS]
+        return [
+            e.to_id.split(":", 1)[-1]
+            for e in self.outgoing_edges(user_id)
+            if e.relation == RelationType.PREFERS
+        ]
 
     def stats(self) -> Dict[str, int]:
         with self._wg_lock:
@@ -794,17 +829,29 @@ class WorldGraph:
         try:
             data = {
                 "nodes": [
-                    {"node_id": n.node_id, "node_type": n.node_type,
-                     "attrs": n.attrs, "tags": n.tags,
-                     "created_at": n.created_at, "updated_at": n.updated_at,
-                     "access_count": n.access_count}
+                    {
+                        "node_id": n.node_id,
+                        "node_type": n.node_type,
+                        "attrs": n.attrs,
+                        "tags": n.tags,
+                        "created_at": n.created_at,
+                        "updated_at": n.updated_at,
+                        "access_count": n.access_count,
+                    }
                     for n in self._nodes.values()
                 ],
                 "edges": [
-                    {"from_id": e.from_id, "to_id": e.to_id,
-                     "relation": e.relation, "weight": e.weight,
-                     "attrs": e.attrs, "created_at": e.created_at, "inferred": e.inferred}
-                    for edges in self._out_edges.values() for e in edges
+                    {
+                        "from_id": e.from_id,
+                        "to_id": e.to_id,
+                        "relation": e.relation,
+                        "weight": e.weight,
+                        "attrs": e.attrs,
+                        "created_at": e.created_at,
+                        "inferred": e.inferred,
+                    }
+                    for edges in self._out_edges.values()
+                    for e in edges
                 ],
             }
             self._persistence_path.parent.mkdir(parents=True, exist_ok=True)
@@ -819,21 +866,31 @@ class WorldGraph:
             data = json.loads(self._persistence_path.read_text(encoding="utf-8"))
             for nd in data.get("nodes", []):
                 self._nodes[nd["node_id"]] = GraphNode(
-                    node_id=nd["node_id"], node_type=nd["node_type"],
-                    attrs=nd.get("attrs", {}), tags=nd.get("tags", []),
+                    node_id=nd["node_id"],
+                    node_type=nd["node_type"],
+                    attrs=nd.get("attrs", {}),
+                    tags=nd.get("tags", []),
                     created_at=nd.get("created_at", ""),
                     updated_at=nd.get("updated_at", ""),
                     access_count=nd.get("access_count", 0),
                 )
             for ed in data.get("edges", []):
-                self._out_edges[ed["from_id"]].append(GraphEdge(
-                    from_id=ed["from_id"], to_id=ed["to_id"],
-                    relation=ed["relation"], weight=ed.get("weight", 1.0),
-                    attrs=ed.get("attrs", {}), created_at=ed.get("created_at", ""),
-                    inferred=ed.get("inferred", False),
-                ))
-            logger.info("WorldGraph: loaded %d nodes, %d edges",
-                        len(self._nodes), sum(len(v) for v in self._out_edges.values()))
+                self._out_edges[ed["from_id"]].append(
+                    GraphEdge(
+                        from_id=ed["from_id"],
+                        to_id=ed["to_id"],
+                        relation=ed["relation"],
+                        weight=ed.get("weight", 1.0),
+                        attrs=ed.get("attrs", {}),
+                        created_at=ed.get("created_at", ""),
+                        inferred=ed.get("inferred", False),
+                    )
+                )
+            logger.info(
+                "WorldGraph: loaded %d nodes, %d edges",
+                len(self._nodes),
+                sum(len(v) for v in self._out_edges.values()),
+            )
         except Exception as exc:
             logger.warning("WorldGraph: load failed: %s", exc)
 

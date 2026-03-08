@@ -235,7 +235,9 @@ class ProactiveAssistant:
             if not reminder.delivered and keyword_lower in reminder.message.lower():
                 del self.reminders[rid]
                 self._save_reminders()
-                logger.info(f"[ProactiveAssistant] Cancelled reminder: {reminder.message[:50]}")
+                logger.info(
+                    f"[ProactiveAssistant] Cancelled reminder: {reminder.message[:50]}"
+                )
                 return True
         return False
 
@@ -391,7 +393,10 @@ def get_proactive_assistant(
 # Time-parsing utility (used by main.py when wiring reminder:set intent)
 # ---------------------------------------------------------------------------
 
-def parse_reminder_time(text: str, now: Optional[datetime] = None) -> Optional[datetime]:
+
+def parse_reminder_time(
+    text: str, now: Optional[datetime] = None
+) -> Optional[datetime]:
     """Parse a natural-language time expression from *text* and return an
     absolute ``datetime``.  Returns ``None`` when no time could be parsed.
 
@@ -467,7 +472,9 @@ def parse_reminder_time(text: str, now: Optional[datetime] = None) -> Optional[d
         return target
 
     if is_tomorrow:
-        return (base + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+        return (base + timedelta(days=1)).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        )
 
     return None
 

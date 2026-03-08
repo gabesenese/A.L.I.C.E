@@ -258,9 +258,11 @@ class GoalTracker:
                     "id": goal.id,
                     "description": goal.description,
                     "intent": goal.intent,
-                    "status": goal.status.value
-                    if isinstance(goal.status, GoalStatus)
-                    else str(goal.status),
+                    "status": (
+                        goal.status.value
+                        if isinstance(goal.status, GoalStatus)
+                        else str(goal.status)
+                    ),
                     "created_at": goal.created_at,
                     "subgoal_count": len(goal.subgoals),
                     "tool_call_count": len(goal.tool_call_sequence),
@@ -428,7 +430,9 @@ class GoalTracker:
                         if not sequence:
                             continue
                         success = bool(record.get("success"))
-                        self._update_stats_bucket(self.tool_sequence_stats, sequence, success)
+                        self._update_stats_bucket(
+                            self.tool_sequence_stats, sequence, success
+                        )
 
                         intent = str(record.get("intent") or "").strip()
                         if intent:
@@ -483,9 +487,7 @@ class GoalTracker:
         source_bucket = intent_bucket if intent_bucket else self.tool_sequence_stats
 
         successful_sequences = [
-            seq
-            for seq, stats in source_bucket.items()
-            if stats["success_rate"] > 0.7
+            seq for seq, stats in source_bucket.items() if stats["success_rate"] > 0.7
         ]
 
         if successful_sequences:

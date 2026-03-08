@@ -25,9 +25,9 @@ logger = logging.getLogger(__name__)
 
 # ── Issue types ──────────────────────────────────────────────────────────────
 
-ISSUE_DIRECTNESS         = "question_no_direct_answer"
-ISSUE_REPETITION         = "info_repeated_in_followup"
-ISSUE_VOCAB_GAP          = "domain_vocab_gap"
+ISSUE_DIRECTNESS = "question_no_direct_answer"
+ISSUE_REPETITION = "info_repeated_in_followup"
+ISSUE_VOCAB_GAP = "domain_vocab_gap"
 ISSUE_UNNECESSARY_PLUGIN = "unnecessary_plugin_call"
 
 # ── Domain keyword reference lists ───────────────────────────────────────────
@@ -36,56 +36,212 @@ ISSUE_UNNECESSARY_PLUGIN = "unnecessary_plugin_call"
 
 DOMAIN_KEYWORDS: Dict[str, List[str]] = {
     "weather": [
-        "weather", "forecast", "temperature", "rain", "snow", "storm",
-        "sunny", "cloud", "cold", "warm", "hot", "freeze",
+        "weather",
+        "forecast",
+        "temperature",
+        "rain",
+        "snow",
+        "storm",
+        "sunny",
+        "cloud",
+        "cold",
+        "warm",
+        "hot",
+        "freeze",
         # clothing fast-path words
-        "umbrella", "jacket", "coat", "layer", "wear", "bring",
-        "outside", "go out", "scarf", "hat", "gloves", "boots",
-        "sweater", "hoodie",
+        "umbrella",
+        "jacket",
+        "coat",
+        "layer",
+        "wear",
+        "bring",
+        "outside",
+        "go out",
+        "scarf",
+        "hat",
+        "gloves",
+        "boots",
+        "sweater",
+        "hoodie",
         # time cues
-        "tomorrow", "tonight", "today", "week", "weekend",
-        "monday", "tuesday", "wednesday", "thursday",
-        "friday", "saturday", "sunday",
+        "tomorrow",
+        "tonight",
+        "today",
+        "week",
+        "weekend",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
     ],
     "notes": [
-        "note", "notes", "memo", "list", "lists", "todo", "task",
-        "tasks", "write", "create", "add", "append", "read", "show",
-        "delete", "remove", "find", "search", "open",
+        "note",
+        "notes",
+        "memo",
+        "list",
+        "lists",
+        "todo",
+        "task",
+        "tasks",
+        "write",
+        "create",
+        "add",
+        "append",
+        "read",
+        "show",
+        "delete",
+        "remove",
+        "find",
+        "search",
+        "open",
         # domain context words flagged by insights (added after first report)
-        "created", "work", "tagged", "tag", "tags", "title",
-        "coding", "project", "meeting", "idea", "ideas",
-        "first", "last", "all", "my", "the",
+        "created",
+        "work",
+        "tagged",
+        "tag",
+        "tags",
+        "title",
+        "coding",
+        "project",
+        "meeting",
+        "idea",
+        "ideas",
+        "first",
+        "last",
+        "all",
+        "my",
+        "the",
     ],
     "email": [
-        "email", "mail", "inbox", "message", "send", "compose",
-        "draft", "reply", "read", "delete", "from", "subject",
+        "email",
+        "mail",
+        "inbox",
+        "message",
+        "send",
+        "compose",
+        "draft",
+        "reply",
+        "read",
+        "delete",
+        "from",
+        "subject",
     ],
     "reminder": [
-        "remind", "reminder", "reminders", "alert", "notify",
-        "schedule", "set", "cancel", "delete", "list", "upcoming",
+        "remind",
+        "reminder",
+        "reminders",
+        "alert",
+        "notify",
+        "schedule",
+        "set",
+        "cancel",
+        "delete",
+        "list",
+        "upcoming",
         "pending",
     ],
     "music": [
-        "music", "song", "songs", "play", "pause", "skip", "next",
-        "playlist", "album", "artist",
+        "music",
+        "song",
+        "songs",
+        "play",
+        "pause",
+        "skip",
+        "next",
+        "playlist",
+        "album",
+        "artist",
     ],
     "calendar": [
-        "calendar", "event", "events", "meeting", "meetings",
-        "schedule", "appointment", "appointments", "agenda",
-        "create", "set", "add", "tomorrow", "today", "next", "week",
+        "calendar",
+        "event",
+        "events",
+        "meeting",
+        "meetings",
+        "schedule",
+        "appointment",
+        "appointments",
+        "agenda",
+        "create",
+        "set",
+        "add",
+        "tomorrow",
+        "today",
+        "next",
+        "week",
     ],
 }
 
 # Stopwords to ignore when looking for vocab gaps
 _STOPWORDS = {
-    "i", "me", "my", "we", "our", "you", "your", "it", "its",
-    "the", "a", "an", "and", "or", "but", "in", "on", "at",
-    "to", "for", "of", "with", "from", "is", "are", "was",
-    "be", "have", "has", "do", "does", "did", "will", "would",
-    "can", "could", "should", "what", "when", "where", "who",
-    "why", "how", "if", "that", "this", "there", "then", "about",
-    "any", "all", "not", "no", "need", "want", "like", "just",
-    "get", "go", "out", "up", "into", "over", "so", "also",
+    "i",
+    "me",
+    "my",
+    "we",
+    "our",
+    "you",
+    "your",
+    "it",
+    "its",
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "but",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "with",
+    "from",
+    "is",
+    "are",
+    "was",
+    "be",
+    "have",
+    "has",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "can",
+    "could",
+    "should",
+    "what",
+    "when",
+    "where",
+    "who",
+    "why",
+    "how",
+    "if",
+    "that",
+    "this",
+    "there",
+    "then",
+    "about",
+    "any",
+    "all",
+    "not",
+    "no",
+    "need",
+    "want",
+    "like",
+    "just",
+    "get",
+    "go",
+    "out",
+    "up",
+    "into",
+    "over",
+    "so",
+    "also",
 }
 
 # Patterns that indicate a yes/no question
@@ -106,8 +262,8 @@ _DIRECT_ANSWER_PATTERN = re.compile(
 @dataclass
 class QualityIssue:
     timestamp: str
-    issue_type: str           # one of the ISSUE_* constants
-    domain: str               # e.g. "weather"
+    issue_type: str  # one of the ISSUE_* constants
+    domain: str  # e.g. "weather"
     user_input: str
     alice_response: str
     intent: str
@@ -156,17 +312,23 @@ class ResponseQualityChecker:
         domain = intent.split(":", 1)[0] if ":" in intent else intent
 
         issues += self._check_directness(user_input, response, intent, domain)
-        issues += self._check_repetition(user_input, response, intent, domain, previous_turn)
+        issues += self._check_repetition(
+            user_input, response, intent, domain, previous_turn
+        )
         issues += self._check_vocab_gap(user_input, intent, domain)
         if plugin_called and had_stored_data:
-            issues += self._check_unnecessary_plugin(user_input, intent, domain, plugin_called)
+            issues += self._check_unnecessary_plugin(
+                user_input, intent, domain, plugin_called
+            )
 
         if issues:
             self._log_issues(issues)
             for issue in issues:
                 logger.debug(
                     "[QualityChecker] %s — %s (input: %s)",
-                    issue.issue_type, issue.detail.get("reason", ""), user_input[:60],
+                    issue.issue_type,
+                    issue.detail.get("reason", ""),
+                    user_input[:60],
                 )
 
         return issues
@@ -324,6 +486,7 @@ class ResponseQualityChecker:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _shared_significant_phrases(a: str, b: str, min_words: int = 3) -> List[str]:
     """Return phrases of >= min_words tokens shared between two strings."""

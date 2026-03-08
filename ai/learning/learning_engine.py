@@ -213,8 +213,10 @@ class LearningEngine:
         nlp_error_entries = self._load_error_entries(nlp_error_path)
         if nlp_error_entries:
             error_entries.extend(nlp_error_entries)
-            logger.info("[Learning] Loaded %d NLP error entries for hard-lesson extraction",
-                        len(nlp_error_entries))
+            logger.info(
+                "[Learning] Loaded %d NLP error entries for hard-lesson extraction",
+                len(nlp_error_entries),
+            )
 
         hard_lessons = self._extract_hard_lessons(error_entries)
 
@@ -1278,21 +1280,27 @@ class NLPErrorLogger:
         session_id: Optional[str] = None,
     ) -> None:
         """Record when the pipeline overrides NLP's intent classification."""
-        self._write({
-            "type": "intent_override",
-            "user_input": user_input,
-            "original_intent": original_intent,
-            "corrected_intent": corrected_intent,
-            "original_confidence": round(original_confidence, 4),
-            "corrected_confidence": round(corrected_confidence, 4),
-            "reason": reason,
-            "session_id": session_id,
-            "success": False,
-            "domain": original_intent.split(":")[0] if ":" in original_intent else original_intent,
-            "actual_intent": original_intent,
-            "expected_intent": corrected_intent,
-            "error_type": "intent_override",
-        })
+        self._write(
+            {
+                "type": "intent_override",
+                "user_input": user_input,
+                "original_intent": original_intent,
+                "corrected_intent": corrected_intent,
+                "original_confidence": round(original_confidence, 4),
+                "corrected_confidence": round(corrected_confidence, 4),
+                "reason": reason,
+                "session_id": session_id,
+                "success": False,
+                "domain": (
+                    original_intent.split(":")[0]
+                    if ":" in original_intent
+                    else original_intent
+                ),
+                "actual_intent": original_intent,
+                "expected_intent": corrected_intent,
+                "error_type": "intent_override",
+            }
+        )
 
     def log_followup_resolved(
         self,
@@ -1305,20 +1313,22 @@ class NLPErrorLogger:
         session_id: Optional[str] = None,
     ) -> None:
         """Record every follow-up resolution event."""
-        self._write({
-            "type": "followup_resolved",
-            "user_input": user_input,
-            "nlp_intent": nlp_intent,
-            "resolved_intent": resolved_intent,
-            "nlp_confidence": round(nlp_confidence, 4),
-            "domain": domain,
-            "reason": reason,
-            "session_id": session_id,
-            "success": False,
-            "actual_intent": nlp_intent,
-            "expected_intent": resolved_intent,
-            "error_type": "followup_missed",
-        })
+        self._write(
+            {
+                "type": "followup_resolved",
+                "user_input": user_input,
+                "nlp_intent": nlp_intent,
+                "resolved_intent": resolved_intent,
+                "nlp_confidence": round(nlp_confidence, 4),
+                "domain": domain,
+                "reason": reason,
+                "session_id": session_id,
+                "success": False,
+                "actual_intent": nlp_intent,
+                "expected_intent": resolved_intent,
+                "error_type": "followup_missed",
+            }
+        )
 
     def log_clarification_skip(
         self,
@@ -1330,18 +1340,20 @@ class NLPErrorLogger:
         session_id: Optional[str] = None,
     ) -> None:
         """Record when a clarification was suppressed by the interaction policy."""
-        self._write({
-            "type": "clarification_skip",
-            "user_input": user_input,
-            "intent": intent,
-            "confidence": round(confidence, 4),
-            "mood": mood,
-            "reason": reason,
-            "session_id": session_id,
-            "success": True,
-            "domain": intent.split(":")[0] if ":" in intent else intent,
-            "error_type": "clarification_skip",
-        })
+        self._write(
+            {
+                "type": "clarification_skip",
+                "user_input": user_input,
+                "intent": intent,
+                "confidence": round(confidence, 4),
+                "mood": mood,
+                "reason": reason,
+                "session_id": session_id,
+                "success": True,
+                "domain": intent.split(":")[0] if ":" in intent else intent,
+                "error_type": "clarification_skip",
+            }
+        )
 
     def _write(self, entry: dict) -> None:
         entry["timestamp"] = datetime.now().isoformat()

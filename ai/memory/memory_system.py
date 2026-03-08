@@ -522,13 +522,13 @@ class MemorySystem:
                 return embedding
             else:
                 # TF-IDF fallback - need to fit on first use
-                if not hasattr(self, '_tfidf_fitted') or not self._tfidf_fitted:
+                if not hasattr(self, "_tfidf_fitted") or not self._tfidf_fitted:
                     # Add current text to corpus
-                    if not hasattr(self, '_tfidf_corpus'):
+                    if not hasattr(self, "_tfidf_corpus"):
                         self._tfidf_corpus = []
-                    
+
                     self._tfidf_corpus.append(text)
-                    
+
                     # Fit with accumulated corpus (or at least current text)
                     if len(self._tfidf_corpus) >= 1:
                         model.fit(self._tfidf_corpus)
@@ -537,7 +537,7 @@ class MemorySystem:
                         # Fit with just current text as minimum
                         model.fit([text, "dummy text for fitting"])
                         self._tfidf_fitted = True
-                
+
                 # Now transform
                 embedding = model.transform([text]).toarray()[0]
                 # Pad or truncate to 384 dimensions
@@ -1468,6 +1468,7 @@ def get_memory_system(data_dir: str = "data/memory") -> MemorySystem:
 # Prioritized Memory Replay  (priority-weighted context sampling)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class MemoryPriorityWeights:
     recency: float = 0.35
@@ -1510,7 +1511,12 @@ class MemoryPriorityScorer:
         s = self._surprise(entry)
         o = self._outcome(entry)
         a = self._access(entry)
-        return self._w.recency * r + self._w.surprise * s + self._w.outcome * o + self._w.access * a
+        return (
+            self._w.recency * r
+            + self._w.surprise * s
+            + self._w.outcome * o
+            + self._w.access * a
+        )
 
     def batch_score(self, entries: List[Any]) -> List[float]:
         for e in entries:
@@ -1530,6 +1536,7 @@ class MemoryPriorityScorer:
             else:
                 dt = ts
             from datetime import timezone as _tz
+
             now = datetime.now(tz=_tz.utc)
             age_hours = (now - dt).total_seconds() / 3600.0
             return math.exp(-self._decay_lambda * age_hours)
@@ -1542,7 +1549,7 @@ class MemoryPriorityScorer:
             if self._count < 2:
                 return 0.5
             mean = self._importance_sum / self._count
-            variance = (self._importance_sq_sum / self._count) - mean ** 2
+            variance = (self._importance_sq_sum / self._count) - mean**2
             std = math.sqrt(max(variance, 1e-9))
             z = abs(importance - mean) / std
         return 1.0 / (1.0 + math.exp(-z + 1))
@@ -1569,7 +1576,7 @@ class MemoryPriorityScorer:
         access_count = int(getattr(entry, "access_count", 0))
         with self._lock:
             self._importance_sum += importance
-            self._importance_sq_sum += importance ** 2
+            self._importance_sq_sum += importance**2
             self._count += 1
             if access_count > self._max_access:
                 self._max_access = access_count
@@ -1654,7 +1661,9 @@ _memory_replay_instance: Optional[PrioritizedMemoryReplay] = None
 _memory_replay_lock = threading.Lock()
 
 
-def get_memory_replay(scorer: Optional[MemoryPriorityScorer] = None) -> PrioritizedMemoryReplay:
+def get_memory_replay(
+    scorer: Optional[MemoryPriorityScorer] = None,
+) -> PrioritizedMemoryReplay:
     """Return the process-wide singleton PrioritizedMemoryReplay."""
     global _memory_replay_instance
     if _memory_replay_instance is None:

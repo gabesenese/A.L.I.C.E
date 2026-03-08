@@ -16,7 +16,10 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any
 
 from ai.learning.response_quality_checker import (
-    ISSUE_DIRECTNESS, ISSUE_REPETITION, ISSUE_VOCAB_GAP, ISSUE_UNNECESSARY_PLUGIN,
+    ISSUE_DIRECTNESS,
+    ISSUE_REPETITION,
+    ISSUE_VOCAB_GAP,
+    ISSUE_UNNECESSARY_PLUGIN,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,7 +56,9 @@ class LearningInsights:
                         continue
                     try:
                         entry = json.loads(line)
-                        ts = datetime.fromisoformat(entry.get("timestamp", "2000-01-01"))
+                        ts = datetime.fromisoformat(
+                            entry.get("timestamp", "2000-01-01")
+                        )
                         if ts >= cutoff:
                             loaded.append(entry)
                     except (json.JSONDecodeError, ValueError):
@@ -84,15 +89,23 @@ class LearningInsights:
         # ── Section 1: Vocab gaps ──────────────────────────────────────────
         vocab_gaps = self._vocab_gap_summary()
         if vocab_gaps:
-            lines.append("── VOCABULARY GAPS ──────────────────────────────────────────────")
-            lines.append("Words that appeared in domain queries but aren't in keyword lists.")
-            lines.append("These cause the fast-path to miss queries and call plugins unnecessarily.")
+            lines.append(
+                "── VOCABULARY GAPS ──────────────────────────────────────────────"
+            )
+            lines.append(
+                "Words that appeared in domain queries but aren't in keyword lists."
+            )
+            lines.append(
+                "These cause the fast-path to miss queries and call plugins unnecessarily."
+            )
             lines.append("")
-            for domain, words in sorted(vocab_gaps.items(), key=lambda x: -sum(x[1].values())):
+            for domain, words in sorted(
+                vocab_gaps.items(), key=lambda x: -sum(x[1].values())
+            ):
                 top = sorted(words.items(), key=lambda x: -x[1])[:10]
                 lines.append(f"  [{domain}]")
                 for word, count in top:
-                    lines.append(f"    • \"{word}\"  — seen {count}x")
+                    lines.append(f'    • "{word}"  — seen {count}x')
                 lines.append(f"  → Suggested fix: add to {domain} keyword list:")
                 kw_str = ", ".join(f"'{w}'" for w, _ in top[:6])
                 lines.append(f"    {kw_str}")
@@ -101,40 +114,60 @@ class LearningInsights:
         # ── Section 2: Directness failures ────────────────────────────────
         direct_fails = [i for i in self._issues if i["issue_type"] == ISSUE_DIRECTNESS]
         if direct_fails:
-            lines.append("── DIRECTNESS FAILURES ──────────────────────────────────────────")
+            lines.append(
+                "── DIRECTNESS FAILURES ──────────────────────────────────────────"
+            )
             lines.append("Yes/No questions that received an answer without Yes/No.")
             lines.append("")
             by_input = Counter(i["user_input"].lower()[:60] for i in direct_fails)
             for inp, count in by_input.most_common(5):
-                lines.append(f"  {count}x  \"{inp}\"")
+                lines.append(f'  {count}x  "{inp}"')
             lines.append("")
-            lines.append("  → Fix: Check _handle_weather_followup / _format_response templates.")
-            lines.append("         Responses to 'should I / do I need' must start with Yes/No.")
+            lines.append(
+                "  → Fix: Check _handle_weather_followup / _format_response templates."
+            )
+            lines.append(
+                "         Responses to 'should I / do I need' must start with Yes/No."
+            )
             lines.append("")
 
         # ── Section 3: Info repetition ────────────────────────────────────
         repeats = [i for i in self._issues if i["issue_type"] == ISSUE_REPETITION]
         if repeats:
-            lines.append("── INFO REPETITION ──────────────────────────────────────────────")
-            lines.append("Responses that restated the same facts as the immediately previous turn.")
+            lines.append(
+                "── INFO REPETITION ──────────────────────────────────────────────"
+            )
+            lines.append(
+                "Responses that restated the same facts as the immediately previous turn."
+            )
             lines.append("")
             by_domain = Counter(i["domain"] for i in repeats)
             for domain, count in by_domain.most_common():
                 lines.append(f"  {domain}: {count} occurrences")
                 sample = next(
-                    (i["detail"].get("repeated_phrases", []) for i in repeats if i["domain"] == domain),
+                    (
+                        i["detail"].get("repeated_phrases", [])
+                        for i in repeats
+                        if i["domain"] == domain
+                    ),
                     [],
                 )
                 if sample:
-                    lines.append(f"    e.g. repeated phrase: \"{sample[0]}\"")
+                    lines.append(f'    e.g. repeated phrase: "{sample[0]}"')
             lines.append("")
-            lines.append("  → Fix: Use is_follow_up flag to shorten consecutive same-domain responses.")
+            lines.append(
+                "  → Fix: Use is_follow_up flag to shorten consecutive same-domain responses."
+            )
             lines.append("")
 
         # ── Section 4: Unnecessary plugin calls ───────────────────────────
-        plugin_calls = [i for i in self._issues if i["issue_type"] == ISSUE_UNNECESSARY_PLUGIN]
+        plugin_calls = [
+            i for i in self._issues if i["issue_type"] == ISSUE_UNNECESSARY_PLUGIN
+        ]
         if plugin_calls:
-            lines.append("── UNNECESSARY PLUGIN CALLS ─────────────────────────────────────")
+            lines.append(
+                "── UNNECESSARY PLUGIN CALLS ─────────────────────────────────────"
+            )
             lines.append("Plugin called even though stored data was already available.")
             lines.append("")
             by_plugin = Counter(i["detail"].get("plugin", "?") for i in plugin_calls)
@@ -150,12 +183,16 @@ class LearningInsights:
                     words_str = ", ".join(f'"{w}"' for w, _ in top_words)
                     lines.append(f"    Input words not in fast-path: {words_str}")
             lines.append("")
-            lines.append("  → Fix: Add those words to weather_followup_indicators / _handle_weather_followup.")
+            lines.append(
+                "  → Fix: Add those words to weather_followup_indicators / _handle_weather_followup."
+            )
             lines.append("")
 
         # ── Summary ───────────────────────────────────────────────────────
         by_type = Counter(i["issue_type"] for i in self._issues)
-        lines.append("── SUMMARY ──────────────────────────────────────────────────────")
+        lines.append(
+            "── SUMMARY ──────────────────────────────────────────────────────"
+        )
         for issue_type, count in by_type.most_common():
             lines.append(f"  {issue_type:<40} {count:>4}")
         lines.append("")
@@ -191,11 +228,17 @@ class LearningInsights:
 
 # ── CLI entry point ───────────────────────────────────────────────────────────
 
+
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="ALICE Learning Insights Report")
     parser.add_argument("--days", type=int, default=30, help="Look-back window in days")
-    parser.add_argument("--clear", action="store_true", help="Clear the quality issues log after reporting")
+    parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="Clear the quality issues log after reporting",
+    )
     args = parser.parse_args()
 
     insights = LearningInsights(lookback_days=args.days).load()
