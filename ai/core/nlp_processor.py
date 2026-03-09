@@ -1043,40 +1043,28 @@ class DomainEntityExtractor:
 
 class CoreferenceResolver:
     """
-    Resolve pronouns to entities mentioned in conversation
+    Resolve pronouns to entities mentioned in conversation.
 
-    Examples:
-        User: "Create note shopping list"
-        Then: "Add eggs to it" -> "it" resolves to "shopping list" note
-
-        User: "Play Bohemian Rhapsody"
-        Then: "pause it" -> "it" resolves to "Bohemian Rhapsody"
+    Uses intent-type matching and salience ordering: most-recently
+    mentioned entity of the appropriate type wins.
     """
 
-    def __init__(self):
-        self.pronouns = [
-            "it",
-            "this",
-            "that",
-            "the note",
-            "the event",
-            "the song",
-            "the task",
-            "the email",
-            "the reminder",
-        ]
+    # Pronouns that can refer to a note / file / generic object
+    _OBJECT_PRONOUNS = {"it", "this", "that", "the note", "the task", "the file",
+                         "the event", "the song", "the email", "the reminder"}
+    # Pronouns that can refer to a person
+    _PERSON_PRONOUNS = {"them", "he", "she", "they"}
 
-    def resolve(self, text: str, context: ConversationContext) -> str:
-        """Resolve coreferences in text using conversation context"""
+    def resolve(self, text: str, context: "ConversationContext") -> str:
+        """Resolve coreferences in text using conversation context."""
         resolved_text = text
         text_lower = text.lower()
 
-        # Check if text contains pronouns
-        for pronoun in self.pronouns:
-            if pronoun in text_lower:
+        all_pronouns = self._OBJECT_PRONOUNS | self._PERSON_PRONOUNS
+        for pronoun in sorted(all_pronouns, key=len, reverse=True):  # longest first
+            if re.search(rf"\b{re.escape(pronoun)}\b", text_lower):
                 replacement = self._find_referent(pronoun, context)
                 if replacement:
-                    # Replace pronoun with actual entity
                     resolved_text = re.sub(
                         rf"\b{re.escape(pronoun)}\b",
                         replacement,
@@ -1085,28 +1073,58 @@ class CoreferenceResolver:
                         flags=re.IGNORECASE,
                     )
                     logger.info(f"[COREF] Resolved '{pronoun}' -> '{replacement}'")
+                    text_lower = resolved_text.lower()  # re-scan after each substitution
 
         return resolved_text
 
     def _find_referent(
-        self, pronoun: str, context: ConversationContext
+        self, pronoun: str, context: "ConversationContext"
     ) -> Optional[str]:
-        """Find what the pronoun refers to"""
-        # Check based on last intent
-        if context.last_intent:
-            if "note" in context.last_intent and context.mentioned_notes:
-                return str(context.mentioned_notes[-1])
-            elif "calendar" in context.last_intent and context.mentioned_events:
-                return str(context.mentioned_events[-1])
-            elif "music" in context.last_intent and context.mentioned_songs:
-                return str(context.mentioned_songs[-1])
+        """Find what the pronoun refers to, using intent-type matching."""
+        last_intent = context.last_intent or ""
 
-        # Check generic entities
+        # Person pronouns → last person entity
+        if pronoun in self._PERSON_PRONOUNS:
+            if "sender" in context.last_entities:
+                return str(context.last_entities["sender"])
+            if "recipient" in context.last_entities:
+                return str(context.last_entities["recipient"])
+            return None
+
+        # Object pronouns: pick the best candidate by domain
+        if "note" in last_intent or "task" in last_intent:
+            if context.mentioned_notes:
+                return str(context.mentioned_notes[-1])
+            if "title" in context.last_entities:
+                return str(context.last_entities["title"])
+            if "note_id" in context.last_entities:
+                return str(context.last_entities["note_id"])
+
+        if "calendar" in last_intent or "event" in last_intent:
+            if context.mentioned_events:
+                return str(context.mentioned_events[-1])
+            if "event" in context.last_entities:
+                return str(context.last_entities["event"])
+
+        if "music" in last_intent or "song" in last_intent:
+            if context.mentioned_songs:
+                return str(context.mentioned_songs[-1])
+            if "song" in context.last_entities:
+                return str(context.last_entities["song"])
+
+        if "email" in last_intent:
+            for key in ("subject", "sender", "email_id"):
+                if key in context.last_entities:
+                    return str(context.last_entities[key])
+
+        # Generic fallback: most-recently filled slot (salience: title > query > any)
+        for key in ("title", "query", "note_id", "song", "event"):
+            if key in context.last_entities:
+                return str(context.last_entities[key])
+
+        # Last resort: first value in last_entities
         if context.last_entities:
-            # Return most recent entity of appropriate type
-            for entity_type in ["title", "song", "event", "note_id"]:
-                if entity_type in context.last_entities:
-                    return str(context.last_entities[entity_type])
+            return str(next(iter(context.last_entities.values())))
 
         return None
 
@@ -2722,12 +2740,14 @@ class NLPProcessor:
         if self.frame_parser is not None:
             _ctx_dict = {
                 "last_plugin": self.context.last_plugin,
+                "last_intent": self.context.last_intent or "",
                 "last_note_title": (
                     str(self.context.mentioned_notes[-1])
                     if self.context.mentioned_notes
                     else None
                 ),
                 "last_entities": self.context.last_entities,
+                "turn_index": self.context.turn_index,
                 "entity_chain": (
                     self.dialogue_memory.entity_chain_dict()
                     if self.dialogue_memory
@@ -4023,20 +4043,41 @@ class Perception:
         import re as _re
 
         clean_words = set(_re.sub(r"[^\w\s]", "", lower).split())
+
+        # Guard: if the NLP already assigned a specific intent in a DIFFERENT
+        # domain with reasonable confidence, don't override it with a followup
+        # signal — that would be a domain regression, not a follow-up.
+        nlp_domain = query.intent.split(":")[0] if ":" in query.intent else ""
+        _same_or_conv = (
+            nlp_domain == domain
+            or nlp_domain in ("conversation", "")
+            or query.intent.endswith(":general")
+            or query.intent in ("vague_question", "vague_temporal_question")
+        )
+        if not _same_or_conv and query.intent_confidence >= 0.60:
+            # NLP is confident enough about a different domain — respect it
+            return None
+
         if signals & clean_words:
             return domain
         # Substring fallback: catches partial spellings like "umbrela" ⊂ "umbrella"
-        # or abbreviated signals.
+        # Require word length >= 6 to avoid false matches on short words.
         if any(
             word.startswith(sig[:5]) or sig.startswith(word[:5])
             for sig in signals
             for word in clean_words
-            if len(word) >= 5
+            if len(word) >= 6 and len(sig) >= 6
         ):
             return domain
-        # Generic cues with any domain — only if low confidence
+        # Generic cues with any domain — only if low confidence AND the query
+        # is genuinely short (3 words or fewer).  This prevents "and also I want
+        # to schedule a meeting" from inheriting the notes domain.
         generic_cues = {"and", "also", "that", "this", "it", "then", "what about"}
-        if generic_cues & clean_words and query.intent_confidence < 0.65:
+        if (
+            generic_cues & clean_words
+            and query.intent_confidence < 0.55
+            and len(clean_words) <= 4
+        ):
             return domain
         return None
 

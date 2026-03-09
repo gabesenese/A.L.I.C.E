@@ -279,6 +279,9 @@ class ALICE:
         self.last_entities = {}
         self.last_nlp_result = {}
         self.last_interaction = None
+        # Turn index at which the active intent domain last changed.
+        # Used to compute turn_distance for FollowUpResolver decay.
+        self._last_intent_turn = 0
         
         # Session-level response cache for fast conversational responses
         # Caches (input_normalized, intent) -> response for quick lookup
@@ -321,6 +324,12 @@ class ALICE:
             # 1. NLP Processor
             logger.info("Loading NLP processor...")
             self.nlp = NLPProcessor()
+            # Pre-warm the semantic classifier so the first user query has no cold-start delay
+            try:
+                self.nlp._ensure_semantic_classifier()
+                logger.info("Semantic classifier pre-warmed.")
+            except Exception:
+                pass  # non-fatal; will lazy-load on first real query
             # Shared session objects from NLP stack
             self.dialogue_memory = getattr(self.nlp, 'dialogue_memory', None)
             self.fp_store = getattr(self.nlp, '_fp_store', None)
@@ -2999,6 +3008,13 @@ class ALICE:
             # MUST run before the validation gate so that a follow-up that was
             # mis-classified (e.g. "umbrella" → music:play when weather was the
             # active topic) gets the correct intent before slot-validation fires.
+            #
+            # turn_distance: how many turns ago the active context was last seen.
+            # Using the NLP turn_index as a running counter so context decays
+            # naturally — context from 5 turns ago is treated weaker than 1 turn ago.
+            _nlp_turn = getattr(getattr(self.nlp, 'context', None), 'turn_index', 0)
+            _last_intent_turn = getattr(self, '_last_intent_turn', _nlp_turn)
+            _turn_distance = max(0, _nlp_turn - _last_intent_turn)
             followup = self.followup_resolver.resolve(
                 user_input=user_input,
                 nlp_intent=intent,
@@ -3006,6 +3022,7 @@ class ALICE:
                 last_intent=self.last_intent,
                 conversation_topics=self.conversation_topics,
                 perception_followup_domain=perception.followup_domain,
+                turn_distance=_turn_distance,
             )
             if followup.was_followup:
                 self._think(
@@ -3029,6 +3046,20 @@ class ALICE:
                 # last_intent on the very next turn (not the raw NLP guess).
                 if hasattr(self.nlp, 'context'):
                     self.nlp.context.last_intent = followup.resolved_intent
+
+                # ── Slot inheritance ──────────────────────────────────────────
+                # When a follow-up is detected, the NLP processor sees only the
+                # current short utterance so slots like city/song/note-title
+                # that were extracted on the PREVIOUS turn are lost.  Merge them
+                # in — current-turn values always win, prior values fill gaps.
+                _prior_entities = getattr(self.nlp.context, 'last_entities', {}) if hasattr(self.nlp, 'context') else {}
+                if _prior_entities:
+                    _merged_entities: Dict = {}
+                    for _k, _v in _prior_entities.items():
+                        _merged_entities[_k] = _v
+                    for _k, _v in entities.items():
+                        _merged_entities[_k] = _v  # current turn wins
+                    entities = _merged_entities
 
             # ── 1.4  Validation / clarification gate ─────────────────────────────
             # Now validates the *resolved* intent — follow-up corrections are
@@ -3406,6 +3437,12 @@ class ALICE:
             # Store for active learning
             self.last_user_input = user_input
             self.last_nlp_result = vars(nlp_result).copy()  # Convert to dict for compatibility
+            # Track turn index when intent last changed (for follow-up decay)
+            _prev_intent = getattr(self, 'last_intent', '')
+            _new_domain = intent.split(':')[0] if ':' in intent else intent
+            _old_domain = _prev_intent.split(':')[0] if ':' in _prev_intent else _prev_intent
+            if _new_domain != _old_domain:
+                self._last_intent_turn = getattr(getattr(self.nlp, 'context', None), 'turn_index', 0)
             self.last_intent = intent
             self.last_entities = entities
             

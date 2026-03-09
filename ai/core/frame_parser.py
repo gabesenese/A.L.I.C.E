@@ -591,14 +591,44 @@ class FrameParser:
                 anti_penalty += 0.20
         score -= min(0.40, anti_penalty)
 
-        # Context boost: same plugin as last action
-        if context.get("last_plugin") == frame.plugin and matched_keywords:
+        # ── Context-aware boosts ─────────────────────────────────────────────
+        last_plugin = context.get("last_plugin")
+        last_intent = context.get("last_intent", "")
+        last_domain = last_intent.split(":")[0] if ":" in last_intent else last_plugin or ""
+        word_count = len(text_lower.split())
+
+        if last_plugin == frame.plugin:
+            if matched_keywords or matched_patterns:
+                # Strong same-domain continuation boost (was +0.05, now tiered)
+                score += 0.18
+            elif word_count <= 5:
+                # Short utterance in same domain with no explicit keywords —
+                # still likely a follow-up (e.g. "and that one?", "delete it")
+                score += 0.10
+
+        # Inherited-slot credit: if prior context already filled a required slot,
+        # don't penalise for it being absent in the current short utterance.
+        prior_entities: Dict[str, Any] = context.get("last_entities") or {}
+        if prior_entities and frame.required_slots:
+            inherited: List[str] = [
+                rs for rs in frame.required_slots if rs in prior_entities
+            ]
+            # Each inherited required slot cancels out would-be penalty (+0.08 each)
+            score += len(inherited) * 0.08
+
+        # Short follow-up bonus: utterances ≤ 5 tokens in same domain get a
+        # small lift to compete with conversational catch-alls.
+        if word_count <= 5 and last_domain == frame.plugin:
             score += 0.05
 
         # Slot evidence extraction
         slot_evidence = _extract_inline_slots(text_original, frame)
+        # Merge inherited slots from context so slot consumers see full picture
+        for key, val in prior_entities.items():
+            if key not in slot_evidence:
+                slot_evidence[key] = val
 
-        # Required slot penalty if slots missing
+        # Required slot penalty if slots missing (after inheritance)
         missing_required: List[str] = []
         for rs in frame.required_slots:
             if rs not in slot_evidence:
