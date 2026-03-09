@@ -658,11 +658,11 @@ class ReasoningEngine:
         follow_up: Optional[str] = None
 
         if not action_succeeded and not success:
-            msg = "That didn't complete as expected."
-            follow_up = "Would you like me to try again or do something else?"
+            # No hardcoded phrases — Alice phrases failure responses via Ollama
+            pass
         elif not goal_fulfilled and success:
-            msg = "I did that, but it may not be what you had in mind."
-            follow_up = "Say what you'd like changed and I'll adjust."
+            # No hardcoded phrases — Alice phrases partial-success via Ollama
+            pass
 
         return VerificationResult(
             verified=verified,

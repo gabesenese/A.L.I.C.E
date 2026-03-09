@@ -293,6 +293,118 @@ class ScenarioRunner:
                 tags=["notes", "read"]
             ),
 
+            # Regression: notes:read_content intent (Bug fix: "what is in X?" → notes:list)
+            TestScenario(
+                id="notes_005",
+                suite="notes",
+                description="Read note contents by name - single turn",
+                inputs=["what is in the grocery list?"],
+                expected_intent="notes:read_content",
+                min_confidence=0.7,
+                should_not_clarify=True,
+                tags=["notes", "read_content", "regression"]
+            ),
+            TestScenario(
+                id="notes_006",
+                suite="notes",
+                description="Append to named note with multi-word title",
+                inputs=["add milk, eggs and butter to my grocery list note"],
+                expected_intent="notes:append",
+                min_confidence=0.7,
+                should_not_clarify=True,
+                tags=["notes", "append", "regression"]
+            ),
+            TestScenario(
+                id="notes_007",
+                suite="notes",
+                description="Read contents follow-up after note list - no weather bleed",
+                inputs=["do i have any notes?", "what is in it?"],
+                expected_intent="notes:read_content",
+                min_confidence=0.7,
+                tags=["notes", "read_content", "follow-up", "regression"]
+            ),
+            TestScenario(
+                id="notes_008",
+                suite="notes",
+                description="Cross-domain guard: notes then weather does not inherit notes intent",
+                inputs=["show my notes", "what's the weather today?"],
+                expected_intent="weather:current",
+                min_confidence=0.6,
+                tags=["notes", "weather", "cross-domain", "regression"]
+            ),
+            TestScenario(
+                id="notes_009",
+                suite="notes",
+                description="Add to named note (short form)",
+                inputs=["add milk to my grocery list"],
+                expected_intent="notes:append",
+                min_confidence=0.7,
+                should_not_clarify=True,
+                tags=["notes", "append", "regression"]
+            ),
+
+            # ── New regression tests (Items 1-6) ─────────────────────────────
+
+            # Item 2: "what's inside" phrasing → notes:read_content
+            TestScenario(
+                id="notes_010",
+                suite="notes",
+                description="Read note via 'what's inside' phrasing",
+                inputs=["what's inside the grocery list?"],
+                expected_intent="notes:read_content",
+                min_confidence=0.7,
+                should_not_clarify=True,
+                tags=["notes", "read_content", "regression"]
+            ),
+
+            # Item 1 + 4 + 5: Scenario A — query_exist then pronoun follow-up
+            # "it" must resolve to notes domain, not bleed into weather.
+            TestScenario(
+                id="notes_011",
+                suite="notes",
+                description="Scenario A: query-exist + pronoun follow-up → read content, not weather",
+                inputs=["do i have any notes?", "what is in it?"],
+                expected_intent="notes:read_content",
+                min_confidence=0.7,
+                tags=["notes", "read_content", "follow-up", "coreference", "regression"]
+            ),
+
+            # Item 3 + 6: Scenario B — add items then read back
+            TestScenario(
+                id="notes_012",
+                suite="notes",
+                description="Scenario B: add items to named note then read it back",
+                inputs=[
+                    "add milk, eggs and butter to my grocery list note",
+                    "what is in the grocery list?",
+                ],
+                expected_intent="notes:read_content",
+                min_confidence=0.7,
+                tags=["notes", "append", "read_content", "regression"]
+            ),
+
+            # Item 6: Scenario C — explicit weather pivot after notes does NOT inherit notes intent
+            TestScenario(
+                id="notes_013",
+                suite="notes",
+                description="Scenario C: weather query after notes starts new task",
+                inputs=["show my notes", "how's the weather today?"],
+                expected_intent="weather:current",
+                min_confidence=0.6,
+                tags=["notes", "weather", "cross-domain", "regression"]
+            ),
+
+            # Item 5: weather penalty — "what's in it?" after notes never becomes weather:current
+            TestScenario(
+                id="notes_014",
+                suite="notes",
+                description="Pronoun follow-up after notes list never routes to weather",
+                inputs=["show my notes", "what's in it?"],
+                expected_intent="notes:read_content",
+                min_confidence=0.7,
+                tags=["notes", "weather-no-bleed", "coreference", "regression"]
+            ),
+
             # Time / status queries
             TestScenario(
                 id="time_001",

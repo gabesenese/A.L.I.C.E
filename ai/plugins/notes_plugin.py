@@ -3368,6 +3368,7 @@ class NotesPlugin(PluginInterface):
             "notes:delete",
             "notes:edit",
             "notes:read",
+            "notes:read_content",
             "notes:query_exist",
         ]
         if intent and intent.lower() in notes_intents:
@@ -3485,8 +3486,10 @@ class NotesPlugin(PluginInterface):
             return True
 
         # Check for "add X to list/note" or "add X to the TITLE note/list" pattern
+        # Allow multiple words before list/note (e.g. "to my grocery list")
         if re.search(
-            r"add\s+.+\s+to\s+(?:the\s+)?(?:\w+\s+)?(?:list|note)", command_lower
+            r"add\s+.+\s+to\s+(?:(?:my|the|a|an)\s+)?(?:\w+\s+)*(?:list|note)",
+            command_lower,
         ):
             return True
 
@@ -3494,6 +3497,12 @@ class NotesPlugin(PluginInterface):
         if (
             any(w in command_lower for w in ["delete", "remove"])
             and "list" in command_lower
+        ):
+            return True
+
+        # Bulk-delete: "delete both notes", "delete all of them", "remove both"
+        if any(w in command_lower for w in ["delete", "remove"]) and any(
+            w in command_lower for w in ["both", "all", "every", "them"]
         ):
             return True
 
@@ -3587,9 +3596,10 @@ class NotesPlugin(PluginInterface):
                 result = self._append_note(command)
 
             # Add to list/note (context-aware update) — also handles named notes
-            # e.g. "add milk to the grocery note" / "add item to list"
+            # e.g. "add milk to the grocery note" / "add item to my grocery list"
             elif result is None and re.search(
-                r"add\s+.+\s+to\s+(?:the\s+)?(?:\w+\s+)?(?:list|note)", command_lower
+                r"add\s+.+\s+to\s+(?:(?:my|the|a|an)\s+)?(?:\w+\s+)*(?:list|note)",
+                command_lower,
             ):
                 result = self._add_to_note(command)
 
@@ -3930,7 +3940,11 @@ class NotesPlugin(PluginInterface):
             elif result is None and intent in ("notes:query_exist",):
                 # e.g. "how many notes do i have?" → count
                 result = self._count_notes(command)
-            elif result is None and intent in ("notes:create", "notes:append"):
+            elif result is None and intent == "notes:read_content":
+                result = self._get_note_content(command)
+            elif result is None and intent == "notes:append":
+                result = self._add_to_note(command)
+            elif result is None and intent in ("notes:create",):
                 result = self._create_note(command)
             elif result is None and intent in ("notes:read", "notes:search"):
                 result = self._search_notes(command)
@@ -4151,9 +4165,10 @@ class NotesPlugin(PluginInterface):
 
     def _add_to_note(self, command: str) -> Dict[str, Any]:
         """Add content to an existing note (context-aware)"""
-        # Extract what to add: "add X to the [TITLE] list/note"
+        # Extract what to add: "add X to [my/the] [words...] list/note"
+        # (?:(?:\w+)\s+)* allows zero-or-more words before the anchor (list|note)
         match = re.search(
-            r"add\s+(.+?)\s+to\s+(?:the\s+)?(?:\w+\s+)?(?:list|note)",
+            r"add\s+(.+?)\s+to\s+(?:(?:my|the|a|an)\s+)?(?:(?:\w+)\s+)*(?:list|note)",
             command,
             re.IGNORECASE,
         )
@@ -4176,17 +4191,19 @@ class NotesPlugin(PluginInterface):
         note_title = None
 
         # First check if there's a specific note mentioned
-        # Pattern: "add X to [note name] list/note"
+        # Pattern: "add X to [my/the] [note name] list/note"
         note_match = re.search(
-            r"to\s+(?:the\s+)?(.+?)\s+(?:list|note)", command, re.IGNORECASE
+            r"to\s+(?:(?:my|the|a|an)\s+)?(.+?)\s+(?:list|note)", command, re.IGNORECASE
         )
         if note_match:
             potential_title = note_match.group(1).strip()
-            # Search for a note with this title
+            # Search for a note with this title; also try without leading determiners
+            _clean_title = re.sub(r"^(?:my|the|a|an)\s+", "", potential_title, flags=re.IGNORECASE).strip()
             matching_notes = [
                 n
                 for n in self.manager.notes.values()
-                if potential_title.lower() in n.title.lower()
+                if _clean_title.lower() in n.title.lower()
+                or potential_title.lower() in n.title.lower()
             ]
             if matching_notes:
                 note_id = matching_notes[0].id
@@ -4675,8 +4692,16 @@ class NotesPlugin(PluginInterface):
         """Delete/archive a note"""
         command_lower = command.lower()
 
-        # Pattern 0: "delete all notes" or "delete any notes" - bulk delete
-        if re.search(r"delete\s+(?:all|any|every)\s+(?:my\s+)?notes?", command_lower):
+        # Pattern 0: bulk-delete triggers
+        # Matches: "delete all notes", "delete both notes", "delete every note",
+        #          "delete all of them", "delete both of them", "delete all my notes"
+        if re.search(
+            r"(?:delete|remove)\s+(?:all|any|every|both)\s+(?:my\s+|of\s+(?:my\s+|them\s+)?)?notes?",
+            command_lower,
+        ) or re.search(
+            r"(?:delete|remove)\s+(?:all|both|every(?:\s+one)?)\s+of\s+(?:my\s+)?(?:them|it|notes?)",
+            command_lower,
+        ):
             return self._delete_all_notes()
 
         resolution = self._resolve_note_reference(command)
@@ -5161,6 +5186,10 @@ class NotesPlugin(PluginInterface):
 
         # Add tag count
         all_tags = self.manager.get_all_tags()
+
+        # Populate last_note_result_ids so pronoun follow-ups ("what is in it?")
+        # can resolve to the correct note without needing an explicit list action.
+        self.last_note_result_ids = [n.id for n in all_notes]
 
         return {
             "success": True,

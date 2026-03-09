@@ -1312,6 +1312,7 @@ class ALICE:
                     'type': 'operation_success',
                     'operation': action,
                     'details': plugin_data,
+                    'user_question': user_input,
                     'confidence': 0.95
                 }
             else:
@@ -1319,6 +1320,7 @@ class ALICE:
                     'type': 'operation_failure',
                     'operation': action,
                     'error': plugin_data.get('error', 'Operation failed'),
+                    'user_question': user_input,
                     'confidence': 0.9
                 }
 
@@ -1457,7 +1459,12 @@ class ALICE:
             tags = alice_response.get('tags', [])
             header = f"## {title}\n" if title else ""
             tag_line = f"\n---\n*Tags: {', '.join(tags)}*" if tags else ""
-            return f"{header}\n{content_body}{tag_line}".strip() or "The note appears to be empty."
+            # Don't repeat the title as body — if a note's content was never
+            # filled in and equals its title, show a polite empty-note message.
+            body = content_body if content_body and content_body.strip() != title.strip() else ""
+            if not body:
+                return f"{header.strip()}\n\n*(This note has no content yet.)*".strip()
+            return f"{header}\n{body}{tag_line}".strip()
 
         if response_type == 'note_summary':
             title = alice_response.get('title', 'that note')
@@ -1474,35 +1481,13 @@ class ALICE:
             return f"**{title}:** {summary}"
 
         if response_type == 'operation_success':
-            op = alice_response.get('operation', 'operation')
-            details = alice_response.get('details', {})
-            op_map = {
-                'create_note':   "Note created.",
-                'delete_note':   "Note deleted.",
-                'edit_note':     "Note updated.",
-                'append_note':   "Content added to your note.",
-                'pin_note':      "Note pinned.",
-                'unpin_note':    "Note unpinned.",
-                'archive_note':  "Note archived.",
-                'unarchive_note':"Note unarchived.",
-                'add_to_note':   "Added to your note.",
-                'link_notes':    "Notes linked.",
-                'set_priority':  "Priority updated.",
-                'set_category':  "Category updated.",
-            }
-            base = op_map.get(op)
-            if base:
-                title = (details.get('note_title') or details.get('title', '')) if isinstance(details, dict) else ''
-                return f"{base}{(' (' + title + ')') if title else ''}"
-            return f"Done — {op.replace('_', ' ')} completed."
+            # Phrasing delegated to learned patterns → Ollama so confirmations
+            # are natural and never frozen template strings.
+            return None
 
         if response_type == 'operation_failure':
-            op = alice_response.get('operation', 'that')
-            error = alice_response.get('error', '')
-            msg = f"I wasn't able to complete {op.replace('_', ' ')}."
-            if error and error not in ('Operation failed', 'unknown'):
-                msg += f" ({error})"
-            return msg
+            # Phrasing delegated to learned patterns → Ollama.
+            return None
 
         # ── Weather ──────────────────────────────────────────────────────────
         def _format_temp(value):
@@ -1541,31 +1526,10 @@ class ALICE:
                     else f"**{cond_cap}**{loc_str}.")
 
         if response_type == 'weather_advice':
-            temp = alice_response.get('temperature')
-            condition = alice_response.get('condition', '').strip()
-            location = alice_response.get('location', '')
-            clothing_item = alice_response.get('clothing_item')  # specific item (coat, jacket, etc.)
-            user_question = (alice_response.get('user_question') or '').lower()
-            if temp is not None:
-                temp = round(temp)
-            loc_str = f" in {location}" if location else ""
-            item = clothing_item or 'jacket'
-            is_should = any(w in user_question for w in ['should i', 'do i need', 'do i have to', 'need a'])
-
-            # Build natural, direct advice based on temp + specific item asked about
-            if temp is not None and temp < 0:
-                advice = f"Yes, definitely — it's {_format_temp(temp)}°C{loc_str}, bring your {item}" if is_should else f"Wrap up — it's {_format_temp(temp)}°C{loc_str}"
-            elif temp is not None and temp < 10:
-                advice = f"Yes, a {item} is a smart call — {_format_temp(temp)}°C{loc_str}" if is_should else f"Bring a {item} — {_format_temp(temp)}°C{loc_str}"
-            elif temp is not None and temp < 18:
-                advice = f"Maybe — {_format_temp(temp)}°C{loc_str}, a light {item} wouldn't hurt" if is_should else f"A light {item} might be useful — {_format_temp(temp)}°C{loc_str}"
-            elif temp is not None:
-                advice = f"No need — it's {_format_temp(temp)}°C{loc_str}, pretty warm" if is_should else f"No {item} needed — {_format_temp(temp)}°C{loc_str}"
-            else:
-                advice = f"Dress for the weather{loc_str}"
-
-            detail = f" ({condition})" if condition else ""
-            return f"**{advice}**{detail}."
+            # Alice has the structured reasoning (temperature thresholds, item choice);
+            # phrasing is intentionally delegated to learned patterns → Ollama so
+            # responses stay natural and are never frozen template strings.
+            return None
 
         if response_type == 'weather_prediction':
             answer = alice_response.get('answer', '').capitalize()
@@ -1761,6 +1725,48 @@ class ALICE:
         elif response_type == 'reasoning_result':
             conclusion = alice_response.get('conclusion', '')
             content_str = f"Conclusion: {conclusion}"
+
+        elif response_type == 'operation_success':
+            op = alice_response.get('operation', 'operation')
+            details = alice_response.get('details', {})
+            title = (details.get('note_title') or details.get('title', '')) if isinstance(details, dict) else ''
+            title_str = f" '{title}'" if title else ''
+            user_q = alice_response.get('user_question', '')
+            content_str = (
+                f"Action completed successfully: {op.replace('_', ' ')}{title_str}. "
+                f"User asked: '{user_q}'. Confirm this briefly and naturally in one sentence."
+            )
+
+        elif response_type == 'operation_failure':
+            op = alice_response.get('operation', 'that')
+            error = alice_response.get('error', '')
+            user_q = alice_response.get('user_question', '')
+            error_str = f" Reason: {error}" if error and error not in ('Operation failed', 'unknown') else ''
+            content_str = (
+                f"Action failed: {op.replace('_', ' ')}.{error_str} "
+                f"User asked: '{user_q}'. Explain this briefly and naturally, and offer to help in one sentence."
+            )
+
+        elif response_type == 'weather_advice':
+            # Give Ollama the bare facts so it can phrase the advice naturally.
+            raw_temp = alice_response.get('temperature')
+            condition = alice_response.get('condition', '')
+            location = alice_response.get('location', '')
+            item = alice_response.get('clothing_item', 'jacket')
+            rainy = alice_response.get('rainy')  # set for umbrella queries
+            user_q = alice_response.get('user_question', '')
+            loc_str = f" in {location}" if location else ""
+            temp_str = f"{round(raw_temp)}°C{loc_str}" if raw_temp is not None else f"unknown temperature{loc_str}"
+            if rainy is False:
+                content_str = (
+                    f"Current weather: {temp_str}, {condition}. "
+                    f"User asked: '{user_q}'. No rain is expected — advise on whether an umbrella is needed."
+                )
+            else:
+                content_str = (
+                    f"Current weather: {temp_str}, {condition}. "
+                    f"User asked: '{user_q}'. Give a short, direct answer about whether to bring/wear '{item}'."
+                )
 
         else:
             # general_response and any other open-ended types
@@ -2758,131 +2764,92 @@ class ALICE:
 
             # We have weather data — A.L.I.C.E answers directly using her own reasoning
             wd = weather_entity.data
-            temp = wd.get('temperature')
-            if temp is not None:
-                temp = round(temp)
             condition = wd.get('condition', '').lower()
             location = wd.get('location', 'your area')
-            is_should = any(w in input_lower for w in ['should i', 'do i need', 'do i have to', 'need a', 'need to'])
 
-            # Detect if this is a follow-up clothing question (user already knows the weather)
-            # NOTE: conversation_topics is a deduplicated list, so we use conversation_summary
-            # (per-turn history, not deduplicated) to check if the previous turn was also weather.
+            # Detect if this is a follow-up (user already saw the weather report this turn)
             is_follow_up = False
             if hasattr(self, 'conversation_summary') and self.conversation_summary:
                 last_turn = self.conversation_summary[-1]
                 is_follow_up = last_turn.get('intent', '').startswith('weather')
 
-            # When follow-up: omit temperature/location — user already knows
-            loc_str = f" in {location}" if (location and not is_follow_up) else ""
-
-            # Detect specific clothing item asked about
-            item_map = {
-                'coat': 'coat', 'jacket': 'jacket', 'umbrella': 'umbrella',
-                'layer': 'layers', 'scarf': 'scarf', 'hat': 'hat',
-                'gloves': 'gloves', 'boots': 'boots', 'sweater': 'sweater',
-                'hoodie': 'hoodie',
-            }
-            asked_item = next((label for word, label in item_map.items() if word in input_lower), 'jacket')
-
+            # ── Umbrella — condition-driven, not temperature-driven ───────────
             if 'umbrella' in input_lower:
-                rainy = any(word in condition for word in ['rain', 'drizzle', 'shower', 'storm'])
+                rainy = any(w in condition for w in ['rain', 'drizzle', 'shower', 'storm'])
+                _adv_loc = '' if is_follow_up else location
                 if rainy:
-                    return f"Yes, bring an umbrella — it's {condition}{loc_str}."
-                else:
-                    cond_str = f"it's {condition}" if not is_follow_up else "no rain in the forecast"
-                    return f"No need for an umbrella — {cond_str}."
+                    return self._generate_natural_response({
+                        'type': 'weather_advice',
+                        'temperature': wd.get('temperature'),
+                        'condition': condition,
+                        'location': _adv_loc,
+                        'clothing_item': 'umbrella',
+                        'user_question': user_input,
+                    }, 'helpful', None, user_input)
+                # No rain — report the facts and let Alice/Ollama advise
+                return self._generate_natural_response({
+                    'type': 'weather_advice',
+                    'temperature': wd.get('temperature'),
+                    'condition': condition,
+                    'location': _adv_loc,
+                    'clothing_item': 'umbrella',
+                    'rainy': False,
+                    'user_question': user_input,
+                }, 'helpful', None, user_input)
 
+            # ── Clothing items — delegate entirely to weather_advice formatter ─
+            # (handles single-item AND X-or-Y choice questions)
             if any(w in input_lower for w in clothing_items):
                 if temp is None:
                     return None
-                if temp < 0:
-                    temp_str = f" — {temp}°C{loc_str}" if not is_follow_up else ""
-                    if is_should:
-                        return f"Yes, definitely{temp_str}."
-                    return f"Yeah, a {asked_item} is a must{temp_str}."
-                elif temp < 10:
-                    temp_str = f" — {temp}°C{loc_str}" if not is_follow_up else ""
-                    if is_should:
-                        return f"Yes, good call{temp_str}."
-                    return f"A {asked_item} is a good idea{temp_str}."
-                elif temp < 18:
-                    temp_str = f" ({temp}°C{loc_str})" if not is_follow_up else ""
-                    if is_should:
-                        return f"Maybe — a light {asked_item} wouldn't hurt{temp_str}."
-                    return f"A light {asked_item} might be useful{temp_str}."
+                _warmth_rank = {
+                    'parka': 6, 'coat': 5, 'anorak': 5,
+                    'jacket': 4, 'sweater': 3, 'hoodie': 3, 'cardigan': 3,
+                    'layer': 3, 'shirt': 2, 'blouse': 2, 'tshirt': 1, 't-shirt': 1,
+                }
+                _item_words = {
+                    'coat': 'coat', 'jacket': 'jacket', 'layer': 'layers',
+                    'scarf': 'scarf', 'hat': 'hat', 'gloves': 'gloves',
+                    'boots': 'boots', 'sweater': 'sweater', 'hoodie': 'hoodie',
+                }
+                # "should i wear X or Y?" — pick warmer/lighter based on temperature
+                _choice_m = re.search(
+                    r'\b(?:wear|put\s+on)\s+(?:a\s+)?(\w+)\s+or\s+(?:a\s+)?(\w+)\b',
+                    input_lower,
+                )
+                if _choice_m:
+                    opt_a, opt_b = _choice_m.group(1), _choice_m.group(2)
+                    rank_a = _warmth_rank.get(opt_a, 2)
+                    rank_b = _warmth_rank.get(opt_b, 2)
+                    # below 15°C → pick the warmer item; at/above 15°C → pick the lighter item
+                    recommended = (opt_a if rank_a >= rank_b else opt_b) if temp < 15 \
+                                  else (opt_a if rank_a <= rank_b else opt_b)
                 else:
-                    temp_str = f" — {temp}°C{loc_str}" if not is_follow_up else ""
-                    if is_should:
-                        return f"Probably not{temp_str}, it's warm enough."
-                    return f"No {asked_item} needed{temp_str}."
+                    recommended = next(
+                        (label for word, label in _item_words.items() if word in input_lower),
+                        'jacket',
+                    )
+                return self._generate_natural_response({
+                    'type': 'weather_advice',
+                    'temperature': wd.get('temperature'),
+                    'condition': condition,
+                    'location': '' if is_follow_up else location,
+                    'clothing_item': recommended,
+                    'user_question': user_input,
+                }, 'helpful', None, user_input)
 
-            # General cold/warm condition questions
+            # ── Cold/warm/hot/freeze condition questions ───────────────────────
+            # Report the current conditions — let the facts answer the question.
             if any(w in input_lower for w in ['cold', 'warm', 'hot', 'freeze']):
                 if temp is None:
                     return None
-                if is_follow_up:
-                    if temp < 0: return "Yes, definitely cold."
-                    elif temp < 12: return "Yeah, it's chilly."
-                    elif temp < 22: return "Mild — not really."
-                    else: return "Nope, it's warm."
-                if temp < 0:
-                    return f"Yes, it's cold — {temp}°C{loc_str}. Bundle up!"
-                elif temp < 12:
-                    return f"It's a bit chilly — {temp}°C{loc_str}."
-                elif temp < 22:
-                    return f"Mild — {temp}°C{loc_str}. Not particularly cold or warm."
-                else:
-                    return f"It's warm — {temp}°C{loc_str}. Enjoy it!"
+                return self._alice_direct_phrase('weather_report', {
+                    'temperature': wd.get('temperature'),
+                    'condition': condition,
+                    'location': '' if is_follow_up else location,
+                    'is_followup': is_follow_up,
+                })
 
-        return None
-        
-        # Check if this is a weather-related question
-        weather_keywords = ['umbrella', 'jacket', 'coat', 'layer', 'wear', 'bring', 'cold', 'warm', 'outside', 'go out']
-        if not any(kw in input_lower for kw in weather_keywords):
-            return None
-        
-        # Check if we have recent weather data
-        if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
-            return None
-        
-        weather_entity = self.reasoning_engine.get_entity('current_weather')
-        if not weather_entity or not weather_entity.data:
-            return None
-        
-        # We have weather data! A.L.I.C.E answers directly using her own reasoning
-        wd = weather_entity.data
-        temp = wd.get('temperature')
-        condition = wd.get('condition', '').lower()
-        location = wd.get('location', 'your area')
-        
-        # A.L.I.C.E thinks about the question and weather data
-        if 'umbrella' in input_lower:
-            # Check for rain conditions
-            rainy = any(word in condition for word in ['rain', 'drizzle', 'shower', 'storm'])
-            if rainy:
-                return f"Yes, bring an umbrella - it's {condition} in {location}."
-            else:
-                return f"No need for an umbrella - it's {condition}, no rain expected."
-        
-        elif any(word in input_lower for word in ['jacket', 'coat', 'layer', 'wear']):
-            # Temperature-based clothing advice
-            if temp is None:
-                return None
-            
-            if temp < -20:
-                return f"Definitely wear layers! It's {temp}°C - that's extremely cold."
-            elif temp < -10:
-                return f"Yes, wear a warm layer or two. It's {temp}°C out there."
-            elif temp < 0:
-                return f"I'd recommend a jacket - it's {temp}°C, below freezing."
-            elif temp < 10:
-                return f"A light jacket would be good - it's {temp}°C, a bit chilly."
-            elif temp < 20:
-                return f"You probably don't need a heavy layer - it's {temp}°C, mild."
-            else:
-                return f"No jacket needed - it's {temp}°C, nice and warm!"
-        
         return None
 
     def _apply_confidence_cascade(self, intent: str, confidence: float, nlp_result) -> dict:
@@ -3057,6 +3024,11 @@ class ALICE:
                 )
                 intent = followup.resolved_intent
                 intent_confidence = followup.confidence
+                # Keep the NLP processor's internal context in sync with the
+                # resolved intent so _retrieval_first_parse uses the correct
+                # last_intent on the very next turn (not the raw NLP guess).
+                if hasattr(self.nlp, 'context'):
+                    self.nlp.context.last_intent = followup.resolved_intent
 
             # ── 1.4  Validation / clarification gate ─────────────────────────────
             # Now validates the *resolved* intent — follow-up corrections are
@@ -3136,9 +3108,24 @@ class ALICE:
                     if pronoun in words:
                         resolved = self.conversation_context.resolve_reference(pronoun)
                         if resolved:
-                            self._think(f"Reference resolution: '{pronoun}' → '{resolved}'")
-                            if 'resolved_reference' not in entities:
-                                entities['resolved_reference'] = resolved
+                            # Domain-aware guard: don't apply a cross-domain entity
+                            # resolution when the current intent is already anchored to
+                            # a specific domain.  E.g. after a notes query, 'it' should
+                            # not resolve to the last weather entity.
+                            _intent_domain = intent.split(':')[0] if ':' in intent else intent
+                            _resolved_lower = resolved.lower()
+                            _weather_entity = any(
+                                kw in _resolved_lower
+                                for kw in ('weather', 'forecast', 'temperature',
+                                           'rain', 'sunny', 'cloud', '°c', '°f')
+                            )
+                            _skip = _weather_entity and _intent_domain in (
+                                'notes', 'email', 'calendar', 'music', 'reminder'
+                            )
+                            if not _skip:
+                                self._think(f"Reference resolution: '{pronoun}' → '{resolved}'")
+                                if 'resolved_reference' not in entities:
+                                    entities['resolved_reference'] = resolved
                         break
 
             
@@ -5694,10 +5681,14 @@ class ALICE:
             if len(self.conversation_summary) > 10:
                 self.conversation_summary.pop(0)
             
-            # Track topics from intent and entities
+            # Track topics from intent and entities — always move the intent
+            # to the END of the list so that topics[-1] always reflects the
+            # MOST RECENTLY seen topic, even if that domain was seen before.
+            # (The old "if not in" check left stale ordering when topics recycled.)
             if intent and intent != "unknown":
-                if intent not in self.conversation_topics:
-                    self.conversation_topics.append(intent)
+                if intent in self.conversation_topics:
+                    self.conversation_topics.remove(intent)
+                self.conversation_topics.append(intent)
             
             # Track entities as references
             if entities:

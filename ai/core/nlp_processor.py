@@ -194,16 +194,27 @@ _P1_EMAIL_READ_NOUNS: frozenset = frozenset({"email", "emails", "mail", "message
 
 # Notes
 _P1_NOTES_APPEND_VERBS: frozenset = frozenset({"add", "put", "append", "include"})
-_P1_NOTES_APPEND_PHRASES: tuple = (
-    "to the list", "to my list", "to the note", "to my note",
-    "on the list", "on my list", "to grocery", "to shopping",
-)
+# Regex for append: "add X to [my/the] [any words] [note/list/notes]"
+# Uses regex at detection time — see _detect_intent_phase1
 _P1_NOTES_CREATE_VERBS: frozenset = frozenset({"create", "new", "make", "write"})
 _P1_NOTES_KEYWORDS: frozenset = frozenset({"note", "notes", "memo"})
 _P1_NOTES_LIST_VERBS: frozenset = frozenset({"show", "list", "display", "see"})
 _P1_NOTES_LIST_NOUNS: frozenset = frozenset({"note", "notes", "all notes"})
 _P1_NOTES_SEARCH_VERBS: frozenset = frozenset({"find", "search"})
 _P1_NOTES_DELETE_VERBS: frozenset = frozenset({"delete", "remove"})
+# Read content patterns: "what is in the X [note]", "what's inside X", "what is in it?"
+_P1_NOTES_READ_CONTENT_RE = re.compile(
+    r"what(?:'s|\s+is)\s+in\s+(?:the\s+|my\s+)?(?P<name>[a-z][\w\s]+?)\s*(?:note|list|notes)?[?!.]*\s*$"
+    r"|what(?:'s|\s+is)\s+inside\s+(?:the\s+|my\s+)?(?P<name2>[a-z][\w\s]+?)\s*(?:note|list|notes)?[?!.]*\s*$"
+    r"|(?:show|read|open)\s+(?:me\s+)?(?:the\s+)?(?P<name3>[a-z][\w\s]+?)\s+(?:note|list)\s+content"
+    r"|what(?:'s|\s+is)\s+in\s+(?:it|this|that)\b[?!.]*\s*$",
+    re.IGNORECASE,
+)
+# Regex for append: matches "add/put X to [my/the/a] [any words] [note/list]"
+_P1_NOTES_APPEND_RE = re.compile(
+    r"\b(?:add|put|append|include)\b.+?\bto\s+(?:my|the|a|an)?\s*\w+(?:\s+\w+)*?\s+(?:note|list|notes)\b",
+    re.IGNORECASE,
+)
 
 # Reminders
 _P1_REMINDER_SET: tuple = (
@@ -1275,9 +1286,9 @@ class NLPProcessor:
                 "expected": ["content", "tags"],
             },
             "notes:delete": {
-                "required": ["note_id", "title", "query"],
-                "expected": [],
-            },  # Need something to identify the note
+                "required": [],
+                "expected": ["note_id", "title", "query"],
+            },  # Plugin handles "note not found" gracefully; don't block at gate
             "music:play": {
                 "required": ["song", "artist"],
                 "expected": ["album", "playlist"],
@@ -1729,6 +1740,20 @@ class NLPProcessor:
             if _pivot_detected:
                 return None
 
+        # ── Notes domain: check BEFORE weather so pronoun follow-ups after
+        # a notes interaction (e.g. "what is in it?") don't fall into weather.
+        _delete_words = {"delete", "remove", "trash", "erase", "discard"}
+        _content_cues = {"in", "inside", "contents", "content", "contains"}
+        if last_intent and last_intent.startswith("notes:") and (
+            reference_present or bool(token_words & followup_connectors)
+        ):
+            if not token_words.isdisjoint(_delete_words):
+                return "notes:delete", 0.85
+            # Content-read cues: "what is in it?", "what's inside it?"
+            if not token_words.isdisjoint(_content_cues):
+                return "notes:read_content", 0.88
+            return "notes:read", 0.82
+
         if recent_weather_context:
             weather_followup = bool(token_words & weather_cues)
             temporal_followup = bool(token_words & time_range_cues)
@@ -1736,26 +1761,34 @@ class NLPProcessor:
                 token_words & followup_connectors
             )
 
-            if temporal_followup or (
-                connector_followup and not token_words.isdisjoint(time_range_cues)
-            ):
-                return "weather:forecast", 0.86
+            # Never let weather win on purely pronoun-based follow-ups when there
+            # are NO explicit weather keywords in the current utterance.
+            _has_weather_keyword = bool(token_words & weather_cues)
+            if connector_followup and not _has_weather_keyword:
+                # Only context cues, no actual weather words — don't assume weather
+                pass
+            else:
+                if temporal_followup or (
+                    connector_followup and not token_words.isdisjoint(time_range_cues)
+                ):
+                    return "weather:forecast", 0.86
 
-            if weather_followup or connector_followup:
-                if token_words & {"week", "weekend", "next", "tomorrow", "tonight"}:
-                    return "weather:forecast", 0.84
-                return "weather:current", 0.83
+                if weather_followup or connector_followup:
+                    if token_words & {"week", "weekend", "next", "tomorrow", "tonight"}:
+                        return "weather:forecast", 0.84
+                    return "weather:current", 0.83
 
         # Generic short ambiguous follow-up: keep same topic intent family
-        _delete_words = {"delete", "remove", "trash", "erase", "discard"}
+        # (notes: case is already handled above before weather; skip it here)
         if last_intent and (
             reference_present or bool(token_words & followup_connectors)
         ):
             if last_intent.startswith("notes:"):
-                # Delete-action verbs take priority over generic read (coreference case:
-                # "delete the first one", "remove it", "delete that")
+                # Handled earlier — shouldn't reach here, but keep as fallback
                 if not token_words.isdisjoint(_delete_words):
                     return "notes:delete", 0.85
+                if not token_words.isdisjoint(_content_cues):
+                    return "notes:read_content", 0.85
                 return "notes:read", 0.79
             if last_intent.startswith("email:"):
                 return "email:read", 0.77
@@ -1788,6 +1821,8 @@ class NLPProcessor:
         if last_intent.startswith("notes:") or self.context.mentioned_notes:
             if "list" in token_words:
                 return "notes:list", 0.81
+            if not token_words.isdisjoint(_content_cues):
+                return "notes:read_content", 0.84
             return "notes:read", 0.82
         if last_intent.startswith("email:"):
             return "email:read", 0.78
@@ -3118,6 +3153,28 @@ class NLPProcessor:
         if any(phrase in text_lower for phrase in _META_QUESTION_PHRASES):
             return "conversation:meta_question", 0.93
 
+        # PHASE 0b: Identity / self-inquiry questions about Alice herself.
+        # "who made you", "who created you", "who are you", "what are you", etc.
+        # Must catch these before the semantic classifier mistakes them for note operations.
+        _IDENTITY_PHRASES = (
+            "who made you",
+            "who created you",
+            "who built you",
+            "who designed you",
+            "who are you",
+            "what are you",
+            "tell me about yourself",
+            "who developed you",
+            "who programmed you",
+            "who wrote you",
+            "who invented you",
+            "are you an ai",
+            "are you a robot",
+            "are you human",
+        )
+        if any(phrase in text_lower for phrase in _IDENTITY_PHRASES):
+            return "conversation:meta_question", 0.95
+
         mapped = None  # Initialize to prevent UnboundLocalError
         if parsed_command and parsed_command.object_type == "note":
             # Check if this is actually a file operation (e.g., "read the file called notes.txt")
@@ -3229,11 +3286,17 @@ class NLPProcessor:
             return "email:read", 0.85
 
         # Notes intents - distinguish VERY clearly
+        # Read note content: "what is in the grocery list?", "what's inside my notes?"
+        # Must come before list/append to avoid misclassification.
+        if _P1_NOTES_READ_CONTENT_RE.search(text_lower) and not _negated:
+            return "notes:read_content", 0.92
         # Append/add to existing note: must come BEFORE create to prevent misclassification
-        # Patterns: "add X to the list", "add X to my note", "put X on the list"
-        if any(word in text_lower for word in _P1_NOTES_APPEND_VERBS) and any(
-            phrase in text_lower for phrase in _P1_NOTES_APPEND_PHRASES
-        ) and not _negated:
+        # Matches: "add X to my grocery list", "add X to the note", "put X on my shopping list"
+        if (
+            any(word in text_lower for word in _P1_NOTES_APPEND_VERBS)
+            and _P1_NOTES_APPEND_RE.search(text_lower)
+            and not _negated
+        ):
             return "notes:append", 0.9
         # Create: "create/new/make + note" - requires explicit note/memo keyword
         if any(word in text_lower for word in _P1_NOTES_CREATE_VERBS) and any(
@@ -4215,6 +4278,15 @@ class FollowUpResolver:
             "that note",
             "edit",
             "update",
+            "what is in",
+            "what's in",
+            "inside",
+            "read it",
+            "open it",
+            "what does it say",
+            "what does it contain",
+            "what's inside",
+            "contents",
         ],
         "email": [
             "that email",
@@ -4282,6 +4354,21 @@ class FollowUpResolver:
         }
     )
 
+    # Pre-compiled word-boundary regex for generic follow-up cue detection.
+    # Substring matching (e.g. "it" in "tonight") produces false positives
+    # that hijack intent routing.  Word boundaries fix that.
+    _GENERIC_CUE_RE: re.Pattern = re.compile(
+        "|".join(
+            r"\b" + re.escape(cue.strip()) + r"\b"
+            for cue in [
+                "what about", "how about", "and", "also", "same for",
+                "that", "this", "it", "them",
+                "tomorrow", "tonight", "this week", "next week", "weekend",
+            ]
+        ),
+        re.IGNORECASE,
+    )
+
     def resolve(
         self,
         user_input: str,
@@ -4325,7 +4412,9 @@ class FollowUpResolver:
             recent_intent.split(":")[0] if ":" in recent_intent else recent_intent
         )
 
-        generic_cue = any(cue in lower for cue in self.GENERIC_CUES)
+        # Word-boundary aware matching — prevents "tonight" triggering "it",
+        # or "sandbot" triggering "and", etc.
+        generic_cue = bool(self._GENERIC_CUE_RE.search(lower))
         domain_signals = self.DOMAIN_SIGNALS.get(recent_domain, [])
         domain_signal_hit = any(sig in lower for sig in domain_signals)
 
@@ -4351,15 +4440,39 @@ class FollowUpResolver:
         ):
             _decay = math.exp(-0.15 * max(0, turn_distance))
             new_conf = max(nlp_confidence, 0.82 * _decay)
+
+            # For the notes domain, inherit the most precise sub-intent that
+            # the current utterance implies rather than blindly re-using the
+            # stale last intent (e.g. notes:query_exist ≠ notes:read_content).
+            _resolved_intent = recent_intent
+            if recent_domain == "notes":
+                _NOTE_CONTENT_SIGNALS = frozenset({
+                    "what is in", "what's in", "what is inside", "what's inside",
+                    "inside", "read it", "open it", "what does it say",
+                    "what does it contain", "contents", "in it", "in the note",
+                })
+                _NOTE_DELETE_SIGNALS = frozenset({"delete", "remove"})
+                _NOTE_APPEND_SIGNALS = frozenset({"add to", "append"})
+                _NOTE_EDIT_SIGNALS   = frozenset({"edit", "modify", "change", "update"})
+                if any(sig in lower for sig in _NOTE_CONTENT_SIGNALS):
+                    _resolved_intent = "notes:read_content"
+                elif any(sig in lower for sig in _NOTE_DELETE_SIGNALS):
+                    _resolved_intent = "notes:delete"
+                elif any(sig in lower for sig in _NOTE_APPEND_SIGNALS):
+                    _resolved_intent = "notes:append"
+                elif any(sig in lower for sig in _NOTE_EDIT_SIGNALS):
+                    _resolved_intent = "notes:edit"
+                # else: keep recent_intent (e.g. notes:list, notes:read …)
+
             logger.debug(
                 "[FollowUpResolver] domain_signal:%s → %s (%.2f, decay=%.2f)",
                 recent_domain,
-                recent_intent,
+                _resolved_intent,
                 new_conf,
                 _decay,
             )
             return FollowUpResult(
-                recent_intent,
+                _resolved_intent,
                 new_conf,
                 True,
                 recent_domain,
@@ -4391,7 +4504,17 @@ class FollowUpResolver:
 
         # ── Layer 3: Low-confidence NLP + conversational + generic cue ──────
         if low_confidence and (is_conversational or generic_cue):
-            if ":" in recent_intent and not recent_intent.startswith(
+            # Domain-pivot guard: if NLP produced a reasonably-confident
+            # specific intent in a DIFFERENT domain, respect the pivot.
+            # Example: last=notes:list, user says "pause the music" →
+            # NLP returns music:pause 0.55 — don't re-route back to notes.
+            _nlp_is_specific_pivot = (
+                nlp_confidence >= 0.50
+                and nlp_intent not in self.CONVERSATIONAL_INTENTS
+                and not nlp_intent.endswith(":general")
+                and nlp_domain != recent_domain
+            )
+            if not _nlp_is_specific_pivot and ":" in recent_intent and not recent_intent.startswith(
                 ("conversation:", "system:")
             ):
                 _decay = math.exp(-0.15 * max(0, turn_distance))

@@ -340,8 +340,85 @@ class TestFollowUpResolver:
         assert r.was_followup is False
         assert r.resolved_intent == "notes:read"
 
+    # ── domain-aware notes sub-intent mapping (feature items 1-5) ────────────
+
+    def test_notes_content_cue_maps_to_read_content(self):
+        """'what is in it?' after notes:query_exist must yield notes:read_content, not query_exist."""
+        r = self._resolve(
+            "what is in it?",
+            nlp_intent="conversation:general",
+            nlp_confidence=0.45,
+            last_intent="notes:query_exist",
+            topics=["notes:query_exist"],
+        )
+        assert r.was_followup is True
+        assert r.resolved_intent == "notes:read_content"
+
+    def test_notes_delete_cue_maps_to_delete(self):
+        """'delete it' after notes:list must yield notes:delete, not notes:list."""
+        r = self._resolve(
+            "delete it",
+            nlp_intent="conversation:general",
+            nlp_confidence=0.45,
+            last_intent="notes:list",
+            topics=["notes:list"],
+        )
+        assert r.was_followup is True
+        assert r.resolved_intent == "notes:delete"
+
+    def test_notes_append_cue_maps_to_append(self):
+        """'add to it' signal must yield notes:append."""
+        r = self._resolve(
+            "add to it",
+            nlp_intent="conversation:general",
+            nlp_confidence=0.45,
+            last_intent="notes:list",
+            topics=["notes:list"],
+        )
+        assert r.was_followup is True
+        assert r.resolved_intent == "notes:append"
+
+    def test_notes_inside_cue_maps_to_read_content(self):
+        """'what's inside' signal must yield notes:read_content."""
+        r = self._resolve(
+            "what's inside it?",
+            nlp_intent="conversation:general",
+            nlp_confidence=0.45,
+            last_intent="notes:list",
+            topics=["notes:list"],
+        )
+        assert r.was_followup is True
+        assert r.resolved_intent == "notes:read_content"
+
+    def test_weather_does_not_bleed_into_notes_follow_up(self):
+        """After a notes turn, generic pronoun 'what is in it?' must not route to weather."""
+        r = self._resolve(
+            "what is in it?",
+            nlp_intent="weather:current",   # NLP misfired as weather
+            nlp_confidence=0.55,
+            last_intent="notes:list",
+            topics=["notes:list"],
+        )
+        # Layer 1 should override the misfired weather intent via notes content signal
+        assert r.resolved_intent != "weather:current"
+        assert r.resolved_intent == "notes:read_content"
+
+    def test_cross_domain_weather_after_notes_is_respected(self):
+        """Explicit weather query after notes should produce weather:current, not notes."""
+        r = self._resolve(
+            "how's the weather today?",
+            nlp_intent="weather:current",
+            nlp_confidence=0.88,
+            last_intent="notes:list",
+            topics=["notes:list"],
+        )
+        # High-confidence weather intent — same-domain specific guard blocks Layer 1/2
+        # because nlp_domain != recent_domain, so resolver should pass through weather
+        assert r.resolved_intent == "weather:current"
+
 
 # ── end-to-end brainstem integration ─────────────────────────────────────────
+
 
 class TestBrainstemEndToEnd:
     """Smoke-test the full perception → policy chain."""
