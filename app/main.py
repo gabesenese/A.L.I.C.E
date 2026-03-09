@@ -2775,6 +2775,7 @@ class ALICE:
             wd = weather_entity.data
             condition = wd.get('condition', '').lower()
             location = wd.get('location', 'your area')
+            temp = wd.get('temperature')
 
             # Detect if this is a follow-up (user already saw the weather report this turn)
             is_follow_up = False

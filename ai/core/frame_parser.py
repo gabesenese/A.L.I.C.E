@@ -177,8 +177,9 @@ _FRAMES: List[FrameDefinition] = [
         trigger_patterns=[
             r"\b(list|show|display)\s+(all|my)\s+notes?\b",
             r"\ball\s+(my\s+)?notes?\b",
-            r"\bwhat notes\b",
-            r"\bnotes?\s+i\s+have\b",
+            r"\bwhat\b.{0,10}\bnotes?\b",
+            r"\bnotes?\b.{0,15}\b(i\s+have|do\s+i\s+have)\b",
+            r"\b(do i have|how many)\b.{0,20}\bnotes?\b",
         ],
         anti_patterns=[
             r"\b(find|search|look\s+for|about|tagged)\b",

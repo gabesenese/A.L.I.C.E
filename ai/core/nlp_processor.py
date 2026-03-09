@@ -1770,6 +1770,15 @@ class NLPProcessor:
             # Content-read cues: "what is in it?", "what's inside it?"
             if not token_words.isdisjoint(_content_cues):
                 return "notes:read_content", 0.88
+            # List/count cues: "what notes do i have?", "how many notes",
+            # "do i have notes?", "2 notes" etc.  These beat the generic read fallback.
+            _list_cues = {"have", "many", "all", "list", "count"}
+            if (
+                not token_words.isdisjoint(_list_cues)
+                and "notes" in token_words
+                and token_words.isdisjoint({"title", "called", "named", "content", "inside"})
+            ):
+                return "notes:list", 0.85
             return "notes:read", 0.82
 
         if recent_weather_context:
@@ -3328,6 +3337,12 @@ class NLPProcessor:
             word in text_lower for word in _P1_NOTES_KEYWORDS
         ) and not _negated:
             return "notes:create", 0.9
+        # List: existence/count questions: "do i have notes?", "how many notes do i have?"
+        if (
+            re.search(r"\b(do i have|how many|i have)\b", text_lower)
+            and re.search(r"\bnotes?\b", text_lower)
+        ):
+            return "notes:list", 0.90
         # List: "show/list + note(s)"
         if any(word in text_lower for word in _P1_NOTES_LIST_VERBS) and any(
             word in text_lower for word in _P1_NOTES_LIST_NOUNS
