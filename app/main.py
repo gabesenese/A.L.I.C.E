@@ -343,6 +343,19 @@ class ALICE:
             # Area 1–8: advanced intelligence components
             try:
                 self.bayesian_router = get_bayesian_router()
+                # Seed cost matrix from stored NLP error log so the router
+                # benefits from past correction history on every startup.
+                try:
+                    _drained = self.bayesian_router.drain_for_cost_update(
+                        "memory/nlp_errors.jsonl"
+                    )
+                    if _drained:
+                        logger.info(
+                            "[BayesianRouter] Seeded cost matrix from %d error log entries",
+                            _drained,
+                        )
+                except Exception as _drain_err:
+                    logger.debug("BayesianRouter cost-matrix seeding skipped: %s", _drain_err)
                 self.world_graph = get_world_graph(
                     persistence_path="memory/world_graph.json"
                 )
@@ -1810,6 +1823,17 @@ class ALICE:
                 )
                 if self.phrasing_learner.can_phrase_myself(thought_content, tone):
                     self._think(f"Alice learned '{response_type}' — can now phrase independently!")
+                # Prepend an empathy phrase when the interaction policy asks for it
+                # (applies only to open-ended/conversational Ollama-assisted responses).
+                _pol = getattr(self, '_last_policy', None)
+                if _pol is not None and getattr(_pol, 'add_empathy_prefix', False):
+                    _mood = getattr(getattr(self, '_last_perception', None), 'inferred_mood', '')
+                    _pfx = (
+                        "I'm sorry to hear that — "
+                        if _mood == 'frustrated'
+                        else "Of course — "
+                    )
+                    natural_response = _pfx + natural_response
                 return natural_response
             else:
                 logger.warning("[ALICE] Ollama phrasing failed — using Alice's direct fallback")
@@ -2996,8 +3020,15 @@ class ALICE:
             # ── 1.2  Interaction policy ───────────────────────────────────────────
             # Derive tone/length/clarification settings from the user's inferred mood.
             urgency_level = getattr(nlp_result, 'urgency_level', 'low')
+            _frame_info = getattr(nlp_result, 'frame_result', None)
             policy = self.interaction_policy.derive(
-                perception.inferred_mood, sentiment, urgency_level
+                perception.inferred_mood, sentiment, urgency_level,
+                intent=intent,
+                intent_conf=intent_confidence,
+                frame_name=getattr(_frame_info, 'frame_name', None) if _frame_info else None,
+                frame_conf=getattr(_frame_info, 'confidence', 0.0) if _frame_info else 0.0,
+                n_slots=len(getattr(_frame_info, 'slots', {}) or {}) if _frame_info else 0,
+                session_id=getattr(self, '_session_id', ''),
             )
             if perception.inferred_mood not in ("neutral", "positive"):
                 self._think(
@@ -5138,6 +5169,30 @@ class ALICE:
                     )
                 except Exception as e:
                     logger.debug(f"[Analytics] Could not log interaction: {e}")
+
+            # ── Outcome feedback: close the NLP learning loops ────────────────
+            # BayesianIntentRouter: update confidence calibration after each turn
+            # so future cost-minimisation uses empirical accuracy, not raw scores.
+            # KnobBandit: reward or penalise the proposed style knobs based on
+            # whether the plugin (or LLM) actually succeeded this turn.
+            try:
+                _outcome_success = (
+                    interaction_success
+                    if 'interaction_success' in locals()
+                    else bool('plugin_result' in locals() and (plugin_result or {}).get('success', True))
+                )
+                _ic_for_outcome = float(getattr(self, '_last_intent_confidence', 0.5))
+                if getattr(self, 'bayesian_router', None) is not None:
+                    self.bayesian_router.record_outcome(
+                        intent, _outcome_success, _ic_for_outcome
+                    )
+                _knob_key = getattr(self, '_knob_context_key', None)
+                if getattr(self, 'knob_bandit', None) is not None and _knob_key is not None:
+                    _knob_reward = 1.0 if _outcome_success else -0.5
+                    self.knob_bandit.record_outcome(_knob_key, _knob_reward)
+                    self._knob_context_key = None  # reset; propose() will set it next turn
+            except Exception as _outcome_err:
+                logger.debug("[OutcomeFeedback] record_outcome skipped: %s", _outcome_err)
 
             # Memory Management - periodic monitoring and pruning
             if hasattr(self, 'memory_growth_monitor') and hasattr(self, 'memory_pruner'):

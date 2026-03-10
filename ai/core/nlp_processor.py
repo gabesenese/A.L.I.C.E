@@ -452,6 +452,11 @@ class SlotFiller:
 
     def __init__(self, temporal_parser):
         self.temporal_parser = temporal_parser
+        # Wrap in the stable TemporalUnderstanding abstraction.  TemporalUnderstanding
+        # is defined later in this module but is always available at call time because
+        # Python evaluates function bodies lazily — the module is fully loaded
+        # before any instance of SlotFiller is created.
+        self.temporal: "TemporalUnderstanding" = TemporalUnderstanding(temporal_parser)  # type: ignore[name-defined]
 
         # Priority keywords
         self.priority_map = {
@@ -688,7 +693,8 @@ class SlotFiller:
         self, text: str, text_lower: str, entities: Dict
     ) -> Tuple[Optional[str], float, str]:
         """Extract and normalize date"""
-        result = self.temporal_parser.parse_temporal_expression(text)
+        _tr = self.temporal.parse(text)
+        result = _tr.as_dict() if _tr else None
         if result and result.get("date"):
             return (
                 result["date"],
@@ -701,7 +707,8 @@ class SlotFiller:
         self, text: str, text_lower: str, entities: Dict
     ) -> Tuple[Optional[str], float, str]:
         """Extract and normalize time"""
-        result = self.temporal_parser.parse_temporal_expression(text)
+        _tr = self.temporal.parse(text)
+        result = _tr.as_dict() if _tr else None
         if result and result.get("time"):
             return (
                 result["time"],
@@ -1983,7 +1990,8 @@ class NLPProcessor:
         mutated = False
 
         # ── Temporal mutation ─────────────────────────────────────────────────
-        temporal = self.temporal_parser.parse_temporal_expression(text)
+        _temporal_tr = self.temporal.parse(text)
+        temporal = _temporal_tr.as_dict() if _temporal_tr else None
         if temporal:
             if temporal.get("date"):
                 merged["slots"]["date"] = temporal["date"]

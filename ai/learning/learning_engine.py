@@ -1324,9 +1324,15 @@ class NLPErrorLogger:
                 "reason": reason,
                 "session_id": session_id,
                 "success": False,
+                # Keys used by LearningEngine._load_error_entries()
                 "actual_intent": nlp_intent,
                 "expected_intent": resolved_intent,
                 "error_type": "followup_missed",
+                # Aliases used by BayesianIntentRouter.drain_for_cost_update()
+                # so follow-up corrections feed back into the cost matrix on
+                # the next startup.
+                "original_intent": nlp_intent,
+                "corrected_intent": resolved_intent,
             }
         )
 
