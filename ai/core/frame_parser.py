@@ -21,12 +21,35 @@ Usage (standalone)
 
 from __future__ import annotations
 
+import json
 import re
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Negation detection helpers  (#3 — negation-aware anti-patterns)
+# ---------------------------------------------------------------------------
+
+_NEGATION_WORDS: frozenset = frozenset({
+    "not", "no", "never", "don't", "dont", "won't", "wont", "can't", "cant",
+    "isn't", "isnt", "aren't", "arent", "didn't", "didnt", "wouldn't", "wouldnt",
+    "shouldn't", "shouldnt", "do not", "does not", "please don't", "please dont",
+})
+_NEG_WINDOW = 32  # characters to look back from a keyword for a negation word
+
+
+def _has_negation_before(text_lower: str, keyword: str, window: int = _NEG_WINDOW) -> bool:
+    """Return True if a negation word appears in the *window* chars before *keyword*."""
+    idx = text_lower.find(keyword)
+    if idx < 0:
+        return False
+    snippet = text_lower[max(0, idx - window): idx]
+    return any(neg in snippet for neg in _NEGATION_WORDS)
+
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -476,20 +499,42 @@ class FrameParser:
     Scoring
     -------
     score = base_confidence
-          + sum(+0.15 per matched keyword, capped at +0.45)
+          + sum(learned_weight per matched keyword, capped at +0.45)   [#2]
+          - sum(0.10 per negated keyword, capped at -0.20)             [#3]
           + sum(+0.20 per matched pattern, capped at +0.40)
           - sum(+0.20 per matched anti-pattern, capped at -0.40)
           - 0.10 per missing required slot
           ∈ [0.0, 0.97]
+
+    Extensions
+    ----------
+    * learned keyword weights (#2) — per-frame per-keyword floats stored in
+      data/frame_keyword_weights.json, updated via record_outcome().
+    * negation-aware scoring (#3) — a keyword preceded by a negation word
+      yields a -0.10 deduction instead of its normal bonus.
+    * compound detection (#4) — parse_compound() splits "X and then Y"
+      utterances and returns a list of FrameMatchResults.
+    * YAML registry (#5) — extra frames loaded from data/frames/*.yaml at
+      startup; they overlay / extend the built-in _FRAMES list.
     """
 
+    _WEIGHTS_PATH = "data/frame_keyword_weights.json"
+    _YAML_FRAMES_DIR = "data/frames"
+
     def __init__(self):
-        self._frames = _FRAMES
+        self._frames: List[FrameDefinition] = list(_FRAMES)
         self._compiled: Dict[str, Tuple[List[re.Pattern], List[re.Pattern]]] = {}
         for frame in self._frames:
             pos = [re.compile(p, re.IGNORECASE) for p in frame.trigger_patterns]
             neg = [re.compile(p, re.IGNORECASE) for p in frame.anti_patterns]
             self._compiled[frame.name] = (pos, neg)
+
+        # (#2) Learned keyword weights: {frame_name: {keyword: weight}}
+        self._keyword_weights: Dict[str, Dict[str, float]] = {}
+        self._load_keyword_weights()
+
+        # (#5) YAML-driven extra frames
+        self._load_yaml_frames()
 
     def parse(
         self,
@@ -568,13 +613,21 @@ class FrameParser:
         matched_keywords: List[str] = []
         matched_patterns: List[str] = []
 
-        # Keyword hits
+        # (#2 + #3) Keyword hits with learned weights and negation awareness
+        frame_weights = self._keyword_weights.get(frame.name, {})
         keyword_bonus = 0.0
+        negation_deduction = 0.0
         for kw in frame.trigger_keywords:
             if kw in text_lower:
-                keyword_bonus += 0.15
-                matched_keywords.append(kw)
+                if _has_negation_before(text_lower, kw):
+                    # Negated keyword → small deduction instead of bonus
+                    negation_deduction += 0.10
+                else:
+                    weight = frame_weights.get(kw, 0.15)
+                    keyword_bonus += weight
+                    matched_keywords.append(kw)
         score += min(0.45, keyword_bonus)
+        score -= min(0.20, negation_deduction)
 
         # Pattern hits
         pos_patterns, neg_patterns = self._compiled[frame.name]
@@ -661,3 +714,163 @@ class FrameParser:
     @staticmethod
     def frame_names() -> List[str]:
         return [f.name for f in _FRAMES]
+
+    # ------------------------------------------------------------------
+    # (#2) Learned keyword weights
+    # ------------------------------------------------------------------
+
+    def _load_keyword_weights(self) -> None:
+        path = Path(self._WEIGHTS_PATH)
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    self._keyword_weights = json.load(fh)
+                logger.debug("[FrameParser] Loaded keyword weights for %d frames", len(self._keyword_weights))
+            except Exception as exc:
+                logger.debug("[FrameParser] Could not load keyword weights: %s", exc)
+
+    def _save_keyword_weights(self) -> None:
+        try:
+            path = Path(self._WEIGHTS_PATH)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(self._keyword_weights, fh, indent=2)
+        except Exception as exc:
+            logger.debug("[FrameParser] Could not save keyword weights: %s", exc)
+
+    def record_outcome(
+        self,
+        frame_name: str,
+        matched_keywords: List[str],
+        was_correct: bool,
+        alpha: float = 0.05,
+    ) -> None:
+        """
+        EMA-update keyword weights for *frame_name* based on outcome.
+
+        Correct match → nudge weights toward 0.22 (reward).
+        Wrong match   → nudge weights toward 0.08 (soften).
+        """
+        target = 0.22 if was_correct else 0.08
+        frame_w = self._keyword_weights.setdefault(frame_name, {})
+        for kw in matched_keywords:
+            current = frame_w.get(kw, 0.15)
+            frame_w[kw] = round(current * (1.0 - alpha) + target * alpha, 4)
+        if matched_keywords:
+            self._save_keyword_weights()
+
+    # ------------------------------------------------------------------
+    # (#4) Multi-frame compound detection
+    # ------------------------------------------------------------------
+
+    _COMPOUND_SEP = re.compile(
+        r"\s+(?:and\s+(?:also|then)?|then|also|,\s*(?:and\s+)?)\s+",
+        re.IGNORECASE,
+    )
+
+    def parse_compound(
+        self,
+        text: str,
+        context: Optional[Dict[str, Any]] = None,
+        min_confidence: float = 0.52,
+    ) -> List[FrameMatchResult]:
+        """
+        Split a potentially compound utterance into parts, match each part,
+        and return a list of FrameMatchResults.
+
+        If only one confident frame is found (or the utterance is not compound),
+        returns a single-element list from the normal parse.  Returns [] if
+        nothing scores above the threshold.
+
+        Example
+        -------
+        "create a note about the meeting and then send an email to bob"
+        → [FrameMatchResult(CREATE_NOTE, …), FrameMatchResult(COMPOSE_EMAIL, …)]
+        """
+        parts = [p.strip() for p in self._COMPOUND_SEP.split(text) if len(p.strip()) > 7]
+
+        if len(parts) < 2:
+            result = self.parse(text, context)
+            return [result] if result else []
+
+        sub_results: List[FrameMatchResult] = []
+        for part in parts:
+            r = self.parse(part, context)
+            if r and r.confidence >= min_confidence:
+                sub_results.append(r)
+
+        if len(sub_results) >= 2:
+            logger.debug(
+                "[COMPOUND] Detected %d sub-frames: %s",
+                len(sub_results),
+                [r.frame_name for r in sub_results],
+            )
+            return sub_results
+
+        # Could not reliably split — fall back to full-text parse
+        full = self.parse(text, context)
+        return [full] if full else []
+
+    # ------------------------------------------------------------------
+    # (#5) YAML-driven frame registry
+    # ------------------------------------------------------------------
+
+    def _load_yaml_frames(self) -> None:
+        """
+        Load extra / override FrameDefinitions from data/frames/*.yaml.
+
+        Each YAML file must be a list of frame dicts with keys matching
+        the FrameDefinition fields.  Frames whose *name* already exists in
+        the built-in registry are replaced; new names are appended.
+
+        Example YAML entry
+        ------------------
+        - name: CUSTOM_FRAME
+          plugin: my_plugin
+          action: do_thing
+          trigger_keywords: [thing, do, execute]
+          trigger_patterns: ["\\bdo\\s+thing\\b"]
+          anti_patterns: []
+          required_slots: []
+          optional_slots: [target]
+          base_confidence: 0.60
+          priority: 5
+        """
+        frames_dir = Path(self._YAML_FRAMES_DIR)
+        if not frames_dir.exists():
+            return
+        try:
+            import yaml  # type: ignore[import]
+        except ImportError:
+            logger.debug("[FrameParser] PyYAML not installed; YAML frame loading skipped")
+            return
+
+        for yaml_path in sorted(frames_dir.glob("*.yaml")):
+            try:
+                with open(yaml_path, "r", encoding="utf-8") as fh:
+                    entries = yaml.safe_load(fh) or []
+                for entry in entries:
+                    frame = FrameDefinition(
+                        name=entry["name"],
+                        plugin=entry["plugin"],
+                        action=entry["action"],
+                        trigger_keywords=entry.get("trigger_keywords", []),
+                        trigger_patterns=entry.get("trigger_patterns", []),
+                        anti_patterns=entry.get("anti_patterns", []),
+                        required_slots=entry.get("required_slots", []),
+                        optional_slots=entry.get("optional_slots", []),
+                        base_confidence=float(entry.get("base_confidence", 0.55)),
+                        priority=int(entry.get("priority", 5)),
+                    )
+                    # Replace existing frame or append new one
+                    self._frames = [f for f in self._frames if f.name != frame.name]
+                    self._frames.append(frame)
+                    # Compile patterns
+                    pos = [re.compile(p, re.IGNORECASE) for p in frame.trigger_patterns]
+                    neg = [re.compile(p, re.IGNORECASE) for p in frame.anti_patterns]
+                    self._compiled[frame.name] = (pos, neg)
+                    # Keep global index current so get_frame() works
+                    _FRAME_INDEX[frame.name] = frame
+                    logger.info("[FrameParser] YAML frame loaded: %s from %s", frame.name, yaml_path.name)
+            except Exception as exc:
+                logger.warning("[FrameParser] Failed to load %s: %s", yaml_path, exc)

@@ -17,6 +17,7 @@ This allows A.L.I.C.E to understand variations of commands naturally:
 
 import logging
 import json
+import math
 import os
 import time
 import hashlib
@@ -171,73 +172,90 @@ class QueryCache:
             }
 
 
+class PlattCalibrator:
+    """
+    Platt scaling: fits the sigmoid  P(correct | s) = σ(A·s + B)  on observed
+    (score, outcome) pairs via online gradient descent on binary cross-entropy.
+
+    Replaces the coarse bin-blend once *min_samples* observations have been
+    collected.  Until then the raw score is returned unchanged so cold-start
+    behaviour is identical to the old approach.
+
+    A is initialised to -1.0 and B to 1.5 so that σ(A·1+B) ≈ 0.62 — a
+    conservative starting point that moves quickly once feedback arrives.
+    """
+
+    def __init__(self, lr: float = 0.02, min_samples: int = 30) -> None:
+        self._lr = lr
+        self._min_samples = min_samples
+        self._A = -1.0
+        self._B = 1.5
+        self._n = 0
+        self._lock = threading.Lock()
+
+    def record(self, score: float, was_correct: bool) -> None:
+        y = 1.0 if was_correct else 0.0
+        with self._lock:
+            self._n += 1
+            p = 1.0 / (1.0 + math.exp(-(self._A * score + self._B)))
+            grad = p - y
+            self._A -= self._lr * grad * score
+            self._B -= self._lr * grad
+
+    def calibrate(self, score: float) -> float:
+        with self._lock:
+            if self._n < self._min_samples:
+                return score  # not enough data yet — passthrough
+            try:
+                return 1.0 / (1.0 + math.exp(-(self._A * score + self._B)))
+            except OverflowError:
+                return score
+
+
 class ConfidenceCalibrator:
     """
-    Bayesian confidence calibration based on historical accuracy
-    Adjusts confidence scores to better reflect actual accuracy
+    Bayesian confidence calibration based on historical accuracy.
+
+    Integrates Platt scaling (#7) once 30+ observations are available,
+    falling back to the original bin-blend approach for cold-start safety.
     """
 
     def __init__(self, history_size: int = 1000):
-        """
-        Initialize confidence calibrator
-
-        Args:
-            history_size: Number of recent predictions to track
-        """
         self.history_size = history_size
         self.predictions = deque(maxlen=history_size)  # (confidence, was_correct)
         self.confidence_bins = defaultdict(lambda: {"correct": 0, "total": 0})
         self.lock = threading.Lock()
+        self._platt = PlattCalibrator()  # (#7) sigmoid calibration
 
     def record_prediction(self, confidence: float, was_correct: bool):
-        """
-        Record a prediction outcome
-
-        Args:
-            confidence: Original confidence score
-            was_correct: Whether prediction was correct
-        """
         with self.lock:
             self.predictions.append((confidence, was_correct))
-
-            # Update bins (0.1 intervals)
             bin_key = round(confidence, 1)
             self.confidence_bins[bin_key]["total"] += 1
             if was_correct:
                 self.confidence_bins[bin_key]["correct"] += 1
+        self._platt.record(confidence, was_correct)
 
     def calibrate(self, confidence: float) -> float:
-        """
-        Calibrate a confidence score based on historical accuracy
-
-        Args:
-            confidence: Raw confidence score
-
-        Returns:
-            Calibrated confidence score
-        """
+        # Use Platt sigmoid once it has enough training data
+        if self._platt._n >= self._platt._min_samples:
+            return self._platt.calibrate(confidence)
         with self.lock:
             bin_key = round(confidence, 1)
-
             if bin_key in self.confidence_bins:
                 stats = self.confidence_bins[bin_key]
-                if stats["total"] >= 10:  # Require minimum samples
+                if stats["total"] >= 10:
                     actual_accuracy = stats["correct"] / stats["total"]
-                    # Blend original confidence with empirical accuracy
                     return 0.7 * actual_accuracy + 0.3 * confidence
-
             return confidence
 
     def get_stats(self) -> Dict:
-        """Get calibration statistics"""
         with self.lock:
             if not self.predictions:
                 return {"bins": {}, "overall_accuracy": 0.0}
-
             overall_accuracy = sum(
                 1 for _, correct in self.predictions if correct
             ) / len(self.predictions)
-
             bins = {}
             for bin_key, stats in self.confidence_bins.items():
                 if stats["total"] > 0:
@@ -245,11 +263,11 @@ class ConfidenceCalibrator:
                         "accuracy": stats["correct"] / stats["total"],
                         "count": stats["total"],
                     }
-
             return {
                 "bins": bins,
                 "overall_accuracy": overall_accuracy,
                 "total_predictions": len(self.predictions),
+                "platt_samples": self._platt._n,
             }
 
 
@@ -301,6 +319,10 @@ class SemanticIntentClassifier:
 
         # Generate embeddings for all examples
         self._generate_embeddings()
+
+        # Compute per-intent centroid vectors (prototype embeddings)
+        self.intent_centroids: Dict[str, np.ndarray] = {}
+        self._compute_intent_centroids()
 
         # Build intent hierarchy
         self._build_intent_hierarchy()
@@ -626,6 +648,27 @@ class SemanticIntentClassifier:
             logger.error(f"Failed to generate embeddings: {e}")
             self.example_embeddings = None
 
+    def _compute_intent_centroids(self):
+        """
+        Compute a single centroid (prototype) embedding per intent:action group.
+
+        The centroid is the mean of all member example embeddings, L2-normalised.
+        During classify() this is blended with per-example similarity to catch
+        paraphrases that land near the prototype but miss the nearest example.
+        """
+        self.intent_centroids = {}
+        if self.example_embeddings is None or not self.examples:
+            return
+        groups: Dict[str, List[int]] = defaultdict(list)
+        for i, ex in enumerate(self.examples):
+            groups[f"{ex.intent}:{ex.action}"].append(i)
+        for key, indices in groups.items():
+            vecs = self.example_embeddings[indices]
+            centroid = vecs.mean(axis=0).astype(np.float32)
+            norm = np.linalg.norm(centroid)
+            self.intent_centroids[key] = centroid / norm if norm > 1e-9 else centroid
+        logger.debug("[Centroids] Built %d intent prototype vectors", len(self.intent_centroids))
+
     def _build_intent_hierarchy(self):
         """Build hierarchical intent structure"""
         # Group intents by plugin
@@ -701,6 +744,15 @@ class SemanticIntentClassifier:
 
             text_embedding = self.model.encode([query_text], convert_to_numpy=True)[0]
 
+            # Pre-compute centroid similarities for prototype blending
+            centroid_sim_map: Dict[str, float] = {}
+            if self.intent_centroids:
+                _c_keys = list(self.intent_centroids.keys())
+                _c_matrix = np.stack([self.intent_centroids[k] for k in _c_keys])
+                _te_norm = text_embedding / (np.linalg.norm(text_embedding) + 1e-9)
+                _c_sims = _c_matrix.dot(_te_norm)  # already L2-normalised centroids
+                centroid_sim_map = dict(zip(_c_keys, _c_sims.tolist()))
+
             # Calculate cosine similarity with all examples
             similarities = np.dot(self.example_embeddings, text_embedding) / (
                 np.linalg.norm(self.example_embeddings, axis=1)
@@ -714,11 +766,19 @@ class SemanticIntentClassifier:
             for idx in top_indices:
                 raw_score = float(similarities[idx])
 
+                # Blend with prototype centroid similarity (30 % centroid weight)
+                # This catches paraphrases that miss the nearest example but are
+                # semantically close to the intent cluster centroid.
+                example = self.examples[idx]
+                centroid_key = f"{example.intent}:{example.action}"
+                centroid_score = centroid_sim_map.get(centroid_key, raw_score)
+                blended_score = 0.70 * raw_score + 0.30 * float(centroid_score)
+
                 # Apply confidence calibration
                 if self.calibrator:
-                    calibrated_score = self.calibrator.calibrate(raw_score)
+                    calibrated_score = self.calibrator.calibrate(blended_score)
                 else:
-                    calibrated_score = raw_score
+                    calibrated_score = blended_score
 
                 if calibrated_score >= threshold:
                     results.append((self.examples[idx], calibrated_score))
@@ -778,6 +838,7 @@ class SemanticIntentClassifier:
 
         # Regenerate embeddings
         self._generate_embeddings()
+        self._compute_intent_centroids()
 
         # Save updated examples
         self._save_examples()
@@ -965,12 +1026,18 @@ class IntentCostMatrix:
 
 
 class _BinCalibrator:
-    """Lightweight bin-based calibrator used when ConfidenceCalibrator is not injected."""
+    """
+    Bin-based calibrator with Platt scaling once enough data accumulates.
+
+    Bin-blend (10+ per bin) is the warm fallback; Platt sigmoid takes over
+    after 30+ total samples for smoother, well-founded probabilities.
+    """
 
     def __init__(self, history_size: int = 2000) -> None:
         self._predictions: deque = deque(maxlen=history_size)
         self._bins: dict = defaultdict(lambda: {"correct": 0, "total": 0})
         self._lock = threading.Lock()
+        self._platt = PlattCalibrator()
 
     def record(self, confidence: float, was_correct: bool) -> None:
         with self._lock:
@@ -979,8 +1046,13 @@ class _BinCalibrator:
             self._bins[key]["total"] += 1
             if was_correct:
                 self._bins[key]["correct"] += 1
+        self._platt.record(confidence, was_correct)
 
     def calibrate(self, confidence: float) -> float:
+        # Prefer Platt once it has enough data
+        platt_val = self._platt.calibrate(confidence)
+        if self._platt._n >= self._platt._min_samples:
+            return platt_val
         with self._lock:
             key = round(confidence, 1)
             stats = self._bins.get(key)
@@ -1016,14 +1088,29 @@ class BayesianIntentRouter:
         self._local_calibrator = _BinCalibrator()
         self._min_candidates = min_candidates_for_regret
 
-    def decide(self, candidates: List[IntentCandidate]) -> RouterDecision:
-        """Choose the best intent candidate by minimising expected regret."""
+    def decide(
+        self,
+        candidates: List[IntentCandidate],
+        user_priors: Optional[Dict[str, float]] = None,
+    ) -> RouterDecision:
+        """
+        Choose the best intent candidate by minimising expected regret.
+
+        Parameters
+        ----------
+        candidates   : ranked list of IntentCandidate from the upstream NLP.
+        user_priors  : optional dict {intent: weight (0–0.15)} derived from
+                       get_intent_priors().  Provides a small personalization
+                       boost before posterior normalization.
+        """
         if not candidates:
             raise ValueError("candidates list must not be empty")
 
         if len(candidates) < self._min_candidates:
             top = candidates[0]
             cal = self._calibrate(top.confidence)
+            if user_priors:
+                cal = min(1.0, cal * (1.0 + user_priors.get(top.intent, 0.0)))
             return RouterDecision(
                 intent=top.intent,
                 plugin=top.plugin,
@@ -1034,6 +1121,13 @@ class BayesianIntentRouter:
             )
 
         calibrated = [(c, self._calibrate(c.confidence)) for c in candidates]
+        # (#6) Apply user prior boosts before normalization so frequently-used
+        # intents get a proportionally higher posterior.
+        if user_priors:
+            calibrated = [
+                (c, cal * (1.0 + user_priors.get(c.intent, 0.0)))
+                for c, cal in calibrated
+            ]
         total = sum(p for _, p in calibrated) or 1.0
         posteriors = [(c, p / total) for c, p in calibrated]
 

@@ -2861,30 +2861,58 @@ class NLPProcessor:
 
         # ── Compound intent detection ─────────────────────────────────────────
         # "create a note AND remind me tomorrow" -> primary intent + secondary_intents
+        # Uses FrameParser.parse_compound() when available for structured splitting;
+        # falls back to the lightweight semantic splitter.
         _compound_sep = re.compile(r"\s+(?:and|then|also)\s+", re.IGNORECASE)
         _compound_parts = _compound_sep.split(normalized_text.strip())
         if len(_compound_parts) > 1:
-            _secondary_intents = []
-            for _part in _compound_parts[1:]:
-                _part = _part.strip()
-                if len(_part) > 8:
-                    try:
-                        _si, _sc = self._detect_intent_semantic(_part)
-                        if (
-                            _sc > 0.65
-                            and _si != "conversation:general"
-                            and _si != intent
-                        ):
-                            _secondary_intents.append(
-                                {"intent": _si, "confidence": _sc, "text": _part}
-                            )
-                    except Exception:
-                        pass
-            if _secondary_intents:
-                parsed_command.modifiers["secondary_intents"] = _secondary_intents
-                logger.debug(
-                    "[COMPOUND] Secondary intents: %s", _secondary_intents
+            # Prefer structured compound parsing via the frame parser
+            if self.frame_parser is not None and hasattr(self.frame_parser, 'parse_compound'):
+                _frame_ctx = {
+                    "last_plugin": parsed_command.modifiers.get("last_plugin"),
+                    "last_intent": parsed_command.modifiers.get("last_intent", ""),
+                }
+                _compound_frames = self.frame_parser.parse_compound(
+                    normalized_text.strip(), context=_frame_ctx
                 )
+                if len(_compound_frames) >= 2:
+                    parsed_command.modifiers["compound_frames"] = [
+                        {
+                            "frame_name": r.frame_name,
+                            "plugin": r.plugin,
+                            "action": r.action,
+                            "confidence": r.confidence,
+                            "slot_evidence": r.slot_evidence,
+                        }
+                        for r in _compound_frames
+                    ]
+                    logger.debug(
+                        "[COMPOUND] Frame-split: %s",
+                        [r.frame_name for r in _compound_frames],
+                    )
+            else:
+                # Lightweight semantic fallback
+                _secondary_intents = []
+                for _part in _compound_parts[1:]:
+                    _part = _part.strip()
+                    if len(_part) > 8:
+                        try:
+                            _si, _sc = self._detect_intent_semantic(_part)
+                            if (
+                                _sc > 0.65
+                                and _si != "conversation:general"
+                                and _si != intent
+                            ):
+                                _secondary_intents.append(
+                                    {"intent": _si, "confidence": _sc, "text": _part}
+                                )
+                        except Exception:
+                            pass
+                if _secondary_intents:
+                    parsed_command.modifiers["secondary_intents"] = _secondary_intents
+                    logger.debug(
+                        "[COMPOUND] Secondary intents: %s", _secondary_intents
+                    )
 
         # Continue with rest of processing
 

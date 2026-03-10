@@ -424,6 +424,32 @@ class UserProfileEngine:
         style = self.get_communication_style()
         return style.get("technicality", 0.5) > 0.6
 
+    def get_intent_priors(self, max_weight: float = 0.15) -> Dict[str, float]:
+        """
+        Return per-intent prior weights derived from the user's usage history.
+
+        The weight for each intent is proportional to how often that intent
+        appears in behavioral patterns relative to the most-used intent,
+        scaled to [0, max_weight].  These are passed to BayesianIntentRouter
+        to give a small personalization boost to intents the user frequently uses.
+
+        Returns an empty dict if no history is available yet.
+        """
+        if not self.profile:
+            return {}
+        counts: Dict[str, int] = {}
+        for pattern_id, behavior in self.profile.behaviors.items():
+            if behavior.pattern_type == "intent_frequency":
+                intent = pattern_id.replace("frequent_", "", 1)
+                counts[intent] = behavior.times_observed
+        if not counts:
+            return {}
+        max_count = max(counts.values())
+        return {
+            intent: round((cnt / max_count) * max_weight, 4)
+            for intent, cnt in counts.items()
+        }
+
     def get_active_patterns(
         self, min_confidence: float = 0.5
     ) -> List[BehavioralPattern]:

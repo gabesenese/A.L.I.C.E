@@ -3544,7 +3544,10 @@ class ALICE:
                                     confidence=float(_alt_score),
                                 )
                             )
-                    _rd = self.bayesian_router.decide(_candidates)
+                    _rd = self.bayesian_router.decide(
+                        _candidates,
+                        user_priors=getattr(self.user_profile, 'get_intent_priors', lambda: {})(),
+                    )
                     if _rd.intent != intent:
                         # Never downgrade a high-confidence specific intent to
                         # a bare `:general` catch-all — let the NLP win.
