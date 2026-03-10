@@ -523,6 +523,7 @@ class WeatherPlugin(PluginInterface):
 
                 return {
                     "success": True,
+                    "action": "get_current",
                     "response": None,
                     "data": {
                         "temperature": temp,
@@ -669,6 +670,7 @@ class WeatherPlugin(PluginInterface):
 
             return {
                 "success": True,
+                "action": "get_forecast",
                 "response": None,
                 "data": {
                     "forecast": forecast,

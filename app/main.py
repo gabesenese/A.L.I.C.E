@@ -3638,7 +3638,8 @@ class ALICE:
                         self._think("No learned patterns yet → will use Ollama")
             
             # 1.5.8. Weather follow-up routing (use stored weather data, no LLM)
-            weather_followup = self._handle_weather_followup(user_input, intent)
+            # Skip if the early fast-path already attempted this (avoids duplicate detection logs)
+            weather_followup = None if _wfu_hit else self._handle_weather_followup(user_input, intent)
             if weather_followup:
                 self._think("Weather follow-up → answering from stored data (no LLM)")
                 return weather_followup
@@ -4699,6 +4700,24 @@ class ALICE:
                                 aliases=['forecast', 'weather forecast', 'this week', 'next week', 'weekend']
                             ))
                             self._think(f"Weather forecast entity stored successfully")
+                            # If the original query mentioned a specific time range,
+                            # filter the response now that we have the forecast data.
+                            _tr_kw = [
+                                'tonight', 'tomorrow', 'this week', 'next week',
+                                'weekend', 'this weekend', 'today', 'this evening',
+                                'monday', 'tuesday', 'wednesday', 'thursday',
+                                'friday', 'saturday', 'sunday',
+                            ]
+                            _q_lo = user_input.lower()
+                            _mentioned_tr = next((k for k in _tr_kw if k in _q_lo), None)
+                            if _mentioned_tr:
+                                from ai.models.simple_formatters import WeatherFormatter
+                                _tr_response = WeatherFormatter.format(
+                                    weather_data, entities={'TIME_RANGE': [_mentioned_tr]}
+                                )
+                                if _tr_response:
+                                    self._think(f"Filtered forecast for '{_mentioned_tr}' — replacing full 7-day table")
+                                    response = _tr_response
                         else:
                             self.reasoning_engine.add_entity(WorldEntity(
                                 id='current_weather',

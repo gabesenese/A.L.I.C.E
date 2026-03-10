@@ -162,7 +162,7 @@ class WeatherFormatter(SimpleFormatter):
             if target_date:
                 for day in days:
                     if day.get("date") == target_date:
-                        return WeatherFormatter._format_single_day(location, day)
+                        return WeatherFormatter._format_single_day(location, day, label_override=target_day)
 
         # Weather condition icons/symbols
         condition_icons = {
@@ -240,22 +240,31 @@ class WeatherFormatter(SimpleFormatter):
         return "\n".join(summary_lines)
 
     @staticmethod
-    def _format_single_day(location: str, day: Dict[str, Any]) -> str:
+    def _format_single_day(location: str, day: Dict[str, Any], label_override: Optional[str] = None) -> str:
         """Format a single day's forecast with improved readability"""
         date_str = day.get("date")
         high = day.get("high")
         low = day.get("low")
         condition = day.get("condition", "unknown")
 
-        # Convert date to more readable format
-        day_name = ""
-        if date_str:
-            try:
-                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                # Format: "Monday, February 9"
-                day_name = date_obj.strftime("%A, %B %d").replace(" 0", " ")
-            except:
-                day_name = date_str
+        # Use friendly label override (e.g. "tonight", "tomorrow") when available
+        tonight_keywords = {"tonight", "this evening", "this afternoon", "later today", "now"}
+        if label_override and label_override.lower() in tonight_keywords:
+            day_name = "Tonight"
+        elif label_override == "today":
+            day_name = "Today"
+        elif label_override == "tomorrow":
+            day_name = "Tomorrow"
+        else:
+            # Convert date to more readable format
+            day_name = ""
+            if date_str:
+                try:
+                    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                    # Format: "Monday, February 9"
+                    day_name = date_obj.strftime("%A, %B %d").replace(" 0", " ")
+                except:
+                    day_name = date_str
 
         if day_name and high is not None and low is not None:
             return f"{location} on {day_name}: {condition}, low {int(low)}°C, high {int(high)}°C"
@@ -288,6 +297,11 @@ class WeatherFormatter(SimpleFormatter):
 
     @staticmethod
     def _weekday_to_date(weekday: str) -> Optional[str]:
+        today_keywords = {"tonight", "today", "this evening", "this afternoon", "later today", "now"}
+        if weekday in today_keywords:
+            return datetime.now().strftime("%Y-%m-%d")
+        if weekday == "tomorrow":
+            return (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         weekdays = {
             "monday": 0,
             "tuesday": 1,
