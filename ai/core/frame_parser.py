@@ -764,7 +764,7 @@ class FrameParser:
     # ------------------------------------------------------------------
 
     _COMPOUND_SEP = re.compile(
-        r"\s+(?:and\s+(?:also|then)?|then|also|,\s*(?:and\s+)?)\s+",
+        r"\s+(?:and(?:\s+(?:also|then))?|then|also|,\s*(?:and)?)\s+",
         re.IGNORECASE,
     )
 
