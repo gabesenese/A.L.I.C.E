@@ -227,6 +227,16 @@ _P1_REMINDER_LIST: tuple = (
 )
 _P1_REMINDER_CANCEL_VERBS: frozenset = frozenset({"cancel", "delete", "remove"})
 
+# Short conversational acknowledgments — must be caught before semantic classifier
+# so phrases like "will do", "got it" can't be mis-routed to music:play
+_P1_CONV_ACK: frozenset = frozenset({
+    "will do", "got it", "noted", "understood", "sure", "sure thing",
+    "sounds good", "sounds great", "alright", "okay", "ok", "okie",
+    "roger", "roger that", "copy that", "aye", "yep", "yup", "yeah",
+    "sure will", "on it", "done", "all good", "no problem", "np",
+    "perfect", "great", "awesome", "nice",
+})
+
 # Greetings / thanks / status
 _P1_THANKS: tuple = ("thanks", "thank you", "thx", "thank", "thanks for")
 _P1_STATUS_INQUIRY: tuple = (
@@ -1315,8 +1325,8 @@ class NLPProcessor:
                 "expected": ["note_id", "title", "query"],
             },  # Plugin handles "note not found" gracefully; don't block at gate
             "music:play": {
-                "required": ["song", "artist"],
-                "expected": ["album", "playlist"],
+                "required": [],  # song/artist optional — user can say "play some music"
+                "expected": ["song", "artist", "album", "playlist"],
             },
             "calendar:create": {
                 "required": ["event", "date"],
@@ -3431,6 +3441,12 @@ class NLPProcessor:
         ):
             return "reminder:cancel", 0.95
         # ─────────────────────────────────────────────────────────────────────────
+
+        # Short conversational acknowledgments — catch before semantic classifier
+        # e.g. "will do", "got it", "sure", "sounds good", "noted"
+        _text_stripped = text_lower.strip(".,!? ")
+        if _text_stripped in _P1_CONV_ACK or len(text_lower.split()) <= 3 and _text_stripped in _P1_CONV_ACK:
+            return "conversation:ack", 0.92
 
         # Thanks - check BEFORE greetings (to prevent "thanks" being matched by semantic classifier)
         if any(phrase in text_lower for phrase in _P1_THANKS):
