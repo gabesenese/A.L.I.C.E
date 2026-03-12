@@ -168,7 +168,6 @@ class PluginManager:
                     plugin_map = {
                         "notes": "Notes Plugin",
                         "email": "GmailPlugin",  # Will fallback to email intent handler in main.py
-                        "music": "Music Control",  # MusicPlugin registers as "Music Control"
                         "calendar": "Calendar Plugin",
                         "document": "Document Plugin",
                         "weather": "WeatherPlugin",
@@ -1181,17 +1180,6 @@ class CapabilityGraph:
     """
 
     _DEFAULT_CAPABILITIES: List[CapabilityNode] = [
-        CapabilityNode(
-            name="music",
-            handles_intents={
-                "music:play",
-                "music:pause",
-                "music:skip",
-                "music:status",
-                "music:volume",
-            },
-            provides={"track_id", "artist_name"},
-        ),
         CapabilityNode(
             name="weather",
             handles_intents={"weather:current", "weather:forecast"},

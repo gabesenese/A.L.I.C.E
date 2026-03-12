@@ -8,7 +8,7 @@ import logging
 from typing import Dict, List, Any
 from pathlib import Path
 from datetime import datetime
-from ai.ollama_scorer import TrainingSignal
+from ai.training.ollama_scorer import TrainingSignal
 
 logger = logging.getLogger(__name__)
 

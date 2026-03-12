@@ -468,29 +468,6 @@ class SemanticIntentClassifier:
             IntentExample("compose a message", "email", "email", "compose"),
             IntentExample("search for emails from john", "email", "email", "search"),
             IntentExample("find emails about the project", "email", "email", "search"),
-            # Music Plugin
-            IntentExample("play some music", "music", "music", "play"),
-            IntentExample("play a song", "music", "music", "play"),
-            IntentExample("start playing music", "music", "music", "play"),
-            IntentExample("i want to listen to music", "music", "music", "play"),
-            IntentExample("play something", "music", "music", "play"),
-            IntentExample("pause the music", "music", "music", "pause"),
-            IntentExample("stop playing", "music", "music", "pause"),
-            IntentExample("pause this", "music", "music", "pause"),
-            IntentExample("what's playing", "music", "music", "status"),
-            IntentExample("what song is this", "music", "music", "status"),
-            IntentExample("current song", "music", "music", "status"),
-            IntentExample("what am i listening to", "music", "music", "status"),
-            IntentExample("next song", "music", "music", "next"),
-            IntentExample("skip this", "music", "music", "next"),
-            IntentExample("play next", "music", "music", "next"),
-            IntentExample("previous song", "music", "music", "previous"),
-            IntentExample("go back", "music", "music", "previous"),
-            IntentExample("last track", "music", "music", "previous"),
-            IntentExample("turn up the volume", "music", "music", "volume_up"),
-            IntentExample("louder", "music", "music", "volume_up"),
-            IntentExample("turn down the volume", "music", "music", "volume_down"),
-            IntentExample("quieter", "music", "music", "volume_down"),
             # Calendar Plugin
             IntentExample("what's on my calendar", "calendar", "calendar", "list"),
             IntentExample("show my schedule", "calendar", "calendar", "list"),
@@ -983,8 +960,6 @@ class IntentCostMatrix:
         ("chitchat:general", "email:send"): 1.8,
         ("chitchat:general", "notes:create"): 1.6,
         ("chitchat:general", "calendar:create_event"): 1.6,
-        ("music:play", "weather:current"): 1.4,  # umbrella trap
-        ("music:play", "weather:forecast"): 1.4,
     }
     _LOW_COST_PAIRS: Dict[Tuple[str, str], float] = {
         ("weather:current", "weather:forecast"): 0.3,

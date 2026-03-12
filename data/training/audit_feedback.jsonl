@@ -58,3 +58,21 @@
 {"query": "1. I've identified a memory leak in my code that's causing it to consume increasing amounts of RAM over time, but I'm not sure where the leak is occurring - can you help me analyze the stack trace and point out the issue?", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T22:07:34.165457"}
 {"query": "What's been the most interesting project you've worked on recently?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T22:07:39.610069"}
 {"query": "How do you like working with our team, what are some things that make it enjoyable?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-02-04T22:07:45.170139"}
+{"query": "Will it rain tomorrow in New York City?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:12:35.167746"}
+{"query": "How much snow is forecasted to fall in the next 24 hours in the Rocky Mountains?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:12:40.850252"}
+{"query": "Here are two different programming questions someone might ask an AI, covering different areas:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:12:46.366803"}
+{"query": "1. I'm experiencing a weird bug where my function is returning an empty list when it's supposed to return a list of integers. Can you help me figure out why this is happening?", "domain": "code", "score": 4.0, "signal_type": "positive", "timestamp": "2026-03-11T17:12:51.513178"}
+{"query": "What's been the most interesting thing you've learned on the job so far?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:12:57.139741"}
+{"query": "How do you like to spend your free time outside of work?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:13:02.746342"}
+{"query": "What is the weather forecast for my area tomorrow?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:13:28.678001"}
+{"query": "How can I track the latest updates on the hurricane that's heading towards the East Coast?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:13:34.231028"}
+{"query": "Here are two different programming questions someone might ask an AI:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:13:39.502019"}
+{"query": "1. I'm seeing a segmentation fault when trying to run my C++ program, but I'm not sure why - can you help me debug the issue?", "domain": "code", "score": 4.0, "signal_type": "positive", "timestamp": "2026-03-11T17:13:44.489350"}
+{"query": "How was your weekend?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:13:49.807302"}
+{"query": "What's been the most interesting project you've worked on so far this year?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:13:55.384651"}
+{"query": "What's the 7-day forecast for Miami Beach, Florida?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:14:52.405316"}
+{"query": "How can I troubleshoot a faulty weather radar system in my home?", "domain": "weather", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:14:57.912078"}
+{"query": "Here are 2 different programming questions someone might ask an AI:", "domain": "code", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:15:03.033967"}
+{"query": "1. My code is causing a segmentation fault when trying to access an index of a list that's out of range. Can you help me identify the bug and suggest a fix?", "domain": "code", "score": 4.0, "signal_type": "positive", "timestamp": "2026-03-11T17:15:08.107748"}
+{"query": "What's the best thing that's happened to you this week?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:15:13.531544"}
+{"query": "Do you have any fun plans for the upcoming weekend?", "domain": "conversation", "score": 3.0, "signal_type": "improvement", "timestamp": "2026-03-11T17:15:18.967196"}

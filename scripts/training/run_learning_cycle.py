@@ -48,7 +48,7 @@ def run_learning_cycle():
         # Step 1: Initialize components
         print("\n[1/5] Initializing components...")
         from app.alice import ALICE
-        from ai.llm_engine import LocalLLMEngine, LLMConfig
+        from ai.core.llm_engine import LocalLLMEngine, LLMConfig
         from ai.ollama_teaching_spec import TEACHING_VECTORS
         
         alice = ALICE(debug=False)
@@ -59,7 +59,7 @@ def run_learning_cycle():
         
         # Step 2: Generate test queries
         print("\n[2/5] Generating test queries...")
-        from ai.ollama_teacher import OllamaTeacher
+        from ai.training.ollama_teacher import OllamaTeacher
         
         teacher = OllamaTeacher(llm=llm)
         test_queries = []
@@ -132,7 +132,7 @@ def run_learning_cycle():
         
         # Step 4: Extract training signals
         print("\n[4/5] Extracting training signals...")
-        from ai.ollama_scorer import OllamaScorer
+        from ai.training.ollama_scorer import OllamaScorer
         
         scorer = OllamaScorer()
         signals = []
@@ -159,7 +159,7 @@ def run_learning_cycle():
         
         # Step 5: Store feedback for training
         print("\n[5/5] Storing feedback for learning...")
-        from ai.ollama_feedback_injector import OllamaFeedbackInjector
+        from ai.training.ollama_feedback_injector import OllamaFeedbackInjector
         
         injector = OllamaFeedbackInjector()
         

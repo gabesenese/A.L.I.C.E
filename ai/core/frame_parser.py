@@ -298,52 +298,6 @@ _FRAMES: List[FrameDefinition] = [
         base_confidence=0.72,
         priority=4,
     ),
-    # ── Music ──────────────────────────────────────────────────────────────
-    FrameDefinition(
-        name="PLAY_MUSIC",
-        plugin="music",
-        action="play",
-        trigger_keywords=["play", "start music", "queue", "put on"],
-        trigger_patterns=[
-            r"\b(play|start|queue|put\s+on)\b.{0,30}\b(song|music|track|album|playlist|by)\b",
-            r"\bplay\b.{0,20}\bby\b",
-            r"\blisten\s+to\b",
-        ],
-        anti_patterns=[r"\b(pause|stop|skip|next|volume)\b"],
-        required_slots=["song"],
-        optional_slots=["artist", "album", "playlist"],
-        base_confidence=0.70,
-        priority=3,
-    ),
-    FrameDefinition(
-        name="PAUSE_MUSIC",
-        plugin="music",
-        action="pause",
-        trigger_keywords=["pause", "stop music", "halt"],
-        trigger_patterns=[
-            r"\b(pause|stop)\b.{0,15}\b(music|song|track|playing|it)\b",
-            r"\b(pause|stop)\b\s*$",
-        ],
-        anti_patterns=[r"\b(play|skip|next|volume)\b"],
-        required_slots=[],
-        optional_slots=[],
-        base_confidence=0.75,
-        priority=2,
-    ),
-    FrameDefinition(
-        name="SKIP_MUSIC",
-        plugin="music",
-        action="skip",
-        trigger_keywords=["skip", "next song", "next track", "forward"],
-        trigger_patterns=[
-            r"\b(skip|next|forward)\b.{0,15}\b(song|track|music)?\b",
-        ],
-        anti_patterns=[],
-        required_slots=[],
-        optional_slots=[],
-        base_confidence=0.73,
-        priority=2,
-    ),
     # ── Calendar ───────────────────────────────────────────────────────────
     FrameDefinition(
         name="CREATE_EVENT",

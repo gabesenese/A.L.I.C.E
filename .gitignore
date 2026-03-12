@@ -286,7 +286,6 @@ app/logs/llm.json
 app/logs/nlp.json
 app/logs/plugins.json
 data/analytics/notes_plugin_telemetry.jsonl
-data/analytics/notes_plugin_telemetry.jsonl
 data/context/selection_feedback.jsonl
 logs/errors.json
 logs/learning.json
@@ -319,3 +318,5 @@ ai/core/entity_normalizer.py
 ai/core/coreference.py
 test_results.txt
 data/frames/README.yaml
+memory/curated_patterns.json
+data/training/audit_feedback.jsonl

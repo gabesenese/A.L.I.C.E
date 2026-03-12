@@ -143,18 +143,6 @@ DOMAIN_KEYWORDS: Dict[str, List[str]] = {
         "upcoming",
         "pending",
     ],
-    "music": [
-        "music",
-        "song",
-        "songs",
-        "play",
-        "pause",
-        "skip",
-        "next",
-        "playlist",
-        "album",
-        "artist",
-    ],
     "calendar": [
         "calendar",
         "event",

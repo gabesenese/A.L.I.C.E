@@ -57,7 +57,6 @@ from ai.plugins.file_operations_plugin import FileOperationsPlugin
 from ai.plugins.memory_plugin import MemoryPlugin
 from ai.plugins.document_plugin import DocumentPlugin
 from ai.plugins.calendar_plugin import CalendarPlugin
-from ai.plugins.music_plugin import MusicPlugin
 from ai.plugins.notes_plugin import NotesPlugin
 from ai.plugins.maps_plugin import MapsPlugin
 from ai.planning.task_executor import TaskExecutor
@@ -386,11 +385,6 @@ class ALICE:
                     _htn.add_method(HTNMethod(
                         goal="calendar:plan_meeting",
                         subtasks=["calendar:query", "calendar:create_event"],
-                        priority=1.0,
-                    ))
-                    _htn.add_method(HTNMethod(
-                        goal="music:playlist_session",
-                        subtasks=["music:play", "music:status"],
                         priority=1.0,
                     ))
                     _htn.add_method(HTNMethod(
@@ -842,16 +836,6 @@ class ALICE:
                     "take a note: meeting at 3pm",
                     "show my notes",
                     "search notes for 'project'"
-                ]
-            },
-            'music': {
-                'available': True,
-                'operations': ['play', 'pause', 'next', 'previous', 'search'],
-                'description': "I can control music playback",
-                'examples': [
-                    "play some music",
-                    "pause music",
-                    "play Imagine Dragons"
                 ]
             },
             'maps': {
@@ -1424,7 +1408,6 @@ class ALICE:
             'weather': ['weather', 'forecast', 'temperature'],
             'file_operations': ['file', 'document', 'folder'],
             'notes': ['note', 'notes'],
-            'music': ['music', 'song', 'play'],
             'maps': ['directions', 'map', 'location', 'navigate'],
             'time': ['time', 'date', 'timer', 'reminder'],
             'web_search': ['search', 'look up', 'find'],
@@ -1857,7 +1840,6 @@ class ALICE:
         self.plugins.register_plugin(WebSearchPlugin())
         self.plugins.register_plugin(DocumentPlugin())
         self.plugins.register_plugin(CalendarPlugin())
-        self.plugins.register_plugin(MusicPlugin())
         self.plugins.register_plugin(RAGIndexerPlugin(self.memory))  # RAG document indexer
 
         logger.info(f"[OK] Registered {len(self.plugins.plugins)} plugins")
@@ -1948,7 +1930,7 @@ class ALICE:
         # Only use planner for specific intents that benefit from structured execution
         plannable_intents = [
             'summarize_notes', 'check_calendar', 'send_email',
-            'play_music', 'create_note', 'question'
+            'create_note', 'question'
         ]
         
         if intent not in plannable_intents:
@@ -2111,7 +2093,7 @@ class ALICE:
                     context_types.append("memory")
         
         # 7. System capabilities (only if relevant)
-        if intent and any(cap in intent for cap in ['note', 'email', 'calendar', 'music']):
+        if intent and any(cap in intent for cap in ['note', 'email', 'calendar']):
             capabilities = self.plugins.get_capabilities()
             if capabilities:
                 context_parts.append(f"Available capabilities: {', '.join(capabilities[:10])}")
@@ -2221,7 +2203,7 @@ class ALICE:
         # Check for action words that would indicate this needs plugins
         action_words = [
             'open', 'launch', 'play', 'send', 'create', 'delete', 'search',
-            'show', 'list', 'check', 'email', 'note', 'calendar', 'music',
+            'show', 'list', 'check', 'email', 'note', 'calendar',
             'weather', 'time', 'find', 'remind', 'file', 'document'
         ]
         
@@ -2266,7 +2248,6 @@ class ALICE:
             "email",
             "note",
             "calendar",
-            "music",
             "weather",
             "time",
             "find",
@@ -2686,7 +2667,7 @@ class ALICE:
 
         weekday_keywords = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         time_range_keywords = [
-            'this week', 'next week', 'weekend', 'tomorrow', 'tonight', 'this weekend'
+            'this weekend', 'this week', 'next week', 'weekend', 'tomorrow', 'tonight'
         ]
 
         # Check for time-range follow-up mentions (e.g., "what about this week?")
@@ -3183,7 +3164,7 @@ class ALICE:
                                            'rain', 'sunny', 'cloud', '°c', '°f')
                             )
                             _skip = _weather_entity and _intent_domain in (
-                                'notes', 'email', 'calendar', 'music', 'reminder'
+                                'notes', 'email', 'calendar', 'reminder'
                             )
                             if not _skip:
                                 self._think(f"Reference resolution: '{pronoun}' → '{resolved}'")
@@ -3269,6 +3250,21 @@ class ALICE:
                     return "Reminder system is not available right now."
             # ─────────────────────────────────────────────────────────────────────
 
+            # 0.54 CORRECTION/DISAGREEMENT GUARD: if the user is expressing that
+            # ALICE got something wrong, don't re-invoke a plugin — let the LLM
+            # handle it conversationally with an empathetic tone.
+            _correction_markers = (
+                "you are wrong", "you're wrong", "that's wrong", "that is wrong",
+                "wrong answer", "not right", "that's not right", "that is not right",
+                "you got it wrong", "that was wrong", "that's incorrect", "that is incorrect",
+            )
+            _input_for_correction = user_input.strip().lower().rstrip("?!")
+            if any(_input_for_correction == m or _input_for_correction.startswith(m)
+                   for m in _correction_markers):
+                self._think("Correction/disagreement detected → skipping plugins, using LLM")
+                intent = "conversation:general"
+                intent_confidence = 0.9
+
             # 0.55 PRIORITY WEATHER FOLLOW-UP PATH: handle weather context BEFORE
             # conversational fast path so weather follow-ups don't depend on LLM.
             weather_followup_early = None
@@ -3281,7 +3277,7 @@ class ALICE:
             _wfu_input_lower = user_input.lower()
             # Only attempt weather fast-path when the NLP intent is NOT already
             # resolved to a different high-confidence domain (notes, email, calendar, etc.)
-            _non_weather_domains = ('notes:', 'email:', 'calendar:', 'music:', 'file_operations:',
+            _non_weather_domains = ('notes:', 'email:', 'calendar:', 'file_operations:',
                                     'memory:', 'reminder:', 'system:', 'conversation:')
             _intent_is_non_weather = any(intent.startswith(d) for d in _non_weather_domains)
             _wfu_hit = (
@@ -4321,7 +4317,7 @@ class ALICE:
             plugin_result = None
             _cmd_words = (
                 "volume", "brightness", "open", "launch", "play", "delete", "add", "create",
-                "send", "search", "list", "check", "email", "note", "notes", "music", "calendar",
+                "send", "search", "list", "check", "email", "note", "notes", "calendar",
                 "file", "weather", "time", "how many", "what's", "show", "find", "remind",
             )
             
@@ -4703,8 +4699,8 @@ class ALICE:
                             # If the original query mentioned a specific time range,
                             # filter the response now that we have the forecast data.
                             _tr_kw = [
-                                'tonight', 'tomorrow', 'this week', 'next week',
-                                'weekend', 'this weekend', 'today', 'this evening',
+                                'tonight', 'tomorrow', 'this weekend', 'this week', 'next week',
+                                'weekend', 'today', 'this evening',
                                 'monday', 'tuesday', 'wednesday', 'thursday',
                                 'friday', 'saturday', 'sunday',
                             ]
@@ -5400,7 +5396,6 @@ class ALICE:
                 'email': ['from', 'subject', 'inbox', 'message', 'sent'],
                 'weather': ['temperature', 'forecast', '°c', 'celsius', 'condition', 'humidity'],
                 'notes': ['note', 'saved', 'created', 'added', 'reminder'],
-                'music': ['playing', 'artist', 'album', 'track', 'music'],
                 'calendar': ['meeting', 'event', 'appointment', 'schedule', 'time']
             }
             

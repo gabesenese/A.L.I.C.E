@@ -156,15 +156,31 @@ class WeatherFormatter(SimpleFormatter):
 
         target_day = WeatherFormatter._extract_target_day(kwargs.get("entities"))
         days = forecast[:7]
+        forecast_label = "7-Day"
 
         if target_day:
-            target_date = WeatherFormatter._weekday_to_date(target_day)
-            if target_date:
-                for day in days:
-                    if day.get("date") == target_date:
-                        return WeatherFormatter._format_single_day(
-                            location, day, label_override=target_day
-                        )
+            if target_day in ("weekend", "this weekend"):
+                # Filter to Saturday (weekday=5) and Sunday (weekday=6) only
+                weekend_days = []
+                for d in days:
+                    ds = d.get("date")
+                    if ds:
+                        try:
+                            if datetime.strptime(ds, "%Y-%m-%d").weekday() in (5, 6):
+                                weekend_days.append(d)
+                        except Exception:
+                            pass
+                if weekend_days:
+                    days = weekend_days
+                    forecast_label = "Weekend"
+            else:
+                target_date = WeatherFormatter._weekday_to_date(target_day)
+                if target_date:
+                    for day in days:
+                        if day.get("date") == target_date:
+                            return WeatherFormatter._format_single_day(
+                                location, day, label_override=target_day
+                            )
 
         # Weather condition icons/symbols
         condition_icons = {
@@ -189,7 +205,7 @@ class WeatherFormatter(SimpleFormatter):
         }
 
         # Start with header
-        summary_lines = [f"\n 7-Day Forecast for {location}\n"]
+        summary_lines = [f"\n {forecast_label} Forecast for {location}\n"]
 
         today = datetime.now().date()
 
@@ -1013,39 +1029,6 @@ class NotesFormatter(SimpleFormatter):
         return "\n".join(lines)
 
 
-class MusicFormatter(SimpleFormatter):
-    """Format music playback info without LLM"""
-
-    @staticmethod
-    def format(data: Any, **kwargs) -> Optional[str]:
-        """
-        Format music status
-
-        Expected data:
-        {
-            'status': str,  # 'playing', 'paused', 'stopped'
-            'track': str,
-            'artist': str,
-            'duration': int
-        }
-        """
-        if not isinstance(data, dict):
-            return None
-
-        status = data.get("status", "unknown")
-        track = data.get("track", "Unknown track")
-        artist = data.get("artist", "Unknown artist")
-
-        if status == "playing":
-            return f"Now playing: {track} by {artist}"
-        elif status == "paused":
-            return f"Paused: {track} by {artist}"
-        elif status == "stopped":
-            return "Music stopped."
-        else:
-            return f"Music status: {status}"
-
-
 class RAGFormatter(SimpleFormatter):
     """Format RAG/document query results without LLM"""
 
@@ -1092,7 +1075,6 @@ class FormatterRegistry:
         "calendar": CalendarFormatter,
         "file_operations": FileSearchFormatter,
         "notes": NotesFormatter,
-        "music": MusicFormatter,
         "documents": RAGFormatter,
     }
 

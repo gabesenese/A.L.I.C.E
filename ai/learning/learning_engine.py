@@ -223,7 +223,7 @@ class LearningEngine:
         hard_lesson_summary = {}
         if hard_lessons:
             try:
-                from ai.autonomous_adjuster import create_autonomous_adjuster
+                from ai.optimization.autonomous_adjuster import create_autonomous_adjuster
 
                 adjuster = create_autonomous_adjuster(project_root)
                 hard_lesson_summary = adjuster.apply_hard_lessons(hard_lessons)

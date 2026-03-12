@@ -733,132 +733,7 @@ class SlotFiller:
             )
         return None, 0.0, ""
 
-    # ==================== MUSIC SLOT EXTRACTORS ====================
-
-    def _extract_song(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
-        """Extract song name"""
-        patterns = [
-            r'"([^"]+)"',  # Quoted
-            r"play\s+([^,\n]+?)(?:\s+by|\s+from|$)",
-            r'song\s+"?([^"]+?)"?(?:\s+by|$)',
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                song = match.group(1).strip()
-                if len(song) > 1:
-                    return song, 0.85, match.group(0)
-
-        return None, 0.0, ""
-
-    def _extract_artist(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
-        """Extract artist name"""
-        patterns = [
-            r"\bby\s+([A-Za-z\s&\']+?)(?:\s+from|\s+on|$)",
-            r"\bartist\s+([A-Za-z\s&\']+?)(?:\s+from|$)",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                artist = match.group(1).strip()
-                if len(artist) > 1:
-                    return artist, 0.9, match.group(0)
-
-        return None, 0.0, ""
-
-    def _extract_genre(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
-        """Extract music genre"""
-        genres = [
-            "rock",
-            "pop",
-            "jazz",
-            "classical",
-            "hip hop",
-            "rap",
-            "country",
-            "electronic",
-            "blues",
-            "reggae",
-            "folk",
-            "metal",
-            "indie",
-        ]
-
-        for genre in genres:
-            if re.search(rf"\b{genre}\b", text_lower):
-                return genre, 0.95, genre
-
-        return None, 0.0, ""
-
-    def _extract_mood(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
-        """Extract mood/vibe"""
-        moods = [
-            "upbeat",
-            "relaxing",
-            "chill",
-            "energetic",
-            "slow",
-            "happy",
-            "sad",
-            "workout",
-            "study",
-            "sleep",
-            "party",
-            "romantic",
-        ]
-
-        for mood in moods:
-            if re.search(rf"\b{mood}\b", text_lower):
-                return mood, 0.85, mood
-
-        return None, 0.0, ""
-
-    def _extract_action(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
-        """Extract music action"""
-        actions = [
-            "play",
-            "pause",
-            "stop",
-            "skip",
-            "next",
-            "previous",
-            "resume",
-            "shuffle",
-            "repeat",
-        ]
-
-        for action in actions:
-            if re.search(rf"\b{action}\b", text_lower):
-                return action, 0.95, action
-
-        return None, 0.0, ""
-
-    def _extract_volume(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[int], float, str]:
-        """Extract volume level"""
-        volume_match = re.search(
-            r"\b(?:volume|sound)\s+(?:to\s+)?(\d{1,3})(?:%|percent)?\b", text_lower
-        )
-        if volume_match:
-            volume = int(volume_match.group(1))
-            return min(100, max(0, volume)), 0.98, volume_match.group(0)
-
-        return None, 0.0, ""
-
-    # ==================== OTHER SLOT EXTRACTORS ====================
+        # ==================== OTHER SLOT EXTRACTORS ====================
 
     def _extract_query(
         self, text: str, text_lower: str, entities: Dict
@@ -1035,8 +910,6 @@ class DomainEntityExtractor:
         "PRIORITY": r"\b(urgent|critical|high|important|medium|normal|low|minor)\b",
         "NOTE_TYPE": r"\b(todo|task|idea|thought|meeting|reminder)\b",
         "CATEGORY": r"\b(work|personal|project|health|study)\b",
-        "MUSIC_GENRE": r"\b(rock|pop|jazz|classical|hip hop|rap|country|electronic|blues|metal)\b",
-        "MUSIC_MOOD": r"\b(upbeat|relaxing|chill|energetic|happy|sad|workout|study)\b",
     }
 
     def extract(self, text: str) -> Dict[str, List[Entity]]:
@@ -1330,10 +1203,6 @@ class NLPProcessor:
                 "required": [],
                 "expected": ["note_id", "title", "query"],
             },  # Plugin handles "note not found" gracefully; don't block at gate
-            "music:play": {
-                "required": [],  # song/artist optional — user can say "play some music"
-                "expected": ["song", "artist", "album", "playlist"],
-            },
             "calendar:create": {
                 "required": ["event", "date"],
                 "expected": ["time", "location"],
@@ -1365,7 +1234,6 @@ class NLPProcessor:
             },
             "email": {"compose", "read", "list", "search", "delete", "reply"},
             "calendar": {"create", "list", "search", "update", "delete"},
-            "music": {"play", "pause", "next", "previous", "queue"},
             "system": {"status", "debug_tokens"},
             "conversation": {
                 "general",
@@ -1378,7 +1246,6 @@ class NLPProcessor:
             "notes": "list",
             "email": "list",
             "calendar": "list",
-            "music": "play",
             "system": "status",
             "conversation": "general",
         }
@@ -1403,7 +1270,6 @@ class NLPProcessor:
             *(self.command_vocabulary.get("objects", set())),
             "calendar",
             "email",
-            "music",
             "notes",
             "note",
             "todo",
@@ -1493,9 +1359,6 @@ class NLPProcessor:
             "calendar",
             "event",
             "events",
-            "music",
-            "song",
-            "songs",
             "reminder",
             "reminders",
         }
@@ -1734,9 +1597,6 @@ class NLPProcessor:
             "alarm",
             "email",
             "message",
-            "music",
-            "song",
-            "play",
         }
         if (token_words & domain_pivot_words) and not last_intent.startswith(
             tuple(
@@ -1776,7 +1636,6 @@ class NLPProcessor:
                     and not last_intent.startswith("reminder:")
                 )
                 or (token_words & _email_words and not last_intent.startswith("email:"))
-                or (token_words & _music_words and not last_intent.startswith("music:"))
             )
             if _pivot_detected:
                 return None
@@ -2038,7 +1897,6 @@ class NLPProcessor:
             "email": "email",
             "calendar": "calendar",
             "reminder": "reminder",
-            "music": "music",
         }
         for kw, domain in _target_pivots.items():
             if re.search(rf"\b{kw}\b", text_lower):
@@ -2310,11 +2168,6 @@ class NLPProcessor:
         ):
             parsed.action = "list" if re.search(r"\b(show|list)\b", lower) else "search"
             parsed.object_type = "calendar"
-        elif re.search(r"\b(play|pause|skip|next)\b", lower) and re.search(
-            r"\bmusic|song|songs|playlist|album\b", lower
-        ):
-            parsed.action = "play" if re.search(r"\bplay\b", lower) else "pause"
-            parsed.object_type = "music"
 
         title_match = re.search(
             r"(?:called|named|titled|about)\s+([a-z0-9\s'\-]+)$", lower
@@ -2357,7 +2210,6 @@ class NLPProcessor:
             "notes": 0.0,
             "email": 0.0,
             "calendar": 0.0,
-            "music": 0.0,
             "system": 0.0,
             "conversation": 0.2,
         }
@@ -2369,13 +2221,11 @@ class NLPProcessor:
         note_terms = {"note", "notes", "list", "lists", "todo", "task", "tasks"}
         email_terms = {"email", "emails", "mail", "inbox", "sender", "subject"}
         cal_terms = {"calendar", "event", "events", "meeting", "schedule"}
-        music_terms = {"music", "song", "songs", "playlist", "album", "artist", "play"}
         system_terms = {"system", "cpu", "memory", "disk", "battery", "status"}
 
         scores["notes"] += sum(1.2 for word in normalized if word in note_terms)
         scores["email"] += sum(1.2 for word in normalized if word in email_terms)
         scores["calendar"] += sum(1.2 for word in normalized if word in cal_terms)
-        scores["music"] += sum(1.2 for word in normalized if word in music_terms)
         scores["system"] += sum(1.2 for word in normalized if word in system_terms)
 
         if parsed.object_type == "note":
@@ -2384,8 +2234,6 @@ class NLPProcessor:
             scores["email"] += 1.5
         if parsed.object_type == "calendar":
             scores["calendar"] += 1.5
-        if parsed.object_type == "music":
-            scores["music"] += 1.5
         if (
             parsed.action in {"read", "append", "create", "list", "query_exist"}
             and parsed.object_type == "note"
@@ -2401,8 +2249,6 @@ class NLPProcessor:
             and parsed.object_type == "calendar"
         ):
             scores["calendar"] += 1.0
-        if parsed.action in {"play", "pause"} and parsed.object_type == "music":
-            scores["music"] += 1.0
         if parsed.references:
             scores["notes"] += 0.6
 
@@ -2412,8 +2258,6 @@ class NLPProcessor:
                 "email:"
             ):
                 scores["email"] += 0.5
-        if "next song" in bigrams:
-            scores["music"] += 0.7
         if "system status" in bigrams:
             scores["system"] += 0.8
 
@@ -2427,7 +2271,6 @@ class NLPProcessor:
             "append": "notes",
             "compose": "email",
             "reply": "email",
-            "play": "music",
             "status": "system",
         }
         preferred = action_bias.get(parsed.action)
@@ -2435,12 +2278,12 @@ class NLPProcessor:
             scores[preferred] += 0.45
 
         if self.tokenizer_profile == "strict":
-            for key in ("email", "calendar", "music", "system"):
+            for key in ("email", "calendar", "system"):
                 if scores[key] < 1.0:
                     scores[key] *= 0.7
 
         if self.tokenizer_profile == "llm-assisted":
-            for key in ("notes", "email", "calendar", "music", "system"):
+            for key in ("notes", "email", "calendar", "system"):
                 scores[key] *= 1.05
 
         return scores
@@ -2640,11 +2483,21 @@ class NLPProcessor:
         ]
 
         # Step 4: Check learned corrections FIRST (highest priority)
-        if (
-            self.learned_corrections
-            and normalized_text.lower() in self.learned_corrections
-        ):
-            learned_intent = self.learned_corrections[normalized_text.lower()]
+        # Also check the original (pre-coref-resolution) text as a fallback, so coref
+        # changes (e.g. "it" in "what time is it?" resolved to a note title) don't prevent
+        # a known correction from firing.
+        route: Optional[RouteDecision] = None  # may be set in the else branch below
+        _correction_key = normalized_text.lower()
+        _orig_key = text.strip().lower()
+        _correction_intent = (
+            self.learned_corrections.get(_correction_key)
+            if self.learned_corrections else None
+        ) or (
+            self.learned_corrections.get(_orig_key)
+            if self.learned_corrections and _orig_key != _correction_key else None
+        )
+        if _correction_intent:
+            learned_intent = _correction_intent
             logger.info(
                 f"[LEARNED] Using correction for '{normalized_text}' -> {learned_intent}"
             )
@@ -2727,12 +2580,12 @@ class NLPProcessor:
 
             uncertainty = self._build_uncertainty_prompt(
                 route, parsed_command, plugin_scores
-            )
+            ) if route is not None else None
             if intent.startswith("vague_") and not uncertainty:
                 uncertainty = {
                     "needs_clarification": True,
                     "question": "Can you clarify what action and target you mean?",
-                    "candidate_plugins": ["notes", "email", "calendar", "music"],
+                    "candidate_plugins": ["notes", "email", "calendar"],
                     "route_confidence": intent_confidence,
                     "parsed_action": parsed_command.action,
                 }
@@ -2743,19 +2596,19 @@ class NLPProcessor:
                 uncertainty = {
                     "needs_clarification": True,
                     "question": "Could you clarify what you want me to do?",
-                    "candidate_plugins": ["notes", "email", "calendar", "music"],
+                    "candidate_plugins": ["notes", "email", "calendar"],
                     "route_confidence": intent_confidence,
                     "parsed_action": parsed_command.action,
                 }
             if uncertainty:
                 parsed_command.modifiers["disambiguation"] = uncertainty
                 if intent_confidence < 0.45 and not intent.startswith(
-                    ("notes:", "email:", "calendar:", "music:", "system:")
+                    ("notes:", "email:", "calendar:", "system:")
                 ):
                     intent = "conversation:clarification_needed"
                     intent_confidence = max(intent_confidence, 0.41)
 
-            parsed_command.modifiers["routing_trace"] = route.trace
+            parsed_command.modifiers["routing_trace"] = route.trace if route is not None else {}
 
         # Fingerprint prior: if we have a cached high-confidence parse, use it as a boost
         if (
@@ -2812,7 +2665,8 @@ class NLPProcessor:
                 # Override routing if frame is more confident.
                 # Phase 1 high-confidence results are authoritative — do NOT override.
                 _phase1_locked = bool(
-                    hasattr(route, "trace")
+                    route is not None
+                    and hasattr(route, "trace")
                     and route.trace.get("source") == "phase1_authoritative"
                 )
                 if not _phase1_locked and frame_result.confidence > intent_confidence + 0.07:
@@ -3661,7 +3515,6 @@ class NLPProcessor:
                     "notes": "notes:list",
                     "email": "email:list",
                     "calendar": "calendar:list",
-                    "music": "music:play",
                     "system": "system:status",
                 }
                 if plugin_name in plugin_intent_map:
@@ -4065,7 +3918,6 @@ class Perception:
         },
         "notes": {"note", "task", "todo", "reminder", "list"},
         "email": {"email", "mail", "reply", "inbox", "send", "draft"},
-        "music": {"song", "play", "pause", "next", "music", "skip", "volume"},
         "calendar": {"event", "meeting", "schedule", "appointment", "calendar"},
         "reminder": {"remind", "reminder", "alert", "notify", "forget", "alarm"},
     }

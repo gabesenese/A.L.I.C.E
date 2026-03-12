@@ -29,9 +29,9 @@
   },
   "acknowledgments": {
     "birthday": [
-      "Happy birthday! 🎉 I'll remember this date for next year.",
+      "Happy birthday! \ud83c\udf89 I'll remember this date for next year.",
       "That's wonderful! I've noted your birthday and will remind you next year.",
-      "Birthday noted! I'll make sure to wish you next year too. 🎂"
+      "Birthday noted! I'll make sure to wish you next year too. \ud83c\udf82"
     ],
     "anniversary": [
       "I've noted your anniversary. I'll help you remember it!",
@@ -45,5 +45,20 @@
       "I didn't quite get that. Can you explain differently?",
       "Sorry, I'm not sure what you mean. Could you clarify?"
     ]
-  }
+  },
+  "corrections": [
+    {
+      "user_input": "add milk, eggs and butter to my grocery list note",
+      "expected_intent": "notes:append"
+    },
+    {
+      "user_input": "add milk to my grocery list",
+      "expected_intent": "notes:append"
+    },
+    {
+      "user_input": "what time is it?",
+      "expected_intent": "time:current"
+    }
+  ],
+  "last_updated": "2026-03-11T20:30:17.202923"
 }
