@@ -104,19 +104,21 @@ class AutomatedTrainingPipeline:
         
         return summary
     
-    def run_auto_corrections(self, scenario_results: List[Dict]) -> Dict[str, Any]:
+    def run_auto_corrections(self, scenario_results: List[Dict], force_apply: bool = False) -> Dict[str, Any]:
         """
         Phase 2: Auto-correction pipeline
         
-        Creates corrections from mismatches, adjusts thresholds
+        Creates corrections from mismatches, adjusts thresholds.
+        force_apply=True bypasses the validation_count >= 3 gate, treating
+        every scenario-grounded mismatch as immediately actionable.
         """
         logger.info("\n[PHASE 2] Running Auto-Correction Pipeline...")
         
         # Process scenario results to create corrections
         correction_summary = self.correction_engine.process_scenario_results(scenario_results)
         
-        # Apply corrections that have been validated
-        applied_summary = self.correction_engine.apply_corrections_to_thresholds()
+        # Apply corrections (force_apply skips the multi-run validation gate)
+        applied_summary = self.correction_engine.apply_corrections_to_thresholds(force_apply=force_apply)
         
         logger.info(f"\n[Phase 2 Summary]")
         logger.info(f"  Corrections created: {correction_summary['corrections_added']}")
@@ -146,14 +148,15 @@ class AutomatedTrainingPipeline:
         
         return promotion_summary
     
-    def run_full_pipeline(self, scenario_results: List[Dict]) -> Dict[str, Any]:
+    def run_full_pipeline(self, scenario_results: List[Dict], force_apply: bool = False) -> Dict[str, Any]:
         """Execute all three phases"""
         logger.info("STARTING FULL AUTOMATED TRAINING PIPELINE")
         
         results = {
             'timestamp': datetime.now().isoformat(),
+            'force_apply': force_apply,
             'phase1_feedback': self.run_scenario_feedback(scenario_results),
-            'phase2_corrections': self.run_auto_corrections(scenario_results),
+            'phase2_corrections': self.run_auto_corrections(scenario_results, force_apply=force_apply),
             'phase3_promotion': self.run_pattern_promotion()
         }
         
@@ -199,7 +202,7 @@ class AutomatedTrainingPipeline:
         report.append("  OK: No patterns auto-promoted for dangerous domains")
         report.append("  OK: Manual /feedback, /correct, /patterns commands still available")
         report.append("  OK: All changes logged and reversible")
-        report.append("  OK: Corrections require validation_count >= 3 to apply")
+        report.append(f"  OK: Corrections gate: {'force_apply (pipeline mode)' if results.get('force_apply') else 'validation_count >= 3'}")
         
         report.append("\n" + "=" * 70)
         return "\n".join(report)
@@ -220,6 +223,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run automated training pipeline")
     parser.add_argument("--results", type=str, help="Path to scenario results JSON file")
     parser.add_argument("--report", action="store_true", help="Generate and print report only")
+    parser.add_argument("--force-apply", action="store_true",
+                        help="Bypass validation_count gate and apply all corrections immediately (pipeline mode)")
     args = parser.parse_args()
     
     pipeline = AutomatedTrainingPipeline()
@@ -233,7 +238,7 @@ if __name__ == "__main__":
         scenario_results = []
     
     # Run pipeline
-    results = pipeline.run_full_pipeline(scenario_results)
+    results = pipeline.run_full_pipeline(scenario_results, force_apply=args.force_apply)
     
     # Generate report
     report = pipeline.generate_report(results)

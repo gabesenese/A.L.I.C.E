@@ -959,14 +959,16 @@ class AutoCorrectionEngine:
             logger.warning(f"[AutoCorrection] Teacher judge failed: {e}")
             return None
 
-    def apply_corrections_to_thresholds(self) -> Dict[str, Any]:
+    def apply_corrections_to_thresholds(self, force_apply: bool = False) -> Dict[str, Any]:
         """
         Apply corrections to adjust NLP thresholds and rules.
-        Only applies corrections that have been validated multiple times.
+        Only applies corrections that have been validated multiple times,
+        unless force_apply=True (used by the automated pipeline where every
+        correction is already grounded by a failing scenario definition).
         Writes validated corrections to memory/curated_patterns.json so the
         NLP processor picks them up on next load via _load_learned_corrections().
         """
-        MIN_VALIDATIONS = 3  # Require 3 consistent examples
+        MIN_VALIDATIONS = 1 if force_apply else 3  # Pipeline: 1 pass is enough
 
         applied_count = 0
         by_type = defaultdict(int)
@@ -976,7 +978,7 @@ class AutoCorrectionEngine:
             if correction.get("applied"):
                 continue
 
-            if correction.get("validation_count", 0) < MIN_VALIDATIONS:
+            if not force_apply and correction.get("validation_count", 0) < MIN_VALIDATIONS:
                 continue
 
             domain = correction.get("domain", "").lower()
