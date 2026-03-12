@@ -334,22 +334,20 @@ class LearningEngine:
     def get_similar_examples(
         self, user_input: str, top_k: int = 3
     ) -> List[TrainingExample]:
-        """Find similar examples using TF-IDF similarity"""
+        """Find similar examples using TF-IDF similarity (cached matrix)"""
         if not _ml_available():
             return []
         if len(self.examples) < 2:
             return []
 
         try:
-            # Vectorize all examples
-            all_texts = [ex.user_input for ex in self.examples] + [user_input]
-            vectorizer = TfidfVectorizer(
-                analyzer="char", ngram_range=(2, 3), max_features=200
-            )
-            vectors = vectorizer.fit_transform(all_texts)
+            # Refit the shared vectorizer only when examples have changed
+            if self._needs_refit:
+                self._refit_vectorizer()
 
-            # Find similarities
-            similarities = cosine_similarity([vectors[-1]], vectors[:-1])[0]
+            # Transform only the query using the already-fitted vectorizer
+            query_vec = self.vectorizer.transform([user_input])
+            similarities = cosine_similarity(query_vec, self._tfidf_matrix)[0]
             top_indices = np.argsort(similarities)[::-1][:top_k]
 
             similar = []
@@ -500,21 +498,26 @@ class LearningEngine:
         return {"should_create_pattern": False, "similar_count": similar_count}
 
     def _count_similar_inputs(self, user_input: str, threshold: float = 0.85) -> int:
-        """Count how many times similar input was asked"""
+        """Count how many times similar input was asked (uses cached TF-IDF when available)"""
+        if _ml_available() and len(self.examples) >= 2:
+            try:
+                if self._needs_refit:
+                    self._refit_vectorizer()
+                query_vec = self.vectorizer.transform([user_input])
+                similarities = cosine_similarity(query_vec, self._tfidf_matrix)[0]
+                return int(np.sum(similarities >= threshold))
+            except Exception:
+                pass  # Fall through to word-overlap fallback
+
+        # Fallback: simple word-overlap Jaccard
         user_input_lower = user_input.lower().strip()
         count = 0
-
         for ex in self.examples:
-            # Simple similarity check
             ex_input_lower = ex.user_input.lower().strip()
-
-            # Exact match
             if ex_input_lower == user_input_lower:
                 count += 1
-            # Fuzzy match (simple word overlap)
             elif self._fuzzy_match(ex_input_lower, user_input_lower) > threshold:
                 count += 1
-
         return count
 
     def _fuzzy_match(self, str1: str, str2: str) -> float:
@@ -588,29 +591,34 @@ class LearningEngine:
         except Exception as e:
             logger.error(f"[Learning] Error saving example: {e}")
 
+    _MAX_EXAMPLES_IN_MEMORY = 5000  # cap to avoid unbounded RAM growth
+
     def _load_examples(self):
-        """Load all examples from disk"""
-        if self.training_file.exists():
-            try:
-                with open(
-                    self.training_file, "r", encoding="utf-8", errors="ignore"
-                ) as f:
-                    for line in f:
-                        if line.strip():
-                            try:
-                                data = json.loads(line)
-                                # Backward compatibility: older entries may include 'feedback'
-                                # Map numeric feedback to user_rating if present, then drop the key
-                                if isinstance(data, dict) and "feedback" in data:
-                                    if data.get("user_rating") is None:
-                                        data["user_rating"] = data.get("feedback")
-                                    data.pop("feedback", None)
-                                example = TrainingExample(**data)
-                                self.examples.append(example)
-                            except (json.JSONDecodeError, TypeError, ValueError):
-                                pass  # Skip malformed lines
-            except Exception as e:
-                logger.warning(f"[Learning] Error loading examples: {e}")
+        """Load the most recent MAX_EXAMPLES_IN_MEMORY examples from disk"""
+        if not self.training_file.exists():
+            return
+        raw: List[TrainingExample] = []
+        try:
+            with open(
+                self.training_file, "r", encoding="utf-8", errors="ignore"
+            ) as f:
+                for line in f:
+                    if line.strip():
+                        try:
+                            data = json.loads(line)
+                            # Backward compatibility: older entries may include 'feedback'
+                            # Map numeric feedback to user_rating if present, then drop the key
+                            if isinstance(data, dict) and "feedback" in data:
+                                if data.get("user_rating") is None:
+                                    data["user_rating"] = data.get("feedback")
+                                data.pop("feedback", None)
+                            raw.append(TrainingExample(**data))
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            pass  # Skip malformed lines
+        except Exception as e:
+            logger.warning(f"[Learning] Error loading examples: {e}")
+        # Keep only the most recent slice to bound memory
+        self.examples = raw[-self._MAX_EXAMPLES_IN_MEMORY:]
 
     def _save_patterns(self):
         """Save learned patterns to disk"""
@@ -682,6 +690,7 @@ class AutoCorrectionEngine:
     def _save_corrections(self):
         """Save corrections to disk"""
         try:
+            self.corrections_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.corrections_file, "w") as f:
                 json.dump(self.corrections, f, indent=2)
         except Exception as e:
@@ -952,13 +961,16 @@ class AutoCorrectionEngine:
 
     def apply_corrections_to_thresholds(self) -> Dict[str, Any]:
         """
-        Apply corrections to adjust NLP thresholds and rules
-        Only applies corrections that have been validated multiple times
+        Apply corrections to adjust NLP thresholds and rules.
+        Only applies corrections that have been validated multiple times.
+        Writes validated corrections to memory/curated_patterns.json so the
+        NLP processor picks them up on next load via _load_learned_corrections().
         """
         MIN_VALIDATIONS = 3  # Require 3 consistent examples
 
         applied_count = 0
         by_type = defaultdict(int)
+        newly_applied = []
 
         for correction in self.corrections:
             if correction.get("applied"):
@@ -971,20 +983,57 @@ class AutoCorrectionEngine:
             if domain in self.DANGEROUS_DOMAINS:
                 continue
 
+            user_input = correction.get("user_input", "").strip()
+            expected_intent = correction.get("expected_intent", "").strip()
+            if not user_input or not expected_intent:
+                continue
+
             # Mark as applied
             correction["applied"] = True
             applied_count += 1
             by_type[correction.get("correction_type")] += 1
+            newly_applied.append({
+                "user_input": user_input,
+                "expected_intent": expected_intent,
+            })
 
             logger.info(
-                f"[AutoCorrection] Applying: {correction['user_input'][:30]}... "
+                f"[AutoCorrection] Applying: {user_input[:30]}... "
                 f"({correction.get('correction_type')}) for {domain}"
             )
 
         if applied_count > 0:
             self._save_corrections()
+            self._write_curated_patterns(newly_applied)
 
         return {"applied_count": applied_count, "by_type": dict(by_type)}
+
+    def _write_curated_patterns(self, new_entries: list) -> None:
+        """Merge new_entries into memory/curated_patterns.json for NLP pickup."""
+        curated_file = self.project_root / "memory" / "curated_patterns.json"
+        curated_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if curated_file.exists():
+                with open(curated_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    data = {}
+            else:
+                data = {}
+            existing = data.get("corrections", [])
+            # Deduplicate by user_input (case-insensitive)
+            existing_keys = {e["user_input"].lower() for e in existing if "user_input" in e}
+            for entry in new_entries:
+                if entry["user_input"].lower() not in existing_keys:
+                    existing.append(entry)
+                    existing_keys.add(entry["user_input"].lower())
+            data["corrections"] = existing
+            data["last_updated"] = datetime.now().isoformat()
+            with open(curated_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            logger.info(f"[AutoCorrection] Wrote {len(new_entries)} entries to curated_patterns.json ({len(existing)} total)")
+        except Exception as e:
+            logger.error(f"[AutoCorrection] Failed to write curated_patterns.json: {e}")
 
 
 class PatternPromotionEngine:
@@ -1059,6 +1108,7 @@ class PatternPromotionEngine:
     def _save_patterns(self):
         """Save learning patterns"""
         try:
+            self.learning_patterns_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.learning_patterns_file, "w") as f:
                 json.dump(self.learning_patterns, f, indent=2)
         except Exception as e:
@@ -1067,6 +1117,7 @@ class PatternPromotionEngine:
     def _save_review_patterns(self):
         """Save patterns for review"""
         try:
+            self.patterns_for_review_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.patterns_for_review_file, "w") as f:
                 json.dump(self.patterns_for_review, f, indent=2)
         except Exception as e:

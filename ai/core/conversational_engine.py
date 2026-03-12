@@ -198,8 +198,57 @@ class ConversationalEngine:
                     pass
             return False
 
-        # Everything else (questions, technical queries, identity, etc.) goes to LLM
-        return False
+        # Short conversational acknowledgments — always handled directly, never need LLM
+        _ACK_PHRASES = {
+            "will do",
+            "got it",
+            "noted",
+            "understood",
+            "sure",
+            "sure thing",
+            "sounds good",
+            "sounds great",
+            "alright",
+            "okay",
+            "ok",
+            "okie",
+            "roger",
+            "roger that",
+            "copy that",
+            "yep",
+            "yup",
+            "yeah",
+            "on it",
+            "all good",
+            "no problem",
+            "perfect",
+            "great",
+            "awesome",
+            "nice",
+            "good idea",
+            "great idea",
+            "nice idea",
+            "good point",
+            "fair point",
+            "fair enough",
+            "makes sense",
+            "that makes sense",
+            "good call",
+            "true",
+            "exactly",
+            "absolutely",
+            "definitely",
+            "of course",
+            "i see",
+            "right",
+            "for sure",
+            "no worries",
+            "anytime",
+        }
+        if input_lower in _ACK_PHRASES or (
+            intent == "conversation:ack" and len(input_lower.split()) <= 4
+        ):
+            return True
 
     def generate_response(self, context: ConversationalContext) -> Optional[str]:
         """
@@ -306,8 +355,17 @@ class ConversationalEngine:
                 except:
                     pass
 
-        # No learned pattern - use LLM for natural response generation
-        return None
+        # ACK — short built-in responses, never need LLM
+        _ACK_REPLIES = [
+            "No problem!",
+            "Of course.",
+            "Happy to help.",
+            "Let me know if you need anything else.",
+            "Sure.",
+            "Glad I could help.",
+        ]
+        if context.intent == "conversation:ack" or len(input_lower.split()) <= 4:
+            return self._pick_non_repeating(_ACK_REPLIES)
 
 
 _conversational_engine: Optional[ConversationalEngine] = None

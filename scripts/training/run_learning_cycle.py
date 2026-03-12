@@ -23,7 +23,8 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Resolve to project root (scripts/training/ -> scripts/ -> project root)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 # Suppress warnings
 import warnings
@@ -95,7 +96,7 @@ def run_learning_cycle():
         
         # Step 3: Process queries and grade responses
         print("\n[3/5] Processing queries and grading responses...")
-        from ai.ollama_auditor import OllamaAuditor
+        from ai.ollama_auditor_spec import OllamaAuditor
         
         auditor = OllamaAuditor(llm=llm)
         results = []

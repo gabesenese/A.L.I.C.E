@@ -71,11 +71,26 @@ class PhrasingLearner:
         except Exception as e:
             logger.error(f"[PhrasingLearner] Error loading patterns: {e}")
 
+    @staticmethod
+    def _make_json_safe(obj: Any) -> Any:
+        """Recursively convert non-serializable objects (e.g. Entity) to plain dicts/strings."""
+        if obj is None or isinstance(obj, (str, int, float, bool)):
+            return obj
+        if isinstance(obj, dict):
+            return {k: PhrasingLearner._make_json_safe(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [PhrasingLearner._make_json_safe(i) for i in obj]
+        # Dataclass / namedtuple / object with __dict__
+        if hasattr(obj, "__dict__"):
+            return {k: PhrasingLearner._make_json_safe(v) for k, v in vars(obj).items()}
+        return str(obj)
+
     def _persist(self, new_entry: Dict[str, Any]) -> None:
         """Append new learning to storage (JSONL format)"""
         try:
+            safe_entry = PhrasingLearner._make_json_safe(new_entry)
             with open(self.storage_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(new_entry, ensure_ascii=False) + "\n")
+                f.write(json.dumps(safe_entry, ensure_ascii=False) + "\n")
         except Exception as e:
             logger.error(f"[PhrasingLearner] Error persisting: {e}")
 
@@ -274,10 +289,14 @@ class PhrasingLearner:
             # Fallback: use any example with this pattern
             examples_with_tone = self.learned_patterns[pattern]
 
-        # Select example with variation (random choice for natural variety)
+        # Recency-weighted selection: prefer more recent examples while keeping variety.
+        # Taking the last 10 and assigning linearly increasing weights means the
+        # most recent example is 10x more likely than the oldest of the window.
         import random
 
-        selected_example = random.choice(examples_with_tone)
+        window = examples_with_tone[-min(10, len(examples_with_tone)):]
+        weights = list(range(1, len(window) + 1))
+        selected_example = random.choices(window, weights=weights, k=1)[0]
 
         # Adapt the learned phrasing to current thought
         adapted_phrasing = self._adapt_phrasing(

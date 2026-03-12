@@ -22,10 +22,10 @@ from typing import List, Dict, Any
 
 # Add project root to path
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent  # scripts/training/ -> scripts/ -> project root
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.automated_training import AutomatedTrainingPipeline
+from scripts.automation.automated_training import AutomatedTrainingPipeline
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,8 +45,8 @@ def run_scenarios(policy: str = "minimal", domains: List[str] = None) -> List[Di
     logger.info("RUNNING SCENARIOS")
     logger.info("=" * 70)
     
-    # Build command
-    cmd = [sys.executable, "-m", "scenarios.sim.run_scenarios", "--policy", policy]
+    # Build command — disable TeacherMode to avoid blocking Ollama calls per step
+    cmd = [sys.executable, "-m", "scenarios.sim.run_scenarios", "--policy", policy, "--no-teacher"]
     
     if domains:
         cmd.extend(["--domains"] + domains)

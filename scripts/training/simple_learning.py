@@ -33,7 +33,7 @@ if sys.platform == 'win32':
     os.environ['PYTHONIOENCODING'] = 'utf-8'
     sys.stdout.reconfigure(encoding='utf-8')
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 # Suppress warnings
 import warnings
@@ -87,20 +87,34 @@ def generate_test_queries(domain: str, count: int = 2) -> list:
     print(f"generated {len(queries)}")
     return queries[:count]
 
-def ask_alice(query: str) -> str:
-    """Ask Alice a question via simple prompt"""
-    # For now, use Ollama directly as Alice
-    print(f"    Alice answering: \"{query[:40]}...\"", end=" ", flush=True)
-    
-    prompt = f"""You are A.L.I.C.E, a helpful AI assistant. 
-Answer this question naturally and helpfully:
-{query}
+_alice_instance = None
 
-Keep your answer concise (2-3 sentences max)."""
-    
-    response = call_ollama(prompt, timeout=60)
-    print(f"done")
-    return response
+def _get_alice():
+    """Get or create a singleton Alice instance."""
+    global _alice_instance
+    if _alice_instance is None:
+        try:
+            from app.main import ALICE
+            _alice_instance = ALICE(debug=False)
+        except Exception as e:
+            print(f"  [ERROR] Failed to initialize Alice: {e}")
+            return None
+    return _alice_instance
+
+def ask_alice(query: str) -> str:
+    """Ask Alice a question using her real pipeline."""
+    print(f"    Alice answering: \"{query[:40]}...\"", end=" ", flush=True)
+    alice = _get_alice()
+    if alice is None:
+        print("unavailable")
+        return ""
+    try:
+        response = alice.process_input(query)
+        print("done")
+        return response or ""
+    except Exception as e:
+        print(f"error: {e}")
+        return ""
 
 def grade_response(query: str, response: str, domain: str) -> dict:
     """Grade Alice's response using Ollama auditor"""

@@ -161,6 +161,10 @@ class KnowledgeEngine:
         # Confidence tracking
         self.topic_confidence = defaultdict(float)  # topic -> confidence (0-1)
 
+        # Batch-save state: only write JSON every N interactions to reduce I/O
+        self._SAVE_INTERVAL = 5
+        self._interactions_since_save = 0
+
         # Load existing knowledge
         self._load_knowledge()
 
@@ -196,8 +200,11 @@ class KnowledgeEngine:
         # Update confidence in topics
         self._update_topic_confidence(intent, context)
 
-        # Save learned knowledge
-        self._save_knowledge()
+        # Batch save: only flush to disk every _SAVE_INTERVAL interactions
+        self._interactions_since_save += 1
+        if self._interactions_since_save >= self._SAVE_INTERVAL:
+            self._save_knowledge()
+            self._interactions_since_save = 0
 
     def _extract_and_learn_entities(
         self, user_input: str, response: str, entities: Dict[str, Any]

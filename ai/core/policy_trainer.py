@@ -55,6 +55,7 @@ try:
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import Pipeline
+
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
@@ -69,16 +70,16 @@ except ImportError:
 
 _MOOD_ENCODING: Dict[str, float] = {
     "frustrated": -2.0,
-    "negative":   -1.0,
-    "neutral":     0.0,
-    "positive":    1.0,
-    "urgent":      0.5,
+    "negative": -1.0,
+    "neutral": 0.0,
+    "positive": 1.0,
+    "urgent": 0.5,
 }
 _URGENCY_ENCODING: Dict[str, float] = {
-    "none":     0.0,
-    "low":      0.25,
-    "medium":   0.5,
-    "high":     0.75,
+    "none": 0.0,
+    "low": 0.25,
+    "medium": 0.5,
+    "high": 0.75,
     "critical": 1.0,
 }
 
@@ -89,6 +90,7 @@ _MIN_TRAINING_SAMPLES = 30  # Don't train with fewer labelled examples than this
 # ---------------------------------------------------------------------------
 # Feature extraction
 # ---------------------------------------------------------------------------
+
 
 def _encode_features(
     mood: str,
@@ -124,6 +126,7 @@ def _extract_features_from_record(r: Dict[str, Any]) -> Optional[List[float]]:
 # ---------------------------------------------------------------------------
 # PolicyTrainer
 # ---------------------------------------------------------------------------
+
 
 class PolicyTrainer:
     """
@@ -168,6 +171,7 @@ class PolicyTrainer:
         if records is None:
             try:
                 from ai.core.turn_logger import get_turn_logger
+
                 records = get_turn_logger().load_labelled(2000)
             except Exception as exc:
                 logger.warning("[PolicyTrainer] Could not load turn log: %s", exc)
@@ -211,16 +215,30 @@ class PolicyTrainer:
             return False
 
         try:
-            clarify_pipe = Pipeline([
-                ("scaler", StandardScaler()),
-                ("clf", LogisticRegression(max_iter=300, C=1.0, class_weight="balanced")),
-            ])
+            clarify_pipe = Pipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    (
+                        "clf",
+                        LogisticRegression(
+                            max_iter=300, C=1.0, class_weight="balanced"
+                        ),
+                    ),
+                ]
+            )
             clarify_pipe.fit(X, y_clarify)
 
-            confidence_pipe = Pipeline([
-                ("scaler", StandardScaler()),
-                ("clf", LogisticRegression(max_iter=300, C=1.0, class_weight="balanced")),
-            ])
+            confidence_pipe = Pipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    (
+                        "clf",
+                        LogisticRegression(
+                            max_iter=300, C=1.0, class_weight="balanced"
+                        ),
+                    ),
+                ]
+            )
             confidence_pipe.fit(X, y_confidence)
 
             with self._lock:
@@ -260,7 +278,9 @@ class PolicyTrainer:
         if model is None:
             return None
         try:
-            feats = [_encode_features(mood, sentiment, urgency, intent_conf, frame_conf)]
+            feats = [
+                _encode_features(mood, sentiment, urgency, intent_conf, frame_conf)
+            ]
             prob = model.predict_proba(feats)[0][1]
             return float(prob)
         except Exception as exc:
@@ -285,7 +305,9 @@ class PolicyTrainer:
         if model is None:
             return None
         try:
-            feats = [_encode_features(mood, sentiment, urgency, intent_conf, frame_conf)]
+            feats = [
+                _encode_features(mood, sentiment, urgency, intent_conf, frame_conf)
+            ]
             prob = model.predict_proba(feats)[0][1]
             return float(prob)
         except Exception as exc:
@@ -296,7 +318,9 @@ class PolicyTrainer:
     def is_ready(self) -> bool:
         """True when both models have been trained/loaded."""
         with self._lock:
-            return self._clarify_model is not None and self._confidence_model is not None
+            return (
+                self._clarify_model is not None and self._confidence_model is not None
+            )
 
     # ------------------------------------------------------------------
     # Persistence
@@ -322,7 +346,9 @@ class PolicyTrainer:
             with self._lock:
                 self._clarify_model = payload.get("clarify")
                 self._confidence_model = payload.get("confidence")
-            logger.info("[PolicyTrainer] Loaded policy models from %s.", self.model_path)
+            logger.info(
+                "[PolicyTrainer] Loaded policy models from %s.", self.model_path
+            )
         except Exception as exc:
             logger.warning("[PolicyTrainer] Could not load models: %s", exc)
 

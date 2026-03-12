@@ -58,8 +58,10 @@ Your role: Convert Alice's structured thoughts into natural speech.
 - Keep Alice's personality markers (her warmth, helpfulness, honesty)
 CRITICAL: Output ONLY the phrased response. No preamble, no meta-commentary,
 no headers like "Here's a natural phrasing..." or "Sure, here is...". Just the response itself.
+NEVER start the response with the user's name or a phrase like "For [name]," or "[Name],".
 DO NOT make decisions - only phrase what Alice tells you to say.
-DO NOT add personality Alice didn't specify - she controls her own tone."""
+DO NOT add personality Alice didn't specify - she controls her own tone.
+DO NOT suggest follow-up topics or ask what the user wants to talk about next — answer the question and stop."""
 
 AUDITOR_PROMPT = """You are a logic verification assistant.
 Your role: Check if Alice's reasoning makes sense.

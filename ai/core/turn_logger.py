@@ -84,6 +84,7 @@ _DEFAULT_LOG_PATH = Path("data") / "analytics" / "turn_log.jsonl"
 # Data structure
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TopKEntry:
     intent: str
@@ -109,7 +110,7 @@ class TurnEntry:
 
     # Turn features
     mood: str = "neutral"
-    sentiment: float = 0.0          # VADER compound score
+    sentiment: float = 0.0  # VADER compound score
     urgency: str = "none"
     intent: str = "conversation:general"
     intent_conf: float = 0.0
@@ -119,7 +120,7 @@ class TurnEntry:
 
     # Policy
     policy: Optional[PolicySnapshot] = None
-    policy_source: str = "hand_tuned"   # "hand_tuned" | "learned_model"
+    policy_source: str = "hand_tuned"  # "hand_tuned" | "learned_model"
 
     # Router traffic (for per-intent calibration)
     top_k: List[TopKEntry] = field(default_factory=list)
@@ -136,9 +137,7 @@ class TurnEntry:
         d = asdict(self)
         # Flatten PolicySnapshot
         if d.get("policy"):
-            d["policy"] = {
-                k: v for k, v in d["policy"].items()
-            }
+            d["policy"] = {k: v for k, v in d["policy"].items()}
         # Flatten TopKEntry list
         d["top_k"] = [{"intent": e["intent"], "score": e["score"]} for e in d["top_k"]]
         return d
@@ -147,6 +146,7 @@ class TurnEntry:
 # ---------------------------------------------------------------------------
 # Logger
 # ---------------------------------------------------------------------------
+
 
 class TurnLogger:
     """

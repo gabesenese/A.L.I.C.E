@@ -162,7 +162,9 @@ class WeatherFormatter(SimpleFormatter):
             if target_date:
                 for day in days:
                     if day.get("date") == target_date:
-                        return WeatherFormatter._format_single_day(location, day, label_override=target_day)
+                        return WeatherFormatter._format_single_day(
+                            location, day, label_override=target_day
+                        )
 
         # Weather condition icons/symbols
         condition_icons = {
@@ -240,7 +242,9 @@ class WeatherFormatter(SimpleFormatter):
         return "\n".join(summary_lines)
 
     @staticmethod
-    def _format_single_day(location: str, day: Dict[str, Any], label_override: Optional[str] = None) -> str:
+    def _format_single_day(
+        location: str, day: Dict[str, Any], label_override: Optional[str] = None
+    ) -> str:
         """Format a single day's forecast with improved readability"""
         date_str = day.get("date")
         high = day.get("high")
@@ -248,7 +252,13 @@ class WeatherFormatter(SimpleFormatter):
         condition = day.get("condition", "unknown")
 
         # Use friendly label override (e.g. "tonight", "tomorrow") when available
-        tonight_keywords = {"tonight", "this evening", "this afternoon", "later today", "now"}
+        tonight_keywords = {
+            "tonight",
+            "this evening",
+            "this afternoon",
+            "later today",
+            "now",
+        }
         if label_override and label_override.lower() in tonight_keywords:
             day_name = "Tonight"
         elif label_override == "today":
@@ -297,7 +307,14 @@ class WeatherFormatter(SimpleFormatter):
 
     @staticmethod
     def _weekday_to_date(weekday: str) -> Optional[str]:
-        today_keywords = {"tonight", "today", "this evening", "this afternoon", "later today", "now"}
+        today_keywords = {
+            "tonight",
+            "today",
+            "this evening",
+            "this afternoon",
+            "later today",
+            "now",
+        }
         if weekday in today_keywords:
             return datetime.now().strftime("%Y-%m-%d")
         if weekday == "tomorrow":

@@ -235,6 +235,12 @@ _P1_CONV_ACK: frozenset = frozenset({
     "roger", "roger that", "copy that", "aye", "yep", "yup", "yeah",
     "sure will", "on it", "done", "all good", "no problem", "np",
     "perfect", "great", "awesome", "nice",
+    # affirmative agreement phrases
+    "good idea", "great idea", "nice idea", "good point", "fair point",
+    "fair enough", "makes sense", "that makes sense", "good call", "nice one",
+    "true", "exactly", "absolutely", "definitely", "of course",
+    "i see", "i know", "i know right", "right", "for sure",
+    "you're welcome", "youre welcome", "no worries", "anytime",
 })
 
 # Greetings / thanks / status
@@ -1894,6 +1900,20 @@ class NLPProcessor:
 
         if semantic_intent:
             semantic_name, semantic_score = semantic_intent
+            # Phase 1 high-confidence results (≥0.88) are authoritative — return
+            # immediately without letting plugin keyword scoring override them.
+            if semantic_score >= 0.88:
+                if ":" in semantic_name:
+                    s_plugin, s_action = semantic_name.split(":", 1)
+                else:
+                    s_plugin, s_action = "conversation", "general"
+                return RouteDecision(
+                    intent=semantic_name,
+                    confidence=semantic_score,
+                    plugin=s_plugin,
+                    action=s_action,
+                    trace={**trace, "source": "phase1_authoritative"},
+                )
             combined[semantic_name] = max(
                 combined.get(semantic_name, 0.0), semantic_score * 0.92
             )
@@ -2789,8 +2809,13 @@ class NLPProcessor:
                     context=_ctx_dict,
                     frame_slot_evidence=frame_result.slot_evidence,
                 )
-                # Override routing if frame is more confident
-                if frame_result.confidence > intent_confidence + 0.07:
+                # Override routing if frame is more confident.
+                # Phase 1 high-confidence results are authoritative — do NOT override.
+                _phase1_locked = bool(
+                    hasattr(route, "trace")
+                    and route.trace.get("source") == "phase1_authoritative"
+                )
+                if not _phase1_locked and frame_result.confidence > intent_confidence + 0.07:
                     logger.info(
                         "[FRAME] Override route %s (%.2f) → frame %s (%.2f)",
                         intent,
@@ -3268,7 +3293,7 @@ class NLPProcessor:
             # If file context exists, skip note mapping and let file patterns handle it
             if not has_file_context:
                 action_map = {
-                    "query_exist": "notes:list",
+                    "query_exist": "notes:query_exist",
                     "list": "notes:list",
                     "read": "notes:read",
                     "append": "notes:append",
@@ -3383,12 +3408,12 @@ class NLPProcessor:
             word in text_lower for word in _P1_NOTES_KEYWORDS
         ) and not _negated:
             return "notes:create", 0.9
-        # List: existence/count questions: "do i have notes?", "how many notes do i have?"
+        # Existence/count questions: "do i have notes?", "how many notes do i have?"
         if (
             re.search(r"\b(do i have|how many|i have)\b", text_lower)
             and re.search(r"\bnotes?\b", text_lower)
         ):
-            return "notes:list", 0.90
+            return "notes:query_exist", 0.90
         # List: "show/list + note(s)"
         if any(word in text_lower for word in _P1_NOTES_LIST_VERBS) and any(
             word in text_lower for word in _P1_NOTES_LIST_NOUNS
@@ -3441,6 +3466,26 @@ class NLPProcessor:
         ):
             return "reminder:cancel", 0.95
         # ─────────────────────────────────────────────────────────────────────────
+
+        # Time queries: "what time is it?", "what's the time?", "current time"
+        # Must come before greetings/weather to prevent misclassification.
+        if re.search(
+            r"\b(what(?:'s|\s+is)\s+(?:the\s+)?(?:current\s+)?time"
+            r"|what time is it"
+            r"|tell me the time"
+            r"|current time)\b",
+            text_lower,
+        ):
+            return "time:current", 0.95
+        # Date queries: "what's today's date?", "what is today?", "what day is it?"
+        if re.search(
+            r"\b(what(?:'s|\s+is)\s+(?:today(?:'s)?\s+date|the\s+date(?:\s+today)?)"
+            r"|what day is it"
+            r"|what(?:'s|\s+is)\s+the\s+day"
+            r"|today(?:'s)?\s+date)\b",
+            text_lower,
+        ):
+            return "time:current", 0.95
 
         # Short conversational acknowledgments — catch before semantic classifier
         # e.g. "will do", "got it", "sure", "sounds good", "noted"

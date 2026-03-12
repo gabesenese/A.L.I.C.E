@@ -34,20 +34,44 @@ logger = logging.getLogger(__name__)
 # Negation detection helpers  (#3 — negation-aware anti-patterns)
 # ---------------------------------------------------------------------------
 
-_NEGATION_WORDS: frozenset = frozenset({
-    "not", "no", "never", "don't", "dont", "won't", "wont", "can't", "cant",
-    "isn't", "isnt", "aren't", "arent", "didn't", "didnt", "wouldn't", "wouldnt",
-    "shouldn't", "shouldnt", "do not", "does not", "please don't", "please dont",
-})
+_NEGATION_WORDS: frozenset = frozenset(
+    {
+        "not",
+        "no",
+        "never",
+        "don't",
+        "dont",
+        "won't",
+        "wont",
+        "can't",
+        "cant",
+        "isn't",
+        "isnt",
+        "aren't",
+        "arent",
+        "didn't",
+        "didnt",
+        "wouldn't",
+        "wouldnt",
+        "shouldn't",
+        "shouldnt",
+        "do not",
+        "does not",
+        "please don't",
+        "please dont",
+    }
+)
 _NEG_WINDOW = 32  # characters to look back from a keyword for a negation word
 
 
-def _has_negation_before(text_lower: str, keyword: str, window: int = _NEG_WINDOW) -> bool:
+def _has_negation_before(
+    text_lower: str, keyword: str, window: int = _NEG_WINDOW
+) -> bool:
     """Return True if a negation word appears in the *window* chars before *keyword*."""
     idx = text_lower.find(keyword)
     if idx < 0:
         return False
-    snippet = text_lower[max(0, idx - window): idx]
+    snippet = text_lower[max(0, idx - window) : idx]
     return any(neg in snippet for neg in _NEGATION_WORDS)
 
 
@@ -174,10 +198,9 @@ _FRAMES: List[FrameDefinition] = [
             r"\b(find|search|look\s+for|locate|filter)\b.{0,20}\bnotes?\b",
             r"\bnotes?\b.{0,15}\b(about|tagged|with tag|containing|mentioning)\b",
             r"\b(which|what)\s+notes?\b",
-            r"\bdo i have.{0,10}\bnotes?\b",
         ],
         anti_patterns=[
-            r"\b(create|write|make|add|open|read|show content|delete|remove)\b",
+            r"\b(create|write|make|add|open|read|show content|delete|remove|do i have|how many)\b",
         ],
         required_slots=["query"],
         optional_slots=["tags", "date_range"],
@@ -189,7 +212,8 @@ _FRAMES: List[FrameDefinition] = [
         plugin="notes",
         action="list",
         trigger_keywords=[
-            "list",
+            "list notes",
+            "list all",
             "show all",
             "all notes",
             "my notes",
@@ -202,10 +226,9 @@ _FRAMES: List[FrameDefinition] = [
             r"\ball\s+(my\s+)?notes?\b",
             r"\bwhat\b.{0,10}\bnotes?\b",
             r"\bnotes?\b.{0,15}\b(i\s+have|do\s+i\s+have)\b",
-            r"\b(do i have|how many)\b.{0,20}\bnotes?\b",
         ],
         anti_patterns=[
-            r"\b(find|search|look\s+for|about|tagged)\b",
+            r"\b(find|search|look\s+for|about|tagged|in it|inside|in the|how many)\b",
         ],
         required_slots=[],
         optional_slots=["tags", "date_range"],
@@ -648,7 +671,9 @@ class FrameParser:
         # ── Context-aware boosts ─────────────────────────────────────────────
         last_plugin = context.get("last_plugin")
         last_intent = context.get("last_intent", "")
-        last_domain = last_intent.split(":")[0] if ":" in last_intent else last_plugin or ""
+        last_domain = (
+            last_intent.split(":")[0] if ":" in last_intent else last_plugin or ""
+        )
         word_count = len(text_lower.split())
 
         if last_plugin == frame.plugin:
@@ -725,7 +750,10 @@ class FrameParser:
             try:
                 with open(path, "r", encoding="utf-8") as fh:
                     self._keyword_weights = json.load(fh)
-                logger.debug("[FrameParser] Loaded keyword weights for %d frames", len(self._keyword_weights))
+                logger.debug(
+                    "[FrameParser] Loaded keyword weights for %d frames",
+                    len(self._keyword_weights),
+                )
             except Exception as exc:
                 logger.debug("[FrameParser] Could not load keyword weights: %s", exc)
 
@@ -787,7 +815,9 @@ class FrameParser:
         "create a note about the meeting and then send an email to bob"
         → [FrameMatchResult(CREATE_NOTE, …), FrameMatchResult(COMPOSE_EMAIL, …)]
         """
-        parts = [p.strip() for p in self._COMPOUND_SEP.split(text) if len(p.strip()) > 7]
+        parts = [
+            p.strip() for p in self._COMPOUND_SEP.split(text) if len(p.strip()) > 7
+        ]
 
         if len(parts) < 2:
             result = self.parse(text, context)
@@ -842,7 +872,9 @@ class FrameParser:
         try:
             import yaml  # type: ignore[import]
         except ImportError:
-            logger.debug("[FrameParser] PyYAML not installed; YAML frame loading skipped")
+            logger.debug(
+                "[FrameParser] PyYAML not installed; YAML frame loading skipped"
+            )
             return
 
         for yaml_path in sorted(frames_dir.glob("*.yaml")):
@@ -871,6 +903,10 @@ class FrameParser:
                     self._compiled[frame.name] = (pos, neg)
                     # Keep global index current so get_frame() works
                     _FRAME_INDEX[frame.name] = frame
-                    logger.info("[FrameParser] YAML frame loaded: %s from %s", frame.name, yaml_path.name)
+                    logger.info(
+                        "[FrameParser] YAML frame loaded: %s from %s",
+                        frame.name,
+                        yaml_path.name,
+                    )
             except Exception as exc:
                 logger.warning("[FrameParser] Failed to load %s: %s", yaml_path, exc)

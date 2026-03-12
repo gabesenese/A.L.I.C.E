@@ -4198,7 +4198,9 @@ class NotesPlugin(PluginInterface):
         if note_match:
             potential_title = note_match.group(1).strip()
             # Search for a note with this title; also try without leading determiners
-            _clean_title = re.sub(r"^(?:my|the|a|an)\s+", "", potential_title, flags=re.IGNORECASE).strip()
+            _clean_title = re.sub(
+                r"^(?:my|the|a|an)\s+", "", potential_title, flags=re.IGNORECASE
+            ).strip()
             matching_notes = [
                 n
                 for n in self.manager.notes.values()

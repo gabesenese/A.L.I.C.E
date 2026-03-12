@@ -338,8 +338,17 @@ class SemanticIntentClassifier:
             self.model = None
             return
 
-        # Import only if needed
-        from sentence_transformers import SentenceTransformer
+        # Import only if needed — catch import-time errors (e.g. torch ABI mismatch)
+        try:
+            from sentence_transformers import SentenceTransformer
+        except Exception as e:
+            logger.warning(
+                f"sentence-transformers unavailable (import failed: {e}). "
+                "Semantic classifier disabled — using pattern-based matching only. "
+                "Fix: pip install --upgrade sentence-transformers torch"
+            )
+            self.model = None
+            return
 
         max_retries = 3
         retry_delay = 2

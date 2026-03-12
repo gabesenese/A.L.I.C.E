@@ -18,10 +18,10 @@ from typing import Dict, List, Any
 
 # Add project root to path
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent  # automation -> scripts -> project root
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from ai.learning_engine import (
+from ai.learning.learning_engine import (
     get_learning_engine,
     get_auto_correction_engine,
     get_pattern_promotion_engine
