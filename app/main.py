@@ -1759,6 +1759,7 @@ class ALICE:
             location = alice_response.get('location', '')
             item = alice_response.get('clothing_item', 'jacket')
             rainy = alice_response.get('rainy')  # set for umbrella queries
+            force_yes_no = bool(alice_response.get('force_yes_no'))
             user_q = alice_response.get('user_question', '')
             loc_str = f" in {location}" if location else ""
             temp_str = f"{round(raw_temp)}°C{loc_str}" if raw_temp is not None else f"unknown temperature{loc_str}"
@@ -1772,6 +1773,8 @@ class ALICE:
                     f"Current weather: {temp_str}, {condition}. "
                     f"User asked: '{user_q}'. Give a short, direct answer about whether to bring/wear '{item}'."
                 )
+            if force_yes_no:
+                content_str += " Start with exactly 'Yes,' or 'No,' and then one brief reason."
 
         else:
             # general_response and any other open-ended types
@@ -2768,19 +2771,47 @@ class ALICE:
             if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
                 return None
 
-            # Check if we have recent weather data
-            weather_entity = self.reasoning_engine.get_entity('current_weather')
-            if not weather_entity or not weather_entity.data:
-                # Try forecast entity as fallback
-                weather_entity = self.reasoning_engine.get_entity('weather_forecast')
-                if not weather_entity or not weather_entity.data:
-                    return None
+            current_entity = self.reasoning_engine.get_entity('current_weather')
+            forecast_entity = self.reasoning_engine.get_entity('weather_forecast')
+            has_current = bool(current_entity and current_entity.data)
+            has_forecast = bool(forecast_entity and forecast_entity.data)
+            if not has_current and not has_forecast:
+                return None
+
+            def _entity_age_score(ent) -> float:
+                try:
+                    return ent.created_at.timestamp()
+                except Exception:
+                    return 0.0
+
+            # Prefer whichever weather snapshot is newer; this avoids stale
+            # current-weather entities overriding a fresh forecast context.
+            weather_entity = None
+            if has_current and has_forecast:
+                weather_entity = (
+                    current_entity
+                    if _entity_age_score(current_entity) >= _entity_age_score(forecast_entity)
+                    else forecast_entity
+                )
+            else:
+                weather_entity = current_entity if has_current else forecast_entity
 
             # We have weather data — A.L.I.C.E answers directly using her own reasoning
             wd = weather_entity.data
-            condition = wd.get('condition', '').lower()
             location = wd.get('location', 'your area')
+            condition = (wd.get('condition') or '').lower()
             temp = wd.get('temperature')
+
+            # Forecast entities do not carry a scalar temperature. Derive a
+            # representative value from the first available day.
+            if temp is None and isinstance(wd.get('forecast'), list) and wd.get('forecast'):
+                d0 = wd['forecast'][0]
+                low = d0.get('low')
+                high = d0.get('high')
+                if low is not None and high is not None:
+                    temp = round((float(low) + float(high)) / 2)
+                if not condition:
+                    condition = (d0.get('condition') or '').lower()
 
             # Detect if this is a follow-up (user already saw the weather report this turn)
             is_follow_up = False
@@ -2792,23 +2823,29 @@ class ALICE:
             if 'umbrella' in input_lower:
                 rainy = any(w in condition for w in ['rain', 'drizzle', 'shower', 'storm'])
                 _adv_loc = '' if is_follow_up else location
+                force_yes_no = bool(
+                    re.search(r'\b(should|do|does|is|am|are)\b', input_lower)
+                    or 'or no' in input_lower
+                )
                 if rainy:
                     return self._generate_natural_response({
                         'type': 'weather_advice',
-                        'temperature': wd.get('temperature'),
+                        'temperature': temp,
                         'condition': condition,
                         'location': _adv_loc,
                         'clothing_item': 'umbrella',
+                        'force_yes_no': force_yes_no,
                         'user_question': user_input,
                     }, 'helpful', None, user_input)
                 # No rain — report the facts and let Alice/Ollama advise
                 return self._generate_natural_response({
                     'type': 'weather_advice',
-                    'temperature': wd.get('temperature'),
+                    'temperature': temp,
                     'condition': condition,
                     'location': _adv_loc,
                     'clothing_item': 'umbrella',
                     'rainy': False,
+                    'force_yes_no': force_yes_no,
                     'user_question': user_input,
                 }, 'helpful', None, user_input)
 
@@ -2846,10 +2883,14 @@ class ALICE:
                     )
                 return self._generate_natural_response({
                     'type': 'weather_advice',
-                    'temperature': wd.get('temperature'),
+                    'temperature': temp,
                     'condition': condition,
                     'location': '' if is_follow_up else location,
                     'clothing_item': recommended,
+                    'force_yes_no': bool(
+                        re.search(r'\b(should|do|does|is|am|are)\b', input_lower)
+                        or 'or no' in input_lower
+                    ),
                     'user_question': user_input,
                 }, 'helpful', None, user_input)
 
@@ -4684,6 +4725,8 @@ class ALICE:
                     # Store weather data for follow-up questions
                     if plugin_name == 'WeatherPlugin' and success and plugin_result.get('data'):
                         weather_data = plugin_result['data']
+                        weather_data = dict(weather_data)
+                        weather_data['captured_at'] = datetime.now().isoformat()
                         from ai.core.reasoning_engine import WorldEntity, EntityKind
                         message_code = weather_data.get('message_code')
                         if message_code == 'weather:forecast':
