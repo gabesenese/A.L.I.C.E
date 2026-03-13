@@ -410,7 +410,9 @@ class ALICE:
             self.context_selector = get_context_selector()
             self.prefetcher = get_prefetcher(self.reasoning_engine)
             self.response_optimizer = get_response_optimizer(self.reasoning_engine)
-            self.self_reflection = get_self_reflection()
+            # Point self-reflection to workspace root so code-analysis requests
+            # can resolve files like app/alice.py (not only ai/*).
+            self.self_reflection = get_self_reflection(PROJECT_ROOT)
             logger.info("[OK] Reasoning engine initialized - unified entity/goal/verification tracking")
             
             # 2.9. Unified Learning Engine - collect and learn from interactions

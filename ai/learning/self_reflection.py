@@ -865,4 +865,8 @@ def get_self_reflection(base_path: Optional[str] = None) -> SelfReflectionSystem
     global _self_reflection
     if _self_reflection is None:
         _self_reflection = SelfReflectionSystem(base_path)
+    elif base_path is not None:
+        requested = Path(base_path).resolve()
+        if _self_reflection.base_path != requested:
+            _self_reflection = SelfReflectionSystem(base_path)
     return _self_reflection
