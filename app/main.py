@@ -26,7 +26,7 @@ import logging
 import re
 import html
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
@@ -5168,8 +5168,8 @@ class ALICE:
                     user_input=user_input,
                     alice_response=response,
                     intent=intent,
-                    route=selected_plugin if 'selected_plugin' in locals() else 'unknown',
-                    confidence=confidence if 'confidence' in locals() else 0.0
+                    route=route_taken,
+                    confidence=float(intent_confidence if 'intent_confidence' in locals() else 0.0)
                 )
 
             # Queue async evaluation (non-blocking - user gets response immediately)
@@ -5183,7 +5183,7 @@ class ALICE:
 
                 # Queue for async evaluation (happens in background after response returned)
                 try:
-                    alice_confidence = confidence if 'confidence' in locals() else getattr(nlp_result, 'intent_confidence', 0.5) if 'nlp_result' in locals() else 0.5
+                    alice_confidence = float(intent_confidence if 'intent_confidence' in locals() else 0.5)
                     self.async_evaluator.queue_evaluation(
                         user_input=user_input,
                         alice_response=response,
@@ -6168,7 +6168,7 @@ class ALICE:
                 if gateway_stats['by_type']:
                     print("\n   By Call Type:")
                     for cal_type, count in sorted(gateway_stats['by_type'].items(), key=lambda x: x[1], reverse=True):
-                        print(f"      {call_type}: {count}")
+                        print(f"      {cal_type}: {count}")
             
             # Conversational Engine Statistics
             if hasattr(self, 'conversational_engine') and self.conversational_engine:

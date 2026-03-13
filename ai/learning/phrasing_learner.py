@@ -294,7 +294,7 @@ class PhrasingLearner:
         # most recent example is 10x more likely than the oldest of the window.
         import random
 
-        window = examples_with_tone[-min(10, len(examples_with_tone)):]
+        window = examples_with_tone[-min(10, len(examples_with_tone)) :]
         weights = list(range(1, len(window) + 1))
         selected_example = random.choices(window, weights=weights, k=1)[0]
 
