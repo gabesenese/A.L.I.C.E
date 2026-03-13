@@ -40,12 +40,13 @@ class CompactNotesListStrategy:
         shown: int,
         header: str,
     ) -> List[str]:
-        lines = [f"{header} ({count})"]
-        for idx, note in enumerate(notes, 1):
+        sep = "\u2500" * 40
+        lines = [f"{header}  \u2014  {count}", sep]
+        for note in notes:
             title = note.get("title", "Untitled")
             tags = note.get("tags", [])
-            tag_str = (" #" + " #".join(tags[:2])) if tags else ""
-            lines.append(f"{idx}. {title}{tag_str}")
+            tag_str = ("  " + "  ".join(f"#{t}" for t in tags[:2])) if tags else ""
+            lines.append(f"  \u25cf  {title}{tag_str}")
         return lines
 
 
@@ -59,23 +60,24 @@ class DetailedNotesListStrategy:
         shown: int,
         header: str,
     ) -> List[str]:
-        lines = [f"{header} ({count})"]
-        for idx, note in enumerate(notes, 1):
+        sep = "\u2500" * 40
+        lines = [f"{header}  \u2014  {count}", sep]
+        for note in notes:
             title = note.get("title", "Untitled")
             tags = note.get("tags", [])
             updated = (note.get("updated_at") or "")[:10]
             priority = note.get("priority", "")
             preview = note.get("preview", "")
-            line = f"{idx}. {title}"
-            if tags:
-                line += f"  #{' #'.join(tags[:3])}"
+            tag_str = ("  " + "  ".join(f"#{t}" for t in tags[:3])) if tags else ""
+            meta_parts = []
             if updated:
-                line += f"  [{updated}]"
+                meta_parts.append(updated)
             if priority and priority not in ("medium", ""):
-                line += f"  [{priority}]"
-            lines.append(line)
+                meta_parts.append(priority)
+            meta_str = ("  [" + "  ".join(meta_parts) + "]") if meta_parts else ""
+            lines.append(f"  \u25cf  {title}{tag_str}{meta_str}")
             if preview:
-                lines.append(f"   {preview}")
+                lines.append(f"      {preview}")
         return lines
 
 
@@ -205,7 +207,11 @@ class WeatherFormatter(SimpleFormatter):
         }
 
         # Start with header
-        summary_lines = [f"\n {forecast_label} Forecast for {location}\n"]
+        sep = "─" * 44
+        summary_lines = [
+            f"{forecast_label} Forecast  —  {location}",
+            sep,
+        ]
 
         today = datetime.now().date()
 
@@ -245,15 +251,12 @@ class WeatherFormatter(SimpleFormatter):
             if high is not None and low is not None:
                 temp_range = f"{int(low)}° to {int(high)}°"
 
-                # Create formatted line with better structure
-                # Pad day name to align properly
-                day_padded = day_label.ljust(18)
+                day_padded = day_label.ljust(16)
                 condition_cap = condition.title()
-
-                line = f"  {icon} {day_padded} {temp_range:>12}  ({condition_cap})"
+                line = f"  {icon}  {day_padded}  {temp_range:<14}  {condition_cap}"
                 summary_lines.append(line)
             elif day_label:
-                summary_lines.append(f"  {icon} {day_label}: {condition.title()}")
+                summary_lines.append(f"  {icon}  {day_label}  {condition.title()}")
 
         return "\n".join(summary_lines)
 
@@ -395,8 +398,10 @@ class EmailFormatter(SimpleFormatter):
         for i, email in enumerate(emails[:limit], 1):
             sender = email.get("from", "Unknown")
             subject = email.get("subject", "No subject")
-            unread_mark = " [UNREAD]" if email.get("unread") else ""
-            lines.append(f"{i}. From {sender}: {subject}{unread_mark}")
+            if len(sender) > 28:
+                sender = sender[:27] + "…"
+            unread_mark = " \u25cf" if email.get("unread") else "  "
+            lines.append(f"{unread_mark} {i}. {sender}  \u2014  {subject}")
 
         if count > limit:
             lines.append(f"... and {count - limit} more")
@@ -704,13 +709,18 @@ class NotesFormatter(SimpleFormatter):
             return "\n".join(lines)
 
         if action == "count_notes":
+            total   = data.get('total', 0)
+            todos   = data.get('todos', 0)
+            ideas   = data.get('ideas', 0)
+            meetings= data.get('meetings', 0)
+            pinned  = data.get('pinned', 0)
+            archived= data.get('archived', 0)
+            sep = "─" * 36
             return (
-                f"Notes: {data.get('total', 0)} total"
-                f" | todo: {data.get('todos', 0)}"
-                f" | ideas: {data.get('ideas', 0)}"
-                f" | meetings: {data.get('meetings', 0)}"
-                f" | pinned: {data.get('pinned', 0)}"
-                f" | archived: {data.get('archived', 0)}"
+                f"Notes  —  {total} total\n"
+                f"{sep}\n"
+                f"  Todo {todos:>4}    Ideas {ideas:>4}    Meetings {meetings:>4}\n"
+                f"  Pinned {pinned:>3}    Archived {archived:>4}"
             )
 
         if action == "show_tags":

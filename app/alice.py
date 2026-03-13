@@ -93,7 +93,9 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
             
             # Process input
             try:
-                response = alice.process_input(user_input, use_voice=voice_enabled)
+                ui.print_user_input(user_input)
+                with ui.thinking_spinner():
+                    response = alice.process_input(user_input, use_voice=voice_enabled)
                 ui.print_assistant_response(response)
             except Exception as e:
                 ui.print_error(str(e))

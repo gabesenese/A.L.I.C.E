@@ -3,8 +3,10 @@ Rich Terminal UI for A.L.I.C.E
 Beautiful terminal interface with modern color scheme
 """
 
+from contextlib import contextmanager
 from rich.console import Console
 from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.text import Text
 from rich.live import Live
 from rich.layout import Layout
@@ -187,9 +189,20 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
                 progress.update(task, advance=1)
                 time.sleep(0.02)  # 2 seconds total (100 steps * 0.02s)
 
+    @contextmanager
+    def thinking_spinner(self):
+        """Context manager that shows an animated spinner while ALICE is processing."""
+        spinner = Spinner("dots2", text=f"[{self.colors['info']}]thinking…[/{self.colors['info']}]")
+        with Live(spinner, console=self.console, transient=True, refresh_per_second=12):
+            yield
+
     def print_user_input(self, text):
         """Display user input"""
-        self.console.print(f"[{self.colors['user']}]{self.user_name}:[/{self.colors['user']}] {text}")
+        ts = datetime.now().strftime("%H:%M")
+        self.console.print(
+            f"[{self.colors['user']}]❯ {self.user_name}[/{self.colors['user']}]  "
+            f"[{self.colors['dim_border']}]{ts}[/{self.colors['dim_border']}]\n  {text}"
+        )
         self.conversation_history.append(("user", text))
 
     def print_assistant_response(self, text):
@@ -206,18 +219,28 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
         has_numbered  = any(line.lstrip().startswith(tuple(f'{i}.' for i in range(1, 20)))
                             for line in text.splitlines())
 
-        if is_multiline or has_markdown or has_numbered:
+        if has_markdown or has_numbered:
             try:
                 content = Markdown(text)
             except Exception:
                 content = Text(text)
+        elif is_multiline:
+            content = Text(text)
+
+        if is_multiline or has_markdown or has_numbered:
+            ts = datetime.now().strftime("%H:%M")
+            try:
+                panel_width = min(self.console.width - 2, 100)
+            except Exception:
+                panel_width = 98
             panel = Panel(
                 content,
                 title=f"[{self.colors['assistant']}]A.L.I.C.E[/{self.colors['assistant']}]",
+                subtitle=f"[{self.colors['dim_border']}]{ts}[/{self.colors['dim_border']}]",
                 border_style=self.colors['dim_border'],
                 box=box.ROUNDED,
                 padding=(0, 2),
-                expand=False,
+                width=panel_width,
             )
             self.console.print()
             self.console.print(panel)
@@ -241,7 +264,11 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
     def get_input(self):
         """Get user input with nice prompt"""
         try:
-            user_input = Prompt.ask(f"\n[{self.colors['user']}]{self.user_name}[/{self.colors['user']}]")
+            user_input = Prompt.ask(
+                f"\n[{self.colors['user']}]❯[/{self.colors['user']}]",
+                default="",
+                show_default=False,
+            )
             return user_input.strip()
         except (KeyboardInterrupt, EOFError):
             return None
