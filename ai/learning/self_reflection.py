@@ -16,12 +16,13 @@ import os
 import logging
 import re
 import ast
-import hashlib
-from typing import Dict, List, Optional, Any, Tuple, Set
+import fnmatch
+import threading
+from collections import OrderedDict
+from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from collections import defaultdict
 import concurrent.futures
 
 logger = logging.getLogger(__name__)
@@ -122,11 +123,28 @@ class SelfReflectionSystem:
         }
 
         # Smart caching
-        self._analysis_cache: Dict[str, Tuple[Dict[str, Any], datetime]] = {}
+        # key -> (analysis, cached_at, file_signature)
+        self._analysis_cache: "OrderedDict[str, Tuple[Dict[str, Any], datetime, Tuple[int, int]]]" = OrderedDict()
         self._cache_ttl = timedelta(hours=1)
+        self._cache_max_entries = 512
+        self._cache_lock = threading.RLock()
 
-        # File hash tracking for change detection
-        self._file_hashes: Dict[str, str] = {}
+        # File index for fast path resolution and codebase scanning
+        self._code_directories = [
+            "ai",
+            "app",
+            "features",
+            "plugins",
+            "speech",
+            "ui",
+            "self_learning",
+        ]
+        self._index_lock = threading.RLock()
+        self._file_index_all_py: List[str] = []
+        self._file_index_by_name: Dict[str, List[str]] = {}
+        self._file_index_built_at = datetime.min
+        self._file_index_ttl = timedelta(seconds=30)
+        self._dir_mtime_snapshot: Dict[str, int] = {}
 
         logger.info(f"[SelfReflection] Initialized with base path: {self.base_path}")
 
@@ -168,6 +186,155 @@ class SelfReflectionSystem:
 
         return "utility"
 
+    def _normalize_rel_path(self, rel_path: str) -> str:
+        return str(Path(rel_path))
+
+    def _path_starts_with_directory(self, rel_path: str, directory: str) -> bool:
+        dir_norm = directory.strip("/\\ ")
+        if not dir_norm or dir_norm == ".":
+            return True
+        parts = Path(rel_path).parts
+        return bool(parts) and parts[0].lower() == dir_norm.lower()
+
+    def _get_file_signature(self, file_path: Path) -> Tuple[int, int]:
+        """Fast signature using mtime and size (avoids full-file hashing)."""
+        try:
+            st = file_path.stat()
+            return (int(st.st_mtime_ns), int(st.st_size))
+        except Exception:
+            return (0, 0)
+
+    def _cache_get(self, key: str, full_path: Optional[Path]) -> Optional[Dict[str, Any]]:
+        with self._cache_lock:
+            entry = self._analysis_cache.get(key)
+            if not entry:
+                return None
+
+            cached_data, cached_time, cached_sig = entry
+            if datetime.now() - cached_time > self._cache_ttl:
+                self._analysis_cache.pop(key, None)
+                return None
+
+            if full_path is not None and self._get_file_signature(full_path) != cached_sig:
+                self._analysis_cache.pop(key, None)
+                return None
+
+            self._analysis_cache.move_to_end(key)
+            return cached_data
+
+    def _cache_put(self, key: str, analysis: Dict[str, Any], full_path: Optional[Path]) -> None:
+        sig = self._get_file_signature(full_path) if full_path is not None else (0, 0)
+        with self._cache_lock:
+            self._analysis_cache[key] = (analysis, datetime.now(), sig)
+            self._analysis_cache.move_to_end(key)
+            while len(self._analysis_cache) > self._cache_max_entries:
+                self._analysis_cache.popitem(last=False)
+
+    def _snapshot_dir_mtimes(self) -> Dict[str, int]:
+        snapshot: Dict[str, int] = {}
+        roots = ["."] + self._code_directories
+        for d in roots:
+            p = self.base_path if d == "." else self.base_path / d
+            try:
+                snapshot[d] = int(p.stat().st_mtime_ns) if p.exists() else 0
+            except Exception:
+                snapshot[d] = 0
+        return snapshot
+
+    def _should_refresh_index_locked(self) -> bool:
+        if not self._file_index_all_py:
+            return True
+        if datetime.now() - self._file_index_built_at > self._file_index_ttl:
+            return True
+        return self._snapshot_dir_mtimes() != self._dir_mtime_snapshot
+
+    def _refresh_file_index(self) -> None:
+        with self._index_lock:
+            if not self._should_refresh_index_locked():
+                return
+
+            files_set = set()
+
+            # Root-level Python files
+            for root_file in self.base_path.glob("*.py"):
+                if self._is_allowed_file(root_file):
+                    files_set.add(str(root_file.relative_to(self.base_path)))
+
+            for dir_name in self._code_directories:
+                dir_path = self.base_path / dir_name
+                if not dir_path.exists() or not dir_path.is_dir():
+                    continue
+                for file_path in dir_path.rglob("*.py"):
+                    if self._is_allowed_file(file_path):
+                        files_set.add(str(file_path.relative_to(self.base_path)))
+
+            all_files = sorted(files_set)
+            by_name: Dict[str, List[str]] = {}
+            for rel in all_files:
+                by_name.setdefault(Path(rel).name.lower(), []).append(rel)
+
+            self._file_index_all_py = all_files
+            self._file_index_by_name = by_name
+            self._file_index_built_at = datetime.now()
+            self._dir_mtime_snapshot = self._snapshot_dir_mtimes()
+
+    def _get_indexed_py_paths(
+        self, directory: Optional[str] = None, pattern: Optional[str] = None
+    ) -> List[str]:
+        self._refresh_file_index()
+        with self._index_lock:
+            files = list(self._file_index_all_py)
+
+        if directory:
+            files = [
+                rel for rel in files if self._path_starts_with_directory(rel, directory)
+            ]
+
+        if pattern:
+            files = [
+                rel
+                for rel in files
+                if fnmatch.fnmatch(Path(rel).name, pattern) or fnmatch.fnmatch(rel, pattern)
+            ]
+
+        return files
+
+    def _resolve_existing_path(self, file_path: str) -> Optional[Path]:
+        """Resolve a file path quickly using the indexed codebase."""
+        # Direct absolute path
+        if os.path.isabs(file_path):
+            candidate = Path(file_path).resolve()
+            return candidate if candidate.exists() and self._is_allowed_file(candidate) else None
+
+        # Direct relative path
+        candidate = (self.base_path / file_path).resolve()
+        if candidate.exists() and self._is_allowed_file(candidate):
+            return candidate
+
+        requested_norm = file_path.replace("\\", "/").strip("./ ").lower()
+        basename = os.path.basename(file_path).lower()
+
+        self._refresh_file_index()
+        with self._index_lock:
+            candidates = list(self._file_index_by_name.get(basename, []))
+            all_files = list(self._file_index_all_py)
+
+        # Prefer exact suffix/path match when caller provided directories.
+        if "/" in requested_norm:
+            suffix_matches = [
+                rel for rel in all_files if rel.replace("\\", "/").lower().endswith(requested_norm)
+            ]
+            if suffix_matches:
+                candidates = suffix_matches
+
+        for rel in candidates:
+            resolved = (self.base_path / rel).resolve()
+            if resolved.exists() and self._is_allowed_file(resolved):
+                logger.debug(f"[SelfReflection] Resolved {file_path} -> {rel}")
+                return resolved
+
+        return None
+
     def read_file(self, file_path: str, max_lines: int = 1000) -> Optional[CodeFile]:
         """
         Read a code file (read-only)
@@ -180,57 +347,10 @@ class SelfReflectionSystem:
             CodeFile object or None if not accessible
         """
         try:
-            # Resolve path
-            if os.path.isabs(file_path):
-                full_path = Path(file_path)
-            else:
-                full_path = self.base_path / file_path
-
-            full_path = full_path.resolve()
-
-            # Security check
-            if not self._is_allowed_file(full_path):
-                logger.warning(f"[SelfReflection] Access denied to: {file_path}")
+            full_path = self._resolve_existing_path(file_path)
+            if not full_path:
+                logger.debug(f"[SelfReflection] Could not resolve path: {file_path}")
                 return None
-
-            if not full_path.exists():
-                # Try searching all directories for the filename
-                filename = os.path.basename(file_path)
-                search_dirs = [
-                    "ai",
-                    "app",
-                    "features",
-                    "plugins",
-                    "speech",
-                    "ui",
-                    "self_learning",
-                    ".",
-                ]
-
-                for search_dir in search_dirs:
-                    if search_dir == ".":
-                        # Search root
-                        candidate = self.base_path / filename
-                    else:
-                        # Search recursively in directory
-                        dir_path = self.base_path / search_dir
-                        if not dir_path.exists():
-                            continue
-                        candidates = list(dir_path.rglob(filename))
-                        if candidates:
-                            candidate = candidates[0]
-                        else:
-                            continue
-
-                    if candidate.exists() and self._is_allowed_file(candidate):
-                        full_path = candidate.resolve()
-                        logger.debug(
-                            f"[SelfReflection] Found {filename} at {full_path}"
-                        )
-                        break
-                else:
-                    # Still not found
-                    return None
 
             # Read file
             with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -266,60 +386,23 @@ class SelfReflectionSystem:
             List of file info dictionaries
         """
         try:
+            rel_paths = self._get_indexed_py_paths(directory=directory, pattern=pattern)
             files = []
-
-            # If no directory specified, scan all relevant directories
-            if directory is None:
-                directories = [
-                    "ai",
-                    "app",
-                    "features",
-                    "plugins",
-                    "speech",
-                    "ui",
-                    "self_learning",
-                ]
-                # Also include root-level Python files (alice.py, etc.)
-                root_files = list(self.base_path.glob("*.py"))
-                for root_file in root_files:
-                    if self._is_allowed_file(root_file):
-                        rel_path = root_file.relative_to(self.base_path)
-                        files.append(
-                            {
-                                "path": str(rel_path),
-                                "name": root_file.name,
-                                "size": root_file.stat().st_size,
-                                "module_type": self._classify_module(root_file),
-                                "language": (
-                                    root_file.suffix[1:] if root_file.suffix else "text"
-                                ),
-                            }
-                        )
-            else:
-                directories = [directory]
-
-            # Scan each directory
-            for dir_name in directories:
-                dir_path = self.base_path / dir_name
-                if not dir_path.exists() or not dir_path.is_dir():
+            for rel in rel_paths:
+                full_path = (self.base_path / rel).resolve()
+                try:
+                    files.append(
+                        {
+                            "path": rel,
+                            "name": full_path.name,
+                            "size": full_path.stat().st_size,
+                            "module_type": self._classify_module(full_path),
+                            "language": full_path.suffix[1:] if full_path.suffix else "text",
+                        }
+                    )
+                except Exception:
                     continue
-
-                for file_path in dir_path.rglob(pattern or "*.py"):
-                    if self._is_allowed_file(file_path):
-                        rel_path = file_path.relative_to(self.base_path)
-                        files.append(
-                            {
-                                "path": str(rel_path),
-                                "name": file_path.name,
-                                "size": file_path.stat().st_size,
-                                "module_type": self._classify_module(file_path),
-                                "language": (
-                                    file_path.suffix[1:] if file_path.suffix else "text"
-                                ),
-                            }
-                        )
-
-            return sorted(files, key=lambda x: x["path"])
+            return files
         except Exception as e:
             logger.error(f"[SelfReflection] Error listing codebase: {e}")
             return []
@@ -342,119 +425,53 @@ class SelfReflectionSystem:
         query_lower = query.lower()
 
         try:
-            # If no directory specified, search all relevant directories
-            if directory is None:
-                directories = [
-                    "ai",
-                    "app",
-                    "features",
-                    "plugins",
-                    "speech",
-                    "ui",
-                    "self_learning",
-                ]
-                search_paths = []
-                for dir_name in directories:
-                    dir_path = self.base_path / dir_name
-                    if dir_path.exists():
-                        search_paths.append(dir_path)
-                # Also search root-level files
-                search_paths.append(self.base_path)
-            else:
-                dir_path = self.base_path / directory
-                if not dir_path.exists():
-                    return []
-                search_paths = [dir_path]
+            rel_paths = self._get_indexed_py_paths(directory=directory)
 
-            for search_path in search_paths:
-                # Use glob for root, rglob for directories
-                if search_path == self.base_path:
-                    file_pattern = search_path.glob("*.py")
-                else:
-                    file_pattern = search_path.rglob("*.py")
+            for rel in rel_paths:
+                file_path = (self.base_path / rel).resolve()
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        lines = f.readlines()
 
-                for file_path in file_pattern:
-                    if not self._is_allowed_file(file_path):
-                        continue
+                    matches = []
+                    for i, line in enumerate(lines, 1):
+                        if query_lower in line.lower():
+                            # Get context (2 lines before and after)
+                            start = max(0, i - 3)
+                            end = min(len(lines), i + 2)
+                            context = "".join(lines[start:end])
 
-                    try:
-                        with open(
-                            file_path, "r", encoding="utf-8", errors="ignore"
-                        ) as f:
-                            lines = f.readlines()
-
-                        matches = []
-                        for i, line in enumerate(lines, 1):
-                            if query_lower in line.lower():
-                                # Get context (2 lines before and after)
-                                start = max(0, i - 3)
-                                end = min(len(lines), i + 2)
-                                context = "".join(lines[start:end])
-
-                                matches.append(
-                                    {
-                                        "line": i,
-                                        "content": line.strip(),
-                                        "context": context,
-                                    }
-                                )
-
-                        if matches:
-                            rel_path = file_path.relative_to(self.base_path)
-                            results.append(
+                            matches.append(
                                 {
-                                    "file": str(rel_path),
-                                    "matches": matches[:5],  # Max 5 matches per file
-                                    "match_count": len(matches),
+                                    "line": i,
+                                    "content": line.strip(),
+                                    "context": context,
                                 }
                             )
 
-                            if len(results) >= max_results:
-                                return results
-                    except Exception:
-                        continue
+                    if matches:
+                        results.append(
+                            {
+                                "file": rel,
+                                "matches": matches[:5],  # Max 5 matches per file
+                                "match_count": len(matches),
+                            }
+                        )
+
+                        if len(results) >= max_results:
+                            return results
+                except Exception:
+                    continue
 
         except Exception as e:
             logger.error(f"[SelfReflection] Error searching code: {e}")
 
         return results
 
-    def _compute_file_hash(self, file_path: Path) -> str:
-        """Compute SHA256 hash of file for change detection"""
-        try:
-            with open(file_path, "rb") as f:
-                return hashlib.sha256(f.read()).hexdigest()
-        except Exception:
-            return ""
-
-    def _is_cache_valid(self, file_path: str) -> bool:
-        """Check if cached analysis is still valid"""
-        if file_path not in self._analysis_cache:
-            return False
-
-        _, cached_time = self._analysis_cache[file_path]
-        if datetime.now() - cached_time > self._cache_ttl:
-            return False
-
-        # Check if file was modified
-        full_path = (
-            self.base_path / file_path
-            if not os.path.isabs(file_path)
-            else Path(file_path)
-        )
-        current_hash = self._compute_file_hash(full_path)
-        if (
-            file_path in self._file_hashes
-            and self._file_hashes[file_path] != current_hash
-        ):
-            return False
-
-        return True
-
     def _extract_purpose_from_ast(self, tree: ast.Module, content: str) -> str:
         """Extract file purpose from module docstring or initial comments"""
         # Try module docstring first
-        if isinstance(tree.body[0], ast.Expr) and isinstance(
+        if tree.body and isinstance(tree.body[0], ast.Expr) and isinstance(
             tree.body[0].value, (ast.Str, ast.Constant)
         ):
             docstring = ast.get_docstring(tree)
@@ -516,15 +533,29 @@ class SelfReflectionSystem:
         Returns:
             Comprehensive analysis dictionary
         """
-        # Check cache
-        if self._is_cache_valid(file_path):
-            cached_data, _ = self._analysis_cache[file_path]
-            logger.debug(f"[SelfReflection] Using cached analysis for {file_path}")
-            return cached_data
+        resolved = self._resolve_existing_path(file_path)
+        requested_key = self._normalize_rel_path(file_path)
+
+        # Check cache for the requested key first.
+        cached = self._cache_get(requested_key, resolved)
+        if cached is not None:
+            logger.debug(f"[SelfReflection] Using cached analysis for {requested_key}")
+            return cached
 
         code_file = self.read_file(file_path)
         if not code_file:
             return {"error": "File not accessible or not found"}
+
+        canonical_key = self._normalize_rel_path(code_file.path)
+        resolved = (self.base_path / canonical_key).resolve()
+
+        # Check cache by canonical path as well (covers basename lookups).
+        cached = self._cache_get(canonical_key, resolved)
+        if cached is not None:
+            if requested_key != canonical_key:
+                self._cache_put(requested_key, cached, resolved)
+            logger.debug(f"[SelfReflection] Using cached analysis for {canonical_key}")
+            return cached
 
         analysis = {
             "path": code_file.path,
@@ -596,14 +627,10 @@ class SelfReflectionSystem:
             )
             analysis.update(self._fallback_regex_analysis(code_file.content))
 
-        # Cache the result
-        full_path = (
-            self.base_path / file_path
-            if not os.path.isabs(file_path)
-            else Path(file_path)
-        )
-        self._file_hashes[file_path] = self._compute_file_hash(full_path)
-        self._analysis_cache[file_path] = (analysis, datetime.now())
+        # Cache the result under canonical and requested keys.
+        self._cache_put(canonical_key, analysis, resolved)
+        if requested_key != canonical_key:
+            self._cache_put(requested_key, analysis, resolved)
 
         return analysis
 
@@ -790,19 +817,14 @@ class SelfReflectionSystem:
         }
 
         try:
-            ai_dir = self.base_path / "ai"
-            if ai_dir.exists():
-                for file_path in ai_dir.rglob("*.py"):
-                    if self._is_allowed_file(file_path):
-                        module_type = self._classify_module(file_path)
-                        rel_path = str(file_path.relative_to(self.base_path))
-                        # Map module_type to summary key (plugin -> plugins)
-                        summary_key = (
-                            "plugins" if module_type == "plugin" else module_type
-                        )
-                        if summary_key in summary["modules"]:
-                            summary["modules"][summary_key].append(rel_path)
-                            summary["total_files"] += 1
+            files = self.list_codebase()
+            for item in files:
+                rel_path = item.get("path", "")
+                module_type = item.get("module_type", "utility")
+                summary_key = "plugins" if module_type == "plugin" else module_type
+                if summary_key in summary["modules"]:
+                    summary["modules"][summary_key].append(rel_path)
+                    summary["total_files"] += 1
         except Exception as e:
             logger.error(f"[SelfReflection] Error generating summary: {e}")
 
