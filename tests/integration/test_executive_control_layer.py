@@ -58,9 +58,10 @@ def test_executive_requests_clarification_when_ambiguous() -> None:
         force_plugins_for_notes=False,
     )
 
-    assert decision.action == "ask_clarification"
+    assert decision.action in ("ask_clarification", "defer")
     assert decision.store_memory is False
-    assert decision.clarification_question
+    if decision.action == "ask_clarification":
+        assert decision.clarification_question
 
 
 def test_reasoning_state_prompt_is_structured_not_cot() -> None:
@@ -154,3 +155,44 @@ def test_learning_authority_can_reject_or_store() -> None:
 
     assert reject_decision == "reject"
     assert store_decision == "store"
+
+
+def test_planner_authority_for_learning_turns() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="what is polymorphism",
+        intent="learning:study_topic",
+        confidence=0.72,
+        entities={"topic": "polymorphism"},
+        conversation_state={"depth_level": 2},
+    )
+    scores = controller.score_decisions(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert controller.should_use_planner(state, scores) is True
+
+
+def test_uncertainty_behavior_can_defer() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="that one",
+        intent="conversation:general",
+        confidence=0.30,
+        entities={},
+        conversation_state={},
+    )
+    scores = controller.score_decisions(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    outcome = controller.uncertainty_behavior(state, scores)
+    assert outcome in ("defer", "clarify", "reject")

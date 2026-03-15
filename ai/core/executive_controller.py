@@ -35,7 +35,7 @@ class ReasoningState:
 
 @dataclass
 class ExecutiveDecision:
-    action: str  # use_plugin | use_llm | ask_clarification | ignore | answer_direct
+    action: str  # use_plugin | use_llm | ask_clarification | ignore | answer_direct | defer
     reason: str
     store_memory: bool = True
     clarification_question: str = ""
@@ -55,6 +55,19 @@ class ExecutiveController:
         "weather:",
         "time:",
     )
+
+    def __init__(self) -> None:
+        # Adaptive routing matrix (updated by reflection loop).
+        self._routing_weights: Dict[str, float] = {
+            "tools": 1.0,
+            "memory": 1.0,
+            "rag": 1.0,
+            "llm": 1.0,
+            "clarify": 1.0,
+            "search": 1.0,
+            "reject": 1.0,
+            "defer": 1.0,
+        }
 
     def build_state(
         self,
@@ -112,6 +125,27 @@ class ExecutiveController:
             has_active_goal=has_active_goal,
             force_plugins_for_notes=force_plugins_for_notes,
         )
+        uncertainty = self.uncertainty_behavior(state, scores)
+        if uncertainty in ("clarify", "defer", "reject"):
+            if uncertainty == "clarify":
+                return ExecutiveDecision(
+                    action="ask_clarification",
+                    reason="uncertainty_clarify",
+                    store_memory=False,
+                    clarification_question="I can help, but I am not fully certain. Did you want action X or explanation Y?",
+                )
+            if uncertainty == "defer":
+                return ExecutiveDecision(
+                    action="defer",
+                    reason="uncertainty_defer",
+                    store_memory=False,
+                )
+            return ExecutiveDecision(
+                action="ignore",
+                reason="uncertainty_reject",
+                store_memory=False,
+            )
+
         winner = max(scores.items(), key=lambda kv: kv[1])[0]
 
         if winner == "clarify":
@@ -134,6 +168,33 @@ class ExecutiveController:
 
         return ExecutiveDecision(action="use_llm", reason="score_llm", store_memory=True)
 
+    def should_use_planner(self, state: ReasoningState, scores: Dict[str, float]) -> bool:
+        """Executive authority for when planning is required before response."""
+        intent = (state.user_intent or "").lower()
+        if intent.startswith("learning:") or intent.startswith("question:"):
+            return True
+        if state.depth_level >= 2 and state.topic:
+            return True
+        if scores.get("tools", 0.0) >= 0.75 and state.user_goal:
+            return True
+        return False
+
+    def uncertainty_behavior(self, state: ReasoningState, scores: Dict[str, float]) -> str:
+        """Return proceed | clarify | defer | reject based on confidence and score ambiguity."""
+        conf = max(0.0, min(1.0, float(state.confidence)))
+        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+        top = ranked[0][1] if ranked else 0.0
+        second = ranked[1][1] if len(ranked) > 1 else 0.0
+        margin = top - second
+
+        if conf < 0.20 and not state.topic:
+            return "reject"
+        if conf < 0.35:
+            return "defer"
+        if conf < 0.60 and margin < 0.12:
+            return "clarify"
+        return "proceed"
+
     def score_decisions(
         self,
         state: ReasoningState,
@@ -153,6 +214,7 @@ class ExecutiveController:
             "clarify": 0.0,
             "search": 0.0,
             "reject": 0.0,
+            "defer": 0.0,
         }
 
         conf = max(0.0, min(1.0, state.confidence))
@@ -173,13 +235,32 @@ class ExecutiveController:
             scores["clarify"] += 0.35
         if conf < 0.20 and not has_explicit_action_cue and not state.user_goal:
             scores["reject"] += 0.55
+        if conf < 0.35:
+            scores["defer"] += 0.40
         if "search" in text_intent or "research" in text_intent:
             scores["search"] += 0.60
+
+        for route in list(scores.keys()):
+            scores[route] *= float(self._routing_weights.get(route, 1.0))
 
         # Normalize to 0..1 to keep all downstream thresholds stable.
         for k, v in list(scores.items()):
             scores[k] = max(0.0, min(1.0, float(v)))
         return scores
+
+    def apply_reflection(self, reflection: Dict[str, Any]) -> None:
+        """Adjust routing matrix based on reflection feedback."""
+        if not isinstance(reflection, dict):
+            return
+        adjustments = reflection.get("routing_adjustments", {}) or {}
+        for route, delta in adjustments.items():
+            if route not in self._routing_weights:
+                continue
+            current = float(self._routing_weights.get(route, 1.0))
+            self._routing_weights[route] = max(0.5, min(1.5, current + float(delta)))
+
+    def get_routing_weights(self) -> Dict[str, float]:
+        return dict(self._routing_weights)
 
     def evaluate_response(
         self,

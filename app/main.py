@@ -89,6 +89,7 @@ from ai.core.llm_gateway import get_llm_gateway, LLMGateway
 from ai.core.llm_policy import LLMCallType
 from ai.core.response_self_critic import get_response_self_critic
 from ai.core.executive_controller import get_executive_controller
+from ai.core.reflection_engine import get_reflection_engine
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -411,8 +412,10 @@ class ALICE:
             self.reasoning_engine = get_reasoning_engine(user_name)
             self.response_self_critic = get_response_self_critic()
             self.executive_controller = get_executive_controller()
+            self.reflection_engine = get_reflection_engine()
             self._internal_reasoning_state = {}
             self._exec_should_store_memory = True
+            self._last_exec_gate_eval = {}
             self.error_recovery = get_error_recovery()
             self.context_cache = get_context_cache()
             self.context_selector = get_context_selector()
@@ -3372,6 +3375,7 @@ class ALICE:
             route=route,
             context=getattr(self, '_internal_reasoning_state', {}) or {},
         )
+        self._last_exec_gate_eval = evaluation
         score = float(evaluation.get("score", 0.0))
         self._think(
             f"Executive response gate ({route}) → score={score:.2f} "
@@ -3385,6 +3389,39 @@ class ALICE:
         if fallback_action == "clarify":
             return "I want to make sure I answer correctly. Do you want an explanation, a direct action, or a quick search?"
         return "I may be off-track. Let me answer more directly: tell me the exact outcome you want and I will do that."
+
+    def _run_executive_reflection(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        response: str,
+        route: str,
+        prior_confidence: float,
+    ) -> None:
+        """Post-response reflection loop that updates executive routing weights."""
+        if not getattr(self, 'reflection_engine', None) or not getattr(self, 'executive_controller', None):
+            return
+        try:
+            gate_eval = getattr(self, '_last_exec_gate_eval', {}) or {}
+            reflection = self.reflection_engine.reflect(
+                user_input=user_input,
+                intent=intent,
+                response=response,
+                route=route,
+                gate_accepted=bool(gate_eval.get('accepted', True)),
+                decision_scores=(getattr(self, '_internal_reasoning_state', {}) or {}).get('decision_scores', {}),
+                prior_confidence=float(prior_confidence or 0.0),
+            ).as_dict()
+            self.executive_controller.apply_reflection(reflection)
+            self._internal_reasoning_state["reflection"] = reflection
+            self._think(
+                "Executive reflection → "
+                f"score={float(reflection.get('success_score', 0.0)):.2f}, "
+                f"relevant={reflection.get('was_relevant', False)}"
+            )
+        except Exception as e:
+            logger.debug(f"[ExecutiveReflection] {e}")
 
     def process_input(self, user_input: str, use_voice: bool = False) -> str:
         """
@@ -3404,6 +3441,7 @@ class ALICE:
             success = False
             self._exec_should_store_memory = True
             self._internal_reasoning_state = {}
+            self._last_exec_gate_eval = {}
 
             # Per-turn quality tracking flags (read by _store_interaction)
             self._last_plugin_called = None
@@ -4326,8 +4364,43 @@ class ALICE:
             intent, entities = self._promote_learning_goal_intent(
                 user_input_processed, intent, entities
             )
-            planned_response = self._use_planner_executor(intent, entities, user_input_processed)
+            planned_response = None
+            try:
+                _pre_conv_state = {}
+                if getattr(self, 'conversation_state_tracker', None):
+                    _pre_conv_state = self.conversation_state_tracker.get_state_summary()
+                _pre_exec_state = self.executive_controller.build_state(
+                    user_input=user_input_processed,
+                    intent=intent,
+                    confidence=float(intent_confidence or 0.0),
+                    entities=entities or {},
+                    conversation_state=_pre_conv_state,
+                )
+                _pre_scores = self.executive_controller.score_decisions(
+                    _pre_exec_state,
+                    is_pure_conversation=False,
+                    has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input_processed)),
+                    has_active_goal=bool(goal_res and goal_res.goal),
+                    force_plugins_for_notes=False,
+                )
+                _plan_allowed = self.executive_controller.should_use_planner(_pre_exec_state, _pre_scores)
+                if _plan_allowed:
+                    planned_response = self._use_planner_executor(intent, entities, user_input_processed)
+                    if planned_response:
+                        self._internal_reasoning_state = {
+                            **_pre_exec_state.as_dict(),
+                            "decision_scores": _pre_scores,
+                            "planner_path": True,
+                        }
+            except Exception:
+                planned_response = self._use_planner_executor(intent, entities, user_input_processed)
             if planned_response:
+                planned_response = self._executive_apply_response_gate(
+                    user_input=user_input,
+                    intent=intent,
+                    response=planned_response,
+                    route="llm",
+                )
                 # Log action for pattern learning
                 action = f"{intent}:{entities.get('topic', entities.get('query', 'general'))}"
                 self._log_action_for_learning(action)
@@ -4335,6 +4408,14 @@ class ALICE:
                 # Store interaction
                 self._store_interaction(user_input, planned_response, intent, entities)
                 self.last_assistant_response = planned_response
+
+                self._run_executive_reflection(
+                    user_input=user_input,
+                    intent=intent,
+                    response=planned_response,
+                    route="llm",
+                    prior_confidence=float(intent_confidence or 0.0),
+                )
                 
                 # Speak if voice enabled
                 if use_voice and self.speech:
@@ -4938,6 +5019,8 @@ class ALICE:
                 return _executive_decision.clarification_question or (
                     "Can you clarify what outcome you want so I can route this correctly?"
                 )
+            if _executive_decision.action == "defer":
+                return "I am not confident enough to answer this safely yet. Can you add one more detail so I can continue?"
             if _executive_decision.action == "ignore":
                 return "I need a bit more context to act on that."
 
@@ -5363,6 +5446,14 @@ class ALICE:
                 
                 # Store interaction in memory
                 self._store_interaction(user_input, response, intent, entities)
+
+                self._run_executive_reflection(
+                    user_input=user_input,
+                    intent=intent,
+                    response=response,
+                    route="tools",
+                    prior_confidence=float(intent_confidence or 0.0),
+                )
                 
                 # Collect training data for plugin responses
                 if getattr(self, 'training_collector', None):
@@ -5639,6 +5730,14 @@ class ALICE:
             
             # 4. Store interaction
             self._store_interaction(user_input, response, intent, entities)
+
+            self._run_executive_reflection(
+                user_input=user_input,
+                intent=intent,
+                response=response,
+                route="llm",
+                prior_confidence=float(intent_confidence if 'intent_confidence' in locals() else 0.0),
+            )
             
             # 4.5. Collect training data - learn from this interaction
             if getattr(self, 'training_collector', None):
