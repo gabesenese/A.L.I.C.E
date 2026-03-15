@@ -337,6 +337,9 @@ class ProcessedQuery:
     parsed_command: Dict[str, Any] = field(default_factory=dict)
     plugin_scores: Dict[str, float] = field(default_factory=dict)
     token_debug: List[Dict[str, Any]] = field(default_factory=list)
+    intent_candidates: List[Dict[str, Any]] = field(default_factory=list)
+    intent_plausibility: float = 1.0
+    plausibility_issues: List[str] = field(default_factory=list)
     validation_score: float = 1.0  # Intent-entity cross-validation (0.0-1.0)
     validation_issues: List[str] = field(default_factory=list)  # Detected mismatches
 
@@ -1827,6 +1830,181 @@ class NLPProcessor:
             trace=trace,
         )
 
+    def _build_top_intent_candidates(
+        self,
+        *,
+        route: Optional[RouteDecision],
+        weighted_candidates: List[Tuple[str, float]],
+        semantic_intent: Optional[Tuple[str, float]],
+        plugin_scores: Dict[str, float],
+        limit: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """Build top-N intent candidates with normalized scores and traceable sources."""
+        aggregate: Dict[str, Dict[str, Any]] = {}
+
+        def _upsert(intent_name: str, score: float, source: str) -> None:
+            if not intent_name:
+                return
+            bounded = max(0.0, min(1.0, float(score or 0.0)))
+            existing = aggregate.get(intent_name)
+            if existing is None or bounded > float(existing.get("score", 0.0)):
+                aggregate[intent_name] = {
+                    "intent": intent_name,
+                    "score": bounded,
+                    "source": source,
+                }
+
+        if route is not None:
+            _upsert(route.intent, route.confidence, "route")
+            calibration = (route.trace or {}).get("calibration", {}) or {}
+            combined = calibration.get("combined") or []
+            for item in combined:
+                if isinstance(item, (tuple, list)) and len(item) == 2:
+                    _upsert(str(item[0]), float(item[1]), "calibration")
+
+        for candidate_intent, candidate_score in weighted_candidates or []:
+            _upsert(candidate_intent, candidate_score, "weighted_parse")
+
+        if semantic_intent and len(semantic_intent) == 2:
+            _upsert(str(semantic_intent[0]), float(semantic_intent[1]), "semantic")
+
+        if plugin_scores:
+            plugin_ranked = sorted(
+                plugin_scores.items(), key=lambda item: item[1], reverse=True
+            )[:2]
+            for plugin_name, plugin_score in plugin_ranked:
+                default_action = self._intent_action_defaults.get(plugin_name)
+                if default_action:
+                    implied_intent = f"{plugin_name}:{default_action}"
+                    implied_score = min(0.9, 0.45 + (float(plugin_score) / 12.0))
+                    _upsert(implied_intent, implied_score, "plugin_prior")
+
+        ranked = sorted(
+            aggregate.values(), key=lambda item: float(item.get("score", 0.0)), reverse=True
+        )[: max(1, int(limit))]
+        for idx, item in enumerate(ranked, start=1):
+            item["rank"] = idx
+            item["score"] = round(float(item["score"]), 4)
+        return ranked
+
+    def _validate_intent_plausibility(
+        self,
+        text: str,
+        intent: str,
+        parsed_command: ParsedCommand,
+        plugin_scores: Dict[str, float],
+    ) -> Tuple[float, List[str]]:
+        """Estimate whether the chosen intent is plausible for the utterance."""
+        text_lower = (text or "").lower()
+        chosen_intent = (intent or "conversation:general").lower()
+        issues: List[str] = []
+        score = 0.62
+
+        def _contains_cue(cue: str) -> bool:
+            cue_text = (cue or "").strip().lower()
+            if not cue_text:
+                return False
+            if " " in cue_text:
+                return cue_text in text_lower
+            return bool(re.search(rf"\b{re.escape(cue_text)}\b", text_lower))
+
+        weather_cues = _P1_WEATHER_KEYWORDS | _P1_FORECAST_WORDS | {"wind", "storm"}
+        conversation_cues = {
+            "brainstorm",
+            "ideas",
+            "idea",
+            "explore",
+            "plan",
+            "strategy",
+            "think",
+            "could we",
+            "how might",
+            "let us",
+            "let's",
+            "discussion",
+        }
+        cue_map = {
+            "notes": {"note", "notes", "memo", "todo", "task"},
+            "email": {"email", "mail", "inbox", "subject", "reply"},
+            "calendar": {"calendar", "event", "meeting", "schedule"},
+            "reminder": {"remind", "reminder", "alert"},
+            "weather": weather_cues,
+            "time": {"time", "clock", "hour", "timezone", "date"},
+            "system": {"cpu", "memory", "disk", "battery", "status", "system"},
+        }
+
+        intent_plugin = chosen_intent.split(":", 1)[0]
+        has_conversation_cue = any(_contains_cue(cue) for cue in conversation_cues)
+
+        if intent_plugin in cue_map:
+            matched = any(_contains_cue(cue) for cue in cue_map[intent_plugin])
+            if matched:
+                score += 0.22
+            else:
+                score -= 0.14
+                issues.append(f"missing_{intent_plugin}_cues")
+
+        if intent_plugin == "weather" and not any(_contains_cue(cue) for cue in weather_cues):
+            score -= 0.28
+            issues.append("weather_without_weather_signals")
+
+        if has_conversation_cue and intent_plugin not in {"conversation", "learning"}:
+            score -= 0.16
+            issues.append("conversational_prompt_vs_action_intent")
+
+        if chosen_intent.startswith("conversation:"):
+            score += 0.10
+
+        if (
+            parsed_command.object_type == "unknown"
+            and not parsed_command.references
+            and intent_plugin in {
+            "notes",
+            "email",
+            "calendar",
+            "reminder",
+            }
+        ):
+            score -= 0.08
+            issues.append("no_object_for_domain_intent")
+
+        if intent_plugin in {"notes", "email", "calendar"} and parsed_command.references:
+            score += 0.18
+            if parsed_command.action in {"read", "show", "open", "list"}:
+                score += 0.08
+
+        if plugin_scores:
+            best_plugin, best_value = max(
+                plugin_scores.items(), key=lambda item: float(item[1])
+            )
+            if best_plugin != intent_plugin and float(best_value) > 1.25:
+                score -= 0.09
+                issues.append("plugin_score_disagrees_with_intent")
+
+        return max(0.0, min(1.0, score)), issues
+
+    def _should_force_unknown_fallback(
+        self,
+        *,
+        intent: str,
+        confidence: float,
+        plausibility: float,
+        uncertainty: Optional[Dict[str, Any]],
+    ) -> bool:
+        """Decide whether to force a safe clarification fallback for unstable intent."""
+        normalized_intent = (intent or "").lower()
+        if normalized_intent.startswith("conversation:"):
+            return False
+        if uncertainty and uncertainty.get("needs_clarification"):
+            return True
+        if confidence < 0.35:
+            return True
+        if confidence < 0.45 and plausibility < 0.60:
+            return True
+        if plausibility < 0.45:
+            return True
+        return False
+
     # -------------------------------------------------------------------------
     # Semantic frame editing for follow-ups (Improvement 2)
     # -------------------------------------------------------------------------
@@ -2487,6 +2665,8 @@ class NLPProcessor:
         # changes (e.g. "it" in "what time is it?" resolved to a note title) don't prevent
         # a known correction from firing.
         route: Optional[RouteDecision] = None  # may be set in the else branch below
+        semantic_intent: Optional[Tuple[str, float]] = None
+        weighted_candidates: List[Tuple[str, float]] = []
         _correction_key = normalized_text.lower()
         _orig_key = text.strip().lower()
         _correction_intent = (
@@ -2608,7 +2788,120 @@ class NLPProcessor:
                     intent = "conversation:clarification_needed"
                     intent_confidence = max(intent_confidence, 0.41)
 
+            intent_candidates = self._build_top_intent_candidates(
+                route=route,
+                weighted_candidates=weighted_candidates,
+                semantic_intent=semantic_intent,
+                plugin_scores=plugin_scores,
+                limit=3,
+            )
+            plausibility_score, plausibility_issues = self._validate_intent_plausibility(
+                normalized_text,
+                intent,
+                parsed_command,
+                plugin_scores,
+            )
+            parsed_command.modifiers["intent_candidates"] = intent_candidates
+            parsed_command.modifiers["intent_plausibility"] = {
+                "score": plausibility_score,
+                "issues": plausibility_issues,
+            }
+
+            if self._should_force_unknown_fallback(
+                intent=intent,
+                confidence=float(intent_confidence or 0.0),
+                plausibility=float(plausibility_score),
+                uncertainty=uncertainty,
+            ):
+                fallback_question = (
+                    "I might be misreading your request. Did you want me to perform an action, "
+                    "or should we continue as a discussion?"
+                )
+                parsed_command.modifiers["disambiguation"] = {
+                    "needs_clarification": True,
+                    "question": fallback_question,
+                    "candidate_plugins": [
+                        c["intent"].split(":", 1)[0]
+                        for c in intent_candidates
+                        if ":" in str(c.get("intent", ""))
+                    ][:3],
+                    "route_confidence": float(intent_confidence or 0.0),
+                    "intent_plausibility": float(plausibility_score),
+                    "fallback_reason": "unknown_intent_fallback",
+                }
+                parsed_command.modifiers["unknown_intent_fallback"] = True
+                intent = "conversation:clarification_needed"
+                intent_confidence = max(0.42, min(0.62, float(intent_confidence or 0.0)))
+            else:
+                parsed_command.modifiers["unknown_intent_fallback"] = False
+
+            if "intent_candidates" not in parsed_command.modifiers:
+                parsed_command.modifiers["intent_candidates"] = intent_candidates
+            if "intent_plausibility" not in parsed_command.modifiers:
+                parsed_command.modifiers["intent_plausibility"] = {
+                    "score": plausibility_score,
+                    "issues": plausibility_issues,
+                }
+
             parsed_command.modifiers["routing_trace"] = route.trace if route is not None else {}
+
+        # Learned-correction path may bypass candidate/plausibility assignment.
+        if "intent_candidates" not in parsed_command.modifiers:
+            parsed_command.modifiers["intent_candidates"] = self._build_top_intent_candidates(
+                route=route,
+                weighted_candidates=weighted_candidates,
+                semantic_intent=semantic_intent,
+                plugin_scores=plugin_scores,
+                limit=3,
+            )
+        if "intent_plausibility" not in parsed_command.modifiers:
+            _plaus_score, _plaus_issues = self._validate_intent_plausibility(
+                normalized_text,
+                intent,
+                parsed_command,
+                plugin_scores,
+            )
+            parsed_command.modifiers["intent_plausibility"] = {
+                "score": _plaus_score,
+                "issues": _plaus_issues,
+            }
+        if "unknown_intent_fallback" not in parsed_command.modifiers:
+            parsed_command.modifiers["unknown_intent_fallback"] = False
+
+        # Global safeguard: even learned/high-confidence routes can be vetoed
+        # when intent plausibility is very weak for the current utterance.
+        _plausibility = float(
+            (parsed_command.modifiers.get("intent_plausibility") or {}).get("score", 1.0)
+        )
+        _uncertainty = parsed_command.modifiers.get("disambiguation")
+        if (
+            not parsed_command.modifiers.get("unknown_intent_fallback", False)
+            and self._should_force_unknown_fallback(
+                intent=intent,
+                confidence=float(intent_confidence or 0.0),
+                plausibility=_plausibility,
+                uncertainty=_uncertainty if isinstance(_uncertainty, dict) else None,
+            )
+        ):
+            _fallback_candidates = parsed_command.modifiers.get("intent_candidates", [])
+            parsed_command.modifiers["disambiguation"] = {
+                "needs_clarification": True,
+                "question": (
+                    "I might be misreading your request. Did you want me to perform an action, "
+                    "or should we continue as a discussion?"
+                ),
+                "candidate_plugins": [
+                    c.get("intent", "").split(":", 1)[0]
+                    for c in _fallback_candidates
+                    if ":" in str(c.get("intent", ""))
+                ][:3],
+                "route_confidence": float(intent_confidence or 0.0),
+                "intent_plausibility": _plausibility,
+                "fallback_reason": "unknown_intent_fallback_global",
+            }
+            parsed_command.modifiers["unknown_intent_fallback"] = True
+            intent = "conversation:clarification_needed"
+            intent_confidence = max(0.42, min(0.62, float(intent_confidence or 0.0)))
 
         # Fingerprint prior: if we have a cached high-confidence parse, use it as a boost
         if (
@@ -2803,6 +3096,58 @@ class NLPProcessor:
                         "[COMPOUND] Secondary intents: %s", _secondary_intents
                     )
 
+        # Final safety pass: late frame/semantic overrides can change intent after
+        # early fallback checks, so enforce clarification fallback one more time.
+        _final_plausibility, _final_issues = self._validate_intent_plausibility(
+            normalized_text,
+            intent,
+            parsed_command,
+            plugin_scores,
+        )
+        parsed_command.modifiers["intent_plausibility"] = {
+            "score": _final_plausibility,
+            "issues": _final_issues,
+        }
+        _strong_action_frame = bool(
+            frame_result is not None
+            and frame_result.confidence >= 0.82
+            and str(getattr(frame_result, "plugin", "")).lower()
+            in {"notes", "email", "calendar", "reminder", "file_operations"}
+        )
+
+        if (not _strong_action_frame) and self._should_force_unknown_fallback(
+            intent=intent,
+            confidence=float(intent_confidence or 0.0),
+            plausibility=float(_final_plausibility),
+            uncertainty=(
+                parsed_command.modifiers.get("disambiguation")
+                if isinstance(parsed_command.modifiers.get("disambiguation"), dict)
+                else None
+            ),
+        ):
+            parsed_command.modifiers["unknown_intent_fallback"] = True
+            parsed_command.modifiers["disambiguation"] = {
+                "needs_clarification": True,
+                "question": (
+                    "I might be misreading your request. Did you want me to perform an action, "
+                    "or should we continue as a discussion?"
+                ),
+                "candidate_plugins": [
+                    c.get("intent", "").split(":", 1)[0]
+                    for c in parsed_command.modifiers.get("intent_candidates", [])
+                    if ":" in str(c.get("intent", ""))
+                ][:3],
+                "route_confidence": float(intent_confidence or 0.0),
+                "intent_plausibility": float(_final_plausibility),
+                "fallback_reason": "unknown_intent_fallback_final",
+            }
+            intent = "conversation:clarification_needed"
+            intent_confidence = max(0.42, min(0.62, float(intent_confidence or 0.0)))
+        else:
+            parsed_command.modifiers["unknown_intent_fallback"] = bool(
+                parsed_command.modifiers.get("unknown_intent_fallback", False)
+            )
+
         # Continue with rest of processing
 
         # Step 3: Entity extraction
@@ -2929,6 +3274,17 @@ class NLPProcessor:
             parsed_command=parsed_command.__dict__,
             plugin_scores=plugin_scores,
             token_debug=[token.__dict__ for token in rich_tokens],
+            intent_candidates=parsed_command.modifiers.get("intent_candidates", []),
+            intent_plausibility=float(
+                (parsed_command.modifiers.get("intent_plausibility") or {}).get(
+                    "score", 1.0
+                )
+            ),
+            plausibility_issues=list(
+                (parsed_command.modifiers.get("intent_plausibility") or {}).get(
+                    "issues", []
+                )
+            ),
             validation_score=validation_score,
             validation_issues=validation_issues,
         )

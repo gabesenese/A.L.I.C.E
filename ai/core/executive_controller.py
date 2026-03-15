@@ -35,7 +35,9 @@ class ReasoningState:
 
 @dataclass
 class ExecutiveDecision:
-    action: str  # use_plugin | use_llm | ask_clarification | ignore | answer_direct | defer
+    action: (
+        str  # use_plugin | use_llm | ask_clarification | ignore | answer_direct | defer
+    )
     reason: str
     store_memory: bool = True
     clarification_question: str = ""
@@ -81,16 +83,20 @@ class ExecutiveController:
         conversation_state = conversation_state or {}
 
         topic = str(
-            entities.get("topic")
-            or conversation_state.get("conversation_topic")
-            or ""
+            entities.get("topic") or conversation_state.get("conversation_topic") or ""
         ).strip()
 
-        conversation_goal = str(conversation_state.get("conversation_goal") or "").strip()
-        user_goal = str(conversation_state.get("user_goal") or entities.get("goal") or "").strip()
+        conversation_goal = str(
+            conversation_state.get("conversation_goal") or ""
+        ).strip()
+        user_goal = str(
+            conversation_state.get("user_goal") or entities.get("goal") or ""
+        ).strip()
         depth_level = int(conversation_state.get("depth_level") or 0)
 
-        plan = self._derive_plan(intent=intent, topic=topic, depth_level=depth_level, user_input=user_input)
+        plan = self._derive_plan(
+            intent=intent, topic=topic, depth_level=depth_level, user_input=user_input
+        )
 
         return ReasoningState(
             user_intent=intent or "unknown",
@@ -162,13 +168,81 @@ class ExecutiveController:
                 store_memory=False,
             )
         if winner in ("tools", "search"):
-            return ExecutiveDecision(action="use_plugin", reason=f"score_{winner}", store_memory=True)
+            return ExecutiveDecision(
+                action="use_plugin", reason=f"score_{winner}", store_memory=True
+            )
         if winner == "memory":
-            return ExecutiveDecision(action="use_llm", reason="score_memory", store_memory=True)
+            return ExecutiveDecision(
+                action="use_llm", reason="score_memory", store_memory=True
+            )
 
-        return ExecutiveDecision(action="use_llm", reason="score_llm", store_memory=True)
+        return ExecutiveDecision(
+            action="use_llm", reason="score_llm", store_memory=True
+        )
 
-    def should_use_planner(self, state: ReasoningState, scores: Dict[str, float]) -> bool:
+    def should_veto_tool_execution(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        confidence: float,
+        intent_plausibility: float,
+        intent_candidates: List[Dict[str, Any]] | None,
+    ) -> Dict[str, Any]:
+        """Final guard before plugin execution to prevent high-cost misroutes."""
+        normalized_intent = (intent or "").lower().strip()
+        conf = max(0.0, min(1.0, float(confidence or 0.0)))
+        plausibility = max(0.0, min(1.0, float(intent_plausibility or 0.0)))
+        candidates = intent_candidates or []
+        text_lower = (user_input or "").lower()
+
+        if normalized_intent.startswith("conversation:"):
+            return {"veto": False, "reason": "conversation_intent"}
+
+        conversational_cues = (
+            "brainstorm",
+            "idea",
+            "explore",
+            "how might",
+            "could we",
+            "strategy",
+        )
+        if any(cue in text_lower for cue in conversational_cues) and not normalized_intent.startswith("conversation:"):
+            return {
+                "veto": True,
+                "reason": "conversational_input_not_actionable",
+                "question": "This sounds like discussion mode. Do you want brainstorming help or a concrete tool action?",
+            }
+
+        if plausibility < 0.46:
+            return {
+                "veto": True,
+                "reason": "low_intent_plausibility",
+                "question": "I am not confident this intent is correct. Can you clarify the action you want?",
+            }
+
+        if conf < 0.42 and plausibility < 0.62:
+            return {
+                "veto": True,
+                "reason": "low_confidence_and_plausibility",
+                "question": "I need one more detail before triggering a tool. What exact outcome do you want?",
+            }
+
+        if candidates and len(candidates) > 1:
+            top = float(candidates[0].get("score", 0.0))
+            second = float(candidates[1].get("score", 0.0))
+            if (top - second) < 0.08 and conf < 0.70:
+                return {
+                    "veto": True,
+                    "reason": "ambiguous_top_intents",
+                    "question": "I see multiple possible intents. Should I execute a tool command or keep this conversational?",
+                }
+
+        return {"veto": False, "reason": "allowed"}
+
+    def should_use_planner(
+        self, state: ReasoningState, scores: Dict[str, float]
+    ) -> bool:
         """Executive authority for when planning is required before response."""
         intent = (state.user_intent or "").lower()
         if intent.startswith("learning:") or intent.startswith("question:"):
@@ -179,7 +253,9 @@ class ExecutiveController:
             return True
         return False
 
-    def uncertainty_behavior(self, state: ReasoningState, scores: Dict[str, float]) -> str:
+    def uncertainty_behavior(
+        self, state: ReasoningState, scores: Dict[str, float]
+    ) -> str:
         """Return proceed | clarify | defer | reject based on confidence and score ambiguity."""
         conf = max(0.0, min(1.0, float(state.confidence)))
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
@@ -266,6 +342,7 @@ class ExecutiveController:
         """Persist routing weights to disk as JSON."""
         import json
         import os
+
         try:
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
@@ -279,6 +356,7 @@ class ExecutiveController:
         Applies a small decay toward 1.0 so stale biases fade after a restart.
         """
         import json
+
         try:
             with open(path, "r", encoding="utf-8") as f:
                 stored = json.load(f)
@@ -319,7 +397,9 @@ class ExecutiveController:
         resp_tokens = set(self._tokens(resp))
         overlap = 0.0
         if user_tokens:
-            overlap = len(user_tokens.intersection(resp_tokens)) / max(len(user_tokens), 1)
+            overlap = len(user_tokens.intersection(resp_tokens)) / max(
+                len(user_tokens), 1
+            )
 
         uncertain_markers = (
             "i'm not sure",
@@ -329,7 +409,9 @@ class ExecutiveController:
             "i don't know",
             "not certain",
         )
-        uncertain_penalty = 0.35 if any(m in resp.lower() for m in uncertain_markers) else 0.0
+        uncertain_penalty = (
+            0.35 if any(m in resp.lower() for m in uncertain_markers) else 0.0
+        )
 
         generic_markers = (
             "it depends",
@@ -337,21 +419,34 @@ class ExecutiveController:
             "there are many factors",
             "cannot be determined",
         )
-        generic_penalty = 0.20 if any(m in resp.lower() for m in generic_markers) else 0.0
+        generic_penalty = (
+            0.20 if any(m in resp.lower() for m in generic_markers) else 0.0
+        )
 
-        score = max(0.0, min(1.0, 0.55 + (0.55 * overlap) - uncertain_penalty - generic_penalty))
+        score = max(
+            0.0, min(1.0, 0.55 + (0.55 * overlap) - uncertain_penalty - generic_penalty)
+        )
         plan_adherence = self._response_plan_adherence(resp, context)
         goal_alignment = float((context or {}).get("goal_alignment", 1.0) or 1.0)
         goal_alignment = max(0.0, min(1.0, goal_alignment))
         plan = (context or {}).get("response_plan", {}) or {}
-        required_sections = plan.get("required_sections", []) if isinstance(plan, dict) else []
-        format_hint = str(plan.get("format_hint", "")).lower() if isinstance(plan, dict) else ""
+        required_sections = (
+            plan.get("required_sections", []) if isinstance(plan, dict) else []
+        )
+        format_hint = (
+            str(plan.get("format_hint", "")).lower() if isinstance(plan, dict) else ""
+        )
         _needs_steps = (
             ("steps" in required_sections)
             or ("numbered" in format_hint)
-            or (str(plan.get("response_type", "")).lower() in ("instruction", "troubleshooting"))
+            or (
+                str(plan.get("response_type", "")).lower()
+                in ("instruction", "troubleshooting")
+            )
         )
-        _has_steps = any(f"{i}." in resp.lower() for i in range(1, 6)) or ("step" in resp.lower())
+        _has_steps = any(f"{i}." in resp.lower() for i in range(1, 6)) or (
+            "step" in resp.lower()
+        )
         if _needs_steps and not _has_steps:
             return {
                 "accepted": False,
@@ -373,15 +468,23 @@ class ExecutiveController:
             return {
                 "accepted": True,
                 "score": score,
-                "reason": "accepted" if plan_adherence >= 0.60 else "accepted_low_plan_adherence",
+                "reason": (
+                    "accepted"
+                    if plan_adherence >= 0.60
+                    else "accepted_low_plan_adherence"
+                ),
                 "fallback_action": "",
             }
 
-        fallback_action = "clarify" if (overlap < 0.2 or plan_adherence < 0.45) else "safe_reply"
+        fallback_action = (
+            "clarify" if (overlap < 0.2 or plan_adherence < 0.45) else "safe_reply"
+        )
         return {
             "accepted": False,
             "score": score,
-            "reason": "low_alignment" if goal_alignment >= 0.35 else "goal_misalignment",
+            "reason": (
+                "low_alignment" if goal_alignment >= 0.35 else "goal_misalignment"
+            ),
             "fallback_action": fallback_action,
         }
 
@@ -410,7 +513,11 @@ class ExecutiveController:
             "fix": ("fix", "solution", "change", "update"),
             "plan": ("plan", "phase", "milestone"),
             "risks": ("risk", "trade-off", "constraint"),
-            "check_understanding": ("does that make sense", "want me to", "would you like"),
+            "check_understanding": (
+                "does that make sense",
+                "want me to",
+                "would you like",
+            ),
         }
 
         for sec in required_sections:
@@ -491,12 +598,20 @@ class ExecutiveController:
             lines.append(f"- plan: {' | '.join(state.plan)}")
         return "\n".join(lines)
 
-    def _derive_plan(self, intent: str, topic: str, depth_level: int, user_input: str) -> List[str]:
+    def _derive_plan(
+        self, intent: str, topic: str, depth_level: int, user_input: str
+    ) -> List[str]:
         lowered_intent = (intent or "").lower()
         lowered_input = (user_input or "").lower()
 
-        if lowered_intent.startswith("learning:") or lowered_intent.startswith("question:"):
-            if depth_level >= 3 or "example" in lowered_input or "code" in lowered_input:
+        if lowered_intent.startswith("learning:") or lowered_intent.startswith(
+            "question:"
+        ):
+            if (
+                depth_level >= 3
+                or "example" in lowered_input
+                or "code" in lowered_input
+            ):
                 return [
                     "explain succinctly",
                     "give concrete example",

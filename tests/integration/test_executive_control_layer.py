@@ -196,3 +196,36 @@ def test_uncertainty_behavior_can_defer() -> None:
 
     outcome = controller.uncertainty_behavior(state, scores)
     assert outcome in ("defer", "clarify", "reject")
+
+
+def test_tool_veto_blocks_low_plausibility_route() -> None:
+    controller = ExecutiveController()
+    veto = controller.should_veto_tool_execution(
+        user_input="let us brainstorm options",
+        intent="weather:current",
+        confidence=0.71,
+        intent_plausibility=0.31,
+        intent_candidates=[
+            {"intent": "weather:current", "score": 0.63},
+            {"intent": "conversation:general", "score": 0.58},
+        ],
+    )
+
+    assert veto["veto"] is True
+    assert "question" in veto
+
+
+def test_tool_veto_allows_high_plausibility_action_route() -> None:
+    controller = ExecutiveController()
+    veto = controller.should_veto_tool_execution(
+        user_input="delete my groceries note",
+        intent="notes:delete",
+        confidence=0.84,
+        intent_plausibility=0.88,
+        intent_candidates=[
+            {"intent": "notes:delete", "score": 0.89},
+            {"intent": "notes:list", "score": 0.36},
+        ],
+    )
+
+    assert veto["veto"] is False

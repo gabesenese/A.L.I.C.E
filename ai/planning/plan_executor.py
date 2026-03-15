@@ -372,7 +372,9 @@ class PlanExecutor:
         topic = (params.get("topic") or "this topic").strip()
         return f"Quick check: In your own words, how would you explain {topic} to a friend?"
 
-    def _execute_response_deeper_material(self, action: str, params: Dict[str, Any]) -> str:
+    def _execute_response_deeper_material(
+        self, action: str, params: Dict[str, Any]
+    ) -> str:
         """Return next-step study guidance and assemble a final planned response."""
         topic = (params.get("topic") or "this topic").strip()
         return (

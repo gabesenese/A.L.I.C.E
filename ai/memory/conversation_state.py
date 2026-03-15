@@ -48,7 +48,9 @@ class ConversationStateTracker:
         previous_topic = self._state.conversation_topic
 
         inferred_topic = self._infer_topic(user_input, entities, previous_topic)
-        topic_changed = bool(inferred_topic and previous_topic and inferred_topic != previous_topic)
+        topic_changed = bool(
+            inferred_topic and previous_topic and inferred_topic != previous_topic
+        )
         if inferred_topic:
             self._state.conversation_topic = inferred_topic
 
@@ -82,9 +84,14 @@ class ConversationStateTracker:
         if question_like:
             normalized_question = " ".join((user_input or "").strip().split())
             if normalized_question:
-                if not self._state.question_chain or self._state.question_chain[-1] != normalized_question:
+                if (
+                    not self._state.question_chain
+                    or self._state.question_chain[-1] != normalized_question
+                ):
                     self._state.question_chain.append(normalized_question)
-                    self._state.question_chain = self._state.question_chain[-self.max_chain :]
+                    self._state.question_chain = self._state.question_chain[
+                        -self.max_chain :
+                    ]
 
         if intent:
             self._state.intent_chain.append(intent)
@@ -99,7 +106,10 @@ class ConversationStateTracker:
         inferred_user_goal = self._infer_user_goal(user_input, entities, goal_hint)
         if inferred_user_goal:
             self._state.user_goal = inferred_user_goal
-        elif self._state.conversation_goal == "learning" and self._state.conversation_topic:
+        elif (
+            self._state.conversation_goal == "learning"
+            and self._state.conversation_topic
+        ):
             self._state.user_goal = f"understand {self._state.conversation_topic}"
 
         self._state.last_updated = datetime.now().isoformat()
@@ -128,8 +138,12 @@ class ConversationStateTracker:
         ):
             return ""
 
-        intent_chain = " -> ".join(state["intent_chain"][-4:]) if state["intent_chain"] else ""
-        question_chain = " -> ".join(state["question_chain"][-4:]) if state["question_chain"] else ""
+        intent_chain = (
+            " -> ".join(state["intent_chain"][-4:]) if state["intent_chain"] else ""
+        )
+        question_chain = (
+            " -> ".join(state["question_chain"][-4:]) if state["question_chain"] else ""
+        )
 
         lines = ["Conversation state:"]
         if state["conversation_topic"]:
@@ -144,7 +158,9 @@ class ConversationStateTracker:
             lines.append(f"- intent_chain: {intent_chain}")
         if question_chain:
             lines.append(f"- question_chain: {question_chain}")
-        lines.append("Treat follow-up questions as part of this same chain unless the topic clearly changes.")
+        lines.append(
+            "Treat follow-up questions as part of this same chain unless the topic clearly changes."
+        )
         return "\n".join(lines)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -158,8 +174,12 @@ class ConversationStateTracker:
             conversation_goal=str(data.get("conversation_goal", "") or ""),
             user_goal=str(data.get("user_goal", "") or ""),
             depth_level=int(data.get("depth_level", 0) or 0),
-            question_chain=[str(x) for x in data.get("question_chain", [])[-self.max_chain :]],
-            intent_chain=[str(x) for x in data.get("intent_chain", [])[-self.max_chain :]],
+            question_chain=[
+                str(x) for x in data.get("question_chain", [])[-self.max_chain :]
+            ],
+            intent_chain=[
+                str(x) for x in data.get("intent_chain", [])[-self.max_chain :]
+            ],
             last_updated=str(data.get("last_updated", "") or ""),
         )
 
@@ -176,10 +196,14 @@ class ConversationStateTracker:
         new_tokens = set(re.findall(r"[a-z0-9']+", new_topic.lower()))
         if not anchor_tokens:
             return False
-        overlap = len(anchor_tokens.intersection(new_tokens)) / max(len(anchor_tokens), 1)
+        overlap = len(anchor_tokens.intersection(new_tokens)) / max(
+            len(anchor_tokens), 1
+        )
         return overlap >= 0.30
 
-    def _infer_topic(self, user_input: str, entities: Dict[str, Any], previous_topic: str) -> str:
+    def _infer_topic(
+        self, user_input: str, entities: Dict[str, Any], previous_topic: str
+    ) -> str:
         for key in ("topic", "subject", "concept"):
             value = entities.get(key)
             if isinstance(value, str) and value.strip():
@@ -208,7 +232,9 @@ class ConversationStateTracker:
     def _clean_topic(self, raw: str) -> str:
         text = (raw or "").strip().strip(" .?!")
         # Trim common trailing qualifiers to keep the core concept.
-        text = re.sub(r"\b(?:please|for me|for us)$", "", text, flags=re.IGNORECASE).strip()
+        text = re.sub(
+            r"\b(?:please|for me|for us)$", "", text, flags=re.IGNORECASE
+        ).strip()
         return text[:80]
 
     def _is_question_like(self, user_input: str, intent: str) -> bool:
@@ -221,13 +247,25 @@ class ConversationStateTracker:
             "study_topic",
         }:
             return True
-        return bool(re.match(r"^(what|why|how|can|could|would|should|is|are|do|does|did)\b", text))
+        return bool(
+            re.match(
+                r"^(what|why|how|can|could|would|should|is|are|do|does|did)\b", text
+            )
+        )
 
     def _is_followup_question(self, user_input: str) -> bool:
         text = (user_input or "").strip().lower()
         if not text:
             return False
-        followup_starts = ("why", "how", "can", "could", "show", "example", "what about")
+        followup_starts = (
+            "why",
+            "how",
+            "can",
+            "could",
+            "show",
+            "example",
+            "what about",
+        )
         return text.startswith(followup_starts)
 
     def _depth_increment(self, user_input: str) -> int:
@@ -243,7 +281,9 @@ class ConversationStateTracker:
         lowered_intent = (intent or "").lower()
         lowered_input = (user_input or "").lower()
 
-        if lowered_intent.startswith("learning:") or lowered_intent.startswith("question:"):
+        if lowered_intent.startswith("learning:") or lowered_intent.startswith(
+            "question:"
+        ):
             return "learning"
         if lowered_intent in {"conversation:question", "study_topic"}:
             return "learning"
@@ -257,7 +297,9 @@ class ConversationStateTracker:
             return "learning"
         return "general_assistance"
 
-    def _infer_user_goal(self, user_input: str, entities: Dict[str, Any], goal_hint: str) -> str:
+    def _infer_user_goal(
+        self, user_input: str, entities: Dict[str, Any], goal_hint: str
+    ) -> str:
         if goal_hint:
             return str(goal_hint).strip()[:120]
 
@@ -283,9 +325,13 @@ class ConversationStateTracker:
 _tracker_instance: Optional[ConversationStateTracker] = None
 
 
-def get_conversation_state_tracker(max_chain: int = 8, max_depth: int = 5) -> ConversationStateTracker:
+def get_conversation_state_tracker(
+    max_chain: int = 8, max_depth: int = 5
+) -> ConversationStateTracker:
     """Get or create a process-wide conversation state tracker."""
     global _tracker_instance
     if _tracker_instance is None:
-        _tracker_instance = ConversationStateTracker(max_chain=max_chain, max_depth=max_depth)
+        _tracker_instance = ConversationStateTracker(
+            max_chain=max_chain, max_depth=max_depth
+        )
     return _tracker_instance

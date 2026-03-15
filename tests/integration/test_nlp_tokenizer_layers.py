@@ -65,3 +65,16 @@ class TestLayeredTokenizer:
         disambiguation = modifiers.get("disambiguation", {})
         assert isinstance(disambiguation, dict)
         assert disambiguation.get("needs_clarification") is True
+
+    def test_process_exposes_top_three_intent_candidates(self):
+        result = self.nlp.process("show my latest emails")
+        assert isinstance(result.intent_candidates, list)
+        assert 1 <= len(result.intent_candidates) <= 3
+        assert all("intent" in item and "score" in item for item in result.intent_candidates)
+
+    def test_weather_misroute_gets_unknown_fallback(self):
+        result = self.nlp.process("can we brainstorm a plan for my week")
+        assert result.intent == "conversation:clarification_needed"
+        assert result.intent_plausibility < 0.75
+        modifiers = result.parsed_command.get("modifiers", {})
+        assert modifiers.get("unknown_intent_fallback") is True

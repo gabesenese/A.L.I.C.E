@@ -22,13 +22,14 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Deque, Dict, Optional
 
-
 FAILURE_NONE = "none"
 FAILURE_INTENT_MISMATCH = "intent_mismatch"
 FAILURE_TOPIC_DRIFT = "topic_drift"
 FAILURE_ROUTING_MISTAKE = "routing_mistake"
 FAILURE_WEAK_KNOWLEDGE = "weak_knowledge"
 FAILURE_OVERGENERALIZATION = "overgeneralization"
+FAILURE_ASSUMPTION_WITHOUT_EVIDENCE = "assumption_without_evidence"
+FAILURE_REDUNDANT_SUGGESTION = "redundant_suggestion"
 
 ALL_FAILURE_TYPES = (
     FAILURE_NONE,
@@ -37,21 +38,25 @@ ALL_FAILURE_TYPES = (
     FAILURE_ROUTING_MISTAKE,
     FAILURE_WEAK_KNOWLEDGE,
     FAILURE_OVERGENERALIZATION,
+    FAILURE_ASSUMPTION_WITHOUT_EVIDENCE,
+    FAILURE_REDUNDANT_SUGGESTION,
 )
 
 
 @dataclass
 class TurnQuality:
-    relevance: float      # token overlap between input and response (0..1)
+    relevance: float  # token overlap between input and response (0..1)
     topic_adherence: float  # continuity with active topic/goal (0..1)
-    coherence: float      # unique-word ratio in response (0..1)
-    verbosity: float      # 0=too short, 0.5=ideal, 1=too long
-    alignment: float      # goal alignment score (0..1)
-    failure_type: str     # one of ALL_FAILURE_TYPES
+    coherence: float  # unique-word ratio in response (0..1)
+    verbosity: float  # 0=too short, 0.5=ideal, 1=too long
+    alignment: float  # goal alignment score (0..1)
+    failure_type: str  # one of ALL_FAILURE_TYPES
     gate_accepted: bool
 
     def as_dict(self) -> Dict[str, Any]:
-        adherence = max(0.0, min(1.0, (0.55 * self.topic_adherence) + (0.45 * self.alignment)))
+        adherence = max(
+            0.0, min(1.0, (0.55 * self.topic_adherence) + (0.45 * self.alignment))
+        )
         return {
             "relevance": round(self.relevance, 3),
             "topic_adherence": round(self.topic_adherence, 3),
@@ -72,21 +77,91 @@ class ResponseQualityTracker:
     statistics useful for diagnostics and adaptive control.
     """
 
-    _GENERIC_MARKERS = frozenset((
-        "it depends", "in general", "there are many factors",
-        "various factors", "cannot be determined",
-        "as an ai", "i don't have", "i cannot",
-    ))
-    _UNCERTAIN_MARKERS = frozenset((
-        "i'm not sure", "i am not sure", "maybe",
-        "possibly", "i don't know", "not certain",
-    ))
+    _GENERIC_MARKERS = frozenset(
+        (
+            "it depends",
+            "in general",
+            "there are many factors",
+            "various factors",
+            "cannot be determined",
+            "as an ai",
+            "i don't have",
+            "i cannot",
+        )
+    )
+    _UNCERTAIN_MARKERS = frozenset(
+        (
+            "i'm not sure",
+            "i am not sure",
+            "maybe",
+            "possibly",
+            "i don't know",
+            "not certain",
+        )
+    )
+
+    # Signals that the user is issuing a correction or pointing out something already exists
+    _CORRECTION_SIGNALS = frozenset(
+        (
+            "actually",
+            "that's wrong",
+            "already exists",
+            "already have",
+            "already has",
+            "you already",
+            "that already",
+            "not correct",
+            "incorrect",
+            "already implemented",
+            "already includes",
+            "it exists",
+            "already done",
+            "already built",
+        )
+    )
+    # Signals that the user confirms a feature is already present
+    _EXISTS_SIGNALS = frozenset(
+        (
+            "already exists",
+            "already have",
+            "already has",
+            "already implemented",
+            "already includes",
+            "already added",
+            "already there",
+            "it already",
+            "that's already",
+            "already built",
+        )
+    )
+    # Matches questions that presuppose prior suggestions had merit
+    _PRESUPPOSITION_RE = re.compile(
+        r"what\s+(?:still|else|other)\s+(?:aspects?|parts?|things?|areas?)"
+        r"|which\s+(?:aspect|part|element)\s+would"
+        r"|what\s+(?:aspects?|parts?)\s+(?:would|should|could)"
+        r"|what\s+would\s+you\s+like\s+(?:me\s+)?to\s+(?:address|fix|improve|refine|focus)",
+        re.IGNORECASE,
+    )
+    # Matches suggestion-to-add/implement patterns
+    _SUGGESTION_RE = re.compile(
+        r"(?:should|could|recommend(?:ed)?|suggest(?:ed)?|consider)\s+"
+        r"(?:add(?:ing)?|implement(?:ing)?|includ(?:e|ing)|integrat(?:e|ing))",
+        re.IGNORECASE,
+    )
 
     # Tool-oriented intent domains that should NOT produce long prose replies
-    _TOOL_DOMAINS = frozenset((
-        "notes", "email", "calendar", "file_operations",
-        "reminder", "system", "weather", "time",
-    ))
+    _TOOL_DOMAINS = frozenset(
+        (
+            "notes",
+            "email",
+            "calendar",
+            "file_operations",
+            "reminder",
+            "system",
+            "weather",
+            "time",
+        )
+    )
 
     def __init__(self, window: int = 20) -> None:
         self._window = max(5, int(window))
@@ -109,7 +184,9 @@ class ResponseQualityTracker:
     ) -> TurnQuality:
         """Record quality metrics for a completed turn and return them."""
         relevance = self._relevance(user_input, response)
-        topic_adherence = self._topic_adherence(topic_hint=topic_hint, response=response, relevance=relevance)
+        topic_adherence = self._topic_adherence(
+            topic_hint=topic_hint, response=response, relevance=relevance
+        )
         coherence = self._coherence(response)
         verbosity = self._verbosity(response)
         failure = self.classify_failure(
@@ -176,6 +253,17 @@ class ResponseQualityTracker:
         if intent_domain and intent_domain not in resp_low and not gate_accepted:
             return FAILURE_INTENT_MISMATCH
 
+        # Assumption without evidence: response presupposes prior suggestions had merit
+        # while the user's input contains a correction or existence signal
+        if any(s in inp_low for s in self._CORRECTION_SIGNALS):
+            if self._PRESUPPOSITION_RE.search(resp_low):
+                return FAILURE_ASSUMPTION_WITHOUT_EVIDENCE
+
+        # Redundant suggestion: recommending to add something the user confirmed exists
+        if any(s in inp_low for s in self._EXISTS_SIGNALS):
+            if self._SUGGESTION_RE.search(resp_low):
+                return FAILURE_REDUNDANT_SUGGESTION
+
         return FAILURE_NONE
 
     def get_quality_summary(self) -> Dict[str, Any]:
@@ -194,7 +282,13 @@ class ResponseQualityTracker:
         n = len(self._history)
         rel_avg = sum(t.relevance for t in self._history) / n
         topic_avg = sum(t.topic_adherence for t in self._history) / n
-        adherence_avg = sum(((0.55 * t.topic_adherence) + (0.45 * t.alignment)) for t in self._history) / n
+        adherence_avg = (
+            sum(
+                ((0.55 * t.topic_adherence) + (0.45 * t.alignment))
+                for t in self._history
+            )
+            / n
+        )
         coh_avg = sum(t.coherence for t in self._history) / n
         aln_avg = sum(t.alignment for t in self._history) / n
         gate_rate = sum(1 for t in self._history if t.gate_accepted) / n
@@ -234,7 +328,9 @@ class ResponseQualityTracker:
             return 0.0
         return min(1.0, len(set(words)) / max(len(words), 1))
 
-    def _topic_adherence(self, *, topic_hint: str, response: str, relevance: float) -> float:
+    def _topic_adherence(
+        self, *, topic_hint: str, response: str, relevance: float
+    ) -> float:
         """
         Topic adherence uses both direct user overlap and active topic overlap.
         If no topic hint is available, falls back to relevance.
@@ -246,7 +342,9 @@ class ResponseQualityTracker:
         resp_tokens = set(re.findall(r"[a-z0-9']+", (response or "").lower()))
         if not topic_tokens:
             return relevance
-        topic_overlap = len(topic_tokens.intersection(resp_tokens)) / max(len(topic_tokens), 1)
+        topic_overlap = len(topic_tokens.intersection(resp_tokens)) / max(
+            len(topic_tokens), 1
+        )
         return max(0.0, min(1.0, (0.55 * relevance) + (0.45 * topic_overlap)))
 
     def _verbosity(self, response: str) -> float:

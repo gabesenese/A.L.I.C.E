@@ -347,7 +347,11 @@ class KnowledgeEngine:
         if entities:
             response_lower = response.lower()
             for val in entities.values():
-                if isinstance(val, str) and val.strip() and val.lower() in response_lower:
+                if (
+                    isinstance(val, str)
+                    and val.strip()
+                    and val.lower() in response_lower
+                ):
                     entity_boost = 0.2
                     break
 

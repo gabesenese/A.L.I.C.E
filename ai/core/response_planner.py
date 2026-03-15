@@ -14,7 +14,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-
 RESPONSE_TYPES = (
     "factual",
     "explanation",
@@ -38,8 +37,8 @@ RESPONSE_STRATEGIES = (
 
 @dataclass
 class ResponsePlan:
-    response_type: str   # one of RESPONSE_TYPES
-    strategy: str        # one of RESPONSE_STRATEGIES
+    response_type: str  # one of RESPONSE_TYPES
+    strategy: str  # one of RESPONSE_STRATEGIES
     outline: List[str] = field(default_factory=list)
     constraints: List[str] = field(default_factory=list)
     required_sections: List[str] = field(default_factory=list)
@@ -91,26 +90,65 @@ class ResponsePlanner:
     4. What CONSTRAINTS apply (goal alignment, format, no tangents)
     """
 
-    _QUESTION_WORDS = frozenset((
-        "what", "why", "how", "when", "where", "who", "which",
-        "explain", "describe", "tell me",
-    ))
-    _DEBUG_WORDS = frozenset((
-        "bug", "error", "exception", "crash", "fail", "broken",
-        "not working", "debug", "fix", "issue", "traceback",
-    ))
+    _QUESTION_WORDS = frozenset(
+        (
+            "what",
+            "why",
+            "how",
+            "when",
+            "where",
+            "who",
+            "which",
+            "explain",
+            "describe",
+            "tell me",
+        )
+    )
+    _DEBUG_WORDS = frozenset(
+        (
+            "bug",
+            "error",
+            "exception",
+            "crash",
+            "fail",
+            "broken",
+            "not working",
+            "debug",
+            "fix",
+            "issue",
+            "traceback",
+        )
+    )
     _INSTRUCTION_WORDS = (
-        "how to", "steps to", "guide", "tutorial",
-        "walk me through", "show me how", "instructions",
+        "how to",
+        "steps to",
+        "guide",
+        "tutorial",
+        "walk me through",
+        "show me how",
+        "instructions",
         "step by step",
     )
-    _PLAN_WORDS = frozenset((
-        "plan", "strategy", "approach", "roadmap",
-        "design", "architect", "structure", "organize",
-    ))
+    _PLAN_WORDS = frozenset(
+        (
+            "plan",
+            "strategy",
+            "approach",
+            "roadmap",
+            "design",
+            "architect",
+            "structure",
+            "organize",
+        )
+    )
     _TROUBLE_WORDS = (
-        "troubleshoot", "not working", "wrong", "incorrect",
-        "resolve", "solve", "problem with",
+        "troubleshoot",
+        "not working",
+        "wrong",
+        "incorrect",
+        "resolve",
+        "solve",
+        "problem with",
     )
 
     def plan(
@@ -172,7 +210,9 @@ class ResponsePlanner:
             return "conversational"
 
         # Explanation-level questions
-        if intent_low.startswith("learning:") or any(w in low_input for w in self._QUESTION_WORDS):
+        if intent_low.startswith("learning:") or any(
+            w in low_input for w in self._QUESTION_WORDS
+        ):
             return "explanation"
 
         # Direct factual question
@@ -192,7 +232,11 @@ class ResponsePlanner:
             or conversation_state.get("depth_level")
             or 0
         )
-        goal = str(reasoning_state.get("user_goal") or conversation_state.get("user_goal") or "")
+        goal = str(
+            reasoning_state.get("user_goal")
+            or conversation_state.get("user_goal")
+            or ""
+        )
         conv_goal = str(
             reasoning_state.get("conversation_goal")
             or conversation_state.get("conversation_goal")
@@ -201,11 +245,20 @@ class ResponsePlanner:
         conf = float(reasoning_state.get("confidence") or 0.0)
 
         # Conversational and action-oriented types are always direct
-        if resp_type in ("conversational", "debugging", "troubleshooting", "instruction"):
+        if resp_type in (
+            "conversational",
+            "debugging",
+            "troubleshooting",
+            "instruction",
+        ):
             return "answer_directly"
 
         # Learning context → teach progressively
-        if conv_goal == "learning" or "learn" in goal.lower() or "understand" in goal.lower():
+        if (
+            conv_goal == "learning"
+            or "learn" in goal.lower()
+            or "understand" in goal.lower()
+        ):
             if depth >= 3:
                 return "incremental_teaching"
             return "guided_explanation"
@@ -231,14 +284,28 @@ class ResponsePlanner:
         if resp_type == "debugging":
             return ["identify root cause", "provide fix", "explain why it happens"]
         if resp_type == "troubleshooting":
-            return ["confirm problem statement", "suggest fix", "verify expected outcome"]
+            return [
+                "confirm problem statement",
+                "suggest fix",
+                "verify expected outcome",
+            ]
         if resp_type == "instruction":
             return ["state the goal", "numbered steps", "expected result"]
         if resp_type == "planning":
-            return ["define objective", "list steps", "flag dependencies", "surface risks"]
+            return [
+                "define objective",
+                "list steps",
+                "flag dependencies",
+                "surface risks",
+            ]
         if resp_type == "explanation":
             if depth >= 3:
-                return ["brief recap", "detailed explanation", "concrete example", "deeper insight"]
+                return [
+                    "brief recap",
+                    "detailed explanation",
+                    "concrete example",
+                    "deeper insight",
+                ]
             return ["brief answer", "explanation", "example"]
         if resp_type == "conversational":
             return ["direct reply"]
@@ -290,7 +357,11 @@ class ResponsePlanner:
         elif resp_type == "planning":
             sections.extend(["plan", "risks"])
 
-        if strategy in ("guided_explanation", "incremental_teaching", "verify_understanding"):
+        if strategy in (
+            "guided_explanation",
+            "incremental_teaching",
+            "verify_understanding",
+        ):
             sections.append("check_understanding")
 
         # Keep deterministic order and uniqueness.

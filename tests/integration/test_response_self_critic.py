@@ -66,3 +66,53 @@ def test_self_critic_passes_relevant_answer() -> None:
     )
 
     assert result.passed is True
+
+
+def test_self_critic_flags_assumption_without_evidence() -> None:
+    """Response that asks 'what still needs improving' after user says it's already wrong."""
+    critic = ResponseSelfCritic()
+
+    result = critic.assess(
+        user_input="actually that's wrong, it already exists",
+        intent="conversation:correction",
+        entities={},
+        response="I see, what other aspects would you like me to improve or focus on?",
+        memory_snapshot=None,
+    )
+
+    assert result.passed is False
+    assert any("assumption-without-evidence" in r for r in result.fail_reasons)
+    assert result.correction_hint is not None
+    assert "retract" in result.correction_hint.lower()
+
+
+def test_self_critic_flags_redundant_suggestion() -> None:
+    """Response that suggests adding a feature the user confirmed already exists."""
+    critic = ResponseSelfCritic()
+
+    result = critic.assess(
+        user_input="that feature is already implemented and working fine",
+        intent="conversation:feedback",
+        entities={},
+        response="You should consider adding that feature to improve the system.",
+        memory_snapshot=None,
+    )
+
+    assert result.passed is False
+    assert any("redundant-suggestion" in r for r in result.fail_reasons)
+    assert result.correction_hint is not None
+    assert "already exists" in result.correction_hint.lower()
+
+
+def test_self_critic_correction_hint_is_none_for_clean_response() -> None:
+    critic = ResponseSelfCritic()
+
+    result = critic.assess(
+        user_input="what time is it",
+        intent="time:current",
+        entities={},
+        response="The current time is 3:45 PM.",
+        memory_snapshot=None,
+    )
+
+    assert result.correction_hint is None

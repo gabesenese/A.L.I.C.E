@@ -2984,12 +2984,22 @@ class ALICE:
 
                                 return result
                             else:
-                                # Not valid Python or analysis failed
-                                return f"`{code_file.path}` - {code_file.lines} lines, {code_file.module_type}\n\nNote: Could not perform detailed analysis (syntax error or non-Python file)"
+                                # Fall back to self-reflection summary when the
+                                # rich analyzer cannot fully parse a valid file.
+                                fallback_summary = self.self_reflection.generate_file_summary(code_file.path)
+                                if fallback_summary:
+                                    return fallback_summary
+                                return f"`{code_file.path}` - {code_file.lines} lines, {code_file.module_type}"
 
                         except Exception as e:
                             logger.error(f"Error in code analysis: {e}")
-                            # Fallback: just show metadata
+                            # Fallback: use self-reflection summary before giving up.
+                            try:
+                                fallback_summary = self.self_reflection.generate_file_summary(code_file.path)
+                                if fallback_summary:
+                                    return fallback_summary
+                            except Exception:
+                                pass
                             return f"`{code_file.path}` - {code_file.lines} lines, {code_file.module_type}"
                     else:
                         # Show full file content
@@ -5033,7 +5043,14 @@ class ALICE:
             
             # If there's an active goal, use it to enhance intent understanding
             active_goal = goal_res.goal if goal_res else None
-            if active_goal and intent_confidence < 0.7 and self._should_reuse_goal_intent(user_input, active_goal.description):
+            intent_candidates = getattr(nlp_result, 'intent_candidates', []) or []
+            intent_plausibility = float(getattr(nlp_result, 'intent_plausibility', 1.0) or 1.0)
+            if (
+                active_goal
+                and intent_confidence < 0.7
+                and intent_plausibility >= 0.60
+                and self._should_reuse_goal_intent(user_input, active_goal.description)
+            ):
                 self._think(f"Low confidence ({intent_confidence:.2f}) but active goal → using goal intent: {active_goal.intent}")
                 intent = active_goal.intent
                 entities = {**(entities if entities else {}), **(active_goal.entities if active_goal.entities else {})}
@@ -5041,6 +5058,8 @@ class ALICE:
             else:
                 if active_goal and intent_confidence < 0.7 and not self._should_reuse_goal_intent(user_input, active_goal.description):
                     self._think("Topic shift (low overlap with goal) → not reusing goal intent")    
+                elif active_goal and intent_confidence < 0.7 and intent_plausibility < 0.60:
+                    self._think("Low plausibility detected → not reusing goal intent")
             
             _is_short_followup = (
                 len(user_input.split()) <= 12
@@ -5083,6 +5102,8 @@ class ALICE:
             self._internal_reasoning_state = {
                 **_executive_state.as_dict(),
                 "decision_scores": _decision_scores,
+                "intent_candidates": intent_candidates,
+                "intent_plausibility": intent_plausibility,
             }
             _executive_decision = self.executive_controller.decide(
                 _executive_state,
@@ -5137,6 +5158,20 @@ class ALICE:
             if _executive_decision.action == "ignore":
                 return "I need a bit more context to act on that."
 
+            _tool_veto = self.executive_controller.should_veto_tool_execution(
+                user_input=user_input,
+                intent=intent,
+                confidence=float(intent_confidence or 0.0),
+                intent_plausibility=float(intent_plausibility or 0.0),
+                intent_candidates=intent_candidates,
+            )
+            self._internal_reasoning_state["tool_veto"] = _tool_veto
+            if _tool_veto.get("veto"):
+                self._think(f"Executive veto → {_tool_veto.get('reason', 'unknown')}")
+                return _tool_veto.get("question") or (
+                    "I need a little clarification before I trigger a tool."
+                )
+
             _force_skip_plugins = _executive_decision.action in ("use_llm", "answer_direct")
             _force_try_plugins = _executive_decision.action in ("use_plugin", "search")
             _should_try_plugins = (
@@ -5167,6 +5202,8 @@ class ALICE:
                     context_summary['nlp'] = {
                         'intent': intent,
                         'intent_confidence': float(intent_confidence or 0.0),
+                        'intent_candidates': intent_candidates,
+                        'intent_plausibility': float(intent_plausibility or 0.0),
                         'parsed_command': getattr(nlp_result, 'parsed_command', {}) or {},
                         'plugin_scores': getattr(nlp_result, 'plugin_scores', {}) or {},
                         'token_debug': getattr(nlp_result, 'token_debug', [])[:30],

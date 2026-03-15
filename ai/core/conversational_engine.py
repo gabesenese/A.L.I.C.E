@@ -291,10 +291,7 @@ class ConversationalEngine:
 
         # GREETINGS - Brief and friendly
         greeting_words = ["hi", "hey", "hello", "yo", "sup"]
-        if (
-            bool(input_tokens & set(greeting_words))
-            and len(input_lower.split()) <= 4
-        ):
+        if bool(input_tokens & set(greeting_words)) and len(input_lower.split()) <= 4:
             # Don't treat questions as greetings
             if "?" not in input_lower:
                 greeting_options = self._unique_candidates(self.learned_greetings)
