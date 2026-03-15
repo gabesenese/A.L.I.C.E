@@ -1927,10 +1927,38 @@ class NLPProcessor:
             "notes": {"note", "notes", "memo", "todo", "task"},
             "email": {"email", "mail", "inbox", "subject", "reply"},
             "calendar": {"calendar", "event", "meeting", "schedule"},
-            "reminder": {"remind", "reminder", "alert"},
+            "reminder": {
+                "remind",
+                "reminder",
+                "reminders",
+                "alert",
+                "notify",
+                "forget",
+                "don't let me forget",
+            },
             "weather": weather_cues,
             "time": {"time", "clock", "hour", "timezone", "date"},
             "system": {"cpu", "memory", "disk", "battery", "status", "system"},
+        }
+        negative_evidence_map = {
+            "weather": {
+                "brainstorm",
+                "architecture",
+                "design",
+                "software design",
+                "system design",
+                "api",
+                "database",
+                "refactor",
+                "codebase",
+            },
+            "notes": {
+                "weather",
+                "forecast",
+                "temperature",
+                "rain",
+                "snow",
+            },
         }
 
         intent_plugin = chosen_intent.split(":", 1)[0]
@@ -1948,6 +1976,54 @@ class NLPProcessor:
             score -= 0.28
             issues.append("weather_without_weather_signals")
 
+        if intent_plugin == "weather":
+            has_location_signal = bool(
+                re.search(r"\b(?:in|at|for)\s+[a-z][a-z\s'\-]{2,30}\b", text_lower)
+            )
+            has_temperature_signal = any(
+                _contains_cue(cue)
+                for cue in {
+                    "temperature",
+                    "temp",
+                    "degrees",
+                    "celsius",
+                    "fahrenheit",
+                    "hot",
+                    "cold",
+                    "humid",
+                }
+            )
+            has_forecast_signal = any(
+                _contains_cue(cue)
+                for cue in {
+                    "forecast",
+                    "tomorrow",
+                    "tonight",
+                    "weekend",
+                    "next week",
+                    "this week",
+                    "7 day",
+                    "rain",
+                    "snow",
+                    "sunny",
+                    "cloudy",
+                    "storm",
+                    "wind",
+                }
+            )
+            if not (has_location_signal or has_temperature_signal or has_forecast_signal):
+                score -= 0.24
+                issues.append("missing_weather_required_entities")
+
+        contradiction_cues = negative_evidence_map.get(intent_plugin, set())
+        contradiction_hits = [cue for cue in contradiction_cues if _contains_cue(cue)]
+        if contradiction_hits:
+            score -= 0.24
+            issues.append(f"negative_evidence_{intent_plugin}_contradiction")
+            if intent_plugin == "weather" and not any(_contains_cue(cue) for cue in weather_cues):
+                score -= 0.10
+                issues.append("weather_contradiction_without_weather_support")
+
         if has_conversation_cue and intent_plugin not in {"conversation", "learning"}:
             score -= 0.16
             issues.append("conversational_prompt_vs_action_intent")
@@ -1959,10 +2035,9 @@ class NLPProcessor:
             parsed_command.object_type == "unknown"
             and not parsed_command.references
             and intent_plugin in {
-            "notes",
-            "email",
-            "calendar",
-            "reminder",
+                "notes",
+                "email",
+                "calendar",
             }
         ):
             score -= 0.08
@@ -1982,6 +2057,76 @@ class NLPProcessor:
                 issues.append("plugin_score_disagrees_with_intent")
 
         return max(0.0, min(1.0, score)), issues
+
+    def _classify_intent_category(
+        self,
+        text: str,
+        parsed_command: ParsedCommand,
+        plugin_scores: Dict[str, float],
+    ) -> str:
+        """Coarse intent category gate used to suppress tool execution for conversational turns."""
+        text_lower = (text or "").lower()
+        words = set(re.findall(r"\b[a-z']+\b", text_lower))
+
+        conversation_cues = {
+            "brainstorm",
+            "architecture",
+            "design",
+            "ideas",
+            "idea",
+            "strategy",
+            "discuss",
+            "talk",
+            "chat",
+            "think",
+            "plan",
+            "why",
+            "how",
+        }
+        tool_cues = {
+            "email",
+            "calendar",
+            "meeting",
+            "note",
+            "notes",
+            "file",
+            "files",
+            "weather",
+            "forecast",
+            "temperature",
+            "reminder",
+            "reminders",
+            "time",
+            "date",
+            "create",
+            "delete",
+            "read",
+            "write",
+            "open",
+            "search",
+            "list",
+            "show",
+            "set",
+            "cancel",
+            "remove",
+            "add",
+        }
+
+        has_conversation_cue = bool(words & conversation_cues) or "?" in text_lower
+        has_tool_cue = bool(words & tool_cues)
+
+        if parsed_command.action not in {"unknown", "general"}:
+            has_tool_cue = True
+        if plugin_scores:
+            best_plugin, best_score = max(plugin_scores.items(), key=lambda item: float(item[1]))
+            if best_plugin != "conversation" and float(best_score) >= 1.35:
+                has_tool_cue = True
+
+        if has_conversation_cue and not has_tool_cue:
+            return "conversation"
+        if has_tool_cue and not has_conversation_cue:
+            return "tool"
+        return "mixed"
 
     def _should_force_unknown_fallback(
         self,
@@ -2645,6 +2790,12 @@ class NLPProcessor:
         parsed_command = self._extract_semantic_hints(normalized_text, rich_tokens)
         plugin_scores = self._compute_plugin_scores(rich_tokens, parsed_command)
         retrieval_route = self._retrieval_first_parse(rich_tokens)
+        intent_category = self._classify_intent_category(
+            normalized_text,
+            parsed_command,
+            plugin_scores,
+        )
+        parsed_command.modifiers["intent_category"] = intent_category
         tokens = [
             token.normalized
             for token in rich_tokens
@@ -2844,6 +2995,28 @@ class NLPProcessor:
                 }
 
             parsed_command.modifiers["routing_trace"] = route.trace if route is not None else {}
+
+        if (
+            intent_category == "conversation"
+            and not intent.startswith("conversation:")
+            and float(intent_confidence or 0.0) < 0.88
+        ):
+            parsed_command.modifiers["tool_execution_disabled"] = True
+            parsed_command.modifiers["category_gate"] = {
+                "category": "conversation",
+                "original_intent": intent,
+                "original_confidence": float(intent_confidence or 0.0),
+                "reason": "conversation_category_gate",
+            }
+            intent = "conversation:general"
+            intent_confidence = max(0.72, min(0.87, float(intent_confidence or 0.0)))
+        else:
+            parsed_command.modifiers["tool_execution_disabled"] = bool(
+                parsed_command.modifiers.get("tool_execution_disabled", False)
+            )
+
+        if intent_category == "conversation":
+            parsed_command.modifiers["tool_execution_disabled"] = True
 
         # Learned-correction path may bypass candidate/plausibility assignment.
         if "intent_candidates" not in parsed_command.modifiers:

@@ -93,6 +93,7 @@ from ai.core.reflection_engine import get_reflection_engine
 from ai.core.response_planner import get_response_planner
 from ai.core.goal_tracker import get_goal_tracker
 from ai.core.response_quality_tracker import get_response_quality_tracker
+from ai.core.cognitive_orchestrator import get_cognitive_orchestrator
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -419,6 +420,13 @@ class ALICE:
             self.response_planner = get_response_planner()
             self.goal_tracker = get_goal_tracker()
             self.response_quality_tracker = get_response_quality_tracker()
+            self.cognitive_orchestrator = get_cognitive_orchestrator(
+                goal_tracker=self.goal_tracker,
+                reflection_engine=self.reflection_engine,
+                response_quality_tracker=self.response_quality_tracker,
+                tick_interval_seconds=20.0,
+            )
+            self.cognitive_orchestrator.start()
             self._internal_reasoning_state = {}
             self._exec_should_store_memory = True
             self._last_exec_gate_eval = {}
@@ -6667,6 +6675,18 @@ class ALICE:
                 except Exception as _gt_err:
                     logger.debug(f"[GoalTracker] {_gt_err}")
 
+            if getattr(self, 'cognitive_orchestrator', None):
+                try:
+                    self.cognitive_orchestrator.observe_turn(
+                        user_input=user_input,
+                        intent=intent or "conversation:general",
+                        response=response,
+                        gate_accepted=True,
+                        route="llm",
+                    )
+                except Exception as _co_err:
+                    logger.debug(f"[CognitiveOrchestrator] {_co_err}")
+
             # Process with unified context engine
             if self.context:
                 turn = self.context.process_turn(
@@ -8210,6 +8230,10 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if hasattr(self, 'proactive_intelligence') and self.proactive_intelligence:
             self.proactive_intelligence.stop()
             logger.info("[OK] Proactive intelligence stopped")
+
+        if getattr(self, 'cognitive_orchestrator', None):
+            self.cognitive_orchestrator.stop()
+            logger.info("[OK] Cognitive orchestrator stopped")
 
         if hasattr(self, 'execution_loop') and self.execution_loop:
             self.execution_loop.stop()

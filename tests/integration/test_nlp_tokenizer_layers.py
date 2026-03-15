@@ -6,7 +6,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from ai.core.nlp_processor import NLPProcessor
+from ai.core.nlp_processor import NLPProcessor, ParsedCommand
 
 
 class TestLayeredTokenizer:
@@ -78,3 +78,27 @@ class TestLayeredTokenizer:
         assert result.intent_plausibility < 0.75
         modifiers = result.parsed_command.get("modifiers", {})
         assert modifiers.get("unknown_intent_fallback") is True
+
+    def test_category_gate_disables_tools_for_conversation_query(self):
+        result = self.nlp.process("let's brainstorm architecture ideas for this project")
+        modifiers = result.parsed_command.get("modifiers", {})
+        assert modifiers.get("intent_category") == "conversation"
+        assert modifiers.get("tool_execution_disabled") is True
+        assert result.intent.startswith("conversation:")
+
+    def test_weather_plausibility_requires_entity_or_forecast_signals(self):
+        score, issues = self.nlp._validate_intent_plausibility(
+            "please help with this", "weather:current", ParsedCommand(), {}
+        )
+        assert score < 0.45
+        assert "missing_weather_required_entities" in issues
+
+    def test_weather_negative_evidence_scoring_detects_contradictions(self):
+        score, issues = self.nlp._validate_intent_plausibility(
+            "can we brainstorm architecture and api design options",
+            "weather:forecast",
+            ParsedCommand(),
+            {},
+        )
+        assert score < 0.35
+        assert "negative_evidence_weather_contradiction" in issues

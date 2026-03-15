@@ -10,10 +10,12 @@ Integration tests for:
 import os
 import json
 import tempfile
+import time
 import pytest
 
 from ai.core.response_planner import ResponsePlanner, get_response_planner
 from ai.core.goal_tracker import GoalTracker, get_goal_tracker
+from ai.core.cognitive_orchestrator import CognitiveOrchestrator
 from ai.core.response_quality_tracker import (
     ResponseQualityTracker,
     FAILURE_NONE,
@@ -24,6 +26,7 @@ from ai.core.response_quality_tracker import (
 )
 from ai.core.executive_controller import ExecutiveController
 from ai.core.reflection_engine import ReflectionEngine
+from ai.infrastructure.event_bus import EventBus, EventType
 from ai.memory.conversation_state import ConversationStateTracker
 
 
@@ -450,3 +453,91 @@ class TestConversationStateDriftCorrection:
         # Manually verify similarity check works
         assert self.tracker._topic_similar_to_goal("async await in Python")
         assert not self.tracker._topic_similar_to_goal("how to bake a cake")
+
+
+# ===========================================================================
+# CognitiveOrchestrator
+# ===========================================================================
+
+class TestCognitiveOrchestrator:
+    def setup_method(self):
+        self.event_bus = EventBus()
+        self.goal_tracker = GoalTracker()
+        self.reflection_engine = ReflectionEngine()
+        self.quality_tracker = ResponseQualityTracker()
+        self.orchestrator = CognitiveOrchestrator(
+            event_bus=self.event_bus,
+            goal_tracker=self.goal_tracker,
+            reflection_engine=self.reflection_engine,
+            response_quality_tracker=self.quality_tracker,
+            tick_interval_seconds=0.05,
+        )
+
+    def teardown_method(self):
+        self.orchestrator.stop()
+
+    def test_continuous_cognition_loop_emits_idle_events(self):
+        self.orchestrator.start()
+        time.sleep(0.16)
+        self.orchestrator.stop()
+        idle_events = self.event_bus.get_history(EventType.SYSTEM_IDLE, limit=20)
+        assert len(idle_events) >= 1
+
+    def test_event_driven_turn_observation_emits_user_query_event(self):
+        self.orchestrator.observe_turn(
+            user_input="help me design an API",
+            intent="conversation:general",
+            response="Let's break the API into resources and endpoints.",
+            gate_accepted=True,
+            route="llm",
+        )
+        query_events = self.event_bus.get_history(EventType.USER_QUERY, limit=10)
+        assert len(query_events) >= 1
+
+    def test_long_horizon_goal_tracking_updates_progress(self):
+        self.orchestrator.register_project_goal(
+            goal_id="proj-1",
+            description="Ship architecture redesign",
+            horizon_days=45,
+            milestones=["design", "implement", "validate"],
+        )
+        assert self.orchestrator.mark_milestone_completed(goal_id="proj-1", milestone="design") is True
+        snapshot = self.orchestrator.get_cognitive_snapshot()
+        proj = next(g for g in snapshot["project_goals"] if g["goal_id"] == "proj-1")
+        assert proj["progress"] > 0.0
+
+    def test_self_improvement_plan_generated_from_failures(self):
+        bad_response = "I'm not sure. Maybe. Possibly. I don't know for certain."
+        for _ in range(3):
+            self.orchestrator.observe_turn(
+                user_input="how do i fix this architecture issue",
+                intent="conversation:general",
+                response=bad_response,
+                gate_accepted=False,
+                route="llm",
+            )
+        plan = self.orchestrator.create_self_improvement_plan()
+        assert any(item.get("action_id") == "improve_grounding" for item in plan)
+
+    def test_simulation_reasoning_picks_safer_high_value_action(self):
+        decision = self.orchestrator.simulate_before_action(
+            [
+                {
+                    "action_id": "risky_hotfix",
+                    "expected_gain": 0.80,
+                    "risk": 0.90,
+                    "cost": 0.20,
+                    "confidence": 0.80,
+                    "reversible": False,
+                },
+                {
+                    "action_id": "staged_rollout",
+                    "expected_gain": 0.72,
+                    "risk": 0.20,
+                    "cost": 0.30,
+                    "confidence": 0.78,
+                    "reversible": True,
+                },
+            ]
+        )
+        assert decision["best_action"]["action_id"] == "staged_rollout"
