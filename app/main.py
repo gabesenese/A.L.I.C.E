@@ -2161,6 +2161,15 @@ class ALICE:
                 _plan = _rs.get('plan', []) or []
                 if _plan:
                     _lines.append(f"- plan: {' | '.join(str(p) for p in _plan[:4])}")
+                _scores = _rs.get('decision_scores', {}) or {}
+                if _scores:
+                    _top = sorted(_scores.items(), key=lambda kv: kv[1], reverse=True)[:4]
+                    _lines.append(
+                        "- decision_scores: "
+                        + ", ".join(f"{k}={float(v):.2f}" for k, v in _top)
+                    )
+                if _rs.get('learning_decision'):
+                    _lines.append(f"- learning_decision: {_rs.get('learning_decision')}")
                 context_parts.append("\n".join(_lines))
                 context_types.append("reasoning_state")
             except Exception:
@@ -3343,6 +3352,39 @@ class ALICE:
             "options": options,
             "question": f"Did you mean: {' or '.join(options)}?",
         }
+
+    def _executive_apply_response_gate(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        response: str,
+        route: str,
+    ) -> str:
+        """Final executive authority before a response is sent to the user."""
+        if not getattr(self, 'executive_controller', None):
+            return response
+
+        evaluation = self.executive_controller.evaluate_response(
+            user_input=user_input,
+            intent=intent,
+            response=response,
+            route=route,
+            context=getattr(self, '_internal_reasoning_state', {}) or {},
+        )
+        score = float(evaluation.get("score", 0.0))
+        self._think(
+            f"Executive response gate ({route}) → score={score:.2f} "
+            f"accepted={evaluation.get('accepted', False)}"
+        )
+
+        if evaluation.get("accepted", False):
+            return response
+
+        fallback_action = evaluation.get("fallback_action", "safe_reply")
+        if fallback_action == "clarify":
+            return "I want to make sure I answer correctly. Do you want an explanation, a direct action, or a quick search?"
+        return "I may be off-track. Let me answer more directly: tell me the exact outcome you want and I will do that."
 
     def process_input(self, user_input: str, use_voice: bool = False) -> str:
         """
@@ -4857,7 +4899,17 @@ class ALICE:
                 entities=entities or {},
                 conversation_state=_conversation_state,
             )
-            self._internal_reasoning_state = _executive_state.as_dict()
+            _decision_scores = self.executive_controller.score_decisions(
+                _executive_state,
+                is_pure_conversation=bool(is_pure_conversation),
+                has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
+                has_active_goal=bool(active_goal),
+                force_plugins_for_notes=bool(force_plugins_for_notes),
+            )
+            self._internal_reasoning_state = {
+                **_executive_state.as_dict(),
+                "decision_scores": _decision_scores,
+            }
             _executive_decision = self.executive_controller.decide(
                 _executive_state,
                 is_pure_conversation=bool(is_pure_conversation),
@@ -4865,10 +4917,21 @@ class ALICE:
                 has_active_goal=bool(active_goal),
                 force_plugins_for_notes=bool(force_plugins_for_notes),
             )
-            self._exec_should_store_memory = bool(_executive_decision.store_memory)
+            _learning_decision = self.executive_controller.decide_learning(
+                relevance=max(_decision_scores.get("llm", 0.0), _decision_scores.get("tools", 0.0), _decision_scores.get("search", 0.0)),
+                confidence=float(intent_confidence or 0.0),
+                novelty=0.70 if (_executive_state.topic or _executive_state.user_goal) else 0.40,
+                risk=0.60 if _executive_decision.action in ("ask_clarification", "ignore") else 0.20,
+            )
+            self._internal_reasoning_state["learning_decision"] = _learning_decision
+            self._exec_should_store_memory = _learning_decision in ("store", "temporary") and bool(_executive_decision.store_memory)
             self._think(
                 f"Executive decision → {_executive_decision.action} "
                 f"({_executive_decision.reason})"
+            )
+            self._think(
+                "Executive scores → "
+                + ", ".join(f"{k}:{v:.2f}" for k, v in sorted(_decision_scores.items(), key=lambda kv: kv[1], reverse=True)[:4])
             )
 
             if _executive_decision.action == "ask_clarification":
@@ -5290,6 +5353,13 @@ class ALICE:
                             response = recovery_msg
                         if suggestion:
                             response = f"{response}\n\n {suggestion}"
+
+                response = self._executive_apply_response_gate(
+                    user_input=user_input,
+                    intent=intent,
+                    response=response,
+                    route="plugin",
+                )
                 
                 # Store interaction in memory
                 self._store_interaction(user_input, response, intent, entities)
@@ -5529,6 +5599,13 @@ class ALICE:
                         "goal": goal_res.goal.description if (goal_res and goal_res.goal) else None,
                     },
                 )
+
+            response = self._executive_apply_response_gate(
+                user_input=user_input,
+                intent=intent,
+                response=response,
+                route="llm",
+            )
             
             # NOTE: Don't cache LLM responses - we want fresh answers each time for variety
             # Cache is only used for learned conversational patterns (which rotate automatically)
@@ -5537,9 +5614,10 @@ class ALICE:
             # (This section can be expanded later for quality checks)
             
             # Update the context handler (if still exists)
+            if 'turn' in locals() and turn:
                 # Update the turn with the response
                 turn.assistant_response = response
-                
+
                 # Extract any entities mentioned in the response and track them
                 self._track_response_entities(response, intent)
             
@@ -5604,8 +5682,9 @@ class ALICE:
             # ALICE'S COMPREHENSIVE LEARNING - Learn from EVERY interaction
             # This is where Alice builds her own intelligence
             try:
-                if not getattr(self, '_exec_should_store_memory', True):
-                    self._think("Executive policy → skip long-term learning for this turn")
+                _learn_decision = str((getattr(self, '_internal_reasoning_state', {}) or {}).get('learning_decision', 'store'))
+                if _learn_decision != "store":
+                    self._think(f"Executive learning authority → {_learn_decision} (skip long-term learning)")
                 else:
                     learning_result = self.knowledge_engine.learn_from_interaction(
                         user_input=user_input,

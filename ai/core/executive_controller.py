@@ -98,16 +98,6 @@ class ExecutiveController:
         has_active_goal: bool,
         force_plugins_for_notes: bool,
     ) -> ExecutiveDecision:
-        text_intent = (state.user_intent or "").lower()
-
-        if not state.topic and state.confidence < 0.35 and not has_explicit_action_cue:
-            return ExecutiveDecision(
-                action="ask_clarification",
-                reason="low_confidence_ambiguous",
-                store_memory=False,
-                clarification_question="I want to help accurately. Do you want an explanation, a tool action, or a search?",
-            )
-
         if len(state.user_intent.strip()) == 0:
             return ExecutiveDecision(
                 action="ignore",
@@ -115,26 +105,172 @@ class ExecutiveController:
                 store_memory=False,
             )
 
-        if force_plugins_for_notes:
-            return ExecutiveDecision(action="use_plugin", reason="note_followup", store_memory=True)
+        scores = self.score_decisions(
+            state,
+            is_pure_conversation=is_pure_conversation,
+            has_explicit_action_cue=has_explicit_action_cue,
+            has_active_goal=has_active_goal,
+            force_plugins_for_notes=force_plugins_for_notes,
+        )
+        winner = max(scores.items(), key=lambda kv: kv[1])[0]
 
-        if has_active_goal or has_explicit_action_cue:
-            return ExecutiveDecision(action="use_plugin", reason="goal_or_action_cue", store_memory=True)
-
-        if any(text_intent.startswith(domain) for domain in self.TOOL_DOMAINS):
-            if state.confidence >= 0.60:
-                return ExecutiveDecision(action="use_plugin", reason="tool_domain_confident", store_memory=True)
+        if winner == "clarify":
             return ExecutiveDecision(
                 action="ask_clarification",
-                reason="tool_domain_low_confidence",
+                reason="score_clarify",
                 store_memory=False,
-                clarification_question="Should I perform an action for this, or do you want a general explanation?",
+                clarification_question="I want to help accurately. Do you mean tool action, explanation, or search?",
             )
+        if winner == "reject":
+            return ExecutiveDecision(
+                action="ignore",
+                reason="score_reject",
+                store_memory=False,
+            )
+        if winner in ("tools", "search"):
+            return ExecutiveDecision(action="use_plugin", reason=f"score_{winner}", store_memory=True)
+        if winner == "memory":
+            return ExecutiveDecision(action="use_llm", reason="score_memory", store_memory=True)
 
+        return ExecutiveDecision(action="use_llm", reason="score_llm", store_memory=True)
+
+    def score_decisions(
+        self,
+        state: ReasoningState,
+        *,
+        is_pure_conversation: bool,
+        has_explicit_action_cue: bool,
+        has_active_goal: bool,
+        force_plugins_for_notes: bool,
+    ) -> Dict[str, float]:
+        """Return a probabilistic-like score table for routing decisions."""
+        text_intent = (state.user_intent or "").lower()
+        scores = {
+            "tools": 0.0,
+            "memory": 0.0,
+            "rag": 0.0,
+            "llm": 0.0,
+            "clarify": 0.0,
+            "search": 0.0,
+            "reject": 0.0,
+        }
+
+        conf = max(0.0, min(1.0, state.confidence))
+        scores["llm"] = 0.40 + (0.40 * conf)
+        scores["memory"] = 0.25 + (0.25 * (1.0 if state.topic else 0.0))
+        scores["rag"] = 0.20 + (0.30 * (1.0 if state.user_goal else 0.0))
+        scores["clarify"] = 0.15 + (0.55 * (1.0 - conf))
+
+        if has_explicit_action_cue or has_active_goal:
+            scores["tools"] += 0.55
+        if any(text_intent.startswith(domain) for domain in self.TOOL_DOMAINS):
+            scores["tools"] += 0.35
+        if force_plugins_for_notes:
+            scores["tools"] += 0.60
         if is_pure_conversation:
-            return ExecutiveDecision(action="use_llm", reason="pure_conversation", store_memory=True)
+            scores["llm"] += 0.20
+        if conf < 0.35 and not state.topic:
+            scores["clarify"] += 0.35
+        if conf < 0.20 and not has_explicit_action_cue and not state.user_goal:
+            scores["reject"] += 0.55
+        if "search" in text_intent or "research" in text_intent:
+            scores["search"] += 0.60
 
-        return ExecutiveDecision(action="use_llm", reason="default_reasoning", store_memory=True)
+        # Normalize to 0..1 to keep all downstream thresholds stable.
+        for k, v in list(scores.items()):
+            scores[k] = max(0.0, min(1.0, float(v)))
+        return scores
+
+    def evaluate_response(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        response: str,
+        route: str,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """Response acceptance gate before content is sent to the user."""
+        context = context or {}
+        resp = (response or "").strip()
+        if not resp:
+            return {
+                "accepted": False,
+                "score": 0.0,
+                "reason": "empty_response",
+                "fallback_action": "clarify",
+            }
+
+        user_tokens = set(self._tokens(user_input))
+        resp_tokens = set(self._tokens(resp))
+        overlap = 0.0
+        if user_tokens:
+            overlap = len(user_tokens.intersection(resp_tokens)) / max(len(user_tokens), 1)
+
+        uncertain_markers = (
+            "i'm not sure",
+            "i am not sure",
+            "maybe",
+            "possibly",
+            "i don't know",
+            "not certain",
+        )
+        uncertain_penalty = 0.35 if any(m in resp.lower() for m in uncertain_markers) else 0.0
+
+        generic_markers = (
+            "it depends",
+            "in general",
+            "there are many factors",
+            "cannot be determined",
+        )
+        generic_penalty = 0.20 if any(m in resp.lower() for m in generic_markers) else 0.0
+
+        score = max(0.0, min(1.0, 0.55 + (0.55 * overlap) - uncertain_penalty - generic_penalty))
+        threshold = 0.52 if route == "llm" else 0.48
+
+        if score >= threshold:
+            return {
+                "accepted": True,
+                "score": score,
+                "reason": "accepted",
+                "fallback_action": "",
+            }
+
+        fallback_action = "clarify" if overlap < 0.2 else "safe_reply"
+        return {
+            "accepted": False,
+            "score": score,
+            "reason": "low_alignment",
+            "fallback_action": fallback_action,
+        }
+
+    def decide_learning(
+        self,
+        *,
+        relevance: float,
+        confidence: float,
+        novelty: float,
+        risk: float,
+    ) -> str:
+        """Executive authority over learning writes.
+
+        Returns one of: store | reject | queue_review | temporary
+        """
+        relevance = max(0.0, min(1.0, float(relevance)))
+        confidence = max(0.0, min(1.0, float(confidence)))
+        novelty = max(0.0, min(1.0, float(novelty)))
+        risk = max(0.0, min(1.0, float(risk)))
+
+        utility = (0.45 * relevance) + (0.35 * confidence) + (0.20 * novelty)
+        if risk >= 0.70:
+            return "reject"
+        if utility >= 0.72 and risk <= 0.35:
+            return "store"
+        if utility >= 0.55 and risk <= 0.55:
+            return "temporary"
+        if utility >= 0.45:
+            return "queue_review"
+        return "reject"
 
     def format_reasoning_state(self, state: ReasoningState) -> str:
         """Render compact, non-CoT internal state for system context."""
@@ -172,6 +308,11 @@ class ExecutiveController:
             return ["answer current question", "keep topic continuity"]
 
         return ["answer directly", "ask clarification if ambiguity remains"]
+
+    def _tokens(self, text: str) -> List[str]:
+        import re
+
+        return re.findall(r"[a-z0-9']+", (text or "").lower())
 
 
 _executive_controller: ExecutiveController | None = None

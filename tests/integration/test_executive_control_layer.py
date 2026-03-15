@@ -82,3 +82,75 @@ def test_reasoning_state_prompt_is_structured_not_cot() -> None:
     assert "Internal reasoning state" in monologue
     assert "topic: polymorphism" in monologue
     assert "plan:" in monologue
+
+
+def test_decision_scoring_prefers_tools_for_explicit_actions() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.81,
+        entities={},
+        conversation_state={},
+    )
+
+    scores = controller.score_decisions(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert scores["tools"] > scores["llm"]
+    assert scores["tools"] > scores["clarify"]
+
+
+def test_response_acceptance_gate_rejects_uncertain_generic_output() -> None:
+    controller = ExecutiveController()
+
+    result = controller.evaluate_response(
+        user_input="What is polymorphism?",
+        intent="learning:study_topic",
+        response="Maybe it depends. I am not sure.",
+        route="llm",
+        context={},
+    )
+
+    assert result["accepted"] is False
+    assert result["fallback_action"] in ("clarify", "safe_reply")
+
+
+def test_response_acceptance_gate_accepts_relevant_answer() -> None:
+    controller = ExecutiveController()
+
+    result = controller.evaluate_response(
+        user_input="What is polymorphism in OOP?",
+        intent="learning:study_topic",
+        response="Polymorphism in OOP means one interface can represent multiple concrete behaviors.",
+        route="llm",
+        context={},
+    )
+
+    assert result["accepted"] is True
+    assert result["score"] >= 0.5
+
+
+def test_learning_authority_can_reject_or_store() -> None:
+    controller = ExecutiveController()
+
+    reject_decision = controller.decide_learning(
+        relevance=0.35,
+        confidence=0.30,
+        novelty=0.20,
+        risk=0.80,
+    )
+    store_decision = controller.decide_learning(
+        relevance=0.85,
+        confidence=0.82,
+        novelty=0.60,
+        risk=0.20,
+    )
+
+    assert reject_decision == "reject"
+    assert store_decision == "store"
