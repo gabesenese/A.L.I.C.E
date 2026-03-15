@@ -74,6 +74,18 @@ class TestResponsePlanner:
         assert len(plan.required_sections) >= 2
         assert plan.plan_depth == 3
 
+    def test_guiding_question_generation(self):
+        rs = {"depth_level": 1, "user_goal": "learn python", "confidence": 0.3, "conversation_goal": "learning"}
+        cs = {"depth_level": 1, "user_goal": "learn python", "conversation_goal": "learning"}
+        plan = self.planner.plan(
+            user_input="explain generators",
+            intent="learning:python",
+            reasoning_state=rs,
+            conversation_state=cs,
+        )
+        q = self.planner.guiding_question(plan, "explain generators")
+        assert len(q) > 10
+
     def test_outline_is_non_empty(self):
         plan = self._plan("fix this error")
         assert len(plan.outline) >= 2
@@ -260,7 +272,14 @@ class TestResponseQualityTracker:
         assert summary["turns_tracked"] == 5
         assert 0.0 <= summary["relevance_avg"] <= 1.0
         assert 0.0 <= summary["topic_adherence_avg"] <= 1.0
+        assert 0.0 <= summary["adherence_avg"] <= 1.0
         assert 0.0 <= summary["gate_accept_rate"] <= 1.0
+
+    def test_turn_quality_dict_contains_adherence(self):
+        q = self._track()
+        data = q.as_dict()
+        assert "adherence" in data
+        assert 0.0 <= data["adherence"] <= 1.0
 
     def test_topic_adherence_uses_topic_hint(self):
         q = self.tracker.track_turn(

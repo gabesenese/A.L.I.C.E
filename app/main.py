@@ -5114,6 +5114,8 @@ class ALICE:
                         f"Response plan → type={_resp_plan.response_type}, "
                         f"strategy={_resp_plan.strategy}"
                     )
+                    if _resp_plan.strategy == "ask_guiding_question":
+                        return self.response_planner.guiding_question(_resp_plan, user_input)
                 except Exception as _rp_err:
                     logger.debug(f"[ResponsePlanner] {_rp_err}")
 

@@ -50,6 +50,13 @@ class ReflectionEngine:
         relevance = self._relevance_score(user_input, response)
         topic_adherence = float(quality_metrics.get("topic_adherence", relevance) or relevance)
         alignment = float(quality_metrics.get("alignment", 1.0) or 1.0)
+        adherence = float(
+            quality_metrics.get(
+                "adherence",
+                (0.55 * topic_adherence) + (0.45 * alignment),
+            )
+            or 0.0
+        )
         is_relevant = relevance >= 0.20
         correct_like = gate_accepted and is_relevant and len(response) > 8
 
@@ -57,7 +64,7 @@ class ReflectionEngine:
             (0.45 if gate_accepted else 0.0)
             + (0.30 * relevance)
             + (0.15 * topic_adherence)
-            + (0.10 * alignment)
+            + (0.10 * adherence)
         )
         success_score = max(0.0, min(1.0, success_score))
 

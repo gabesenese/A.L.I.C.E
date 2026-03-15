@@ -51,9 +51,11 @@ class TurnQuality:
     gate_accepted: bool
 
     def as_dict(self) -> Dict[str, Any]:
+        adherence = max(0.0, min(1.0, (0.55 * self.topic_adherence) + (0.45 * self.alignment)))
         return {
             "relevance": round(self.relevance, 3),
             "topic_adherence": round(self.topic_adherence, 3),
+            "adherence": round(adherence, 3),
             "coherence": round(self.coherence, 3),
             "verbosity": round(self.verbosity, 3),
             "alignment": round(self.alignment, 3),
@@ -182,6 +184,7 @@ class ResponseQualityTracker:
             return {
                 "relevance_avg": 0.0,
                 "topic_adherence_avg": 0.0,
+                "adherence_avg": 0.0,
                 "coherence_avg": 0.0,
                 "alignment_avg": 0.0,
                 "gate_accept_rate": 0.0,
@@ -191,6 +194,7 @@ class ResponseQualityTracker:
         n = len(self._history)
         rel_avg = sum(t.relevance for t in self._history) / n
         topic_avg = sum(t.topic_adherence for t in self._history) / n
+        adherence_avg = sum(((0.55 * t.topic_adherence) + (0.45 * t.alignment)) for t in self._history) / n
         coh_avg = sum(t.coherence for t in self._history) / n
         aln_avg = sum(t.alignment for t in self._history) / n
         gate_rate = sum(1 for t in self._history if t.gate_accepted) / n
@@ -200,6 +204,7 @@ class ResponseQualityTracker:
         return {
             "relevance_avg": round(rel_avg, 3),
             "topic_adherence_avg": round(topic_avg, 3),
+            "adherence_avg": round(adherence_avg, 3),
             "coherence_avg": round(coh_avg, 3),
             "alignment_avg": round(aln_avg, 3),
             "gate_accept_rate": round(gate_rate, 3),

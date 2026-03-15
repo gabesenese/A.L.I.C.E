@@ -318,6 +318,23 @@ class ResponsePlanner:
             return 2
         return 3
 
+    def guiding_question(self, plan: ResponsePlan, user_input: str) -> str:
+        """Return a strategy-aware clarification prompt for ask-guiding-question mode."""
+        rtype = (plan.response_type or "factual").lower()
+        topic = (plan.goal_context or "").strip()
+
+        if rtype == "instruction":
+            return "Do you want a quick checklist or a detailed step-by-step guide?"
+        if rtype in ("debugging", "troubleshooting"):
+            return "Should I start by identifying the root cause, or do you want immediate fix steps first?"
+        if rtype == "explanation":
+            return "Would you like the simple explanation first, then an example, or the deep technical version directly?"
+        if rtype == "planning":
+            return "Should I give a high-level roadmap first, or a detailed phased plan with risks and dependencies?"
+        if topic:
+            return f"To keep this aligned with '{topic}', do you want a concise answer or a guided walkthrough?"
+        return "Do you want a direct answer, a guided explanation, or incremental step-by-step teaching?"
+
     def _format_hint(self, resp_type: str) -> str:
         hints = {
             "instruction": "numbered list",
