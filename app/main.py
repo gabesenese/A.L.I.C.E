@@ -88,6 +88,7 @@ from ai.core.conversational_engine import get_conversational_engine, Conversatio
 from ai.core.llm_gateway import get_llm_gateway, LLMGateway
 from ai.core.llm_policy import LLMCallType
 from ai.core.response_self_critic import get_response_self_critic
+from ai.core.executive_controller import get_executive_controller
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -409,6 +410,9 @@ class ALICE:
             logger.info("Loading reasoning engine...")
             self.reasoning_engine = get_reasoning_engine(user_name)
             self.response_self_critic = get_response_self_critic()
+            self.executive_controller = get_executive_controller()
+            self._internal_reasoning_state = {}
+            self._exec_should_store_memory = True
             self.error_recovery = get_error_recovery()
             self.context_cache = get_context_cache()
             self.context_selector = get_context_selector()
@@ -2141,6 +2145,26 @@ class ALICE:
             if state_context:
                 context_parts.append(state_context)
                 context_types.append("conversation_state")
+
+        if getattr(self, '_internal_reasoning_state', None):
+            try:
+                _rs = self._internal_reasoning_state
+                _lines = [
+                    "Internal reasoning state (system-only):",
+                    f"- user_intent: {_rs.get('user_intent', 'unknown')}",
+                    f"- topic: {_rs.get('topic', 'unknown') or 'unknown'}",
+                    f"- confidence: {float(_rs.get('confidence', 0.0)):.2f}",
+                    f"- conversation_goal: {_rs.get('conversation_goal', 'general_assistance')}",
+                    f"- user_goal: {_rs.get('user_goal', 'none') or 'none'}",
+                    f"- depth_level: {int(_rs.get('depth_level', 0))}",
+                ]
+                _plan = _rs.get('plan', []) or []
+                if _plan:
+                    _lines.append(f"- plan: {' | '.join(str(p) for p in _plan[:4])}")
+                context_parts.append("\n".join(_lines))
+                context_types.append("reasoning_state")
+            except Exception:
+                pass
         
         # 4. Recent conversation summary (fallback)
         recent_context = self._get_recent_conversation_summary()
@@ -3336,6 +3360,8 @@ class ALICE:
             start_time = time.time()
             route_taken = 'unknown'
             success = False
+            self._exec_should_store_memory = True
+            self._internal_reasoning_state = {}
 
             # Per-turn quality tracking flags (read by _store_interaction)
             self._last_plugin_called = None
@@ -4821,14 +4847,52 @@ class ALICE:
             )
             force_plugins_for_notes = force_plugins_for_note_followup or force_plugins_for_explicit_note_read
 
-            if (_is_short_followup or is_pure_conversation) and not force_plugins_for_notes:
+            _conversation_state = {}
+            if getattr(self, 'conversation_state_tracker', None):
+                _conversation_state = self.conversation_state_tracker.get_state_summary()
+            _executive_state = self.executive_controller.build_state(
+                user_input=user_input,
+                intent=intent,
+                confidence=float(intent_confidence or 0.0),
+                entities=entities or {},
+                conversation_state=_conversation_state,
+            )
+            self._internal_reasoning_state = _executive_state.as_dict()
+            _executive_decision = self.executive_controller.decide(
+                _executive_state,
+                is_pure_conversation=bool(is_pure_conversation),
+                has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
+                has_active_goal=bool(active_goal),
+                force_plugins_for_notes=bool(force_plugins_for_notes),
+            )
+            self._exec_should_store_memory = bool(_executive_decision.store_memory)
+            self._think(
+                f"Executive decision → {_executive_decision.action} "
+                f"({_executive_decision.reason})"
+            )
+
+            if _executive_decision.action == "ask_clarification":
+                return _executive_decision.clarification_question or (
+                    "Can you clarify what outcome you want so I can route this correctly?"
+                )
+            if _executive_decision.action == "ignore":
+                return "I need a bit more context to act on that."
+
+            _force_skip_plugins = _executive_decision.action in ("use_llm", "answer_direct")
+            _force_try_plugins = _executive_decision.action in ("use_plugin", "search")
+            _should_try_plugins = (
+                (_force_try_plugins or ((not _is_short_followup and not is_pure_conversation) or force_plugins_for_notes))
+                and not _force_skip_plugins
+            )
+
+            if not _should_try_plugins:
                 if is_pure_conversation:
                     self._think("Pure conversation → skipping plugins, using LLM")
                 else:
                     self._think("Short follow-up (no command words, no goal) → skipping plugins, using LLM")
             else:
                 self._think(f"Trying plugins... (confidence: {intent_confidence:.2f}, goal: {active_goal.description[:30] if active_goal else 'none'}...)")
-            if (not _is_short_followup and not is_pure_conversation) or force_plugins_for_notes:
+            if _should_try_plugins:
                 # Confidence cascade: gate plugin execution on intent confidence
                 _cascade = self._apply_confidence_cascade(intent, intent_confidence or 0.0, nlp_result)
                 if _cascade["action"] == "clarify":
@@ -5540,25 +5604,28 @@ class ALICE:
             # ALICE'S COMPREHENSIVE LEARNING - Learn from EVERY interaction
             # This is where Alice builds her own intelligence
             try:
-                learning_result = self.knowledge_engine.learn_from_interaction(
-                    user_input=user_input,
-                    alice_response=response,
-                    intent=intent,
-                    entities=entities or {},
-                    context={
-                        'quality_score': quality_score if 'quality_score' in locals() else 0.5,
-                        'route': 'TOOL' if ('plugin_result' in locals() and plugin_result) else 'LLM',
-                        'timestamp': datetime.now().isoformat()
-                    }
-                )
-                if isinstance(learning_result, dict) and not learning_result.get('stored', True):
-                    reasons = learning_result.get('validation', {}).get('reasons', [])
-                    self._think(
-                        f"Knowledge candidate rejected for '{intent}' "
-                        f"(checks failed: {', '.join(reasons) if reasons else 'validation'})"
-                    )
+                if not getattr(self, '_exec_should_store_memory', True):
+                    self._think("Executive policy → skip long-term learning for this turn")
                 else:
-                    self._think(f"Alice learned from this interaction (confidence in '{intent}' topics growing)")
+                    learning_result = self.knowledge_engine.learn_from_interaction(
+                        user_input=user_input,
+                        alice_response=response,
+                        intent=intent,
+                        entities=entities or {},
+                        context={
+                            'quality_score': quality_score if 'quality_score' in locals() else 0.5,
+                            'route': 'TOOL' if ('plugin_result' in locals() and plugin_result) else 'LLM',
+                            'timestamp': datetime.now().isoformat()
+                        }
+                    )
+                    if isinstance(learning_result, dict) and not learning_result.get('stored', True):
+                        reasons = learning_result.get('validation', {}).get('reasons', [])
+                        self._think(
+                            f"Knowledge candidate rejected for '{intent}' "
+                            f"(checks failed: {', '.join(reasons) if reasons else 'validation'})"
+                        )
+                    else:
+                        self._think(f"Alice learned from this interaction (confidence in '{intent}' topics growing)")
             except Exception as e:
                 logger.error(f"[Learning] Error in knowledge engine: {e}")
 
@@ -6349,7 +6416,7 @@ class ALICE:
             self.context.update_conversation(user_input, response, intent, entity_list)
             
             # Store in episodic memory with enhanced metadata (unless privacy mode)
-            if not self.privacy_mode:
+            if not self.privacy_mode and getattr(self, '_exec_should_store_memory', True):
                 self.memory.store_memory(
                     content=f"User: {user_input} | Assistant: {response}",
                     memory_type="episodic",
@@ -6366,6 +6433,8 @@ class ALICE:
                 
                 # Check if periodic consolidation is needed
                 self.memory.periodic_consolidation_check()
+            elif not getattr(self, '_exec_should_store_memory', True):
+                logger.info("[Executive] Episodic memory storage skipped by executive policy")
             else:
                 logger.info("[PRIVACY] Episodic memory storage skipped (privacy mode enabled)")
 
