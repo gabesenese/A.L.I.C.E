@@ -8,6 +8,7 @@ import logging
 import random
 import json
 import os
+import re
 from pathlib import Path
 from typing import Dict, Optional, Any, List
 from dataclasses import dataclass
@@ -166,10 +167,19 @@ class ConversationalEngine:
         recent = getattr(self, "recent_responses", ()) or []
         max_recent = getattr(self, "max_recent", 10)
         not_recent = [c for c in normalized_candidates if c not in recent]
-        choice = random.choice(not_recent) if not_recent else random.choice(normalized_candidates)
+        choice = (
+            random.choice(not_recent)
+            if not_recent
+            else random.choice(normalized_candidates)
+        )
         recent.insert(0, choice)
         self.recent_responses = recent[:max_recent]
         return choice
+
+    @staticmethod
+    def _token_set(text: str) -> set:
+        """Lowercased token set for robust intent cue checks."""
+        return set(re.findall(r"\b[a-z']+\b", (text or "").lower()))
 
     def can_handle(
         self, user_input: str, intent: str, context: ConversationalContext
@@ -180,10 +190,11 @@ class ConversationalEngine:
         Most questions should go to LLM for natural, contextual responses.
         """
         input_lower = user_input.lower().strip()
+        input_tokens = self._token_set(user_input)
 
         # ONLY handle simple greetings - let LLM handle everything else
         if (
-            any(word in input_lower for word in ["hi", "hey", "hello", "yo", "sup"])
+            bool(input_tokens & {"hi", "hey", "hello", "yo", "sup"})
             and len(input_lower.split()) <= 4
         ):
             # Must be primarily a greeting, not a question
@@ -192,13 +203,15 @@ class ConversationalEngine:
                 return True
 
         # Personal events acknowledgment (birthday, anniversary) - these are simple confirmations
-        if any(word in input_lower for word in ["birthday", "anniversary"]):
+        if bool(input_tokens & {"birthday", "anniversary"}):
             # Only if it's a statement like "my birthday is..." not a question
             if "?" not in input_lower and any(
-                word in input_lower for word in ["my", "is", "on"]
+                word in input_tokens for word in ["my", "is", "on"]
             ):
                 if any(k.startswith("ack_") for k in self.learned_responses.keys()):
                     return True
+
+        return False
 
         # Simple thanks - only if we have learned patterns
         if input_lower in ("thanks", "thx", "ty", "thank you"):
@@ -274,11 +287,12 @@ class ConversationalEngine:
         """
         user_input = context.user_input
         input_lower = user_input.lower().strip()
+        input_tokens = self._token_set(user_input)
 
         # GREETINGS - Brief and friendly
         greeting_words = ["hi", "hey", "hello", "yo", "sup"]
         if (
-            any(word in input_lower for word in greeting_words)
+            bool(input_tokens & set(greeting_words))
             and len(input_lower.split()) <= 4
         ):
             # Don't treat questions as greetings

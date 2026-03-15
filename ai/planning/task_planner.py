@@ -126,6 +126,10 @@ class TaskPlanner:
 
     def _reconstruct_goal(self, intent: str, entities: Dict[str, Any]) -> str:
         """Reconstruct user's goal from intent and entities"""
+        if intent in {"study_topic", "learning:study_topic"}:
+            topic = entities.get("topic", "this topic")
+            return f"Help the user study {topic}"
+
         if intent == "summarize_notes":
             topic = entities.get("topic", "all")
             return f"Summarize {topic} notes"
@@ -157,6 +161,45 @@ class TaskPlanner:
         This is the core planning logic
         """
         steps = []
+
+        # STUDY TOPIC (reasoning-first educational flow)
+        if intent in {"study_topic", "learning:study_topic"}:
+            topic = entities.get("topic", "this topic")
+            user_query = entities.get("query", "")
+
+            steps.append(
+                PlanStep(
+                    step_id=1,
+                    action="response.explain",
+                    params={"topic": topic, "query": user_query},
+                )
+            )
+            steps.append(
+                PlanStep(
+                    step_id=2,
+                    action="response.example",
+                    params={"topic": topic},
+                    depends_on=[1],
+                )
+            )
+            steps.append(
+                PlanStep(
+                    step_id=3,
+                    action="response.check_understanding",
+                    params={"topic": topic},
+                    depends_on=[2],
+                )
+            )
+            steps.append(
+                PlanStep(
+                    step_id=4,
+                    action="response.deeper_material",
+                    params={"topic": topic},
+                    depends_on=[3],
+                )
+            )
+
+            return steps
 
         # SUMMARIZE NOTES
         if intent == "summarize_notes":
@@ -292,7 +335,7 @@ class TaskPlanner:
             )
 
         # GENERIC QUESTION
-        elif intent == "question":
+        elif intent in {"question", "conversation:question"}:
             query = entities.get("query", "")
 
             # Step 1: Check memory for relevant context

@@ -679,6 +679,127 @@ class MemorySystem:
         logger.info(f"Recalled {len(filtered_results)} memories for: {query[:50]}...")
         return filtered_results
 
+    @staticmethod
+    def _clamp01(value: float) -> float:
+        return max(0.0, min(1.0, float(value)))
+
+    def _recency_score_from_timestamp(self, ts: Optional[str]) -> float:
+        """Convert an ISO timestamp into a 0-1 recency score with exponential decay."""
+        if not ts:
+            return 0.5
+        try:
+            dt = datetime.fromisoformat(str(ts).rstrip("Z"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            age_hours = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0)
+            # Half-life-like decay: older memories still contribute but less.
+            return math.exp(-0.035 * age_hours)
+        except (ValueError, TypeError):
+            return 0.5
+
+    def _estimate_confidence(self, entry: Optional[MemoryEntry], recall_row: Dict[str, Any]) -> float:
+        """Estimate memory confidence from metadata with reasonable fallbacks."""
+        if entry and isinstance(entry.context, dict):
+            raw_conf = entry.context.get("confidence")
+            if raw_conf is not None:
+                try:
+                    return self._clamp01(float(raw_conf))
+                except (ValueError, TypeError):
+                    pass
+
+        if entry is not None:
+            return self._clamp01(getattr(entry, "importance", 0.5))
+
+        return self._clamp01(float(recall_row.get("importance", 0.5)))
+
+    def _estimate_source_reliability(self, entry: Optional[MemoryEntry]) -> float:
+        """Estimate source reliability from memory type and explicit source metadata."""
+        if not entry:
+            return 0.6
+
+        base_by_type = {
+            "procedural": 0.90,
+            "document": 0.88,
+            "semantic": 0.80,
+            "episodic": 0.65,
+        }
+        base = base_by_type.get(getattr(entry, "memory_type", ""), 0.70)
+
+        ctx = entry.context if isinstance(entry.context, dict) else {}
+        source = str(ctx.get("source") or ctx.get("origin") or "").lower().strip()
+        source_overrides = {
+            "system_verified": 0.98,
+            "document_ingest": 0.92,
+            "plugin_result": 0.88,
+            "user_explicit": 0.82,
+            "conversation": 0.65,
+        }
+        if source in source_overrides:
+            base = max(base, source_overrides[source])
+
+        if getattr(entry, "source_file", None):
+            base += 0.05
+
+        return self._clamp01(base)
+
+    def recall_memory_weighted(
+        self,
+        query: str,
+        top_k: int = 5,
+        min_similarity: float = 0.35,
+    ) -> List[Dict[str, Any]]:
+        """
+        Recall memories using weighted ranking instead of raw similarity only.
+
+        weighted_score = relevance * 0.5 + recency * 0.2 + confidence * 0.2 + source_reliability * 0.1
+        """
+        candidate_k = max(top_k * 4, top_k)
+        candidates = self.recall_memory(
+            query=query,
+            top_k=candidate_k,
+            min_similarity=min_similarity,
+        )
+        if not candidates:
+            return []
+
+        weighted: List[Dict[str, Any]] = []
+        for row in candidates:
+            entry = self._get_memory_by_id(row.get("id", ""))
+            relevance = self._clamp01(float(row.get("similarity", 0.0)))
+            recency = self._recency_score_from_timestamp(row.get("timestamp"))
+            confidence = self._estimate_confidence(entry, row)
+            source_reliability = self._estimate_source_reliability(entry)
+
+            weighted_score = (
+                relevance * 0.5
+                + recency * 0.2
+                + confidence * 0.2
+                + source_reliability * 0.1
+            )
+
+            weighted.append(
+                {
+                    **row,
+                    "weighted_score": self._clamp01(weighted_score),
+                    "score_components": {
+                        "relevance": round(relevance, 4),
+                        "recency": round(recency, 4),
+                        "confidence": round(confidence, 4),
+                        "source_reliability": round(source_reliability, 4),
+                    },
+                }
+            )
+
+        weighted.sort(
+            key=lambda m: (
+                float(m.get("weighted_score", 0.0)),
+                float(m.get("similarity", 0.0)),
+                str(m.get("timestamp", "")),
+            ),
+            reverse=True,
+        )
+        return weighted[:top_k]
+
     def _get_memory_by_id(self, memory_id: str) -> Optional[MemoryEntry]:
         """Get memory entry by ID"""
         for memory_list in [
@@ -703,17 +824,18 @@ class MemorySystem:
         Returns:
             Formatted context string
         """
-        # Recall relevant memories
-        memories = self.recall_memory(query, top_k=max_memories)
+        # Recall and rank relevant memories with weighted scoring.
+        memories = self.recall_memory_weighted(query, top_k=max_memories)
 
         if not memories:
             return ""
 
         # Format as context
-        context_parts = ["Relevant information from memory:"]
+        context_parts = ["Relevant information from memory (weighted):"]
         for i, mem in enumerate(memories, 1):
+            ws = float(mem.get("weighted_score", 0.0))
             context_parts.append(
-                f"{i}. {mem['content']} (from {mem['timestamp'][:10]})"
+                f"{i}. {mem['content']} (score {ws:.2f}, from {mem['timestamp'][:10]})"
             )
 
         return "\n".join(context_parts)

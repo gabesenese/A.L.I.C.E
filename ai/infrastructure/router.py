@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -359,6 +360,30 @@ class RequestRouter:
             return True
         return i.startswith(self.TOOL_PREFIXES)
 
+    def _is_explicit_short_conversation(self, user_text: str, intent: str) -> bool:
+        """Allow low-confidence conversational routing only for short social turns."""
+        text = (user_text or "").strip().lower()
+        if not text:
+            return False
+
+        tokens = re.findall(r"\b[a-z']+\b", text)
+        if len(tokens) > 5:
+            return False
+
+        social_intents = {
+            "greeting",
+            "farewell",
+            "thanks",
+            "conversation:ack",
+        }
+        if self._normalize_intent(intent) in social_intents:
+            return True
+
+        social_tokens = {
+            "hi", "hey", "hello", "yo", "sup", "bye", "goodbye", "thanks", "thank", "thx",
+        }
+        return bool(set(tokens) & social_tokens)
+
     def _has_explicit_action_verb(self, text_lower: str) -> bool:
         action_verbs = {
             "create", "make", "read", "open", "delete", "remove", "move", "rename",
@@ -495,9 +520,12 @@ class RequestRouter:
 
         # Priority 2: CONVERSATIONAL (learned patterns)
         if self._is_conversational_intent(intent):
-            # Conversation intents should not fall into tool/LLM routing due to
-            # strict confidence thresholds alone.
-            if confidence >= 0.45 or intent.startswith(self.CONVERSATION_PREFIXES):
+            # Conversational routing requires healthy confidence, except for very
+            # short explicit social utterances (hi/thanks/bye/ack).
+            if (
+                confidence >= self.MIN_CONV_CONFIDENCE
+                or self._is_explicit_short_conversation(user_text, intent)
+            ):
                 self.routing_stats["conversational"] += 1
                 self._emit_routing_event(
                     "conversational", RoutingDecision.CONVERSATIONAL, intent, confidence

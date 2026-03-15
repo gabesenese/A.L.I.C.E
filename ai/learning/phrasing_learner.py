@@ -129,6 +129,27 @@ class PhrasingLearner:
             # General responses by type
             return f"general:{thought_type}"
 
+    def _is_high_variance_thought(self, alice_thought: Dict[str, Any]) -> bool:
+        """
+        Return True for thought types where replaying a learned phrasing is risky.
+
+        These intents are highly open-ended and can easily produce unrelated
+        responses if we reuse older examples from the same broad pattern bucket.
+        """
+        thought_type = (alice_thought.get("type") or "").strip().lower()
+
+        if thought_type in {"knowledge_answer", "reasoning_result", "factual_answer"}:
+            return True
+
+        # Broad conversation buckets are too diverse for safe template replay.
+        if thought_type.startswith("conversation:") and thought_type not in {
+            "conversation:ack",
+            "conversation:clarification_needed",
+        }:
+            return True
+
+        return False
+
     def _update_confidence(self, pattern: str) -> None:
         """
         Update confidence score for a pattern based on number of examples.
@@ -198,6 +219,15 @@ class PhrasingLearner:
         if alice_thought.get("type") == "weather_advice":
             ollama_phrasing = self._sanitize_weather_advice_phrasing(ollama_phrasing)
 
+        # Avoid polluting learned store with high-variance conversational/knowledge
+        # responses that are likely to replay incorrectly on future turns.
+        if self._is_high_variance_thought(alice_thought):
+            logger.debug(
+                "[PhrasingLearner] Skipping high-variance thought type '%s'",
+                alice_thought.get("type", ""),
+            )
+            return
+
         pattern = self._extract_pattern(alice_thought)
 
         entry = {
@@ -250,6 +280,13 @@ class PhrasingLearner:
         Returns:
             True if Alice can phrase it herself, False if needs Ollama's help
         """
+        if self._is_high_variance_thought(alice_thought):
+            logger.debug(
+                "[PhrasingLearner] High-variance thought '%s' requires fresh phrasing",
+                alice_thought.get("type", ""),
+            )
+            return False
+
         pattern = self._extract_pattern(alice_thought)
 
         # Never seen this pattern before?

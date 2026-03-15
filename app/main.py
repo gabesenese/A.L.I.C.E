@@ -80,12 +80,14 @@ from ai.infrastructure.error_recovery import get_error_recovery
 from ai.memory.smart_context_cache import get_context_cache
 from ai.memory.adaptive_context_selector import get_context_selector
 from ai.memory.predictive_prefetcher import get_prefetcher
+from ai.memory.conversation_state import get_conversation_state_tracker
 from ai.optimization.response_optimizer import get_response_optimizer
 from ai.learning.self_reflection import get_self_reflection
 from ai.learning.learning_engine import get_learning_engine
 from ai.core.conversational_engine import get_conversational_engine, ConversationalContext
 from ai.core.llm_gateway import get_llm_gateway, LLMGateway
 from ai.core.llm_policy import LLMCallType
+from ai.core.response_self_critic import get_response_self_critic
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -406,6 +408,7 @@ class ALICE:
             # 2. Reasoning Engine (combines world_state + reference_resolver + goal_resolver + verifier)
             logger.info("Loading reasoning engine...")
             self.reasoning_engine = get_reasoning_engine(user_name)
+            self.response_self_critic = get_response_self_critic()
             self.error_recovery = get_error_recovery()
             self.context_cache = get_context_cache()
             self.context_selector = get_context_selector()
@@ -467,6 +470,8 @@ class ALICE:
             from ai.memory.conversation_context import get_context_manager
             self.conversation_context = get_context_manager(max_turns=50, context_window=10)
             logger.info("[OK] Conversation context manager ready - Alice can now track 'it', 'that', and conversation flow")
+            self.conversation_state_tracker = get_conversation_state_tracker(max_chain=8, max_depth=5)
+            logger.info("[OK] Conversation state tracker ready - topic/goal/depth/question-chain tracking enabled")
 
             # 3.9. User Profile Engine - Deep user modeling and preference learning
             logger.info("Initializing user profile engine...")
@@ -1946,6 +1951,38 @@ class ALICE:
             return f" {suggestion_text}"
         
         return None
+
+    def _promote_learning_goal_intent(
+        self, user_input: str, intent: str, entities: Dict[str, Any]
+    ) -> tuple[str, Dict[str, Any]]:
+        """Promote study-oriented requests into explicit planner intents."""
+        text = (user_input or "").strip()
+        text_lower = text.lower()
+        entities = dict(entities or {})
+
+        study_markers = (
+            "help me study",
+            "teach me",
+            "i want to learn",
+            "help me learn",
+            "study ",
+            "learn ",
+        )
+        if not any(m in text_lower for m in study_markers):
+            return intent, entities
+
+        topic_match = re.search(
+            r"(?:help\s+me\s+study|help\s+me\s+learn|i\s+want\s+to\s+learn|teach\s+me|study|learn)\s+(?:about\s+)?(.+)$",
+            text_lower,
+            re.IGNORECASE,
+        )
+        topic = topic_match.group(1).strip(" .?!") if topic_match else ""
+        if topic:
+            entities["topic"] = topic
+        entities.setdefault("query", text)
+
+        self._think(f"Reasoning goal detected → planning study flow for: {entities.get('topic', 'topic')}")
+        return "learning:study_topic", entities
     
     def _use_planner_executor(self, intent: str, entities: Dict[str, Any], query: str) -> Optional[str]:
         """
@@ -1962,7 +1999,8 @@ class ALICE:
         # Only use planner for specific intents that benefit from structured execution
         plannable_intents = [
             'summarize_notes', 'check_calendar', 'send_email',
-            'create_note', 'question'
+            'create_note', 'question', 'conversation:question',
+            'study_topic', 'learning:study_topic'
         ]
         
         if intent not in plannable_intents:
@@ -1989,6 +2027,24 @@ class ALICE:
             result = self.plan_executor.execute(plan)
             
             if result['success']:
+                if intent in ('study_topic', 'learning:study_topic'):
+                    all_results = result.get('all_results', {}) or {}
+                    explain = all_results.get(1, '')
+                    example = all_results.get(2, '')
+                    check = all_results.get(3, '')
+                    deeper = all_results.get(4, '')
+
+                    parts = []
+                    if explain:
+                        parts.append(f"1) Concept\n{explain}")
+                    if example:
+                        parts.append(f"2) Example\n{example}")
+                    if check:
+                        parts.append(f"3) Check\n{check}")
+                    if deeper:
+                        parts.append(f"4) Next Step\n{deeper}")
+                    if parts:
+                        return "\n\n".join(parts)
                 return result.get('result')
             else:
                 logger.error(f"Plan execution failed: {result.get('error')}")
@@ -2079,6 +2135,12 @@ class ALICE:
                 topics_text = ", ".join(detailed_context["frequent_topics"][:3])
                 context_parts.append(f"Current session topics: {topics_text}")
                 context_types.append("conversation")
+
+        if getattr(self, 'conversation_state_tracker', None):
+            state_context = self.conversation_state_tracker.format_for_prompt()
+            if state_context:
+                context_parts.append(state_context)
+                context_types.append("conversation_state")
         
         # 4. Recent conversation summary (fallback)
         recent_context = self._get_recent_conversation_summary()
@@ -2093,7 +2155,7 @@ class ALICE:
                 context_parts.append(active_context)
                 context_types.append("general")
         
-        # 6. Relevant memories (RAG) - priority-weighted retrieval
+        # 6. Relevant memories (RAG) - weighted by relevance/recency/confidence/source
         # Keep memory injection conservative on conversational turns to avoid random replies.
         _memory_trigger_words = (
             "remember",
@@ -2121,27 +2183,21 @@ class ALICE:
         )
         if _should_fetch_memory:
             try:
-                # Prefer PrioritizedMemoryReplay when raw MemoryEntry objects are
-                # available: it ranks by 35% recency + 30% surprise + 20% outcome
-                # + 15% access-frequency rather than recency alone.
-                _replay = getattr(self, 'memory_replay', None)
-                _raw_entries = (
-                    list(getattr(self.memory, 'episodic_memory', []))
-                    + list(getattr(self.memory, 'semantic_memory', []))
+                _weighted_memories = self.memory.recall_memory_weighted(
+                    user_input,
+                    top_k=3,
+                    min_similarity=0.35,
                 )
-                if _replay is not None and _raw_entries:
-                    _top = _replay.top_k(_raw_entries, k=5)
-                    if _top:
-                        _lines = ["Relevant information from memory (priority-ranked):"]
-                        for _i, _e in enumerate(_top, 1):
-                            _ts = getattr(_e, 'timestamp', '')[:10]
-                            _lines.append(f"{_i}. {_e.content} (from {_ts})")
-                        context_parts.append("\n".join(_lines))
-                        context_types.append("memory")
-                    else:
-                        raise ValueError("no top entries")
-                else:
-                    raise ValueError("replay unavailable or no raw entries")
+                if _weighted_memories:
+                    _lines = ["Relevant information from memory (weighted):"]
+                    for _i, _m in enumerate(_weighted_memories, 1):
+                        _ts = str(_m.get('timestamp', ''))[:10]
+                        _ws = float(_m.get('weighted_score', 0.0))
+                        _lines.append(
+                            f"{_i}. {_m.get('content', '')} (score {_ws:.2f}, from {_ts})"
+                        )
+                    context_parts.append("\n".join(_lines))
+                    context_types.append("memory")
             except Exception:
                 memory_context = self.memory.get_context_for_llm(user_input, max_memories=5)
                 if memory_context:
@@ -2197,6 +2253,83 @@ class ALICE:
         full_context = "\n\n".join(context_parts)
         self.context_cache.put(user_input, intent or "", entities or {}, full_context)
         return full_context
+
+    def _self_critique_and_regenerate(
+        self,
+        user_input: str,
+        intent: str,
+        entities: Dict[str, Any],
+        response: str,
+        goal_res: Any = None,
+    ) -> str:
+        """Second-pass quality check with one-shot regeneration on failure."""
+        if not response or not getattr(self, 'response_self_critic', None):
+            return response
+
+        memory_snapshot = None
+        try:
+            if getattr(self, 'reasoning_engine', None):
+                memory_snapshot = self.reasoning_engine.snapshot()
+        except Exception:
+            memory_snapshot = None
+
+        critique = self.response_self_critic.assess(
+            user_input=user_input,
+            intent=intent,
+            entities=entities or {},
+            response=response,
+            memory_snapshot=memory_snapshot,
+        )
+        if critique.passed:
+            return response
+
+        self._think(
+            "Self-critique failed -> regenerating once "
+            f"({', '.join(critique.fail_reasons[:3])})"
+        )
+
+        if not getattr(self, 'llm_gateway', None):
+            return response
+
+        try:
+            regen_prompt = (
+                "Revise this draft answer so it matches intent/topic, avoids unsupported claims, "
+                "and stays consistent with memory snapshot. Keep it concise.\n\n"
+                f"User input: {user_input}\n"
+                f"Intent: {intent}\n"
+                f"Entities: {entities or {}}\n"
+                f"Memory snapshot: {memory_snapshot or {}}\n"
+                f"Draft answer: {response}\n"
+                f"Failures: {', '.join(critique.fail_reasons)}\n"
+                "Return only the revised answer."
+            )
+            regen = self.llm_gateway.request(
+                prompt=regen_prompt,
+                call_type=LLMCallType.GENERATION,
+                use_history=False,
+                user_input=user_input,
+                context={
+                    'intent': intent,
+                    'entities': entities or {},
+                    'goal': goal_res.goal if (goal_res and getattr(goal_res, 'goal', None)) else None,
+                    'self_critique': critique.fail_reasons,
+                },
+            )
+            if regen.success and regen.response:
+                revised = regen.response.strip()
+                critique2 = self.response_self_critic.assess(
+                    user_input=user_input,
+                    intent=intent,
+                    entities=entities or {},
+                    response=revised,
+                    memory_snapshot=memory_snapshot,
+                )
+                if critique2.passed or len(critique2.fail_reasons) < len(critique.fail_reasons):
+                    return revised
+        except Exception as e:
+            logger.debug(f"Self-critique regeneration failed: {e}")
+
+        return response
     
     def _think(self, msg: str) -> None:
         """Emit a thinking-step line when debug mode is on (dev mode)."""
@@ -2242,15 +2375,15 @@ class ALICE:
         """Check if this is a pure conversational input (no commands/actions)"""
         input_lower = user_input.lower()
         
-        # Short, conversational intents
+        # Only narrow intents should hit the fast conversational path.
+        # Broad buckets like conversation:general/question stay on normal routing
+        # to avoid intercepting knowledge/tool-adjacent queries.
         conversational_intents = [
-            'conversation:general',
             'conversation:ack',
-            'conversation:help',
-            'conversation:question',
-            'conversation:meta_question',
             'greeting',
-            'farewell'
+            'farewell',
+            'thanks',
+            'status_inquiry',
         ]
         
         # If not one of these intents, not pure conversation
@@ -4122,6 +4255,9 @@ class ALICE:
                 return proactive_suggestion
             
             # Try planner/executor for structured tasks first
+            intent, entities = self._promote_learning_goal_intent(
+                user_input_processed, intent, entities
+            )
             planned_response = self._use_planner_executor(intent, entities, user_input_processed)
             if planned_response:
                 # Log action for pattern learning
@@ -5270,6 +5406,13 @@ class ALICE:
                 
                 if llm_response.success and llm_response.response:
                     response = llm_response.response
+                    response = self._self_critique_and_regenerate(
+                        user_input=user_input,
+                        intent=intent,
+                        entities=entities or {},
+                        response=response,
+                        goal_res=goal_res,
+                    )
 
                     # LEARN from Ollama's conversational response
                     # Record so A.L.I.C.E can eventually handle this without Ollama
@@ -5397,7 +5540,7 @@ class ALICE:
             # ALICE'S COMPREHENSIVE LEARNING - Learn from EVERY interaction
             # This is where Alice builds her own intelligence
             try:
-                self.knowledge_engine.learn_from_interaction(
+                learning_result = self.knowledge_engine.learn_from_interaction(
                     user_input=user_input,
                     alice_response=response,
                     intent=intent,
@@ -5408,7 +5551,14 @@ class ALICE:
                         'timestamp': datetime.now().isoformat()
                     }
                 )
-                self._think(f"Alice learned from this interaction (confidence in '{intent}' topics growing)")
+                if isinstance(learning_result, dict) and not learning_result.get('stored', True):
+                    reasons = learning_result.get('validation', {}).get('reasons', [])
+                    self._think(
+                        f"Knowledge candidate rejected for '{intent}' "
+                        f"(checks failed: {', '.join(reasons) if reasons else 'validation'})"
+                    )
+                else:
+                    self._think(f"Alice learned from this interaction (confidence in '{intent}' topics growing)")
             except Exception as e:
                 logger.error(f"[Learning] Error in knowledge engine: {e}")
 
@@ -5416,7 +5566,14 @@ class ALICE:
             try:
                 # Conversation Context - Track this turn for reference resolution
                 if hasattr(self, 'conversation_context'):
-                    topics = [intent] if intent else []
+                    topics = []
+                    if getattr(self, 'conversation_state_tracker', None):
+                        _state = self.conversation_state_tracker.get_state_summary()
+                        _topic = str(_state.get('conversation_topic', '')).strip()
+                        if _topic:
+                            topics.append(_topic)
+                    if intent:
+                        topics.append(intent)
                     self.conversation_context.add_turn(
                         user_input=user_input,
                         alice_response=response,
@@ -5999,6 +6156,9 @@ class ALICE:
                     # Restore referenced items
                     if 'referenced_items' in state:
                         self.referenced_items = state['referenced_items']
+
+                    if 'conversation_state_tracker' in state and getattr(self, 'conversation_state_tracker', None):
+                        self.conversation_state_tracker.load_state(state['conversation_state_tracker'])
                     
                     logger.info("[OK] Previous conversation context restored")
             except Exception as e:
@@ -6027,6 +6187,11 @@ class ALICE:
                 'conversation_summary': self.conversation_summary[-10:],  # Keep last 10
                 'conversation_topics': self.conversation_topics[-10:],
                 'referenced_items': self.referenced_items,
+                'conversation_state_tracker': (
+                    self.conversation_state_tracker.to_dict()
+                    if getattr(self, 'conversation_state_tracker', None)
+                    else {}
+                ),
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -6063,6 +6228,23 @@ class ALICE:
             "entities": entities or {}
         }
         try:
+            if getattr(self, 'conversation_state_tracker', None):
+                goal_hint = ""
+                if isinstance(entities, dict):
+                    for _goal_key in ("goal", "user_goal", "objective"):
+                        _goal_val = entities.get(_goal_key)
+                        if isinstance(_goal_val, str) and _goal_val.strip():
+                            goal_hint = _goal_val.strip()
+                            break
+                if not goal_hint and getattr(self, 'pending_action', None):
+                    goal_hint = str(self.pending_action).replace("_", " ")
+                self.conversation_state_tracker.update_state(
+                    user_input=user_input,
+                    intent=intent or "",
+                    entities=entities or {},
+                    goal_hint=goal_hint,
+                )
+
             # Process with unified context engine
             if self.context:
                 turn = self.context.process_turn(

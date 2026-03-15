@@ -180,11 +180,25 @@ class KnowledgeEngine:
         intent: str,
         entities: Dict[str, Any],
         context: Dict[str, Any],
-    ):
+    ) -> Dict[str, Any]:
         """
         Alice learns from EVERY interaction.
         This is where Alice builds her intelligence.
         """
+        validation = self.validate_knowledge_candidate(
+            user_input=user_input,
+            alice_response=alice_response,
+            intent=intent,
+            entities=entities,
+            context=context,
+        )
+        if not validation.get("passed", True):
+            logger.info(
+                "[Learning] Rejected weak knowledge candidate"
+                f" (intent={intent}, reasons={validation.get('reasons', [])})"
+            )
+            return {"stored": False, "validation": validation}
+
         # Extract and learn entities
         self._extract_and_learn_entities(user_input, alice_response, entities)
 
@@ -205,6 +219,218 @@ class KnowledgeEngine:
         if self._interactions_since_save >= self._SAVE_INTERVAL:
             self._save_knowledge()
             self._interactions_since_save = 0
+
+        return {"stored": True, "validation": validation}
+
+    def validate_knowledge_candidate(
+        self,
+        user_input: str,
+        alice_response: str,
+        intent: str,
+        entities: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Validate a candidate response before storing it as learned knowledge.
+
+        The gate is strict for LLM-origin responses and permissive for tool/system routes.
+        """
+        context = context or {}
+        route = str(context.get("route", "")).upper().strip()
+
+        if route and route != "LLM":
+            return {
+                "passed": True,
+                "skipped": True,
+                "route": route,
+                "reasons": [],
+                "scores": {},
+            }
+
+        response_text = (alice_response or "").strip()
+        if not response_text:
+            return {
+                "passed": False,
+                "route": route or "LLM",
+                "reasons": ["empty_response"],
+                "scores": {"relevance": 0.0},
+            }
+
+        relevance = self._response_relevance_score(user_input, response_text, entities)
+        has_uncertainty = self._contains_uncertainty_markers(response_text)
+        is_generic = self._is_too_generic_response(response_text)
+        is_contradictory = self._detect_relationship_contradiction(response_text)
+
+        reasons: List[str] = []
+        if relevance < 0.12:
+            reasons.append("low_relevance")
+        if has_uncertainty:
+            reasons.append("contains_uncertainty")
+        if is_generic:
+            reasons.append("too_generic")
+        if is_contradictory:
+            reasons.append("contradictory")
+
+        return {
+            "passed": len(reasons) == 0,
+            "route": route or "LLM",
+            "reasons": reasons,
+            "scores": {
+                "relevance": round(relevance, 4),
+                "uncertainty": 1.0 if has_uncertainty else 0.0,
+                "generic": 1.0 if is_generic else 0.0,
+                "contradictory": 1.0 if is_contradictory else 0.0,
+            },
+            "intent": intent,
+        }
+
+    def _tokenize_for_validation(self, text: str) -> List[str]:
+        """Tokenize and remove very common stop words for relevance checks."""
+        if not text:
+            return []
+        stop_words = {
+            "a",
+            "an",
+            "and",
+            "are",
+            "as",
+            "at",
+            "be",
+            "but",
+            "by",
+            "for",
+            "from",
+            "how",
+            "i",
+            "in",
+            "is",
+            "it",
+            "me",
+            "my",
+            "of",
+            "on",
+            "or",
+            "our",
+            "that",
+            "the",
+            "this",
+            "to",
+            "we",
+            "what",
+            "when",
+            "where",
+            "who",
+            "why",
+            "you",
+            "your",
+        }
+        tokens = re.findall(r"[a-z0-9']+", text.lower())
+        return [t for t in tokens if len(t) > 2 and t not in stop_words]
+
+    def _response_relevance_score(
+        self,
+        user_input: str,
+        response: str,
+        entities: Optional[Dict[str, Any]] = None,
+    ) -> float:
+        """Estimate answer relevance to the prompt using token overlap plus entity overlap."""
+        prompt_tokens = set(self._tokenize_for_validation(user_input))
+        response_tokens = set(self._tokenize_for_validation(response))
+
+        if not prompt_tokens:
+            base = 0.0
+        else:
+            overlap = len(prompt_tokens.intersection(response_tokens))
+            base = overlap / max(len(prompt_tokens), 1)
+
+        entity_boost = 0.0
+        if entities:
+            response_lower = response.lower()
+            for val in entities.values():
+                if isinstance(val, str) and val.strip() and val.lower() in response_lower:
+                    entity_boost = 0.2
+                    break
+
+        return min(1.0, base + entity_boost)
+
+    def _contains_uncertainty_markers(self, response: str) -> bool:
+        """Detect hedging language that should not be learned as stable knowledge."""
+        text = response.lower()
+        uncertainty_markers = [
+            "i'm not sure",
+            "i am not sure",
+            "not sure",
+            "i don't know",
+            "i do not know",
+            "maybe",
+            "might",
+            "possibly",
+            "probably",
+            "could be",
+            "i think",
+            "it depends",
+            "uncertain",
+        ]
+        return any(marker in text for marker in uncertainty_markers)
+
+    def _is_too_generic_response(self, response: str) -> bool:
+        """Detect low-information generic responses that should not enter long-term knowledge."""
+        text = response.strip().lower()
+        tokens = self._tokenize_for_validation(text)
+        if len(tokens) < 6:
+            return True
+
+        generic_patterns = [
+            "it is important to",
+            "there are many factors",
+            "it depends on the context",
+            "this can vary",
+            "in general",
+            "generally speaking",
+        ]
+        if any(p in text for p in generic_patterns):
+            return True
+
+        unique_ratio = len(set(tokens)) / max(len(tokens), 1)
+        return unique_ratio < 0.45
+
+    def _extract_relationship_candidates_from_text(
+        self, text: str
+    ) -> List[Tuple[str, str, str]]:
+        """Extract coarse relationship triples from text for contradiction checks."""
+        candidates: List[Tuple[str, str, str]] = []
+        relationship_patterns = [
+            (r"([A-Za-z0-9\s\-']+?)\s+is\s+([A-Za-z0-9\s\-']+)", "is"),
+            (r"([A-Za-z0-9\s\-']+?)\s+created\s+([A-Za-z0-9\s\-']+)", "created"),
+            (r"([A-Za-z0-9\s\-']+?)\s+lives\s+in\s+([A-Za-z0-9\s\-']+)", "lives_in"),
+            (r"([A-Za-z0-9\s\-']+?)\s+works\s+at\s+([A-Za-z0-9\s\-']+)", "works_at"),
+        ]
+
+        for pattern, predicate in relationship_patterns:
+            for subject, obj in re.findall(pattern, text, re.IGNORECASE):
+                s = subject.strip(" .,!?:;\n\t")
+                o = obj.strip(" .,!?:;\n\t")
+                if s and o:
+                    candidates.append((s.lower(), predicate, o.lower()))
+        return candidates
+
+    def _detect_relationship_contradiction(self, response: str) -> bool:
+        """Reject if response asserts a conflicting object for an already-confident relationship."""
+        candidates = self._extract_relationship_candidates_from_text(response)
+        if not candidates or not self.relationships:
+            return False
+
+        for cand_subject, cand_predicate, cand_object in candidates:
+            for rel in self.relationships:
+                if (
+                    rel.subject.lower().strip() == cand_subject
+                    and rel.predicate == cand_predicate
+                    and rel.confidence >= 0.7
+                ):
+                    known_object = rel.object.lower().strip()
+                    if known_object != cand_object:
+                        return True
+        return False
 
     def _extract_and_learn_entities(
         self, user_input: str, response: str, entities: Dict[str, Any]

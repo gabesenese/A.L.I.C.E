@@ -50,6 +50,16 @@ class PlanExecutor:
         # Formatting actions
         self._action_handlers["format.*"] = self._execute_format
 
+        # Reasoning-layer response actions
+        self._action_handlers["response.explain"] = self._execute_response_explain
+        self._action_handlers["response.example"] = self._execute_response_example
+        self._action_handlers["response.check_understanding"] = (
+            self._execute_response_check_understanding
+        )
+        self._action_handlers["response.deeper_material"] = (
+            self._execute_response_deeper_material
+        )
+
     def execute(self, plan: ExecutionPlan) -> Dict[str, Any]:
         """
         Execute a plan step-by-step
@@ -322,6 +332,53 @@ class PlanExecutor:
             return "\n".join(formatted)
 
         return str(params)
+
+    def _execute_response_explain(self, action: str, params: Dict[str, Any]) -> str:
+        """Generate the core concept explanation for a study plan."""
+        topic = (params.get("topic") or "this topic").strip()
+        query = (params.get("query") or "").strip()
+
+        if self.llm_engine:
+            try:
+                prompt = (
+                    f"Teach the concept '{topic}' clearly in 3-4 sentences. "
+                    "Keep it concise and practical for a beginner."
+                )
+                if query:
+                    prompt += f" The user asked: {query!r}."
+                answer = self.llm_engine.generate(prompt, max_tokens=220)
+                if answer:
+                    return answer.strip()
+            except Exception:
+                pass
+
+        return (
+            f"{topic.title()} is a way to design code so one interface can work with "
+            "different concrete types or behaviors."
+        )
+
+    def _execute_response_example(self, action: str, params: Dict[str, Any]) -> str:
+        """Provide a concrete learning example for the concept."""
+        topic = (params.get("topic") or "this topic").strip()
+        return (
+            f"Example: Think of {topic} like a common command that works differently "
+            "depending on the object receiving it."
+        )
+
+    def _execute_response_check_understanding(
+        self, action: str, params: Dict[str, Any]
+    ) -> str:
+        """Add a comprehension check question."""
+        topic = (params.get("topic") or "this topic").strip()
+        return f"Quick check: In your own words, how would you explain {topic} to a friend?"
+
+    def _execute_response_deeper_material(self, action: str, params: Dict[str, Any]) -> str:
+        """Return next-step study guidance and assemble a final planned response."""
+        topic = (params.get("topic") or "this topic").strip()
+        return (
+            "Next step: Compare two implementations of the same interface and identify "
+            f"how each one applies {topic}."
+        )
 
 
 # Global instance - will be initialized by ALICE

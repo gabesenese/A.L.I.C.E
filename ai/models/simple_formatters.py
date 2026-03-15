@@ -41,12 +41,12 @@ class CompactNotesListStrategy:
         header: str,
     ) -> List[str]:
         sep = "\u2500" * 40
-        lines = [f"{header}  \u2014  {count}", sep]
-        for note in notes:
+        lines = [f"{header} ({count})", sep]
+        for idx, note in enumerate(notes, start=1):
             title = note.get("title", "Untitled")
             tags = note.get("tags", [])
             tag_str = ("  " + "  ".join(f"#{t}" for t in tags[:2])) if tags else ""
-            lines.append(f"  \u25cf  {title}{tag_str}")
+            lines.append(f"{idx}. {title}{tag_str}")
         return lines
 
 
@@ -61,8 +61,8 @@ class DetailedNotesListStrategy:
         header: str,
     ) -> List[str]:
         sep = "\u2500" * 40
-        lines = [f"{header}  \u2014  {count}", sep]
-        for note in notes:
+        lines = [f"{header} ({count})", sep]
+        for idx, note in enumerate(notes, start=1):
             title = note.get("title", "Untitled")
             tags = note.get("tags", [])
             updated = (note.get("updated_at") or "")[:10]
@@ -75,7 +75,7 @@ class DetailedNotesListStrategy:
             if priority and priority not in ("medium", ""):
                 meta_parts.append(priority)
             meta_str = ("  [" + "  ".join(meta_parts) + "]") if meta_parts else ""
-            lines.append(f"  \u25cf  {title}{tag_str}{meta_str}")
+            lines.append(f"{idx}. {title}{tag_str}{meta_str}")
             if preview:
                 lines.append(f"      {preview}")
         return lines
