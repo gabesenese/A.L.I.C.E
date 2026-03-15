@@ -90,6 +90,9 @@ from ai.core.llm_policy import LLMCallType
 from ai.core.response_self_critic import get_response_self_critic
 from ai.core.executive_controller import get_executive_controller
 from ai.core.reflection_engine import get_reflection_engine
+from ai.core.response_planner import get_response_planner
+from ai.core.goal_tracker import get_goal_tracker
+from ai.core.response_quality_tracker import get_response_quality_tracker
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -413,6 +416,9 @@ class ALICE:
             self.response_self_critic = get_response_self_critic()
             self.executive_controller = get_executive_controller()
             self.reflection_engine = get_reflection_engine()
+            self.response_planner = get_response_planner()
+            self.goal_tracker = get_goal_tracker()
+            self.response_quality_tracker = get_response_quality_tracker()
             self._internal_reasoning_state = {}
             self._exec_should_store_memory = True
             self._last_exec_gate_eval = {}
@@ -2177,7 +2183,49 @@ class ALICE:
                 context_types.append("reasoning_state")
             except Exception:
                 pass
-        
+
+        # 3a. Response plan injection (structure constraints for LLM)
+        _rp_data = (getattr(self, '_internal_reasoning_state', {}) or {}).get('response_plan', {})
+        if _rp_data:
+            try:
+                _rp_lines = [
+                    "Response plan (internal):",
+                    f"- type: {_rp_data.get('response_type', 'factual')}",
+                    f"- strategy: {_rp_data.get('strategy', 'answer_directly')}",
+                ]
+                _outline = _rp_data.get('outline', []) or []
+                if _outline:
+                    _rp_lines.append(f"- outline: {' -> '.join(str(o) for o in _outline[:4])}")
+                _rp_constraints = _rp_data.get('constraints', []) or []
+                if _rp_constraints:
+                    _rp_lines.append(f"- constraints: {'; '.join(str(c) for c in _rp_constraints[:4])}")
+                _goal_ctx = _rp_data.get('goal_context', '')
+                if _goal_ctx:
+                    _rp_lines.append(f"- goal_context: {_goal_ctx}")
+                _fmt = _rp_data.get('format_hint', '')
+                if _fmt:
+                    _rp_lines.append(f"- format: {_fmt}")
+                context_parts.append("\n".join(_rp_lines))
+                context_types.append("response_plan")
+            except Exception:
+                pass
+
+        # 3b. Goal steering injection (keeps response aligned with active goal)
+        if getattr(self, 'goal_tracker', None):
+            try:
+                _goal_injection = self.goal_tracker.get_goal_prompt_injection()
+                if _goal_injection:
+                    context_parts.append(_goal_injection)
+                    context_types.append("goal_steering")
+                # Append next-step suggestion when goal is achieved
+                if self.goal_tracker.is_goal_achieved():
+                    _nxt = self.goal_tracker.get_next_step_suggestion()
+                    if _nxt:
+                        context_parts.append(_nxt)
+                        context_types.append("goal_next_step")
+            except Exception:
+                pass
+
         # 4. Recent conversation summary (fallback)
         recent_context = self._get_recent_conversation_summary()
         if recent_context and not self.advanced_context and not self.summarizer:
@@ -3420,6 +3468,30 @@ class ALICE:
                 f"score={float(reflection.get('success_score', 0.0)):.2f}, "
                 f"relevant={reflection.get('was_relevant', False)}"
             )
+
+            # Track response quality and classify failure type
+            if getattr(self, 'response_quality_tracker', None):
+                try:
+                    _goal_align = 1.0
+                    if getattr(self, 'goal_tracker', None):
+                        _goal_align = self.goal_tracker.goal_alignment_score(response)
+                    _turn_quality = self.response_quality_tracker.track_turn(
+                        user_input=user_input,
+                        response=response,
+                        intent=intent,
+                        gate_accepted=bool(gate_eval.get('accepted', True)),
+                        reflection_score=float(reflection.get('success_score', 0.0)),
+                        goal_alignment=_goal_align,
+                    )
+                    self._internal_reasoning_state["turn_quality"] = _turn_quality.as_dict()
+                    if _turn_quality.failure_type != "none":
+                        self._think(
+                            f"Quality tracker → failure={_turn_quality.failure_type}, "
+                            f"relevance={_turn_quality.relevance:.2f}"
+                        )
+                except Exception as _qt_err:
+                    logger.debug(f"[QualityTracker] {_qt_err}")
+
         except Exception as e:
             logger.debug(f"[ExecutiveReflection] {e}")
 
@@ -5006,6 +5078,24 @@ class ALICE:
             )
             self._internal_reasoning_state["learning_decision"] = _learning_decision
             self._exec_should_store_memory = _learning_decision in ("store", "temporary") and bool(_executive_decision.store_memory)
+
+            # Response planning: decide structure before LLM is called
+            if getattr(self, 'response_planner', None):
+                try:
+                    _resp_plan = self.response_planner.plan(
+                        user_input=user_input,
+                        intent=intent,
+                        reasoning_state=self._internal_reasoning_state,
+                        conversation_state=_conversation_state,
+                    )
+                    self._internal_reasoning_state["response_plan"] = _resp_plan.as_dict()
+                    self._think(
+                        f"Response plan → type={_resp_plan.response_type}, "
+                        f"strategy={_resp_plan.strategy}"
+                    )
+                except Exception as _rp_err:
+                    logger.debug(f"[ResponsePlanner] {_rp_err}")
+
             self._think(
                 f"Executive decision → {_executive_decision.action} "
                 f"({_executive_decision.reason})"
@@ -6404,6 +6494,10 @@ class ALICE:
 
                     if 'conversation_state_tracker' in state and getattr(self, 'conversation_state_tracker', None):
                         self.conversation_state_tracker.load_state(state['conversation_state_tracker'])
+
+                    # Restore adaptive routing weights (with decay toward neutral)
+                    if getattr(self, 'executive_controller', None):
+                        self.executive_controller.load_weights("data/executive_routing_weights.json")
                     
                     logger.info("[OK] Previous conversation context restored")
             except Exception as e:
@@ -6442,6 +6536,10 @@ class ALICE:
             
             with open(state_file, 'wb') as f:
                 pickle.dump(state, f)
+
+            # Persist adaptive routing weights for cumulative learning
+            if getattr(self, 'executive_controller', None):
+                self.executive_controller.save_weights("data/executive_routing_weights.json")
             
             # Save context state if available
             if self.context:
@@ -6489,6 +6587,20 @@ class ALICE:
                     entities=entities or {},
                     goal_hint=goal_hint,
                 )
+
+            # Goal tracker: update goal progress / drift / completion detection
+            if getattr(self, 'goal_tracker', None) and getattr(self, 'conversation_state_tracker', None):
+                try:
+                    _gt_state = self.conversation_state_tracker.get_state_summary()
+                    self.goal_tracker.update(
+                        user_input=user_input,
+                        response=response,
+                        user_goal=_gt_state.get("user_goal", ""),
+                        conversation_goal=_gt_state.get("conversation_goal", ""),
+                        intent=intent or "",
+                    )
+                except Exception as _gt_err:
+                    logger.debug(f"[GoalTracker] {_gt_err}")
 
             # Process with unified context engine
             if self.context:

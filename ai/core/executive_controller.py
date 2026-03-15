@@ -262,6 +262,39 @@ class ExecutiveController:
     def get_routing_weights(self) -> Dict[str, float]:
         return dict(self._routing_weights)
 
+    def save_weights(self, path: str) -> None:
+        """Persist routing weights to disk as JSON."""
+        import json
+        import os
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self._routing_weights, f, indent=2)
+        except Exception:
+            pass
+
+    def load_weights(self, path: str, *, decay: float = 0.05) -> None:
+        """
+        Load routing weights from disk.
+        Applies a small decay toward 1.0 so stale biases fade after a restart.
+        """
+        import json
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                stored = json.load(f)
+            if not isinstance(stored, dict):
+                return
+            for key, value in stored.items():
+                if key in self._routing_weights and isinstance(value, (int, float)):
+                    loaded = float(value)
+                    # Pull toward 1.0 (neutral) by the decay factor each restart
+                    decayed = loaded + (1.0 - loaded) * decay
+                    self._routing_weights[key] = max(0.5, min(1.5, decayed))
+        except (FileNotFoundError, ValueError):
+            pass
+        except Exception:
+            pass
+
     def evaluate_response(
         self,
         *,

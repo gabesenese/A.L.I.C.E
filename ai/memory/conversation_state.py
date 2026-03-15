@@ -55,9 +55,23 @@ class ConversationStateTracker:
         question_like = self._is_question_like(user_input, intent)
 
         if topic_changed:
-            self._state.question_chain = []
-            self._state.intent_chain = []
-            self._state.depth_level = 1 if question_like else 0
+            # Drift correction: only hard-reset chains when the new topic is
+            # genuinely unrelated to the current goal/topic.  A related shift
+            # (e.g. a sub-question within the same learning thread) evolves
+            # depth instead of discarding context.
+            _goal_related = self._topic_similar_to_goal(inferred_topic or "")
+            if _goal_related:
+                # Related shift — deepen, keep chains intact
+                if question_like:
+                    self._state.depth_level = min(
+                        self.max_depth,
+                        max(1, self._state.depth_level) + 1,
+                    )
+            else:
+                # Genuine topic change — reset chains
+                self._state.question_chain = []
+                self._state.intent_chain = []
+                self._state.depth_level = 1 if question_like else 0
         elif question_like and self._state.conversation_topic:
             inc = self._depth_increment(user_input)
             self._state.depth_level = min(
@@ -148,6 +162,22 @@ class ConversationStateTracker:
             intent_chain=[str(x) for x in data.get("intent_chain", [])[-self.max_chain :]],
             last_updated=str(data.get("last_updated", "") or ""),
         )
+
+    def _topic_similar_to_goal(self, new_topic: str) -> bool:
+        """
+        Return True when the new topic is semantically related to the current
+        user_goal or conversation_topic (token overlap >= 0.30).
+        Prevents unnecessary chain resets on minor topic shifts.
+        """
+        anchor = self._state.user_goal or self._state.conversation_topic
+        if not anchor or not new_topic:
+            return False
+        anchor_tokens = set(re.findall(r"[a-z0-9']+", anchor.lower()))
+        new_tokens = set(re.findall(r"[a-z0-9']+", new_topic.lower()))
+        if not anchor_tokens:
+            return False
+        overlap = len(anchor_tokens.intersection(new_tokens)) / max(len(anchor_tokens), 1)
+        return overlap >= 0.30
 
     def _infer_topic(self, user_input: str, entities: Dict[str, Any], previous_topic: str) -> str:
         for key in ("topic", "subject", "concept"):
