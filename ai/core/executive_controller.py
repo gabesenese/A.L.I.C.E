@@ -340,23 +340,113 @@ class ExecutiveController:
         generic_penalty = 0.20 if any(m in resp.lower() for m in generic_markers) else 0.0
 
         score = max(0.0, min(1.0, 0.55 + (0.55 * overlap) - uncertain_penalty - generic_penalty))
+        plan_adherence = self._response_plan_adherence(resp, context)
+        goal_alignment = float((context or {}).get("goal_alignment", 1.0) or 1.0)
+        goal_alignment = max(0.0, min(1.0, goal_alignment))
+        plan = (context or {}).get("response_plan", {}) or {}
+        required_sections = plan.get("required_sections", []) if isinstance(plan, dict) else []
+        format_hint = str(plan.get("format_hint", "")).lower() if isinstance(plan, dict) else ""
+        _needs_steps = (
+            ("steps" in required_sections)
+            or ("numbered" in format_hint)
+            or (str(plan.get("response_type", "")).lower() in ("instruction", "troubleshooting"))
+        )
+        _has_steps = any(f"{i}." in resp.lower() for i in range(1, 6)) or ("step" in resp.lower())
+        if _needs_steps and not _has_steps:
+            return {
+                "accepted": False,
+                "score": 0.0,
+                "reason": "plan_violation_missing_steps",
+                "fallback_action": "safe_reply",
+            }
+
+        score = max(
+            0.0,
+            min(
+                1.0,
+                (0.65 * score) + (0.20 * plan_adherence) + (0.15 * goal_alignment),
+            ),
+        )
         threshold = 0.52 if route == "llm" else 0.48
 
         if score >= threshold:
             return {
                 "accepted": True,
                 "score": score,
-                "reason": "accepted",
+                "reason": "accepted" if plan_adherence >= 0.60 else "accepted_low_plan_adherence",
                 "fallback_action": "",
             }
 
-        fallback_action = "clarify" if overlap < 0.2 else "safe_reply"
+        fallback_action = "clarify" if (overlap < 0.2 or plan_adherence < 0.45) else "safe_reply"
         return {
             "accepted": False,
             "score": score,
-            "reason": "low_alignment",
+            "reason": "low_alignment" if goal_alignment >= 0.35 else "goal_misalignment",
             "fallback_action": fallback_action,
         }
+
+    def _response_plan_adherence(self, response: str, context: Dict[str, Any]) -> float:
+        """Return 0..1 estimate of how well the response follows the active response plan."""
+        plan = (context or {}).get("response_plan", {}) or {}
+        if not isinstance(plan, dict) or not plan:
+            return 1.0
+
+        resp_low = (response or "").lower()
+        score = 0.0
+        checks = 0.0
+
+        resp_type = str(plan.get("response_type", "")).strip().lower()
+        format_hint = str(plan.get("format_hint", "")).strip().lower()
+        required_sections = plan.get("required_sections", []) or []
+
+        # Required sections are soft checks via lexical cues.
+        section_markers = {
+            "answer": ("answer", "in short", "summary"),
+            "explanation": ("because", "means", "works by"),
+            "example": ("for example", "example", "e.g."),
+            "steps": ("1.", "2.", "step", "first", "next", "then"),
+            "expected_result": ("expected", "result", "you should see"),
+            "root_cause": ("root cause", "caused by", "reason"),
+            "fix": ("fix", "solution", "change", "update"),
+            "plan": ("plan", "phase", "milestone"),
+            "risks": ("risk", "trade-off", "constraint"),
+            "check_understanding": ("does that make sense", "want me to", "would you like"),
+        }
+
+        for sec in required_sections:
+            checks += 1.0
+            markers = section_markers.get(str(sec), ())
+            if markers and any(m in resp_low for m in markers):
+                score += 1.0
+
+        # Format adherence check.
+        checks += 1.0
+        if "numbered" in format_hint:
+            if any(f"{i}." in resp_low for i in range(1, 6)):
+                score += 1.0
+        elif "structured" in format_hint:
+            if "\n" in response and (":" in response or "- " in response):
+                score += 1.0
+        else:
+            score += 1.0
+
+        # Type-level sanity check.
+        checks += 1.0
+        if resp_type in ("instruction", "troubleshooting"):
+            if any(f"{i}." in resp_low for i in range(1, 6)) or "step" in resp_low:
+                score += 1.0
+        elif resp_type == "explanation":
+            if "because" in resp_low or "example" in resp_low:
+                score += 1.0
+        elif resp_type == "debugging":
+            if any(m in resp_low for m in ("error", "fix", "cause", "traceback")):
+                score += 1.0
+        else:
+            score += 1.0
+
+        if checks <= 0.0:
+            return 1.0
+        return max(0.0, min(1.0, score / checks))
 
     def decide_learning(
         self,

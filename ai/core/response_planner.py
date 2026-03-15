@@ -27,7 +27,8 @@ RESPONSE_TYPES = (
 
 RESPONSE_STRATEGIES = (
     "answer_directly",
-    "teach_gradually",
+    "guided_explanation",
+    "incremental_teaching",
     "ask_guiding_question",
     "simplify",
     "expand",
@@ -41,6 +42,8 @@ class ResponsePlan:
     strategy: str        # one of RESPONSE_STRATEGIES
     outline: List[str] = field(default_factory=list)
     constraints: List[str] = field(default_factory=list)
+    required_sections: List[str] = field(default_factory=list)
+    plan_depth: int = 1
     goal_context: str = ""
     format_hint: str = ""
 
@@ -50,6 +53,8 @@ class ResponsePlan:
             "strategy": self.strategy,
             "outline": list(self.outline),
             "constraints": list(self.constraints),
+            "required_sections": list(self.required_sections),
+            "plan_depth": int(self.plan_depth),
             "goal_context": self.goal_context,
             "format_hint": self.format_hint,
         }
@@ -65,6 +70,9 @@ class ResponsePlan:
             lines.append(f"- outline: {' -> '.join(self.outline)}")
         if self.constraints:
             lines.append(f"- constraints: {'; '.join(self.constraints)}")
+        if self.required_sections:
+            lines.append(f"- required_sections: {'; '.join(self.required_sections)}")
+        lines.append(f"- plan_depth: {int(self.plan_depth)}")
         if self.goal_context:
             lines.append(f"- goal_context: {self.goal_context}")
         if self.format_hint:
@@ -117,17 +125,21 @@ class ResponsePlanner:
         strategy = self._select_strategy(resp_type, reasoning_state, conversation_state)
         outline = self._build_outline(resp_type, strategy, reasoning_state)
         constraints = self._build_constraints(resp_type, strategy, reasoning_state)
+        required_sections = self._required_sections(resp_type, strategy)
         goal_context = str(
             reasoning_state.get("user_goal")
             or conversation_state.get("user_goal")
             or ""
         )
         format_hint = self._format_hint(resp_type)
+        plan_depth = self._plan_depth(reasoning_state, conversation_state)
         return ResponsePlan(
             response_type=resp_type,
             strategy=strategy,
             outline=outline,
             constraints=constraints,
+            required_sections=required_sections,
+            plan_depth=plan_depth,
             goal_context=goal_context,
             format_hint=format_hint,
         )
@@ -195,8 +207,8 @@ class ResponsePlanner:
         # Learning context → teach progressively
         if conv_goal == "learning" or "learn" in goal.lower() or "understand" in goal.lower():
             if depth >= 3:
-                return "expand"
-            return "teach_gradually"
+                return "incremental_teaching"
+            return "guided_explanation"
 
         # Planning needs expansion
         if resp_type == "planning":
@@ -246,9 +258,13 @@ class ResponsePlanner:
 
         if goal:
             constraints.append(f"keep response aligned with goal: {goal}")
-        if strategy == "teach_gradually":
+        if strategy == "incremental_teaching":
             constraints.append("build from simple to complex")
             constraints.append("include at least one concrete example")
+        if strategy == "guided_explanation":
+            constraints.append("explain clearly and then ask a check question")
+        if strategy == "incremental_teaching":
+            constraints.append("teach in progressive levels with concrete examples")
         if strategy == "verify_understanding":
             constraints.append("end with a brief comprehension check")
         if strategy == "expand":
@@ -262,6 +278,45 @@ class ResponsePlanner:
 
         constraints.append("stay on topic; do not add unrelated tangents")
         return constraints
+
+    def _required_sections(self, resp_type: str, strategy: str) -> List[str]:
+        sections: List[str] = ["answer"]
+        if resp_type == "explanation":
+            sections.extend(["explanation", "example"])
+        elif resp_type in ("instruction", "troubleshooting"):
+            sections.extend(["steps", "expected_result"])
+        elif resp_type == "debugging":
+            sections.extend(["root_cause", "fix"])
+        elif resp_type == "planning":
+            sections.extend(["plan", "risks"])
+
+        if strategy in ("guided_explanation", "incremental_teaching", "verify_understanding"):
+            sections.append("check_understanding")
+
+        # Keep deterministic order and uniqueness.
+        seen = set()
+        ordered: List[str] = []
+        for sec in sections:
+            if sec not in seen:
+                seen.add(sec)
+                ordered.append(sec)
+        return ordered
+
+    def _plan_depth(
+        self,
+        reasoning_state: Dict[str, Any],
+        conversation_state: Dict[str, Any],
+    ) -> int:
+        depth = int(
+            reasoning_state.get("depth_level")
+            or conversation_state.get("depth_level")
+            or 0
+        )
+        if depth <= 1:
+            return 1
+        if depth <= 3:
+            return 2
+        return 3
 
     def _format_hint(self, resp_type: str) -> str:
         hints = {

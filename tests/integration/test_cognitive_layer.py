@@ -23,6 +23,7 @@ from ai.core.response_quality_tracker import (
     FAILURE_ROUTING_MISTAKE,
 )
 from ai.core.executive_controller import ExecutiveController
+from ai.core.reflection_engine import ReflectionEngine
 from ai.memory.conversation_state import ConversationStateTracker
 
 
@@ -62,11 +63,16 @@ class TestResponsePlanner:
 
     def test_explanation_strategy_for_learning_goal(self):
         plan = self._plan("explain decorators", intent="learning:python", depth=1, goal="learn python")
-        assert plan.strategy == "teach_gradually"
+        assert plan.strategy == "guided_explanation"
 
     def test_expand_strategy_at_deep_depth(self):
         plan = self._plan("explain decorators in depth", intent="learning:python", depth=4, goal="learn python")
-        assert plan.strategy == "expand"
+        assert plan.strategy == "incremental_teaching"
+
+    def test_plan_contains_required_sections_and_depth(self):
+        plan = self._plan("steps to deploy flask", intent="question:general", depth=4)
+        assert len(plan.required_sections) >= 2
+        assert plan.plan_depth == 3
 
     def test_outline_is_non_empty(self):
         plan = self._plan("fix this error")
@@ -108,6 +114,28 @@ class TestGoalTracker:
             conversation_goal=conv_goal,
             intent="question:general",
         )
+
+    def test_topic_shift_creates_related_subgoal(self):
+        self.tracker.update(
+            user_input="teach me python",
+            response="Starting with basics",
+            user_goal="learn python",
+            conversation_goal="learning",
+            intent="learning:python",
+            previous_topic="python basics",
+            current_topic="python decorators",
+        )
+        status = self.tracker.get_status()
+        assert status is not None
+        assert len(status["subgoals"]) >= 1
+
+    def test_bug_goal_checklist_progress(self):
+        self._update(user_goal="fix login bug", response="Root cause is missing token. Fix by adding validation.")
+        status = self.tracker.get_status()
+        assert status is not None
+        assert "completion_checklist" in status
+        assert status["completion_checklist"].get("problem_identified") is True
+        assert status["completion_checklist"].get("solution_given") is True
 
     def test_goal_set_on_first_update(self):
         self._update(user_goal="learn Python")
@@ -231,7 +259,18 @@ class TestResponseQualityTracker:
         summary = self.tracker.get_quality_summary()
         assert summary["turns_tracked"] == 5
         assert 0.0 <= summary["relevance_avg"] <= 1.0
+        assert 0.0 <= summary["topic_adherence_avg"] <= 1.0
         assert 0.0 <= summary["gate_accept_rate"] <= 1.0
+
+    def test_topic_adherence_uses_topic_hint(self):
+        q = self.tracker.track_turn(
+            user_input="explain python generators",
+            response="Generators in Python yield values lazily.",
+            intent="learning:python",
+            gate_accepted=True,
+            topic_hint="python generators",
+        )
+        assert q.topic_adherence >= q.relevance
 
     def test_coherence_score_high_for_varied_response(self):
         q = self._track(
@@ -300,6 +339,44 @@ class TestExecutiveWeightPersistence:
                 data = json.load(f)
             assert isinstance(data, dict)
             assert "llm" in data
+
+
+class TestExecutivePlanEnforcement:
+    def test_gate_rejects_instruction_without_steps(self):
+        ctrl = ExecutiveController()
+        evaluation = ctrl.evaluate_response(
+            user_input="give me step by step instructions to deploy",
+            intent="question:general",
+            response="You can deploy by using Docker and cloud tools.",
+            route="llm",
+            context={
+                "response_plan": {
+                    "response_type": "instruction",
+                    "format_hint": "numbered list",
+                    "required_sections": ["steps", "expected_result"],
+                },
+                "goal_alignment": 1.0,
+            },
+        )
+        assert evaluation["accepted"] is False
+
+
+class TestReflectionQualityFeedback:
+    def test_reflection_adjusts_for_routing_mistake(self):
+        engine = ReflectionEngine()
+        res = engine.reflect(
+            user_input="create a note",
+            intent="notes:create_note",
+            response="This is a long generic explanation that does not execute actions.",
+            route="llm",
+            gate_accepted=False,
+            decision_scores={"llm": 0.6, "tools": 0.59},
+            prior_confidence=0.5,
+            quality_metrics={"topic_adherence": 0.2, "alignment": 0.4},
+            failure_type="routing_mistake",
+        )
+        out = res.as_dict()
+        assert out["routing_adjustments"].get("tools", 0.0) > 0
 
 
 # ===========================================================================

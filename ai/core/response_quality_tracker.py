@@ -43,6 +43,7 @@ ALL_FAILURE_TYPES = (
 @dataclass
 class TurnQuality:
     relevance: float      # token overlap between input and response (0..1)
+    topic_adherence: float  # continuity with active topic/goal (0..1)
     coherence: float      # unique-word ratio in response (0..1)
     verbosity: float      # 0=too short, 0.5=ideal, 1=too long
     alignment: float      # goal alignment score (0..1)
@@ -52,6 +53,7 @@ class TurnQuality:
     def as_dict(self) -> Dict[str, Any]:
         return {
             "relevance": round(self.relevance, 3),
+            "topic_adherence": round(self.topic_adherence, 3),
             "coherence": round(self.coherence, 3),
             "verbosity": round(self.verbosity, 3),
             "alignment": round(self.alignment, 3),
@@ -99,11 +101,13 @@ class ResponseQualityTracker:
         response: str,
         intent: str,
         gate_accepted: bool,
-        reflection_score: float,
+        reflection_score: float = 0.0,
         goal_alignment: float = 1.0,
+        topic_hint: str = "",
     ) -> TurnQuality:
         """Record quality metrics for a completed turn and return them."""
         relevance = self._relevance(user_input, response)
+        topic_adherence = self._topic_adherence(topic_hint=topic_hint, response=response, relevance=relevance)
         coherence = self._coherence(response)
         verbosity = self._verbosity(response)
         failure = self.classify_failure(
@@ -116,6 +120,7 @@ class ResponseQualityTracker:
         )
         quality = TurnQuality(
             relevance=relevance,
+            topic_adherence=topic_adherence,
             coherence=coherence,
             verbosity=verbosity,
             alignment=max(0.0, min(1.0, float(goal_alignment))),
@@ -176,6 +181,7 @@ class ResponseQualityTracker:
         if not self._history:
             return {
                 "relevance_avg": 0.0,
+                "topic_adherence_avg": 0.0,
                 "coherence_avg": 0.0,
                 "alignment_avg": 0.0,
                 "gate_accept_rate": 0.0,
@@ -184,6 +190,7 @@ class ResponseQualityTracker:
             }
         n = len(self._history)
         rel_avg = sum(t.relevance for t in self._history) / n
+        topic_avg = sum(t.topic_adherence for t in self._history) / n
         coh_avg = sum(t.coherence for t in self._history) / n
         aln_avg = sum(t.alignment for t in self._history) / n
         gate_rate = sum(1 for t in self._history if t.gate_accepted) / n
@@ -192,6 +199,7 @@ class ResponseQualityTracker:
             failure_counts[t.failure_type] = failure_counts.get(t.failure_type, 0) + 1
         return {
             "relevance_avg": round(rel_avg, 3),
+            "topic_adherence_avg": round(topic_avg, 3),
             "coherence_avg": round(coh_avg, 3),
             "alignment_avg": round(aln_avg, 3),
             "gate_accept_rate": round(gate_rate, 3),
@@ -220,6 +228,21 @@ class ResponseQualityTracker:
         if not words:
             return 0.0
         return min(1.0, len(set(words)) / max(len(words), 1))
+
+    def _topic_adherence(self, *, topic_hint: str, response: str, relevance: float) -> float:
+        """
+        Topic adherence uses both direct user overlap and active topic overlap.
+        If no topic hint is available, falls back to relevance.
+        """
+        hint = (topic_hint or "").strip().lower()
+        if not hint:
+            return relevance
+        topic_tokens = set(re.findall(r"[a-z0-9']+", hint))
+        resp_tokens = set(re.findall(r"[a-z0-9']+", (response or "").lower()))
+        if not topic_tokens:
+            return relevance
+        topic_overlap = len(topic_tokens.intersection(resp_tokens)) / max(len(topic_tokens), 1)
+        return max(0.0, min(1.0, (0.55 * relevance) + (0.45 * topic_overlap)))
 
     def _verbosity(self, response: str) -> float:
         """

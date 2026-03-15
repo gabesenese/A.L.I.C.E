@@ -422,6 +422,7 @@ class ALICE:
             self._internal_reasoning_state = {}
             self._exec_should_store_memory = True
             self._last_exec_gate_eval = {}
+            self._last_goal_tracker_topic = ""
             self.error_recovery = get_error_recovery()
             self.context_cache = get_context_cache()
             self.context_selector = get_context_selector()
@@ -2199,6 +2200,11 @@ class ALICE:
                 _rp_constraints = _rp_data.get('constraints', []) or []
                 if _rp_constraints:
                     _rp_lines.append(f"- constraints: {'; '.join(str(c) for c in _rp_constraints[:4])}")
+                _rp_sections = _rp_data.get('required_sections', []) or []
+                if _rp_sections:
+                    _rp_lines.append(f"- required_sections: {'; '.join(str(s) for s in _rp_sections[:5])}")
+                _rp_depth = int(_rp_data.get('plan_depth', 1) or 1)
+                _rp_lines.append(f"- plan_depth: {_rp_depth}")
                 _goal_ctx = _rp_data.get('goal_context', '')
                 if _goal_ctx:
                     _rp_lines.append(f"- goal_context: {_goal_ctx}")
@@ -3416,12 +3422,19 @@ class ALICE:
         if not getattr(self, 'executive_controller', None):
             return response
 
+        _gate_context = dict(getattr(self, '_internal_reasoning_state', {}) or {})
+        if getattr(self, 'goal_tracker', None):
+            try:
+                _gate_context['goal_alignment'] = self.goal_tracker.goal_alignment_score(response)
+            except Exception:
+                _gate_context['goal_alignment'] = 1.0
+
         evaluation = self.executive_controller.evaluate_response(
             user_input=user_input,
             intent=intent,
             response=response,
             route=route,
-            context=getattr(self, '_internal_reasoning_state', {}) or {},
+            context=_gate_context,
         )
         self._last_exec_gate_eval = evaluation
         score = float(evaluation.get("score", 0.0))
@@ -3452,6 +3465,29 @@ class ALICE:
             return
         try:
             gate_eval = getattr(self, '_last_exec_gate_eval', {}) or {}
+
+            # Track response quality first so reflection can consume it.
+            _turn_quality = None
+            if getattr(self, 'response_quality_tracker', None):
+                try:
+                    _goal_align = 1.0
+                    if getattr(self, 'goal_tracker', None):
+                        _goal_align = self.goal_tracker.goal_alignment_score(response)
+                    _topic_hint = str((getattr(self, '_internal_reasoning_state', {}) or {}).get('topic', '') or '')
+                    _turn_quality = self.response_quality_tracker.track_turn(
+                        user_input=user_input,
+                        response=response,
+                        intent=intent,
+                        gate_accepted=bool(gate_eval.get('accepted', True)),
+                        goal_alignment=_goal_align,
+                        topic_hint=_topic_hint,
+                    )
+                    self._internal_reasoning_state["turn_quality"] = _turn_quality.as_dict()
+                except Exception as _qt_err:
+                    logger.debug(f"[QualityTracker] {_qt_err}")
+
+            _quality_payload = _turn_quality.as_dict() if _turn_quality else {}
+            _failure_type = _quality_payload.get("failure_type", "none")
             reflection = self.reflection_engine.reflect(
                 user_input=user_input,
                 intent=intent,
@@ -3460,6 +3496,8 @@ class ALICE:
                 gate_accepted=bool(gate_eval.get('accepted', True)),
                 decision_scores=(getattr(self, '_internal_reasoning_state', {}) or {}).get('decision_scores', {}),
                 prior_confidence=float(prior_confidence or 0.0),
+                quality_metrics=_quality_payload,
+                failure_type=str(_failure_type),
             ).as_dict()
             self.executive_controller.apply_reflection(reflection)
             self._internal_reasoning_state["reflection"] = reflection
@@ -3468,29 +3506,12 @@ class ALICE:
                 f"score={float(reflection.get('success_score', 0.0)):.2f}, "
                 f"relevant={reflection.get('was_relevant', False)}"
             )
-
-            # Track response quality and classify failure type
-            if getattr(self, 'response_quality_tracker', None):
-                try:
-                    _goal_align = 1.0
-                    if getattr(self, 'goal_tracker', None):
-                        _goal_align = self.goal_tracker.goal_alignment_score(response)
-                    _turn_quality = self.response_quality_tracker.track_turn(
-                        user_input=user_input,
-                        response=response,
-                        intent=intent,
-                        gate_accepted=bool(gate_eval.get('accepted', True)),
-                        reflection_score=float(reflection.get('success_score', 0.0)),
-                        goal_alignment=_goal_align,
-                    )
-                    self._internal_reasoning_state["turn_quality"] = _turn_quality.as_dict()
-                    if _turn_quality.failure_type != "none":
-                        self._think(
-                            f"Quality tracker → failure={_turn_quality.failure_type}, "
-                            f"relevance={_turn_quality.relevance:.2f}"
-                        )
-                except Exception as _qt_err:
-                    logger.debug(f"[QualityTracker] {_qt_err}")
+            if _turn_quality and _turn_quality.failure_type != "none":
+                self._think(
+                    f"Quality tracker → failure={_turn_quality.failure_type}, "
+                    f"relevance={_turn_quality.relevance:.2f}, "
+                    f"topic={_turn_quality.topic_adherence:.2f}"
+                )
 
         except Exception as e:
             logger.debug(f"[ExecutiveReflection] {e}")
@@ -6592,13 +6613,18 @@ class ALICE:
             if getattr(self, 'goal_tracker', None) and getattr(self, 'conversation_state_tracker', None):
                 try:
                     _gt_state = self.conversation_state_tracker.get_state_summary()
+                    _current_topic = str(_gt_state.get("conversation_topic", "") or "")
+                    _previous_topic = str(getattr(self, "_last_goal_tracker_topic", "") or "")
                     self.goal_tracker.update(
                         user_input=user_input,
                         response=response,
                         user_goal=_gt_state.get("user_goal", ""),
                         conversation_goal=_gt_state.get("conversation_goal", ""),
                         intent=intent or "",
+                        current_topic=_current_topic,
+                        previous_topic=_previous_topic,
                     )
+                    self._last_goal_tracker_topic = _current_topic
                 except Exception as _gt_err:
                     logger.debug(f"[GoalTracker] {_gt_err}")
 

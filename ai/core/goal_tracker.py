@@ -28,6 +28,7 @@ class SubGoal:
 class GoalProgress:
     goal_description: str
     subgoals: List[SubGoal] = field(default_factory=list)
+    completion_checklist: Dict[str, bool] = field(default_factory=dict)
     progress_score: float = 0.0
     completion_signals: List[str] = field(default_factory=list)
     turns_since_set: int = 0
@@ -42,6 +43,7 @@ class GoalProgress:
                 {"desc": sg.description, "done": sg.completed}
                 for sg in self.subgoals
             ],
+            "completion_checklist": dict(self.completion_checklist),
             "progress_score": round(self.progress_score, 3),
             "completion_signals": list(self.completion_signals),
             "turns_since_set": self.turns_since_set,
@@ -90,6 +92,8 @@ class GoalTracker:
         user_goal: str,
         conversation_goal: str,
         intent: str,
+        current_topic: str = "",
+        previous_topic: str = "",
     ) -> None:
         """Process a completed turn and update goal state."""
         raw_goal = (user_goal or "").strip()
@@ -118,13 +122,23 @@ class GoalTracker:
                     # Genuine goal change — replace and reset progress
                     self._goal = GoalProgress(
                         goal_description=raw_goal,
+                        completion_checklist=self._build_checklist(raw_goal),
                         turns_since_set=0,
                     )
         else:
             self._goal = GoalProgress(
                 goal_description=raw_goal,
+                completion_checklist=self._build_checklist(raw_goal),
                 turns_since_set=0,
             )
+
+        # Goal evolution: if topic shifts but remains related, create a subgoal.
+        if self._goal and current_topic and previous_topic and current_topic != previous_topic:
+            related = self._token_similarity(current_topic, self._goal.goal_description) >= self._SIMILARITY_THRESHOLD
+            if related:
+                subgoal_text = f"advance {current_topic}"
+                if not any(sg.description == subgoal_text for sg in self._goal.subgoals):
+                    self._goal.subgoals.append(SubGoal(description=subgoal_text))
 
         self._tick_progress(user_input, response)
 
@@ -143,14 +157,19 @@ class GoalTracker:
         # Explicit user acknowledgement is the strongest completion signal
         if "user_acknowledged" in self._goal.completion_signals:
             return True
+        if self._goal.completion_checklist and all(self._goal.completion_checklist.values()):
+            return True
         return self._goal.is_complete()
 
     def get_next_step_suggestion(self) -> str:
         """Returns a human-readable suggestion about what to do next."""
         if not self._goal:
             return ""
-        if self._goal.is_complete():
+        if self.is_goal_achieved():
             pending = [sg for sg in self._goal.subgoals if not sg.completed]
+            pending_checks = [k for k, done in self._goal.completion_checklist.items() if not done]
+            if pending_checks:
+                return f"Main goal mostly met. Pending verification: {pending_checks[0].replace('_', ' ')}"
             if pending:
                 return f"Main goal met. Still pending: {pending[0].description}"
             return "Goal appears achieved. Ready for the next task."
@@ -171,7 +190,10 @@ class GoalTracker:
         pending = [sg.description for sg in self._goal.subgoals if not sg.completed]
         if pending:
             lines.append(f"Pending subgoals: {', '.join(pending[:3])}")
-        if self._goal.is_complete():
+        pending_checks = [k for k, done in self._goal.completion_checklist.items() if not done]
+        if pending_checks:
+            lines.append(f"Pending checks: {', '.join(p.replace('_', ' ') for p in pending_checks[:3])}")
+        if self.is_goal_achieved():
             lines.append("Status: goal achieved — offer a summary or next step.")
         else:
             lines.append("Keep response aligned with and advancing this goal.")
@@ -204,6 +226,18 @@ class GoalTracker:
                 1.0, self._goal.progress_score + (overlap * 0.15)
             )
 
+        # Completion checklist updates for troubleshooting/debug goals.
+        checklist = self._goal.completion_checklist
+        if checklist:
+            if "problem_identified" in checklist and any(k in low_resp for k in ("cause", "problem", "issue", "error")):
+                checklist["problem_identified"] = True
+            if "solution_given" in checklist and any(k in low_resp for k in ("fix", "solution", "change", "update", "step")):
+                checklist["solution_given"] = True
+            if "verification_confirmed" in checklist and any(k in low_input for k in ("worked", "fixed", "confirmed", "verified", "done")):
+                checklist["verification_confirmed"] = True
+            if all(checklist.values()):
+                self._goal.progress_score = min(1.0, self._goal.progress_score + 0.40)
+
         # Complete subgoals that appear covered by the response
         for sg in self._goal.subgoals:
             if not sg.completed and sg.description:
@@ -220,6 +254,16 @@ class GoalTracker:
         if not ta:
             return 0.0
         return len(ta.intersection(tb)) / max(len(ta), 1)
+
+    def _build_checklist(self, goal_text: str) -> Dict[str, bool]:
+        low = (goal_text or "").lower()
+        if any(k in low for k in ("fix", "bug", "debug", "error", "issue")):
+            return {
+                "problem_identified": False,
+                "solution_given": False,
+                "verification_confirmed": False,
+            }
+        return {}
 
 
 _goal_tracker: GoalTracker | None = None
