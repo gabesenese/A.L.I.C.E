@@ -1247,6 +1247,34 @@ class CapabilityGraph:
             return True
         return cap.requires.issubset(available_slots)
 
+    def _normalize_plugin_name(self, plugin_name: str) -> str:
+        """Map runtime plugin labels to CapabilityGraph canonical node names."""
+        raw = (plugin_name or "").strip().lower()
+        if not raw:
+            return ""
+
+        compact = " ".join(raw.replace("_", " ").replace("-", " ").split())
+        aliases = {
+            "notes": "notes",
+            "notes plugin": "notes",
+            "weather": "weather",
+            "weatherplugin": "weather",
+            "weather plugin": "weather",
+            "calendar": "calendar",
+            "calendar plugin": "calendar",
+            "gmailplugin": "email",
+            "gmail plugin": "email",
+            "email": "email",
+            "memory": "memory",
+            "memory plugin": "memory",
+        }
+
+        if compact in aliases:
+            return aliases[compact]
+
+        deplug = compact.replace(" plugin", "").replace("plugin", "").strip()
+        return aliases.get(deplug, deplug)
+
     def best_plugin_for_intent(
         self,
         intent: str,
@@ -1268,7 +1296,12 @@ class CapabilityGraph:
         return max(candidates, key=_score)
 
     def record_execution(self, plugin: str, intent: str, success: bool) -> None:
-        self.success_model.update(plugin, intent, success)
+        normalized_plugin = self._normalize_plugin_name(plugin)
+        if not normalized_plugin:
+            return
+        # Only train known capability nodes to keep routing statistics coherent.
+        if normalized_plugin in self._nodes:
+            self.success_model.update(normalized_plugin, intent, success)
 
     def stats(self) -> Dict[str, Any]:
         with self._cg_lock:

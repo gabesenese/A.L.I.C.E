@@ -124,7 +124,9 @@ class SelfReflectionSystem:
 
         # Smart caching
         # key -> (analysis, cached_at, file_signature)
-        self._analysis_cache: "OrderedDict[str, Tuple[Dict[str, Any], datetime, Tuple[int, int]]]" = OrderedDict()
+        self._analysis_cache: (
+            "OrderedDict[str, Tuple[Dict[str, Any], datetime, Tuple[int, int]]]"
+        ) = OrderedDict()
         self._cache_ttl = timedelta(hours=1)
         self._cache_max_entries = 512
         self._cache_lock = threading.RLock()
@@ -204,7 +206,9 @@ class SelfReflectionSystem:
         except Exception:
             return (0, 0)
 
-    def _cache_get(self, key: str, full_path: Optional[Path]) -> Optional[Dict[str, Any]]:
+    def _cache_get(
+        self, key: str, full_path: Optional[Path]
+    ) -> Optional[Dict[str, Any]]:
         with self._cache_lock:
             entry = self._analysis_cache.get(key)
             if not entry:
@@ -215,14 +219,19 @@ class SelfReflectionSystem:
                 self._analysis_cache.pop(key, None)
                 return None
 
-            if full_path is not None and self._get_file_signature(full_path) != cached_sig:
+            if (
+                full_path is not None
+                and self._get_file_signature(full_path) != cached_sig
+            ):
                 self._analysis_cache.pop(key, None)
                 return None
 
             self._analysis_cache.move_to_end(key)
             return cached_data
 
-    def _cache_put(self, key: str, analysis: Dict[str, Any], full_path: Optional[Path]) -> None:
+    def _cache_put(
+        self, key: str, analysis: Dict[str, Any], full_path: Optional[Path]
+    ) -> None:
         sig = self._get_file_signature(full_path) if full_path is not None else (0, 0)
         with self._cache_lock:
             self._analysis_cache[key] = (analysis, datetime.now(), sig)
@@ -294,7 +303,8 @@ class SelfReflectionSystem:
             files = [
                 rel
                 for rel in files
-                if fnmatch.fnmatch(Path(rel).name, pattern) or fnmatch.fnmatch(rel, pattern)
+                if fnmatch.fnmatch(Path(rel).name, pattern)
+                or fnmatch.fnmatch(rel, pattern)
             ]
 
         return files
@@ -304,7 +314,11 @@ class SelfReflectionSystem:
         # Direct absolute path
         if os.path.isabs(file_path):
             candidate = Path(file_path).resolve()
-            return candidate if candidate.exists() and self._is_allowed_file(candidate) else None
+            return (
+                candidate
+                if candidate.exists() and self._is_allowed_file(candidate)
+                else None
+            )
 
         # Direct relative path
         candidate = (self.base_path / file_path).resolve()
@@ -322,7 +336,9 @@ class SelfReflectionSystem:
         # Prefer exact suffix/path match when caller provided directories.
         if "/" in requested_norm:
             suffix_matches = [
-                rel for rel in all_files if rel.replace("\\", "/").lower().endswith(requested_norm)
+                rel
+                for rel in all_files
+                if rel.replace("\\", "/").lower().endswith(requested_norm)
             ]
             if suffix_matches:
                 candidates = suffix_matches
@@ -397,7 +413,9 @@ class SelfReflectionSystem:
                             "name": full_path.name,
                             "size": full_path.stat().st_size,
                             "module_type": self._classify_module(full_path),
-                            "language": full_path.suffix[1:] if full_path.suffix else "text",
+                            "language": (
+                                full_path.suffix[1:] if full_path.suffix else "text"
+                            ),
                         }
                     )
                 except Exception:
@@ -471,8 +489,10 @@ class SelfReflectionSystem:
     def _extract_purpose_from_ast(self, tree: ast.Module, content: str) -> str:
         """Extract file purpose from module docstring or initial comments"""
         # Try module docstring first
-        if tree.body and isinstance(tree.body[0], ast.Expr) and isinstance(
-            tree.body[0].value, (ast.Str, ast.Constant)
+        if (
+            tree.body
+            and isinstance(tree.body[0], ast.Expr)
+            and isinstance(tree.body[0].value, (ast.Str, ast.Constant))
         ):
             docstring = ast.get_docstring(tree)
             if docstring:

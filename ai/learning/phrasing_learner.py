@@ -11,6 +11,7 @@ Architecture:
 
 import json
 import logging
+import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
@@ -158,6 +159,27 @@ class PhrasingLearner:
 
         self.confidence_scores[pattern] = confidence
 
+    @staticmethod
+    def _sanitize_weather_advice_phrasing(phrasing: str) -> str:
+        """Remove awkward name-based addressing from learned weather advice."""
+        cleaned = (phrasing or "").strip()
+        if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] == '"':
+            cleaned = cleaned[1:-1].strip()
+
+        cleaned = re.sub(
+            r"^(?:for|hey|hi|hello)\s+(?:the user|user|testuser|[A-Z][\w-]*)[:,!]?\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r",\s*(?:the user|user|testuser|[A-Z][\w-]*)\s*,",
+            ", ",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        return cleaned.strip()
+
     def record_phrasing(
         self,
         alice_thought: Dict[str, Any],
@@ -173,6 +195,9 @@ class PhrasingLearner:
             ollama_phrasing: How Ollama phrased it naturally
             context: Tone, intent, user_name, etc.
         """
+        if alice_thought.get("type") == "weather_advice":
+            ollama_phrasing = self._sanitize_weather_advice_phrasing(ollama_phrasing)
+
         pattern = self._extract_pattern(alice_thought)
 
         entry = {
@@ -304,6 +329,9 @@ class PhrasingLearner:
             current_thought=alice_thought,
             learned_thought=selected_example["alice_thought"],
         )
+
+        if alice_thought.get("type") == "weather_advice":
+            adapted_phrasing = self._sanitize_weather_advice_phrasing(adapted_phrasing)
 
         logger.info(f"[PhrasingLearner] Alice phrased '{pattern}' independently!")
         return adapted_phrasing

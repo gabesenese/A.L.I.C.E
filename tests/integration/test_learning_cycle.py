@@ -204,6 +204,30 @@ class TestLearningCycle:
         assert learner2.can_phrase_myself(thought, "warm") is True
         assert learner2.get_stats()['total_examples'] == 3
 
+    def test_weather_advice_phrasing_drops_user_name(self, learner):
+        """Weather advice should not replay direct user-name addressing."""
+        thought = {
+            "type": "weather_advice",
+            "temperature": 8,
+            "condition": "snow",
+            "clothing_item": "coat",
+            "user_question": "should i wear a coat?",
+        }
+
+        for _ in range(3):
+            learner.record_phrasing(
+                alice_thought=thought,
+                ollama_phrasing="For Gabriel, I'd definitely recommend bringing a coat.",
+                context={"tone": "helpful"},
+            )
+
+        assert learner.can_phrase_myself(thought, "helpful") is True
+        response = learner.phrase_myself(thought, "helpful")
+
+        assert "gabriel" not in response.lower()
+        assert not response.lower().startswith("for ")
+        assert "recommend" in response.lower()
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

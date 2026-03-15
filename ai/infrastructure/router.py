@@ -5,7 +5,7 @@ Emits events for metrics collection and reactive behavior
 """
 
 from enum import Enum
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 import logging
 
@@ -211,6 +211,21 @@ class RequestRouter:
     MIN_CONV_CONFIDENCE = 0.7  # Minimum confidence for conversational engine
     CLARIFICATION_THRESHOLD = 0.75  # Below this, check for domain keywords
 
+    # Prefix families emitted by modern NLP/router components
+    CONVERSATION_PREFIXES = ("conversation:",)
+    TOOL_PREFIXES = (
+        "notes:",
+        "email:",
+        "calendar:",
+        "file_operations:",
+        "memory:",
+        "reminder:",
+        "weather:",
+        "time:",
+        "maps:",
+        "system:",
+    )
+
     # Domain keywords for intent validation
     DOMAIN_KEYWORDS = {
         "weather": {
@@ -307,30 +322,77 @@ class RequestRouter:
         except Exception as e:
             logger.debug(f"Event bus not available: {e}")
 
+    def _normalize_intent(self, intent: str) -> str:
+        """Normalize intent label shape for consistent routing checks."""
+        value = (intent or "").strip().lower()
+        if not value:
+            return ""
+        return value
+
+    def _is_conversational_intent(self, intent: str) -> bool:
+        """Return True for conversational intents across naming conventions."""
+        i = self._normalize_intent(intent)
+        if not i:
+            return False
+        if i in self.CONVERSATION_INTENTS:
+            return True
+        if i.startswith(self.CONVERSATION_PREFIXES):
+            return True
+        if i in {
+            "status_inquiry",
+            "conversation:general",
+            "conversation:question",
+            "conversation:help",
+            "conversation:meta_question",
+            "conversation:clarification_needed",
+            "conversation:ack",
+        }:
+            return True
+        return False
+
+    def _is_tool_intent(self, intent: str) -> bool:
+        """Return True for tool intents across legacy and modern intent labels."""
+        i = self._normalize_intent(intent)
+        if not i:
+            return False
+        if i in self.TOOL_INTENTS:
+            return True
+        return i.startswith(self.TOOL_PREFIXES)
+
+    def _has_explicit_action_verb(self, text_lower: str) -> bool:
+        action_verbs = {
+            "create", "make", "read", "open", "delete", "remove", "move", "rename",
+            "send", "reply", "search", "find", "list", "show", "get", "set",
+            "remember", "recall", "forget", "store", "save", "check", "write",
+            "update", "edit", "schedule", "archive", "unarchive",
+        }
+        return any(verb in text_lower for verb in action_verbs)
+
     def should_clarify(
         self, intent: str, confidence: float, entities: Dict[str, Any], user_text: str
     ) -> bool:
         """Check if we should ask for clarification instead of executing tool"""
-        # Always clarify if confidence is very low (reduced from 0.7 to 0.4)
-        if confidence < 0.4:
+        # Clarify when below configured threshold unless user text is explicit.
+        if confidence < self.CLARIFICATION_THRESHOLD:
             # Check if text has strong domain keywords
             text_lower = user_text.lower()
 
             # Detect domain from intent
+            intent_lower = self._normalize_intent(intent)
             domain = None
-            if "weather" in intent:
+            if "weather" in intent_lower:
                 domain = "weather"
-            elif "email" in intent:
+            elif "email" in intent_lower:
                 domain = "email"
-            elif "calendar" in intent or "schedule" in intent or "meeting" in intent:
+            elif "calendar" in intent_lower or "schedule" in intent_lower or "meeting" in intent_lower:
                 domain = "calendar"
-            elif "file_operations" in intent or "file" in intent:
+            elif "file_operations" in intent_lower or "file" in intent_lower:
                 domain = "file_operations"
-            elif "memory" in intent:
+            elif "memory" in intent_lower:
                 domain = "memory"
-            elif "note" in intent:
+            elif "note" in intent_lower:
                 domain = "note"
-            elif "music" in intent:
+            elif "music" in intent_lower:
                 domain = "music"
 
             # If we detected a domain, check for domain keywords
@@ -341,33 +403,8 @@ class RequestRouter:
                 if keyword_count >= 1:
                     return False
 
-            # Check for vague patterns - but only if there's no clear action verb
-            # Action verbs indicate specific intent, not vagueness
-            action_verbs = [
-                "create",
-                "make",
-                "read",
-                "open",
-                "delete",
-                "remove",
-                "move",
-                "rename",
-                "send",
-                "reply",
-                "search",
-                "find",
-                "list",
-                "show",
-                "get",
-                "set",
-                "remember",
-                "recall",
-                "forget",
-                "store",
-                "save",
-            ]
-
-            has_action = any(verb in text_lower for verb in action_verbs)
+            # Check for vague patterns - but only if there's no clear action verb.
+            has_action = self._has_explicit_action_verb(text_lower)
 
             # Only check vague patterns if there's no clear action
             if not has_action:
@@ -442,6 +479,7 @@ class RequestRouter:
             RouteResult with routing decision
         """
         context = context or {}
+        intent = self._normalize_intent(intent)
 
         # Priority 1: SELF_REFLECTION (code, training, system)
         if intent in self.SELF_REFLECTION_INTENTS:
@@ -456,8 +494,10 @@ class RequestRouter:
             )
 
         # Priority 2: CONVERSATIONAL (learned patterns)
-        if intent in self.CONVERSATION_INTENTS:
-            if confidence >= self.MIN_CONV_CONFIDENCE:
+        if self._is_conversational_intent(intent):
+            # Conversation intents should not fall into tool/LLM routing due to
+            # strict confidence thresholds alone.
+            if confidence >= 0.45 or intent.startswith(self.CONVERSATION_PREFIXES):
                 self.routing_stats["conversational"] += 1
                 self._emit_routing_event(
                     "conversational", RoutingDecision.CONVERSATIONAL, intent, confidence
@@ -481,21 +521,25 @@ class RequestRouter:
 
         # Priority 2.75: CLARIFICATION CHECK (before tools)
         # Check if we should ask for clarification instead of executing tool
-        if intent in self.TOOL_INTENTS and user_text:
+        if self._is_tool_intent(intent) and user_text:
             if self.should_clarify(intent, confidence, entities, user_text):
-                self.routing_stats["conversational"] += 1
+                self.routing_stats["llm_fallback"] += 1
                 self._emit_routing_event(
-                    "conversational", RoutingDecision.CONVERSATIONAL, intent, confidence
+                    "llm", RoutingDecision.LLM_FALLBACK, intent, confidence
                 )
                 return RouteResult(
-                    decision=RoutingDecision.CONVERSATIONAL,
-                    confidence=1.0,
+                    decision=RoutingDecision.LLM_FALLBACK,
+                    confidence=max(confidence, 0.5),
                     reasoning="Vague question requires clarification",
-                    metadata={"clarification_needed": True, "original_intent": intent},
+                    metadata={
+                        "clarification_needed": True,
+                        "original_intent": intent,
+                        "ask_user_clarification": True,
+                    },
                 )
 
         # Priority 3: TOOL_CALL (plugins with structured output)
-        if intent in self.TOOL_INTENTS:
+        if self._is_tool_intent(intent):
             tool_name = self._intent_to_tool(intent)
 
             if confidence >= self.MIN_TOOL_CONFIDENCE:
@@ -517,19 +561,24 @@ class RequestRouter:
                     },  # Use rule-based formatter, not LLM
                 )
             else:
-                # Low confidence - route to conversational for clarification
+                # Low confidence tool intent - escalate to LLM clarification path
+                # instead of conversational/tool pipeline.
                 logger.warning(
                     f"Low confidence ({confidence:.2f}) for tool intent: {intent}"
                 )
-                self.routing_stats["conversational"] += 1
+                self.routing_stats["llm_fallback"] += 1
                 self._emit_routing_event(
-                    "conversational", RoutingDecision.CONVERSATIONAL, intent, confidence
+                    "llm", RoutingDecision.LLM_FALLBACK, intent, confidence
                 )
                 return RouteResult(
-                    decision=RoutingDecision.CONVERSATIONAL,
-                    confidence=confidence,
+                    decision=RoutingDecision.LLM_FALLBACK,
+                    confidence=max(confidence, 0.5),
                     reasoning=f"Low confidence ({confidence:.2f}), requesting clarification",
-                    metadata={"clarification_needed": True, "original_intent": intent},
+                    metadata={
+                        "clarification_needed": True,
+                        "original_intent": intent,
+                        "ask_user_clarification": True,
+                    },
                 )
 
         # Priority 4: RAG_ONLY (knowledge retrieval without generation)
@@ -570,6 +619,26 @@ class RequestRouter:
 
     def _intent_to_tool(self, intent: str) -> Optional[str]:
         """Map intent to tool/plugin name"""
+        intent = self._normalize_intent(intent)
+
+        # First: modern plugin:action prefixes.
+        if ":" in intent:
+            prefix = intent.split(":", 1)[0]
+            prefix_map = {
+                "notes": "notes",
+                "email": "email",
+                "calendar": "calendar",
+                "file_operations": "file_operations",
+                "memory": "memory",
+                "weather": "weather",
+                "time": "time",
+                "maps": "maps",
+                "reminder": "reminder",
+                "system": "system_control",
+            }
+            if prefix in prefix_map:
+                return prefix_map[prefix]
+
         intent_tool_map = {
             # Email
             "email_read": "email",

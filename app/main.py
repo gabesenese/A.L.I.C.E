@@ -122,6 +122,7 @@ from ai.infrastructure.database_pool import get_connection_pool, initialize_data
 
 # Foundation Systems - Response Variance, Personality Evolution, Context Graph
 from ai.foundation_integration import FoundationIntegration
+from tools.auditing.startup_doctor import StartupDoctor
 
 # NLP perception & policy layer
 from ai.core.nlp_processor import Perception, FollowUpResolver
@@ -757,6 +758,9 @@ class ALICE:
             logger.info("=" * 80)
             logger.info("[OK] A.L.I.C.E initialized successfully!")
             logger.info("=" * 80)
+
+            self.startup_health_report = None
+            self._run_startup_doctor()
             
             # Store system capabilities in context
             self.context.update_system_status("capabilities", self.plugins.get_capabilities())
@@ -769,6 +773,28 @@ class ALICE:
         except Exception as e:
             logger.error(f"[ERROR] Initialization failed: {e}")
             raise
+
+    def _run_startup_doctor(self) -> None:
+        """Run profile-based startup diagnostics and persist a health summary."""
+        enabled_raw = os.getenv("ALICE_STARTUP_DOCTOR", "1").strip().lower()
+        if enabled_raw in {"0", "false", "off", "no"}:
+            logger.info("[INFO] Startup doctor disabled by ALICE_STARTUP_DOCTOR")
+            return
+
+        profile = os.getenv("ALICE_STARTUP_PROFILE", "fast").strip().lower() or "fast"
+        try:
+            doctor = StartupDoctor(root_dir=PROJECT_ROOT)
+            report = doctor.run(profile=profile)
+            self.startup_health_report = report
+            logger.info(
+                "[OK] Startup doctor completed | profile=%s status=%s score=%s",
+                report.get("profile"),
+                report.get("status"),
+                report.get("health_score"),
+            )
+        except Exception as exc:
+            # Startup diagnostics must never prevent ALICE from booting.
+            logger.warning("[WARNING] Startup doctor failed: %s", exc)
 
     def _init_capabilities_registry(self):
         """
@@ -1788,7 +1814,8 @@ class ALICE:
             phrasing_context = {
                 'alice_thought': content_str,
                 'tone': tone,
-                'user_name': self.context.user_prefs.name,
+                'user_name': '',
+                'allow_user_name': False,
             }
             llm_response = self.llm_gateway.request(
                 prompt=content_str,
@@ -1983,8 +2010,8 @@ class ALICE:
         context_parts = []
         context_types = []
         
-        # 0. ACTIVE GOAL - Most important for understanding user intent
-        if goal_res and goal_res.goal:
+        # 0. ACTIVE GOAL - only when this turn is task-directed
+        if goal_res and goal_res.goal and self._should_attach_goal_context(user_input, intent):
             goal = goal_res.goal
             goal_context = f"ACTIVE GOAL: The user is trying to {goal.description}. "
             goal_context += f"Intent: {goal.intent}. "
@@ -2067,8 +2094,32 @@ class ALICE:
                 context_types.append("general")
         
         # 6. Relevant memories (RAG) - priority-weighted retrieval
-        # Only fetch memories if query is substantial (not just "yes" or "ok")
-        if len(user_input.split()) >= 3 or intent not in ["conversation:ack", "conversation:general"]:
+        # Keep memory injection conservative on conversational turns to avoid random replies.
+        _memory_trigger_words = (
+            "remember",
+            "what did we",
+            "what have we",
+            "earlier",
+            "last time",
+            "my preference",
+            "you said",
+        )
+        _is_conversational_turn = intent in {
+            "conversation:ack",
+            "conversation:general",
+            "conversation:help",
+            "conversation:question",
+            "conversation:meta_question",
+            "greeting",
+            "farewell",
+            "thanks",
+            "status_inquiry",
+        }
+        _should_fetch_memory = (
+            (not _is_conversational_turn and len(user_input.split()) >= 3)
+            or any(trigger in user_input.lower() for trigger in _memory_trigger_words)
+        )
+        if _should_fetch_memory:
             try:
                 # Prefer PrioritizedMemoryReplay when raw MemoryEntry objects are
                 # available: it ranks by 35% recency + 30% surprise + 20% outcome
@@ -2195,6 +2246,7 @@ class ALICE:
         conversational_intents = [
             'conversation:general',
             'conversation:ack',
+            'conversation:help',
             'conversation:question',
             'conversation:meta_question',
             'greeting',
@@ -2216,6 +2268,166 @@ class ALICE:
             return False
         
         return True
+
+    def _has_explicit_action_cue(self, user_input: str) -> bool:
+        """Return True when the utterance clearly asks for an action/tool operation."""
+        if not user_input:
+            return False
+
+        text = user_input.lower().strip()
+        action_pattern = (
+            r"\b(open|launch|play|send|create|make|delete|remove|search|find|"
+            r"show|list|check|read|write|edit|update|move|copy|archive|"
+            r"schedule|set|remind|email|calendar|note|notes|file|files|"
+            r"weather|forecast|temperature|time|date)\b"
+        )
+        return bool(re.search(action_pattern, text))
+
+    def _should_attach_goal_context(self, user_input: str, intent: str) -> bool:
+        """Attach active-goal context only for task-directed turns."""
+        conversational_intents = {
+            'conversation:general',
+            'conversation:ack',
+            'conversation:help',
+            'conversation:question',
+            'conversation:meta_question',
+            'greeting',
+            'farewell',
+            'thanks',
+            'status_inquiry',
+        }
+        if intent in conversational_intents:
+            return self._has_explicit_action_cue(user_input)
+        return True
+
+    def _is_wake_word_only_input(self, user_input: str) -> bool:
+        """Detect short wake-word nudges like 'alice' with no task attached."""
+        if not user_input:
+            return False
+
+        normalized = user_input.strip().lower()
+        compact = re.sub(r"[^a-z]", "", normalized)
+        if compact not in {"alice", "aliceai"}:
+            return False
+
+        tokens = re.findall(r"\b[a-z']+\b", normalized)
+        return len(tokens) <= 2
+
+    def _wake_word_acknowledgment(self, user_name: str) -> Optional[str]:
+        """Generate wake-word acknowledgment via learned phrasing, with Ollama as teacher."""
+        wake_thought = {
+            'type': 'wake_word_ack',
+            'data': {
+                'user_input': 'alice',
+                'user_name': user_name,
+            },
+        }
+
+        # 1) Alice tries to phrase independently from learned patterns.
+        if self.phrasing_learner:
+            try:
+                if self.phrasing_learner.can_phrase_myself(wake_thought, 'friendly'):
+                    learned = self.phrasing_learner.phrase_myself(wake_thought, 'friendly')
+                    if learned:
+                        return learned
+            except Exception:
+                pass
+
+        # 2) If Alice does not know yet, ask Ollama for a short line, then learn it.
+        if getattr(self, 'llm_gateway', None):
+            prompt = (
+                "User said only your wake word. "
+                "Reply with one short, natural acknowledgment (max 9 words). "
+                "Friendly, casual, human. "
+                "No quotes, no emoji, no explanation. "
+                f"You may include the user's name if useful: {user_name!r}."
+            )
+            try:
+                llm_response = self.llm_gateway.request(
+                    prompt=prompt,
+                    call_type=LLMCallType.CHITCHAT,
+                    use_history=False,
+                    user_input="alice"
+                )
+                if llm_response.success and llm_response.response:
+                    response = llm_response.response.strip().strip('"').strip("'")
+                    if response:
+                        if self.phrasing_learner:
+                            self.phrasing_learner.record_phrasing(
+                                alice_thought=wake_thought,
+                                ollama_phrasing=response,
+                                context={
+                                    'tone': 'friendly',
+                                    'intent': 'wake_word_ack',
+                                    'user_input': 'alice',
+                                }
+                            )
+                        return response
+            except Exception:
+                pass
+
+        # 3) Last non-hardcoded fallback: use any learned greeting pattern.
+        return self._learned_greeting_response(
+            user_input='alice',
+            user_name=user_name,
+            asked_how=False,
+        )
+
+    def _is_issue_report_input(self, user_input: str) -> bool:
+        """Detect reflective problem-report text that should stay conversational."""
+        if not user_input:
+            return False
+
+        text = user_input.strip().lower()
+        if len(text.split()) < 8:
+            return False
+
+        issue_markers = [
+            "missed intent",
+            "missed intents",
+            "misread",
+            "wrong answer",
+            "wrong route",
+            "misclass",
+            "intent",
+            "conversational",
+            "routing",
+            "capabilitygraph",
+            "capability graph",
+            "recommendation",
+            "recommendations",
+        ]
+        reflective_markers = [
+            "i am trying",
+            "i'm trying",
+            "my project",
+            "my ai",
+            "we need to fix",
+            "there are",
+            "it keeps",
+        ]
+        explicit_command_markers = [
+            "create note",
+            "save note",
+            "delete note",
+            "open note",
+            "send email",
+            "check email",
+            "create event",
+            "delete event",
+            "what's the weather",
+            "show reminders",
+            "set reminder",
+            "open file",
+            "delete file",
+        ]
+
+        if any(marker in text for marker in explicit_command_markers):
+            return False
+
+        has_issue_signal = any(marker in text for marker in issue_markers)
+        has_reflective_signal = any(marker in text for marker in reflective_markers)
+        return has_issue_signal and has_reflective_signal
 
     def _is_explicit_greeting_input(self, user_input: str) -> bool:
         """Return True only when the utterance clearly looks like a greeting."""
@@ -2434,6 +2646,38 @@ class ALICE:
         # Read file request - flexible matching for EXPLICIT read/show commands
         if has_py_file:
             file_path = py_file_match.group(1).strip("'\"")
+
+            # Explicit file discovery requests (e.g., "find code.py").
+            if any(
+                phrase in input_lower
+                for phrase in [
+                    'find', 'locate', 'where is', 'where\'s', 'look for', 'search for'
+                ]
+            ):
+                code_file = self.self_reflection.read_file(file_path)
+                if code_file:
+                    self.last_code_file = code_file.path
+                    return (
+                        f"Found `{file_path}` at `{code_file.path}` "
+                        f"({code_file.lines} lines, {code_file.module_type}).\n"
+                        f"Say 'analyze it' or 'show it' if you want details."
+                    )
+
+                files = self.self_reflection.list_codebase()
+                result = f"Couldn't find `{file_path}`. Closest available files:\n\n"
+                shown = 0
+                needle = Path(file_path).name.lower().replace('.py', '')
+                for f in files:
+                    name = f.get('name', '').lower()
+                    if needle and needle in name:
+                        result += f"- `{f['path']}`\n"
+                        shown += 1
+                        if shown >= 10:
+                            break
+                if shown == 0:
+                    for f in files[:10]:
+                        result += f"- `{f['path']}`\n"
+                return result
 
             # Only handle explicit "read" or "show" or "summarize" commands, not questions
             if any(word in input_lower for word in ['read', 'show', 'summarize', 'summary', 'tell me about', 'what does', 'describe']):
@@ -3307,6 +3551,51 @@ class ALICE:
                 self._think("Correction/disagreement detected → skipping plugins, using LLM")
                 intent = "conversation:general"
                 intent_confidence = 0.9
+
+            # 0.545 ISSUE-REPORT GUARD: long reflective debugging statements
+            # (about intents/routing/recommendations) should not be tool-routed.
+            if self._is_issue_report_input(user_input):
+                _tool_domains = (
+                    "notes:", "email:", "calendar:", "file_operations:",
+                    "memory:", "reminder:", "system:", "weather:",
+                )
+                if any(intent.startswith(domain) for domain in _tool_domains):
+                    self._think("Issue-report text detected → forcing conversational routing")
+                    intent = "conversation:general"
+                    intent_confidence = min(float(intent_confidence or 0.5), 0.55)
+
+            # 0.546 LOW-CONFIDENCE TOOL GUARD: if NLP predicts a tool domain but
+            # the utterance has no explicit action cues, keep it conversational.
+            _tool_domains = (
+                "notes:", "email:", "calendar:", "file_operations:",
+                "memory:", "reminder:", "system:", "weather:", "time:",
+            )
+            if (
+                any(intent.startswith(domain) for domain in _tool_domains)
+                and float(intent_confidence or 0.0) < 0.82
+                and not self._has_explicit_action_cue(user_input)
+            ):
+                self._think("Low-confidence tool intent without action cues → conversational fallback")
+                intent = "conversation:general"
+                intent_confidence = min(float(intent_confidence or 0.5), 0.58)
+
+            # 0.547 WAKE-WORD ACK: short nudges like "alice" should feel
+            # immediate and natural, not trigger tools or verbose LLM output.
+            if self._is_wake_word_only_input(user_input):
+                self._think("Wake-word-only input → concise conversational acknowledgment")
+                _user_name = getattr(getattr(self, 'context', None), 'user_prefs', None)
+                _user_name = getattr(_user_name, 'name', '') if _user_name else ''
+                response = self._wake_word_acknowledgment(_user_name)
+                if response:
+                    self._store_interaction(user_input, response, 'conversation:general', entities)
+                    if use_voice and self.speech:
+                        self.speech.speak(response, blocking=False)
+                    logger.info(f"A.L.I.C.E: {response[:100]}...")
+                    return response
+                # If no learned or teacher phrasing is available, continue normal
+                # conversational flow rather than returning a hardcoded line.
+                intent = 'conversation:general'
+                intent_confidence = min(float(intent_confidence or 0.5), 0.6)
 
             # 0.55 PRIORITY WEATHER FOLLOW-UP PATH: handle weather context BEFORE
             # conversational fast path so weather follow-ups don't depend on LLM.
@@ -4946,7 +5235,7 @@ class ALICE:
             # Get LLM response via gateway using the context-resolved input
             # Enhance user input with goal context if available
             llm_input = user_input_processed
-            if goal_res and goal_res.goal:
+            if goal_res and goal_res.goal and self._should_attach_goal_context(user_input_processed, intent):
                 # Add goal context to help LLM understand what user is trying to accomplish
                 goal_note = f"\n[Context: You're helping the user accomplish: {goal_res.goal.description}. Keep this goal in mind when responding.]"
                 llm_input = user_input_processed + goal_note
@@ -6536,8 +6825,11 @@ class ALICE:
         if hasattr(self, 'conversational_engine') and self.conversational_engine:
             # Use learned greeting patterns if available
             if hasattr(self.conversational_engine, 'learned_greetings') and self.conversational_engine.learned_greetings:
-                if hasattr(self.conversational_engine, '_pick_non_repeating'):
-                    return self.conversational_engine._pick_non_repeating(self.conversational_engine.learned_greetings)
+                greeting_options = self.conversational_engine._unique_candidates(
+                    self.conversational_engine.learned_greetings
+                ) if hasattr(self.conversational_engine, '_unique_candidates') else self.conversational_engine.learned_greetings
+                if hasattr(self.conversational_engine, '_pick_non_repeating') and len(greeting_options) >= 2:
+                    return self.conversational_engine._pick_non_repeating(greeting_options)
 
         learned = self._learned_greeting_response(
             user_input="greeting",

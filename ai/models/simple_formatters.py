@@ -709,12 +709,12 @@ class NotesFormatter(SimpleFormatter):
             return "\n".join(lines)
 
         if action == "count_notes":
-            total   = data.get('total', 0)
-            todos   = data.get('todos', 0)
-            ideas   = data.get('ideas', 0)
-            meetings= data.get('meetings', 0)
-            pinned  = data.get('pinned', 0)
-            archived= data.get('archived', 0)
+            total = data.get("total", 0)
+            todos = data.get("todos", 0)
+            ideas = data.get("ideas", 0)
+            meetings = data.get("meetings", 0)
+            pinned = data.get("pinned", 0)
+            archived = data.get("archived", 0)
             sep = "─" * 36
             return (
                 f"Notes  —  {total} total\n"

@@ -7,6 +7,7 @@ Uses Llama 3.3 70B for ChatGPT-level performance
 import requests
 import json
 import logging
+import re
 from typing import List, Dict, Optional, Any, Generator
 from datetime import datetime
 import sys
@@ -570,13 +571,20 @@ Input: {user_input}"""
         try:
             context = context or {}
             user_name = context.get("user_name", "the user")
+            allow_user_name = bool(context.get("allow_user_name", False))
+
+            context_line = (
+                f"Context: User is {user_name}\n"
+                if allow_user_name and user_name
+                else "Context: Do not address the user by name unless the content explicitly requires it.\n"
+            )
 
             phrasing_request = f"""Alice has formulated a response and needs it phrased naturally.
 
 Alice's thought/decision: {content}
 
 Tone to use: {tone}
-Context: User is {user_name}
+{context_line}Do not add extra personalization, greetings, or vocatives unless Alice's thought explicitly calls for them.
 
 Please phrase this naturally using the specified tone. Keep Alice's personality markers (warmth, helpfulness, honesty) but match the exact tone she specified."""
 
@@ -604,7 +612,15 @@ Please phrase this naturally using the specified tone. Keep Alice's personality 
 
             if response.status_code == 200:
                 result = response.json()
-                return result["message"]["content"]
+                phrased = result["message"]["content"]
+                if not allow_user_name:
+                    phrased = re.sub(
+                        r"^(?:for|hey|hi|hello)\s+(?:the user|user|testuser|[A-Z][\w-]*)[:,!]?\s*",
+                        "",
+                        phrased.strip(),
+                        flags=re.IGNORECASE,
+                    )
+                return phrased
             else:
                 logger.error(f"Phrasing request failed: {response.status_code}")
                 # Fallback: return content as-is

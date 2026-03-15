@@ -64,6 +64,21 @@ class ConversationalEngine:
         # Load patterns from training data
         self._load_patterns()
 
+    def _unique_candidates(self, candidates: List[str]) -> List[str]:
+        """Return normalized unique candidate strings while preserving order."""
+        unique: List[str] = []
+        seen = set()
+        for candidate in candidates or []:
+            text = (candidate or "").strip()
+            if not text:
+                continue
+            key = text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(text)
+        return unique
+
     def _load_patterns(self) -> None:
         """Load conversational patterns from training data and curated patterns"""
         # First, load curated patterns
@@ -145,12 +160,13 @@ class ConversationalEngine:
 
     def _pick_non_repeating(self, candidates: List[str]) -> str:
         """Pick a response from candidates, preferring one not in recent_responses."""
-        if not candidates:
+        normalized_candidates = self._unique_candidates(candidates)
+        if not normalized_candidates:
             return ""
         recent = getattr(self, "recent_responses", ()) or []
         max_recent = getattr(self, "max_recent", 10)
-        not_recent = [c for c in candidates if c not in recent]
-        choice = random.choice(not_recent) if not_recent else random.choice(candidates)
+        not_recent = [c for c in normalized_candidates if c not in recent]
+        choice = random.choice(not_recent) if not_recent else random.choice(normalized_candidates)
         recent.insert(0, choice)
         self.recent_responses = recent[:max_recent]
         return choice
@@ -171,7 +187,8 @@ class ConversationalEngine:
             and len(input_lower.split()) <= 4
         ):
             # Must be primarily a greeting, not a question
-            if "?" not in input_lower and len(self.learned_greetings) > 0:
+            greeting_options = self._unique_candidates(self.learned_greetings)
+            if "?" not in input_lower and len(greeting_options) >= 2:
                 return True
 
         # Personal events acknowledgment (birthday, anniversary) - these are simple confirmations
@@ -266,12 +283,13 @@ class ConversationalEngine:
         ):
             # Don't treat questions as greetings
             if "?" not in input_lower:
-                if self.learned_greetings:
+                greeting_options = self._unique_candidates(self.learned_greetings)
+                if len(greeting_options) >= 2:
                     # Prefer brief greetings
-                    brief_greetings = [g for g in self.learned_greetings if len(g) < 60]
+                    brief_greetings = [g for g in greeting_options if len(g) < 60]
                     if brief_greetings:
                         return self._pick_non_repeating(brief_greetings)
-                    return self._pick_non_repeating(self.learned_greetings)
+                    return self._pick_non_repeating(greeting_options)
 
         # PERSONAL EVENTS - Detect and acknowledge birthday/anniversary statements
         if "birthday" in input_lower and "?" not in input_lower:

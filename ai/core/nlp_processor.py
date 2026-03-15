@@ -3243,7 +3243,14 @@ class NLPProcessor:
         # Read note content: "what is in the grocery list?", "what's inside my notes?"
         # Must come before list/append to avoid misclassification.
         if _P1_NOTES_READ_CONTENT_RE.search(text_lower) and not _negated:
-            return "notes:read_content", 0.92
+            _mentions_note_word = bool(re.search(r"\b(note|notes|list|lists|memo)\b", text_lower))
+            _pronoun_only = bool(re.search(r"\b(it|this|that)\b", text_lower))
+            _notes_context = bool(
+                getattr(self.context, "last_intent", "").startswith("notes:")
+                or getattr(self.context, "mentioned_notes", None)
+            )
+            if _mentions_note_word or (_pronoun_only and _notes_context):
+                return "notes:read_content", 0.92
         # Append/add to existing note: must come BEFORE create to prevent misclassification
         # Matches: "add X to my grocery list", "add X to the note", "put X on my shopping list"
         if (
@@ -3450,13 +3457,33 @@ class NLPProcessor:
                 return "weather:forecast", 0.88
             return "weather:current", 0.88
 
+        # PHASE 1.5: Conversational guard before semantic fallback.
+        # Prevent force-fitting casual chat into tool intents.
+        _words = set(re.findall(r"\b[a-z']+\b", text_lower))
+        _conversation_cues = {
+            "how", "why", "what", "hey", "hi", "hello", "day", "feeling",
+            "doing", "going", "think", "chat", "talk",
+        }
+        _tool_cues = {
+            "email", "calendar", "meeting", "note", "notes", "file", "files",
+            "weather", "forecast", "temperature", "reminder", "time", "date",
+            "create", "delete", "read", "write", "open", "search", "list", "show",
+        }
+        if (
+            len(_words) <= 12
+            and ("?" in text_lower or not _words.isdisjoint(_conversation_cues))
+            and _words.isdisjoint(_tool_cues)
+        ):
+            return "conversation:general", 0.72
+
         # PHASE 2: Fallback to semantic classification
         # Try semantic classification for lower-confidence cases
         semantic_classifier = self._ensure_semantic_classifier()
         if semantic_classifier:
             try:
-                result = semantic_classifier.get_plugin_action(text, threshold=0.4)
-                if result and result.get("confidence", 0) > 0.5:
+                # Raised threshold to avoid over-eager semantic force-fit.
+                result = semantic_classifier.get_plugin_action(text, threshold=0.58)
+                if result and result.get("confidence", 0) >= 0.68:
                     # Map plugin:action to intent
                     plugin = result.get("plugin", "")
                     action = result.get("action", "")
