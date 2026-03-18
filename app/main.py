@@ -424,7 +424,11 @@ class ALICE:
                 goal_tracker=self.goal_tracker,
                 reflection_engine=self.reflection_engine,
                 response_quality_tracker=self.response_quality_tracker,
-                tick_interval_seconds=20.0,
+                executive_controller=self.executive_controller,
+                conversation_state_tracker=getattr(self, 'conversation_state_tracker', None),
+                response_planner=self.response_planner,
+                tick_interval_seconds=5.0,
+                reasoning_importance_threshold=0.74,
             )
             self.cognitive_orchestrator.start()
             self._internal_reasoning_state = {}
@@ -494,6 +498,8 @@ class ALICE:
             logger.info("[OK] Conversation context manager ready - Alice can now track 'it', 'that', and conversation flow")
             self.conversation_state_tracker = get_conversation_state_tracker(max_chain=8, max_depth=5)
             logger.info("[OK] Conversation state tracker ready - topic/goal/depth/question-chain tracking enabled")
+            if getattr(self, 'cognitive_orchestrator', None) is not None:
+                self.cognitive_orchestrator.conversation_state_tracker = self.conversation_state_tracker
 
             # 3.9. User Profile Engine - Deep user modeling and preference learning
             logger.info("Initializing user profile engine...")
@@ -6677,12 +6683,19 @@ class ALICE:
 
             if getattr(self, 'cognitive_orchestrator', None):
                 try:
+                    _decision_scores = (
+                        (getattr(self, '_internal_reasoning_state', {}) or {}).get('decision_scores', {})
+                    )
+                    _gate_accepted = bool(
+                        (getattr(self, '_last_exec_gate_eval', {}) or {}).get('accepted', True)
+                    )
                     self.cognitive_orchestrator.observe_turn(
                         user_input=user_input,
                         intent=intent or "conversation:general",
                         response=response,
-                        gate_accepted=True,
+                        gate_accepted=_gate_accepted,
                         route="llm",
+                        decision_scores=_decision_scores,
                     )
                 except Exception as _co_err:
                     logger.debug(f"[CognitiveOrchestrator] {_co_err}")

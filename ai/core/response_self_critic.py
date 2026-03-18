@@ -289,13 +289,9 @@ class ResponseSelfCritic:
         # Select a specific correction hint rather than a generic "acknowledge and ask" template
         correction_hint: Optional[str] = None
         if assumption_issue:
-            correction_hint = (
-                "Premise was unsupported — retract the framing and wait for a real question."
-            )
+            correction_hint = "Premise was unsupported — retract the framing and wait for a real question."
         elif redundant_issue:
-            correction_hint = (
-                "Suggestion was entirely redundant — the feature already exists; no gap to fill."
-            )
+            correction_hint = "Suggestion was entirely redundant — the feature already exists; no gap to fill."
 
         topic_overlap = self._topic_overlap_score(user_input, response)
         return CritiqueResult(

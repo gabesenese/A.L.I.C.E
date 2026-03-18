@@ -207,7 +207,9 @@ class ExecutiveController:
             "could we",
             "strategy",
         )
-        if any(cue in text_lower for cue in conversational_cues) and not normalized_intent.startswith("conversation:"):
+        if any(
+            cue in text_lower for cue in conversational_cues
+        ) and not normalized_intent.startswith("conversation:"):
             return {
                 "veto": True,
                 "reason": "conversational_input_not_actionable",

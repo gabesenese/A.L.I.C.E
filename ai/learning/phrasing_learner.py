@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
 
+from ai.learning.data_redaction import sanitize_for_learning, redact_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -219,24 +221,28 @@ class PhrasingLearner:
         if alice_thought.get("type") == "weather_advice":
             ollama_phrasing = self._sanitize_weather_advice_phrasing(ollama_phrasing)
 
+        safe_thought = sanitize_for_learning(alice_thought or {})
+        safe_context = sanitize_for_learning(context or {})
+        safe_ollama_phrasing = redact_text(ollama_phrasing or "")
+
         # Avoid polluting learned store with high-variance conversational/knowledge
         # responses that are likely to replay incorrectly on future turns.
-        if self._is_high_variance_thought(alice_thought):
+        if self._is_high_variance_thought(safe_thought):
             logger.debug(
                 "[PhrasingLearner] Skipping high-variance thought type '%s'",
-                alice_thought.get("type", ""),
+                safe_thought.get("type", ""),
             )
             return
 
-        pattern = self._extract_pattern(alice_thought)
+        pattern = self._extract_pattern(safe_thought)
 
         entry = {
             "pattern": pattern,
-            "alice_thought": alice_thought,
-            "ollama_phrasing": ollama_phrasing,
-            "context": context,
+            "alice_thought": safe_thought,
+            "ollama_phrasing": safe_ollama_phrasing,
+            "context": safe_context,
             "timestamp": datetime.now().isoformat(),
-            "tone": context.get("tone", "warm and helpful"),
+            "tone": safe_context.get("tone", "warm and helpful"),
         }
 
         # Store in memory

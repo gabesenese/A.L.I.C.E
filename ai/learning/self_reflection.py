@@ -701,6 +701,7 @@ class SelfReflectionSystem:
             return f"**{file_path}**: {analysis['error']}"
 
         summary_parts = []
+        fallback_used = str(analysis.get("purpose") or "").startswith("Regex analysis")
 
         # Header
         summary_parts.append(
@@ -708,15 +709,20 @@ class SelfReflectionSystem:
         )
 
         # Purpose
-        if analysis.get("purpose"):
+        if analysis.get("purpose") and not fallback_used:
             summary_parts.append(f"  Purpose: {analysis['purpose']}")
+        elif fallback_used:
+            inferred_purpose = self._infer_regex_fallback_purpose(analysis)
+            summary_parts.append(f"  Purpose: {inferred_purpose}")
+            summary_parts.append("  Analysis mode: structural (regex fallback)")
 
         # Key components
         if analysis.get("classes"):
-            class_names = [
-                c["name"] if isinstance(c, dict) else c for c in analysis["classes"][:3]
-            ]
-            summary_parts.append(f"  Classes: {', '.join(class_names)}")
+            class_names = [c["name"] if isinstance(c, dict) else c for c in analysis["classes"]]
+            representative = self._select_representative_classes(class_names)
+            summary_parts.append(
+                f"  Classes ({len(class_names)}): {', '.join(representative)}"
+            )
 
         if analysis.get("functions") and len(analysis["functions"]) > 0:
             summary_parts.append(f"  Functions: {', '.join(analysis['functions'][:5])}")
@@ -734,6 +740,58 @@ class SelfReflectionSystem:
             )
 
         return "\n".join(summary_parts)
+
+    def _select_representative_classes(self, class_names: List[str], max_items: int = 4) -> List[str]:
+        """Pick representative classes and prioritize orchestrator/processor types."""
+        if not class_names:
+            return []
+
+        priorities = ("Processor", "Engine", "Manager", "Controller", "Service")
+        seen = set()
+        picked: List[str] = []
+
+        for suffix in priorities:
+            for name in class_names:
+                if name in seen:
+                    continue
+                if name.endswith(suffix):
+                    picked.append(name)
+                    seen.add(name)
+                    if len(picked) >= max_items:
+                        return picked
+
+        for name in class_names:
+            if name in seen:
+                continue
+            picked.append(name)
+            seen.add(name)
+            if len(picked) >= max_items:
+                break
+
+        return picked
+
+    def _infer_regex_fallback_purpose(self, analysis: Dict[str, Any]) -> str:
+        """Infer a practical purpose statement when AST parsing is unavailable."""
+        name = str(analysis.get("name") or "").lower()
+        classes = [
+            str(c.get("name") if isinstance(c, dict) else c).lower()
+            for c in (analysis.get("classes") or [])
+        ]
+        functions = [str(f).lower() for f in (analysis.get("functions") or [])]
+        imports = [str(i).lower() for i in (analysis.get("imports") or [])]
+        tokens = " ".join([name] + classes + functions + imports)
+
+        if "nlp" in tokens or "intent" in tokens or "token" in tokens:
+            return "Natural language processing pipeline for intent classification, entity extraction, and routing."
+        if "weather" in tokens:
+            return "Weather-query processing and forecast/context handling module."
+        if "email" in tokens:
+            return "Email intent and workflow processing module."
+        if "calendar" in tokens:
+            return "Calendar/event intent and scheduling workflow module."
+        if "note" in tokens:
+            return "Notes workflow parsing and execution-support module."
+        return "Core module with structured classes/functions for application behavior and routing."
 
     def batch_summarize_files(
         self, file_paths: List[str], parallel: bool = True

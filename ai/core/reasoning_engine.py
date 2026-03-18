@@ -531,9 +531,12 @@ class ReasoningEngine:
         entities_to_use: Dict[str, Any] = {}
         resolved_input = user_input
         snap = self.snapshot()
+        skip_pronoun_resolution = self._is_code_analysis_request(user_input)
 
         # 1) Pronoun resolution
         for pron in self.PRONOUNS:
+            if skip_pronoun_resolution and pron in {"this", "that", "it", "the one"}:
+                continue
             if not re.search(rf"\b{re.escape(pron)}\b", user_input, re.IGNORECASE):
                 continue
             entity = self._resolve_pronoun(pron, snap)
@@ -595,6 +598,33 @@ class ReasoningEngine:
             bindings=bindings,
             entities_to_use=entities_to_use,
         )
+
+    def _is_code_analysis_request(self, user_input: str) -> bool:
+        """Return True for meta requests that discuss code artifacts themselves."""
+        text = (user_input or "").lower()
+        analysis_verbs = (
+            "summarize",
+            "summary",
+            "explain",
+            "describe",
+            "analy",
+            "review",
+            "walk me through",
+            "what does",
+            "what is",
+        )
+        code_nouns = (
+            "file",
+            "script",
+            "code",
+            "module",
+            "class",
+            "function",
+            "method",
+        )
+        has_analysis_verb = any(token in text for token in analysis_verbs)
+        has_code_noun = any(token in text for token in code_nouns)
+        return has_analysis_verb and has_code_noun
 
     def _resolve_pronoun(
         self, pronoun: str, snap: Dict[str, Any]

@@ -22,6 +22,8 @@ from dataclasses import dataclass, asdict, field
 from collections import defaultdict
 import threading
 
+from ai.learning.data_redaction import sanitize_for_learning, redact_text
+
 logger = logging.getLogger(__name__)
 
 np = None
@@ -154,11 +156,14 @@ class LearningEngine:
     ):
         """Record an interaction for learning"""
         with self._lock:
+            safe_user_input = redact_text(user_input or "")
+            safe_assistant_response = redact_text(assistant_response or "")
+            safe_entities = sanitize_for_learning(entities or {})
             example = TrainingExample(
-                user_input=user_input,
-                assistant_response=assistant_response,
+                user_input=safe_user_input,
+                assistant_response=safe_assistant_response,
                 intent=intent,
-                entities=entities or {},
+                entities=safe_entities,
                 quality_score=quality_score,
                 user_rating=user_rating,
             )

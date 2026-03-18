@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 from ai.core.llm_policy import get_llm_policy, LLMCallType
 from ai.models.simple_formatters import FormatterRegistry
+from ai.learning.data_redaction import sanitize_for_learning, redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -293,17 +294,18 @@ class LLMGateway:
             os.makedirs(os.path.dirname(LOGGED_INTERACTIONS_PATH), exist_ok=True)
 
             # Create log entry
+            safe_context = sanitize_for_learning(context_snapshot or {})
             log_entry = {
                 "timestamp": datetime.now().isoformat(),
-                "user_input": user_input,
+                "user_input": redact_text(user_input or ""),
                 "intent": intent,
-                "entities": entities,
+                "entities": sanitize_for_learning(entities or {}),
                 "context": {
                     k: v
-                    for k, v in context_snapshot.items()
+                    for k, v in safe_context.items()
                     if k not in ["llm_engine", "memory_system", "plugin_manager"]
                 },
-                "llm_response": llm_response,
+                "llm_response": redact_text(llm_response or ""),
                 "call_type": "LLM_FALLBACK",
             }
 

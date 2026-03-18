@@ -15,7 +15,12 @@ import pytest
 
 from ai.core.response_planner import ResponsePlanner, get_response_planner
 from ai.core.goal_tracker import GoalTracker, get_goal_tracker
-from ai.core.cognitive_orchestrator import CognitiveOrchestrator
+from ai.core.cognitive_orchestrator import (
+    CognitiveOrchestrator,
+    GOAL_ACTIVE,
+    GOAL_PROGRESSING,
+    GOAL_COMPLETED,
+)
 from ai.core.response_quality_tracker import (
     ResponseQualityTracker,
     FAILURE_NONE,
@@ -541,3 +546,97 @@ class TestCognitiveOrchestrator:
             ]
         )
         assert decision["best_action"]["action_id"] == "staged_rollout"
+
+    def test_goal_lifecycle_states_progress_and_complete(self):
+        self.orchestrator.register_project_goal(
+            goal_id="proj-lifecycle",
+            description="Improve routing reliability",
+            milestones=["detect", "stabilize"],
+        )
+        snap_a = self.orchestrator.get_cognitive_snapshot()
+        goal_a = next(g for g in snap_a["project_goals"] if g["goal_id"] == "proj-lifecycle")
+        assert goal_a["state"] == GOAL_ACTIVE
+
+        self.orchestrator.mark_milestone_completed(goal_id="proj-lifecycle", milestone="detect")
+        snap_b = self.orchestrator.get_cognitive_snapshot()
+        goal_b = next(g for g in snap_b["project_goals"] if g["goal_id"] == "proj-lifecycle")
+        assert goal_b["state"] == GOAL_PROGRESSING
+
+        self.orchestrator.mark_milestone_completed(goal_id="proj-lifecycle", milestone="stabilize")
+        snap_c = self.orchestrator.get_cognitive_snapshot()
+        goal_c = next(g for g in snap_c["project_goals"] if g["goal_id"] == "proj-lifecycle")
+        assert goal_c["state"] == GOAL_COMPLETED
+
+    def test_failure_monitoring_aggregates_frequency_and_cause(self):
+        for _ in range(3):
+            self.orchestrator.observe_turn(
+                user_input="create note",
+                intent="notes:create",
+                response="This might maybe probably work.",
+                gate_accepted=False,
+                route="llm",
+            )
+
+        snap = self.orchestrator.get_cognitive_snapshot()
+        failures = list(snap["failure_log"])
+        assert len(failures) >= 1
+        top_failure = max(failures, key=lambda item: int(item.get("frequency", 0)))
+        assert int(top_failure.get("frequency", 0)) >= 1
+        assert len(str(top_failure.get("suspected_cause", ""))) > 0
+
+    def test_improvement_queue_is_populated_from_reflection_and_failures(self):
+        for _ in range(3):
+            self.orchestrator.observe_turn(
+                user_input="can we brainstorm options",
+                intent="weather:current",
+                response="I am not sure. Maybe maybe.",
+                gate_accepted=False,
+                route="llm",
+            )
+        self.orchestrator._run_cycle()
+        snap = self.orchestrator.get_cognitive_snapshot()
+        assert len(snap["improvement_queue"]) >= 1
+        assert all("description" in item and "priority" in item for item in snap["improvement_queue"])
+
+    def test_working_cognitive_state_updates_after_cycle(self):
+        self.orchestrator.register_project_goal(
+            goal_id="proj-focus",
+            description="Improve intent plausibility filtering",
+            milestones=["collect failures"],
+        )
+        self.orchestrator.observe_turn(
+            user_input="routing keeps failing for weather",
+            intent="weather:current",
+            response="I am not sure maybe this helps.",
+            gate_accepted=False,
+            route="llm",
+        )
+        self.orchestrator._run_cycle()
+        snap = self.orchestrator.get_cognitive_snapshot()
+        state = snap["cognitive_state"]
+        assert state["active_goal"]
+        assert isinstance(state["improvement_targets"], list)
+        assert state["last_importance_score"] >= 0.0
+
+    def test_controlled_reasoning_trigger_emits_event_without_llm_loop(self):
+        custom_events = []
+        self.event_bus._subscribers.setdefault("cognition.reasoning_trigger", []).append(
+            lambda e: custom_events.append(e)
+        )
+        self.orchestrator.reasoning_importance_threshold = 0.25
+        self.orchestrator.register_project_goal(
+            goal_id="proj-trigger",
+            description="Stabilize planning and routing",
+            milestones=["phase1", "phase2"],
+        )
+        for _ in range(4):
+            self.orchestrator.observe_turn(
+                user_input="this routing is wrong",
+                intent="notes:create",
+                response="not sure maybe maybe",
+                gate_accepted=False,
+                route="llm",
+            )
+        self.orchestrator._run_cycle()
+        time.sleep(0.05)
+        assert len(custom_events) >= 1
