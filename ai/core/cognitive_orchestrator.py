@@ -37,6 +37,8 @@ GOAL_ACTIVE = "active"
 GOAL_PROGRESSING = "progressing"
 GOAL_COMPLETED = "completed"
 GOAL_ABANDONED = "abandoned"
+GOAL_BLOCKED = "blocked"
+GOAL_DRIFTED = "drifted"
 
 IMPROVEMENT_PENDING = "pending"
 IMPROVEMENT_IN_PROGRESS = "in_progress"
@@ -350,6 +352,8 @@ class CognitiveOrchestrator:
             total = max(1, len(goal.milestones))
             goal.progress = min(1.0, len(goal.completed_milestones) / total)
             goal.state = GOAL_COMPLETED if goal.progress >= 1.0 else GOAL_PROGRESSING
+            goal.metadata["stagnation_turns"] = 0
+            goal.metadata["drift_turns"] = 0
             goal.last_updated = time.time()
             return True
 
@@ -637,8 +641,9 @@ class CognitiveOrchestrator:
                 if goal.progress >= 1.0:
                     goal.state = GOAL_COMPLETED
                 elif goal.progress > 0.0:
-                    goal.state = GOAL_PROGRESSING
-                elif goal.state not in (GOAL_ACTIVE, GOAL_CREATED):
+                    if goal.state not in (GOAL_BLOCKED, GOAL_DRIFTED):
+                        goal.state = GOAL_PROGRESSING
+                elif goal.state not in (GOAL_ACTIVE, GOAL_CREATED, GOAL_BLOCKED, GOAL_DRIFTED):
                     goal.state = GOAL_ACTIVE
             ranked = sorted(
                 self._project_goals.values(),
@@ -815,6 +820,12 @@ class CognitiveOrchestrator:
         for goal in goals:
             stale_after_seconds = min(72.0, float(goal.horizon_days)) * 3600.0
             age = now_ts - float(goal.last_updated)
+            if (
+                goal.progress < 0.2
+                and age > max(3600.0, stale_after_seconds * 0.5)
+                and goal.state not in (GOAL_COMPLETED, GOAL_ABANDONED)
+            ):
+                goal.state = GOAL_BLOCKED
             if age > stale_after_seconds and goal.progress < 1.0:
                 goal.state = GOAL_ABANDONED if age > (stale_after_seconds * 2.0) else goal.state
                 stale_info = {
@@ -876,11 +887,62 @@ class CognitiveOrchestrator:
                     continue
                 text = f"{user_input} {intent}".lower()
                 overlap = self._goal_relevance_overlap(goal.description.lower(), text)
+                drift_turns = int(goal.metadata.get("drift_turns", 0) or 0)
+                stagnation_turns = int(goal.metadata.get("stagnation_turns", 0) or 0)
+                prev_progress = float(goal.progress)
                 if overlap > 0.18:
                     goal.state = GOAL_PROGRESSING if goal.progress > 0.0 else GOAL_ACTIVE
                     goal.priority_score = min(1.0, max(goal.priority_score, 0.55 + overlap))
                     goal.last_updated = time.time()
                     goal.related_conversations.append(turn_ref)
+                    goal.metadata["drift_turns"] = 0
+                    if goal.progress <= prev_progress + 1e-6:
+                        stagnation_turns += 1
+                    else:
+                        stagnation_turns = 0
+                    goal.metadata["stagnation_turns"] = stagnation_turns
+                    if goal.progress < 1.0 and stagnation_turns >= 3:
+                        goal.state = GOAL_BLOCKED
+                elif overlap < 0.08 and goal.state in (GOAL_ACTIVE, GOAL_PROGRESSING, GOAL_BLOCKED):
+                    drift_turns += 1
+                    goal.metadata["drift_turns"] = drift_turns
+                    if drift_turns >= 2:
+                        goal.state = GOAL_DRIFTED
+
+    def get_runtime_guidance(self) -> Dict[str, Any]:
+        """Return compact between-turn guidance derived from cognition metrics."""
+        with self._lock:
+            importance = float(self._cognitive_state.last_importance_score)
+            active_goal = str(self._cognitive_state.active_goal or "")
+            recent_problem = str(self._cognitive_state.recent_problem or "")
+            queue_len = len(self._improvement_queue)
+
+        route_bias = "balanced"
+        if recent_problem in ("routing_mistake", "topic_drift"):
+            route_bias = "clarify_first"
+        elif active_goal and importance >= 0.65:
+            route_bias = "goal_first"
+
+        tool_budget = 1
+        if route_bias == "clarify_first":
+            tool_budget = 0
+        elif importance >= 0.68 or queue_len >= 3:
+            tool_budget = 2
+
+        thinking_depth = 1
+        if importance >= 0.50:
+            thinking_depth += 1
+        if active_goal:
+            thinking_depth += 1
+
+        planner_hint = "increase_structure_depth" if thinking_depth >= 3 else "default"
+
+        return {
+            "route_bias": route_bias,
+            "tool_budget": int(max(0, min(3, tool_budget))),
+            "thinking_depth": int(max(1, min(4, thinking_depth))),
+            "planner_hint": planner_hint,
+        }
 
     def _goal_relevance_overlap(self, goal_text: str, utterance_text: str) -> float:
         goal_terms = {t for t in goal_text.split() if len(t) > 2}

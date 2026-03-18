@@ -20,6 +20,8 @@ from ai.core.cognitive_orchestrator import (
     GOAL_ACTIVE,
     GOAL_PROGRESSING,
     GOAL_COMPLETED,
+    GOAL_BLOCKED,
+    GOAL_DRIFTED,
 )
 from ai.core.response_quality_tracker import (
     ResponseQualityTracker,
@@ -640,3 +642,65 @@ class TestCognitiveOrchestrator:
         self.orchestrator._run_cycle()
         time.sleep(0.05)
         assert len(custom_events) >= 1
+
+    def test_goal_lifecycle_detects_drift_and_blockage(self):
+        self.orchestrator.register_project_goal(
+            goal_id="proj-drift",
+            description="stabilize routing reliability",
+            milestones=["collect", "improve", "verify"],
+        )
+
+        # Unrelated turns should push the goal toward drifted.
+        self.orchestrator.observe_turn(
+            user_input="tell me a joke",
+            intent="conversation:chitchat",
+            response="Here is a joke.",
+            gate_accepted=True,
+            route="llm",
+        )
+        self.orchestrator.observe_turn(
+            user_input="what is the weather today",
+            intent="weather:current",
+            response="Sunny.",
+            gate_accepted=True,
+            route="llm",
+        )
+
+        snap_a = self.orchestrator.get_cognitive_snapshot()
+        goal_a = next(g for g in snap_a["project_goals"] if g["goal_id"] == "proj-drift")
+        assert goal_a["state"] in (GOAL_DRIFTED, GOAL_ACTIVE, GOAL_PROGRESSING)
+
+        # Repeated relevant turns without milestone progress should mark blocked.
+        for _ in range(3):
+            self.orchestrator.observe_turn(
+                user_input="routing reliability still fails",
+                intent="notes:create",
+                response="Trying to stabilize.",
+                gate_accepted=False,
+                route="llm",
+            )
+
+        snap_b = self.orchestrator.get_cognitive_snapshot()
+        goal_b = next(g for g in snap_b["project_goals"] if g["goal_id"] == "proj-drift")
+        assert goal_b["state"] in (GOAL_BLOCKED, GOAL_PROGRESSING, GOAL_ACTIVE)
+
+    def test_runtime_guidance_uses_between_turn_metrics(self):
+        self.orchestrator.register_project_goal(
+            goal_id="proj-guidance",
+            description="improve planner routing quality",
+            milestones=["phase1"],
+        )
+        for _ in range(3):
+            self.orchestrator.observe_turn(
+                user_input="wrong route again",
+                intent="notes:create",
+                response="maybe",
+                gate_accepted=False,
+                route="llm",
+            )
+
+        self.orchestrator._run_cycle()
+        guidance = self.orchestrator.get_runtime_guidance()
+        assert guidance["route_bias"] in ("balanced", "clarify_first", "goal_first")
+        assert 0 <= int(guidance["tool_budget"]) <= 3
+        assert 1 <= int(guidance["thinking_depth"]) <= 4

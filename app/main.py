@@ -2116,7 +2116,7 @@ class ALICE:
                         'show code', 'list files', 'access to', 'internal code', 'codebase', 'see code',
                         'have access', 'can you see', 'your files']
         if any(word in user_input.lower() for word in code_keywords):
-            codebase_summary = self.self_reflection.get_codebase_summary()
+            codebase_summary = self.self_reflection.get_codebase_summary() 
             reflection_context = f"CRITICAL: You ARE A.L.I.C.E, an AI assistant with read-only access to your own codebase. "
             reflection_context += f"Your codebase is at {codebase_summary['base_path']} with {codebase_summary['total_files']} Python files. "
             reflection_context += f"You can read files, analyze code, search, and suggest improvements through the self_reflection system. "
@@ -2178,6 +2178,7 @@ class ALICE:
                     f"- user_intent: {_rs.get('user_intent', 'unknown')}",
                     f"- topic: {_rs.get('topic', 'unknown') or 'unknown'}",
                     f"- confidence: {float(_rs.get('confidence', 0.0)):.2f}",
+                    f"- intent_plausibility: {float(_rs.get('intent_plausibility', 1.0)):.2f}",
                     f"- conversation_goal: {_rs.get('conversation_goal', 'general_assistance')}",
                     f"- user_goal: {_rs.get('user_goal', 'none') or 'none'}",
                     f"- depth_level: {int(_rs.get('depth_level', 0))}",
@@ -2194,6 +2195,19 @@ class ALICE:
                     )
                 if _rs.get('learning_decision'):
                     _lines.append(f"- learning_decision: {_rs.get('learning_decision')}")
+                _runtime_controls = _rs.get('runtime_controls', {}) or {}
+                if _runtime_controls:
+                    _lines.append(
+                        "- runtime_controls: "
+                        + ", ".join(
+                            [
+                                f"routing_preference={_runtime_controls.get('routing_preference', 'balanced')}",
+                                f"thinking_depth={int(_runtime_controls.get('thinking_depth', 1) or 1)}",
+                                f"allow_tools={bool(_runtime_controls.get('allow_tools', True))}",
+                                f"max_tool_hops={int(_runtime_controls.get('max_tool_hops', 1) or 1)}",
+                            ]
+                        )
+                    )
                 context_parts.append("\n".join(_lines))
                 context_types.append("reasoning_state")
             except Exception:
@@ -5099,13 +5113,77 @@ class ALICE:
             _conversation_state = {}
             if getattr(self, 'conversation_state_tracker', None):
                 _conversation_state = self.conversation_state_tracker.get_state_summary()
+            _cognitive_guidance = {}
+            if getattr(self, 'cognitive_orchestrator', None):
+                try:
+                    _cognitive_guidance = self.cognitive_orchestrator.get_runtime_guidance()
+                except Exception:
+                    _cognitive_guidance = {}
+
+            if _cognitive_guidance:
+                _conversation_state = {
+                    **(_conversation_state or {}),
+                    "route_bias": _cognitive_guidance.get("route_bias", "balanced"),
+                    "tool_budget": _cognitive_guidance.get("tool_budget", 1),
+                    "planner_hint": _cognitive_guidance.get("planner_hint", ""),
+                    "planner_depth": _cognitive_guidance.get("thinking_depth", 1),
+                }
+
+            _entities_for_exec = dict(entities or {})
+            _entities_for_exec["_intent_plausibility"] = float(intent_plausibility or 0.0)
             _executive_state = self.executive_controller.build_state(
                 user_input=user_input,
                 intent=intent,
                 confidence=float(intent_confidence or 0.0),
-                entities=entities or {},
+                entities=_entities_for_exec,
                 conversation_state=_conversation_state,
             )
+
+            _pre_response_plan = None
+            if getattr(self, 'response_planner', None):
+                try:
+                    _pre_response_plan = self.response_planner.plan(
+                        user_input=user_input,
+                        intent=intent,
+                        reasoning_state=_executive_state.as_dict(),
+                        conversation_state=_conversation_state,
+                    )
+                    _executive_state.planner_depth = max(
+                        int(_executive_state.planner_depth or 1),
+                        int(getattr(_pre_response_plan, 'plan_depth', 1) or 1),
+                    )
+                    if getattr(_pre_response_plan, 'strategy', '') in (
+                        'guided_explanation',
+                        'incremental_teaching',
+                        'expand',
+                    ):
+                        _executive_state.planner_hint = 'increase_structure_depth'
+                    if (
+                        getattr(_pre_response_plan, 'response_type', '') in ('instruction', 'debugging', 'troubleshooting')
+                        and bool(self._has_explicit_action_cue(user_input))
+                    ):
+                        _executive_state.route_bias = 'tool_first'
+                except Exception:
+                    _pre_response_plan = None
+
+            _pre_route_guard = self.executive_controller.should_preempt_for_plausibility(
+                _executive_state,
+                has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
+                intent_candidates=intent_candidates,
+            )
+            if _pre_route_guard.get("block"):
+                self._internal_reasoning_state = {
+                    **_executive_state.as_dict(),
+                    "intent_candidates": intent_candidates,
+                    "intent_plausibility": intent_plausibility,
+                    "pre_route_guard": _pre_route_guard,
+                    "cognitive_guidance": _cognitive_guidance,
+                }
+                self._think(f"Pre-route plausibility guard → {_pre_route_guard.get('reason', 'unknown')}")
+                return _pre_route_guard.get("question") or (
+                    "I need one clarifying detail before I route this request."
+                )
+
             _decision_scores = self.executive_controller.score_decisions(
                 _executive_state,
                 is_pure_conversation=bool(is_pure_conversation),
@@ -5113,12 +5191,20 @@ class ALICE:
                 has_active_goal=bool(active_goal),
                 force_plugins_for_notes=bool(force_plugins_for_notes),
             )
+            _runtime_controls = self.executive_controller.derive_runtime_controls(
+                _executive_state,
+                _decision_scores,
+            )
             self._internal_reasoning_state = {
                 **_executive_state.as_dict(),
                 "decision_scores": _decision_scores,
                 "intent_candidates": intent_candidates,
                 "intent_plausibility": intent_plausibility,
+                "runtime_controls": _runtime_controls,
+                "cognitive_guidance": _cognitive_guidance,
             }
+            if _pre_response_plan is not None:
+                self._internal_reasoning_state["response_plan"] = _pre_response_plan.as_dict()
             _executive_decision = self.executive_controller.decide(
                 _executive_state,
                 is_pure_conversation=bool(is_pure_conversation),
@@ -5138,7 +5224,7 @@ class ALICE:
             # Response planning: decide structure before LLM is called
             if getattr(self, 'response_planner', None):
                 try:
-                    _resp_plan = self.response_planner.plan(
+                    _resp_plan = _pre_response_plan or self.response_planner.plan(
                         user_input=user_input,
                         intent=intent,
                         reasoning_state=self._internal_reasoning_state,
@@ -5188,6 +5274,10 @@ class ALICE:
 
             _force_skip_plugins = _executive_decision.action in ("use_llm", "answer_direct")
             _force_try_plugins = _executive_decision.action in ("use_plugin", "search")
+            if not bool(_runtime_controls.get("allow_tools", True)):
+                _force_skip_plugins = True
+            if _runtime_controls.get("routing_preference") == "tool_first" and bool(_runtime_controls.get("allow_tools", True)):
+                _force_try_plugins = True
             _should_try_plugins = (
                 (_force_try_plugins or ((not _is_short_followup and not is_pure_conversation) or force_plugins_for_notes))
                 and not _force_skip_plugins
@@ -6689,12 +6779,13 @@ class ALICE:
                     _gate_accepted = bool(
                         (getattr(self, '_last_exec_gate_eval', {}) or {}).get('accepted', True)
                     )
+                    _turn_route = 'plugin' if bool(locals().get('plugin_result')) else 'llm'
                     self.cognitive_orchestrator.observe_turn(
                         user_input=user_input,
                         intent=intent or "conversation:general",
                         response=response,
                         gate_accepted=_gate_accepted,
-                        route="llm",
+                        route=_turn_route,
                         decision_scores=_decision_scores,
                     )
                 except Exception as _co_err:
@@ -6914,7 +7005,7 @@ class ALICE:
             print("   /learning  - Show learning statistics")
             print("   exit       - End conversation")
             print("=" * 80)
-            
+             
             # Greet user
             greeting = self._get_greeting()
             if greeting:

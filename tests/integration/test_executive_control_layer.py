@@ -229,3 +229,55 @@ def test_tool_veto_allows_high_plausibility_action_route() -> None:
     )
 
     assert veto["veto"] is False
+
+
+def test_pre_route_guard_blocks_ambiguous_low_plausibility_before_routing() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="maybe check that thing",
+        intent="weather:current",
+        confidence=0.41,
+        entities={"_intent_plausibility": 0.33},
+        conversation_state={},
+    )
+
+    guard = controller.should_preempt_for_plausibility(
+        state,
+        has_explicit_action_cue=False,
+        intent_candidates=[
+            {"intent": "weather:current", "score": 0.52},
+            {"intent": "conversation:general", "score": 0.49},
+        ],
+    )
+
+    assert guard["block"] is True
+    assert "question" in guard
+
+
+def test_runtime_controls_reduce_tool_usage_when_clarify_first() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="let's discuss options",
+        intent="notes:create",
+        confidence=0.48,
+        entities={"_intent_plausibility": 0.40},
+        conversation_state={
+            "route_bias": "clarify_first",
+            "tool_budget": 0,
+            "planner_depth": 3,
+            "planner_hint": "increase_structure_depth",
+        },
+    )
+
+    scores = controller.score_decisions(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+    controls = controller.derive_runtime_controls(state, scores)
+
+    assert controls["allow_tools"] is False
+    assert controls["routing_preference"] == "clarify_first"
+    assert int(controls["thinking_depth"]) >= 3

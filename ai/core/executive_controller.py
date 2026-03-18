@@ -16,9 +16,14 @@ class ReasoningState:
     user_intent: str
     topic: str
     confidence: float
+    intent_plausibility: float
     conversation_goal: str
     user_goal: str
     depth_level: int
+    planner_hint: str = ""
+    planner_depth: int = 1
+    route_bias: str = "balanced"
+    tool_budget: int = 1
     plan: List[str] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -26,9 +31,14 @@ class ReasoningState:
             "user_intent": self.user_intent,
             "topic": self.topic,
             "confidence": self.confidence,
+            "intent_plausibility": self.intent_plausibility,
             "conversation_goal": self.conversation_goal,
             "user_goal": self.user_goal,
             "depth_level": self.depth_level,
+            "planner_hint": self.planner_hint,
+            "planner_depth": self.planner_depth,
+            "route_bias": self.route_bias,
+            "tool_budget": self.tool_budget,
             "plan": list(self.plan),
         }
 
@@ -93,6 +103,14 @@ class ExecutiveController:
             conversation_state.get("user_goal") or entities.get("goal") or ""
         ).strip()
         depth_level = int(conversation_state.get("depth_level") or 0)
+        intent_plausibility = max(
+            0.0,
+            min(1.0, float(entities.get("_intent_plausibility", 1.0) or 1.0)),
+        )
+        planner_hint = str(conversation_state.get("planner_hint") or "").strip().lower()
+        planner_depth = int(conversation_state.get("planner_depth") or 1)
+        route_bias = str(conversation_state.get("route_bias") or "balanced").strip().lower()
+        tool_budget = int(conversation_state.get("tool_budget") or 1)
 
         plan = self._derive_plan(
             intent=intent, topic=topic, depth_level=depth_level, user_input=user_input
@@ -102,11 +120,58 @@ class ExecutiveController:
             user_intent=intent or "unknown",
             topic=topic,
             confidence=max(0.0, min(1.0, float(confidence or 0.0))),
+            intent_plausibility=intent_plausibility,
             conversation_goal=conversation_goal,
             user_goal=user_goal,
             depth_level=depth_level,
+            planner_hint=planner_hint,
+            planner_depth=max(1, min(4, planner_depth)),
+            route_bias=route_bias or "balanced",
+            tool_budget=max(0, min(3, tool_budget)),
             plan=plan,
         )
+
+    def should_preempt_for_plausibility(
+        self,
+        state: ReasoningState,
+        *,
+        has_explicit_action_cue: bool,
+        intent_candidates: List[Dict[str, Any]] | None = None,
+    ) -> Dict[str, Any]:
+        """Pre-routing plausibility gate to stop low-confidence tool trajectories early."""
+        candidates = intent_candidates or []
+        conf = max(0.0, min(1.0, float(state.confidence)))
+        plausibility = max(0.0, min(1.0, float(state.intent_plausibility)))
+        intent = (state.user_intent or "").lower().strip()
+
+        if intent.startswith("conversation:"):
+            return {"block": False, "reason": "conversation_intent"}
+
+        if plausibility < 0.38:
+            return {
+                "block": True,
+                "reason": "pre_route_low_plausibility",
+                "question": "I may be misclassifying your intent. Do you want a concrete tool action or a normal explanation?",
+            }
+
+        if (not has_explicit_action_cue) and conf < 0.50 and plausibility < 0.60:
+            return {
+                "block": True,
+                "reason": "pre_route_uncertain_without_action_cue",
+                "question": "Before I route this, what exact outcome do you want me to perform?",
+            }
+
+        if len(candidates) > 1:
+            top = float(candidates[0].get("score", 0.0))
+            second = float(candidates[1].get("score", 0.0))
+            if (top - second) < 0.06 and plausibility < 0.68 and not has_explicit_action_cue:
+                return {
+                    "block": True,
+                    "reason": "pre_route_ambiguous_candidates",
+                    "question": "I see multiple likely intents. Should I execute a tool or stay in discussion mode?",
+                }
+
+        return {"block": False, "reason": "allowed"}
 
     def decide(
         self,
@@ -260,15 +325,20 @@ class ExecutiveController:
     ) -> str:
         """Return proceed | clarify | defer | reject based on confidence and score ambiguity."""
         conf = max(0.0, min(1.0, float(state.confidence)))
+        plausibility = max(0.0, min(1.0, float(state.intent_plausibility)))
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
         top = ranked[0][1] if ranked else 0.0
         second = ranked[1][1] if len(ranked) > 1 else 0.0
         margin = top - second
 
+        if plausibility < 0.32:
+            return "clarify"
         if conf < 0.20 and not state.topic:
             return "reject"
         if conf < 0.35:
             return "defer"
+        if plausibility < 0.55 and conf < 0.65:
+            return "clarify"
         if conf < 0.60 and margin < 0.12:
             return "clarify"
         return "proceed"
@@ -318,6 +388,41 @@ class ExecutiveController:
         if "search" in text_intent or "research" in text_intent:
             scores["search"] += 0.60
 
+        # Intent plausibility and runtime planner/cognition influences.
+        plausibility = max(0.0, min(1.0, float(state.intent_plausibility)))
+        if plausibility < 0.55:
+            scores["clarify"] += 0.20
+            scores["defer"] += 0.10
+            scores["tools"] -= 0.12
+            scores["search"] -= 0.08
+        if plausibility < 0.40:
+            scores["clarify"] += 0.25
+            scores["tools"] -= 0.20
+            scores["search"] -= 0.15
+
+        if state.route_bias == "clarify_first":
+            scores["clarify"] += 0.20
+            scores["tools"] -= 0.10
+        elif state.route_bias == "tool_first":
+            scores["tools"] += 0.12
+        elif state.route_bias == "goal_first":
+            scores["llm"] += 0.08
+            scores["memory"] += 0.06
+
+        if state.tool_budget <= 0:
+            scores["tools"] -= 0.30
+            scores["search"] -= 0.20
+        elif state.tool_budget >= 2 and (has_explicit_action_cue or has_active_goal):
+            scores["tools"] += 0.12
+
+        if state.planner_depth >= 3:
+            scores["llm"] += 0.08
+            scores["clarify"] += 0.04
+
+        if state.planner_hint == "increase_structure_depth":
+            scores["llm"] += 0.05
+            scores["memory"] += 0.03
+
         for route in list(scores.keys()):
             scores[route] *= float(self._routing_weights.get(route, 1.0))
 
@@ -339,6 +444,42 @@ class ExecutiveController:
 
     def get_routing_weights(self) -> Dict[str, float]:
         return dict(self._routing_weights)
+
+    def derive_runtime_controls(
+        self,
+        state: ReasoningState,
+        scores: Dict[str, float],
+    ) -> Dict[str, Any]:
+        """Derive runtime controls that affect route preference, depth, and tool usage."""
+        ranked = sorted((scores or {}).items(), key=lambda kv: kv[1], reverse=True)
+        top_route = ranked[0][0] if ranked else "llm"
+        top_score = float(ranked[0][1]) if ranked else 0.0
+
+        thinking_depth = max(1, min(4, int(state.planner_depth or 1)))
+        if state.depth_level >= 3:
+            thinking_depth = max(thinking_depth, 3)
+        if state.route_bias == "goal_first":
+            thinking_depth = min(4, thinking_depth + 1)
+
+        allow_tools = bool(state.tool_budget > 0 and state.intent_plausibility >= 0.45)
+        if state.route_bias == "clarify_first" and state.intent_plausibility < 0.65:
+            allow_tools = False
+
+        routing_preference = "balanced"
+        if top_route in ("tools", "search") and top_score >= 0.62 and allow_tools:
+            routing_preference = "tool_first"
+        elif top_route in ("clarify", "defer", "reject"):
+            routing_preference = "clarify_first"
+        elif top_route in ("llm", "memory"):
+            routing_preference = "llm_first"
+
+        max_tool_hops = 0 if not allow_tools else max(1, min(3, int(state.tool_budget or 1)))
+        return {
+            "routing_preference": routing_preference,
+            "thinking_depth": thinking_depth,
+            "allow_tools": allow_tools,
+            "max_tool_hops": max_tool_hops,
+        }
 
     def save_weights(self, path: str) -> None:
         """Persist routing weights to disk as JSON."""
