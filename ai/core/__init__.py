@@ -17,6 +17,7 @@ from ai.core.memory_consolidator import MemoryConsolidator
 from ai.core.multi_step_reasoning_engine import MultiStepReasoningEngine
 from ai.core.proactive_interruption_manager import ProactiveInterruptionManager
 from ai.core.semantic_memory_index import SemanticMemoryIndex
+from ai.core.system_design_response_guard import SystemDesignResponseGuard
 from ai.core.temporal_reasoner import TemporalReasoner, TemporalTask
 
 __all__ = [
@@ -38,6 +39,7 @@ __all__ = [
 	"MultiStepReasoningEngine",
 	"ProactiveInterruptionManager",
 	"SemanticMemoryIndex",
+	"SystemDesignResponseGuard",
 	"TemporalReasoner",
 	"TemporalTask",
 ]

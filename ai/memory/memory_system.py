@@ -679,6 +679,39 @@ class MemorySystem:
         logger.info(f"Recalled {len(filtered_results)} memories for: {query[:50]}...")
         return filtered_results
 
+    def search(
+        self,
+        query: str,
+        top_k: int = 5,
+        memory_type: Optional[str] = None,
+        min_similarity: float = 0.35,
+        weighted: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """
+        Backward-compatible semantic search API.
+
+        Older planner code calls memory_system.search(...). Keep this method as
+        a stable wrapper around the modern recall implementations.
+        """
+        query = str(query or "").strip()
+        if not query:
+            return []
+
+        # Weighted ranking improves stability for conversational queries.
+        if weighted and memory_type is None:
+            return self.recall_memory_weighted(
+                query=query,
+                top_k=int(top_k or 5),
+                min_similarity=float(min_similarity or 0.35),
+            )
+
+        return self.recall_memory(
+            query=query,
+            memory_type=memory_type,
+            top_k=int(top_k or 5),
+            min_similarity=float(min_similarity or 0.35),
+        )
+
     @staticmethod
     def _clamp01(value: float) -> float:
         return max(0.0, min(1.0, float(value)))

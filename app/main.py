@@ -111,6 +111,7 @@ from ai.core.decision_constraint_solver import DecisionConstraintSolver
 from ai.core.semantic_memory_index import SemanticMemoryIndex
 from ai.core.memory_consolidator import MemoryConsolidator
 from ai.core.cross_session_pattern_detector import CrossSessionPatternDetector
+from ai.core.system_design_response_guard import SystemDesignResponseGuard
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -344,6 +345,7 @@ class ALICE:
         self.semantic_memory_index = None
         self.memory_consolidator = None
         self.cross_session_pattern_detector = None
+        self.system_design_response_guard = None
         self._episodic_turn_counter = 0
         self._last_routed_intent = ""
         self._last_routed_confidence = 0.0
@@ -1010,6 +1012,7 @@ class ALICE:
         self.semantic_memory_index = SemanticMemoryIndex()
         self.memory_consolidator = MemoryConsolidator()
         self.cross_session_pattern_detector = CrossSessionPatternDetector()
+        self.system_design_response_guard = SystemDesignResponseGuard()
 
     def _select_tone(self, intent: str, context: Any, user_input: str) -> str:
         """
@@ -2124,6 +2127,11 @@ class ALICE:
         text = str(user_input or '').strip()
         lowered = text.lower()
 
+        if self.system_design_response_guard:
+            direct = self.system_design_response_guard.direct_answer(text)
+            if direct:
+                return direct
+
         if self.causal_inference_engine and any(k in lowered for k in ('why did', 'root cause', 'cause of', 'why is this failing')):
             analysis = self.causal_inference_engine.infer(text)
             causes = analysis.get('likely_causes', [])
@@ -2464,6 +2472,10 @@ class ALICE:
         if personalization:
             context_parts.append(personalization)
             context_types.append("personalization")
+
+        if self.system_design_response_guard and self.system_design_response_guard.is_architecture_query(user_input):
+            context_parts.append(self.system_design_response_guard.guidance_text())
+            context_types.append("architecture_policy")
 
         # 1.1 Episodic + semantic recall to preserve continuity on long sessions.
         if self.episodic_memory_engine:
