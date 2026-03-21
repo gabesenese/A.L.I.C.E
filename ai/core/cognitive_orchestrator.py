@@ -208,6 +208,7 @@ class CognitiveOrchestrator:
         self._project_goals: Dict[str, ProjectGoal] = {}
         self._failure_log: Dict[str, FailureRecord] = {}
         self._improvement_queue: List[ImprovementTask] = []
+        self._immediate_feedback: Dict[str, Dict[str, Any]] = {}
         self._cognitive_state = CognitiveState()
         self._latest_improvement_plan: List[Dict[str, Any]] = []
         self._last_cycle_report: Dict[str, Any] = {}
@@ -345,6 +346,13 @@ class CognitiveOrchestrator:
             },
             priority=EventPriority.HIGH,
         )
+        with self._lock:
+            key = str(previous_intent or "unknown").lower()
+            self._immediate_feedback[key] = {
+                "penalty": max(0.05, min(0.35, float(severity or 0.85) * 0.2)),
+                "updated_at": time.time(),
+                "turns_remaining": 2,
+            }
 
     # ------------------------------------------------------------------
     # Long-horizon goals
@@ -1006,9 +1014,12 @@ class CognitiveOrchestrator:
             active_goal = str(self._cognitive_state.active_goal or "")
             recent_problem = str(self._cognitive_state.recent_problem or "")
             queue_len = len(self._improvement_queue)
+            has_immediate_feedback = bool(self._immediate_feedback)
 
         route_bias = "balanced"
-        if recent_problem in ("routing_mistake", "topic_drift"):
+        if has_immediate_feedback:
+            route_bias = "clarify_first"
+        elif recent_problem in ("routing_mistake", "topic_drift"):
             route_bias = "clarify_first"
         elif active_goal and importance >= 0.65:
             route_bias = "goal_first"
@@ -1027,12 +1038,28 @@ class CognitiveOrchestrator:
 
         planner_hint = "increase_structure_depth" if thinking_depth >= 3 else "default"
 
-        return {
+        guidance = {
             "route_bias": route_bias,
             "tool_budget": int(max(0, min(3, tool_budget))),
             "thinking_depth": int(max(1, min(4, thinking_depth))),
             "planner_hint": planner_hint,
         }
+        with self._lock:
+            if self._immediate_feedback:
+                guidance["feedback_adjustments"] = {
+                    k: {"penalty": float(v.get("penalty", 0.0))}
+                    for k, v in self._immediate_feedback.items()
+                }
+                to_delete = []
+                for k, v in self._immediate_feedback.items():
+                    remaining = int(v.get("turns_remaining", 1)) - 1
+                    if remaining <= 0:
+                        to_delete.append(k)
+                    else:
+                        v["turns_remaining"] = remaining
+                for k in to_delete:
+                    self._immediate_feedback.pop(k, None)
+        return guidance
 
     def _goal_relevance_overlap(self, goal_text: str, utterance_text: str) -> float:
         goal_terms = {t for t in goal_text.split() if len(t) > 2}

@@ -98,6 +98,19 @@ from ai.core.response_quality_tracker import get_response_quality_tracker
 from ai.core.cognitive_orchestrator import get_cognitive_orchestrator
 from ai.core.activity_monitor import ActivityMonitor
 from ai.core.temporal_reasoner import TemporalReasoner
+from ai.core.adaptive_intent_calibrator import AdaptiveIntentCalibrator
+from ai.core.context_intent_refiner import ContextIntentRefiner
+from ai.core.constraint_preference_extractor import ConstraintPreferenceExtractor
+from ai.core.multi_step_reasoning_engine import MultiStepReasoningEngine
+from ai.core.episodic_memory_engine import EpisodicMemoryEngine
+from ai.core.proactive_interruption_manager import ProactiveInterruptionManager
+from ai.core.adaptive_response_style import AdaptiveResponseStyle
+from ai.core.causal_inference_engine import CausalInferenceEngine
+from ai.core.hypothetical_scenario_generator import HypotheticalScenarioGenerator
+from ai.core.decision_constraint_solver import DecisionConstraintSolver
+from ai.core.semantic_memory_index import SemanticMemoryIndex
+from ai.core.memory_consolidator import MemoryConsolidator
+from ai.core.cross_session_pattern_detector import CrossSessionPatternDetector
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -318,6 +331,22 @@ class ALICE:
         self.persistent_task_queue = None
         self.activity_monitor = None
         self.temporal_reasoner = None
+        self.adaptive_intent_calibrator = None
+        self.context_intent_refiner = None
+        self.constraint_preference_extractor = None
+        self.multi_step_reasoning_engine = None
+        self.episodic_memory_engine = None
+        self.proactive_interruption_manager = None
+        self.adaptive_response_style = None
+        self.causal_inference_engine = None
+        self.hypothetical_scenario_generator = None
+        self.decision_constraint_solver = None
+        self.semantic_memory_index = None
+        self.memory_consolidator = None
+        self.cross_session_pattern_detector = None
+        self._episodic_turn_counter = 0
+        self._last_routed_intent = ""
+        self._last_routed_confidence = 0.0
         
         logger.info("=" * 80)
         logger.info("Initializing A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity")
@@ -968,6 +997,19 @@ class ALICE:
         }
         self.activity_monitor = ActivityMonitor()
         self.temporal_reasoner = TemporalReasoner()
+        self.adaptive_intent_calibrator = AdaptiveIntentCalibrator()
+        self.context_intent_refiner = ContextIntentRefiner()
+        self.constraint_preference_extractor = ConstraintPreferenceExtractor()
+        self.multi_step_reasoning_engine = MultiStepReasoningEngine()
+        self.episodic_memory_engine = EpisodicMemoryEngine()
+        self.proactive_interruption_manager = ProactiveInterruptionManager()
+        self.adaptive_response_style = AdaptiveResponseStyle()
+        self.causal_inference_engine = CausalInferenceEngine()
+        self.hypothetical_scenario_generator = HypotheticalScenarioGenerator()
+        self.decision_constraint_solver = DecisionConstraintSolver()
+        self.semantic_memory_index = SemanticMemoryIndex()
+        self.memory_consolidator = MemoryConsolidator()
+        self.cross_session_pattern_detector = CrossSessionPatternDetector()
 
     def _select_tone(self, intent: str, context: Any, user_input: str) -> str:
         """
@@ -1977,18 +2019,22 @@ class ALICE:
         # Get suggestions
         suggestions = self.pattern_learner.get_suggestions(context)
         
+        merged_suggestions: List[str] = []
         if suggestions:
-            # Return top suggestion
-            pattern, suggestion_text = suggestions[0]
-            
             # Store pattern ID for tracking acceptance
+            pattern, suggestion_text = suggestions[0]
             self._last_suggestion_pattern = pattern.pattern_id
-            
-            return f" {suggestion_text}"
+            merged_suggestions.append(str(suggestion_text))
         if self.activity_monitor:
             proactive = self.activity_monitor.proactive_suggestions()
             if proactive:
-                return f" {proactive[0]}"
+                merged_suggestions.extend(proactive)
+        if self.proactive_interruption_manager:
+            selected = self.proactive_interruption_manager.select(merged_suggestions)
+            if selected:
+                return f" {selected[0]}"
+        elif merged_suggestions:
+            return f" {merged_suggestions[0]}"
         
         return None
 
@@ -2006,6 +2052,112 @@ class ALICE:
         if "error" in text or "traceback" in text or "debug" in text:
             self.activity_monitor.observe("debug")
 
+    def _collect_secondary_intents(self, nlp_result: Any) -> List[Dict[str, Any]]:
+        """Extract secondary/compound intents from NLP modifiers."""
+        if not nlp_result or not getattr(nlp_result, 'parsed_command', None):
+            return []
+        modifiers = getattr(nlp_result.parsed_command, 'modifiers', {}) or {}
+        secondary = modifiers.get('secondary_intents', []) or []
+        if secondary:
+            return [dict(item) for item in secondary if isinstance(item, dict)]
+
+        compound = modifiers.get('compound_frames', []) or []
+        out: List[Dict[str, Any]] = []
+        for frame in compound:
+            if not isinstance(frame, dict):
+                continue
+            plugin = str(frame.get('plugin') or '').strip()
+            action = str(frame.get('action') or '').strip()
+            if plugin:
+                out.append(
+                    {
+                        'intent': f"{plugin}:{action or 'general'}",
+                        'confidence': float(frame.get('confidence', 0.6) or 0.6),
+                        'text': str(frame.get('slot_evidence') or ''),
+                    }
+                )
+        return out
+
+    def _execute_secondary_intents(
+        self,
+        secondary_intents: List[Dict[str, Any]],
+        entities: Dict[str, Any],
+        context_summary: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Execute secondary compound intents sequentially using plugin dispatch."""
+        if not secondary_intents or not getattr(self, 'plugins', None):
+            return []
+
+        outcomes: List[Dict[str, Any]] = []
+        for item in secondary_intents[:3]:
+            sec_intent = str(item.get('intent') or '').strip()
+            sec_text = str(item.get('text') or '').strip() or sec_intent
+            if not sec_intent:
+                continue
+            try:
+                result = self.plugins.execute_for_intent(sec_intent, sec_text, entities, context_summary)
+                outcomes.append(
+                    {
+                        'intent': sec_intent,
+                        'success': bool(result and result.get('success')),
+                        'plugin': (result or {}).get('plugin', ''),
+                    }
+                )
+            except Exception:
+                outcomes.append({'intent': sec_intent, 'success': False, 'plugin': ''})
+        return outcomes
+
+    def _apply_response_style_constraints(self, response: str) -> str:
+        """Apply user preference constraints and adaptive verbosity formatting."""
+        if not response:
+            return response
+        prefs = dict((getattr(self, '_internal_reasoning_state', {}) or {}).get('response_preferences', {}) or {})
+        if self.adaptive_response_style:
+            try:
+                return self.adaptive_response_style.apply_constraints(response, prefs)
+            except Exception:
+                return response
+        return response
+
+    def _handle_advanced_reasoning_queries(self, user_input: str) -> Optional[str]:
+        """Handle advanced reasoning prompts directly for transparency and speed."""
+        text = str(user_input or '').strip()
+        lowered = text.lower()
+
+        if self.causal_inference_engine and any(k in lowered for k in ('why did', 'root cause', 'cause of', 'why is this failing')):
+            analysis = self.causal_inference_engine.infer(text)
+            causes = analysis.get('likely_causes', [])
+            checks = analysis.get('recommended_checks', [])
+            return (
+                "Likely causes:\n- "
+                + "\n- ".join(causes)
+                + "\n\nNext checks:\n- "
+                + "\n- ".join(checks)
+            )
+
+        if self.hypothetical_scenario_generator and any(k in lowered for k in ('what if', 'scenario', 'hypothetical')):
+            scenarios = self.hypothetical_scenario_generator.generate(text, max_scenarios=3)
+            if scenarios:
+                lines = ["Hypothetical outcomes:"]
+                for sc in scenarios:
+                    lines.append(f"- {sc.get('name')}: {sc.get('impact')}")
+                return "\n".join(lines)
+
+        if self.decision_constraint_solver and 'choose between' in lowered:
+            options = [
+                {'name': 'option_a', 'speed': 0.9, 'quality': 0.7, 'risk': 0.4},
+                {'name': 'option_b', 'speed': 0.7, 'quality': 0.9, 'risk': 0.3},
+            ]
+            ranked = self.decision_constraint_solver.solve(
+                options,
+                soft_weights={'quality': 0.55, 'speed': 0.30, 'risk': -0.15},
+            )
+            if ranked:
+                top = ranked[0]
+                return f"Constraint analysis suggests {top.get('name')} (score={float(top.get('constraint_score', 0.0)):.2f})."
+
+        return None
+
     def _handle_explain_command(self, user_input: str) -> Optional[str]:
         """Expose compact reasoning trace for transparency commands."""
         text = (user_input or "").strip().lower()
@@ -2019,16 +2171,40 @@ class ALICE:
         lines = ["Reasoning trace:"]
         lines.append(f"1) Intent: {rs.get('user_intent', 'unknown')} (confidence={float(rs.get('confidence', 0.0)):.2f})")
         lines.append(f"2) Plausibility: {float(rs.get('intent_plausibility', 1.0)):.2f}")
+        candidates = rs.get('intent_candidates', []) or []
+        if candidates:
+            ranked_intents = sorted(
+                candidates,
+                key=lambda c: float(c.get('score', c.get('confidence', 0.0)) or 0.0),
+                reverse=True,
+            )[:3]
+            alt = ", ".join(
+                f"{c.get('intent', 'unknown')} ({float(c.get('score', c.get('confidence', 0.0)) or 0.0):.2f})"
+                for c in ranked_intents
+            )
+            lines.append(f"3) Candidate intents: {alt}")
         scores = rs.get('decision_scores', {}) or {}
         if scores:
             top = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:3]
             top_text = ", ".join(f"{k}={float(v):.2f}" for k, v in top)
-            lines.append(f"3) Top routes: {top_text}")
+            lines.append(f"4) Top routes: {top_text}")
+        runtime_controls = rs.get('runtime_controls', {}) or {}
+        if runtime_controls:
+            lines.append(
+                "5) Tipping factors: "
+                + ", ".join(
+                    [
+                        f"routing={runtime_controls.get('routing_preference', 'balanced')}",
+                        f"allow_tools={bool(runtime_controls.get('allow_tools', True))}",
+                        f"thinking_depth={int(runtime_controls.get('thinking_depth', 1) or 1)}",
+                    ]
+                )
+            )
         if rs.get('reasoning_planner', {}):
             rp = rs.get('reasoning_planner', {}) or {}
-            lines.append(f"4) Plan: id={rp.get('plan_id', 'n/a')} critical_path={rp.get('critical_path', 'n/a')}")
+            lines.append(f"6) Plan: id={rp.get('plan_id', 'n/a')} critical_path={rp.get('critical_path', 'n/a')}")
         if rs.get('learning_decision'):
-            lines.append(f"5) Learning decision: {rs.get('learning_decision')}")
+            lines.append(f"7) Learning decision: {rs.get('learning_decision')}")
         return "\n".join(lines)
 
     def _promote_learning_goal_intent(
@@ -2288,6 +2464,29 @@ class ALICE:
         if personalization:
             context_parts.append(personalization)
             context_types.append("personalization")
+
+        # 1.1 Episodic + semantic recall to preserve continuity on long sessions.
+        if self.episodic_memory_engine:
+            try:
+                episodic_hits = self.episodic_memory_engine.recall_similar(user_input, limit=2)
+                if episodic_hits:
+                    snippets = [
+                        f"- {item.get('intent', 'unknown')}: {str(item.get('user_input', ''))[:90]}"
+                        for item in episodic_hits
+                    ]
+                    context_parts.append("Relevant prior episodes:\n" + "\n".join(snippets))
+                    context_types.append("episodic")
+            except Exception:
+                pass
+        if self.semantic_memory_index:
+            try:
+                semantic_hits = self.semantic_memory_index.search(user_input, limit=2)
+                if semantic_hits:
+                    snippets = [f"- {item.get('text', '')}" for item in semantic_hits]
+                    context_parts.append("Semantic memory matches:\n" + "\n".join(snippets))
+                    context_types.append("semantic")
+            except Exception:
+                pass
         
         # 2. Advanced contextual understanding
         if self.advanced_context:
@@ -2386,6 +2585,25 @@ class ALICE:
                     _rp_lines.append(f"- format: {_fmt}")
                 context_parts.append("\n".join(_rp_lines))
                 context_types.append("response_plan")
+            except Exception:
+                pass
+
+        # 3ab. User response preferences / constraints extracted from utterance
+        _prefs = (getattr(self, '_internal_reasoning_state', {}) or {}).get('response_preferences', {}) or {}
+        if _prefs:
+            try:
+                _plines = [
+                    "Response preferences (internal):",
+                    f"- format: {_prefs.get('format', 'default')}",
+                    f"- detail: {_prefs.get('detail', 'normal')}",
+                ]
+                _constraints = _prefs.get('constraints', []) or []
+                if _constraints:
+                    _plines.append(f"- constraints: {', '.join(str(c) for c in _constraints[:5])}")
+                if _prefs.get('max_words'):
+                    _plines.append(f"- max_words: {int(_prefs.get('max_words'))}")
+                context_parts.append("\n".join(_plines))
+                context_types.append("response_preferences")
             except Exception:
                 pass
 
@@ -3785,6 +4003,20 @@ class ALICE:
             entities = nlp_result.entities
             sentiment = nlp_result.sentiment
             nlp_duration = time.time() - nlp_start
+            _response_prefs = (
+                self.constraint_preference_extractor.extract(user_input)
+                if self.constraint_preference_extractor
+                else {}
+            )
+            _response_style = (
+                self.adaptive_response_style.derive_style(
+                    intent=intent,
+                    sentiment=sentiment,
+                    preferences=_response_prefs,
+                )
+                if self.adaptive_response_style
+                else {}
+            )
             
             # Track NLP metrics
             self.metrics.record_histogram('nlp_duration', nlp_duration)
@@ -3861,6 +4093,31 @@ class ALICE:
                 # last_intent on the very next turn (not the raw NLP guess).
                 if hasattr(self.nlp, 'context'):
                     self.nlp.context.last_intent = followup.resolved_intent
+
+            # 1.35 Context-aware intent refinement: same surface words can map
+            # to different intents based on recent topic and domain continuity.
+            if self.context_intent_refiner:
+                try:
+                    _recent_topic = ""
+                    if hasattr(self.nlp, 'conversation_memory') and self.nlp.conversation_memory:
+                        _recent_topic = self.nlp.conversation_memory.latest_topic()
+                    _refined = self.context_intent_refiner.refine(
+                        user_input=user_input,
+                        intent=intent,
+                        confidence=float(intent_confidence or 0.0),
+                        recent_topic=_recent_topic,
+                        last_intent=self.last_intent,
+                    )
+                    _new_intent = str(_refined.get('intent') or intent)
+                    _new_conf = float(_refined.get('confidence', intent_confidence) or intent_confidence)
+                    if _new_intent != intent or abs(_new_conf - float(intent_confidence or 0.0)) >= 0.01:
+                        self._think(
+                            f"Context refine [{_refined.get('reason', 'n/a')}] → {intent!r} ({float(intent_confidence or 0.0):.2f}) "
+                            f"to {_new_intent!r} ({_new_conf:.2f})"
+                        )
+                    intent, intent_confidence = _new_intent, _new_conf
+                except Exception:
+                    pass
 
                 # ── Slot inheritance ──────────────────────────────────────────
                 # When a follow-up is detected, the NLP processor sees only the
@@ -4071,16 +4328,37 @@ class ALICE:
             if any(_input_for_correction == m or _input_for_correction.startswith(m)
                    for m in _correction_markers):
                 self._think("Correction/disagreement detected → skipping plugins, using LLM")
+                _prev_intent = str(getattr(self, '_last_routed_intent', '') or intent)
                 if getattr(self, 'cognitive_orchestrator', None):
                     try:
                         self.cognitive_orchestrator.ingest_user_feedback(
                             user_input=user_input,
-                            previous_intent=intent,
+                            previous_intent=_prev_intent,
                             corrected_intent="",
                             severity=0.9,
                         )
                     except Exception:
                         pass
+                if getattr(self, 'executive_controller', None):
+                    try:
+                        # Immediate effect: bias next routing turn toward clarification/LLM.
+                        self.executive_controller.apply_reflection(
+                            {
+                                "routing_adjustments": {
+                                    "clarify": 0.08,
+                                    "llm": 0.05,
+                                    "tools": -0.06,
+                                    "search": -0.03,
+                                }
+                            }
+                        )
+                    except Exception:
+                        pass
+                if self.adaptive_intent_calibrator:
+                    self.adaptive_intent_calibrator.record_feedback(
+                        _prev_intent,
+                        was_correct=False,
+                    )
                 intent = "conversation:general"
                 intent_confidence = 0.9
 
@@ -4426,10 +4704,32 @@ class ALICE:
             except Exception as _br_err:
                 logger.debug("BayesianIntentRouter skipped: %s", _br_err)
 
+            # Adaptive confidence calibration (correction-driven, no full retrain).
+            if self.adaptive_intent_calibrator:
+                intent_confidence = self.adaptive_intent_calibrator.calibrate(
+                    intent,
+                    float(intent_confidence or 0.0),
+                )
+
+            _secondary_intents = self._collect_secondary_intents(nlp_result)
+            _turn_reasoning_plan = None
+            if self.multi_step_reasoning_engine:
+                try:
+                    _turn_reasoning_plan = self.multi_step_reasoning_engine.plan_turn(
+                        user_input=user_input,
+                        primary_intent=intent,
+                        primary_confidence=float(intent_confidence or 0.0),
+                        secondary_intents=_secondary_intents,
+                    )
+                except Exception:
+                    _turn_reasoning_plan = None
+
             # Store policy hints for downstream tone/length use
             self._last_policy = policy
             self._last_perception = perception
             self._last_intent_confidence = intent_confidence
+            self._last_routed_intent = intent
+            self._last_routed_confidence = float(intent_confidence or 0.0)
 
             # World graph: persist entities/topics from this resolved turn
             try:
@@ -4456,6 +4756,10 @@ class ALICE:
             explain_response = self._handle_explain_command(user_input)
             if explain_response:
                 return explain_response
+
+            advanced_reasoning_response = self._handle_advanced_reasoning_queries(user_input)
+            if advanced_reasoning_response:
+                return advanced_reasoning_response
             
             # 1.5.5. Check for code/self-reflection requests EARLY (before reasoning/plugins)
             code_response = self._handle_code_request(user_input, entities)
@@ -5295,6 +5599,14 @@ class ALICE:
                     "planner_hint": _cognitive_guidance.get("planner_hint", ""),
                     "planner_depth": _cognitive_guidance.get("thinking_depth", 1),
                 }
+                _fb = (_cognitive_guidance.get("feedback_adjustments", {}) or {}).get(
+                    str(intent or "").lower(),
+                    {},
+                )
+                _penalty = float(_fb.get("penalty", 0.0) or 0.0)
+                if _penalty > 0.0:
+                    intent_confidence = max(0.0, float(intent_confidence or 0.0) - _penalty)
+                    self._think(f"Immediate feedback penalty applied ({_penalty:.2f}) → confidence={intent_confidence:.2f}")
 
             _entities_for_exec = dict(entities or {})
             _entities_for_exec["_intent_plausibility"] = float(intent_plausibility or 0.0)
@@ -5345,7 +5657,12 @@ class ALICE:
                     "intent_plausibility": intent_plausibility,
                     "pre_route_guard": _pre_route_guard,
                     "cognitive_guidance": _cognitive_guidance,
+                    "response_preferences": _response_prefs,
+                    "response_style": _response_style,
+                    "secondary_intents": _secondary_intents,
                 }
+                if _turn_reasoning_plan is not None:
+                    self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
                 self._think(f"Pre-route plausibility guard → {_pre_route_guard.get('reason', 'unknown')}")
                 return _pre_route_guard.get("question") or (
                     "I need one clarifying detail before I route this request."
@@ -5369,7 +5686,12 @@ class ALICE:
                 "intent_plausibility": intent_plausibility,
                 "runtime_controls": _runtime_controls,
                 "cognitive_guidance": _cognitive_guidance,
+                "response_preferences": _response_prefs,
+                "response_style": _response_style,
+                "secondary_intents": _secondary_intents,
             }
+            if _turn_reasoning_plan is not None:
+                self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
             if _pre_response_plan is not None:
                 self._internal_reasoning_state["response_plan"] = _pre_response_plan.as_dict()
             _executive_decision = self.executive_controller.decide(
@@ -5743,6 +6065,20 @@ class ALICE:
                 # Optimize plugin response
                 if getattr(self, 'response_optimizer', None):
                     response = self.response_optimizer.optimize(response, intent, {"plugin": plugin_name})
+
+                # Execute additional intents from compound requests.
+                if _secondary_intents:
+                    _sec_outcomes = self._execute_secondary_intents(
+                        _secondary_intents,
+                        entities,
+                        context_summary,
+                    )
+                    if _sec_outcomes and self.multi_step_reasoning_engine:
+                        _sec_summary = self.multi_step_reasoning_engine.summarize_outcomes(_sec_outcomes)
+                        if _sec_summary:
+                            response = f"{response}\n\n{_sec_summary}" if response else _sec_summary
+
+                response = self._apply_response_style_constraints(response)
                 
                 # Track incomplete tasks for proactive follow-up
                 if getattr(self, 'proactive_assistant', None) and not success:
@@ -6120,6 +6456,7 @@ class ALICE:
                         "goal": goal_res.goal.description if (goal_res and goal_res.goal) else None,
                     },
                 )
+            response = self._apply_response_style_constraints(response)
 
             response = self._executive_apply_response_gate(
                 user_input=user_input,
@@ -6966,6 +7303,36 @@ class ALICE:
                     )
                 except Exception as _co_err:
                     logger.debug(f"[CognitiveOrchestrator] {_co_err}")
+
+            if self.episodic_memory_engine:
+                self.episodic_memory_engine.add_episode(
+                    user_input=user_input,
+                    intent=intent,
+                    response=response,
+                    entities=entities or {},
+                )
+                self._episodic_turn_counter += 1
+
+            if self.semantic_memory_index:
+                _doc_id = f"turn-{int(time.time() * 1000)}"
+                _doc_text = f"{intent} {user_input} {response[:240]}"
+                self.semantic_memory_index.add(_doc_id, _doc_text)
+
+            if self.cross_session_pattern_detector:
+                self.cross_session_pattern_detector.observe(intent)
+
+            if (
+                self.memory_consolidator
+                and self.episodic_memory_engine
+                and self._episodic_turn_counter > 0
+                and self._episodic_turn_counter % 15 == 0
+            ):
+                _episodes = self.episodic_memory_engine.recall_recent(limit=30)
+                _consolidated = self.memory_consolidator.consolidate(_episodes)
+                self._internal_reasoning_state = {
+                    **(getattr(self, '_internal_reasoning_state', {}) or {}),
+                    "memory_consolidation": _consolidated,
+                }
 
             # Process with unified context engine
             if self.context:
