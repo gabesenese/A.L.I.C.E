@@ -718,7 +718,9 @@ class SelfReflectionSystem:
 
         # Key components
         if analysis.get("classes"):
-            class_names = [c["name"] if isinstance(c, dict) else c for c in analysis["classes"]]
+            class_names = [
+                c["name"] if isinstance(c, dict) else c for c in analysis["classes"]
+            ]
             representative = self._select_representative_classes(class_names)
             summary_parts.append(
                 f"  Classes ({len(class_names)}): {', '.join(representative)}"
@@ -741,7 +743,9 @@ class SelfReflectionSystem:
 
         return "\n".join(summary_parts)
 
-    def _select_representative_classes(self, class_names: List[str], max_items: int = 4) -> List[str]:
+    def _select_representative_classes(
+        self, class_names: List[str], max_items: int = 4
+    ) -> List[str]:
         """Pick representative classes and prioritize orchestrator/processor types."""
         if not class_names:
             return []

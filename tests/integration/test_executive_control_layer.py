@@ -281,3 +281,25 @@ def test_runtime_controls_reduce_tool_usage_when_clarify_first() -> None:
     assert controls["allow_tools"] is False
     assert controls["routing_preference"] == "clarify_first"
     assert int(controls["thinking_depth"]) >= 3
+
+
+def test_clarification_needed_intent_answers_instead_of_looping() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="i dont need classes, just what the file does",
+        intent="conversation:clarification_needed",
+        confidence=0.62,
+        entities={"_intent_plausibility": 0.70},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "use_llm"
+    assert decision.reason == "clarification_answer_requested"

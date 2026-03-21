@@ -109,7 +109,9 @@ class ExecutiveController:
         )
         planner_hint = str(conversation_state.get("planner_hint") or "").strip().lower()
         planner_depth = int(conversation_state.get("planner_depth") or 1)
-        route_bias = str(conversation_state.get("route_bias") or "balanced").strip().lower()
+        route_bias = (
+            str(conversation_state.get("route_bias") or "balanced").strip().lower()
+        )
         tool_budget = int(conversation_state.get("tool_budget") or 1)
 
         plan = self._derive_plan(
@@ -164,7 +166,11 @@ class ExecutiveController:
         if len(candidates) > 1:
             top = float(candidates[0].get("score", 0.0))
             second = float(candidates[1].get("score", 0.0))
-            if (top - second) < 0.06 and plausibility < 0.68 and not has_explicit_action_cue:
+            if (
+                (top - second) < 0.06
+                and plausibility < 0.68
+                and not has_explicit_action_cue
+            ):
                 return {
                     "block": True,
                     "reason": "pre_route_ambiguous_candidates",
@@ -187,6 +193,14 @@ class ExecutiveController:
                 action="ignore",
                 reason="empty_intent",
                 store_memory=False,
+            )
+
+        normalized_intent = (state.user_intent or "").lower().strip()
+        if normalized_intent == "conversation:clarification_needed" and state.confidence >= 0.45:
+            return ExecutiveDecision(
+                action="use_llm",
+                reason="clarification_answer_requested",
+                store_memory=True,
             )
 
         scores = self.score_decisions(
@@ -326,10 +340,14 @@ class ExecutiveController:
         """Return proceed | clarify | defer | reject based on confidence and score ambiguity."""
         conf = max(0.0, min(1.0, float(state.confidence)))
         plausibility = max(0.0, min(1.0, float(state.intent_plausibility)))
+        normalized_intent = (state.user_intent or "").lower().strip()
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
         top = ranked[0][1] if ranked else 0.0
         second = ranked[1][1] if len(ranked) > 1 else 0.0
         margin = top - second
+
+        if normalized_intent == "conversation:clarification_needed" and conf >= 0.45:
+            return "proceed"
 
         if plausibility < 0.32:
             return "clarify"
@@ -366,10 +384,15 @@ class ExecutiveController:
         }
 
         conf = max(0.0, min(1.0, state.confidence))
+        normalized_intent = (state.user_intent or "").lower().strip()
         scores["llm"] = 0.40 + (0.40 * conf)
         scores["memory"] = 0.25 + (0.25 * (1.0 if state.topic else 0.0))
         scores["rag"] = 0.20 + (0.30 * (1.0 if state.user_goal else 0.0))
         scores["clarify"] = 0.15 + (0.55 * (1.0 - conf))
+
+        if normalized_intent == "conversation:clarification_needed":
+            scores["llm"] += 0.30
+            scores["clarify"] -= 0.30
 
         if has_explicit_action_cue or has_active_goal:
             scores["tools"] += 0.55
@@ -473,7 +496,9 @@ class ExecutiveController:
         elif top_route in ("llm", "memory"):
             routing_preference = "llm_first"
 
-        max_tool_hops = 0 if not allow_tools else max(1, min(3, int(state.tool_budget or 1)))
+        max_tool_hops = (
+            0 if not allow_tools else max(1, min(3, int(state.tool_budget or 1)))
+        )
         return {
             "routing_preference": routing_preference,
             "thinking_depth": thinking_depth,

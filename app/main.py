@@ -70,6 +70,8 @@ from ai.learning.pattern_learner import get_pattern_learner
 from ai.optimization.system_monitor import get_system_monitor
 from ai.planning.task_planner import get_planner
 from ai.planning.plan_executor import initialize_executor, get_executor
+from ai.planning.planner import ReasoningPlanner
+from ai.planning.task import PersistentTaskQueue, Task, TaskStatus as QueueTaskStatus
 from ai.core.reasoning_engine import get_reasoning_engine, WorldEntity, EntityKind
 from ai.planning.proactive_assistant import (
     get_proactive_assistant,
@@ -310,15 +312,8 @@ class ALICE:
         self.system_monitor = None
         self.planner = None
         self.plan_executor = None
-        
-        # Event-driven architecture
-        self.event_bus = None
-        self.state_tracker = None
-        self.observer_manager = None
-        self.pattern_learner = None
-        self.system_monitor = None
-        self.planner = None
-        self.plan_executor = None
+        self.reasoning_planner = None
+        self.persistent_task_queue = None
         
         logger.info("=" * 80)
         logger.info("Initializing A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity")
@@ -742,6 +737,13 @@ class ALICE:
                 memory_system=self.memory
             )
             logger.info("[OK] Plan executor ready")
+
+            # Advanced reasoning planner + persistent task queue
+            self.reasoning_planner = ReasoningPlanner()
+            self.persistent_task_queue = PersistentTaskQueue("data/planning/runtime_tasks.json")
+            self.persistent_task_queue.register_handler("execute_plan", self._execute_plan_queue_task)
+            self.persistent_task_queue.start_background_loop(tick_seconds=0.2)
+            logger.info("[OK] Reasoning planner and persistent queue wired")
             
             # Observer manager for smart notifications
             self.observer_manager = get_observer_manager()
@@ -2035,6 +2037,51 @@ class ALICE:
             return None
         
         try:
+            if self.reasoning_planner and self.persistent_task_queue:
+                reasoning_task = self.reasoning_planner.create_task_representation(
+                    query,
+                    context={"intent": intent, "entities": dict(entities or {})},
+                )
+                reasoning_plan = self.reasoning_planner.create_plan(reasoning_task)
+                self._internal_reasoning_state["reasoning_planner"] = {
+                    "task_id": reasoning_task.task_id,
+                    "plan_id": reasoning_plan.plan_id,
+                    "critical_path": self.reasoning_planner.estimate_critical_path(reasoning_plan),
+                    "trace": self.reasoning_planner.debug_trace_view(reasoning_plan),
+                }
+
+                queued_task = self.persistent_task_queue.create_task(
+                    kind="execute_plan",
+                    payload={
+                        "intent": intent,
+                        "entities": dict(entities or {}),
+                    },
+                    priority=2,
+                    max_attempts=2,
+                )
+
+                queue_result = self._await_queue_task_result(queued_task.task_id, timeout_seconds=4.0)
+                if queue_result and queue_result.get("success"):
+                    all_results = queue_result.get("all_results", {}) or {}
+                    if intent in ("study_topic", "learning:study_topic"):
+                        explain = all_results.get(1, "")
+                        example = all_results.get(2, "")
+                        check = all_results.get(3, "")
+                        deeper = all_results.get(4, "")
+
+                        parts = []
+                        if explain:
+                            parts.append(f"1) Concept\n{explain}")
+                        if example:
+                            parts.append(f"2) Example\n{example}")
+                        if check:
+                            parts.append(f"3) Check\n{check}")
+                        if deeper:
+                            parts.append(f"4) Next Step\n{deeper}")
+                        if parts:
+                            return "\n\n".join(parts)
+                    return queue_result.get("result")
+
             # Create execution plan
             context = {
                 'user_prefs': vars(self.context.user_prefs),
@@ -2081,6 +2128,55 @@ class ALICE:
         except Exception as e:
             logger.error(f"Planner/executor error: {e}")
             return None
+
+    def _execute_plan_queue_task(self, task: Task) -> Dict[str, Any]:
+        """Execute one queued planning task with the legacy planner/executor path."""
+        payload = dict(task.payload or {})
+        intent = str(payload.get("intent") or "question")
+        entities = dict(payload.get("entities") or {})
+        context = {
+            'user_prefs': vars(self.context.user_prefs),
+            'system_state': self.state_tracker.get_status().value if self.state_tracker else 'unknown'
+        }
+
+        plan = self.planner.create_plan(intent, entities, context)
+        if not self.planner.validate_plan(plan):
+            raise ValueError(f"Invalid plan for intent {intent}")
+
+        result = self.plan_executor.execute(plan)
+        if not result.get("success"):
+            raise RuntimeError(str(result.get("error") or "Unknown plan execution failure"))
+
+        return {
+            "success": True,
+            "plan_id": plan.plan_id,
+            "result": result.get("result"),
+            "all_results": result.get("all_results", {}),
+        }
+
+    def _await_queue_task_result(self, task_id: str, timeout_seconds: float = 4.0) -> Optional[Dict[str, Any]]:
+        """Wait briefly for a queued task to finish and return normalized result."""
+        if not self.persistent_task_queue:
+            return None
+
+        deadline = time.time() + max(0.1, float(timeout_seconds or 4.0))
+        while time.time() < deadline:
+            tasks = self.persistent_task_queue.list_tasks()
+            queued = next((t for t in tasks if t.task_id == task_id), None)
+            if queued is None:
+                return None
+            if queued.status == QueueTaskStatus.COMPLETED:
+                payload = queued.result if isinstance(queued.result, dict) else {}
+                return {
+                    "success": True,
+                    "result": payload.get("result"),
+                    "all_results": payload.get("all_results", {}),
+                }
+            if queued.status == QueueTaskStatus.FAILED:
+                logger.error(f"Queued planner task failed: {queued.error}")
+                return None
+            time.sleep(0.05)
+        return None
     
     def _build_llm_context(self, user_input: str, intent: str = "", entities: Dict = None, goal_res = None) -> str:
         """Build enhanced context for LLM with smart caching and adaptive selection"""
@@ -8338,6 +8434,10 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if getattr(self, 'cognitive_orchestrator', None):
             self.cognitive_orchestrator.stop()
             logger.info("[OK] Cognitive orchestrator stopped")
+
+        if getattr(self, 'persistent_task_queue', None):
+            self.persistent_task_queue.stop_background_loop()
+            logger.info("[OK] Persistent task queue stopped")
 
         if hasattr(self, 'execution_loop') and self.execution_loop:
             self.execution_loop.stop()
