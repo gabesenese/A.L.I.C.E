@@ -317,6 +317,35 @@ class CognitiveOrchestrator:
             "improvement_plan": plan,
         }
 
+    def ingest_user_feedback(
+        self,
+        *,
+        user_input: str,
+        previous_intent: str,
+        corrected_intent: str = "",
+        severity: float = 0.85,
+    ) -> None:
+        """Capture direct user correction and schedule high-priority adaptation."""
+        self._record_failure("routing_mistake")
+        self._enqueue_improvement_task(
+            description=(
+                f"Incorporate user correction: '{previous_intent}'"
+                + (f" -> '{corrected_intent}'" if corrected_intent else "")
+            ),
+            source="user_feedback",
+            priority=max(0.70, min(1.0, float(severity or 0.85))),
+        )
+        self.event_bus.emit_custom(
+            "cognition.user_feedback",
+            {
+                "user_input": str(user_input or "")[:300],
+                "previous_intent": previous_intent,
+                "corrected_intent": corrected_intent,
+                "severity": float(severity or 0.85),
+            },
+            priority=EventPriority.HIGH,
+        )
+
     # ------------------------------------------------------------------
     # Long-horizon goals
     # ------------------------------------------------------------------

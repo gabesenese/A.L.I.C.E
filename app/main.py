@@ -96,6 +96,8 @@ from ai.core.response_planner import get_response_planner
 from ai.core.goal_tracker import get_goal_tracker
 from ai.core.response_quality_tracker import get_response_quality_tracker
 from ai.core.cognitive_orchestrator import get_cognitive_orchestrator
+from ai.core.activity_monitor import ActivityMonitor
+from ai.core.temporal_reasoner import TemporalReasoner
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -314,6 +316,8 @@ class ALICE:
         self.plan_executor = None
         self.reasoning_planner = None
         self.persistent_task_queue = None
+        self.activity_monitor = None
+        self.temporal_reasoner = None
         
         logger.info("=" * 80)
         logger.info("Initializing A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity")
@@ -962,6 +966,8 @@ class ALICE:
                 ]
             }
         }
+        self.activity_monitor = ActivityMonitor()
+        self.temporal_reasoner = TemporalReasoner()
 
     def _select_tone(self, intent: str, context: Any, user_input: str) -> str:
         """
@@ -1979,8 +1985,51 @@ class ALICE:
             self._last_suggestion_pattern = pattern.pattern_id
             
             return f" {suggestion_text}"
+        if self.activity_monitor:
+            proactive = self.activity_monitor.proactive_suggestions()
+            if proactive:
+                return f" {proactive[0]}"
         
         return None
+
+    def _track_activity_signal(self, intent: str, user_input: str) -> None:
+        """Track lightweight user activity classes for proactive monitoring."""
+        if not self.activity_monitor:
+            return
+        intent = (intent or "").lower()
+        text = (user_input or "").lower()
+
+        if intent.startswith("email:") or "email" in text:
+            self.activity_monitor.observe("email")
+        if intent.startswith("learning:") or "study" in text or "learn" in text:
+            self.activity_monitor.observe("study")
+        if "error" in text or "traceback" in text or "debug" in text:
+            self.activity_monitor.observe("debug")
+
+    def _handle_explain_command(self, user_input: str) -> Optional[str]:
+        """Expose compact reasoning trace for transparency commands."""
+        text = (user_input or "").strip().lower()
+        if text not in {"/explain", "explain reasoning", "why did you say that", "why that response"}:
+            return None
+
+        rs = dict(getattr(self, '_internal_reasoning_state', {}) or {})
+        if not rs:
+            return "I do not have a recent reasoning trace yet. Ask me something first, then run /explain."
+
+        lines = ["Reasoning trace:"]
+        lines.append(f"1) Intent: {rs.get('user_intent', 'unknown')} (confidence={float(rs.get('confidence', 0.0)):.2f})")
+        lines.append(f"2) Plausibility: {float(rs.get('intent_plausibility', 1.0)):.2f}")
+        scores = rs.get('decision_scores', {}) or {}
+        if scores:
+            top = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:3]
+            top_text = ", ".join(f"{k}={float(v):.2f}" for k, v in top)
+            lines.append(f"3) Top routes: {top_text}")
+        if rs.get('reasoning_planner', {}):
+            rp = rs.get('reasoning_planner', {}) or {}
+            lines.append(f"4) Plan: id={rp.get('plan_id', 'n/a')} critical_path={rp.get('critical_path', 'n/a')}")
+        if rs.get('learning_decision'):
+            lines.append(f"5) Learning decision: {rs.get('learning_decision')}")
+        return "\n".join(lines)
 
     def _promote_learning_goal_intent(
         self, user_input: str, intent: str, entities: Dict[str, Any]
@@ -3936,6 +3985,13 @@ class ALICE:
                 proactive = getattr(self, "proactive_assistant", None)
                 if proactive:
                     trigger = parse_reminder_time(user_input)
+                    if trigger is None and self.temporal_reasoner:
+                        _tt = self.temporal_reasoner.parse_temporal_task(user_input)
+                        if _tt and _tt.when_iso:
+                            try:
+                                trigger = datetime.fromisoformat(_tt.when_iso)
+                            except Exception:
+                                trigger = None
                     if trigger is None:
                         from datetime import timedelta
                         trigger = datetime.now() + timedelta(minutes=30)
@@ -4015,6 +4071,16 @@ class ALICE:
             if any(_input_for_correction == m or _input_for_correction.startswith(m)
                    for m in _correction_markers):
                 self._think("Correction/disagreement detected → skipping plugins, using LLM")
+                if getattr(self, 'cognitive_orchestrator', None):
+                    try:
+                        self.cognitive_orchestrator.ingest_user_feedback(
+                            user_input=user_input,
+                            previous_intent=intent,
+                            corrected_intent="",
+                            severity=0.9,
+                        )
+                    except Exception:
+                        pass
                 intent = "conversation:general"
                 intent_confidence = 0.9
 
@@ -4385,6 +4451,11 @@ class ALICE:
             self._last_sentiment = sentiment['category'] if sentiment else None
             
             logger.info(f"Intent: {intent}, Sentiment: {sentiment['category']}")
+            self._track_activity_signal(intent, user_input)
+
+            explain_response = self._handle_explain_command(user_input)
+            if explain_response:
+                return explain_response
             
             # 1.5.5. Check for code/self-reflection requests EARLY (before reasoning/plugins)
             code_response = self._handle_code_request(user_input, entities)
@@ -5346,6 +5417,15 @@ class ALICE:
             )
 
             if _executive_decision.action == "ask_clarification":
+                _uncertainty = self.executive_controller.format_candidate_uncertainty(
+                    intent_candidates,
+                    limit=3,
+                )
+                if _uncertainty:
+                    return (
+                        f"{_executive_decision.clarification_question or 'Can you clarify your intended outcome?'} "
+                        f"{_uncertainty}"
+                    )
                 return _executive_decision.clarification_question or (
                     "Can you clarify what outcome you want so I can route this correctly?"
                 )

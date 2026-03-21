@@ -420,7 +420,6 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
             if watch_path.exists():
                 observer.schedule(event_handler, str(watch_path), recursive=True)
                 print(f"[DEV]     {dir_name}/")
-                logger.info(f"   Watching: {dir_name}/")
                 watched_count += 1
             else:
                 logger.debug(f"   Skipping (not found): {dir_name}/")
@@ -430,9 +429,6 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
             print(f"[DEV]  File watcher active ({watched_count} directories)")
             print(f"[DEV]     Auto-reload enabled - edit any .py file to trigger reload")
             print(f"[DEV]      Grace period: {event_handler.startup_grace_period}s after startup\n")
-            logger.info(f"File watcher active ({watched_count} directories)")
-            logger.info(f"   Auto-reload enabled for .py files")
-            logger.info(f"   Startup grace period: {event_handler.startup_grace_period}s")
         else:
             logger.warning("No directories found to watch!")
             observer = None

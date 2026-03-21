@@ -127,6 +127,18 @@ except ImportError:
     _get_fingerprint_store = None
     logging.warning("[WARN] Advanced NLP modules not available. Using legacy routing.")
 
+try:
+    from ai.core.conversation_memory import ConversationMemory
+    from ai.core.implicit_intent_detector import ImplicitIntentDetector
+    from ai.core.dialogue_state_machine import DialogueStateMachine
+    INTELLIGENCE_FOUNDATIONS_AVAILABLE = True
+except ImportError:
+    INTELLIGENCE_FOUNDATIONS_AVAILABLE = False
+    ConversationMemory = None
+    ImplicitIntentDetector = None
+    DialogueStateMachine = None
+    logging.warning("[WARN] Tier foundation modules unavailable. Running base NLP stack.")
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -1181,6 +1193,16 @@ class NLPProcessor:
 
         # Conversation context
         self.context = ConversationContext()
+
+        # Tier foundations: explicit short-horizon memory + implicit intent + dialogue state machine
+        if INTELLIGENCE_FOUNDATIONS_AVAILABLE:
+            self.conversation_memory = ConversationMemory(max_turns=20)
+            self.implicit_intent_detector = ImplicitIntentDetector()
+            self.dialogue_state_machine = DialogueStateMachine(max_clarifying_turns=5)
+        else:
+            self.conversation_memory = None
+            self.implicit_intent_detector = None
+            self.dialogue_state_machine = None
 
         # Semantic intent classifier
         self.semantic_classifier = None
@@ -2783,6 +2805,9 @@ class NLPProcessor:
         # Step 2: Clean + normalize for tokenizer layers
         clean_text = self._clean_text(resolved_text)
         normalized_text = self._normalize_for_tokenizer(clean_text)
+        contextual_text = normalized_text
+        if self.conversation_memory is not None:
+            contextual_text = self.conversation_memory.build_contextual_input(normalized_text)
 
         # Step 3: Surface + lexical + semantic hint layers
         segments = self._surface_segment(normalized_text)
@@ -2895,7 +2920,7 @@ class NLPProcessor:
                 )
             else:
                 semantic_intent = self._detect_intent_semantic(
-                    normalized_text,
+                    contextual_text,
                     parsed_command=parsed_command,
                     plugin_scores=plugin_scores,
                     return_structured=False,
@@ -2903,6 +2928,23 @@ class NLPProcessor:
                 weighted_candidates = self._build_weighted_parse(
                     parsed_command, plugin_scores, normalized_text
                 )
+
+                if self.implicit_intent_detector is not None:
+                    _implicit_matches = self.implicit_intent_detector.detect(
+                        normalized_text,
+                        recent_topic=(
+                            self.conversation_memory.latest_topic()
+                            if self.conversation_memory is not None
+                            else ""
+                        ),
+                    )
+                    if _implicit_matches:
+                        parsed_command.modifiers["implicit_intents"] = [
+                            m.as_dict() for m in _implicit_matches[:3]
+                        ]
+                        for m in _implicit_matches[:2]:
+                            weighted_candidates.append((m.intent, float(m.confidence)))
+
                 route = self._calibrate_route_decision(
                     weighted_candidates, plugin_scores, semantic_intent, parsed_command
                 )
@@ -4174,11 +4216,15 @@ class NLPProcessor:
         self.context.last_plugin = (
             result.intent.split(":", 1)[0] if ":" in result.intent else "conversation"
         )
-        self.context.dialogue_state = (
-            "clarifying"
-            if result.intent == "conversation:clarification_needed"
-            else "active"
-        )
+        if self.dialogue_state_machine is not None:
+            _dialogue_state = self.dialogue_state_machine.observe_intent(result.intent)
+            self.context.dialogue_state = _dialogue_state.value
+        else:
+            self.context.dialogue_state = (
+                "clarifying"
+                if result.intent == "conversation:clarification_needed"
+                else "active"
+            )
 
         disambiguation = {}
         if isinstance(result.parsed_command, dict):
@@ -4195,6 +4241,17 @@ class NLPProcessor:
 
         # Extract entities to context
         self.context.last_entities = {}
+
+        if self.conversation_memory is not None:
+            self.conversation_memory.add_turn(
+                user_input=result.original_text,
+                intent=result.intent,
+                response="",
+                context_extracted={
+                    "topic": (result.keywords[0] if result.keywords else ""),
+                    "dialogue_state": self.context.dialogue_state,
+                },
+            )
 
         # From slots
         for slot_name, slot in result.slots.items():

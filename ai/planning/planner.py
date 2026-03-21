@@ -128,7 +128,10 @@ class ReasoningPlanner:
                 PlanStep(
                     step_id=step_id,
                     action=spec["action"],
-                    params={"title": spec["title"], "expected_output": spec["expected"]},
+                    params={
+                        "title": spec["title"],
+                        "expected_output": spec["expected"],
+                    },
                     depends_on=depends_on,
                 )
             )
@@ -140,7 +143,9 @@ class ReasoningPlanner:
         intent = str(task.context.get("intent") or "question")
         entities = dict(task.context.get("entities") or {"query": task.user_request})
         context = dict(task.context)
-        plan = self._task_planner.create_plan(intent=intent, entities=entities, context=context)
+        plan = self._task_planner.create_plan(
+            intent=intent, entities=entities, context=context
+        )
         if len(plan.steps) < 3:
             plan.steps = self.generate_steps(task)
 
@@ -157,7 +162,9 @@ class ReasoningPlanner:
         return plan
 
     def decide_next_step(self, plan: ExecutionPlan) -> Optional[ExecutionDecision]:
-        completed_ids = {s.step_id for s in plan.steps if s.status == StepStatus.COMPLETED}
+        completed_ids = {
+            s.step_id for s in plan.steps if s.status == StepStatus.COMPLETED
+        }
         step = plan.get_next_step(completed_ids)
         if step is None:
             return None
@@ -198,7 +205,9 @@ class ReasoningPlanner:
         if not expected_tokens:
             return structural_score >= 0.5
 
-        overlap = len(expected_tokens.intersection(result_tokens)) / float(len(expected_tokens))
+        overlap = len(expected_tokens.intersection(result_tokens)) / float(
+            len(expected_tokens)
+        )
         quality_score = (0.6 * structural_score) + (0.4 * overlap)
         return quality_score >= 0.45
 
@@ -285,7 +294,9 @@ class ReasoningPlanner:
             return "Handle user request"
         # Remove filler and keep a compact objective phrase.
         text = re.sub(r"\s+", " ", text)
-        text = re.sub(r"^(please|can you|could you|i need you to)\s+", "", text, flags=re.I)
+        text = re.sub(
+            r"^(please|can you|could you|i need you to)\s+", "", text, flags=re.I
+        )
         return text[0].upper() + text[1:]
 
     def _estimate_complexity(self, task: TaskRepresentation) -> float:
@@ -293,7 +304,11 @@ class ReasoningPlanner:
         words = len(text.split())
         conjunctions = len(re.findall(r"\b(and|then|after|before|while|also)\b", text))
         conditional = len(re.findall(r"\b(if|unless|except|when)\b", text))
-        action_verbs = len(re.findall(r"\b(build|create|design|refactor|analyze|verify|test|deploy)\b", text))
+        action_verbs = len(
+            re.findall(
+                r"\b(build|create|design|refactor|analyze|verify|test|deploy)\b", text
+            )
+        )
 
         score = 0.0
         score += min(0.35, words / 40.0)
@@ -304,4 +319,8 @@ class ReasoningPlanner:
         return max(0.0, min(1.0, score))
 
     def _tokenize(self, text: str) -> set[str]:
-        return {tok for tok in re.findall(r"[a-zA-Z0-9_]+", (text or "").lower()) if len(tok) > 2}
+        return {
+            tok
+            for tok in re.findall(r"[a-zA-Z0-9_]+", (text or "").lower())
+            if len(tok) > 2
+        }

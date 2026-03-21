@@ -196,7 +196,10 @@ class ExecutiveController:
             )
 
         normalized_intent = (state.user_intent or "").lower().strip()
-        if normalized_intent == "conversation:clarification_needed" and state.confidence >= 0.45:
+        if (
+            normalized_intent == "conversation:clarification_needed"
+            and state.confidence >= 0.45
+        ):
             return ExecutiveDecision(
                 action="use_llm",
                 reason="clarification_answer_requested",
@@ -360,6 +363,28 @@ class ExecutiveController:
         if conf < 0.60 and margin < 0.12:
             return "clarify"
         return "proceed"
+
+    def format_candidate_uncertainty(
+        self,
+        intent_candidates: List[Dict[str, Any]] | None,
+        *,
+        limit: int = 3,
+    ) -> str:
+        """Return a compact top-k candidate summary for user-facing clarification."""
+        candidates = intent_candidates or []
+        if not candidates:
+            return ""
+        top = sorted(
+            candidates,
+            key=lambda c: float(c.get("score", c.get("confidence", 0.0)) or 0.0),
+            reverse=True,
+        )[: max(1, int(limit or 3))]
+        parts: List[str] = []
+        for cand in top:
+            label = str(cand.get("intent") or "unknown")
+            score = float(cand.get("score", cand.get("confidence", 0.0)) or 0.0)
+            parts.append(f"{label} ({score * 100:.0f}%)")
+        return "I am not fully certain. Top possibilities: " + ", ".join(parts) + "."
 
     def score_decisions(
         self,
