@@ -23,7 +23,9 @@ class TemporalTask:
 
 
 class TemporalReasoner:
-    def parse_temporal_task(self, text: str, *, now: Optional[datetime] = None) -> Optional[TemporalTask]:
+    def parse_temporal_task(
+        self, text: str, *, now: Optional[datetime] = None
+    ) -> Optional[TemporalTask]:
         text = (text or "").strip()
         if not text:
             return None
@@ -49,7 +51,10 @@ class TemporalReasoner:
             if "tomorrow" in lower:
                 when = now.replace(hour=9, minute=0, second=0, microsecond=0)
                 when = when.fromtimestamp(when.timestamp() + 86400)
-            elif re.search(r"\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", lower):
+            elif re.search(
+                r"\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+                lower,
+            ):
                 # Best-effort fallback: unresolved exact weekday without dateparser.
                 when = now.replace(hour=9, minute=0, second=0, microsecond=0)
 
@@ -75,7 +80,10 @@ class TemporalReasoner:
         )
 
     def _extract_action(self, lower: str) -> str:
-        m = re.search(r"(?:remind me to|remind me about|schedule|set a reminder(?: for)?|every\s+\w+\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s+(.+)", lower)
+        m = re.search(
+            r"(?:remind me to|remind me about|schedule|set a reminder(?: for)?|every\s+\w+\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s+(.+)",
+            lower,
+        )
         if not m:
             return ""
         action = m.group(1).strip(" .!?")

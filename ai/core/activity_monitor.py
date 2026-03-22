@@ -28,14 +28,20 @@ class ActivityMonitor:
 
         email_ts = self._last_seen.get("email")
         if email_ts and (now_ts - email_ts) > 2 * 3600:
-            out.append("You have not checked email for a while. Want a quick inbox summary?")
+            out.append(
+                "You have not checked email for a while. Want a quick inbox summary?"
+            )
 
         study_ts = self._last_seen.get("study")
         if study_ts and (now_ts - study_ts) > 3 * 3600:
-            out.append("You have been in study mode for a while. Want a short break reminder?")
+            out.append(
+                "You have been in study mode for a while. Want a short break reminder?"
+            )
 
         debug_ts = self._last_seen.get("debug")
         if debug_ts and (now_ts - debug_ts) < 30 * 60:
-            out.append("I noticed repeated debugging activity. Want me to summarize likely root causes?")
+            out.append(
+                "I noticed repeated debugging activity. Want me to summarize likely root causes?"
+            )
 
         return out

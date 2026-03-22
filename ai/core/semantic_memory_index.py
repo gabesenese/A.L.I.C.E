@@ -33,6 +33,10 @@ class SemanticMemoryIndex:
 
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
         return [
-            {"doc_id": doc_id, "score": str(score), "text": self._docs.get(doc_id, "")[:280]}
+            {
+                "doc_id": doc_id,
+                "score": str(score),
+                "text": self._docs.get(doc_id, "")[:280],
+            }
             for doc_id, score in ranked[: max(1, int(limit or 3))]
         ]

@@ -16,11 +16,16 @@ class ProactiveInterruptionManager:
     def set_suppressed(self, suppressed: bool) -> None:
         self._suppressed = bool(suppressed)
 
-    def select(self, suggestions: Iterable[str], now_ts: float | None = None) -> List[str]:
+    def select(
+        self, suggestions: Iterable[str], now_ts: float | None = None
+    ) -> List[str]:
         now_ts = float(now_ts or time.time())
         if self._suppressed:
             return []
-        if self._last_emit_ts >= 0.0 and (now_ts - self._last_emit_ts) < self.cooldown_seconds:
+        if (
+            self._last_emit_ts >= 0.0
+            and (now_ts - self._last_emit_ts) < self.cooldown_seconds
+        ):
             return []
 
         cleaned = [str(s).strip() for s in suggestions if str(s).strip()]

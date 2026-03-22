@@ -33,7 +33,10 @@ class ImplicitIntentDetector:
 
         matches: List[ImplicitIntentMatch] = []
 
-        if re.search(r"\b(code|script|app|program).{0,24}\b(crash|crashing|error|exception|traceback|line\s*\d+)\b", lower):
+        if re.search(
+            r"\b(code|script|app|program).{0,24}\b(crash|crashing|error|exception|traceback|line\s*\d+)\b",
+            lower,
+        ):
             matches.append(
                 ImplicitIntentMatch(
                     intent="conversation:question",
@@ -43,7 +46,10 @@ class ImplicitIntentDetector:
                 )
             )
 
-        if re.search(r"\b(?:been|it's been)\s+\d+\s+(?:hour|hours)\b.*\b(since i ate|since eating|without eating)\b", lower):
+        if re.search(
+            r"\b(?:been|it's been)\s+\d+\s+(?:hour|hours)\b.*\b(since i ate|since eating|without eating)\b",
+            lower,
+        ):
             matches.append(
                 ImplicitIntentMatch(
                     intent="reminder:set",
@@ -73,7 +79,11 @@ class ImplicitIntentDetector:
                 )
             )
 
-        if recent_topic and len(lower.split()) <= 8 and re.search(r"\b(can you help|continue|with that|do that)\b", lower):
+        if (
+            recent_topic
+            and len(lower.split()) <= 8
+            and re.search(r"\b(can you help|continue|with that|do that)\b", lower)
+        ):
             matches.append(
                 ImplicitIntentMatch(
                     intent="conversation:question",
@@ -86,6 +96,8 @@ class ImplicitIntentDetector:
         matches.sort(key=lambda m: m.confidence, reverse=True)
         return matches
 
-    def best(self, text: str, *, recent_topic: str = "") -> Optional[ImplicitIntentMatch]:
+    def best(
+        self, text: str, *, recent_topic: str = ""
+    ) -> Optional[ImplicitIntentMatch]:
         matches = self.detect(text, recent_topic=recent_topic)
         return matches[0] if matches else None

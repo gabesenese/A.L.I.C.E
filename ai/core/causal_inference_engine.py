@@ -12,14 +12,34 @@ class CausalInferenceEngine:
         checks: List[str] = []
 
         if "timeout" in query:
-            causes.extend(["slow dependency", "network instability", "resource contention"])
-            checks.extend(["inspect latency metrics", "retry with shorter dependency chain"])
+            causes.extend(
+                ["slow dependency", "network instability", "resource contention"]
+            )
+            checks.extend(
+                ["inspect latency metrics", "retry with shorter dependency chain"]
+            )
         if "import" in query and "error" in query:
-            causes.extend(["missing package", "circular import", "wrong virtual environment"])
-            checks.extend(["verify package install", "inspect module path", "check active environment"])
+            causes.extend(
+                ["missing package", "circular import", "wrong virtual environment"]
+            )
+            checks.extend(
+                [
+                    "verify package install",
+                    "inspect module path",
+                    "check active environment",
+                ]
+            )
         if "memory" in query and ("high" in query or "leak" in query):
-            causes.extend(["unbounded cache growth", "object retention", "large payload accumulation"])
-            checks.extend(["profile object counts", "add cache eviction", "sample heap over time"])
+            causes.extend(
+                [
+                    "unbounded cache growth",
+                    "object retention",
+                    "large payload accumulation",
+                ]
+            )
+            checks.extend(
+                ["profile object counts", "add cache eviction", "sample heap over time"]
+            )
 
         if not causes:
             causes = ["insufficient context", "multiple interacting factors"]

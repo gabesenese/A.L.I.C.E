@@ -7737,7 +7737,24 @@ class ALICE:
                 print(f"   RAG Lookups: {gateway_stats['rag_lookups']} ({gateway_stats.get('rag_lookup_percentage', 0)}%)")
                 print(f"   Formatter Usage: {gateway_stats['formatter_calls']} ({gateway_stats.get('formatter_percentage', 0)}%)")
                 print(f"   LLM Fallback: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_fallback_percentage', 0)}%)")
+                print(f"   Multi-LLM Router: {'Enabled' if gateway_stats.get('multi_llm_enabled') else 'Disabled'}")
+                print(f"   Multi-LLM Calls: {gateway_stats.get('multi_router_calls', 0)} ({gateway_stats.get('multi_router_percentage', 0)}%)")
                 print(f"   Policy Denials: {gateway_stats['policy_denials']} ({gateway_stats.get('denial_percentage', 0)}%)")
+
+                model_roles = gateway_stats.get('model_roles', {}) or {}
+                if model_roles:
+                    print("\n   Model Roles:")
+                    for role, model in sorted(model_roles.items()):
+                        print(f"      {role}: {model}")
+
+                last_route = gateway_stats.get('last_route', {}) or {}
+                if last_route:
+                    print("\n   Last Route:")
+                    print(f"      source: {last_route.get('source', 'n/a')}")
+                    print(f"      call_type: {last_route.get('call_type', 'n/a')}")
+                    if last_route.get('role'):
+                        print(f"      role: {last_route.get('role')}")
+                    print(f"      model: {last_route.get('model', 'n/a')}")
                 
                 if gateway_stats['by_type']:
                     print("\n   By Call Type:")

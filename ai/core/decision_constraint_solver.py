@@ -32,5 +32,7 @@ class DecisionConstraintSolver:
                 score += val * float(weight)
             ranked.append({**opt, "constraint_score": round(score, 4)})
 
-        ranked.sort(key=lambda row: float(row.get("constraint_score", 0.0)), reverse=True)
+        ranked.sort(
+            key=lambda row: float(row.get("constraint_score", 0.0)), reverse=True
+        )
         return ranked

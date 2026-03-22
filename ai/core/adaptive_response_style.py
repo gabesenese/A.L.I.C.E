@@ -7,7 +7,13 @@ from typing import Any, Dict
 
 
 class AdaptiveResponseStyle:
-    def derive_style(self, *, intent: str, sentiment: Dict[str, Any] | None, preferences: Dict[str, Any] | None) -> Dict[str, Any]:
+    def derive_style(
+        self,
+        *,
+        intent: str,
+        sentiment: Dict[str, Any] | None,
+        preferences: Dict[str, Any] | None,
+    ) -> Dict[str, Any]:
         prefs = dict(preferences or {})
         style = {
             "verbosity": "normal",
@@ -23,17 +29,24 @@ class AdaptiveResponseStyle:
         if mood in {"negative", "frustrated", "angry"}:
             style["verbosity"] = "brief"
 
-        if str(intent or "").startswith("technical:") and style["verbosity"] == "normal":
+        if (
+            str(intent or "").startswith("technical:")
+            and style["verbosity"] == "normal"
+        ):
             style["verbosity"] = "expanded"
         return style
 
-    def apply_constraints(self, response: str, preferences: Dict[str, Any] | None) -> str:
+    def apply_constraints(
+        self, response: str, preferences: Dict[str, Any] | None
+    ) -> str:
         prefs = dict(preferences or {})
         out = str(response or "")
         max_words = int(prefs.get("max_words", 0) or 0)
 
         if prefs.get("format") == "bullet_points" and "\n- " not in out and out:
-            sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", out) if s.strip()]
+            sentences = [
+                s.strip() for s in re.split(r"(?<=[.!?])\s+", out) if s.strip()
+            ]
             if len(sentences) >= 2:
                 out = "\n".join(f"- {s}" for s in sentences[:6])
 

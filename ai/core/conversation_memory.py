@@ -22,7 +22,9 @@ class ConversationMemory:
     """Stores recent turns and offers compact contextual augmentation hints."""
 
     def __init__(self, max_turns: int = 20) -> None:
-        self._turns: Deque[ConversationTurn] = deque(maxlen=max(5, int(max_turns or 20)))
+        self._turns: Deque[ConversationTurn] = deque(
+            maxlen=max(5, int(max_turns or 20))
+        )
 
     def add_turn(
         self,
@@ -51,7 +53,11 @@ class ConversationMemory:
             topic = str((turn.context_extracted or {}).get("topic") or "").strip()
             if topic:
                 return topic
-            words = [w for w in re.findall(r"[a-zA-Z0-9_]+", turn.user_input.lower()) if len(w) > 3]
+            words = [
+                w
+                for w in re.findall(r"[a-zA-Z0-9_]+", turn.user_input.lower())
+                if len(w) > 3
+            ]
             if words:
                 return " ".join(words[:4])
         return ""
@@ -63,7 +69,9 @@ class ConversationMemory:
             return text
 
         lower = text.lower()
-        pronounish = bool(re.search(r"\b(it|that|this|them|those|these|there)\b", lower))
+        pronounish = bool(
+            re.search(r"\b(it|that|this|them|those|these|there)\b", lower)
+        )
         vague_short = len(lower.split()) <= 8 and (
             lower.startswith("can you help")
             or lower.startswith("help me")

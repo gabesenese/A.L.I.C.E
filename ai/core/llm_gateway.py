@@ -22,6 +22,11 @@ from ai.core.llm_policy import get_llm_policy, LLMCallType
 from ai.models.simple_formatters import FormatterRegistry
 from ai.learning.data_redaction import sanitize_for_learning, redact_text
 
+try:
+    from brain.model_router import ModelRouter
+except Exception:  # pragma: no cover - optional runtime feature
+    ModelRouter = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,6 +59,8 @@ class LLMResponse:
     formatter_name: Optional[str] = None
     denied_by_policy: bool = False
     policy_reason: Optional[str] = None
+    model_used: Optional[str] = None
+    route_source: Optional[str] = None
 
 
 class LLMGateway:
@@ -80,6 +87,19 @@ class LLMGateway:
         self.learning_engine = learning_engine
         self.policy = get_llm_policy()
         self.formatter_registry = FormatterRegistry()
+        self.model_router = None
+        self.multi_llm_enabled = os.getenv("ALICE_MULTI_LLM_ROUTER", "1").strip() not in {
+            "0",
+            "false",
+            "off",
+            "no",
+        }
+        if self.multi_llm_enabled and ModelRouter is not None:
+            try:
+                self.model_router = ModelRouter()
+            except Exception as exc:
+                logger.debug("[LLMGateway] Multi-LLM router unavailable: %s", exc)
+        self._last_route: Dict[str, Any] = {}
 
         # Advanced telemetry
         self.stats = {
@@ -90,6 +110,7 @@ class LLMGateway:
             "rag_lookups": 0,
             "llm_calls": 0,
             "formatter_calls": 0,
+            "multi_router_calls": 0,
             "policy_denials": 0,
             "by_type": {},
             "recent_requests": [],  # Last 100 requests for analysis
@@ -162,6 +183,34 @@ class LLMGateway:
         # Step 3: Route to appropriate LLM method based on call type
         try:
             logger.info(f"[LLMGateway] [CALL] LLM call ({call_type.value})")
+
+            if self._should_use_multi_router(call_type) and self.model_router is not None:
+                routed = self.model_router.generate(
+                    request=prompt or user_input,
+                    context={
+                        "intent": (context or {}).get("intent", ""),
+                        "call_type": call_type.value,
+                    },
+                )
+                if routed.get("response") and float(routed.get("confidence", 0.0)) > 0.0:
+                    response = str(routed.get("response"))
+                    model_used = str(routed.get("model") or "")
+                    self.stats["multi_router_calls"] += 1
+                    self.stats["llm_calls"] += 1
+                    self.policy.record_call(call_type, user_input, response)
+                    self._last_route = {
+                        "source": "multi_router",
+                        "call_type": call_type.value,
+                        "model": model_used,
+                        "role": (getattr(self.model_router, "last_route", {}) or {}).get("role", ""),
+                    }
+                    return LLMResponse(
+                        success=True,
+                        response=response,
+                        used_llm=True,
+                        model_used=model_used,
+                        route_source="multi_router",
+                    )
 
             # Tool-based routing: Alice uses Ollama as a tool
             if call_type == LLMCallType.QUERY_KNOWLEDGE:
@@ -238,7 +287,20 @@ class LLMGateway:
                 )
 
             logger.info(f"[LLMGateway] [OK] LLM responded ({len(response)} chars)")
-            return LLMResponse(success=True, response=response, used_llm=True)
+            model_used = self._active_model_name()
+            self._last_route = {
+                "source": "legacy_engine",
+                "call_type": call_type.value,
+                "model": model_used,
+                "role": "",
+            }
+            return LLMResponse(
+                success=True,
+                response=response,
+                used_llm=True,
+                model_used=model_used,
+                route_source="legacy_engine",
+            )
 
         except Exception as e:
             logger.error(f"[LLMGateway] [ERROR] LLM error: {e}")
@@ -247,6 +309,21 @@ class LLMGateway:
                 error=str(e),
                 response="I encountered an error processing that request.",
             )
+
+    @staticmethod
+    def _should_use_multi_router(call_type: LLMCallType) -> bool:
+        """Only route user-facing generation paths through multi-LLM selector."""
+        return call_type in {
+            LLMCallType.CHITCHAT,
+            LLMCallType.GENERATION,
+            LLMCallType.QUERY_KNOWLEDGE,
+        }
+
+    def _active_model_name(self) -> str:
+        cfg = getattr(self.llm, "config", None)
+        if cfg is None:
+            return "unknown"
+        return str(getattr(cfg, "active_model", None) or getattr(cfg, "model", "unknown"))
 
     def _try_formatter(
         self, tool_name: str, data: Dict[str, Any], context: Dict[str, Any]
@@ -452,7 +529,17 @@ Be conversational and helpful. Do not mention the tool name or technical details
             "formatter_percentage": round(
                 100 * self.stats["formatter_calls"] / total, 1
             ),
+            "multi_router_percentage": round(
+                100 * self.stats["multi_router_calls"] / total, 1
+            ),
             "denial_percentage": round(100 * self.stats["policy_denials"] / total, 1),
+            "multi_llm_enabled": bool(self.multi_llm_enabled and self.model_router is not None),
+            "model_roles": (
+                self.model_router.describe_models()
+                if self.model_router is not None and hasattr(self.model_router, "describe_models")
+                else {}
+            ),
+            "last_route": dict(self._last_route or {}),
         }
         return stats
 
@@ -486,6 +573,7 @@ Be conversational and helpful. Do not mention the tool name or technical details
             "rag_lookups": 0,
             "llm_calls": 0,
             "formatter_calls": 0,
+            "multi_router_calls": 0,
             "policy_denials": 0,
             "by_type": {},
             "recent_requests": [],

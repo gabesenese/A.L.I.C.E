@@ -20,9 +20,15 @@ class ConstraintPreferenceExtractor:
             format_pref = "narrative"
 
         detail = "normal"
-        if any(k in lower for k in ("quick", "quickly", "short", "brief", "tldr", "summary")):
+        if any(
+            k in lower
+            for k in ("quick", "quickly", "short", "brief", "tldr", "summary")
+        ):
             detail = "concise"
-        if any(k in lower for k in ("detailed", "deep", "in-depth", "thorough", "step-by-step")):
+        if any(
+            k in lower
+            for k in ("detailed", "deep", "in-depth", "thorough", "step-by-step")
+        ):
             detail = "detailed"
 
         constraints = []
@@ -34,7 +40,9 @@ class ConstraintPreferenceExtractor:
             constraints.append("include_examples")
 
         max_words = None
-        m = re.search(r"\b(?:under|within|max(?:imum)?|at most)\s+(\d{1,4})\s+words\b", lower)
+        m = re.search(
+            r"\b(?:under|within|max(?:imum)?|at most)\s+(\d{1,4})\s+words\b", lower
+        )
         if m:
             try:
                 max_words = int(m.group(1))

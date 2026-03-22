@@ -15,10 +15,29 @@ class DialogueState(str, Enum):
 
 
 _ALLOWED: Dict[DialogueState, Set[DialogueState]] = {
-    DialogueState.READY: {DialogueState.CLARIFYING, DialogueState.EXECUTING, DialogueState.LEARNING},
-    DialogueState.CLARIFYING: {DialogueState.READY, DialogueState.EXECUTING, DialogueState.LEARNING, DialogueState.CLARIFYING},
-    DialogueState.EXECUTING: {DialogueState.READY, DialogueState.CLARIFYING, DialogueState.LEARNING, DialogueState.EXECUTING},
-    DialogueState.LEARNING: {DialogueState.READY, DialogueState.CLARIFYING, DialogueState.EXECUTING, DialogueState.LEARNING},
+    DialogueState.READY: {
+        DialogueState.CLARIFYING,
+        DialogueState.EXECUTING,
+        DialogueState.LEARNING,
+    },
+    DialogueState.CLARIFYING: {
+        DialogueState.READY,
+        DialogueState.EXECUTING,
+        DialogueState.LEARNING,
+        DialogueState.CLARIFYING,
+    },
+    DialogueState.EXECUTING: {
+        DialogueState.READY,
+        DialogueState.CLARIFYING,
+        DialogueState.LEARNING,
+        DialogueState.EXECUTING,
+    },
+    DialogueState.LEARNING: {
+        DialogueState.READY,
+        DialogueState.CLARIFYING,
+        DialogueState.EXECUTING,
+        DialogueState.LEARNING,
+    },
 }
 
 
@@ -39,7 +58,10 @@ class DialogueStateMachine:
             self.clarifying_turns = 0
 
         self.state = target
-        if self.state == DialogueState.CLARIFYING and self.clarifying_turns >= self.max_clarifying_turns:
+        if (
+            self.state == DialogueState.CLARIFYING
+            and self.clarifying_turns >= self.max_clarifying_turns
+        ):
             self.state = DialogueState.READY
             self.clarifying_turns = 0
         return True
@@ -48,7 +70,19 @@ class DialogueStateMachine:
         intent = (intent or "").lower()
         if intent == "conversation:clarification_needed":
             self.transition(DialogueState.CLARIFYING, reason="clarification_intent")
-        elif any(intent.startswith(prefix) for prefix in ("notes:", "email:", "calendar:", "file_operations:", "reminder:", "system:", "weather:", "time:")):
+        elif any(
+            intent.startswith(prefix)
+            for prefix in (
+                "notes:",
+                "email:",
+                "calendar:",
+                "file_operations:",
+                "reminder:",
+                "system:",
+                "weather:",
+                "time:",
+            )
+        ):
             self.transition(DialogueState.EXECUTING, reason="tool_intent")
         elif intent.startswith("learning:"):
             self.transition(DialogueState.LEARNING, reason="learning_intent")
