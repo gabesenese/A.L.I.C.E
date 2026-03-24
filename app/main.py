@@ -3335,21 +3335,17 @@ class ALICE:
         _ctx_fresh = bool(
             _ctx_ts and isinstance(_ctx_ts, datetime) and (datetime.now() - _ctx_ts).total_seconds() <= 180
         )
-        _code_list_followup_phrases = {
-            'list it',
-            'list it to me',
-            'list them',
-            'show it',
-            'show them',
-            'yes list it',
-            'yes list them',
-            'please list it',
-            'please list them',
-        }
+        _followup_text = input_lower.strip().rstrip('?!.,')
+        _is_code_list_followup = bool(
+            re.match(
+                r"^(?:please\s+)?(?:yes\s+)?(?:list|show)\s+(?:it|them)(?:\s+to\s+me|\s+for\s+me)?$",
+                _followup_text,
+            )
+        )
         if (
             _ctx_action in ('code_access_confirmed', 'code_list_offered')
             and _ctx_fresh
-            and input_lower.strip().rstrip('?!.,') in _code_list_followup_phrases
+            and _is_code_list_followup
         ):
             files = self.self_reflection.list_codebase()
             file_paths = [f['path'] for f in files]
@@ -5099,16 +5095,28 @@ class ALICE:
                 return advanced_reasoning_response
             
             # 1.5.5. Check for code/self-reflection requests EARLY (before reasoning/plugins)
-            code_response = self._handle_code_request(user_input, entities)
+            effective_input = _nlp_input if '_nlp_input' in locals() else user_input
+            code_response = self._handle_code_request(effective_input, entities)
             if code_response:
                 self._think("Code request detected → handled directly")
+
+                # Keep shared conversation state in sync even on early returns
+                # from direct code handling paths.
+                _code_entities = dict(entities or {})
+                _code_intent = "code:request"
+                if self.code_context.get('last_action') == 'code_access_confirmed':
+                    _code_entities.setdefault('resolved_reference', 'internal code')
+                    _code_entities.setdefault('subject', 'codebase')
+                    _code_entities.setdefault('topic', 'internal code')
+                self._store_interaction(effective_input, code_response, _code_intent, _code_entities)
+
                 # Store in training data
                 if getattr(self, 'learning_engine', None):
                     self.learning_engine.collect_interaction(
-                        user_input=user_input,
+                        user_input=effective_input,
                         assistant_response=code_response,
                         intent='code:request',
-                        entities=entities or {},
+                        entities=_code_entities,
                         quality_score=0.9
                     )
                 return code_response

@@ -48,6 +48,18 @@ def test_code_access_followup_list_it_routes_to_codebase_listing():
     assert alice.code_context["last_action"] == "list"
 
 
+def test_code_access_followup_list_it_for_me_routes_to_codebase_listing():
+    alice = _build_alice_stub()
+
+    first = ALICE._handle_code_request(alice, "are you able to see your internal code?", {})
+    second = ALICE._handle_code_request(alice, "list it for me", {})
+
+    assert first == "CAPABILITY_OK"
+    assert second == "CAPABILITY_OK"
+    assert alice.code_context["file_count"] == 2
+    assert alice.code_context["last_action"] == "list"
+
+
 def test_code_access_phrase_are_you_able_to_see_routes_to_capability_answer():
     alice = _build_alice_stub()
 
