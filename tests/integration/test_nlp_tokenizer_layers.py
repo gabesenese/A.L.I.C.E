@@ -102,3 +102,14 @@ class TestLayeredTokenizer:
         )
         assert score < 0.35
         assert "negative_evidence_weather_contradiction" in issues
+
+    def test_memory_recall_phrase_not_misclassified_as_store(self):
+        result = self.nlp.process("do you remember that coding problem we were talking about?")
+        assert result.intent == "memory:recall"
+
+    def test_notes_plausibility_penalizes_internal_code_query(self):
+        score, issues = self.nlp._validate_intent_plausibility(
+            "list your internal code?", "notes:list", ParsedCommand(), {}
+        )
+        assert score < 0.30
+        assert "negative_evidence_notes_contradiction" in issues

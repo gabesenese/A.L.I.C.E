@@ -88,7 +88,9 @@ class LLMGateway:
         self.policy = get_llm_policy()
         self.formatter_registry = FormatterRegistry()
         self.model_router = None
-        self.multi_llm_enabled = os.getenv("ALICE_MULTI_LLM_ROUTER", "1").strip() not in {
+        self.multi_llm_enabled = os.getenv(
+            "ALICE_MULTI_LLM_ROUTER", "1"
+        ).strip() not in {
             "0",
             "false",
             "off",
@@ -184,7 +186,10 @@ class LLMGateway:
         try:
             logger.info(f"[LLMGateway] [CALL] LLM call ({call_type.value})")
 
-            if self._should_use_multi_router(call_type) and self.model_router is not None:
+            if (
+                self._should_use_multi_router(call_type)
+                and self.model_router is not None
+            ):
                 routed = self.model_router.generate(
                     request=prompt or user_input,
                     context={
@@ -192,7 +197,10 @@ class LLMGateway:
                         "call_type": call_type.value,
                     },
                 )
-                if routed.get("response") and float(routed.get("confidence", 0.0)) > 0.0:
+                if (
+                    routed.get("response")
+                    and float(routed.get("confidence", 0.0)) > 0.0
+                ):
                     response = str(routed.get("response"))
                     model_used = str(routed.get("model") or "")
                     self.stats["multi_router_calls"] += 1
@@ -202,7 +210,9 @@ class LLMGateway:
                         "source": "multi_router",
                         "call_type": call_type.value,
                         "model": model_used,
-                        "role": (getattr(self.model_router, "last_route", {}) or {}).get("role", ""),
+                        "role": (
+                            getattr(self.model_router, "last_route", {}) or {}
+                        ).get("role", ""),
                     }
                     return LLMResponse(
                         success=True,
@@ -323,7 +333,9 @@ class LLMGateway:
         cfg = getattr(self.llm, "config", None)
         if cfg is None:
             return "unknown"
-        return str(getattr(cfg, "active_model", None) or getattr(cfg, "model", "unknown"))
+        return str(
+            getattr(cfg, "active_model", None) or getattr(cfg, "model", "unknown")
+        )
 
     def _try_formatter(
         self, tool_name: str, data: Dict[str, Any], context: Dict[str, Any]
@@ -533,10 +545,13 @@ Be conversational and helpful. Do not mention the tool name or technical details
                 100 * self.stats["multi_router_calls"] / total, 1
             ),
             "denial_percentage": round(100 * self.stats["policy_denials"] / total, 1),
-            "multi_llm_enabled": bool(self.multi_llm_enabled and self.model_router is not None),
+            "multi_llm_enabled": bool(
+                self.multi_llm_enabled and self.model_router is not None
+            ),
             "model_roles": (
                 self.model_router.describe_models()
-                if self.model_router is not None and hasattr(self.model_router, "describe_models")
+                if self.model_router is not None
+                and hasattr(self.model_router, "describe_models")
                 else {}
             ),
             "last_route": dict(self._last_route or {}),

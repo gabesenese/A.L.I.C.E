@@ -187,7 +187,14 @@ _P1_FILE_MARKERS: frozenset = frozenset({
 # Memory
 _P1_MEMORY_STORE: frozenset = frozenset({"remember", "keep in mind", "save this"})
 _P1_MEMORY_STORE_OBJ: frozenset = frozenset({"that", "this", "i", "my", "prefer"})
-_P1_MEMORY_RECALL: tuple = ("what do you remember", "do you remember", "what do you know")
+_P1_MEMORY_RECALL: tuple = (
+    "what do you remember",
+    "do you remember",
+    "what do you know",
+    "can you remember",
+    "could you remember",
+    "would you remember",
+)
 _P1_MEMORY_SEARCH_SUBJ: tuple = ("what did we", "what have we", "what did i")
 _P1_MEMORY_SEARCH_VERB: frozenset = frozenset({"talk", "discuss", "say", "tell"})
 
@@ -1980,6 +1987,11 @@ class NLPProcessor:
                 "temperature",
                 "rain",
                 "snow",
+                "internal code",
+                "codebase",
+                "source code",
+                "python file",
+                "python files",
             },
         }
 
@@ -3764,14 +3776,17 @@ class NLPProcessor:
                 return "file_operations:list", 0.95
 
         # Memory operations - user preference/recall patterns
-        # Store: "remember/save/keep + that/this"
-        if any(word in text_lower for word in _P1_MEMORY_STORE) and any(
-            word in text_lower for word in _P1_MEMORY_STORE_OBJ
-        ):
-            return "memory:store", 0.95
-        # Recall: "what do you remember/know about"
+        # Recall: "what/do/can/could/would you remember" forms should win over store.
         if any(phrase in text_lower for phrase in _P1_MEMORY_RECALL):
             return "memory:recall", 0.95
+        # Store: imperative "remember/save/keep + that/this" (exclude question-style prompts).
+        is_memory_question = text_lower.endswith("?") and (
+            "remember" in text_lower or "know" in text_lower
+        )
+        if not is_memory_question and any(
+            word in text_lower for word in _P1_MEMORY_STORE
+        ) and any(word in text_lower for word in _P1_MEMORY_STORE_OBJ):
+            return "memory:store", 0.95
         # Search: "what did we talk about/discuss"
         if any(phrase in text_lower for phrase in _P1_MEMORY_SEARCH_SUBJ) and any(
             word in text_lower for word in _P1_MEMORY_SEARCH_VERB
@@ -5034,7 +5049,20 @@ class FollowUpResolver:
         # or "sandbot" triggering "and", etc.
         generic_cue = bool(self._GENERIC_CUE_RE.search(lower))
         domain_signals = self.DOMAIN_SIGNALS.get(recent_domain, [])
-        domain_signal_hit = any(sig in lower for sig in domain_signals)
+        domain_signal_hits = [sig for sig in domain_signals if sig in lower]
+        domain_signal_hit = bool(domain_signal_hits)
+
+        # Weather follow-up guard: weak verbs like "need" or "bring" can appear in
+        # unrelated assistance requests (e.g. "I need help with my AI project").
+        # Treat them as insufficient unless the utterance is a short generic follow-up.
+        if recent_domain == "weather" and domain_signal_hit:
+            _weak_weather_signals = {"need", "bring"}
+            _strong_weather_hits = [
+                sig for sig in domain_signal_hits if sig not in _weak_weather_signals
+            ]
+            _short_generic_followup = generic_cue and len(lower.split()) <= 6
+            if not _strong_weather_hits and not _short_generic_followup:
+                domain_signal_hit = False
 
         is_conversational = nlp_intent in self.CONVERSATIONAL_INTENTS
         low_confidence = nlp_confidence < 0.7

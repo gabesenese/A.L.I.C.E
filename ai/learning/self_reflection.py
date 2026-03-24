@@ -132,15 +132,9 @@ class SelfReflectionSystem:
         self._cache_lock = threading.RLock()
 
         # File index for fast path resolution and codebase scanning
-        self._code_directories = [
-            "ai",
-            "app",
-            "features",
-            "plugins",
-            "speech",
-            "ui",
-            "self_learning",
-        ]
+        # Discover top-level directories dynamically so new internal folders are
+        # automatically included without code changes.
+        self._code_directories = self._discover_code_directories()
         self._index_lock = threading.RLock()
         self._file_index_all_py: List[str] = []
         self._file_index_by_name: Dict[str, List[str]] = {}
@@ -257,25 +251,44 @@ class SelfReflectionSystem:
             return True
         return self._snapshot_dir_mtimes() != self._dir_mtime_snapshot
 
+    def _discover_code_directories(self) -> List[str]:
+        """Return top-level directories that may contain internal code."""
+        discovered: List[str] = []
+        ignored_names = {
+            pattern.strip("/\\ ").lower()
+            for pattern in self.ignored_patterns
+            if pattern and "/" not in pattern and "\\" not in pattern
+        }
+
+        try:
+            for child in self.base_path.iterdir():
+                if not child.is_dir():
+                    continue
+                name = child.name
+                lower_name = name.lower()
+
+                # Skip hidden/system and explicitly ignored top-level folders.
+                if name.startswith(".") or lower_name in ignored_names:
+                    continue
+
+                discovered.append(name)
+        except Exception as e:
+            logger.debug(f"[SelfReflection] Failed to discover directories: {e}")
+
+        return sorted(discovered)
+
     def _refresh_file_index(self) -> None:
         with self._index_lock:
+            self._code_directories = self._discover_code_directories()
             if not self._should_refresh_index_locked():
                 return
 
             files_set = set()
 
-            # Root-level Python files
-            for root_file in self.base_path.glob("*.py"):
-                if self._is_allowed_file(root_file):
-                    files_set.add(str(root_file.relative_to(self.base_path)))
-
-            for dir_name in self._code_directories:
-                dir_path = self.base_path / dir_name
-                if not dir_path.exists() or not dir_path.is_dir():
-                    continue
-                for file_path in dir_path.rglob("*.py"):
-                    if self._is_allowed_file(file_path):
-                        files_set.add(str(file_path.relative_to(self.base_path)))
+            # Scan the full workspace so all internal Python files are discoverable.
+            for file_path in self.base_path.rglob("*.py"):
+                if self._is_allowed_file(file_path):
+                    files_set.add(str(file_path.relative_to(self.base_path)))
 
             all_files = sorted(files_set)
             by_name: Dict[str, List[str]] = {}

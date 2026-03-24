@@ -416,6 +416,18 @@ class TestFollowUpResolver:
         # because nlp_domain != recent_domain, so resolver should pass through weather
         assert r.resolved_intent == "weather:current"
 
+    def test_weather_domain_signal_does_not_hijack_generic_need_help_prompt(self):
+        """Weak signal words like 'need' must not force weather inheritance."""
+        r = self._resolve(
+            "i need some help with an ai project and model routing",
+            nlp_intent="conversation:help",
+            nlp_confidence=0.97,
+            last_intent="weather:current",
+            topics=["weather:current"],
+        )
+        assert r.was_followup is False
+        assert r.resolved_intent == "conversation:help"
+
 
 # ── end-to-end brainstem integration ─────────────────────────────────────────
 

@@ -3374,6 +3374,11 @@ class NotesPlugin(PluginInterface):
         if intent and intent.lower() in notes_intents:
             return True
 
+        # Respect explicit memory routing so memory recall/store intents are not
+        # accidentally hijacked by broad "remember that/this" note patterns.
+        if intent and intent.lower().startswith("memory:"):
+            return False
+
         # Handle both old and new interface
         if command is None and intent:
             command = intent

@@ -191,6 +191,15 @@ class TestNotesRoutingGuards:
     def test_can_handle_ignores_code_file_introspection_prompt(self, plugin):
         assert plugin.can_handle(command="tell me what notes_plugin.py does") is False
 
+    def test_can_handle_does_not_hijack_memory_intent(self, plugin):
+        assert (
+            plugin.can_handle(
+                intent="memory:recall",
+                command="do you remember that coding problem we were talking about?",
+            )
+            is False
+        )
+
 
 # ---------------------------------------------------------------------------
 # Feature #5 — Append / partial field editing

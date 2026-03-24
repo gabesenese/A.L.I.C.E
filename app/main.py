@@ -83,6 +83,7 @@ from ai.memory.smart_context_cache import get_context_cache
 from ai.memory.adaptive_context_selector import get_context_selector
 from ai.memory.predictive_prefetcher import get_prefetcher
 from ai.memory.conversation_state import get_conversation_state_tracker
+from ai.context_resolver import get_context_resolver
 from ai.optimization.response_optimizer import get_response_optimizer
 from ai.learning.self_reflection import get_self_reflection
 from ai.learning.learning_engine import get_learning_engine
@@ -319,6 +320,7 @@ class ALICE:
         
         # Advanced context handler
         self.advanced_context = None  # Will be initialized after NLP processor
+        self.context_resolver = None
         
         # Event-driven architecture (anticipatory AI)
         self.event_bus = None
@@ -377,6 +379,7 @@ class ALICE:
             self.followup_resolver = FollowUpResolver()
             self.interaction_policy = InteractionPolicy()
             self.nlp_error_logger = get_nlp_error_logger()
+            self.context_resolver = get_context_resolver()
 
             # Area 1–8: advanced intelligence components
             try:
@@ -875,7 +878,7 @@ class ALICE:
             'codebase_access': {
                 'available': True,
                 'type': 'read-only',
-                'scope': ['ai/', 'app/', 'features/', 'plugins/', 'speech/', 'ui/', 'self_learning/'],
+                'scope': ['workspace/**/*'],
                 'operations': ['list', 'read', 'search', 'analyze'],
                 'description': "I can read and analyze my own Python codebase across all directories",
                 'examples': [
@@ -1778,6 +1781,44 @@ class ALICE:
             preview = alice_response.get('content_preview', '')[:200]
             return f"{name} is a {module_type} file with {lines} lines.{(' ' + preview) if preview else ''}"
 
+        if response_type == 'codebase_listing':
+            heading = str(alice_response.get('heading') or 'My codebase')
+            total_files = int(alice_response.get('total_files', 0) or 0)
+            display_limit = int(alice_response.get('display_limit', 25) or 25)
+            files = list(alice_response.get('files') or [])
+
+            lines = [f" **{heading}** ({total_files} files):", ""]
+            for item in files[:display_limit]:
+                path = str(item.get('path', '')).strip()
+                module_type = str(item.get('module_type', 'unknown')).strip()
+                if not path:
+                    continue
+                lines.append(f"- `{path}` ({module_type})")
+
+            if total_files > display_limit:
+                lines.append(
+                    f"\n... and {total_files - display_limit} more files. Ask me about any file to see its details."
+                )
+
+            return "\n".join(lines)
+
+        if response_type == 'code_summaries':
+            items = list(alice_response.get('items') or [])
+            total_files = int(alice_response.get('total_files', len(items)) or len(items))
+
+            lines = [f" **File Summaries** ({total_files} files):", ""]
+            for item in items[:25]:
+                summary = str(item.get('summary') or '').strip()
+                if summary:
+                    lines.append(summary)
+                    lines.append("")
+
+            return "\n".join(lines).rstrip()
+
+        if response_type == 'clarification_prompt':
+            # Open-ended phrasing path: avoid fixed clarification strings.
+            return None
+
         # Open-ended types — return None to let Ollama assist Alice
         return None
 
@@ -1889,6 +1930,31 @@ class ALICE:
                 )
             if force_yes_no:
                 content_str += " Start with exactly 'Yes,' or 'No,' and then one brief reason."
+
+        elif response_type == 'clarification_prompt':
+            payload = {
+                'reason': str(alice_response.get('reason') or '').strip().lower(),
+                'options': [
+                    str(x).strip()
+                    for x in list(alice_response.get('options') or [])[:5]
+                    if str(x).strip()
+                ],
+                'details': [
+                    str(x).strip()
+                    for x in list(alice_response.get('details') or [])[:3]
+                    if str(x).strip()
+                ],
+                'pronouns': [
+                    str(x).strip()
+                    for x in list(alice_response.get('pronouns') or [])[:3]
+                    if str(x).strip()
+                ],
+                'user_input': user_input,
+            }
+            content_str = (
+                "Generate one concise clarification question for the user from this structured payload: "
+                + json.dumps(payload, ensure_ascii=True)
+            )
 
         else:
             # general_response and any other open-ended types
@@ -3180,6 +3246,118 @@ class ALICE:
         """Handle requests to read/analyze code - flexible and intelligent with smart follow-up"""
         input_lower = user_input.lower()
         entities = entities or {}
+
+        def _render_codebase_listing(
+            files: List[Dict[str, Any]],
+            heading: str = "My codebase",
+            limit: int = 25,
+        ) -> str:
+            """Render codebase listing via Alice's response pipeline (no inline text assembly)."""
+            listing = [
+                {
+                    'path': f.get('path', ''),
+                    'module_type': f.get('module_type', 'unknown'),
+                }
+                for f in files[: max(1, int(limit or 25))]
+            ]
+            return self._generate_natural_response(
+                {
+                    'type': 'codebase_listing',
+                    'heading': heading,
+                    'total_files': len(files),
+                    'display_limit': max(1, int(limit or 25)),
+                    'files': listing,
+                },
+                'helpful',
+                None,
+                user_input,
+            )
+
+        def _render_code_summaries(summaries: Dict[str, str]) -> str:
+            """Render file summaries via Alice's response pipeline (no inline text assembly)."""
+            items = [
+                {
+                    'path': str(path),
+                    'summary': str(summary),
+                }
+                for path, summary in list((summaries or {}).items())
+            ]
+            return self._generate_natural_response(
+                {
+                    'type': 'code_summaries',
+                    'total_files': len(items),
+                    'items': items,
+                },
+                'helpful',
+                None,
+                user_input,
+            )
+
+        def _is_code_access_capability_request(text: str) -> bool:
+            """Detect capability questions about ALICE reading her own code without brittle phrase lists."""
+            normalized = (text or "").lower()
+            normalized = normalized.replace("acess", "access")
+            normalized = re.sub(r"\s+", " ", normalized).strip()
+
+            # Scope must indicate ALICE's internal/source code.
+            has_self_scope = bool(
+                re.search(
+                    r"\b(?:your|internal|own|source)\b.*\b(?:code|codebase|source\s+code)\b",
+                    normalized,
+                )
+                or re.search(r"\b(?:internal|own)\s+code\b", normalized)
+            )
+
+            if not has_self_scope:
+                return False
+
+            # Capability/visibility verbs and question framing.
+            has_capability_verb = bool(
+                re.search(
+                    r"\b(?:see|access|read|inspect|view|open)\b",
+                    normalized,
+                )
+            )
+            has_question_frame = bool(
+                re.search(
+                    r"\b(?:can|could|would|do|are)\s+you\b",
+                    normalized,
+                )
+                or normalized.endswith("?")
+            )
+
+            return has_capability_verb and has_question_frame
+
+        # Follow-up bridge: after a code-access capability answer, resolve
+        # short pronoun requests like "list it to me" to code listing.
+        _ctx_action = self.code_context.get('last_action')
+        _ctx_ts = self.code_context.get('timestamp')
+        _ctx_fresh = bool(
+            _ctx_ts and isinstance(_ctx_ts, datetime) and (datetime.now() - _ctx_ts).total_seconds() <= 180
+        )
+        _code_list_followup_phrases = {
+            'list it',
+            'list it to me',
+            'list them',
+            'show it',
+            'show them',
+            'yes list it',
+            'yes list them',
+            'please list it',
+            'please list them',
+        }
+        if (
+            _ctx_action in ('code_access_confirmed', 'code_list_offered')
+            and _ctx_fresh
+            and input_lower.strip().rstrip('?!.,') in _code_list_followup_phrases
+        ):
+            files = self.self_reflection.list_codebase()
+            file_paths = [f['path'] for f in files]
+            self.code_context['last_files_shown'] = file_paths
+            self.code_context['last_action'] = 'list'
+            self.code_context['timestamp'] = datetime.now()
+            self.code_context['file_count'] = len(files)
+            return _render_codebase_listing(files, heading="My codebase", limit=25)
         
         # Smart follow-up detection: user asking for summaries after listing files
         if self.code_context.get('last_action') == 'list' and self.code_context.get('last_files_shown'):
@@ -3194,15 +3372,11 @@ class ALICE:
                 # Generate summaries using advanced batch processing
                 summaries = self.self_reflection.batch_summarize_files(files, parallel=True)
                 
-                result = f" **File Summaries** ({len(summaries)} files):\n\n"
-                for path, summary in summaries.items():
-                    result += f"{summary}\n\n"
-                
                 # Update context
                 self.code_context['last_action'] = 'summary'
                 self.code_context['timestamp'] = datetime.now()
-                
-                return result
+
+                return _render_code_summaries(summaries)
         
         # Check if this is a follow-up to previous code request
         if hasattr(self, 'last_code_file') and self.last_code_file:
@@ -3246,7 +3420,8 @@ class ALICE:
         if not has_py_file and any(phrase in input_lower for phrase in [
             'show me your code', 'show me code', 'show your code', 'show code',
             'show me all', 'your codebase', 'show me internal',
-            'list files', 'show files', 'what files', 'list your code'
+            'list files', 'show files', 'what files', 'list your code',
+            'list your internal code', 'list internal code', 'show your internal code'
         ]):
             # EXCLUDE notes-related queries (they should be handled by notes plugin)
             if any(word in input_lower for word in ['note', 'notes', 'memo']):
@@ -3261,13 +3436,29 @@ class ALICE:
             self.code_context['last_action'] = 'list'
             self.code_context['timestamp'] = datetime.now()
             self.code_context['file_count'] = len(files)
+            return _render_codebase_listing(files, heading="My codebase", limit=25)
 
-            result = f" **My codebase** ({len(files)} files):\n\n"
-            for f in files[:25]:
-                result += f"- `{f['path']}` ({f['module_type']})\n"
-            if len(files) > 25:
-                result += f"\n... and {len(files) - 25} more files. Ask me about any file to see its details."
-            return result
+        # Capability question: "are you able to see your internal code?"
+        # Route to self-reflection directly instead of generic LLM conversation.
+        if not has_py_file and _is_code_access_capability_request(user_input):
+            capability = self.capabilities.get('codebase_access', {})
+            self.code_context['last_action'] = 'code_access_confirmed'
+            self.code_context['timestamp'] = datetime.now()
+            self.code_context['file_count'] = 0
+            self.code_context['last_files_shown'] = []
+            return self._generate_natural_response(
+                {
+                    'type': 'capability_answer',
+                    'can_do': bool(capability.get('available', True)),
+                    'details': capability.get('description', ''),
+                    'operations': capability.get('operations', []),
+                    'examples': capability.get('examples', []),
+                    'confidence': 0.95,
+                },
+                'helpful',
+                None,
+                user_input,
+            )
 
         # Read file request - flexible matching for EXPLICIT read/show commands
         if has_py_file:
@@ -3459,13 +3650,8 @@ class ALICE:
             self.code_context['last_action'] = 'list'
             self.code_context['timestamp'] = datetime.now()
             self.code_context['file_count'] = len(files)
-            
-            result = f" **Codebase Structure** ({len(files)} files):\n\n"
-            for f in files[:20]:
-                result += f"- `{f['path']}` ({f['module_type']})\n"
-            if len(files) > 20:
-                result += f"\n... and {len(files) - 20} more files"
-            return result
+
+            return _render_codebase_listing(files, heading="Codebase Structure", limit=20)
         
         # Search code
         if 'search code' in input_lower or 'find in code' in input_lower:
@@ -3552,6 +3738,7 @@ class ALICE:
 
         weekday_keywords = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         time_range_keywords = [
+            'rest of the week', 'rest of week',
             'this weekend', 'this week', 'next week', 'weekend', 'tomorrow', 'tonight'
         ]
 
@@ -3790,6 +3977,52 @@ class ALICE:
 
         return None
 
+    def _normalize_weather_intent_for_time_range(
+        self,
+        user_input: str,
+        intent: str,
+        intent_confidence: float,
+    ) -> tuple[str, float]:
+        """Promote weather:current to weather:forecast for explicit time-range weather requests."""
+        if str(intent or "") != "weather:current":
+            return intent, float(intent_confidence or 0.0)
+
+        text = (user_input or "").lower()
+        has_weather_scope = any(
+            token in text
+            for token in (
+                "weather",
+                "forecast",
+                "temperature",
+                "rain",
+                "snow",
+                "outside",
+            )
+        )
+        if not has_weather_scope:
+            return intent, float(intent_confidence or 0.0)
+
+        time_range_cues = (
+            "rest of the week",
+            "rest of week",
+            "this week",
+            "next week",
+            "weekend",
+            "weekly",
+            "next few days",
+            "coming days",
+            "for the week",
+            "for this week",
+        )
+        if any(cue in text for cue in time_range_cues):
+            if hasattr(self, "_think"):
+                self._think(
+                    f"Weather time-range cue detected → promoting {intent!r} to 'weather:forecast'"
+                )
+            return "weather:forecast", max(float(intent_confidence or 0.0), 0.9)
+
+        return intent, float(intent_confidence or 0.0)
+
     def _apply_confidence_cascade(self, intent: str, confidence: float, nlp_result) -> dict:
         """
         Confidence cascade policy:
@@ -4009,10 +4242,84 @@ class ALICE:
                 return "Commands should be handled by the interface. Use /help to see available commands."
             
             # 1. NLP Processing
+            _context_resolution = None
+            if getattr(self, 'context_resolver', None):
+                _pre_state = {
+                    'current_topic': '',
+                    'last_subject': '',
+                    'last_intent': str(getattr(self, 'last_intent', '') or ''),
+                    'active_goal': '',
+                    'referenced_entities': [],
+                    'last_entities': dict(getattr(self, 'last_entities', {}) or {}),
+                }
+
+                if getattr(self, 'conversation_state_tracker', None):
+                    try:
+                        _cs = self.conversation_state_tracker.get_state_summary()
+                        _pre_state['current_topic'] = str(_cs.get('conversation_topic', '') or '')
+                        _pre_state['active_goal'] = str(
+                            _cs.get('user_goal') or _cs.get('conversation_goal') or ''
+                        )
+                    except Exception:
+                        pass
+
+                if getattr(self, 'conversation_context', None):
+                    try:
+                        _ctx = self.conversation_context.get_context_summary()
+                        _pre_state['referenced_entities'] = list(_ctx.get('salient_entities', []) or [])
+                        _last_file = str(_ctx.get('last_file') or '')
+                        _last_concept = str(_ctx.get('last_concept') or '')
+                        _last_object = str(_ctx.get('last_object') or '')
+                        _pre_state['last_subject'] = _last_file or _last_concept or _last_object
+                    except Exception:
+                        pass
+
+                _last_files = (
+                    (getattr(self, 'code_context', {}) or {}).get('last_files_shown', [])
+                    if isinstance(getattr(self, 'code_context', {}), dict)
+                    else []
+                )
+                if isinstance(_last_files, list) and _last_files:
+                    _pre_state['last_subject'] = str(_last_files[0])
+                    refs = list(_pre_state.get('referenced_entities', []) or [])
+                    refs.extend(str(x) for x in _last_files[:5])
+                    _pre_state['referenced_entities'] = refs
+
+                _context_resolution = self.context_resolver.resolve(user_input, _pre_state)
+                if _context_resolution.needs_clarification:
+                    return self._generate_natural_response(
+                        {
+                            'type': 'clarification_prompt',
+                            'reason': 'ambiguous_reference',
+                            'pronouns': list(_context_resolution.unresolved_pronouns or []),
+                            'options': list(_context_resolution.clarification_options or []),
+                        },
+                        'helpful',
+                        None,
+                        user_input,
+                    )
+                if _context_resolution.rewritten_input != user_input:
+                    self._think(
+                        f"Context resolve: {user_input!r} -> {_context_resolution.rewritten_input!r}"
+                    )
+
+            _nlp_input = (
+                _context_resolution.rewritten_input
+                if _context_resolution and _context_resolution.rewritten_input
+                else user_input
+            )
             nlp_start = time.time()
-            nlp_result = self.nlp.process(user_input)
+            nlp_result = self.nlp.process(_nlp_input)
             intent = nlp_result.intent
             entities = nlp_result.entities
+            if _context_resolution and _context_resolution.resolved_bindings:
+                entities = dict(entities or {})
+                entities['resolved_bindings'] = dict(_context_resolution.resolved_bindings)
+                if 'resolved_reference' not in entities:
+                    entities['resolved_reference'] = next(
+                        iter(_context_resolution.resolved_bindings.values()),
+                        '',
+                    )
             sentiment = nlp_result.sentiment
             nlp_duration = time.time() - nlp_start
             _response_prefs = (
@@ -4181,14 +4488,17 @@ class ALICE:
                 if validation_issues:
                     critical_issues = [i for i in validation_issues if "Missing required" in i]
                     if critical_issues:
-                        clarification_parts.append(
-                            f"I need more information: {'; '.join(critical_issues[:2])}"
-                        )
-                if not clarification_parts:
-                    clarification_parts.append(
-                        "Can you provide more details about what you'd like me to do?"
-                    )
-                return " ".join(clarification_parts)
+                        clarification_parts.extend(critical_issues[:2])
+                return self._generate_natural_response(
+                    {
+                        'type': 'clarification_prompt',
+                        'reason': 'validation_low',
+                        'details': clarification_parts,
+                    },
+                    'helpful',
+                    None,
+                    user_input,
+                )
 
             # Coreference ambiguity clarification
             if hasattr(self.nlp.context, 'pending_clarification'):
@@ -4197,10 +4507,17 @@ class ALICE:
                     self.metrics.track_clarification_prompt("ambiguity")
                     candidates = pending.get('candidates', [])
                     if len(candidates) > 1:
-                        options = ", ".join(f'"{c}"' for c in candidates[:5])
-                        clarification_msg = f"I found multiple matches: {options}. Which one did you mean?"
                         self.nlp.context.pending_clarification = {}
-                        return clarification_msg
+                        return self._generate_natural_response(
+                            {
+                                'type': 'clarification_prompt',
+                                'reason': 'ambiguity_matches',
+                                'options': list(candidates[:5]),
+                            },
+                            'helpful',
+                            None,
+                            user_input,
+                        )
 
             self._think(f"NLP → intent={intent!r} confidence={intent_confidence}")
             self.structured_logger.debug(
@@ -4214,6 +4531,14 @@ class ALICE:
             )
             if entities:
                 self._think(f"     entities={str(entities)[:120]}...")
+
+            # Normalize weather time-range asks so first-turn queries like
+            # "weather for the rest of the week" route to forecast, not current.
+            intent, intent_confidence = self._normalize_weather_intent_for_time_range(
+                user_input=user_input,
+                intent=intent,
+                intent_confidence=float(intent_confidence or 0.0),
+            )
 
             # ── 1.5  Reference resolution ─────────────────────────────────────────
             if hasattr(self, 'conversation_context'):
