@@ -33,7 +33,13 @@ from collections import defaultdict
 
 from ai.planning.goal_from_llm import get_goal_from_llm, GoalJSON
 from ai.infrastructure.policy import get_policy_decision, PolicyDecision
+from ai.infrastructure.rbac import get_rbac_engine, AccessRequest
+from ai.infrastructure.approval_ledger import get_approval_ledger
+from ai.roadmap import get_roadmap_completion_stack
 from ai.optimization.runtime_thresholds import get_tool_path_confidence, get_goal_path_confidence, get_ask_threshold
+from ai.integration.git_manager import get_git_manager
+from ai.integration.build_runner import get_build_runner
+from ai.integration.operator_workflow import OperatorWorkflowOrchestrator
 
 # Add project root to path
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -113,6 +119,7 @@ from ai.core.semantic_memory_index import SemanticMemoryIndex
 from ai.core.memory_consolidator import MemoryConsolidator
 from ai.core.cross_session_pattern_detector import CrossSessionPatternDetector
 from ai.core.system_design_response_guard import SystemDesignResponseGuard
+from ai.core.tool_verifier import get_tool_result_verifier
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -285,6 +292,7 @@ class ALICE:
         self.last_code_file = None  # Store last code file for follow-up queries
         self.pending_action = None  # Track multi-step actions (e.g., composing email)
         self.pending_data = {}  # Store data for pending actions
+        self.pending_operator_actions = {}
         
         # Enhanced conversation tracking
         self.conversation_summary = []  # Summary of recent exchanges
@@ -675,6 +683,13 @@ class ALICE:
                     # Strict mode: no LLM at all (future implementation)
                     logger.warning("[WARNING] Strict policy not yet implemented - using minimal")
                     configure_minimal_policy()
+
+            # 4.3. Runtime safety and verification guards
+            self.rbac_engine = get_rbac_engine()
+            self.tool_result_verifier = get_tool_result_verifier()
+            self.approval_ledger = get_approval_ledger()
+            self.roadmap_stack = get_roadmap_completion_stack()
+            logger.info("[OK] RBAC and tool verification guards active")
             
             # 4.5. Conversation Summarizer (now uses gateway for policy enforcement)
             logger.info("Loading conversation summarizer...")
@@ -696,6 +711,11 @@ class ALICE:
             # 6. Task Executor
             logger.info(" Loading task executor...")
             self.executor = TaskExecutor(safe_mode=True)
+
+            # 6.1. Operator integrations
+            self.git_manager = get_git_manager(PROJECT_ROOT)
+            self.build_runner = get_build_runner(PROJECT_ROOT)
+            self.operator_workflow = OperatorWorkflowOrchestrator(self.git_manager, self.build_runner)
             
             # 7. Speech Engine (optional)
             self.speech = None
@@ -2230,6 +2250,161 @@ class ALICE:
                 top = ranked[0]
                 return f"Constraint analysis suggests {top.get('name')} (score={float(top.get('constraint_score', 0.0)):.2f})."
 
+        return None
+
+    def _handle_operator_request(self, user_input: str) -> Optional[str]:
+        """Handle safe operator commands for repository and build/test workflows."""
+        text = str(user_input or "").strip()
+        lowered = text.lower()
+
+        if lowered.startswith("operator reject "):
+            parts = text.split(maxsplit=2)
+            if len(parts) < 3:
+                return "Usage: operator reject <approval_id>"
+            approval_id = parts[2].strip()
+            if getattr(self, 'approval_ledger', None):
+                self.approval_ledger.reject(
+                    approval_id=approval_id,
+                    confirmation_text=text,
+                    actor="user",
+                )
+            self.pending_operator_actions.pop(approval_id, None)
+            return f"Approval {approval_id} rejected."
+
+        if lowered.startswith("operator approve "):
+            parts = text.split(maxsplit=2)
+            if len(parts) < 3:
+                return "Usage: operator approve <approval_id>"
+            approval_id = parts[2].strip()
+            pending = self.pending_operator_actions.get(approval_id)
+            if not pending:
+                return f"No pending operator action found for {approval_id}."
+
+            if getattr(self, 'approval_ledger', None):
+                rec = self.approval_ledger.confirm(
+                    approval_id=approval_id,
+                    confirmation_text=text,
+                    actor="user",
+                )
+                if rec is None:
+                    self.pending_operator_actions.pop(approval_id, None)
+                    return f"Approval {approval_id} is no longer valid (expired or missing)."
+
+            action = pending.get("action")
+            if action == "controlled_commit":
+                if not getattr(self, 'operator_workflow', None):
+                    return "Operator workflow is not initialized."
+                message = pending.get("commit_message") or "operator commit"
+                result = self.operator_workflow.run_controlled_commit_workflow(message)
+                self.pending_operator_actions.pop(approval_id, None)
+                return result.render()
+
+            self.pending_operator_actions.pop(approval_id, None)
+            return f"Approved {approval_id}, but no executable action payload was found."
+
+        if any(k in lowered for k in ("operator workflow", "repo health", "repository health check", "run health workflow")):
+            if not getattr(self, 'operator_workflow', None):
+                return "Operator workflow is not initialized."
+            include_tests = any(k in lowered for k in ("with tests", "and tests", "full"))
+            wf = self.operator_workflow.run_repo_health_workflow(include_tests=include_tests)
+            return wf.render()
+
+        if lowered.startswith("git "):
+            if not getattr(self, 'git_manager', None):
+                return "Git manager is not initialized."
+
+            if lowered.startswith("git status"):
+                status = self.git_manager.status_short()
+                if not status.success:
+                    return f"Git status failed: {status.error or status.output}"
+                return status.output or "Working tree is clean."
+
+            if lowered.startswith("git diff"):
+                diff_res = self.git_manager.diff_unstaged()
+                if not diff_res.success:
+                    return f"Git diff failed: {diff_res.error or diff_res.output}"
+                out = diff_res.output or "No unstaged diff."
+                return "\n".join(out.splitlines()[:200])
+
+            if lowered.startswith("git log"):
+                log_res = self.git_manager.recent_commits(limit=8)
+                if not log_res.success:
+                    return f"Git log failed: {log_res.error or log_res.output}"
+                return log_res.output or "No commits found."
+
+            if lowered.startswith("git branch"):
+                branch_res = self.git_manager.current_branch()
+                if not branch_res.success:
+                    return f"Git branch lookup failed: {branch_res.error or branch_res.output}"
+                return f"Current branch: {branch_res.output}"
+
+            if lowered.startswith("git commit"):
+                return "For controlled writes, use: operator commit <message>."
+
+            return "Only safe git reads are enabled right now: git status, git diff, git log, git branch."
+
+        if lowered.startswith("operator commit "):
+            message = text[len("operator commit "):].strip()
+            if not message:
+                return "Provide a commit message: operator commit <message>."
+            if not getattr(self, 'approval_ledger', None):
+                return "Approval ledger is not initialized."
+            req = self.approval_ledger.create_request(
+                action="controlled_commit",
+                scope="write",
+                summary=f"Commit all current repository changes with message: {message}",
+            )
+            self.pending_operator_actions[req.approval_id] = {
+                "action": "controlled_commit",
+                "commit_message": message,
+                "created_at": req.created_at,
+            }
+            return (
+                "Approval required for high-impact action.\n"
+                f"- approval_id: {req.approval_id}\n"
+                f"- summary: {req.summary}\n"
+                f"- expires_in_seconds: {int(req.expires_at - req.created_at)}\n"
+                f"Reply with: operator approve {req.approval_id}"
+            )
+
+        if any(k in lowered for k in ("run tests", "run test suite", "pytest", "test project")):
+            if not getattr(self, 'build_runner', None):
+                return "Build runner is not initialized."
+            test_res = self.build_runner.run_python_tests()
+            body = test_res.output or test_res.error
+            body = "\n".join((body or "").splitlines()[:220])
+            if test_res.success:
+                return body or "Tests passed."
+            return f"Tests failed (exit={test_res.exit_code}):\n{body}"
+
+        if any(k in lowered for k in ("run build", "build project", "build check", "compile project")):
+            if not getattr(self, 'build_runner', None):
+                return "Build runner is not initialized."
+            build_res = self.build_runner.run_python_build()
+            body = build_res.output or build_res.error
+            body = "\n".join((body or "").splitlines()[:200])
+            if build_res.success:
+                return body or "Build check passed."
+            return f"Build check failed (exit={build_res.exit_code}):\n{body}"
+
+        return None
+
+    def _validate_tool_invocation_schema(
+        self,
+        *,
+        intent: Any,
+        user_input: Any,
+        entities: Any,
+        context_summary: Any,
+    ) -> Optional[str]:
+        if not isinstance(intent, str) or not intent.strip():
+            return "intent must be a non-empty string"
+        if not isinstance(user_input, str) or not user_input.strip():
+            return "user_input must be a non-empty string"
+        if entities is not None and not isinstance(entities, dict):
+            return "entities must be a dict"
+        if not isinstance(context_summary, dict):
+            return "context_summary must be a dict"
         return None
 
     def _handle_explain_command(self, user_input: str) -> Optional[str]:
@@ -4238,6 +4413,7 @@ class ALICE:
                 return "Commands should be handled by the interface. Use /help to see available commands."
             
             # 1. NLP Processing
+            _nlp_input = user_input
             _context_resolution = None
             if getattr(self, 'context_resolver', None):
                 _pre_state = {
@@ -4299,11 +4475,8 @@ class ALICE:
                         f"Context resolve: {user_input!r} -> {_context_resolution.rewritten_input!r}"
                     )
 
-            _nlp_input = (
-                _context_resolution.rewritten_input
-                if _context_resolution and _context_resolution.rewritten_input
-                else user_input
-            )
+            if _context_resolution and _context_resolution.rewritten_input:
+                _nlp_input = _context_resolution.rewritten_input
             nlp_start = time.time()
             nlp_result = self.nlp.process(_nlp_input)
             intent = nlp_result.intent
@@ -5093,9 +5266,13 @@ class ALICE:
             advanced_reasoning_response = self._handle_advanced_reasoning_queries(user_input)
             if advanced_reasoning_response:
                 return advanced_reasoning_response
+
+            operator_response = self._handle_operator_request(user_input)
+            if operator_response:
+                return operator_response
             
             # 1.5.5. Check for code/self-reflection requests EARLY (before reasoning/plugins)
-            effective_input = _nlp_input if '_nlp_input' in locals() else user_input
+            effective_input = _nlp_input
             code_response = self._handle_code_request(effective_input, entities)
             if code_response:
                 self._think("Code request detected → handled directly")
@@ -6134,6 +6311,33 @@ class ALICE:
             else:
                 self._think(f"Trying plugins... (confidence: {intent_confidence:.2f}, goal: {active_goal.description[:30] if active_goal else 'none'}...)")
             if _should_try_plugins:
+                if getattr(self, 'roadmap_stack', None):
+                    _allowed, _reason = self.roadmap_stack.secondary_safety.validate(
+                        action_text=user_input,
+                        has_approval=("confirm" in user_input.lower() or "operator approve" in user_input.lower()),
+                    )
+                    if not _allowed:
+                        self._think(f"Secondary safety blocked tool path: {_reason}")
+                        return "This looks like a high-impact action and needs explicit approval first."
+                    if not self.roadmap_stack.rate_limiter.allow(cost=1.0):
+                        self._think("Global rate limiter blocked tool path")
+                        return "I am temporarily rate-limited for external/tool actions. Please retry shortly."
+
+                if getattr(self, 'rbac_engine', None):
+                    _rbac_decision = self.rbac_engine.authorize(
+                        request=AccessRequest(
+                            intent=intent,
+                            user_input=user_input,
+                            entities=entities or {},
+                        )
+                    )
+                    if not _rbac_decision.allowed:
+                        self._think(f"RBAC blocked tool path: {_rbac_decision.reason}")
+                        return "I am not allowed to run that action under the current permission tier."
+                    if _rbac_decision.requires_confirmation:
+                        self._think("RBAC requires explicit confirmation for this action")
+                        return _rbac_decision.reason
+
                 # Confidence cascade: gate plugin execution on intent confidence
                 _cascade = self._apply_confidence_cascade(intent, intent_confidence or 0.0, nlp_result)
                 if _cascade["action"] == "clarify":
@@ -6180,11 +6384,47 @@ class ALICE:
                 except Exception:
                     pass
 
+                _schema_error = self._validate_tool_invocation_schema(
+                    intent=intent,
+                    user_input=user_input,
+                    entities=entities,
+                    context_summary=context_summary,
+                )
+                if _schema_error:
+                    self._think(f"Tool invocation schema validation blocked dispatch: {_schema_error}")
+                    return "I could not safely run that tool request due to invalid request shape. Please rephrase."
+
                 # Track plugin execution timing
                 plugin_start = time.time()
                 plugin_result = self.plugins.execute_for_intent(
                     intent, user_input, entities, context_summary
                 )
+
+                if plugin_result and getattr(self, 'tool_result_verifier', None):
+                    _verification = self.tool_result_verifier.verify(
+                        intent=intent,
+                        user_input=user_input,
+                        plugin_result=plugin_result,
+                    )
+                    if getattr(self, 'roadmap_stack', None):
+                        self.roadmap_stack.goal_tracker.record(
+                            tool_succeeded=bool(_verification.tool_succeeded),
+                            goal_satisfied=bool(_verification.goal_satisfied),
+                        )
+                    self._internal_reasoning_state["tool_verification"] = _verification.to_dict()
+                    if not _verification.accepted or not _verification.goal_satisfied:
+                        self._think("Tool verification rejected output; converting to safe failure response")
+                        plugin_result = {
+                            "plugin": plugin_result.get("plugin", "Unknown"),
+                            "action": plugin_result.get("action", intent),
+                            "success": False,
+                            "response": "I could not verify that tool output was reliable. Please clarify or try again.",
+                            "data": {
+                                "verification_issues": list(_verification.issues),
+                                "verification_confidence": float(_verification.confidence),
+                            },
+                        }
+
                 plugin_duration = time.time() - plugin_start
                 if plugin_result:
                     plugin_name = plugin_result.get('plugin', 'Unknown')
