@@ -55,13 +55,17 @@ class GitManager:
 
     def recent_commits(self, limit: int = 5) -> GitCommandResult:
         lim = max(1, min(int(limit or 5), 20))
-        return self._run(["git", "log", f"-{lim}", "--pretty=format:%h %ad %s", "--date=short"])
+        return self._run(
+            ["git", "log", f"-{lim}", "--pretty=format:%h %ad %s", "--date=short"]
+        )
 
     def create_checkpoint(self, label: str) -> GitCommandResult:
         name = (label or "alice-checkpoint").strip()[:80]
         return self._run(["git", "stash", "push", "-u", "-m", name], timeout=45)
 
-    def rollback_from_checkpoint(self, checkpoint_ref: str = "stash@{0}") -> GitCommandResult:
+    def rollback_from_checkpoint(
+        self, checkpoint_ref: str = "stash@{0}"
+    ) -> GitCommandResult:
         ref = (checkpoint_ref or "stash@{0}").strip()
         return self._run(["git", "stash", "apply", ref], timeout=45)
 

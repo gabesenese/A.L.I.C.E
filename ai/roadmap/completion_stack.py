@@ -33,7 +33,9 @@ class ContextWindowManager:
             return self.policy.deep
         return self.policy.normal
 
-    def compress_incremental(self, turns: List[Dict[str, Any]], budget: int) -> List[Dict[str, Any]]:
+    def compress_incremental(
+        self, turns: List[Dict[str, Any]], budget: int
+    ) -> List[Dict[str, Any]]:
         if budget <= 0:
             return []
         if len(turns) <= budget:
@@ -169,11 +171,22 @@ class ToolSchema:
 
 class ToolSchemaNormalizer:
     def normalize(self, raw: Dict[str, Any]) -> ToolSchema:
-        status = str(raw.get("status") or ("ok" if raw.get("success") else "error")).lower()
+        status = str(
+            raw.get("status") or ("ok" if raw.get("success") else "error")
+        ).lower()
         confidence = float(raw.get("confidence", 1.0 if raw.get("success") else 0.2))
-        artifacts = raw.get("artifacts") if isinstance(raw.get("artifacts"), dict) else {}
-        diagnostics = raw.get("diagnostics") if isinstance(raw.get("diagnostics"), dict) else {}
-        return ToolSchema(status=status, confidence=max(0.0, min(1.0, confidence)), artifacts=artifacts, diagnostics=diagnostics)
+        artifacts = (
+            raw.get("artifacts") if isinstance(raw.get("artifacts"), dict) else {}
+        )
+        diagnostics = (
+            raw.get("diagnostics") if isinstance(raw.get("diagnostics"), dict) else {}
+        )
+        return ToolSchema(
+            status=status,
+            confidence=max(0.0, min(1.0, confidence)),
+            artifacts=artifacts,
+            diagnostics=diagnostics,
+        )
 
 
 class GoalOutcomeTracker:
@@ -211,14 +224,20 @@ class MultiToolChainingEngine:
             needs = step.get("depends_on", [])
             cond = step.get("condition")
             if any(dep not in state for dep in needs):
-                results.append({"name": name, "skipped": True, "reason": "dependency_missing"})
+                results.append(
+                    {"name": name, "skipped": True, "reason": "dependency_missing"}
+                )
                 continue
             if callable(cond) and not bool(cond(state)):
-                results.append({"name": name, "skipped": True, "reason": "condition_false"})
+                results.append(
+                    {"name": name, "skipped": True, "reason": "condition_false"}
+                )
                 continue
             handler = handlers.get(str(step.get("tool")))
             if not handler:
-                results.append({"name": name, "success": False, "error": "missing_tool_handler"})
+                results.append(
+                    {"name": name, "success": False, "error": "missing_tool_handler"}
+                )
                 continue
             out = handler(step, state)
             state[name] = out
@@ -250,7 +269,9 @@ class CausalMemoryTracker:
         self.records: List[CausalMemoryRecord] = []
 
     def add(self, cause: str, action: str, outcome: str, lesson: str) -> None:
-        self.records.append(CausalMemoryRecord(cause, action, outcome, lesson, time.time()))
+        self.records.append(
+            CausalMemoryRecord(cause, action, outcome, lesson, time.time())
+        )
 
 
 class TamperEvidentAuditLog:
@@ -298,9 +319,18 @@ class MemoryConsistencyValidator:
 
 class WorldStateInvariantManager:
     def __init__(self) -> None:
-        self._rules: List[Tuple[str, Callable[[Dict[str, Any]], bool], Callable[[Dict[str, Any]], None]]] = []
+        self._rules: List[
+            Tuple[
+                str, Callable[[Dict[str, Any]], bool], Callable[[Dict[str, Any]], None]
+            ]
+        ] = []
 
-    def register(self, name: str, check: Callable[[Dict[str, Any]], bool], repair: Callable[[Dict[str, Any]], None]) -> None:
+    def register(
+        self,
+        name: str,
+        check: Callable[[Dict[str, Any]], bool],
+        repair: Callable[[Dict[str, Any]], None],
+    ) -> None:
         self._rules.append((name, check, repair))
 
     def verify_and_repair(self, state: Dict[str, Any]) -> List[str]:
@@ -313,7 +343,9 @@ class WorldStateInvariantManager:
 
 
 class ProactivityPolicy:
-    def allow(self, *, user_available: bool, urgency: float, interruption_budget: int) -> bool:
+    def allow(
+        self, *, user_available: bool, urgency: float, interruption_budget: int
+    ) -> bool:
         if not user_available:
             return False
         if interruption_budget <= 0 and urgency < 0.85:
@@ -325,9 +357,13 @@ class MaintenanceScheduler:
     def __init__(self) -> None:
         self.jobs: List[Tuple[str, float, float, Callable[[], None]]] = []
 
-    def register(self, name: str, interval_sec: float, callback: Callable[[], None]) -> None:
+    def register(
+        self, name: str, interval_sec: float, callback: Callable[[], None]
+    ) -> None:
         now = time.time()
-        self.jobs.append((name, float(interval_sec), now + float(interval_sec), callback))
+        self.jobs.append(
+            (name, float(interval_sec), now + float(interval_sec), callback)
+        )
 
     def tick(self, now_epoch: Optional[float] = None) -> List[str]:
         now = float(now_epoch or time.time())
@@ -355,7 +391,7 @@ class AnomalyDetector:
             return {"anomaly": False, "score": 0.0}
         mean = sum(self.data) / len(self.data)
         var = sum((x - mean) ** 2 for x in self.data) / len(self.data)
-        std = max(var ** 0.5, 1e-6)
+        std = max(var**0.5, 1e-6)
         z = abs((v - mean) / std)
         return {"anomaly": z >= 3.0, "score": z}
 
@@ -457,7 +493,9 @@ class SecretsManager:
 
 
 class NetworkSecurityGuard:
-    def __init__(self, allowlist: Optional[List[str]] = None, require_tls: bool = True) -> None:
+    def __init__(
+        self, allowlist: Optional[List[str]] = None, require_tls: bool = True
+    ) -> None:
         self.allowlist = set(allowlist or [])
         self.require_tls = bool(require_tls)
 
@@ -484,7 +522,9 @@ class GlobalRateLimiter:
         with self.lock:
             now = time.time()
             elapsed = max(0.0, now - self.last)
-            self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_per_sec)
+            self.tokens = min(
+                self.capacity, self.tokens + elapsed * self.refill_per_sec
+            )
             self.last = now
             if self.tokens >= cost:
                 self.tokens -= float(cost)
@@ -493,13 +533,29 @@ class GlobalRateLimiter:
 
 
 class ImprovementExecutionEngine:
-    def run(self, apply_fn: Callable[[], Any], measure_fn: Callable[[], float], rollback_fn: Callable[[], Any], min_gain: float = 0.0) -> Dict[str, Any]:
+    def run(
+        self,
+        apply_fn: Callable[[], Any],
+        measure_fn: Callable[[], float],
+        rollback_fn: Callable[[], Any],
+        min_gain: float = 0.0,
+    ) -> Dict[str, Any]:
         apply_result = apply_fn()
         score = float(measure_fn())
         if score < min_gain:
             rollback_fn()
-            return {"applied": False, "score": score, "rolled_back": True, "apply_result": apply_result}
-        return {"applied": True, "score": score, "rolled_back": False, "apply_result": apply_result}
+            return {
+                "applied": False,
+                "score": score,
+                "rolled_back": True,
+                "apply_result": apply_result,
+            }
+        return {
+            "applied": True,
+            "score": score,
+            "rolled_back": False,
+            "apply_result": apply_result,
+        }
 
 
 class FailureClusterer:
@@ -513,8 +569,15 @@ class FailureClusterer:
 
 class RegressionTestGenerator:
     def generate_test_snippet(self, failure: Dict[str, Any]) -> str:
-        name = str(failure.get("signature") or "regression_case").replace(" ", "_").replace("-", "_")
-        name = "".join(ch for ch in name if ch.isalnum() or ch == "_")[:40] or "regression_case"
+        name = (
+            str(failure.get("signature") or "regression_case")
+            .replace(" ", "_")
+            .replace("-", "_")
+        )
+        name = (
+            "".join(ch for ch in name if ch.isalnum() or ch == "_")[:40]
+            or "regression_case"
+        )
         return (
             f"def test_generated_{name}():\n"
             f"    # Auto-generated from failure: {failure.get('error', 'unknown')}\n"
@@ -543,7 +606,9 @@ class CapabilityAcquisitionFramework:
     def __init__(self) -> None:
         self.capabilities: Dict[str, Dict[str, Any]] = {}
 
-    def register_candidate(self, name: str, sandboxed: bool, approved: bool) -> Dict[str, Any]:
+    def register_candidate(
+        self, name: str, sandboxed: bool, approved: bool
+    ) -> Dict[str, Any]:
         record = {
             "name": name,
             "sandboxed": bool(sandboxed),
@@ -569,14 +634,20 @@ class BenchmarkHarness:
         accuracy = sum(float(c.get("accuracy", 0.0)) for c in cases) / len(cases)
         latency = sum(float(c.get("latency_ms", 0.0)) for c in cases) / len(cases)
         task_success = sum(1.0 for c in cases if c.get("success")) / len(cases)
-        return {"accuracy": accuracy, "latency_ms": latency, "task_success": task_success}
+        return {
+            "accuracy": accuracy,
+            "latency_ms": latency,
+            "task_success": task_success,
+        }
 
 
 class ArchitectureMapRegistry:
     def __init__(self) -> None:
         self.maps: Dict[str, Dict[str, Any]] = {}
 
-    def register(self, name: str, nodes: List[str], edges: List[Tuple[str, str]]) -> None:
+    def register(
+        self, name: str, nodes: List[str], edges: List[Tuple[str, str]]
+    ) -> None:
         self.maps[name] = {"nodes": nodes, "edges": edges}
 
 
@@ -659,11 +730,25 @@ def get_roadmap_completion_stack() -> RoadmapCompletionStack:
             architecture_maps=ArchitectureMapRegistry(),
         )
 
-        _stack.dod_registry.set_phase_checklist("phase_1", ["context_windows", "replanning", "route_contracts"])
-        _stack.dod_registry.set_phase_checklist("phase_2", ["lifecycle", "chaining", "verification"])
+        _stack.dod_registry.set_phase_checklist(
+            "phase_1", ["context_windows", "replanning", "route_contracts"]
+        )
+        _stack.dod_registry.set_phase_checklist(
+            "phase_2", ["lifecycle", "chaining", "verification"]
+        )
         _stack.architecture_maps.register(
             "operator_workflow",
-            nodes=["router", "rbac", "approval_ledger", "operator_workflow", "verifier"],
-            edges=[("router", "rbac"), ("rbac", "operator_workflow"), ("operator_workflow", "verifier")],
+            nodes=[
+                "router",
+                "rbac",
+                "approval_ledger",
+                "operator_workflow",
+                "verifier",
+            ],
+            edges=[
+                ("router", "rbac"),
+                ("rbac", "operator_workflow"),
+                ("operator_workflow", "verifier"),
+            ],
         )
     return _stack

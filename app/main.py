@@ -1148,6 +1148,7 @@ class ALICE:
 
         # Step 0.5: Self-analysis requests - Alice should read her own code and formulate real insights
         input_lower = user_input.lower()
+        umbrella_aliases = ['umbrella', 'umbrela', 'umberella', 'umbralla']
         self_analysis_phrases = [
             'go through your code', 'analyze your code', 'review your code',
             'look at your code', 'read your code', 'check your code',
@@ -1254,6 +1255,7 @@ class ALICE:
             Structured thought about how to answer based on data
         """
         input_lower = user_input.lower()
+        umbrella_aliases = ['umbrella', 'umbrela', 'umberella', 'umbralla']
 
         # Detect weather by CONTENT as well as intent — NLP sometimes misfires
         # (e.g. intent='music:pause') but the WeatherPlugin still succeeds.
@@ -1284,7 +1286,7 @@ class ALICE:
                     recent_weather_given = True
 
             # User asking about clothing/layers/what to wear
-            if any(word in input_lower for word in ['wear', 'layer', 'coat', 'jacket', 'dress', 'clothing', 'bring', 'scarf', 'hat', 'gloves', 'boots', 'sweater', 'hoodie', 'umbrella']):
+            if any(word in input_lower for word in ['wear', 'layer', 'coat', 'jacket', 'dress', 'clothing', 'bring', 'scarf', 'hat', 'gloves', 'boots', 'sweater', 'hoodie'] + umbrella_aliases):
                 # Detect what specific item they're asking about
                 clothing_item = None
                 item_keywords = {
@@ -1296,7 +1298,7 @@ class ALICE:
                     'boots': ['boot', 'boots'],
                     'sweater': ['sweater', 'jumper'],
                     'hoodie': ['hoodie', 'sweatshirt'],
-                    'umbrella': ['umbrella'],
+                    'umbrella': umbrella_aliases,
                     'layers': ['layer', 'layers']
                 }
 
@@ -1668,10 +1670,78 @@ class ALICE:
                     else f"**{cond_cap}**{loc_str}.")
 
         if response_type == 'weather_advice':
-            # Alice has the structured reasoning (temperature thresholds, item choice);
-            # phrasing is intentionally delegated to learned patterns → Ollama so
-            # responses stay natural and are never frozen template strings.
-            return None
+            raw_temp = alice_response.get('temperature')
+            condition_raw = str(alice_response.get('condition', '') or '').lower().strip()
+            location = str(alice_response.get('location', '') or '').strip()
+            item = str(alice_response.get('clothing_item', 'jacket') or 'jacket').lower().strip()
+            rainy = alice_response.get('rainy')
+            force_yes_no = bool(alice_response.get('force_yes_no'))
+
+            # Normalize frequent condition typos from upstream providers.
+            _cond_fixups = {
+                'drizzleing': 'drizzling',
+                'drizzeling': 'drizzling',
+                'drizzel': 'drizzle',
+                'lgiht': 'light',
+            }
+            condition = condition_raw
+            for bad, good in _cond_fixups.items():
+                condition = condition.replace(bad, good)
+
+            def _item_phrase(it: str) -> str:
+                if it == 'umbrella':
+                    return 'an umbrella'
+                if it.startswith(('a ', 'an ')):
+                    return it
+                return f"an {it}" if it[:1] in {'a', 'e', 'i', 'o', 'u'} else f"a {it}"
+
+            rainy_by_condition = any(w in condition for w in ['rain', 'drizzle', 'drizzl', 'shower', 'storm', 'thunder'])
+            if rainy is None:
+                rainy = rainy_by_condition
+
+            temp_val = None
+            if raw_temp is not None:
+                try:
+                    temp_val = float(raw_temp)
+                except (TypeError, ValueError):
+                    temp_val = None
+
+            def _recommendation() -> tuple[bool, str]:
+                if item == 'umbrella':
+                    return bool(rainy), (
+                        f"{condition} is expected" if condition else "rain is expected"
+                    ) if rainy else (
+                        f"it is {condition}" if condition else "rain is not expected"
+                    )
+
+                threshold = {
+                    'coat': 10.0,
+                    'jacket': 14.0,
+                    'layers': 16.0,
+                    'hoodie': 15.0,
+                    'sweater': 15.0,
+                    'scarf': 8.0,
+                    'hat': 7.0,
+                    'gloves': 5.0,
+                    'boots': 6.0,
+                }.get(item, 14.0)
+
+                if temp_val is None:
+                    return True, (f"it is {condition}" if condition else "conditions look cool")
+                return temp_val <= threshold, f"it is about {_format_temp(temp_val)}°C"
+
+            should_bring, reason = _recommendation()
+            place = f" in {location}" if location else ""
+            item_text = _item_phrase(item)
+
+            if force_yes_no:
+                if should_bring:
+                    return f"Yes, bring {item_text} because {reason}{place}."
+                return f"No, you likely do not need {item_text} because {reason}{place}."
+
+            if should_bring:
+                return f"Bring {item_text}; {reason}{place}."
+            return f"You likely do not need {item_text}; {reason}{place}."
 
         if response_type == 'weather_prediction':
             answer = alice_response.get('answer', '').capitalize()
@@ -3906,6 +3976,7 @@ class ALICE:
         should ALWAYS trigger forecast follow-up if a forecast is in context.
         """
         input_lower = user_input.lower()
+        umbrella_aliases = ['umbrella', 'umbrela', 'umberella', 'umbralla']
 
         weekday_keywords = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         time_range_keywords = [
@@ -4000,9 +4071,9 @@ class ALICE:
         # Check if this is a clothing/outside question — answer from stored weather data
         # NOTE: Run this regardless of intent (NLP may have already classified as weather:*)
         clothing_items = [
-            'umbrella', 'jacket', 'coat', 'layer', 'wear', 'bring', 'outside', 'go out',
+            'jacket', 'coat', 'layer', 'wear', 'bring', 'outside', 'go out',
             'scarf', 'hat', 'gloves', 'boots', 'sweater', 'hoodie',
-        ]
+        ] + umbrella_aliases
         weather_condition_indicators = ['rain', 'snow', 'cold', 'warm', 'hot', 'freeze', 'thunderstorm', 'hail']
         weather_question_indicators = clothing_items + weather_condition_indicators
 
@@ -4060,7 +4131,7 @@ class ALICE:
                 is_follow_up = last_turn.get('intent', '').startswith('weather')
 
             # ── Umbrella — condition-driven, not temperature-driven ───────────
-            if 'umbrella' in input_lower:
+            if any(re.search(r'\b' + re.escape(alias) + r'\b', input_lower) for alias in umbrella_aliases):
                 rainy = any(w in condition for w in ['rain', 'drizzle', 'shower', 'storm'])
                 _adv_loc = '' if is_follow_up else location
                 force_yes_no = bool(

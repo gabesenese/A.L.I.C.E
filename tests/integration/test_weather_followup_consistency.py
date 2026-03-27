@@ -76,3 +76,31 @@ def test_clothing_followup_prefers_newest_weather_snapshot_and_yes_no_flag():
     assert result.get("temperature") == -2
     assert result.get("clothing_item") == "scarf"
     assert result.get("force_yes_no") is True
+
+
+def test_umbrella_typo_followup_maps_to_umbrella_item():
+    now = datetime.now()
+
+    rainy_current = WorldEntity(
+        id="current_weather",
+        kind=EntityKind.TOPIC,
+        label="Current weather",
+        created_at=now,
+        data={
+            "temperature": 6,
+            "condition": "light rain",
+            "location": "Kitchener",
+            "message_code": "weather:current",
+        },
+    )
+
+    alice = _make_alice_stub({"current_weather": rainy_current})
+
+    result = alice._handle_weather_followup(
+        "should i bring an umbrela?", "weather:forecast"
+    )
+
+    assert isinstance(result, dict)
+    assert result.get("type") == "weather_advice"
+    assert result.get("clothing_item") == "umbrella"
+    assert result.get("force_yes_no") is True

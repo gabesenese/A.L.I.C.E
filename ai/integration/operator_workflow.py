@@ -75,7 +75,11 @@ class OperatorWorkflowOrchestrator:
         )
 
         status = self.git.status_short()
-        status_summary = "clean working tree" if status.success and not status.output else (status.output or status.error)
+        status_summary = (
+            "clean working tree"
+            if status.success and not status.output
+            else (status.output or status.error)
+        )
         steps.append(
             WorkflowStepResult(
                 name="working_tree_status",
@@ -89,7 +93,11 @@ class OperatorWorkflowOrchestrator:
             WorkflowStepResult(
                 name="python_build_check",
                 success=build.success,
-                summary="build checks passed" if build.success else f"build failed (exit={build.exit_code})",
+                summary=(
+                    "build checks passed"
+                    if build.success
+                    else f"build failed (exit={build.exit_code})"
+                ),
                 details=build.error or build.output,
             )
         )
@@ -100,7 +108,11 @@ class OperatorWorkflowOrchestrator:
                 WorkflowStepResult(
                     name="python_tests",
                     success=tests.success,
-                    summary="tests passed" if tests.success else f"tests failed (exit={tests.exit_code})",
+                    summary=(
+                        "tests passed"
+                        if tests.success
+                        else f"tests failed (exit={tests.exit_code})"
+                    ),
                     details=tests.error or tests.output,
                 )
             )
@@ -108,7 +120,9 @@ class OperatorWorkflowOrchestrator:
         overall = all(s.success for s in steps)
         return WorkflowResult(success=overall, steps=steps)
 
-    def run_controlled_commit_workflow(self, commit_message: str) -> ControlledWriteResult:
+    def run_controlled_commit_workflow(
+        self, commit_message: str
+    ) -> ControlledWriteResult:
         has_changes = self.git.has_changes()
         if not has_changes.success:
             return ControlledWriteResult(
@@ -150,7 +164,9 @@ class OperatorWorkflowOrchestrator:
                 checkpoint_ref=checkpoint_ref,
                 rollback_attempted=True,
                 rollback_success=rollback.success,
-                details=(stage.error or stage.output) + "\n" + (rollback.error or rollback.output),
+                details=(stage.error or stage.output)
+                + "\n"
+                + (rollback.error or rollback.output),
             )
 
         commit = self.git.commit(commit_message)
@@ -162,7 +178,9 @@ class OperatorWorkflowOrchestrator:
                 checkpoint_ref=checkpoint_ref,
                 rollback_attempted=True,
                 rollback_success=rollback.success,
-                details=(commit.error or commit.output) + "\n" + (rollback.error or rollback.output),
+                details=(commit.error or commit.output)
+                + "\n"
+                + (rollback.error or rollback.output),
             )
 
         drop = self.git.drop_checkpoint(checkpoint_ref)

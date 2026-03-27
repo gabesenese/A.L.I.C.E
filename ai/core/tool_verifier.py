@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List
 
-
 _NEGATIVE_MARKERS = (
     "failed",
     "error",
@@ -40,7 +39,9 @@ class ToolVerificationResult:
 
 
 class ToolResultVerifier:
-    def verify(self, *, intent: str, user_input: str, plugin_result: Dict[str, Any]) -> ToolVerificationResult:
+    def verify(
+        self, *, intent: str, user_input: str, plugin_result: Dict[str, Any]
+    ) -> ToolVerificationResult:
         issues: List[str] = []
 
         if not isinstance(plugin_result, dict):
@@ -67,7 +68,11 @@ class ToolResultVerifier:
             issues.append("missing plugin action")
         if not response and not data:
             issues.append("empty plugin output")
-        if response and any(m in response.lower() for m in _NEGATIVE_MARKERS) and success:
+        if (
+            response
+            and any(m in response.lower() for m in _NEGATIVE_MARKERS)
+            and success
+        ):
             issues.append("success flag contradicts response text")
         if status and status not in _ALLOWED_STATUS:
             issues.append("invalid status field")
@@ -88,7 +93,11 @@ class ToolResultVerifier:
             issues.append("diagnostics field must be a dict when provided")
         intent_prefix = (intent or "").split(":", 1)[0]
 
-        if success and intent_prefix == "weather" and "weather" not in plugin_name.lower():
+        if (
+            success
+            and intent_prefix == "weather"
+            and "weather" not in plugin_name.lower()
+        ):
             issues.append("unexpected plugin for weather intent")
 
         if success and isinstance(data, dict):
@@ -99,12 +108,22 @@ class ToolResultVerifier:
             if intent_prefix == "notes" and "count" in data and "notes" in data:
                 notes = data.get("notes")
                 count = data.get("count")
-                if isinstance(notes, list) and isinstance(count, int) and count < len(notes):
+                if (
+                    isinstance(notes, list)
+                    and isinstance(count, int)
+                    and count < len(notes)
+                ):
                     issues.append("notes count is inconsistent with listed notes")
 
         user_lower = (user_input or "").lower()
-        if success and any(w in user_lower for w in ("count", "how many", "list", "show")) and not data:
-            issues.append("goal likely unsatisfied: user requested structured output but tool data is empty")
+        if (
+            success
+            and any(w in user_lower for w in ("count", "how many", "list", "show"))
+            and not data
+        ):
+            issues.append(
+                "goal likely unsatisfied: user requested structured output but tool data is empty"
+            )
 
         if success and intent_prefix in {"system", "file_operations"} and not data:
             issues.append("high-impact action lacks structured execution data")

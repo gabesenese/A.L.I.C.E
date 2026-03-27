@@ -95,15 +95,21 @@ class RBACEngine:
             user_input, ("delete", "remove", "erase", "drop")
         ):
             return PermissionScope.DELETE
-        if _contains_any(intent, ("calendar:", "email:", "notes:", "reminder:")) and _contains_any(
+        if _contains_any(
+            intent, ("calendar:", "email:", "notes:", "reminder:")
+        ) and _contains_any(
             user_input, ("create", "add", "send", "write", "update", "edit")
         ):
             return PermissionScope.WRITE
-        if _contains_any(user_input, ("delete", "remove", "shutdown", "restart", "format")):
+        if _contains_any(
+            user_input, ("delete", "remove", "shutdown", "restart", "format")
+        ):
             return PermissionScope.DELETE
         return PermissionScope.READ
 
-    def authorize(self, request: AccessRequest, role: Optional[UserRole] = None) -> AccessDecision:
+    def authorize(
+        self, request: AccessRequest, role: Optional[UserRole] = None
+    ) -> AccessDecision:
         active_role = role or self.default_role
         required = self._required_scope(request)
         granted = ROLE_SCOPES.get(active_role, ROLE_SCOPES[UserRole.STANDARD])
