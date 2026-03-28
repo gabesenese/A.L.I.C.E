@@ -40,9 +40,15 @@ class ToolVerificationResult:
 
 class ToolResultVerifier:
     def verify(
-        self, *, intent: str, user_input: str, plugin_result: Dict[str, Any]
+        self,
+        *,
+        intent: str,
+        user_input: str,
+        plugin_result: Dict[str, Any],
+        execution_context: Dict[str, Any] | None = None,
     ) -> ToolVerificationResult:
         issues: List[str] = []
+        exec_ctx = execution_context or {}
 
         if not isinstance(plugin_result, dict):
             return ToolVerificationResult(
@@ -66,6 +72,12 @@ class ToolResultVerifier:
             issues.append("missing plugin name")
         if not action:
             issues.append("missing plugin action")
+        expected_plugin = str(exec_ctx.get("expected_plugin") or "").strip()
+        expected_action = str(exec_ctx.get("expected_action") or "").strip()
+        if expected_plugin and plugin_name and expected_plugin != plugin_name:
+            issues.append("plugin does not match execution expectation")
+        if expected_action and action and expected_action != action:
+            issues.append("action does not match execution expectation")
         if not response and not data:
             issues.append("empty plugin output")
         if (
@@ -128,6 +140,15 @@ class ToolResultVerifier:
         if success and intent_prefix in {"system", "file_operations"} and not data:
             issues.append("high-impact action lacks structured execution data")
 
+        if success and "umbrella" in user_lower and isinstance(data, dict):
+            cond = str(data.get("condition") or "").lower()
+            resp_lower = response.lower().strip()
+            rainy = any(w in cond for w in ("rain", "drizzle", "storm", "shower", "thunder"))
+            if resp_lower.startswith("yes") and not rainy:
+                issues.append("umbrella recommendation contradicts weather condition")
+            if resp_lower.startswith("no") and rainy:
+                issues.append("umbrella recommendation contradicts rainy condition")
+
         critical_issue = any(
             phrase in issue
             for issue in issues
@@ -138,6 +159,8 @@ class ToolResultVerifier:
                 "invalid status field",
                 "out of range",
                 "lacks structured execution data",
+                "does not match execution expectation",
+                "umbrella recommendation contradicts",
             )
         )
 

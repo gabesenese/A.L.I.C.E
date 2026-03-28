@@ -200,6 +200,8 @@ class ALICE:
         self.debug = debug
         self.privacy_mode = privacy_mode
         self.llm_policy = llm_policy
+        self.user_name = user_name
+        self.strict_no_llm = llm_policy == "strict"
         self.running = False
         
         # ===== PRODUCTION INFRASTRUCTURE INITIALIZATION =====
@@ -680,8 +682,7 @@ class ALICE:
                     configure_minimal_policy()
                     logger.info("[OK] Minimal policy active - patterns-first, LLM only for generation")
                 elif self.llm_policy == "strict":
-                    # Strict mode: no LLM at all (future implementation)
-                    logger.warning("[WARNING] Strict policy not yet implemented - using minimal")
+                    logger.info("[OK] Strict policy active - deterministic phrasing for open-ended responses")
                     configure_minimal_policy()
 
             # 4.3. Runtime safety and verification guards
@@ -1145,10 +1146,8 @@ class ALICE:
         if plugin_data:
             # Alice analyzes plugin data in context of user's question
             return self._formulate_from_plugin_data(user_input, intent, entities, plugin_data)
-
         # Step 0.5: Self-analysis requests - Alice should read her own code and formulate real insights
         input_lower = user_input.lower()
-        umbrella_aliases = ['umbrella', 'umbrela', 'umberella', 'umbralla']
         self_analysis_phrases = [
             'go through your code', 'analyze your code', 'review your code',
             'look at your code', 'read your code', 'check your code',
@@ -1948,6 +1947,23 @@ class ALICE:
             logger.info(f"[ALICE] Phrased '{response_type}' from learned pattern")
             return natural_response
 
+        if getattr(self, 'strict_no_llm', False):
+            logger.info(f"[ALICE] Strict mode fallback for '{response_type}'")
+            if response_type == 'knowledge_answer':
+                return "I can answer in strict mode, but I need a more specific target question."
+            if response_type == 'reasoning_result':
+                return str(alice_response.get('conclusion') or 'Reasoning complete.')
+            if response_type == 'operation_success':
+                op = str(alice_response.get('operation') or 'operation').replace('_', ' ')
+                return f"Completed: {op}."
+            if response_type == 'operation_failure':
+                op = str(alice_response.get('operation') or 'operation').replace('_', ' ')
+                err = str(alice_response.get('error') or '').strip()
+                return f"Failed: {op}. {err}".strip()
+            if response_type == 'clarification_prompt':
+                return "Please clarify the exact outcome you want so I can route this safely."
+            return str(content)
+
         # ── Step 3: Open-ended — Alice asks Ollama for phrasing help ─────────
         # Ollama is a teacher here, not a speaker. Alice learns from the reply.
         logger.info(f"[ALICE] Asking Ollama to help phrase '{response_type}' (Alice will learn from this)")
@@ -2376,6 +2392,47 @@ class ALICE:
             if not getattr(self, 'operator_workflow', None):
                 return "Operator workflow is not initialized."
             include_tests = any(k in lowered for k in ("with tests", "and tests", "full"))
+            if getattr(self, 'roadmap_stack', None):
+                def _branch_handler(_step, _state):
+                    res = self.git_manager.current_branch()
+                    return {"success": res.success, "output": res.output or res.error}
+
+                def _status_handler(_step, _state):
+                    res = self.git_manager.status_short()
+                    return {"success": res.success, "output": res.output or res.error}
+
+                def _build_handler(_step, _state):
+                    res = self.build_runner.run_python_build()
+                    return {"success": res.success, "output": res.output or res.error}
+
+                def _tests_handler(_step, _state):
+                    res = self.build_runner.run_python_tests()
+                    return {"success": res.success, "output": res.output or res.error}
+
+                steps = [
+                    {"name": "branch", "tool": "git_branch"},
+                    {"name": "status", "tool": "git_status", "depends_on": ["branch"]},
+                    {"name": "build", "tool": "py_build", "depends_on": ["status"]},
+                ]
+                if include_tests:
+                    steps.append({"name": "tests", "tool": "py_tests", "depends_on": ["build"]})
+
+                handlers = {
+                    "git_branch": _branch_handler,
+                    "git_status": _status_handler,
+                    "py_build": _build_handler,
+                    "py_tests": _tests_handler,
+                }
+                chain_results = self.roadmap_stack.chain_engine.run(steps, handlers)
+                failed = next((r for r in chain_results if not r.get("success", False) and not r.get("skipped", False)), None)
+                if failed:
+                    replan = self.roadmap_stack.replanner.replan(
+                        [str(s.get("name")) for s in steps],
+                        str(failed.get("name")),
+                        str(failed.get("error") or failed.get("output") or "unknown"),
+                    )
+                    self._internal_reasoning_state["operator_replan"] = replan
+
             wf = self.operator_workflow.run_repo_health_workflow(include_tests=include_tests)
             return wf.render()
 
@@ -4466,7 +4523,7 @@ class ALICE:
                     if last_input and last_response:
                         # Current user input serves as implicit feedback
                         self.foundations.learn_from_feedback(
-                            user_id="Gabriel",
+                            user_id=self.user_name,
                             user_input=last_input,
                             alice_response=last_response,
                             user_reaction=user_input
@@ -6374,6 +6431,16 @@ class ALICE:
                 and not _force_skip_plugins
             )
 
+            if getattr(self, 'roadmap_stack', None):
+                _route_choice = "tool" if _should_try_plugins else "clarify"
+                _route_ok, _route_reason = self.roadmap_stack.route_contracts.validate(
+                    route=_route_choice,
+                    confidence=float(intent_confidence or 0.0),
+                )
+                if not _route_ok and _should_try_plugins:
+                    self._think(f"Route-contract guard switched to clarify path: {_route_reason}")
+                    _should_try_plugins = False
+
             if not _should_try_plugins:
                 if is_pure_conversation:
                     self._think("Pure conversation → skipping plugins, using LLM")
@@ -6402,12 +6469,29 @@ class ALICE:
                             entities=entities or {},
                         )
                     )
+                    if _rbac_decision.allowed and not _rbac_decision.requires_confirmation:
+                        if (
+                            getattr(self, 'approval_ledger', None)
+                            and "confirm" in user_input.lower()
+                            and getattr(_rbac_decision, 'required_scope', None) is not None
+                        ):
+                            self.approval_ledger.note_scope_approval(
+                                _rbac_decision.required_scope.value,
+                                ttl_seconds=300,
+                            )
                     if not _rbac_decision.allowed:
                         self._think(f"RBAC blocked tool path: {_rbac_decision.reason}")
                         return "I am not allowed to run that action under the current permission tier."
                     if _rbac_decision.requires_confirmation:
-                        self._think("RBAC requires explicit confirmation for this action")
-                        return _rbac_decision.reason
+                        if (
+                            getattr(self, 'approval_ledger', None)
+                            and getattr(_rbac_decision, 'required_scope', None) is not None
+                            and self.approval_ledger.is_scope_approved(_rbac_decision.required_scope.value)
+                        ):
+                            self._think("Approval ledger scope-memory satisfied confirmation requirement")
+                        else:
+                            self._think("RBAC requires explicit confirmation for this action")
+                            return _rbac_decision.reason
 
                 # Confidence cascade: gate plugin execution on intent confidence
                 _cascade = self._apply_confidence_cascade(intent, intent_confidence or 0.0, nlp_result)
@@ -6476,6 +6560,12 @@ class ALICE:
                         intent=intent,
                         user_input=user_input,
                         plugin_result=plugin_result,
+                        execution_context={
+                            "expected_plugin": plugin_result.get("plugin"),
+                            "expected_action": plugin_result.get("action"),
+                            "active_goal": active_goal.description if active_goal else "",
+                            "last_intent": str(getattr(self, 'last_intent', '') or ''),
+                        },
                     )
                     if getattr(self, 'roadmap_stack', None):
                         self.roadmap_stack.goal_tracker.record(
@@ -6584,7 +6674,7 @@ class ALICE:
                     try:
                         self._think(f"Foundation systems active (mode={self.foundation_mode}) → generating context-aware response")
                         foundation_result = self.foundations.process_interaction(
-                            user_id="Gabriel",  # TODO: Extract from session/context
+                            user_id=self.user_name,
                             user_input=user_input,
                             intent=intent,
                             entities=entities or {},
@@ -6604,7 +6694,7 @@ class ALICE:
                     try:
                         self._think("Foundation parallel mode → running both systems for comparison")
                         foundation_result = self.foundations.process_interaction(
-                            user_id="Gabriel",
+                            user_id=self.user_name,
                             user_input=user_input,
                             intent=intent,
                             entities=entities or {},

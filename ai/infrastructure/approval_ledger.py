@@ -43,6 +43,7 @@ class ApprovalLedger:
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         self.ttl_seconds = max(30, int(ttl_seconds or 300))
         self._pending: Dict[str, ApprovalRequest] = {}
+        self._scope_approvals: Dict[str, float] = {}
 
     def create_request(
         self, *, action: str, scope: str, summary: str
@@ -86,6 +87,7 @@ class ApprovalLedger:
             created_at=req.created_at,
             recorded_at=time.time(),
         )
+        self.note_scope_approval(req.scope, ttl_seconds=self.ttl_seconds)
         self._append_record(record)
         self._pending.pop(req.approval_id, None)
         return record
@@ -115,6 +117,20 @@ class ApprovalLedger:
     def _append_record(self, record: ApprovalRecord) -> None:
         with self.storage_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(asdict(record), sort_keys=True) + "\n")
+
+    def note_scope_approval(self, scope: str, ttl_seconds: int | None = None) -> None:
+        ttl = max(30, int(ttl_seconds or self.ttl_seconds))
+        self._scope_approvals[str(scope or "unknown")] = time.time() + float(ttl)
+
+    def is_scope_approved(self, scope: str) -> bool:
+        key = str(scope or "unknown")
+        exp = float(self._scope_approvals.get(key, 0.0))
+        if exp <= 0.0:
+            return False
+        if time.time() > exp:
+            self._scope_approvals.pop(key, None)
+            return False
+        return True
 
 
 _approval_ledger: Optional[ApprovalLedger] = None

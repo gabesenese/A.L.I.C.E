@@ -23,3 +23,9 @@ def test_approval_ledger_reject_flow(tmp_path):
     rec = ledger.reject(approval_id=req.approval_id, confirmation_text="operator reject token", actor="user")
     assert rec is not None
     assert rec.approved is False
+
+
+def test_approval_ledger_scope_memory(tmp_path):
+    ledger = ApprovalLedger(storage_path=str(tmp_path / "approvals.jsonl"), ttl_seconds=60)
+    ledger.note_scope_approval("execute", ttl_seconds=60)
+    assert ledger.is_scope_approved("execute") is True

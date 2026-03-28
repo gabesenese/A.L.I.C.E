@@ -62,6 +62,14 @@ class OperatorWorkflowOrchestrator:
         self.git = git_manager
         self.build = build_runner
 
+    def _retry(self, fn, attempts: int = 2):
+        last = None
+        for _ in range(max(1, int(attempts or 1))):
+            last = fn()
+            if getattr(last, "success", False):
+                return last
+        return last
+
     def run_repo_health_workflow(self, include_tests: bool = False) -> WorkflowResult:
         steps: List[WorkflowStepResult] = []
 
@@ -88,7 +96,7 @@ class OperatorWorkflowOrchestrator:
             )
         )
 
-        build = self.build.run_python_build()
+        build = self._retry(self.build.run_python_build, attempts=2)
         steps.append(
             WorkflowStepResult(
                 name="python_build_check",
@@ -96,14 +104,14 @@ class OperatorWorkflowOrchestrator:
                 summary=(
                     "build checks passed"
                     if build.success
-                    else f"build failed (exit={build.exit_code})"
+                    else f"build failed after retry (exit={build.exit_code})"
                 ),
                 details=build.error or build.output,
             )
         )
 
         if include_tests:
-            tests = self.build.run_python_tests()
+            tests = self._retry(self.build.run_python_tests, attempts=2)
             steps.append(
                 WorkflowStepResult(
                     name="python_tests",
@@ -111,7 +119,7 @@ class OperatorWorkflowOrchestrator:
                     summary=(
                         "tests passed"
                         if tests.success
-                        else f"tests failed (exit={tests.exit_code})"
+                        else f"tests failed after retry (exit={tests.exit_code})"
                     ),
                     details=tests.error or tests.output,
                 )
@@ -155,12 +163,12 @@ class OperatorWorkflowOrchestrator:
                 details=checkpoint.error or checkpoint.output,
             )
 
-        stage = self.git.stage_all()
+        stage = self._retry(self.git.stage_all, attempts=2)
         if not stage.success:
             rollback = self.git.rollback_from_checkpoint(checkpoint_ref)
             return ControlledWriteResult(
                 success=False,
-                summary="failed to stage changes",
+                summary="failed to stage changes after retry",
                 checkpoint_ref=checkpoint_ref,
                 rollback_attempted=True,
                 rollback_success=rollback.success,
@@ -169,12 +177,12 @@ class OperatorWorkflowOrchestrator:
                 + (rollback.error or rollback.output),
             )
 
-        commit = self.git.commit(commit_message)
+        commit = self._retry(lambda: self.git.commit(commit_message), attempts=2)
         if not commit.success:
             rollback = self.git.rollback_from_checkpoint(checkpoint_ref)
             return ControlledWriteResult(
                 success=False,
-                summary=f"commit failed (exit={commit.exit_code})",
+                summary=f"commit failed after retry (exit={commit.exit_code})",
                 checkpoint_ref=checkpoint_ref,
                 rollback_attempted=True,
                 rollback_success=rollback.success,

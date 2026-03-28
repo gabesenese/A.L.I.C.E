@@ -85,3 +85,21 @@ def test_verifier_rejects_high_impact_without_structured_data():
     )
     assert res.accepted is False
     assert any("high-impact action" in issue for issue in res.issues)
+
+
+def test_verifier_rejects_execution_context_mismatch():
+    verifier = ToolResultVerifier()
+    res = verifier.verify(
+        intent="notes:list",
+        user_input="list notes",
+        plugin_result={
+            "plugin": "NotesPlugin",
+            "action": "list_notes",
+            "success": True,
+            "response": "done",
+            "data": {"notes": [{"title": "A"}], "count": 1},
+        },
+        execution_context={"expected_plugin": "WeatherPlugin", "expected_action": "get_current"},
+    )
+    assert res.accepted is False
+    assert any("execution expectation" in issue for issue in res.issues)

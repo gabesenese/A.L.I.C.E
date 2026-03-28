@@ -45,6 +45,33 @@ class _BuildFail:
         return R()
 
 
+class _BuildFlaky:
+    def __init__(self):
+        self.calls = 0
+
+    def run_python_build(self):
+        self.calls += 1
+        class R:
+            success = True
+            output = ""
+            error = ""
+            exit_code = 0
+        class F:
+            success = False
+            output = ""
+            error = "transient"
+            exit_code = 1
+        return F() if self.calls == 1 else R()
+
+    def run_python_tests(self):
+        class R:
+            success = True
+            output = "ok"
+            error = ""
+            exit_code = 0
+        return R()
+
+
 class _GitWriteOK(_GitOK):
     def has_changes(self):
         class R:
@@ -136,3 +163,10 @@ def test_controlled_commit_workflow_rolls_back_on_commit_failure():
     assert wf.success is False
     assert wf.rollback_attempted is True
     assert wf.rollback_success is True
+
+
+def test_repo_health_workflow_recovers_from_transient_build_failure():
+    flaky = _BuildFlaky()
+    wf = OperatorWorkflowOrchestrator(_GitOK(), flaky).run_repo_health_workflow(include_tests=False)
+    assert wf.success is True
+    assert flaky.calls >= 2
