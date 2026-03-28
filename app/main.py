@@ -154,6 +154,25 @@ from ai.infrastructure.structured_logging import get_structured_logger, configur
 from ai.infrastructure.task_queue import get_task_queue, initialize_task_queue
 from ai.infrastructure.database_pool import get_connection_pool, initialize_database, DatabaseConfig, DatabaseType
 
+# ===== 10 TIER IMPROVEMENTS - JARVIS-LIKE ENHANCEMENTS =====
+# Tier 1: High-Impact Wins
+from ai.memory.session_summarizer import SessionSummarizer
+from ai.infrastructure.capability_constraints import CapabilityConstraintsLedger
+from ai.core.result_quality_scorer import ResultQualityScorer
+from ai.learning.goal_alignment_tracker import GoalAlignmentTracker
+
+# Tier 2: Personality & Agency
+from ai.learning.tone_trajectory_engine import ToneTrajectoryEngine
+from ai.proactivity.pattern_based_nudger import PatternBasedNudger
+
+# Tier 3: Deep System Knowledge
+from ai.introspection.system_state_api import SystemStateAPI
+from ai.learning.weak_spot_detector import WeakSpotDetector
+
+# Tier 4: Mission-Aligned Execution
+from ai.goals.multi_goal_arbitrator import MultiGoalArbitrator
+from ai.reasoning.routing_decision_logger import RoutingDecisionLogger
+
 # Foundation Systems - Response Variance, Personality Evolution, Context Graph
 from ai.foundation_integration import FoundationIntegration
 from tools.auditing.startup_doctor import StartupDoctor
@@ -625,6 +644,57 @@ class ALICE:
                 logger.error(f"[ERROR] Foundation systems initialization failed: {e}")
                 self.foundations = None
                 self.structured_logger.error(f"Foundation systems failed: {e}", component='foundations')
+
+            # 4.0.5. ===== 10 TIER IMPROVEMENTS INITIALIZATION =====
+            logger.info("🚀 Initializing 10 Tier Improvements (JARVIS-like Enhancements)...")
+            try:
+                # Tier 1: High-Impact Wins
+                logger.info("  ├─ Tier 1: Initializing long-session coherence...")
+                self.session_summarizer = SessionSummarizer(summarize_every_n_turns=5)
+                
+                logger.info("  ├─ Tier 1: Initializing capability constraints...")
+                self.capability_constraints = CapabilityConstraintsLedger()
+                
+                logger.info("  ├─ Tier 1: Initializing result quality scorer...")
+                self.result_quality_scorer = ResultQualityScorer()
+                
+                logger.info("  ├─ Tier 1: Initializing goal alignment tracker...")
+                self.goal_alignment_tracker = GoalAlignmentTracker()
+                
+                # Tier 2: Personality & Agency
+                logger.info("  ├─ Tier 2: Initializing tone trajectory engine...")
+                self.tone_trajectory_engine = ToneTrajectoryEngine()
+                
+                logger.info("  ├─ Tier 2: Initializing pattern-based nudger...")
+                self.pattern_nudger = PatternBasedNudger()
+                
+                # Tier 3: Deep System Knowledge
+                logger.info("  ├─ Tier 3: Initializing system state API...")
+                self.system_state_api = SystemStateAPI()
+                
+                logger.info("  ├─ Tier 3: Initializing weak-spot detector...")
+                self.weak_spot_detector = WeakSpotDetector()
+                
+                # Tier 4: Mission-Aligned Execution 
+                logger.info("  ├─ Tier 4: Initializing multi-goal arbitrator...")
+                self.multi_goal_arbitrator = MultiGoalArbitrator()
+                
+                logger.info("  └─ Tier 4: Initializing routing decision logger...")
+                self.routing_decision_logger = RoutingDecisionLogger()
+                
+                self.structured_logger.info(
+                    "All 10 tier improvements initialized successfully",
+                    component='tier_improvements',
+                    active_systems=10
+                )
+                logger.info("[OK] All 10 Tier Improvements active - JARVIS-like capabilities enabled")
+            except Exception as e:
+                logger.error(f"[ERROR] Tier improvements initialization failed: {e}")
+                import traceback
+                traceback.print_exc()
+                self.structured_logger.error(f"Tier improvements failed: {e}", component='tier_improvements')
+                # Don't fail startup if improvements fail - these are enhancements
+            # ===== END 10 TIER IMPROVEMENTS =====
 
             # Inject LLM engine into autonomous agent now that it's loaded
             if hasattr(self, 'autonomous_agent'):
@@ -4513,6 +4583,33 @@ class ALICE:
             # ===== END CACHE CHECK =====
             
             logger.info(f"User: {user_input}")
+            
+            # ===== 10 TIER IMPROVEMENTS - INPUT PROCESSING =====
+            # Record this turn for long-session coherence
+            if hasattr(self, 'session_summarizer'):
+                try:
+                    self.session_summarizer.record_turn(
+                        turn_number=getattr(self, '_turn_count', 1),
+                        user_input=user_input[:500],  # Truncate for memory
+                        internal_state={
+                            'timestamp': datetime.utcnow().isoformat(),
+                            'user': self.user_name
+                        }
+                    )
+                except Exception as e:
+                    logger.debug(f"[SessionSummarizer] Error recording turn: {e}")
+            
+            # Start routing decision logging
+            routing_decision_id = None
+            if hasattr(self, 'routing_decision_logger'):
+                try:
+                    routing_decision_id = self.routing_decision_logger.log_decision_start(
+                        user_input=user_input,
+                        possible_routes=['plugin', 'llm', 'tool', 'search', 'clarification']
+                    )
+                except Exception as e:
+                    logger.debug(f"[RoutingDecisionLogger] Error logging decision: {e}")
+            # ===== END 10 TIER INPUT PROCESSING =====
             
             # ===== FOUNDATION FEEDBACK LEARNING =====
             # Learn from previous interaction based on user's current input
