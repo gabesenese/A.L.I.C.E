@@ -21,6 +21,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 DEFAULT_BENCHMARK_PATH = Path("data/benchmarks/core_100_scenarios.json")
 DEFAULT_SCORECARD_PATH = Path("data/benchmarks/scorecard_latest.json")
 DEFAULT_BASELINE_PATH = Path("data/benchmarks/scorecard_baseline.json")
+CRITICAL_DOMAINS = ("notes", "weather", "conversation", "email")
+MAX_CRITICAL_DOMAIN_PASS_RATE_DROP = 0.10
 
 EXCLUDED_INTENTS = {
     "generation",
@@ -327,8 +329,33 @@ def compare_scorecards(current: Dict[str, Any], baseline: Dict[str, Any]) -> Dic
 
     current["summary"]["regression_count"] = len(regression_ids)
 
-    passed = improved or (neutral and lower_latency)
+    critical_domain_regressions: List[Dict[str, Any]] = []
+    baseline_domains = baseline.get("per_domain", {})
+    current_domains = current.get("per_domain", {})
+    for domain in CRITICAL_DOMAINS:
+        base_stats = baseline_domains.get(domain, {})
+        curr_stats = current_domains.get(domain, {})
+        base_pass_rate = float(base_stats.get("pass_rate", 0.0) or 0.0)
+        curr_pass_rate = float(curr_stats.get("pass_rate", 0.0) or 0.0)
+        if base_pass_rate <= 0.0:
+            continue
+        floor = base_pass_rate * (1.0 - MAX_CRITICAL_DOMAIN_PASS_RATE_DROP)
+        if curr_pass_rate < floor:
+            critical_domain_regressions.append(
+                {
+                    "domain": domain,
+                    "baseline_pass_rate": base_pass_rate,
+                    "current_pass_rate": curr_pass_rate,
+                    "floor": floor,
+                    "drop": base_pass_rate - curr_pass_rate,
+                }
+            )
+
+    performance_passed = improved or (neutral and lower_latency)
+    passed = performance_passed and not critical_domain_regressions
     reason = "objective_improved" if improved else "objective_neutral_with_lower_latency" if (neutral and lower_latency) else "objective_regressed_or_latency_not_better"
+    if critical_domain_regressions:
+        reason = "critical_domain_regression"
 
     return {
         "status": "pass" if passed else "fail",
@@ -342,6 +369,7 @@ def compare_scorecards(current: Dict[str, Any], baseline: Dict[str, Any]) -> Dic
             "latency_delta_ms": current_latency - baseline_latency,
             "regression_count": len(regression_ids),
             "regression_ids": regression_ids[:50],
+            "critical_domain_regressions": critical_domain_regressions,
         },
     }
 

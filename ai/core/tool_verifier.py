@@ -143,7 +143,9 @@ class ToolResultVerifier:
         if success and "umbrella" in user_lower and isinstance(data, dict):
             cond = str(data.get("condition") or "").lower()
             resp_lower = response.lower().strip()
-            rainy = any(w in cond for w in ("rain", "drizzle", "storm", "shower", "thunder"))
+            rainy = any(
+                w in cond for w in ("rain", "drizzle", "storm", "shower", "thunder")
+            )
             if resp_lower.startswith("yes") and not rainy:
                 issues.append("umbrella recommendation contradicts weather condition")
             if resp_lower.startswith("no") and rainy:

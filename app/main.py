@@ -153,25 +153,12 @@ from ai.infrastructure.metrics_collector import get_metrics_collector, initializ
 from ai.infrastructure.structured_logging import get_structured_logger, configure_logging
 from ai.infrastructure.task_queue import get_task_queue, initialize_task_queue
 from ai.infrastructure.database_pool import get_connection_pool, initialize_database, DatabaseConfig, DatabaseType
+from ai.infrastructure.runtime_flags import is_enabled
+from ai.runtime.alice_contract_factory import build_runtime_boundaries
+from ai.runtime.contract_pipeline import ContractPipeline
+from ai.reasoning.routing_decision_logger import RoutingDecisionLogger, RoutingDecisionType
 
-# ===== 10 TIER IMPROVEMENTS - JARVIS-LIKE ENHANCEMENTS =====
-# Tier 1: High-Impact Wins
-from ai.memory.session_summarizer import SessionSummarizer
-from ai.infrastructure.capability_constraints import CapabilityConstraintsLedger
-from ai.core.result_quality_scorer import ResultQualityScorer
-from ai.learning.goal_alignment_tracker import GoalAlignmentTracker
-
-# Tier 2: Personality & Agency
-from ai.learning.tone_trajectory_engine import ToneTrajectoryEngine
-from ai.proactivity.pattern_based_nudger import PatternBasedNudger
-
-# Tier 3: Deep System Knowledge
-from ai.introspection.system_state_api import SystemStateAPI
-from ai.learning.weak_spot_detector import WeakSpotDetector
-
-# Tier 4: Mission-Aligned Execution
-from ai.goals.multi_goal_arbitrator import MultiGoalArbitrator
-from ai.reasoning.routing_decision_logger import RoutingDecisionLogger
+# ===== 10 TIER IMPROVEMENTS (LAZY IMPORT UNDER QUARANTINE FLAGS) =====
 
 # Foundation Systems - Response Variance, Personality Evolution, Context Graph
 from ai.foundation_integration import FoundationIntegration
@@ -646,41 +633,60 @@ class ALICE:
                 self.structured_logger.error(f"Foundation systems failed: {e}", component='foundations')
 
             # 4.0.5. ===== 10 TIER IMPROVEMENTS INITIALIZATION =====
-            logger.info("🚀 Initializing 10 Tier Improvements (JARVIS-like Enhancements)...")
+            logger.info("🚀 Initializing 10 Tier Improvements (quarantine-aware)...")
             try:
                 # Tier 1: High-Impact Wins
                 logger.info("  ├─ Tier 1: Initializing long-session coherence...")
-                self.session_summarizer = SessionSummarizer(summarize_every_n_turns=5)
+                if is_enabled("session_summarizer"):
+                    from ai.memory.session_summarizer import SessionSummarizer
+                    self.session_summarizer = SessionSummarizer(summarize_every_n_turns=5)
                 
                 logger.info("  ├─ Tier 1: Initializing capability constraints...")
-                self.capability_constraints = CapabilityConstraintsLedger()
+                if is_enabled("capability_constraints"):
+                    from ai.infrastructure.capability_constraints import CapabilityConstraintsLedger
+                    self.capability_constraints = CapabilityConstraintsLedger()
                 
                 logger.info("  ├─ Tier 1: Initializing result quality scorer...")
-                self.result_quality_scorer = ResultQualityScorer()
+                if is_enabled("result_quality_scorer"):
+                    from ai.core.result_quality_scorer import ResultQualityScorer
+                    self.result_quality_scorer = ResultQualityScorer()
                 
                 logger.info("  ├─ Tier 1: Initializing goal alignment tracker...")
-                self.goal_alignment_tracker = GoalAlignmentTracker()
+                if is_enabled("goal_alignment_tracker"):
+                    from ai.learning.goal_alignment_tracker import GoalAlignmentTracker
+                    self.goal_alignment_tracker = GoalAlignmentTracker()
                 
                 # Tier 2: Personality & Agency
                 logger.info("  ├─ Tier 2: Initializing tone trajectory engine...")
-                self.tone_trajectory_engine = ToneTrajectoryEngine()
+                if is_enabled("tone_trajectory_engine"):
+                    from ai.learning.tone_trajectory_engine import ToneTrajectoryEngine
+                    self.tone_trajectory_engine = ToneTrajectoryEngine()
                 
                 logger.info("  ├─ Tier 2: Initializing pattern-based nudger...")
-                self.pattern_nudger = PatternBasedNudger()
+                if is_enabled("pattern_based_nudger"):
+                    from ai.proactivity.pattern_based_nudger import PatternBasedNudger
+                    self.pattern_nudger = PatternBasedNudger()
                 
                 # Tier 3: Deep System Knowledge
                 logger.info("  ├─ Tier 3: Initializing system state API...")
-                self.system_state_api = SystemStateAPI()
+                if is_enabled("system_state_api"):
+                    from ai.introspection.system_state_api import SystemStateAPI
+                    self.system_state_api = SystemStateAPI()
                 
                 logger.info("  ├─ Tier 3: Initializing weak-spot detector...")
-                self.weak_spot_detector = WeakSpotDetector()
+                if is_enabled("weak_spot_detector"):
+                    from ai.learning.weak_spot_detector import WeakSpotDetector
+                    self.weak_spot_detector = WeakSpotDetector()
                 
                 # Tier 4: Mission-Aligned Execution 
                 logger.info("  ├─ Tier 4: Initializing multi-goal arbitrator...")
-                self.multi_goal_arbitrator = MultiGoalArbitrator()
+                if is_enabled("multi_goal_arbitrator"):
+                    from ai.goals.multi_goal_arbitrator import MultiGoalArbitrator
+                    self.multi_goal_arbitrator = MultiGoalArbitrator()
                 
                 logger.info("  └─ Tier 4: Initializing routing decision logger...")
-                self.routing_decision_logger = RoutingDecisionLogger()
+                if is_enabled("routing_decision_logger"):
+                    self.routing_decision_logger = RoutingDecisionLogger()
                 
                 self.structured_logger.info(
                     "All 10 tier improvements initialized successfully",
@@ -707,6 +713,20 @@ class ALICE:
                 learning_engine=self.learning_engine
             )
             logger.info("[OK] LLM Gateway active - all calls now policy-gated")
+
+            # 4.1.0 Contract Runtime Boundaries and Pipeline
+            try:
+                self.runtime_boundaries = build_runtime_boundaries(self)
+                self.contract_pipeline = ContractPipeline(self.runtime_boundaries)
+                self.structured_logger.info(
+                    "Contract runtime boundaries initialized",
+                    component='contracts',
+                    boundaries=['routing', 'memory', 'tools', 'response']
+                )
+            except Exception as e:
+                self.runtime_boundaries = None
+                self.contract_pipeline = None
+                logger.error(f"[ERROR] Contract runtime initialization failed: {e}")
 
             # 4.1.1. Response Formulator - Transform plugin data into natural responses
             logger.info("Initializing response formulator...")
@@ -1218,6 +1238,15 @@ class ALICE:
             return self._formulate_from_plugin_data(user_input, intent, entities, plugin_data)
         # Step 0.5: Self-analysis requests - Alice should read her own code and formulate real insights
         input_lower = user_input.lower()
+        if self._is_location_query(user_input):
+            location_payload = self._build_location_payload()
+            return {
+                'type': 'location_report',
+                **location_payload,
+                'confidence': 0.98,
+                'source': 'context_engine',
+            }
+
         self_analysis_phrases = [
             'go through your code', 'analyze your code', 'review your code',
             'look at your code', 'read your code', 'check your code',
@@ -1325,6 +1354,14 @@ class ALICE:
         """
         input_lower = user_input.lower()
         umbrella_aliases = ['umbrella', 'umbrela', 'umberella', 'umbralla']
+
+        if self._is_location_query(user_input):
+            return {
+                'type': 'location_report',
+                **self._build_location_payload(),
+                'confidence': 0.98,
+                'source': 'context_engine',
+            }
 
         # Detect weather by CONTENT as well as intent — NLP sometimes misfires
         # (e.g. intent='music:pause') but the WeatherPlugin still succeeds.
@@ -1631,6 +1668,40 @@ class ALICE:
 
         return None
 
+    def _is_location_query(self, user_input: str) -> bool:
+        """Detect explicit location requests that should bypass LLM phrasing."""
+        text = str(user_input or "").lower()
+        location_phrases = [
+            'what is my location',
+            'where am i',
+            'where are we',
+            'my location',
+            'current location',
+            'what city am i in',
+            'what country am i in',
+            'what is my city',
+        ]
+        return any(p in text for p in location_phrases)
+
+    def _build_location_payload(self) -> Dict[str, Any]:
+        """Build deterministic location data from context engine state."""
+        prefs = getattr(getattr(self, 'context', None), 'user_prefs', None)
+        city = str(getattr(prefs, 'city', '') or '').strip()
+        country = str(getattr(prefs, 'country', '') or '').strip()
+        location = str(getattr(prefs, 'location', '') or '').strip()
+        timezone = str(getattr(prefs, 'timezone', '') or '').strip()
+
+        if not location:
+            location = ', '.join([x for x in [city, country] if x])
+
+        return {
+            'location_known': bool(location),
+            'location': location,
+            'city': city,
+            'country': country,
+            'timezone': timezone,
+        }
+
     def _alice_direct_phrase(self, response_type: str, alice_response: Dict[str, Any]) -> Optional[str]:
         """
         Alice phrases structured/factual responses entirely on her own.
@@ -1701,6 +1772,28 @@ class ALICE:
         if response_type == 'operation_failure':
             # Phrasing delegated to learned patterns → Ollama.
             return None
+
+        if response_type == 'location_report':
+            location_known = bool(alice_response.get('location_known'))
+            location = str(alice_response.get('location', '') or '').strip()
+            city = str(alice_response.get('city', '') or '').strip()
+            country = str(alice_response.get('country', '') or '').strip()
+            timezone = str(alice_response.get('timezone', '') or '').strip()
+
+            if location_known:
+                parts = [f"Your current location is **{location}**."]
+                if timezone:
+                    parts.append(f"Timezone: **{timezone}**.")
+                return " ".join(parts)
+
+            fallback = []
+            if city:
+                fallback.append(city)
+            if country:
+                fallback.append(country)
+            if fallback:
+                return f"I have partial location data: **{', '.join(fallback)}**."
+            return "I don't have a reliable location set right now. You can tell me your city to set it explicitly."
 
         # ── Weather ──────────────────────────────────────────────────────────
         def _format_temp(value):
@@ -4563,11 +4656,14 @@ class ALICE:
             
             self.structured_logger.info("Processing input", input_length=len(user_input))
             logger.info(f"User: {user_input}")
+            is_location_query = self._is_location_query(user_input)
             
             # ===== DISTRIBUTED CACHE CHECK =====
             # Check if we have a cached response for this exact input
             cache_key = f"response_{hash(user_input)}"
-            cached_response = self.cache.get('responses', cache_key)
+            cached_response = None
+            if not is_location_query:
+                cached_response = self.cache.get('responses', cache_key)
             if cached_response:
                 duration = time.time() - start_time
                 self.metrics.track_cache('get', 'hit')
@@ -4581,6 +4677,15 @@ class ALICE:
             else:
                 self.metrics.track_cache('get', 'miss')
             # ===== END CACHE CHECK =====
+
+            # Hard deterministic location path: never delegate to LLM.
+            if is_location_query:
+                _location_response = self._alice_direct_phrase(
+                    'location_report',
+                    self._build_location_payload(),
+                )
+                if _location_response:
+                    return _location_response
             
             logger.info(f"User: {user_input}")
             
@@ -4603,10 +4708,29 @@ class ALICE:
             routing_decision_id = None
             if hasattr(self, 'routing_decision_logger'):
                 try:
-                    routing_decision_id = self.routing_decision_logger.log_decision_start(
+                    _routing = self.routing_decision_logger.log_decision(
                         user_input=user_input,
-                        possible_routes=['plugin', 'llm', 'tool', 'search', 'clarification']
+                        classified_intent="unknown",
+                        intent_confidence=0.0,
+                        decision_type=RoutingDecisionType.REASONING,
+                        candidates_considered=[
+                            {
+                                'name': 'bootstrap',
+                                'type': 'routing',
+                                'score': 0.0,
+                                'reasoning': 'initial routing placeholder',
+                                'pros': [],
+                                'cons': [],
+                            }
+                        ],
+                        winning_candidate='bootstrap',
+                        winning_score=0.0,
+                        decision_reasoning='Initial routing placeholder before downstream routing completes.',
+                        factors_used=['user_input_received'],
+                        uncertainty_level=1.0,
+                        turn_number=getattr(self, '_turn_count', 0),
                     )
+                    routing_decision_id = _routing.decision_id
                 except Exception as e:
                     logger.debug(f"[RoutingDecisionLogger] Error logging decision: {e}")
             # ===== END 10 TIER INPUT PROCESSING =====
@@ -4636,6 +4760,19 @@ class ALICE:
                 # Commands should be handled in the UI layer (run_interactive)
                 # If we get here, return a helpful message
                 return "Commands should be handled by the interface. Use /help to see available commands."
+
+            # 0.5 Contract pipeline path (thin composition-root migration)
+            if is_enabled("contract_pipeline") and getattr(self, 'contract_pipeline', None):
+                try:
+                    _pipeline_result = self.contract_pipeline.run_turn(
+                        user_input=user_input,
+                        user_id=str(self.user_name),
+                        turn_number=int(getattr(self, '_turn_count', 0) or 0),
+                    )
+                    if _pipeline_result and _pipeline_result.handled and _pipeline_result.response_text:
+                        return _pipeline_result.response_text
+                except Exception as e:
+                    logger.debug(f"[ContractPipeline] Fallback to legacy path due to: {e}")
             
             # 1. NLP Processing
             _nlp_input = user_input

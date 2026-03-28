@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class InteractionPattern:
     """Represents a recurring pattern in user interactions."""
-    
+
     pattern_name: str
     pattern_type: str  # "sequence", "recurring_intent", "unresolved_issue"
     frequency: int  # Times seen
@@ -25,7 +25,7 @@ class InteractionPattern:
     confidence: float  # 0.0-1.0
     last_triggered: Optional[str] = None
     trigger_intents: List[str] = None
-    
+
     def __post_init__(self):
         if self.trigger_intents is None:
             self.trigger_intents = []
@@ -34,7 +34,7 @@ class InteractionPattern:
 @dataclass
 class Nudge:
     """A proactive suggestion to the user."""
-    
+
     nudge_id: str
     user_facing_text: str
     reason: str
@@ -47,7 +47,7 @@ class Nudge:
 
 class PatternBasedNudger:
     """Detects patterns and generates proactive suggestions."""
-    
+
     def __init__(self, min_pattern_frequency: int = 3, max_nudges_per_session: int = 5):
         """
         Args:
@@ -61,7 +61,7 @@ class PatternBasedNudger:
         self.nudges_delivered: List[Nudge] = []
         self.turn_count = 0
         self.pattern_rules = self._init_pattern_rules()
-    
+
     def _init_pattern_rules(self) -> Dict[str, Dict]:
         """Initialize hard-coded pattern detection rules."""
         return {
@@ -103,7 +103,7 @@ class PatternBasedNudger:
                 "reasoning": "Repeated sequences are automation candidates",
             },
         }
-    
+
     def record_interaction(
         self,
         intent: str,
@@ -115,27 +115,29 @@ class PatternBasedNudger:
         """Record an interaction for pattern detection."""
         self.turn_count += 1
         metadata = metadata or {}
-        
-        self.interaction_history.append({
-            "turn_number": self.turn_count,
-            "timestamp": datetime.now().isoformat(),
-            "intent": intent,
-            "success": success,
-            "response_type": response_type,
-            "user_input": user_input,
-            "metadata": metadata,
-        })
-    
+
+        self.interaction_history.append(
+            {
+                "turn_number": self.turn_count,
+                "timestamp": datetime.now().isoformat(),
+                "intent": intent,
+                "success": success,
+                "response_type": response_type,
+                "user_input": user_input,
+                "metadata": metadata,
+            }
+        )
+
     def detect_patterns(self) -> List[InteractionPattern]:
         """Analyze interaction history to detect recurring patterns."""
         if len(self.interaction_history) < self.min_pattern_frequency:
             return []
-        
+
         patterns = []
-        
+
         # 1. Detect repeated intent patterns
         intent_counts = Counter(h["intent"] for h in self.interaction_history)
-        
+
         for intent, count in intent_counts.most_common():
             if count >= self.min_pattern_frequency:
                 for rule_name, rule in self.pattern_rules.items():
@@ -149,13 +151,12 @@ class PatternBasedNudger:
                             trigger_intents=[intent],
                         )
                         patterns.append(pattern)
-        
+
         # 2. Detect unresolved issues (repeated failures)
         failed_intents = Counter(
-            h["intent"] for h in self.interaction_history 
-            if not h.get("success", True)
+            h["intent"] for h in self.interaction_history if not h.get("success", True)
         )
-        
+
         for intent, count in failed_intents.most_common():
             if count >= 3:  # User has tried 3+ times unsuccessfully
                 pattern = InteractionPattern(
@@ -167,11 +168,11 @@ class PatternBasedNudger:
                     trigger_intents=[intent],
                 )
                 patterns.append(pattern)
-        
+
         # 3. Detect sequence patterns (same set of intents in order)
         recent_intents = [h["intent"] for h in self.interaction_history[-10:]]
         sequences = self._find_repeated_sequences(recent_intents)
-        
+
         for sequence, count in sequences.items():
             if count >= 3:
                 pattern = InteractionPattern(
@@ -183,45 +184,52 @@ class PatternBasedNudger:
                     trigger_intents=list(sequence),
                 )
                 patterns.append(pattern)
-        
+
         self.detected_patterns = patterns
-        logger.info(f"[Nudger] Detected {len(patterns)} patterns from {len(self.interaction_history)} interactions")
-        
+        logger.info(
+            f"[Nudger] Detected {len(patterns)} patterns from {len(self.interaction_history)} interactions"
+        )
+
         return patterns
-    
-    def _find_repeated_sequences(self, intents: List[str], seq_length: int = 3) -> Dict[tuple, int]:
+
+    def _find_repeated_sequences(
+        self, intents: List[str], seq_length: int = 3
+    ) -> Dict[tuple, int]:
         """Find repeated sequences of N intents."""
         sequences = Counter()
         for i in range(len(intents) - seq_length + 1):
-            seq = tuple(intents[i:i+seq_length])
+            seq = tuple(intents[i : i + seq_length])
             sequences[seq] += 1
         return {seq: count for seq, count in sequences.items() if count > 1}
-    
+
     def generate_nudge_if_applicable(self) -> Optional[Nudge]:
         """Generate a nudge if current state matches a pattern and hasn't spammed recently."""
         # Don't spam nudges
         if len(self.nudges_delivered) >= self.max_nudges_per_session:
             return None
-        
+
         # Only nudge after enough interactions
         if len(self.interaction_history) < 5:
             return None
-        
+
         # Detect current patterns
         patterns = self.detect_patterns()
         if not patterns:
             return None
-        
+
         # Pick the highest confidence pattern that hasn't been nudged recently
         best_pattern = None
         for pattern in sorted(patterns, key=lambda p: p.confidence, reverse=True):
-            if not any(n.pattern_matched == pattern.pattern_name for n in self.nudges_delivered[-3:]):
+            if not any(
+                n.pattern_matched == pattern.pattern_name
+                for n in self.nudges_delivered[-3:]
+            ):
                 best_pattern = pattern
                 break
-        
+
         if not best_pattern:
             return None
-        
+
         # Create nudge
         nudge = Nudge(
             nudge_id=f"nudge_{len(self.nudges_delivered)}",
@@ -231,45 +239,54 @@ class PatternBasedNudger:
             timing="contextual",
             acceptance_likelihood=best_pattern.confidence,
         )
-        
+
         logger.info(
             f"[Nudger] Generated nudge: {best_pattern.pattern_name} "
             f"(confidence={best_pattern.confidence:.2f})"
         )
-        
+
         return nudge
-    
+
     def record_nudge_delivery(self, nudge: Nudge, accepted: bool = None) -> None:
         """Record whether a nudge was delivered and accepted."""
         nudge.delivered = True
         nudge.was_accepted = accepted if accepted is not None else False
         self.nudges_delivered.append(nudge)
-        
-        status = "✓ accepted" if accepted else "✗ declined" if accepted is False else "delivered"
+
+        status = (
+            "✓ accepted"
+            if accepted
+            else "✗ declined" if accepted is False else "delivered"
+        )
         logger.info(f"[Nudger] Nudge {status}: {nudge.pattern_matched}")
-    
+
     def get_nudge_effectiveness(self) -> Dict[str, any]:
         """Get statistics on nudge effectiveness."""
         if not self.nudges_delivered:
             return {"total_delivered": 0, "acceptance_rate": 0.0}
-        
+
         accepted = sum(1 for n in self.nudges_delivered if n.was_accepted)
-        
+
         return {
             "total_delivered": len(self.nudges_delivered),
             "accepted": accepted,
             "declined": len(self.nudges_delivered) - accepted,
             "acceptance_rate": accepted / len(self.nudges_delivered),
-            "avg_confidence": sum(n.acceptance_likelihood for n in self.nudges_delivered) / len(self.nudges_delivered),
+            "avg_confidence": sum(
+                n.acceptance_likelihood for n in self.nudges_delivered
+            )
+            / len(self.nudges_delivered),
         }
-    
+
     def get_pattern_summary(self) -> str:
         """Get human-readable summary of detected patterns."""
         if not self.detected_patterns:
             return "No patterns detected yet."
-        
+
         lines = ["Detected interaction patterns:"]
-        for pattern in sorted(self.detected_patterns, key=lambda p: p.frequency, reverse=True)[:3]:
+        for pattern in sorted(
+            self.detected_patterns, key=lambda p: p.frequency, reverse=True
+        )[:3]:
             lines.append(f"  • {pattern.pattern_name}: {pattern.frequency}x detected")
-        
+
         return "\n".join(lines)

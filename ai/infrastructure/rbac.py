@@ -83,7 +83,11 @@ def _contains_any(text: str, words: Iterable[str]) -> bool:
 
 
 class RBACEngine:
-    def __init__(self, default_role: UserRole = UserRole.STANDARD, confirmation_grace_seconds: int = 180) -> None:
+    def __init__(
+        self,
+        default_role: UserRole = UserRole.STANDARD,
+        confirmation_grace_seconds: int = 180,
+    ) -> None:
         self.default_role = default_role
         self.confirmation_grace_seconds = max(0, int(confirmation_grace_seconds or 0))
         self._recent_scope_confirmation: Dict[str, float] = {}
@@ -131,7 +135,9 @@ class RBACEngine:
             self._recent_scope_confirmation[required.value] = time.time()
 
         grace_until = self._recent_scope_confirmation.get(required.value, 0.0)
-        grace_active = (time.time() - grace_until) <= float(self.confirmation_grace_seconds)
+        grace_active = (time.time() - grace_until) <= float(
+            self.confirmation_grace_seconds
+        )
         if needs_confirmation and not confirmed:
             if grace_active:
                 return AccessDecision(

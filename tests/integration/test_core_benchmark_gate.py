@@ -105,3 +105,62 @@ def test_compare_scorecards_fails_when_objective_regresses():
     gate = compare_scorecards(current=current, baseline=baseline)
     assert gate["status"] == "fail"
     assert gate["metrics"]["regression_count"] == 1
+
+
+def test_compare_scorecards_fails_on_critical_domain_drop():
+    baseline = {
+        "objective": {"objective_score": 0.82},
+        "summary": {"avg_latency_ms": 100.0},
+        "outcomes": {"core_001": {"passed": True}},
+        "per_domain": {
+            "notes": {"pass_rate": 0.80},
+            "weather": {"pass_rate": 0.70},
+            "conversation": {"pass_rate": 0.90},
+            "email": {"pass_rate": 0.75},
+        },
+    }
+    current = {
+        "objective": {"objective_score": 0.85},
+        "summary": {"avg_latency_ms": 90.0, "regression_count": 0},
+        "outcomes": {"core_001": {"passed": True}},
+        "per_domain": {
+            "notes": {"pass_rate": 0.60},
+            "weather": {"pass_rate": 0.70},
+            "conversation": {"pass_rate": 0.90},
+            "email": {"pass_rate": 0.75},
+        },
+    }
+
+    gate = compare_scorecards(current=current, baseline=baseline)
+    assert gate["status"] == "fail"
+    assert gate["reason"] == "critical_domain_regression"
+    assert gate["metrics"]["critical_domain_regressions"]
+
+
+def test_compare_scorecards_passes_within_critical_domain_floor():
+    baseline = {
+        "objective": {"objective_score": 0.82},
+        "summary": {"avg_latency_ms": 100.0},
+        "outcomes": {"core_001": {"passed": True}},
+        "per_domain": {
+            "notes": {"pass_rate": 0.80},
+            "weather": {"pass_rate": 0.70},
+            "conversation": {"pass_rate": 0.90},
+            "email": {"pass_rate": 0.75},
+        },
+    }
+    current = {
+        "objective": {"objective_score": 0.83},
+        "summary": {"avg_latency_ms": 99.0, "regression_count": 0},
+        "outcomes": {"core_001": {"passed": True}},
+        "per_domain": {
+            "notes": {"pass_rate": 0.73},
+            "weather": {"pass_rate": 0.64},
+            "conversation": {"pass_rate": 0.82},
+            "email": {"pass_rate": 0.69},
+        },
+    }
+
+    gate = compare_scorecards(current=current, baseline=baseline)
+    assert gate["status"] == "pass"
+    assert gate["metrics"]["critical_domain_regressions"] == []
