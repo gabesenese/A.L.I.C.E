@@ -5180,7 +5180,7 @@ class ALICE:
                 )
             # Also suppress if follow-up resolution changed the intent — the
             # original validation issues no longer apply to the new intent.
-            if followup.was_followup:
+            if bool(_followup_applied or (isinstance(_followup_meta, dict) and _followup_meta.get('was_followup'))):
                 show_clarification = False
 
             validation_score = getattr(nlp_result, 'validation_score', 1.0)
