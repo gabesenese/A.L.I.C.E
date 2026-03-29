@@ -10361,6 +10361,20 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             print("\n[ERROR] Autonomous agent system not available")
             return
 
+        _loop = self.execution_loop
+
+        def _loop_is_running() -> bool:
+            _state_val = ""
+            if hasattr(_loop, 'state'):
+                _state = getattr(_loop, 'state')
+                _state_val = str(getattr(_state, 'value', _state)).lower()
+            if hasattr(_loop, 'is_running'):
+                try:
+                    return bool(_loop.is_running())
+                except Exception:
+                    return _state_val == 'running'
+            return _state_val == 'running'
+
         parts = command.lower().split()
         if len(parts) < 2:
             print("\n[ERROR] Usage: /autonomous [start|stop|pause|resume|status]")
@@ -10369,14 +10383,14 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         subcommand = parts[1]
 
         if subcommand == 'start':
-            if not self.execution_loop.is_running():
+            if not _loop_is_running():
                 self.execution_loop.start()
                 print("\n[OK] Autonomous mode started - Alice will work on active goals independently")
             else:
                 print("\n[INFO] Autonomous mode is already running")
 
         elif subcommand == 'stop':
-            if self.execution_loop.is_running():
+            if _loop_is_running():
                 self.execution_loop.stop()
                 print("\n[OK] Autonomous mode stopped")
             else:
