@@ -18,6 +18,7 @@ class RouterDecision:
     route: str
     intent: str
     confidence: float
+    decision_band: str = "verify"  # execute | verify | clarify | refuse
     needs_clarification: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -77,27 +78,44 @@ class ResponseOutput:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class VerifierRequest:
+    user_input: str
+    decision: RouterDecision
+    memory: MemoryResult
+    proposed_response: ResponseOutput
+    tool_result: Optional[ToolResult] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class VerifierResult:
+    accepted: bool
+    reason: str
+    confidence: float
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
+
+
 class RoutingBoundary(Protocol):
-    def route(self, request: RouterRequest) -> RouterDecision:
-        ...
+    def route(self, request: RouterRequest) -> RouterDecision: ...
 
 
 class MemoryBoundary(Protocol):
-    def recall(self, request: MemoryRequest) -> MemoryResult:
-        ...
+    def recall(self, request: MemoryRequest) -> MemoryResult: ...
 
-    def store(self, item: Dict[str, Any]) -> None:
-        ...
+    def store(self, item: Dict[str, Any]) -> None: ...
 
 
 class ToolBoundary(Protocol):
-    def execute(self, invocation: ToolInvocation) -> ToolResult:
-        ...
+    def execute(self, invocation: ToolInvocation) -> ToolResult: ...
 
 
 class ResponseBoundary(Protocol):
-    def generate(self, request: ResponseRequest) -> ResponseOutput:
-        ...
+    def generate(self, request: ResponseRequest) -> ResponseOutput: ...
+
+
+class VerifierBoundary(Protocol):
+    def verify(self, request: VerifierRequest) -> VerifierResult: ...
 
 
 @dataclass(frozen=True)
@@ -106,3 +124,4 @@ class RuntimeBoundaries:
     memory: MemoryBoundary
     tools: ToolBoundary
     response: ResponseBoundary
+    verifier: Optional[VerifierBoundary] = None

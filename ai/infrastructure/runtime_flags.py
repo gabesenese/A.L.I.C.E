@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 from typing import Set
 
-
 QUARANTINED_SUBSYSTEMS: Set[str] = {
     "contract_pipeline",
     "session_summarizer",

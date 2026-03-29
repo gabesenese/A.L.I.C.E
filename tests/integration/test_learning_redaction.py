@@ -68,6 +68,29 @@ def test_phrasing_learner_redacts_context_and_ollama_text(tmp_path):
     assert "[REDACTED_BEARER_TOKEN]" in payload["ollama_phrasing"]
 
 
+def test_phrasing_learner_normalizes_filler_and_overexplaining(tmp_path):
+    learner = PhrasingLearner(storage_path=str(tmp_path / "learned_phrasings.jsonl"))
+
+    learner.record_phrasing(
+        alice_thought={"type": "operation_success", "operation": "run_tests"},
+        ollama_phrasing=(
+            "Of course, I would be happy to help. "
+            "Sure, this is absolutely what I can do for you and maybe perhaps just maybe "
+            "I can provide additional unnecessary context that keeps going and going."
+        ),
+        context={"tone": "helpful"},
+    )
+
+    line = (tmp_path / "learned_phrasings.jsonl").read_text(encoding="utf-8").strip()
+    payload = json.loads(line)
+    phrasing = payload["ollama_phrasing"].lower()
+
+    assert "of course" not in phrasing
+    assert "happy to help" not in phrasing
+    assert "maybe" not in phrasing
+    assert len(payload["ollama_phrasing"]) <= 220
+
+
 def test_llm_gateway_fallback_log_is_redacted(tmp_path):
     gateway = LLMGateway(llm_engine=_DummyLLM(), learning_engine=None)
     gateway.policy = _AlwaysAllowPolicy()

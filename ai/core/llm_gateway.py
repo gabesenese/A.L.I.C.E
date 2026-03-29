@@ -257,6 +257,46 @@ class LLMGateway:
                     alice_thought, tone, phrasing_context
                 )
 
+            elif call_type == LLMCallType.PHRASE_MICRO:
+                source_text = str(
+                    context.get("alice_thought", prompt) if context else prompt
+                ).strip()
+                tone = (
+                    context.get("tone", "warm and helpful")
+                    if context
+                    else "warm and helpful"
+                )
+                micro_prompt = (
+                    "Polish this text only. Keep meaning unchanged. "
+                    "No new facts. Keep it under 26 words.\n\n"
+                    f"Text: {source_text}"
+                )
+                response = self.llm.phrase_with_tone(
+                    micro_prompt,
+                    tone,
+                    {"user_name": "", "allow_user_name": False},
+                )
+
+            elif call_type == LLMCallType.PHRASE_STRUCTURED:
+                payload = (
+                    context.get("structured_payload", prompt) if context else prompt
+                )
+                tone = (
+                    context.get("tone", "warm and helpful")
+                    if context
+                    else "warm and helpful"
+                )
+                rewrite_prompt = (
+                    "Rewrite this structured payload into one concise user-facing reply. "
+                    "Use only payload facts. Do not add extra details.\n\n"
+                    f"Payload: {payload}"
+                )
+                response = self.llm.phrase_with_tone(
+                    rewrite_prompt,
+                    tone,
+                    {"user_name": "", "allow_user_name": False},
+                )
+
             elif call_type == LLMCallType.AUDIT_LOGIC:
                 # Alice asks Ollama to verify her reasoning
                 logic_chain = (
@@ -268,6 +308,14 @@ class LLMGateway:
                 response = json.dumps(
                     audit_result, indent=2
                 )  # Return as formatted JSON
+
+            elif call_type == LLMCallType.GENERATION:
+                response = self._generation_last_resort(
+                    prompt=prompt,
+                    user_input=user_input,
+                    use_history=use_history,
+                    context=context,
+                )
 
             else:
                 # Legacy call types - use old chat() method
@@ -325,7 +373,6 @@ class LLMGateway:
         """Only route user-facing generation paths through multi-LLM selector."""
         return call_type in {
             LLMCallType.CHITCHAT,
-            LLMCallType.GENERATION,
             LLMCallType.QUERY_KNOWLEDGE,
         }
 
@@ -520,6 +567,50 @@ The {tool_name} tool returned this data:
 
 Please provide a natural, concise response to the user based on this data.
 Be conversational and helpful. Do not mention the tool name or technical details."""
+
+    def _generation_last_resort(
+        self,
+        *,
+        prompt: str,
+        user_input: str,
+        use_history: bool,
+        context: Optional[Dict[str, Any]],
+    ) -> str:
+        """Attempt structured assist paths before broad generation."""
+        ctx = dict(context or {})
+        base_text = str(user_input or prompt or "").strip()
+
+        # 1) Parse assist first for ambiguous/complex language.
+        try:
+            parsed = self.llm.parse_complex_input(base_text)
+            if isinstance(parsed, dict) and parsed:
+                ctx["parsed"] = parsed
+        except Exception:
+            pass
+
+        # 2) Knowledge assist for direct question-like prompts.
+        if base_text.endswith("?") or any(
+            q in base_text.lower() for q in ("what", "why", "how", "when", "where")
+        ):
+            try:
+                knowledge = str(self.llm.query_knowledge(base_text) or "").strip()
+                if knowledge:
+                    return knowledge
+            except Exception:
+                pass
+
+        # 3) Audit assist to tighten logic before full generation.
+        try:
+            audit = self.llm.audit_logic([base_text, json.dumps(ctx, default=str)])
+            if isinstance(audit, dict) and not bool(audit.get("has_errors", False)):
+                suggestion = str(audit.get("suggested_response") or "").strip()
+                if suggestion:
+                    return suggestion
+        except Exception:
+            pass
+
+        # 4) Last resort: broad generation.
+        return self.llm.chat(prompt, use_history=use_history)
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get advanced gateway statistics with detailed routing breakdown"""

@@ -1702,6 +1702,61 @@ class ALICE:
             'timezone': timezone,
         }
 
+    def _clamp_final_response(
+        self,
+        response: str,
+        *,
+        tone: str = "helpful",
+        response_type: str = "",
+        route: str = "unknown",
+        user_input: str = "",
+    ) -> str:
+        """Final clamp for user-facing responses, especially LLM-originated text."""
+        text = str(response or "").strip()
+        if not text:
+            return "I need one more detail to answer correctly."
+
+        # Normalize shell quoting and whitespace noise.
+        text = text.strip().strip('"').strip("'")
+        text = re.sub(r"\s+", " ", text).strip()
+
+        # Remove common filler/over-softening prefixes.
+        text = re.sub(
+            r"^(?:sure|of course|absolutely|definitely|certainly|no problem|happy to help)[:,.!]?\s+",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        # Reject meta-assistant leakage and replace with Alice-safe fallback.
+        lower = text.lower()
+        if "as an ai" in lower or "language model" in lower:
+            if response_type == "clarification_prompt":
+                return "Please clarify the exact outcome you want so I can route this correctly."
+            return "I can help with that. Tell me the exact result you want."
+
+        # Tone-aware trim: keep professional tones concise.
+        max_chars = {
+            "clarification_prompt": 140,
+            "operation_success": 160,
+            "operation_failure": 180,
+            "knowledge_answer": 220,
+            "wake_word_ack": 80,
+            "farewell": 100,
+        }.get(response_type, 320)
+
+        if "professional" in tone or "precise" in tone:
+            max_chars = min(max_chars, 220)
+
+        if len(text) > max_chars:
+            text = text[: max_chars - 3].rstrip() + "..."
+
+        # Enforce one-line concise output for micro conversational routes.
+        if route in {"wake_word", "farewell", "greeting", "ollama_phrase_micro"}:
+            text = text.split("\n", 1)[0].strip()
+
+        return text or "I need one more detail to answer correctly."
+
     def _alice_direct_phrase(self, response_type: str, alice_response: Dict[str, Any]) -> Optional[str]:
         """
         Alice phrases structured/factual responses entirely on her own.
@@ -1765,13 +1820,41 @@ class ALICE:
             return f"**{title}:** {summary}"
 
         if response_type == 'operation_success':
-            # Phrasing delegated to learned patterns → Ollama so confirmations
-            # are natural and never frozen template strings.
-            return None
+            op = str(alice_response.get('operation') or 'operation').replace('_', ' ').strip()
+            details = alice_response.get('details', {}) if isinstance(alice_response.get('details', {}), dict) else {}
+            subject = str(details.get('note_title') or details.get('title') or details.get('name') or '').strip()
+            if subject:
+                return f"Done: {op} for '{subject}'."
+            return f"Done: {op}."
 
         if response_type == 'operation_failure':
-            # Phrasing delegated to learned patterns → Ollama.
-            return None
+            op = str(alice_response.get('operation') or 'operation').replace('_', ' ').strip()
+            err = str(alice_response.get('error') or '').strip()
+            if err:
+                return f"I couldn't complete {op}: {err}."
+            return f"I couldn't complete {op}."
+
+        if response_type == 'knowledge_answer':
+            answer = str(alice_response.get('answer') or alice_response.get('content') or '').strip()
+            if answer:
+                return self._clamp_final_response(
+                    answer,
+                    tone='professional and precise',
+                    response_type='knowledge_answer',
+                    route='direct',
+                )
+            question = str(alice_response.get('question') or '').strip()
+            if question:
+                return f"I need one concrete fact target to answer: {question}"
+            return "I need a specific fact-focused question to answer directly."
+
+        if response_type == 'operation_status':
+            status = str(alice_response.get('status') or 'in progress').strip().lower()
+            detail = str(alice_response.get('detail') or '').strip()
+            msg = f"Status: {status}."
+            if detail:
+                msg += f" {detail}"
+            return msg
 
         if response_type == 'location_report':
             location_known = bool(alice_response.get('location_known'))
@@ -2068,8 +2151,21 @@ class ALICE:
             return "\n".join(lines).rstrip()
 
         if response_type == 'clarification_prompt':
-            # Open-ended phrasing path: avoid fixed clarification strings.
-            return None
+            options = [
+                str(x).strip()
+                for x in list(alice_response.get('options') or [])[:3]
+                if str(x).strip()
+            ]
+            pronouns = [
+                str(x).strip()
+                for x in list(alice_response.get('pronouns') or [])[:2]
+                if str(x).strip()
+            ]
+            if options:
+                return f"Do you mean {', '.join(options[:-1]) + ' or ' + options[-1] if len(options) > 1 else options[0]}?"
+            if pronouns:
+                return f"What does '{pronouns[0]}' refer to in your request?"
+            return "Please clarify the exact outcome you want so I can route this correctly."
 
         # Open-ended types — return None to let Ollama assist Alice
         return None
@@ -2102,13 +2198,25 @@ class ALICE:
         direct = self._alice_direct_phrase(response_type, alice_response)
         if direct:
             logger.info(f"[ALICE] Phrased '{response_type}' directly (no LLM needed)")
-            return direct
+            return self._clamp_final_response(
+                direct,
+                tone=tone,
+                response_type=str(response_type or ''),
+                route='direct',
+                user_input=user_input,
+            )
 
         # ── Step 2: Learned pattern for open-ended types (Alice independent) ─
         if self.phrasing_learner.can_phrase_myself(alice_response, tone):
             natural_response = self.phrasing_learner.phrase_myself(alice_response, tone)
             logger.info(f"[ALICE] Phrased '{response_type}' from learned pattern")
-            return natural_response
+            return self._clamp_final_response(
+                natural_response,
+                tone=tone,
+                response_type=str(response_type or ''),
+                route='learned_pattern',
+                user_input=user_input,
+            )
 
         if getattr(self, 'strict_no_llm', False):
             logger.info(f"[ALICE] Strict mode fallback for '{response_type}'")
@@ -2125,7 +2233,13 @@ class ALICE:
                 return f"Failed: {op}. {err}".strip()
             if response_type == 'clarification_prompt':
                 return "Please clarify the exact outcome you want so I can route this safely."
-            return str(content)
+            return self._clamp_final_response(
+                str(content),
+                tone=tone,
+                response_type=str(response_type or ''),
+                route='strict_no_llm',
+                user_input=user_input,
+            )
 
         # ── Step 3: Open-ended — Alice asks Ollama for phrasing help ─────────
         # Ollama is a teacher here, not a speaker. Alice learns from the reply.
@@ -2232,20 +2346,36 @@ class ALICE:
         thought_content = alice_response
 
         try:
+            phrase_call_type = (
+                LLMCallType.PHRASE_MICRO
+                if len(content_str) <= 160
+                else LLMCallType.PHRASE_STRUCTURED
+            )
             phrasing_context = {
                 'alice_thought': content_str,
+                'structured_payload': content_str,
                 'tone': tone,
                 'user_name': '',
                 'allow_user_name': False,
             }
             llm_response = self.llm_gateway.request(
                 prompt=content_str,
-                call_type=LLMCallType.PHRASE_RESPONSE,
+                call_type=phrase_call_type,
                 context=phrasing_context,
                 user_input=user_input,
             )
             if llm_response.success and llm_response.response:
-                natural_response = llm_response.response
+                natural_response = self._clamp_final_response(
+                    llm_response.response,
+                    tone=tone,
+                    response_type=str(response_type or ''),
+                    route=(
+                        'ollama_phrase_micro'
+                        if phrase_call_type == LLMCallType.PHRASE_MICRO
+                        else 'ollama_phrase_structured'
+                    ),
+                    user_input=user_input,
+                )
                 # Alice learns from Ollama's phrasing so she needs it less next time
                 self.phrasing_learner.record_phrasing(
                     alice_thought=thought_content,
@@ -2270,13 +2400,31 @@ class ALICE:
                         else "Of course — "
                     )
                     natural_response = _pfx + natural_response
-                return natural_response
+                return self._clamp_final_response(
+                    natural_response,
+                    tone=tone,
+                    response_type=str(response_type or ''),
+                    route='ollama_post_policy',
+                    user_input=user_input,
+                )
             else:
                 logger.warning("[ALICE] Ollama phrasing failed — using Alice's direct fallback")
-                return content_str
+                return self._clamp_final_response(
+                    content_str,
+                    tone=tone,
+                    response_type=str(response_type or ''),
+                    route='alice_fallback',
+                    user_input=user_input,
+                )
         except Exception as e:
             logger.error(f"[ALICE] Error in Ollama phrasing: {e}")
-            return content_str
+            return self._clamp_final_response(
+                content_str,
+                tone=tone,
+                response_type=str(response_type or ''),
+                route='alice_fallback_error',
+                user_input=user_input,
+            )
 
     def _register_plugins(self):
         """Register all available plugins"""
@@ -3305,7 +3453,13 @@ class ALICE:
             memory_snapshot=memory_snapshot,
         )
         if critique.passed:
-            return response
+            return self._clamp_final_response(
+                response,
+                tone='professional and precise',
+                response_type='knowledge_answer' if 'question' in str(intent or '') else 'general_response',
+                route='self_critique_pass',
+                user_input=user_input,
+            )
 
         self._think(
             "Self-critique failed -> regenerating once "
@@ -3329,10 +3483,11 @@ class ALICE:
             )
             regen = self.llm_gateway.request(
                 prompt=regen_prompt,
-                call_type=LLMCallType.GENERATION,
+                call_type=LLMCallType.PHRASE_STRUCTURED,
                 use_history=False,
                 user_input=user_input,
                 context={
+                    'structured_payload': regen_prompt,
                     'intent': intent,
                     'entities': entities or {},
                     'goal': goal_res.goal if (goal_res and getattr(goal_res, 'goal', None)) else None,
@@ -3340,7 +3495,13 @@ class ALICE:
                 },
             )
             if regen.success and regen.response:
-                revised = regen.response.strip()
+                revised = self._clamp_final_response(
+                    regen.response.strip(),
+                    tone='professional and precise',
+                    response_type='general_response',
+                    route='self_critique_regen',
+                    user_input=user_input,
+                )
                 critique2 = self.response_self_critic.assess(
                     user_input=user_input,
                     intent=intent,
@@ -3507,7 +3668,13 @@ class ALICE:
                     user_input="alice"
                 )
                 if llm_response.success and llm_response.response:
-                    response = llm_response.response.strip().strip('"').strip("'")
+                    response = self._clamp_final_response(
+                        llm_response.response.strip().strip('"').strip("'"),
+                        tone='casual and friendly',
+                        response_type='wake_word_ack',
+                        route='wake_word',
+                        user_input='alice',
+                    )
                     if response:
                         if self.phrasing_learner:
                             self.phrasing_learner.record_phrasing(
@@ -4657,6 +4824,28 @@ class ALICE:
             self.structured_logger.info("Processing input", input_length=len(user_input))
             logger.info(f"User: {user_input}")
             is_location_query = self._is_location_query(user_input)
+
+            # Canonical path first when enabled: avoid side-path bypasses.
+            if is_enabled("contract_pipeline") and getattr(self, 'contract_pipeline', None):
+                try:
+                    _pipeline_result = self.contract_pipeline.run_turn(
+                        user_input=user_input,
+                        user_id=str(self.user_name),
+                        turn_number=int(getattr(self, '_turn_count', 0) or 0),
+                    )
+                    if _pipeline_result and _pipeline_result.handled and _pipeline_result.response_text:
+                        _meta = dict(_pipeline_result.metadata or {})
+                        self.structured_logger.info(
+                            "Canonical pipeline handled request",
+                            component='pipeline',
+                            trace_id=str(_meta.get('trace_id') or ''),
+                            route=str(_meta.get('route') or ''),
+                            intent=str(_meta.get('intent') or ''),
+                            verification_reason=str(((_meta.get('verification') or {}).get('reason')) or ''),
+                        )
+                        return _pipeline_result.response_text
+                except Exception as e:
+                    logger.debug(f"[ContractPipeline] Fallback to legacy path due to: {e}")
             
             # ===== DISTRIBUTED CACHE CHECK =====
             # Check if we have a cached response for this exact input
@@ -4761,19 +4950,6 @@ class ALICE:
                 # If we get here, return a helpful message
                 return "Commands should be handled by the interface. Use /help to see available commands."
 
-            # 0.5 Contract pipeline path (thin composition-root migration)
-            if is_enabled("contract_pipeline") and getattr(self, 'contract_pipeline', None):
-                try:
-                    _pipeline_result = self.contract_pipeline.run_turn(
-                        user_input=user_input,
-                        user_id=str(self.user_name),
-                        turn_number=int(getattr(self, '_turn_count', 0) or 0),
-                    )
-                    if _pipeline_result and _pipeline_result.handled and _pipeline_result.response_text:
-                        return _pipeline_result.response_text
-                except Exception as e:
-                    logger.debug(f"[ContractPipeline] Fallback to legacy path due to: {e}")
-            
             # 1. NLP Processing
             _nlp_input = user_input
             _context_resolution = None
@@ -5404,7 +5580,13 @@ class ALICE:
                         user_input=user_input
                     )
                     if llm_response.success and llm_response.response:
-                        response = llm_response.response
+                        response = self._clamp_final_response(
+                            llm_response.response,
+                            tone='casual and friendly',
+                            response_type='greeting',
+                            route='greeting',
+                            user_input=user_input,
+                        )
                     else:
                         # No hardcoded greetings: use learned greetings if LLM unavailable/denied
                         response = self._learned_greeting_response(
@@ -5428,7 +5610,17 @@ class ALICE:
                                 use_history=False,
                                 user_input=user_input
                             )
-                            response = retry_response.response if retry_response.success else None
+                            response = (
+                                self._clamp_final_response(
+                                    retry_response.response,
+                                    tone='casual and friendly',
+                                    response_type='greeting',
+                                    route='greeting',
+                                    user_input=user_input,
+                                )
+                                if retry_response.success and retry_response.response
+                                else None
+                            )
                     if response:
                         # Store as learned pattern for future use
                         if getattr(self, 'learning_engine', None):
@@ -7376,7 +7568,13 @@ class ALICE:
                 )
                 
                 if llm_response.success and llm_response.response:
-                    response = llm_response.response
+                    response = self._clamp_final_response(
+                        llm_response.response,
+                        tone='helpful',
+                        response_type='general_response',
+                        route='generation',
+                        user_input=user_input,
+                    )
                     response = self._self_critique_and_regenerate(
                         user_input=user_input,
                         intent=intent,
@@ -9127,7 +9325,13 @@ Generate only the greeting (1 sentence), no other text. Be friendly and offer to
                 user_input="greeting"
             )
             if llm_response.success and llm_response.response:
-                greeting = llm_response.response.strip().strip('"').strip("'")
+                greeting = self._clamp_final_response(
+                    llm_response.response.strip().strip('"').strip("'"),
+                    tone='casual and friendly',
+                    response_type='greeting',
+                    route='greeting',
+                    user_input='greeting',
+                )
                 if self.phrasing_learner:
                     self.phrasing_learner.record_phrasing(
                         alice_thought={
@@ -9205,7 +9409,13 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                 user_input="farewell"
             )
             if llm_response.success and llm_response.response:
-                farewell = llm_response.response.strip().strip('"').strip("'")
+                farewell = self._clamp_final_response(
+                    llm_response.response.strip().strip('"').strip("'"),
+                    tone='casual and friendly',
+                    response_type='farewell',
+                    route='farewell',
+                    user_input='farewell',
+                )
                 return farewell
             else:
                 # Policy denied - use simple farewell

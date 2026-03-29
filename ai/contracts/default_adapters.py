@@ -18,6 +18,9 @@ from .runtime_contracts import (
     ToolBoundary,
     ToolInvocation,
     ToolResult,
+    VerifierBoundary,
+    VerifierRequest,
+    VerifierResult,
 )
 
 
@@ -55,3 +58,11 @@ class CallableResponseAdapter(ResponseBoundary):
 
     def generate(self, request: ResponseRequest) -> ResponseOutput:
         return self.generate_fn(request)
+
+
+@dataclass
+class CallableVerifierAdapter(VerifierBoundary):
+    verify_fn: Callable[[VerifierRequest], VerifierResult]
+
+    def verify(self, request: VerifierRequest) -> VerifierResult:
+        return self.verify_fn(request)

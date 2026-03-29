@@ -3,6 +3,7 @@ from ai.contracts import (
     CallableResponseAdapter,
     CallableRoutingAdapter,
     CallableToolAdapter,
+    CallableVerifierAdapter,
     MemoryRequest,
     MemoryResult,
     ResponseOutput,
@@ -11,6 +12,8 @@ from ai.contracts import (
     RouterRequest,
     ToolInvocation,
     ToolResult,
+    VerifierRequest,
+    VerifierResult,
 )
 
 
@@ -80,3 +83,25 @@ def test_callable_response_adapter_generates_response():
     )
     assert output.text == "intent=conversation:general"
     assert output.confidence == 0.88
+
+
+def test_callable_verifier_adapter_verifies_response():
+    adapter = CallableVerifierAdapter(
+        verify_fn=lambda req: VerifierResult(
+            accepted=bool(req.proposed_response.text.strip()),
+            reason="verified" if req.proposed_response.text.strip() else "empty",
+            confidence=0.9,
+            diagnostics={"intent": req.decision.intent},
+        )
+    )
+
+    verdict = adapter.verify(
+        VerifierRequest(
+            user_input="hello",
+            decision=RouterDecision(route="llm", intent="conversation:general", confidence=0.8),
+            memory=MemoryResult(items=[]),
+            proposed_response=ResponseOutput(text="hi", confidence=0.8),
+        )
+    )
+    assert verdict.accepted is True
+    assert verdict.reason == "verified"

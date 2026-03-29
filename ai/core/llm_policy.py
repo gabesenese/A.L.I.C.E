@@ -23,6 +23,8 @@ class LLMCallType(Enum):
     PHRASE_RESPONSE = (
         "phrase_response"  # Alice asks Ollama to phrase her thought naturally
     )
+    PHRASE_MICRO = "phrase_micro"  # Short polish only, no new content
+    PHRASE_STRUCTURED = "phrase_structured"  # Rewrite structured payload only
     AUDIT_LOGIC = "audit_logic"  # Alice asks Ollama to verify her reasoning
 
     # Legacy types (deprecated - will be removed)
@@ -118,6 +120,8 @@ class LLMPolicy:
             LLMCallType.QUERY_KNOWLEDGE,
             LLMCallType.PARSE_INPUT,
             LLMCallType.PHRASE_RESPONSE,
+            LLMCallType.PHRASE_MICRO,
+            LLMCallType.PHRASE_STRUCTURED,
             LLMCallType.AUDIT_LOGIC,
         ]:
             return True, "Allowed - Alice is using Ollama as a tool"
@@ -187,6 +191,8 @@ class LLMPolicy:
             LLMCallType.QUERY_KNOWLEDGE: "I need to query my knowledge base for factual information. Proceed?",
             LLMCallType.PARSE_INPUT: "I need help parsing this complex input. Proceed with analysis?",
             LLMCallType.PHRASE_RESPONSE: "I've formulated my response and need to phrase it naturally. Proceed?",
+            LLMCallType.PHRASE_MICRO: "I need short phrasing polish only. Proceed?",
+            LLMCallType.PHRASE_STRUCTURED: "I need a structured rewrite only. Proceed?",
             LLMCallType.AUDIT_LOGIC: "I want to verify my reasoning logic. Proceed with audit?",
             # Legacy types (backward compatibility)
             LLMCallType.CHITCHAT: "I don't have a learned response for that. Would you like me to use AI to answer it? (This helps me learn!)",

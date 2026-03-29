@@ -203,6 +203,41 @@ class PhrasingLearner:
         )
         return cleaned.strip()
 
+    @staticmethod
+    def _normalize_alice_style(phrasing: str) -> str:
+        """Normalize phrasing to concise Alice style before learning."""
+        text = str(phrasing or "").strip()
+        if not text:
+            return ""
+
+        # Trim outer quotes and collapse whitespace.
+        if len(text) >= 2 and text[0] == text[-1] == '"':
+            text = text[1:-1].strip()
+        text = re.sub(r"\s+", " ", text)
+
+        # Remove common filler/softening openers.
+        filler_prefixes = [
+            r"^(?:sure|of course|absolutely|definitely|certainly|no problem|happy to|i can help with that)[:,.!]?\s+",
+            r"^(?:i (?:would|can) (?:be )?(?:happy|glad) to)\s+",
+            r"^(?:just to clarify[:,]?\s*)",
+        ]
+        for pattern in filler_prefixes:
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+        # Remove repetitive hedging.
+        text = re.sub(r"\b(?:maybe|perhaps|kind of|sort of|just)\b\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+", " ", text).strip()
+
+        # Keep at most two sentences to avoid over-explaining.
+        parts = re.split(r"(?<=[.!?])\s+", text)
+        text = " ".join(parts[:2]).strip()
+
+        # Hard cap for learned phrasing footprint.
+        if len(text) > 220:
+            text = text[:217].rstrip() + "..."
+
+        return text
+
     def record_phrasing(
         self,
         alice_thought: Dict[str, Any],
@@ -224,6 +259,7 @@ class PhrasingLearner:
         safe_thought = sanitize_for_learning(alice_thought or {})
         safe_context = sanitize_for_learning(context or {})
         safe_ollama_phrasing = redact_text(ollama_phrasing or "")
+        safe_ollama_phrasing = self._normalize_alice_style(safe_ollama_phrasing)
 
         # Avoid polluting learned store with high-variance conversational/knowledge
         # responses that are likely to replay incorrectly on future turns.
