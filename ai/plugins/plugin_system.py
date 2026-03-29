@@ -373,6 +373,48 @@ class WeatherPlugin(PluginInterface):
             logger.error(f"Geocoding error for {location!r}: {e}")
         return None
 
+    def _clean_location_candidate(self, location: Optional[str]) -> Optional[str]:
+        """Normalize extracted location text and strip wake-word artifacts."""
+        if not location:
+            return None
+
+        cleaned = str(location).strip().strip("?!. ,")
+        if not cleaned:
+            return None
+
+        wake_words = {"alice", "a.l.i.c.e", "assistant"}
+        tokens = cleaned.split()
+        while tokens and tokens[-1].lower().strip("?!. ,") in wake_words:
+            tokens.pop()
+
+        cleaned = " ".join(tokens).strip().strip("?!. ,")
+        return cleaned or None
+
+    def _detect_location_fallback(self) -> Optional[str]:
+        """Best-effort IP-based city detection when no explicit location is available."""
+        try:
+            import requests
+
+            response = requests.get("http://ip-api.com/json/", timeout=4)
+            if response.status_code != 200:
+                return None
+
+            data = response.json() if hasattr(response, "json") else {}
+            if not isinstance(data, dict) or data.get("status") != "success":
+                return None
+
+            city = data.get("city")
+            country = data.get("country")
+            city = self._clean_location_candidate(city)
+            if not city:
+                return None
+
+            if country:
+                return f"{city}, {country}"
+            return city
+        except Exception:
+            return None
+
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         try:
             import requests
@@ -397,15 +439,26 @@ class WeatherPlugin(PluginInterface):
                 location = city
             elif not location or location == "Unknown":
                 location = None
+            location = self._clean_location_candidate(location)
 
             # If location in query, extract it
             words = query.lower().split()
             if "in" in words:
                 idx = words.index("in")
                 if idx + 1 < len(words):
-                    location = " ".join(words[idx + 1 :]).strip("?!.")
+                    location = self._clean_location_candidate(
+                        " ".join(words[idx + 1 :]).strip("?!.")
+                    )
                     logger.info(
                         f"Weather plugin - Extracted location from query: {location}"
+                    )
+
+            # If still no location, try fallback detection
+            if not location:
+                location = self._detect_location_fallback()
+                if location:
+                    logger.info(
+                        f"Weather plugin - Using IP fallback location: {location}"
                     )
 
             # If still no location, provide helpful response
