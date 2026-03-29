@@ -1,4 +1,5 @@
 from ai.core.executive_controller import ExecutiveController
+import pytest
 
 
 def test_learning_state_builds_structured_plan() -> None:
@@ -345,4 +346,39 @@ def test_clarification_needed_intent_answers_instead_of_looping() -> None:
     )
 
     assert decision.action == "answer_direct"
-    assert decision.reason == "native_conversation_scaffold"
+    assert decision.reason in {
+        "native_conversation_scaffold",
+        "simple_conversational_native_path",
+    }
+
+
+@pytest.mark.parametrize(
+    "utterance,intent",
+    [
+        ("how are you?", "conversation:general"),
+        ("hello", "conversation:general"),
+        ("can you help me?", "conversation:help"),
+        ("i need some help", "conversation:help"),
+        ("thanks", "conversation:general"),
+    ],
+)
+def test_simple_conversational_prompts_force_native_direct_path(utterance: str, intent: str) -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input=utterance,
+        intent=intent,
+        confidence=0.95,
+        entities={},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "answer_direct"
+    assert decision.reason == "simple_conversational_native_path"

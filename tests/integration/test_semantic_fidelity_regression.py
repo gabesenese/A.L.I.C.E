@@ -106,3 +106,12 @@ def test_native_conceptual_mode_returns_direct_foundation_answer():
     assert "autonomy" in low
     assert "person 'an ai'" not in low
     assert "polymorphism" not in low
+
+
+def test_native_scaffold_handles_simple_conversation_openers_without_llm():
+    alice = ALICE.__new__(ALICE)
+
+    assert alice._native_scaffold_response("how are you?", "conversation:general") is not None
+    assert alice._native_scaffold_response("hello", "conversation:general") is not None
+    assert alice._native_scaffold_response("can you help me?", "conversation:help") is not None
+    assert alice._native_scaffold_response("thanks", "conversation:general") is not None

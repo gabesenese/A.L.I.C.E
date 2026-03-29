@@ -3801,8 +3801,23 @@ class ALICE:
     def _native_scaffold_response(self, user_input: str, intent: str) -> Optional[str]:
         """Return native short scaffolding replies for low-complexity conversational turns."""
         normalized = str(intent or "").lower().strip()
+        text = str(user_input or "").strip().lower()
         if self._is_help_opener_input(user_input, normalized):
             return self._native_help_opener_response(user_input)
+
+        if normalized in {"conversation:general", "conversation:question"}:
+            if re.fullmatch(r"(?:hi|hello|hey|yo|sup)\??", text):
+                return "Hi. What can I help you with right now?"
+            if re.fullmatch(r"(?:how are you|how are you doing|hows it going)\??", text):
+                return "I am doing well. What are you working on?"
+            if re.fullmatch(r"(?:thanks|thank you|thx)\??", text):
+                return "You are welcome. What should we work on next?"
+            if re.fullmatch(r"(?:bye|goodbye|see you)\??", text):
+                return "Goodbye. I am here when you need me."
+            if re.fullmatch(r"(?:can you help me|help me|i need help(?: with.*)?)\??", text):
+                return "Of course. What exact part do you want help with first?"
+            if re.fullmatch(r"(?:ok|okay|sure|got it|understood|noted)\??", text):
+                return "Understood. What is the next step?"
 
         if normalized in {"conversation:ack", "conversation:acknowledgment"}:
             return "Understood. What should we do next?"

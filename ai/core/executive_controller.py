@@ -82,6 +82,21 @@ class ExecutiveController:
         r"\b(i\s+need\s+help|can\s+you\s+help|help\s+me|help\s+with\s+this|help\s+with\s+my\s+project)\b",
         re.IGNORECASE,
     )
+    SIMPLE_NATIVE_RE = re.compile(
+        r"^(?:"
+        r"hi|hello|hey|yo|sup|"
+        r"thanks|thank\s+you|thx|"
+        r"bye|goodbye|see\s+you|"
+        r"how\s+are\s+you|how\s+are\s+you\s+doing|hows\s+it\s+going|"
+        r"can\s+you\s+help\s+me|i\s+need\s+help(?:\s+with.*)?|help\s+me|"
+        r"ok|okay|sure|got\s+it|understood|noted"
+        r")\??$",
+        re.IGNORECASE,
+    )
+    RISKY_CONVERSATION_RE = re.compile(
+        r"\b(medical|diagnos|legal|lawsuit|financial|investment|tax|security|exploit|malware|password)\b",
+        re.IGNORECASE,
+    )
     SEMANTIC_STOPWORDS = {
         "the", "a", "an", "and", "or", "to", "of", "for", "with", "in", "on", "at", "by",
         "is", "are", "was", "were", "be", "been", "being", "it", "this", "that", "these", "those",
@@ -218,6 +233,17 @@ class ExecutiveController:
                 store_memory=False,
             )
 
+        if self._is_simple_native_conversation(
+            state=state,
+            has_explicit_action_cue=has_explicit_action_cue,
+            has_active_goal=has_active_goal,
+        ):
+            return ExecutiveDecision(
+                action="answer_direct",
+                reason="simple_conversational_native_path",
+                store_memory=True,
+            )
+
         if self._should_force_native_scaffold(
             state=state,
             has_explicit_action_cue=has_explicit_action_cue,
@@ -303,6 +329,48 @@ class ExecutiveController:
             if x
         )
         return bool(self.HELP_OPENER_RE.search(text))
+
+    def _is_simple_native_conversation(
+        self,
+        *,
+        state: ReasoningState,
+        has_explicit_action_cue: bool,
+        has_active_goal: bool,
+    ) -> bool:
+        text = str(state.source_text or "").strip().lower()
+        if not text:
+            return False
+
+        normalized_intent = (state.user_intent or "").lower().strip()
+        if not normalized_intent.startswith("conversation:") and normalized_intent not in {"greeting", "thanks", "farewell"}:
+            return False
+
+        if has_explicit_action_cue:
+            return False
+        if has_active_goal:
+            return False
+        if self.RISKY_CONVERSATION_RE.search(text):
+            return False
+
+        # Missing-knowledge style prompts should still go through normal decisioning.
+        missing_knowledge_cues = (
+            "what is",
+            "why",
+            "how does",
+            "compare",
+            "explain",
+            "difference between",
+        )
+        if any(cue in text for cue in missing_knowledge_cues):
+            return False
+
+        if len(text.split()) > 9:
+            return False
+
+        if normalized_intent in self.SIMPLE_SCAFFOLD_INTENTS:
+            return True
+
+        return bool(self.SIMPLE_NATIVE_RE.match(text))
 
     def _should_force_native_scaffold(
         self,
