@@ -84,7 +84,7 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
             # Handle special commands
             if user_input.startswith('/'):
                 alice._handle_command(user_input)
-                if not getattr(alice, 'running', True):
+                if user_input.lower() in ['/exit', '/quit']:
                     ui.show_goodbye()
                     break
                 continue

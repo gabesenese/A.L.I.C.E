@@ -39,6 +39,12 @@ class PluginInterface(ABC):
         self.enabled = True
         self.description = "Base plugin interface"
         self.capabilities = []
+        # Minimum execution contract; plugins can override with stricter rules.
+        self.required_params = {
+            "create": ["title"],
+            "read": ["target"],
+            "delete": ["target"],
+        }
 
     @abstractmethod
     def initialize(self) -> bool:

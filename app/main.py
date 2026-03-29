@@ -119,7 +119,7 @@ from ai.core.semantic_memory_index import SemanticMemoryIndex
 from ai.core.memory_consolidator import MemoryConsolidator
 from ai.core.cross_session_pattern_detector import CrossSessionPatternDetector
 from ai.core.system_design_response_guard import SystemDesignResponseGuard
-from ai.core.tool_verifier import get_tool_result_verifier
+from ai.core.unified_action_engine import ActionRequest, get_unified_action_engine
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -776,10 +776,10 @@ class ALICE:
 
             # 4.3. Runtime safety and verification guards
             self.rbac_engine = get_rbac_engine()
-            self.tool_result_verifier = get_tool_result_verifier()
+            self.action_engine = get_unified_action_engine()
             self.approval_ledger = get_approval_ledger()
             self.roadmap_stack = get_roadmap_completion_stack()
-            logger.info("[OK] RBAC and tool verification guards active")
+            logger.info("[OK] RBAC and unified action guards active")
             
             # 4.5. Conversation Summarizer (now uses gateway for policy enforcement)
             logger.info("Loading conversation summarizer...")
@@ -797,6 +797,7 @@ class ALICE:
             logger.info("Loading plugins...")
             self.plugins = PluginManager()
             self._register_plugins()
+            self.action_engine.bind_plugin_manager(self.plugins)
             
             # 6. Task Executor
             logger.info(" Loading task executor...")
@@ -6965,42 +6966,42 @@ class ALICE:
                     self._think(f"Tool invocation schema validation blocked dispatch: {_schema_error}")
                     return "I could not safely run that tool request due to invalid request shape. Please rephrase."
 
+                _plugin_name = "unknown"
+                _action_name = "unknown"
+                if ":" in (intent or ""):
+                    _plugin_name, _action_name = intent.split(":", 1)
+                    _plugin_name = (_plugin_name or "unknown").strip().lower()
+                    _action_name = (_action_name or "unknown").strip().lower()
+
                 # Track plugin execution timing
                 plugin_start = time.time()
-                plugin_result = self.plugins.execute_for_intent(
-                    intent, user_input, entities, context_summary
+                action_request = ActionRequest(
+                    goal=(active_goal.description if active_goal else user_input),
+                    plugin=_plugin_name,
+                    action=_action_name,
+                    params={
+                        **(entities or {}),
+                        "_raw_query": user_input,
+                    },
+                    source_intent=intent,
+                    confidence=float(intent_confidence or 0.0),
+                    # RBAC confirmation is already enforced above; do not re-block here.
+                    requires_confirmation=False,
                 )
+                action_result = self.action_engine.execute(action_request)
+                self.action_engine.apply_state_updates(self, action_result)
 
-                if plugin_result and getattr(self, 'tool_result_verifier', None):
-                    _verification = self.tool_result_verifier.verify(
-                        intent=intent,
-                        user_input=user_input,
-                        plugin_result=plugin_result,
-                        execution_context={
-                            "expected_plugin": plugin_result.get("plugin"),
-                            "expected_action": plugin_result.get("action"),
-                            "active_goal": active_goal.description if active_goal else "",
-                            "last_intent": str(getattr(self, 'last_intent', '') or ''),
-                        },
-                    )
+                plugin_result = None
+                if action_result.status != "not_handled":
+                    plugin_result = action_result.to_plugin_result()
+
+                if plugin_result:
+                    _verification = action_result.state_updates.get("verification", {}) or {}
                     if getattr(self, 'roadmap_stack', None):
                         self.roadmap_stack.goal_tracker.record(
-                            tool_succeeded=bool(_verification.tool_succeeded),
-                            goal_satisfied=bool(_verification.goal_satisfied),
+                            tool_succeeded=bool(action_result.success),
+                            goal_satisfied=bool(action_result.goal_satisfied),
                         )
-                    self._internal_reasoning_state["tool_verification"] = _verification.to_dict()
-                    if not _verification.accepted or not _verification.goal_satisfied:
-                        self._think("Tool verification rejected output; converting to safe failure response")
-                        plugin_result = {
-                            "plugin": plugin_result.get("plugin", "Unknown"),
-                            "action": plugin_result.get("action", intent),
-                            "success": False,
-                            "response": "I could not verify that tool output was reliable. Please clarify or try again.",
-                            "data": {
-                                "verification_issues": list(_verification.issues),
-                                "verification_confidence": float(_verification.confidence),
-                            },
-                        }
 
                 plugin_duration = time.time() - plugin_start
                 if plugin_result:
@@ -7030,19 +7031,25 @@ class ALICE:
                     _p_name = plugin_result.get('plugin', '')
                     _p_action = plugin_result.get('action', '')
                     _p_success = plugin_result.get('success', False)
+                    _p_verified = bool((plugin_result.get('verification') or {}).get('accepted', False))
                     self._last_plugin_result = plugin_result
                     try:
-                        if self.capability_graph is not None:
+                        if self.capability_graph is not None and _p_verified:
                             self.capability_graph.record_execution(_p_name, intent, _p_success)
                     except Exception:
                         pass
                     try:
-                        if self.habit_miner is not None and _p_name:
+                        if self.habit_miner is not None and _p_name and _p_verified:
                             self.habit_miner.update(intent, _p_name, _p_action)
                     except Exception:
                         pass
                 # Update dialogue memory with plugin response titles
-                if self.dialogue_memory and plugin_result and plugin_result.get('success'):
+                if (
+                    self.dialogue_memory
+                    and plugin_result
+                    and plugin_result.get('success')
+                    and bool((plugin_result.get('verification') or {}).get('accepted', False))
+                ):
                     _dm_titles = plugin_result.get('data', {}).get('titles', []) or []
                     if not _dm_titles:
                         _note_title = plugin_result.get('data', {}).get('note_title')
@@ -7058,7 +7065,27 @@ class ALICE:
                 # Plugin handled the request, regardless of success/failure
                 plugin_name = plugin_result.get('plugin', 'Unknown')
                 success = plugin_result.get('success', False)
+                _tool_verified = bool((plugin_result.get('verification') or {}).get('accepted', False))
                 self._think(f"Plugin → {plugin_name} success={success}")
+
+                # Foundation 3 execution contract: do not mutate memory/state or
+                # continue tool post-processing when verification fails.
+                if not _tool_verified:
+                    self._think("Tool output not verified → clarification before state updates")
+                    response = (
+                        plugin_result.get('message')
+                        or plugin_result.get('response')
+                        or "I could not verify that tool output was reliable. Please clarify or try again."
+                    )
+                    response = self._executive_apply_response_gate(
+                        user_input=user_input,
+                        intent=intent,
+                        response=response,
+                        route="plugin",
+                    )
+                    if use_voice and self.speech:
+                        self.speech.speak(response, blocking=False)
+                    return response
 
                 # Tool-based architecture: Alice formulates response, then phrases it
                 response = None
