@@ -116,3 +116,10 @@ def test_native_scaffold_handles_simple_conversation_openers_without_llm():
     assert alice._native_scaffold_response("hello", "conversation:general") is not None
     assert alice._native_scaffold_response("can you help me?", "conversation:help") is not None
     assert alice._native_scaffold_response("thanks", "conversation:general") is not None
+
+
+def test_native_scaffold_does_not_flatten_detailed_help_issue_report():
+    alice = ALICE.__new__(ALICE)
+    detailed = "my ai is not able to correctly give me some informations or it gets the intent wrong"
+
+    assert alice._native_scaffold_response(detailed, "conversation:help") is None

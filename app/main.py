@@ -3858,7 +3858,10 @@ class ALICE:
         if normalized == "conversation:clarification_needed":
             return "I can help. What exact result do you want?"
         if normalized == "conversation:help":
-            return "I can help. What exact part should we focus on first?"
+            if self._is_help_opener_input(user_input, normalized):
+                return "I can help. What exact part should we focus on first?"
+            # Do not flatten detailed issue reports that were labeled conversation:help.
+            return None
         if normalized == "greeting":
             user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
             asked_how = bool(re.search(r"\bhow\s+(are\s+you|is\s+it\s+going)\b", str(user_input or ""), re.IGNORECASE))

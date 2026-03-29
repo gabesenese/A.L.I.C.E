@@ -27,7 +27,16 @@ class ReferenceResolver:
         unresolved_pronouns: List[str] = []
         rewritten = text
 
+        # Preserve local antecedents in the same turn, such as
+        # "my ai ... it ...", instead of forcing cross-turn substitution.
+        local_ai_antecedent = bool(
+            re.search(r"\b(?:my|the|this|that)\s+ai\b", text, flags=re.IGNORECASE)
+            and re.search(r"\bit\b", text, flags=re.IGNORECASE)
+        )
+
         for pronoun in self.PRONOUNS:
+            if local_ai_antecedent and pronoun == "it":
+                continue
             if re.search(rf"\b{re.escape(pronoun)}\b", rewritten, flags=re.IGNORECASE):
                 if subject:
                     rewritten = re.sub(

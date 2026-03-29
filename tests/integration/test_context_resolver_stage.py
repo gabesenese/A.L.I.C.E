@@ -36,3 +36,21 @@ def test_context_resolver_requests_clarification_without_reference_memory():
 
     assert result.needs_clarification is True
     assert "it" in result.unresolved_pronouns
+
+
+def test_context_resolver_preserves_local_ai_antecedent_over_cross_turn_subject():
+    state = {
+        "current_topic": "nlp",
+        "last_subject": "nlp",
+        "last_intent": "conversation:clarification_needed",
+        "active_goal": "help with ai project",
+        "referenced_entities": ["nlp"],
+        "last_entities": {"topic": "nlp"},
+    }
+
+    resolver = ContextResolver()
+    user_text = "my ai is not able to correctly give me some informations or it gets the intent wrong"
+    result = resolver.resolve(user_text, state)
+
+    assert result.rewritten_input == user_text
+    assert "it" not in result.resolved_bindings
