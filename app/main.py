@@ -1508,6 +1508,32 @@ class ALICE:
                     'confidence': 0.9
                 }
 
+            # Weather plugin explicit failure taxonomy
+            weather_error = (plugin_data.get('error') or '').strip().lower()
+            if weather_error == 'no_location':
+                return {
+                    'type': 'operation_failure',
+                    'operation': 'weather_lookup',
+                    'error': 'no location available. Tell me your city, or set it with /location <City>.',
+                    'confidence': 0.75,
+                }
+            if weather_error == 'unknown_location':
+                _bad_location = plugin_data.get('location')
+                _msg = f"unknown location: {_bad_location}" if _bad_location else 'unknown location'
+                return {
+                    'type': 'operation_failure',
+                    'operation': 'weather_lookup',
+                    'error': _msg,
+                    'confidence': 0.7,
+                }
+            if weather_error in {'timeout', 'connection_error', 'fetch_failed', 'no_data'}:
+                return {
+                    'type': 'operation_failure',
+                    'operation': 'weather_lookup',
+                    'error': f'weather service temporary issue ({weather_error})',
+                    'confidence': 0.65,
+                }
+
             # No data at all
             return {
                 'type': 'operation_failure',
