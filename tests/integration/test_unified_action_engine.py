@@ -2,13 +2,16 @@ from ai.core.unified_action_engine import ActionRequest, UnifiedActionEngine
 
 
 class _StubToolExecutor:
-    def __init__(self, *, handled=True, verified=True, result=None):
+    def __init__(self, *, handled=True, verified=True, result=None, result_sequence=None):
         self.handled = handled
         self.verified = verified
         self.result = result or {}
+        self.result_sequence = list(result_sequence or [])
         self.last_call = None
+        self.call_count = 0
 
     def execute(self, *, plugin_manager, intent, query, entities, context):
+        self.call_count += 1
         self.last_call = {
             "plugin_manager": plugin_manager,
             "intent": intent,
@@ -17,13 +20,15 @@ class _StubToolExecutor:
             "context": context,
         }
 
+        current_result = self.result_sequence.pop(0) if self.result_sequence else self.result
+
         class _Outcome:
             def __init__(self, handled, verified, result):
                 self.handled = handled
                 self.verified = verified
                 self.result = result
 
-        return _Outcome(self.handled, self.verified, self.result)
+        return _Outcome(self.handled, self.verified, current_result)
 
 
 def test_unified_action_engine_uses_source_intent_and_raw_query():
@@ -87,3 +92,116 @@ def test_unified_action_engine_confirmation_blocks_execution():
     assert res.status == "requires_confirmation"
     assert "requires explicit confirmation" in (res.error or "")
     assert stub.last_call is None
+
+
+def test_unified_action_engine_blocks_high_risk_without_approval():
+    stub = _StubToolExecutor()
+    engine = UnifiedActionEngine(tool_executor=stub)
+    engine.bind_plugin_manager(object())
+
+    req = ActionRequest(
+        goal="delete production config",
+        plugin="file",
+        action="delete",
+        params={"target": "prod.env", "_raw_query": "delete prod env"},
+        source_intent="file:delete",
+        confidence=0.6,
+        requires_confirmation=False,
+        risk_level="high",
+    )
+
+    res = engine.execute(req)
+
+    assert res.success is False
+    assert res.status == "policy_blocked"
+    assert "policy_confirmation_required" in res.ambiguity_flags
+    assert stub.last_call is None
+
+
+def test_unified_action_engine_retries_low_risk_retryable_failure_then_succeeds():
+    stub = _StubToolExecutor(
+        result_sequence=[
+            {
+                "success": False,
+                "status": "failed",
+                "plugin": "notes",
+                "action": "read",
+                "data": {"target": "Roadmap"},
+                "message": "Temporary error",
+                "confidence": 0.3,
+                "retryable": True,
+                "side_effects": [],
+                "verification": {"accepted": True, "confidence": 0.8, "issues": []},
+            },
+            {
+                "success": True,
+                "status": "success",
+                "plugin": "notes",
+                "action": "read",
+                "data": {"note_id": "n1", "target": "Roadmap"},
+                "message": "Read complete",
+                "confidence": 0.9,
+                "retryable": False,
+                "side_effects": ["read"],
+                "verification": {"accepted": True, "confidence": 0.9, "issues": []},
+            },
+        ]
+    )
+    engine = UnifiedActionEngine(tool_executor=stub)
+    engine.bind_plugin_manager(object())
+
+    req = ActionRequest(
+        goal="read roadmap note",
+        plugin="notes",
+        action="read",
+        params={"target": "Roadmap", "_raw_query": "read roadmap note"},
+        source_intent="notes:read",
+        confidence=0.85,
+        requires_confirmation=False,
+        risk_level="low",
+        retry_budget=1,
+        target_spec={"target": "Roadmap"},
+    )
+
+    res = engine.execute(req)
+
+    assert stub.call_count == 2
+    assert res.success is True
+    assert res.goal_satisfied is True
+    assert res.retry_count == 1
+
+
+def test_unified_action_engine_detects_target_mismatch():
+    stub = _StubToolExecutor(
+        result={
+            "success": True,
+            "status": "success",
+            "plugin": "notes",
+            "action": "read",
+            "data": {"target": "DifferentNote"},
+            "message": "Read complete",
+            "confidence": 0.9,
+            "retryable": False,
+            "side_effects": ["read"],
+            "verification": {"accepted": True, "confidence": 0.9, "issues": []},
+        }
+    )
+    engine = UnifiedActionEngine(tool_executor=stub)
+    engine.bind_plugin_manager(object())
+
+    req = ActionRequest(
+        goal="read roadmap note",
+        plugin="notes",
+        action="read",
+        params={"target": "Roadmap", "_raw_query": "read roadmap note"},
+        source_intent="notes:read",
+        confidence=0.9,
+        requires_confirmation=False,
+        target_spec={"target": "Roadmap"},
+    )
+
+    res = engine.execute(req)
+
+    assert res.success is True
+    assert res.goal_satisfied is False
+    assert "target_mismatch" in res.ambiguity_flags

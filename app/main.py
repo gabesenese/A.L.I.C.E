@@ -120,6 +120,9 @@ from ai.core.memory_consolidator import MemoryConsolidator
 from ai.core.cross_session_pattern_detector import CrossSessionPatternDetector
 from ai.core.system_design_response_guard import SystemDesignResponseGuard
 from ai.core.unified_action_engine import ActionRequest, get_unified_action_engine
+from ai.core.world_state_memory import get_world_state_memory
+from ai.core.execution_journal import get_execution_journal
+from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_manager
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -779,6 +782,10 @@ class ALICE:
             self.action_engine = get_unified_action_engine()
             self.approval_ledger = get_approval_ledger()
             self.roadmap_stack = get_roadmap_completion_stack()
+            self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
+            self.execution_journal = get_execution_journal(storage_path="data/action_journal.jsonl")
+            self.autonomy_manager = get_bounded_autonomy_manager(storage_path="data/autonomy_loops.json")
+            self._init_bounded_autonomy_loops()
             logger.info("[OK] RBAC and unified action guards active")
             
             # 4.5. Conversation Summarizer (now uses gateway for policy enforcement)
@@ -6982,11 +6989,29 @@ class ALICE:
                     params={
                         **(entities or {}),
                         "_raw_query": user_input,
+                        "_approval_token": bool(
+                            "confirm" in user_input.lower() or "operator approve" in user_input.lower()
+                        ),
                     },
                     source_intent=intent,
                     confidence=float(intent_confidence or 0.0),
                     # RBAC confirmation is already enforced above; do not re-block here.
                     requires_confirmation=False,
+                    expected_outcome=(active_goal.description if active_goal else f"Complete {_action_name} successfully"),
+                    target_spec={
+                        "target": (entities or {}).get("target")
+                        or (entities or {}).get("path")
+                        or (entities or {}).get("filename")
+                        or (entities or {}).get("title")
+                        or (entities or {}).get("note_title")
+                    },
+                    risk_level=(
+                        "high"
+                        if ('_rbac_decision' in locals() and getattr(_rbac_decision, 'required_scope', None) is not None)
+                        else "medium"
+                    ),
+                    retry_budget=(1 if _action_name in {"read", "list", "search"} else 0),
+                    rollback_policy=("manual" if _action_name in {"delete", "update", "append"} else "none"),
                 )
                 action_result = self.action_engine.execute(action_request)
                 self.action_engine.apply_state_updates(self, action_result)
@@ -8858,6 +8883,7 @@ class ALICE:
             print("   /autonomous resume - Resume autonomous execution")
             print("   /autonomous status - Show autonomous mode status")
             print("   /goals             - List all active and completed goals")
+            print("   /operator-status   - Show action engine, world state, autonomy, and execution metrics")
             print()
             print("Debug Commands:")
             print("   /correct [type]    - Correct A.L.I.C.E's last response")
@@ -9294,6 +9320,9 @@ class ALICE:
 
         elif cmd == '/goals':
             self._handle_goals_command()
+
+        elif cmd == '/operator-status':
+            self._handle_operator_status_command()
 
         else:
             print(f"\n[ERROR] Unknown command: {command}")
@@ -9952,6 +9981,84 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             import traceback
             traceback.print_exc()
 
+    def _init_bounded_autonomy_loops(self):
+        """Register baseline bounded autonomy loops if missing."""
+        if not hasattr(self, 'autonomy_manager') or not self.autonomy_manager:
+            return
+
+        baseline = [
+            AutonomyLoop(
+                name="goal_health",
+                permission_level="operator",
+                scope="goal monitoring",
+                stop_conditions=["manual_stop", "confidence_drop"],
+                confidence_threshold=0.6,
+                enabled=True,
+            ),
+            AutonomyLoop(
+                name="repo_failure_watch",
+                permission_level="operator",
+                scope="build/test monitoring",
+                stop_conditions=["manual_stop", "error_storm"],
+                confidence_threshold=0.7,
+                enabled=False,
+            ),
+        ]
+
+        existing = set((self.autonomy_manager.status() or {}).get("enabled_loops", []))
+        existing.update((self.autonomy_manager.status() or {}).get("disabled_loops", []))
+        for loop in baseline:
+            if loop.name not in existing:
+                self.autonomy_manager.register_loop(loop)
+
+    def _handle_operator_status_command(self):
+        """Show execution-first operator core status."""
+        print("\n Operator Core Status:")
+        print("=" * 70)
+
+        world_state = {}
+        if hasattr(self, 'world_state_memory') and self.world_state_memory:
+            world_state = self.world_state_memory.snapshot()
+
+        journal_summary = {}
+        if hasattr(self, 'execution_journal') and self.execution_journal:
+            journal_summary = self.execution_journal.summary()
+
+        autonomy_status = {}
+        if hasattr(self, 'autonomy_manager') and self.autonomy_manager:
+            autonomy_status = self.autonomy_manager.status()
+
+        print("\nUnified Action Engine:")
+        print(f"   Bound: {'Yes' if hasattr(self, 'action_engine') and self.action_engine else 'No'}")
+        print(f"   Last Goal Satisfied: {bool((self._internal_reasoning_state or {}).get('goal_satisfied', False))}")
+
+        print("\nWorld State:")
+        print(f"   Active Task: {world_state.get('active_task') or 'None'}")
+        last_tool = world_state.get('last_tool') or {}
+        if last_tool:
+            print(
+                f"   Last Tool: {last_tool.get('plugin', 'n/a')}:{last_tool.get('action', 'n/a')} "
+                f"({last_tool.get('status', 'unknown')})"
+            )
+        else:
+            print("   Last Tool: n/a")
+        print(f"   Last Successful Target: {world_state.get('last_successful_target') or 'None'}")
+        unresolved = world_state.get('unresolved_ambiguity') or []
+        print(f"   Unresolved Ambiguity: {len(unresolved)}")
+
+        print("\nExecution Journal:")
+        print(f"   Total: {journal_summary.get('total', 0)}")
+        print(f"   Success: {journal_summary.get('success', 0)}")
+        print(f"   Failed: {journal_summary.get('failed', 0)}")
+        print(f"   Retries: {journal_summary.get('retry', 0)}")
+        print(f"   Goal Satisfied: {journal_summary.get('goal_satisfied', 0)}")
+
+        print("\nBounded Autonomy:")
+        print(f"   Total Loops: {autonomy_status.get('total_loops', 0)}")
+        print(f"   Enabled Loops: {', '.join(autonomy_status.get('enabled_loops', [])) or 'none'}")
+        print(f"   Disabled Loops: {', '.join(autonomy_status.get('disabled_loops', [])) or 'none'}")
+        print("=" * 70)
+
     def _handle_autonomous_command(self, command: str):
         """Handle autonomous mode commands"""
         if not hasattr(self, 'execution_loop') or not self.execution_loop:
@@ -9991,12 +10098,14 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             is_running = self.execution_loop.is_running()
             is_paused = self.execution_loop.paused
             active_goals = self.goal_system.get_active_goals() if hasattr(self, 'goal_system') else []
+            autonomy_status = self.autonomy_manager.status() if hasattr(self, 'autonomy_manager') and self.autonomy_manager else {}
 
             print("\n Autonomous Agent Status:")
             print("=" * 50)
             print(f"   Running: {'Yes' if is_running else 'No'}")
             print(f"   Paused: {'Yes' if is_paused else 'No'}")
             print(f"   Active Goals: {len(active_goals)}")
+            print(f"   Bounded Loops Enabled: {len(autonomy_status.get('enabled_loops', []))}")
 
             if active_goals:
                 print("\n   Current Goals:")
