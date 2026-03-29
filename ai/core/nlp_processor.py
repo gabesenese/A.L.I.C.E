@@ -982,8 +982,17 @@ class CoreferenceResolver:
         resolved_text = text
         text_lower = text.lower()
 
+        protected_it_phrases = (
+            "what time is it",
+            "how is it going",
+            "how's it going",
+            "hows it going",
+        )
+
         all_pronouns = self._OBJECT_PRONOUNS | self._PERSON_PRONOUNS
         for pronoun in sorted(all_pronouns, key=len, reverse=True):  # longest first
+            if pronoun == "it" and any(phrase in text_lower for phrase in protected_it_phrases):
+                continue
             if re.search(rf"\b{re.escape(pronoun)}\b", text_lower):
                 replacement = self._find_referent(pronoun, context)
                 if replacement:

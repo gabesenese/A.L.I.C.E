@@ -71,12 +71,12 @@ class ExecutiveController:
         "time:",
     )
     SIMPLE_SCAFFOLD_INTENTS = {
-        "conversation:help",
         "conversation:ack",
         "conversation:acknowledgment",
         "thanks",
         "greeting",
-        "conversation:clarification_needed",
+        "status_inquiry",
+        "farewell",
     }
     HELP_OPENER_RE = re.compile(
         r"\b(i\s+need\s+help|can\s+you\s+help|help\s+me|help\s+with\s+this|help\s+with\s+my\s+project)\b",
@@ -88,7 +88,7 @@ class ExecutiveController:
         r"thanks|thank\s+you|thx|"
         r"bye|goodbye|see\s+you|"
         r"how\s+are\s+you|how\s+are\s+you\s+doing|hows\s+it\s+going|"
-        r"can\s+you\s+help\s+me|i\s+need\s+help(?:\s+with.*)?|help\s+me|"
+        r"can\s+you\s+help\s+me|i\s+need(?:\s+some)?\s+help(?:\s+with.*)?|help\s+me|"
         r"ok|okay|sure|got\s+it|understood|noted"
         r")\??$",
         re.IGNORECASE,
@@ -342,7 +342,12 @@ class ExecutiveController:
             return False
 
         normalized_intent = (state.user_intent or "").lower().strip()
-        if not normalized_intent.startswith("conversation:") and normalized_intent not in {"greeting", "thanks", "farewell"}:
+        if not normalized_intent.startswith("conversation:") and normalized_intent not in {
+            "greeting",
+            "thanks",
+            "farewell",
+            "status_inquiry",
+        }:
             return False
 
         if has_explicit_action_cue:
@@ -370,6 +375,11 @@ class ExecutiveController:
         if normalized_intent in self.SIMPLE_SCAFFOLD_INTENTS:
             return True
 
+        # Only allow help/clarification intents through deterministic native path
+        # when the actual utterance is genuinely short/simple.
+        if normalized_intent in {"conversation:help", "conversation:clarification_needed"}:
+            return bool(self.SIMPLE_NATIVE_RE.match(text) or self.HELP_OPENER_RE.search(text))
+
         return bool(self.SIMPLE_NATIVE_RE.match(text))
 
     def _should_force_native_scaffold(
@@ -380,8 +390,15 @@ class ExecutiveController:
         has_active_goal: bool,
     ) -> bool:
         normalized_intent = (state.user_intent or "").lower().strip()
+        text = str(state.source_text or "").strip().lower()
         if normalized_intent in self.SIMPLE_SCAFFOLD_INTENTS:
             return not has_explicit_action_cue
+        if normalized_intent in {"conversation:help", "conversation:clarification_needed"}:
+            return (
+                (not has_explicit_action_cue)
+                and (not has_active_goal)
+                and bool(self.SIMPLE_NATIVE_RE.match(text) or self.HELP_OPENER_RE.search(text))
+            )
         if normalized_intent == "conversation:general" and self._is_help_opener(state):
             return (not has_explicit_action_cue) and (not has_active_goal)
         return False

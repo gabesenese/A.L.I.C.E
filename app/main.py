@@ -3821,6 +3821,8 @@ class ALICE:
 
         if normalized in {"conversation:ack", "conversation:acknowledgment"}:
             return "Understood. What should we do next?"
+        if normalized == "status_inquiry":
+            return "I am doing well. What are you working on right now?"
         if normalized == "thanks":
             return "You are welcome. What do you want to tackle next?"
         if normalized == "conversation:clarification_needed":
@@ -5475,7 +5477,12 @@ class ALICE:
             nlp_result = self.nlp.process(_nlp_input)
             intent = nlp_result.intent
             entities = nlp_result.entities
-            if _context_resolution and _context_resolution.resolved_bindings:
+            if (
+                _context_resolution
+                and _context_resolution.resolved_bindings
+                and _resolution_confidence >= 0.96
+                and _resolved_input != user_input
+            ):
                 entities = dict(entities or {})
                 entities['resolved_bindings'] = dict(_context_resolution.resolved_bindings)
                 if 'resolved_reference' not in entities:

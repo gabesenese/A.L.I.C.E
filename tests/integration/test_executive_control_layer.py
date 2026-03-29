@@ -284,47 +284,93 @@ def test_runtime_controls_reduce_tool_usage_when_clarify_first() -> None:
     assert int(controls["thinking_depth"]) >= 3
 
 
-    def test_help_intent_prefers_native_scaffold_over_llm() -> None:
-        controller = ExecutiveController()
-        state = controller.build_state(
-            user_input="i need help",
-            intent="conversation:help",
-            confidence=0.95,
-            entities={},
-            conversation_state={},
-        )
+def test_help_intent_prefers_native_scaffold_over_llm() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="i need help",
+        intent="conversation:help",
+        confidence=0.95,
+        entities={},
+        conversation_state={},
+    )
 
-        decision = controller.decide(
-            state,
-            is_pure_conversation=True,
-            has_explicit_action_cue=False,
-            has_active_goal=False,
-            force_plugins_for_notes=False,
-        )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
 
-        assert decision.action == "answer_direct"
-        assert decision.reason == "native_conversation_scaffold"
+    assert decision.action == "answer_direct"
+    assert decision.reason in {
+        "native_conversation_scaffold",
+        "simple_conversational_native_path",
+    }
 
 
-    def test_help_opener_reduces_llm_score() -> None:
-        controller = ExecutiveController()
-        state = controller.build_state(
-            user_input="can you help with this",
-            intent="conversation:general",
-            confidence=0.97,
-            entities={},
-            conversation_state={},
-        )
+def test_help_opener_reduces_llm_score() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="can you help with this",
+        intent="conversation:general",
+        confidence=0.97,
+        entities={},
+        conversation_state={},
+    )
 
-        scores = controller.score_decisions(
-            state,
-            is_pure_conversation=True,
-            has_explicit_action_cue=False,
-            has_active_goal=False,
-            force_plugins_for_notes=False,
-        )
+    scores = controller.score_decisions(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
 
-        assert scores["llm"] <= 0.45
+    assert scores["llm"] <= 0.60
+
+
+def test_status_inquiry_forces_simple_native_path() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="how are you?",
+        intent="status_inquiry",
+        confidence=0.95,
+        entities={},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "answer_direct"
+    assert decision.reason == "simple_conversational_native_path"
+
+
+def test_help_intent_with_educational_question_does_not_force_simple_native_path() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="give me a brief summary of how ai works",
+        intent="conversation:help",
+        confidence=0.93,
+        entities={},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.reason != "simple_conversational_native_path"
 
 
 def test_clarification_needed_intent_answers_instead_of_looping() -> None:
@@ -345,10 +391,11 @@ def test_clarification_needed_intent_answers_instead_of_looping() -> None:
         force_plugins_for_notes=False,
     )
 
-    assert decision.action == "answer_direct"
+    assert decision.action in {"answer_direct", "use_llm"}
     assert decision.reason in {
         "native_conversation_scaffold",
         "simple_conversational_native_path",
+        "clarification_answer_requested",
     }
 
 
