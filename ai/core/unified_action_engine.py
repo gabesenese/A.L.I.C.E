@@ -379,6 +379,52 @@ class UnifiedActionEngine:
         if not result.side_effects and not result.verification_report.get("partial_success", False):
             return None
 
+        preview_only = bool((request.params or {}).get("_rollback_preview_only", False))
+        preview = self.rollback_executor.execute(
+            plugin_manager=self.plugin_manager,
+            request=request,
+            result=result,
+            dry_run=True,
+        ).to_dict()
+
+        if preview_only:
+            self.execution_journal.record(
+                {
+                    "event": "rollback_preview",
+                    "goal": request.goal,
+                    "plugin": request.plugin,
+                    "action": request.action,
+                    "success": True,
+                    "status": preview.get("status", "rollback_preview"),
+                    "goal_satisfied": result.goal_satisfied,
+                }
+            )
+            return preview
+
+        if request.risk_level in {"high", "critical"} and not self._has_rollback_approval(request):
+            blocked = {
+                "attempted": False,
+                "success": False,
+                "status": "rollback_confirmation_required",
+                "rollback_intent": preview.get("rollback_intent", ""),
+                "details": {
+                    "reason": "high_risk_requires_operator_approval",
+                    "preview": preview,
+                },
+            }
+            self.execution_journal.record(
+                {
+                    "event": "rollback_blocked",
+                    "goal": request.goal,
+                    "plugin": request.plugin,
+                    "action": request.action,
+                    "success": False,
+                    "status": blocked.get("status"),
+                    "goal_satisfied": result.goal_satisfied,
+                }
+            )
+            return blocked
+
         outcome = self.rollback_executor.execute(
             plugin_manager=self.plugin_manager,
             request=request,
@@ -397,6 +443,13 @@ class UnifiedActionEngine:
             }
         )
         return outcome
+
+    def _has_rollback_approval(self, request: ActionRequest) -> bool:
+        params = request.params or {}
+        if bool(params.get("_rollback_approval_token", False)):
+            return True
+        raw_query = str(params.get("_raw_query") or "").lower()
+        return any(token in raw_query for token in ("confirm rollback", "approve rollback", "yes rollback"))
 
     def _compose_intent(self, request: ActionRequest) -> str:
         source_intent = str(request.source_intent or "").strip()

@@ -80,6 +80,57 @@ def test_unified_action_engine_attempts_auto_rollback_on_partial_failure():
     assert plugin_manager.rollback_calls
 
 
+def test_unified_action_engine_rollback_preview_only_does_not_execute():
+    plugin_manager = _StubPluginManager()
+    engine = UnifiedActionEngine(tool_executor=_StubToolExecutor())
+    engine.bind_plugin_manager(plugin_manager)
+
+    req = ActionRequest(
+        goal="create roadmap note",
+        plugin="notes",
+        action="create",
+        params={
+            "title": "Roadmap",
+            "_raw_query": "create roadmap note",
+            "_rollback_preview_only": True,
+        },
+        source_intent="notes:create",
+        confidence=0.8,
+        rollback_policy="auto",
+        target_spec={"target": "Roadmap"},
+    )
+
+    res = engine.execute(req)
+
+    rollback = (res.state_updates or {}).get("rollback") or {}
+    assert rollback.get("status") == "rollback_preview"
+    assert plugin_manager.rollback_calls == []
+
+
+def test_unified_action_engine_blocks_high_risk_rollback_without_approval():
+    plugin_manager = _StubPluginManager()
+    engine = UnifiedActionEngine(tool_executor=_StubToolExecutor())
+    engine.bind_plugin_manager(plugin_manager)
+
+    req = ActionRequest(
+        goal="create production note",
+        plugin="notes",
+        action="create",
+        params={"title": "Prod", "_raw_query": "create prod note", "_approval_token": True},
+        source_intent="notes:create",
+        confidence=0.8,
+        rollback_policy="auto",
+        risk_level="high",
+        target_spec={"target": "Prod"},
+    )
+
+    res = engine.execute(req)
+
+    rollback = (res.state_updates or {}).get("rollback") or {}
+    assert rollback.get("status") == "rollback_confirmation_required"
+    assert plugin_manager.rollback_calls == []
+
+
 def test_bounded_autonomy_evaluates_trigger_events(tmp_path: Path):
     manager = BoundedAutonomyManager(storage_path=str(tmp_path / "autonomy_loops.json"))
     manager.register_loop(

@@ -21,8 +21,35 @@ class RollbackOutcome:
         return payload
 
 
+@dataclass
+class RollbackPlan:
+    applicable: bool
+    rollback_intent: str = ""
+    rollback_entities: Dict[str, Any] = None
+    reason: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "applicable": bool(self.applicable),
+            "rollback_intent": self.rollback_intent,
+            "rollback_entities": dict(self.rollback_entities or {}),
+            "reason": self.reason,
+        }
+
+
 class RollbackExecutor:
     """Runs best-effort compensating actions per plugin/action class."""
+
+    def plan(self, *, request: Any, result: Any) -> RollbackPlan:
+        rollback_intent, rollback_entities = self._build_compensating_call(request, result)
+        if not rollback_intent:
+            return RollbackPlan(False, reason="no_compensation_mapping")
+        return RollbackPlan(
+            True,
+            rollback_intent=rollback_intent,
+            rollback_entities=rollback_entities,
+            reason="compensating_action_available",
+        )
 
     def execute(
         self,
@@ -30,13 +57,29 @@ class RollbackExecutor:
         plugin_manager: Any,
         request: Any,
         result: Any,
+        dry_run: bool = False,
     ) -> RollbackOutcome:
-        if plugin_manager is None:
+        if plugin_manager is None and not dry_run:
             return RollbackOutcome(False, False, "rollback_unavailable", details={"reason": "missing_plugin_manager"})
 
-        rollback_intent, rollback_entities = self._build_compensating_call(request, result)
-        if not rollback_intent:
-            return RollbackOutcome(False, False, "rollback_not_applicable", details={"reason": "no_compensation_mapping"})
+        plan = self.plan(request=request, result=result)
+        if not plan.applicable:
+            return RollbackOutcome(False, False, "rollback_not_applicable", details={"reason": plan.reason})
+
+        rollback_intent = plan.rollback_intent
+        rollback_entities = plan.rollback_entities or {}
+
+        if dry_run:
+            return RollbackOutcome(
+                attempted=False,
+                success=True,
+                status="rollback_preview",
+                rollback_intent=rollback_intent,
+                details={
+                    "reason": "dry_run",
+                    "entities": rollback_entities,
+                },
+            )
 
         try:
             raw_query = f"rollback {getattr(request, 'plugin', 'unknown')}:{getattr(request, 'action', 'unknown')}"
