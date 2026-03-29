@@ -139,6 +139,10 @@ except ImportError:
     DialogueStateMachine = None
     logging.warning("[WARN] Tier foundation modules unavailable. Running base NLP stack.")
 
+from ai.core.perception import Perception, PerceptionResult
+from ai.core.followup_resolver import FollowUpResolver, FollowUpResult
+from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -1139,6 +1143,17 @@ class NLPProcessor:
     _instance = None
     _lock = threading.Lock()
 
+    # Foundation 2 routing policy thresholds.
+    UNKNOWN_FALLBACK_CONF_HARD = 0.35
+    UNKNOWN_FALLBACK_CONF_SOFT = 0.45
+    UNKNOWN_FALLBACK_PLAUS_SOFT = 0.60
+    UNKNOWN_FALLBACK_PLAUS_HARD = 0.45
+    ROUTE_UNCERTAINTY_THRESHOLD = 0.55
+    CLARIFICATION_INTENT_CONFIDENCE_THRESHOLD = 0.45
+    CLARIFICATION_CONFIDENCE_MIN = 0.42
+    CLARIFICATION_CONFIDENCE_MAX = 0.62
+    CONVERSATION_CATEGORY_GATE_THRESHOLD = 0.88
+
     def __new__(cls):
         """Singleton pattern for performance"""
         if cls._instance is None:
@@ -1200,6 +1215,20 @@ class NLPProcessor:
 
         # Conversation context
         self.context = ConversationContext()
+        self.followup_resolver = FollowUpResolver()
+        self.route_coordinator = RouteCoordinator(
+            RouteCoordinatorConfig(
+                unknown_fallback_conf_hard=self.UNKNOWN_FALLBACK_CONF_HARD,
+                unknown_fallback_conf_soft=self.UNKNOWN_FALLBACK_CONF_SOFT,
+                unknown_fallback_plaus_soft=self.UNKNOWN_FALLBACK_PLAUS_SOFT,
+                unknown_fallback_plaus_hard=self.UNKNOWN_FALLBACK_PLAUS_HARD,
+                route_uncertainty_threshold=self.ROUTE_UNCERTAINTY_THRESHOLD,
+                clarification_intent_confidence_threshold=self.CLARIFICATION_INTENT_CONFIDENCE_THRESHOLD,
+                clarification_confidence_min=self.CLARIFICATION_CONFIDENCE_MIN,
+                clarification_confidence_max=self.CLARIFICATION_CONFIDENCE_MAX,
+                conversation_category_gate_threshold=self.CONVERSATION_CATEGORY_GATE_THRESHOLD,
+            )
+        )
 
         # Tier foundations: explicit short-horizon memory + implicit intent + dialogue state machine
         if INTELLIGENCE_FOUNDATIONS_AVAILABLE:
@@ -1561,214 +1590,65 @@ class NLPProcessor:
     def _retrieval_first_parse(
         self, tokens: List[RichToken]
     ) -> Optional[Tuple[str, float]]:
-        """Resolve very short follow-up queries using context before broad intent matching."""
+        """Resolve explicit object-reference follow-ups only.
+
+        Foundation 2 policy: broad topic inheritance now belongs to
+        FollowUpResolver, so this stage only handles high-precision commands
+        like "open it", "delete that", "what's in it?".
+        """
         content_tokens = [token for token in tokens if token.kind != "symbol"]
         if len(content_tokens) > 8:
             return None
 
         token_words = {token.normalized for token in content_tokens}
         last_intent = self.context.last_intent or ""
-        recent_queries = [q.lower() for q in list(self.context.query_history)[-3:]]
+        if not last_intent:
+            return None
 
-        reference_present = any(
-            token.flags.get("is_reference") for token in content_tokens
-        )
-
-        followup_connectors = {
-            "what",
-            "about",
-            "and",
-            "also",
-            "that",
-            "this",
+        reference_present = any(token.flags.get("is_reference") for token in content_tokens)
+        explicit_reference_tokens = {
             "it",
-            "same",
+            "this",
+            "that",
+            "one",
+            "first",
+            "second",
+            "third",
+            "those",
+            "these",
         }
-        time_range_cues = {
-            "today",
-            "tomorrow",
-            "tonight",
-            "week",
-            "weekend",
-            "month",
-            "next",
-        }
-        weather_cues = (
-            frozenset(FollowUpResolver.DOMAIN_SIGNALS.get("weather", []))
-            | _P1_WEATHER_KEYWORDS
-        )
+        has_reference = reference_present or bool(token_words & explicit_reference_tokens)
+        if not has_reference:
+            return None
 
-        recent_weather_context = last_intent.startswith("weather:") or (
-            # Only the *immediately preceding* query counts — once the user
-            # switches to a different topic the weather context is stale.
-            len(recent_queries) > 0
-            and (
-                "weather" in recent_queries[-1]
-                or "forecast" in recent_queries[-1]
-            )
-        )
-
-        # Domain-pivot guard: certain content words signal a completely new
-        # topic that the follow-up resolver must NOT hijack.  E.g. "what time
-        # is it?" hits followup_connectors ("what", "it") but belongs to its
-        # own domain.
-        domain_pivot_words = {
-            "time",
-            "clock",
-            "hour",
-            "minute",
-            "date",
-            "today",
-            "calendar",
-            "weather",
-            "forecast",
-            "temperature",
-            "rain",
-            "sunny",
-            "reminder",
-            "alarm",
-            "email",
-            "message",
-        }
-        if (token_words & domain_pivot_words) and not last_intent.startswith(
-            tuple(
-                prefix + ":"
-                for prefix in (
-                    w.split("_")[0] for w in token_words & domain_pivot_words
-                )
-            )
-        ):
-            # Only bail if the pivot word's domain differs from the current context.
-            # We do a quick check: if ANY pivot word suggests a domain that the
-            # last_intent does NOT belong to, let the semantic classifier handle it.
-            _time_words = {"time", "clock", "hour", "minute"}
-            _date_words = {"date", "today"}
-            _weather_words = {"weather", "forecast", "temperature", "rain", "sunny"}
-            _reminder_words = {"reminder", "alarm"}
-            _email_words = {"email", "message"}
-            _music_words = {"music", "song", "play"}
-
-            _pivot_detected = (
-                (
-                    token_words & _time_words
-                    and not last_intent.startswith(("status_inquiry", "time:"))
-                )
-                or (
-                    token_words & _date_words
-                    and not last_intent.startswith(
-                        ("status_inquiry", "time:", "calendar:")
-                    )
-                )
-                or (
-                    token_words & _weather_words
-                    and not last_intent.startswith("weather:")
-                )
-                or (
-                    token_words & _reminder_words
-                    and not last_intent.startswith("reminder:")
-                )
-                or (token_words & _email_words and not last_intent.startswith("email:"))
-            )
-            if _pivot_detected:
-                return None
-
-        # ── Notes domain: check BEFORE weather so pronoun follow-ups after
-        # a notes interaction (e.g. "what is in it?") don't fall into weather.
         _delete_words = {"delete", "remove", "trash", "erase", "discard"}
         _content_cues = {"in", "inside", "contents", "content", "contains"}
-        if last_intent and last_intent.startswith("notes:") and (
-            reference_present or bool(token_words & followup_connectors)
-        ):
-            if not token_words.isdisjoint(_delete_words):
-                return "notes:delete", 0.85
-            # Content-read cues: "what is in it?", "what's inside it?"
-            if not token_words.isdisjoint(_content_cues):
-                return "notes:read_content", 0.88
-            # List/count cues: "what notes do i have?", "how many notes",
-            # "do i have notes?", "2 notes" etc.  These beat the generic read fallback.
-            _list_cues = {"have", "many", "all", "list", "count"}
-            if (
-                not token_words.isdisjoint(_list_cues)
-                and "notes" in token_words
-                and token_words.isdisjoint({"title", "called", "named", "content", "inside"})
-            ):
-                return "notes:list", 0.85
-            return "notes:read", 0.82
-
-        if recent_weather_context:
-            weather_followup = bool(token_words & weather_cues)
-            temporal_followup = bool(token_words & time_range_cues)
-            connector_followup = reference_present or bool(
-                token_words & followup_connectors
-            )
-
-            # Never let weather win on purely pronoun-based follow-ups when there
-            # are NO explicit weather keywords in the current utterance.
-            _has_weather_keyword = bool(token_words & weather_cues)
-            if connector_followup and not _has_weather_keyword:
-                # Only context cues, no actual weather words — don't assume weather
-                pass
-            else:
-                if temporal_followup or (
-                    connector_followup and not token_words.isdisjoint(time_range_cues)
-                ):
-                    return "weather:forecast", 0.86
-
-                if weather_followup or connector_followup:
-                    if token_words & {"week", "weekend", "next", "tomorrow", "tonight"}:
-                        return "weather:forecast", 0.84
-                    return "weather:current", 0.83
-
-        # Generic short ambiguous follow-up: keep same topic intent family
-        # (notes: case is already handled above before weather; skip it here)
-        if last_intent and (
-            reference_present or bool(token_words & followup_connectors)
-        ):
-            if last_intent.startswith("notes:"):
-                # Handled earlier — shouldn't reach here, but keep as fallback
-                if not token_words.isdisjoint(_delete_words):
-                    return "notes:delete", 0.85
-                if not token_words.isdisjoint(_content_cues):
-                    return "notes:read_content", 0.85
-                return "notes:read", 0.79
-            if last_intent.startswith("email:"):
-                return "email:read", 0.77
-            if last_intent.startswith("calendar:"):
-                return "calendar:list", 0.76
-            if ":" in last_intent and not last_intent.startswith(
-                ("conversation:", "system:")
-            ):
-                return last_intent, 0.75
-
-        action_cues = {
-            "read",
-            "show",
-            "open",
-            "list",
-            "play",
-            "pause",
-            "reply",
-            "send",
-            "schedule",
-        }
-        if token_words.isdisjoint(action_cues):
-            return None
-
-        if not reference_present and token_words.isdisjoint(
-            {"read", "show", "open", "list", "reply", "send"}
-        ):
-            return None
 
         if last_intent.startswith("notes:") or self.context.mentioned_notes:
-            if "list" in token_words:
-                return "notes:list", 0.81
+            if not token_words.isdisjoint(_delete_words):
+                return "notes:delete", 0.85
             if not token_words.isdisjoint(_content_cues):
-                return "notes:read_content", 0.84
-            return "notes:read", 0.82
-        if last_intent.startswith("email:"):
+                return "notes:read_content", 0.88
+            if "list" in token_words:
+                return "notes:list", 0.82
+            if not token_words.isdisjoint({"open", "read", "show"}):
+                return "notes:read", 0.82
+
+        if last_intent.startswith("email:") and not token_words.isdisjoint(
+            {"read", "open", "show", "reply", "forward"}
+        ):
             return "email:read", 0.78
-        if last_intent.startswith("calendar:"):
+
+        if last_intent.startswith("calendar:") and not token_words.isdisjoint(
+            {"list", "show", "open", "move", "reschedule", "cancel"}
+        ):
             return "calendar:list", 0.76
+
+        if last_intent.startswith("reminder:") and not token_words.isdisjoint(
+            {"show", "list", "cancel", "remove", "snooze"}
+        ):
+            return "reminder:list", 0.76
+
         return None
 
     def _calibrate_route_decision(
@@ -2176,11 +2056,14 @@ class NLPProcessor:
             return False
         if uncertainty and uncertainty.get("needs_clarification"):
             return True
-        if confidence < 0.35:
+        if confidence < self.UNKNOWN_FALLBACK_CONF_HARD:
             return True
-        if confidence < 0.45 and plausibility < 0.60:
+        if (
+            confidence < self.UNKNOWN_FALLBACK_CONF_SOFT
+            and plausibility < self.UNKNOWN_FALLBACK_PLAUS_SOFT
+        ):
             return True
-        if plausibility < 0.45:
+        if plausibility < self.UNKNOWN_FALLBACK_PLAUS_HARD:
             return True
         return False
 
@@ -2280,7 +2163,7 @@ class NLPProcessor:
         plugin_scores: Dict[str, float],
     ) -> Dict[str, Any]:
         """Build disambiguation metadata when intent confidence is weak."""
-        if route.confidence >= 0.55:
+        if route.confidence >= self.ROUTE_UNCERTAINTY_THRESHOLD:
             return {}
 
         ranked_plugins = sorted(
@@ -2864,6 +2747,12 @@ class NLPProcessor:
             self.learned_corrections.get(_orig_key)
             if self.learned_corrections and _orig_key != _correction_key else None
         )
+        _send_followup_correction_guard = bool(
+            re.search(r"\bsend\b", _correction_key)
+            and re.search(r"\b(her|him|them)\b", _correction_key)
+        )
+        if _send_followup_correction_guard:
+            _correction_intent = None
         if _correction_intent:
             learned_intent = _correction_intent
             logger.info(
@@ -2910,6 +2799,14 @@ class NLPProcessor:
             ):
                 _reminder_intent = "reminder:cancel"
 
+            _send_followup_intent = None
+            _tl_words = set(_tl.split())
+            if (
+                "send" in _tl_words
+                and any(p in _tl_words for p in {"her", "him", "them"})
+            ):
+                _send_followup_intent = "email:compose"
+
             if _reminder_intent:
                 route = RouteDecision(
                     intent=_reminder_intent,
@@ -2920,6 +2817,16 @@ class NLPProcessor:
                 )
                 intent = _reminder_intent
                 intent_confidence = 0.95
+            elif _send_followup_intent:
+                route = RouteDecision(
+                    intent=_send_followup_intent,
+                    confidence=0.90,
+                    plugin="email",
+                    action="compose",
+                    trace={"source": "send_followup_override"},
+                )
+                intent = _send_followup_intent
+                intent_confidence = 0.90
             # Step 5: Intent detection (retrieval-first + semantic + calibrated routing)
             elif retrieval_route:
                 intent, intent_confidence = retrieval_route
@@ -2963,172 +2870,39 @@ class NLPProcessor:
                 intent = route.intent
                 intent_confidence = route.confidence
 
-            uncertainty = self._build_uncertainty_prompt(
-                route, parsed_command, plugin_scores
-            ) if route is not None else None
-            if intent.startswith("vague_") and not uncertainty:
-                uncertainty = {
-                    "needs_clarification": True,
-                    "question": "Can you clarify what action and target you mean?",
-                    "candidate_plugins": ["notes", "email", "calendar"],
-                    "route_confidence": intent_confidence,
-                    "parsed_action": parsed_command.action,
-                }
-            if not uncertainty and re.search(
-                r"\b(do that thing|this thing|that thing|what about that|who is that)\b",
-                normalized_text.lower(),
-            ):
-                uncertainty = {
-                    "needs_clarification": True,
-                    "question": "Could you clarify what you want me to do?",
-                    "candidate_plugins": ["notes", "email", "calendar"],
-                    "route_confidence": intent_confidence,
-                    "parsed_action": parsed_command.action,
-                }
-            if uncertainty:
-                parsed_command.modifiers["disambiguation"] = uncertainty
-                if intent_confidence < 0.45 and not intent.startswith(
-                    ("notes:", "email:", "calendar:", "system:")
-                ):
-                    intent = "conversation:clarification_needed"
-                    intent_confidence = max(intent_confidence, 0.41)
-
-            intent_candidates = self._build_top_intent_candidates(
-                route=route,
-                weighted_candidates=weighted_candidates,
-                semantic_intent=semantic_intent,
-                plugin_scores=plugin_scores,
-                limit=3,
-            )
-            plausibility_score, plausibility_issues = self._validate_intent_plausibility(
-                normalized_text,
-                intent,
-                parsed_command,
-                plugin_scores,
-            )
-            parsed_command.modifiers["intent_candidates"] = intent_candidates
-            parsed_command.modifiers["intent_plausibility"] = {
-                "score": plausibility_score,
-                "issues": plausibility_issues,
-            }
-
-            if self._should_force_unknown_fallback(
+            intent, intent_confidence = self.route_coordinator.apply_initial_routing_policy(
                 intent=intent,
-                confidence=float(intent_confidence or 0.0),
-                plausibility=float(plausibility_score),
-                uncertainty=uncertainty,
-            ):
-                fallback_question = (
-                    "I might be misreading your request. Did you want me to perform an action, "
-                    "or should we continue as a discussion?"
-                )
-                parsed_command.modifiers["disambiguation"] = {
-                    "needs_clarification": True,
-                    "question": fallback_question,
-                    "candidate_plugins": [
-                        c["intent"].split(":", 1)[0]
-                        for c in intent_candidates
-                        if ":" in str(c.get("intent", ""))
-                    ][:3],
-                    "route_confidence": float(intent_confidence or 0.0),
-                    "intent_plausibility": float(plausibility_score),
-                    "fallback_reason": "unknown_intent_fallback",
-                }
-                parsed_command.modifiers["unknown_intent_fallback"] = True
-                intent = "conversation:clarification_needed"
-                intent_confidence = max(0.42, min(0.62, float(intent_confidence or 0.0)))
-            else:
-                parsed_command.modifiers["unknown_intent_fallback"] = False
-
-            if "intent_candidates" not in parsed_command.modifiers:
-                parsed_command.modifiers["intent_candidates"] = intent_candidates
-            if "intent_plausibility" not in parsed_command.modifiers:
-                parsed_command.modifiers["intent_plausibility"] = {
-                    "score": plausibility_score,
-                    "issues": plausibility_issues,
-                }
-
-            parsed_command.modifiers["routing_trace"] = route.trace if route is not None else {}
-
-        if (
-            intent_category == "conversation"
-            and not intent.startswith("conversation:")
-            and float(intent_confidence or 0.0) < 0.88
-        ):
-            parsed_command.modifiers["tool_execution_disabled"] = True
-            parsed_command.modifiers["category_gate"] = {
-                "category": "conversation",
-                "original_intent": intent,
-                "original_confidence": float(intent_confidence or 0.0),
-                "reason": "conversation_category_gate",
-            }
-            intent = "conversation:general"
-            intent_confidence = max(0.72, min(0.87, float(intent_confidence or 0.0)))
-        else:
-            parsed_command.modifiers["tool_execution_disabled"] = bool(
-                parsed_command.modifiers.get("tool_execution_disabled", False)
-            )
-
-        if intent_category == "conversation":
-            parsed_command.modifiers["tool_execution_disabled"] = True
-
-        # Learned-correction path may bypass candidate/plausibility assignment.
-        if "intent_candidates" not in parsed_command.modifiers:
-            parsed_command.modifiers["intent_candidates"] = self._build_top_intent_candidates(
+                intent_confidence=float(intent_confidence or 0.0),
                 route=route,
-                weighted_candidates=weighted_candidates,
-                semantic_intent=semantic_intent,
+                parsed_command=parsed_command,
                 plugin_scores=plugin_scores,
-                limit=3,
+                semantic_intent=semantic_intent,
+                weighted_candidates=weighted_candidates,
+                build_uncertainty_prompt=self._build_uncertainty_prompt,
+                build_top_intent_candidates=self._build_top_intent_candidates,
+                validate_intent_plausibility=self._validate_intent_plausibility,
+                should_force_unknown_fallback=self._should_force_unknown_fallback,
+                normalized_text=normalized_text,
             )
-        if "intent_plausibility" not in parsed_command.modifiers:
-            _plaus_score, _plaus_issues = self._validate_intent_plausibility(
-                normalized_text,
-                intent,
-                parsed_command,
-                plugin_scores,
-            )
-            parsed_command.modifiers["intent_plausibility"] = {
-                "score": _plaus_score,
-                "issues": _plaus_issues,
-            }
-        if "unknown_intent_fallback" not in parsed_command.modifiers:
-            parsed_command.modifiers["unknown_intent_fallback"] = False
 
-        # Global safeguard: even learned/high-confidence routes can be vetoed
-        # when intent plausibility is very weak for the current utterance.
-        _plausibility = float(
-            (parsed_command.modifiers.get("intent_plausibility") or {}).get("score", 1.0)
+        intent, intent_confidence = self.route_coordinator.apply_category_gate(
+            intent=intent,
+            intent_confidence=float(intent_confidence or 0.0),
+            intent_category=intent_category,
+            parsed_command=parsed_command,
         )
-        _uncertainty = parsed_command.modifiers.get("disambiguation")
-        if (
-            not parsed_command.modifiers.get("unknown_intent_fallback", False)
-            and self._should_force_unknown_fallback(
-                intent=intent,
-                confidence=float(intent_confidence or 0.0),
-                plausibility=_plausibility,
-                uncertainty=_uncertainty if isinstance(_uncertainty, dict) else None,
-            )
-        ):
-            _fallback_candidates = parsed_command.modifiers.get("intent_candidates", [])
-            parsed_command.modifiers["disambiguation"] = {
-                "needs_clarification": True,
-                "question": (
-                    "I might be misreading your request. Did you want me to perform an action, "
-                    "or should we continue as a discussion?"
-                ),
-                "candidate_plugins": [
-                    c.get("intent", "").split(":", 1)[0]
-                    for c in _fallback_candidates
-                    if ":" in str(c.get("intent", ""))
-                ][:3],
-                "route_confidence": float(intent_confidence or 0.0),
-                "intent_plausibility": _plausibility,
-                "fallback_reason": "unknown_intent_fallback_global",
-            }
-            parsed_command.modifiers["unknown_intent_fallback"] = True
-            intent = "conversation:clarification_needed"
-            intent_confidence = max(0.42, min(0.62, float(intent_confidence or 0.0)))
+
+        self.route_coordinator.ensure_metadata(
+            parsed_command=parsed_command,
+            route=route,
+            weighted_candidates=weighted_candidates,
+            semantic_intent=semantic_intent,
+            plugin_scores=plugin_scores,
+            build_top_intent_candidates=self._build_top_intent_candidates,
+            validate_intent_plausibility=self._validate_intent_plausibility,
+            normalized_text=normalized_text,
+            intent=intent,
+        )
 
         # Fingerprint prior: if we have a cached high-confidence parse, use it as a boost
         if (
@@ -3218,6 +2992,46 @@ class NLPProcessor:
                 if _merged:
                     parsed_command.modifiers["frame"] = _merged
 
+        # ── Foundation 2: single follow-up authority path ───────────────────
+        # Apply follow-up inheritance in one place after baseline routing and
+        # frame adjustments, so later stages don't duplicate topic carry-over.
+        _followup_result = self.followup_resolver.resolve(
+            user_input=normalized_text,
+            nlp_intent=intent,
+            nlp_confidence=float(intent_confidence or 0.0),
+            last_intent=self.context.last_intent,
+            conversation_topics=None,
+            perception_followup_domain=None,
+            turn_distance=0,
+        )
+        parsed_command.modifiers["followup_resolution"] = {
+            "was_followup": _followup_result.was_followup,
+            "domain": _followup_result.domain,
+            "reason": _followup_result.reason,
+            "resolved_intent": _followup_result.resolved_intent,
+            "confidence": float(_followup_result.confidence),
+        }
+        if _followup_result.was_followup:
+            intent = _followup_result.resolved_intent
+            intent_confidence = max(
+                float(intent_confidence or 0.0),
+                float(_followup_result.confidence),
+            )
+            if intent.startswith(("notes:", "email:", "calendar:", "reminder:", "weather:")):
+                parsed_command.modifiers["unknown_intent_fallback"] = False
+                parsed_command.modifiers.pop("disambiguation", None)
+            route = RouteDecision(
+                intent=intent,
+                confidence=float(intent_confidence),
+                plugin=intent.split(":", 1)[0] if ":" in intent else "conversation",
+                action=intent.split(":", 1)[1] if ":" in intent else "general",
+                trace={
+                    "source": "followup_resolver",
+                    "reason": _followup_result.reason,
+                    "domain": _followup_result.domain,
+                },
+            )
+
         # ── Dialogue-state gate ────────────────────────────────────────────────
         # If Alice is waiting for the user to disambiguate (dialogue_state ==
         # "clarifying") and the current response looks like a clarification
@@ -3257,7 +3071,12 @@ class NLPProcessor:
         # If main intent confidence is low, attempt a nearest-neighbour lookup
         # over the learned_corrections embedding index.  Only overrides when
         # cosine similarity > 0.90 (see _try_semantic_correction).
-        if intent_confidence < 0.70 and self.learned_corrections:
+        _followup_locked = bool(
+            route is not None
+            and isinstance(getattr(route, "trace", None), dict)
+            and route.trace.get("source") == "followup_resolver"
+        )
+        if intent_confidence < 0.70 and self.learned_corrections and not _followup_locked:
             _sem = self._try_semantic_correction(normalized_text)
             if _sem:
                 _sem_intent, _sem_conf = _sem
@@ -3341,39 +3160,22 @@ class NLPProcessor:
             and str(getattr(frame_result, "plugin", "")).lower()
             in {"notes", "email", "calendar", "reminder", "file_operations"}
         )
+        _followup_locked_final = bool(
+            route is not None
+            and isinstance(getattr(route, "trace", None), dict)
+            and route.trace.get("source") == "followup_resolver"
+            and intent.startswith(("notes:", "email:", "calendar:", "reminder:", "weather:"))
+        )
 
-        if (not _strong_action_frame) and self._should_force_unknown_fallback(
+        intent, intent_confidence = self.route_coordinator.apply_final_fallback(
             intent=intent,
-            confidence=float(intent_confidence or 0.0),
-            plausibility=float(_final_plausibility),
-            uncertainty=(
-                parsed_command.modifiers.get("disambiguation")
-                if isinstance(parsed_command.modifiers.get("disambiguation"), dict)
-                else None
-            ),
-        ):
-            parsed_command.modifiers["unknown_intent_fallback"] = True
-            parsed_command.modifiers["disambiguation"] = {
-                "needs_clarification": True,
-                "question": (
-                    "I might be misreading your request. Did you want me to perform an action, "
-                    "or should we continue as a discussion?"
-                ),
-                "candidate_plugins": [
-                    c.get("intent", "").split(":", 1)[0]
-                    for c in parsed_command.modifiers.get("intent_candidates", [])
-                    if ":" in str(c.get("intent", ""))
-                ][:3],
-                "route_confidence": float(intent_confidence or 0.0),
-                "intent_plausibility": float(_final_plausibility),
-                "fallback_reason": "unknown_intent_fallback_final",
-            }
-            intent = "conversation:clarification_needed"
-            intent_confidence = max(0.42, min(0.62, float(intent_confidence or 0.0)))
-        else:
-            parsed_command.modifiers["unknown_intent_fallback"] = bool(
-                parsed_command.modifiers.get("unknown_intent_fallback", False)
-            )
+            intent_confidence=float(intent_confidence or 0.0),
+            parsed_command=parsed_command,
+            final_plausibility=float(_final_plausibility),
+            strong_action_frame=_strong_action_frame,
+            followup_locked_final=_followup_locked_final,
+            should_force_unknown_fallback=self._should_force_unknown_fallback,
+        )
 
         # Continue with rest of processing
 
@@ -4445,256 +4247,6 @@ def get_nlp_processor() -> NLPProcessor:
 
 
 # ============================================================================
-# PERCEPTION LAYER
-# ============================================================================
-
-
-@dataclass
-class PerceptionResult:
-    """
-    Unified perception object produced between raw NLP output and the pipeline.
-
-    Centralises ambiguity score, inferred mood, follow-up domain detection,
-    and clarification need so that all downstream decisions can be made from
-    one place rather than being patched across individual methods.
-
-    Convenience properties proxy the most-used fields of the inner
-    ProcessedQuery so callers don't have to drill through `.query`.
-    """
-
-    query: "ProcessedQuery"
-    inferred_mood: str  # positive | negative | neutral | frustrated | urgent
-    ambiguity: float  # 0.0 = unambiguous, 1.0 = completely unclear
-    followup_domain: Optional[str]  # e.g. "weather", "notes", "email"
-    needs_clarification: bool
-    clarification_question: Optional[str]
-    interaction_hints: Dict[str, Any]  # downstream policy hints
-
-    # ── Convenience proxies ──────────────────────────────────────────
-    @property
-    def intent(self) -> str:
-        return self.query.intent
-
-    @property
-    def confidence(self) -> float:
-        return self.query.intent_confidence
-
-    @property
-    def entities(self) -> Dict[str, Any]:
-        return self.query.entities
-
-    @property
-    def sentiment(self) -> Dict[str, float]:
-        return self.query.sentiment
-
-
-class Perception:
-    """
-    Builds a PerceptionResult from a ProcessedQuery and session context.
-
-    Usage
-    -----
-        perception = Perception()
-        result = perception.build(nlp_result, last_intent, conversation_topics)
-    """
-
-    FRUSTRATION_MARKERS: Set[str] = {
-        "no",
-        "wrong",
-        "stop",
-        "ugh",
-        "again",
-        "not",
-        "don't",
-        "didn't",
-        "why",
-        "broken",
-        "useless",
-        "terrible",
-        "awful",
-        "hate",
-        "redo",
-        "fix",
-        "what",
-        "seriously",
-        "come on",
-    }
-
-    # Domain signals reused from FollowUpResolver (kept here so Perception
-    # is self-contained and doesn't create a circular import).
-    _DOMAIN_SIGNALS: Dict[str, Set[str]] = {
-        "weather": {
-            "weather",
-            "rain",
-            "snow",
-            "temp",
-            "cold",
-            "warm",
-            "umbrella",
-            "wear",
-            "coat",
-            "jacket",
-            "forecast",
-            "tomorrow",
-            "tonight",
-            "humidity",
-            "wind",
-            "chilly",
-            "freezing",
-            "hot",
-            "sunny",
-        },
-        "notes": {"note", "task", "todo", "reminder", "list"},
-        "email": {"email", "mail", "reply", "inbox", "send", "draft"},
-        "calendar": {"event", "meeting", "schedule", "appointment", "calendar"},
-        "reminder": {"remind", "reminder", "alert", "notify", "forget", "alarm"},
-    }
-
-    def build(
-        self,
-        query: "ProcessedQuery",
-        last_intent: Optional[str] = None,
-        conversation_topics: Optional[List[str]] = None,
-    ) -> PerceptionResult:
-        """Derive a PerceptionResult from *query* and session history."""
-        mood = self._infer_mood(query)
-        ambiguity = self._calc_ambiguity(query)
-        followup_domain = self._detect_followup_domain(
-            query, last_intent, conversation_topics or []
-        )
-        needs_clarif, clarif_q = self._clarification_need(query, ambiguity)
-        hints: Dict[str, Any] = {
-            "mood": mood,
-            "ambiguity": ambiguity,
-            "followup_domain": followup_domain,
-            "response_length": (
-                "brief" if mood in ("frustrated", "urgent") else "normal"
-            ),
-            "empathy": mood in ("frustrated", "negative"),
-        }
-        return PerceptionResult(
-            query=query,
-            inferred_mood=mood,
-            ambiguity=ambiguity,
-            followup_domain=followup_domain,
-            needs_clarification=needs_clarif,
-            clarification_question=clarif_q,
-            interaction_hints=hints,
-        )
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _infer_mood(self, query: "ProcessedQuery") -> str:
-        sentiment = query.sentiment or {}
-        compound = sentiment.get("compound", 0.0)
-        lower = query.original_text.lower()
-        tokens = set(lower.split())
-
-        if query.urgency_level == "high" or tokens & {
-            "asap",
-            "urgent",
-            "now",
-            "immediately",
-        }:
-            return "urgent"
-        # Frustration: negative sentiment AND at least one frustration marker
-        if tokens & self.FRUSTRATION_MARKERS and compound < -0.05:
-            return "frustrated"
-        if compound >= 0.2:
-            return "positive"
-        if compound <= -0.2:
-            return "negative"
-        return "neutral"
-
-    def _calc_ambiguity(self, query: "ProcessedQuery") -> float:
-        conf_part = max(0.0, 1.0 - query.intent_confidence)
-        val_part = 1.0 - getattr(query, "validation_score", 1.0)
-        base = conf_part * 0.6 + val_part * 0.4
-        intent = query.intent or ""
-        if intent.startswith("vague_") or intent == "conversation:clarification_needed":
-            base = min(1.0, base + 0.3)
-        return round(base, 3)
-
-    def _detect_followup_domain(
-        self,
-        query: "ProcessedQuery",
-        last_intent: Optional[str],
-        topics: List[str],
-    ) -> Optional[str]:
-        recent = last_intent or (topics[-1] if topics else None)
-        if not recent:
-            return None
-        domain = recent.split(":")[0] if ":" in recent else recent
-        signals = self._DOMAIN_SIGNALS.get(domain, set())
-        if not signals:
-            return None
-        lower = query.original_text.lower()
-        # Strip punctuation from each word so "umbrella?" matches "umbrella"
-        import re as _re
-
-        clean_words = set(_re.sub(r"[^\w\s]", "", lower).split())
-
-        # Guard: if the NLP already assigned a specific intent in a DIFFERENT
-        # domain with reasonable confidence, don't override it with a followup
-        # signal — that would be a domain regression, not a follow-up.
-        nlp_domain = query.intent.split(":")[0] if ":" in query.intent else ""
-        _same_or_conv = (
-            nlp_domain == domain
-            or nlp_domain in ("conversation", "")
-            or query.intent.endswith(":general")
-            or query.intent in ("vague_question", "vague_temporal_question")
-        )
-        if not _same_or_conv and query.intent_confidence >= 0.60:
-            # NLP is confident enough about a different domain — respect it
-            return None
-
-        if signals & clean_words:
-            return domain
-        # Substring fallback: catches partial spellings like "umbrela" ⊂ "umbrella"
-        # Require word length >= 6 to avoid false matches on short words.
-        if any(
-            word.startswith(sig[:5]) or sig.startswith(word[:5])
-            for sig in signals
-            for word in clean_words
-            if len(word) >= 6 and len(sig) >= 6
-        ):
-            return domain
-        # Generic cues with any domain — only if low confidence AND the query
-        # is genuinely short (3 words or fewer).  This prevents "and also I want
-        # to schedule a meeting" from inheriting the notes domain.
-        generic_cues = {"and", "also", "that", "this", "it", "then", "what about"}
-        if (
-            generic_cues & clean_words
-            and query.intent_confidence < 0.55
-            and len(clean_words) <= 4
-        ):
-            return domain
-        return None
-
-    def _clarification_need(
-        self,
-        query: "ProcessedQuery",
-        ambiguity: float,
-    ) -> Tuple[bool, Optional[str]]:
-        parsed_cmd = query.parsed_command or {}
-        modifiers = (
-            parsed_cmd
-            if isinstance(parsed_cmd, dict)
-            else getattr(parsed_cmd, "modifiers", {})
-        )
-        disamb = modifiers.get("disambiguation") or modifiers.get("modifiers", {}).get(
-            "disambiguation"
-        )
-        if disamb and disamb.get("needs_clarification"):
-            return True, disamb.get("question")
-        if ambiguity >= 0.65 and query.intent_confidence < 0.4:
-            return True, "Could you clarify what you'd like me to do?"
-        return False, None
-
-
-# ============================================================================
 # TEMPORAL UNDERSTANDING  (stable abstraction over TemporalParser)
 # ============================================================================
 
@@ -4837,346 +4389,4 @@ def get_temporal_understanding(temporal_parser: Any) -> TemporalUnderstanding:
     return TemporalUnderstanding(temporal_parser)
 
 
-# ============================================================================
-# FOLLOW-UP RESOLVER  (cross-turn topic-inheritance logic)
-# ============================================================================
-
-
-@dataclass
-class FollowUpResult:
-    """Result of a follow-up resolution attempt."""
-
-    resolved_intent: str
-    confidence: float
-    was_followup: bool
-    domain: Optional[str]
-    reason: str  # human-readable trace for logs / learning
-
-
-class FollowUpResolver:
-    """
-    Determines whether the current turn continues a previous topic and,
-    if so, which intent and confidence should be used instead of the raw
-    NLP output.
-
-    Design goals
-    ------------
-    * One class, all domains — add a new domain by adding an entry to
-      DOMAIN_SIGNALS; no changes anywhere else needed.
-    * Layered priority:
-        1. Strong domain signal (fires regardless of NLP confidence)
-        2. Perception layer already flagged a follow-up domain
-        3. Low-confidence NLP + conversational filler + generic cue
-    * Never silently drops an already-resolved intent — if none of the
-      layers activate the raw NLP result passes through unchanged.
-    """
-
-    DOMAIN_SIGNALS: Dict[str, List[str]] = {
-        "weather": [
-            "wear",
-            "layer",
-            "coat",
-            "jacket",
-            "bring",
-            "umbrella",
-            "need",
-            "cold",
-            "warm",
-            "snow",
-            "rain",
-            "forecast",
-            "tomorrow",
-            "tonight",
-            "this week",
-            "next week",
-            "weekend",
-            "what about",
-            "humidity",
-            "wind",
-            "feel like",
-            "chilly",
-            "freezing",
-            "hot",
-            "sunny",
-            "cloudy",
-            "dress",
-        ],
-        "notes": [
-            "add to",
-            "delete",
-            "remove",
-            "modify",
-            "change",
-            "show",
-            "that note",
-            "edit",
-            "update",
-            "what is in",
-            "what's in",
-            "inside",
-            "read it",
-            "open it",
-            "what does it say",
-            "what does it contain",
-            "what's inside",
-            "contents",
-        ],
-        "email": [
-            "that email",
-            "reply",
-            "delete it",
-            "archive",
-            "the first one",
-            "the latest",
-            "forward",
-            "respond",
-        ],
-        "music": [
-            "that song",
-            "skip",
-            "pause",
-            "volume",
-            "louder",
-            "quieter",
-            "next track",
-            "previous",
-            "shuffle",
-        ],
-        "calendar": [
-            "reschedule",
-            "cancel",
-            "that event",
-            "the meeting",
-            "move it",
-            "postpone",
-        ],
-        "reminder": [
-            "that reminder",
-            "cancel it",
-            "postpone",
-            "snooze",
-            "remind me again",
-            "change the time",
-        ],
-    }
-
-    GENERIC_CUES: List[str] = [
-        "what about",
-        "how about",
-        "and ",
-        "also",
-        "same for",
-        "that",
-        "this",
-        "it",
-        "them",
-        "tomorrow",
-        "tonight",
-        "this week",
-        "next week",
-        "weekend",
-    ]
-
-    CONVERSATIONAL_INTENTS = frozenset(
-        {
-            "greeting",
-            "conversation:general",
-            "conversation:question",
-            "vague_question",
-            "vague_temporal_question",
-        }
-    )
-
-    # Pre-compiled word-boundary regex for generic follow-up cue detection.
-    # Substring matching (e.g. "it" in "tonight") produces false positives
-    # that hijack intent routing.  Word boundaries fix that.
-    _GENERIC_CUE_RE: re.Pattern = re.compile(
-        "|".join(
-            r"\b" + re.escape(cue.strip()) + r"\b"
-            for cue in [
-                "what about", "how about", "and", "also", "same for",
-                "that", "this", "it", "them",
-                "tomorrow", "tonight", "this week", "next week", "weekend",
-            ]
-        ),
-        re.IGNORECASE,
-    )
-
-    def resolve(
-        self,
-        user_input: str,
-        nlp_intent: str,
-        nlp_confidence: float,
-        last_intent: Optional[str],
-        conversation_topics: Optional[List[str]] = None,
-        perception_followup_domain: Optional[str] = None,
-        turn_distance: int = 0,
-    ) -> FollowUpResult:
-        """
-        Return the final (possibly inherited) intent and confidence.
-
-        Parameters
-        ----------
-        user_input:
-            Raw user utterance for the current turn.
-        nlp_intent:
-            Intent produced by the NLP processor.
-        nlp_confidence:
-            Classifier confidence in that intent, 0–1.
-        last_intent:
-            The intent that was resolved on the previous turn, if any.
-        conversation_topics:
-            Ordered list of recent topic strings (e.g. ["weather:current"]).
-            The last element is used when last_intent is not set.
-        perception_followup_domain:
-            Domain that the Perception layer independently identified as
-            likely for a follow-up (can be None).
-        """
-        topics = conversation_topics or []
-        recent_intent: Optional[str] = last_intent or (topics[-1] if topics else None)
-        lower = user_input.lower().strip()
-
-        if not recent_intent:
-            return FollowUpResult(
-                nlp_intent, nlp_confidence, False, None, "no_recent_context"
-            )
-
-        recent_domain = (
-            recent_intent.split(":")[0] if ":" in recent_intent else recent_intent
-        )
-
-        # Word-boundary aware matching — prevents "tonight" triggering "it",
-        # or "sandbot" triggering "and", etc.
-        generic_cue = bool(self._GENERIC_CUE_RE.search(lower))
-        domain_signals = self.DOMAIN_SIGNALS.get(recent_domain, [])
-        domain_signal_hits = [sig for sig in domain_signals if sig in lower]
-        domain_signal_hit = bool(domain_signal_hits)
-
-        # Weather follow-up guard: weak verbs like "need" or "bring" can appear in
-        # unrelated assistance requests (e.g. "I need help with my AI project").
-        # Treat them as insufficient unless the utterance is a short generic follow-up.
-        if recent_domain == "weather" and domain_signal_hit:
-            _weak_weather_signals = {"need", "bring"}
-            _strong_weather_hits = [
-                sig for sig in domain_signal_hits if sig not in _weak_weather_signals
-            ]
-            _short_generic_followup = generic_cue and len(lower.split()) <= 6
-            if not _strong_weather_hits and not _short_generic_followup:
-                domain_signal_hit = False
-
-        is_conversational = nlp_intent in self.CONVERSATIONAL_INTENTS
-        low_confidence = nlp_confidence < 0.7
-
-        # Guard: if NLP already resolved to a specific action within the same
-        # domain as recent_intent, don't override it — doing so would downgrade
-        # precision (e.g. notes:create → notes:query_exist).
-        # Layers 1 & 2 are only needed for cross-domain / generic NLP output.
-        nlp_domain = nlp_intent.split(":")[0] if ":" in nlp_intent else nlp_intent
-        _same_domain_specific = (
-            nlp_domain == recent_domain
-            and nlp_intent not in self.CONVERSATIONAL_INTENTS
-            and not nlp_intent.endswith(":general")
-        )
-
-        # ── Layer 1: Strong domain signal ──────────────────────────────────
-        if (
-            domain_signal_hit
-            and recent_domain in self.DOMAIN_SIGNALS
-            and not _same_domain_specific
-        ):
-            _decay = math.exp(-0.15 * max(0, turn_distance))
-            new_conf = max(nlp_confidence, 0.82 * _decay)
-
-            # For the notes domain, inherit the most precise sub-intent that
-            # the current utterance implies rather than blindly re-using the
-            # stale last intent (e.g. notes:query_exist ≠ notes:read_content).
-            _resolved_intent = recent_intent
-            if recent_domain == "notes":
-                _NOTE_CONTENT_SIGNALS = frozenset({
-                    "what is in", "what's in", "what is inside", "what's inside",
-                    "inside", "read it", "open it", "what does it say",
-                    "what does it contain", "contents", "in it", "in the note",
-                })
-                _NOTE_DELETE_SIGNALS = frozenset({"delete", "remove"})
-                _NOTE_APPEND_SIGNALS = frozenset({"add to", "append"})
-                _NOTE_EDIT_SIGNALS   = frozenset({"edit", "modify", "change", "update"})
-                if any(sig in lower for sig in _NOTE_CONTENT_SIGNALS):
-                    _resolved_intent = "notes:read_content"
-                elif any(sig in lower for sig in _NOTE_DELETE_SIGNALS):
-                    _resolved_intent = "notes:delete"
-                elif any(sig in lower for sig in _NOTE_APPEND_SIGNALS):
-                    _resolved_intent = "notes:append"
-                elif any(sig in lower for sig in _NOTE_EDIT_SIGNALS):
-                    _resolved_intent = "notes:edit"
-                # else: keep recent_intent (e.g. notes:list, notes:read …)
-
-            logger.debug(
-                "[FollowUpResolver] domain_signal:%s → %s (%.2f, decay=%.2f)",
-                recent_domain,
-                _resolved_intent,
-                new_conf,
-                _decay,
-            )
-            return FollowUpResult(
-                _resolved_intent,
-                new_conf,
-                True,
-                recent_domain,
-                f"domain_signal:{recent_domain}",
-            )
-
-        # ── Layer 2: Perception layer already identified a follow-up domain ─
-        if (
-            perception_followup_domain
-            and perception_followup_domain == recent_domain
-            and not _same_domain_specific
-        ):
-            _decay = math.exp(-0.15 * max(0, turn_distance))
-            new_conf = max(nlp_confidence, 0.80 * _decay)
-            logger.debug(
-                "[FollowUpResolver] perception_signal:%s → %s (%.2f, decay=%.2f)",
-                recent_domain,
-                recent_intent,
-                new_conf,
-                _decay,
-            )
-            return FollowUpResult(
-                recent_intent,
-                new_conf,
-                True,
-                recent_domain,
-                f"perception_signal:{recent_domain}",
-            )
-
-        # ── Layer 3: Low-confidence NLP + conversational + generic cue ──────
-        if low_confidence and (is_conversational or generic_cue):
-            # Domain-pivot guard: if NLP produced a reasonably-confident
-            # specific intent in a DIFFERENT domain, respect the pivot.
-            # Example: last=notes:list, user says "pause the music" →
-            # NLP returns music:pause 0.55 — don't re-route back to notes.
-            _nlp_is_specific_pivot = (
-                nlp_confidence >= 0.50
-                and nlp_intent not in self.CONVERSATIONAL_INTENTS
-                and not nlp_intent.endswith(":general")
-                and nlp_domain != recent_domain
-            )
-            if not _nlp_is_specific_pivot and ":" in recent_intent and not recent_intent.startswith(
-                ("conversation:", "system:")
-            ):
-                _decay = math.exp(-0.15 * max(0, turn_distance))
-                new_conf = max(nlp_confidence, 0.78 * _decay)
-                logger.debug(
-                    "[FollowUpResolver] generic_followup → %s (%.2f, decay=%.2f)",
-                    recent_intent,
-                    new_conf,
-                    _decay,
-                )
-                return FollowUpResult(
-                    recent_intent,
-                    new_conf,
-                    True,
-                    recent_domain,
-                    "generic_followup",
-                )
-
-        return FollowUpResult(nlp_intent, nlp_confidence, False, None, "no_followup")
+# Follow-up resolver and perception classes are extracted to dedicated modules.

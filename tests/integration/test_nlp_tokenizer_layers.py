@@ -113,3 +113,30 @@ class TestLayeredTokenizer:
         )
         assert score < 0.30
         assert "negative_evidence_notes_contradiction" in issues
+
+    def test_followup_chain_benchmark_notes_selection_and_content(self):
+        """Benchmark-style chain: first/second selection should stay in notes domain."""
+        self.nlp.process("show my notes")
+        first_pick = self.nlp.process("open the first one")
+        second_pick = self.nlp.process("actually the second one")
+        content = self.nlp.process("what is in it?")
+
+        assert first_pick.intent.startswith("notes:")
+        assert second_pick.intent.startswith("notes:")
+        assert content.intent.startswith("notes:")
+
+    def test_followup_chain_benchmark_cross_domain_pivot_is_respected(self):
+        """Explicit pivot in a chain should not be dragged back by follow-up inheritance."""
+        self.nlp.process("schedule a meeting tomorrow at 3pm")
+        self.nlp.process("change that to tomorrow")
+        pivot = self.nlp.process("send it to her too")
+
+        assert not pivot.intent.startswith("calendar:")
+
+    def test_followup_chain_benchmark_rejection_phrase_avoids_weather_bleed(self):
+        """"not that one" after notes context should not misroute into weather."""
+        self.nlp.process("show my notes")
+        self.nlp.process("open the first one")
+        rejection = self.nlp.process("not that one")
+
+        assert not rejection.intent.startswith("weather:")

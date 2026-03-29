@@ -165,7 +165,7 @@ from ai.foundation_integration import FoundationIntegration
 from tools.auditing.startup_doctor import StartupDoctor
 
 # NLP perception & policy layer
-from ai.core.nlp_processor import Perception, FollowUpResolver
+from ai.core.nlp_processor import Perception
 from ai.core.interaction_policy import InteractionPolicy
 from ai.learning.learning_engine import get_nlp_error_logger
 
@@ -392,7 +392,6 @@ class ALICE:
 
             # NLP perception & policy layer (sit between NLP and routing)
             self.perception = Perception()
-            self.followup_resolver = FollowUpResolver()
             self.interaction_policy = InteractionPolicy()
             self.nlp_error_logger = get_nlp_error_logger()
             self.context_resolver = get_context_resolver()
@@ -3878,6 +3877,8 @@ class ALICE:
         """Handle requests to read/analyze code - flexible and intelligent with smart follow-up"""
         input_lower = user_input.lower()
         entities = entities or {}
+        py_file_match = re.search(r'([a-zA-Z0-9_/\\]+\.py)', input_lower)
+        has_py_file = py_file_match is not None
 
         def _render_codebase_listing(
             files: List[Dict[str, Any]],
@@ -3988,7 +3989,7 @@ class ALICE:
             return _render_codebase_listing(files, heading="My codebase", limit=25)
         
         # Smart follow-up detection: user asking for summaries after listing files
-        if self.code_context.get('last_action') == 'list' and self.code_context.get('last_files_shown'):
+        if (not has_py_file) and self.code_context.get('last_action') == 'list' and self.code_context.get('last_files_shown'):
             # Check for summary requests
             if any(phrase in input_lower for phrase in [
                 'summarize', 'summary', 'describe', 'what does', 'what do they do',
@@ -4039,10 +4040,6 @@ class ALICE:
                         self.last_code_file = None  # Clear after use
                         return f"**{code_file.name}** ({code_file.lines} lines, {code_file.module_type}):\n\n```python\n{code_file.content[:2000]}...\n```"
         
-        # First, check if there's a .py file mentioned anywhere in the input
-        py_file_match = re.search(r'([a-zA-Z0-9_/\\]+\.py)', input_lower)
-        has_py_file = py_file_match is not None
-
         # Only handle EXPLICIT requests to show/list code files
         # Questions about capabilities should go to LLM for natural responses
         if not has_py_file and any(phrase in input_lower for phrase in [
@@ -5078,47 +5075,40 @@ class ALICE:
                 )
 
             # ── 1.3  Follow-up resolution ─────────────────────────────────────────
-            # MUST run before the validation gate so that a follow-up that was
-            # mis-classified (e.g. "umbrella" → music:play when weather was the
-            # active topic) gets the correct intent before slot-validation fires.
-            #
-            # turn_distance: how many turns ago the active context was last seen.
-            # Using the NLP turn_index as a running counter so context decays
-            # naturally — context from 5 turns ago is treated weaker than 1 turn ago.
-            _nlp_turn = getattr(getattr(self.nlp, 'context', None), 'turn_index', 0)
-            _last_intent_turn = getattr(self, '_last_intent_turn', _nlp_turn)
-            _turn_distance = max(0, _nlp_turn - _last_intent_turn)
-            followup = self.followup_resolver.resolve(
-                user_input=user_input,
-                nlp_intent=intent,
-                nlp_confidence=intent_confidence,
-                last_intent=self.last_intent,
-                conversation_topics=self.conversation_topics,
-                perception_followup_domain=perception.followup_domain,
-                turn_distance=_turn_distance,
-            )
-            if followup.was_followup:
+            # Foundation 2: NLPProcessor is the primary follow-up authority.
+            # Use main-level resolver only as a legacy fallback when metadata
+            # is unavailable.
+            _modifiers = (
+                getattr(nlp_result, 'parsed_command', {}) or {}
+            ).get('modifiers', {})
+            _followup_meta = _modifiers.get('followup_resolution') if isinstance(_modifiers, dict) else None
+            _followup_applied = False
+
+            if isinstance(_followup_meta, dict) and _followup_meta.get('was_followup'):
+                _resolved_intent = str(_followup_meta.get('resolved_intent') or intent)
+                _resolved_conf = float(_followup_meta.get('confidence', intent_confidence) or intent_confidence)
+                _reason = str(_followup_meta.get('reason') or 'nlp_followup_resolution')
+                _domain = str(_followup_meta.get('domain') or '')
                 self._think(
-                    f"Follow-up detected [{followup.reason}]: "
-                    f"{intent} → {followup.resolved_intent} "
-                    f"(confidence {intent_confidence:.2f} → {followup.confidence:.2f})"
+                    f"Follow-up detected [{_reason}]: "
+                    f"{intent} → {_resolved_intent} "
+                    f"(confidence {intent_confidence:.2f} → {_resolved_conf:.2f})"
                 )
                 self.nlp_error_logger.log_followup_resolved(
                     user_input=user_input,
                     nlp_intent=intent,
-                    resolved_intent=followup.resolved_intent,
+                    resolved_intent=_resolved_intent,
                     nlp_confidence=intent_confidence,
-                    domain=followup.domain or "",
-                    reason=followup.reason,
+                    domain=_domain,
+                    reason=_reason,
                     session_id=getattr(self, '_session_id', None),
                 )
-                intent = followup.resolved_intent
-                intent_confidence = followup.confidence
-                # Keep the NLP processor's internal context in sync with the
-                # resolved intent so _retrieval_first_parse uses the correct
-                # last_intent on the very next turn (not the raw NLP guess).
-                if hasattr(self.nlp, 'context'):
-                    self.nlp.context.last_intent = followup.resolved_intent
+                intent = _resolved_intent
+                intent_confidence = _resolved_conf
+                _followup_applied = True
+
+            if not _followup_applied:
+                self._think("No NLP follow-up metadata this turn; continuing without secondary follow-up override.")
 
             # 1.35 Context-aware intent refinement: same surface words can map
             # to different intents based on recent topic and domain continuity.

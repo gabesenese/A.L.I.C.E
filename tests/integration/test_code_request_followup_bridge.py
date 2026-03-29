@@ -6,11 +6,36 @@ from app.main import ALICE
 
 
 class _StubSelfReflection:
+    class _CodeFile:
+        def __init__(self, path: str, name: str, lines: int, module_type: str, content: str):
+            self.path = path
+            self.name = name
+            self.lines = lines
+            self.module_type = module_type
+            self.content = content
+
     def list_codebase(self):
         return [
             {"path": "models/fast_model.py", "module_type": "utility"},
             {"path": "brain/model_router.py", "module_type": "core"},
         ]
+
+    def read_file(self, path):
+        if path.endswith("nlp_processor.py"):
+            return self._CodeFile(
+                path="ai/core/nlp_processor.py",
+                name="nlp_processor.py",
+                lines=42,
+                module_type="core",
+                content="def process():\n    return True\n",
+            )
+        return None
+
+    def batch_summarize_files(self, files, parallel=True):
+        return {f: f"summary for {f}" for f in files}
+
+    def generate_file_summary(self, path):
+        return f"Summary of {path}"
 
 
 def _build_alice_stub():
@@ -86,3 +111,21 @@ def test_code_access_capability_detection_generalizes_without_phrase_list(prompt
 
     assert first == "CAPABILITY_OK"
     assert alice.code_context["last_action"] == "code_access_confirmed"
+
+
+def test_explicit_py_file_summary_bypasses_list_followup_summary_mode():
+    alice = _build_alice_stub()
+    alice.code_context["last_action"] = "list"
+    alice.code_context["last_files_shown"] = [
+        "models/fast_model.py",
+        "brain/model_router.py",
+    ]
+
+    out = ALICE._handle_code_request(
+        alice,
+        "summarize the nlp_processor.py file for me",
+        {},
+    )
+
+    assert out is not None
+    assert "nlp_processor.py" in out.lower()
