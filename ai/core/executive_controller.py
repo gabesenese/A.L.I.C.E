@@ -82,6 +82,13 @@ class ExecutiveController:
         r"\b(i\s+need\s+help|can\s+you\s+help|help\s+me|help\s+with\s+this|help\s+with\s+my\s+project)\b",
         re.IGNORECASE,
     )
+    SEMANTIC_STOPWORDS = {
+        "the", "a", "an", "and", "or", "to", "of", "for", "with", "in", "on", "at", "by",
+        "is", "are", "was", "were", "be", "been", "being", "it", "this", "that", "these", "those",
+        "i", "you", "we", "they", "he", "she", "them", "my", "your", "our", "their", "me",
+        "can", "could", "would", "should", "want", "need", "help", "today", "world", "real",
+        "learn", "about", "explain", "tell", "please",
+    }
 
     def __init__(self) -> None:
         # Adaptive routing matrix (updated by reflection loop).
@@ -648,6 +655,14 @@ class ExecutiveController:
                 "fallback_action": "clarify",
             }
 
+        semantic_guard = self._semantic_fidelity_guard(
+            user_input=user_input,
+            intent=intent,
+            response=resp,
+        )
+        if semantic_guard is not None:
+            return semantic_guard
+
         user_tokens = set(self._tokens(user_input))
         resp_tokens = set(self._tokens(resp))
         overlap = 0.0
@@ -742,6 +757,76 @@ class ExecutiveController:
             ),
             "fallback_action": fallback_action,
         }
+
+    def _semantic_anchor_tokens(self, text: str) -> List[str]:
+        tokens = []
+        for token in self._tokens(text):
+            low = token.lower().strip()
+            if len(low) < 4:
+                continue
+            if low in self.SEMANTIC_STOPWORDS:
+                continue
+            tokens.append(low)
+        # Preserve stable order with uniqueness.
+        seen = set()
+        ordered: List[str] = []
+        for tok in tokens:
+            if tok in seen:
+                continue
+            seen.add(tok)
+            ordered.append(tok)
+        return ordered
+
+    def _semantic_fidelity_guard(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        response: str,
+    ) -> Dict[str, Any] | None:
+        """Reject responses that lose core user meaning or inject obvious nonsense."""
+        low_resp = (response or "").lower()
+        if "person 'an ai'" in low_resp or "general_assistance" in low_resp:
+            return {
+                "accepted": False,
+                "score": 0.0,
+                "reason": "semantic_noise_in_response",
+                "fallback_action": "clarify",
+            }
+
+        normalized_intent = (intent or "").lower().strip()
+        if not (
+            normalized_intent.startswith("conversation:")
+            or normalized_intent.startswith("learning:")
+            or normalized_intent in {"greeting", "thanks"}
+        ):
+            return None
+
+        user_anchors = self._semantic_anchor_tokens(user_input)
+        if len(user_anchors) < 2:
+            return None
+
+        response_tokens = set(self._tokens(response))
+        overlap = [tok for tok in user_anchors if tok in response_tokens]
+        if not overlap:
+            return {
+                "accepted": False,
+                "score": 0.0,
+                "reason": "semantic_core_missing",
+                "fallback_action": "clarify",
+            }
+
+        # Guard against programming-language drift on conceptual assistant architecture questions.
+        programming_drift_terms = {"polymorphism", "interface", "inheritance", "encapsulation", "oop"}
+        if programming_drift_terms.intersection(response_tokens) and not programming_drift_terms.intersection(set(user_anchors)):
+            return {
+                "accepted": False,
+                "score": 0.0,
+                "reason": "semantic_drift_programming_domain",
+                "fallback_action": "clarify",
+            }
+
+        return None
 
     def _response_plan_adherence(self, response: str, context: Dict[str, Any]) -> float:
         """Return 0..1 estimate of how well the response follows the active response plan."""

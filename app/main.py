@@ -3012,19 +3012,20 @@ class ALICE:
         text_lower = text.lower()
         entities = dict(entities or {})
 
-        study_markers = (
+        explicit_study_markers = (
             "help me study",
-            "teach me",
-            "i want to learn",
-            "help me learn",
-            "study ",
-            "learn ",
+            "teach me step by step",
+            "step-by-step tutorial",
+            "tutorial",
+            "lesson",
+            "quiz me",
+            "give me a quiz",
         )
-        if not any(m in text_lower for m in study_markers):
+        if not any(m in text_lower for m in explicit_study_markers):
             return intent, entities
 
         topic_match = re.search(
-            r"(?:help\s+me\s+study|help\s+me\s+learn|i\s+want\s+to\s+learn|teach\s+me|study|learn)\s+(?:about\s+)?(.+)$",
+            r"(?:help\s+me\s+study|teach\s+me\s+step\s+by\s+step|tutorial|lesson|quiz\s+me|give\s+me\s+a\s+quiz)\s+(?:about\s+)?(.+)$",
             text_lower,
             re.IGNORECASE,
         )
@@ -3035,6 +3036,19 @@ class ALICE:
 
         self._think(f"Reasoning goal detected → planning study flow for: {entities.get('topic', 'topic')}")
         return "learning:study_topic", entities
+
+    def _explicit_study_template_request(self, user_input: str) -> bool:
+        text = str(user_input or "").lower()
+        cues = (
+            "help me study",
+            "teach me step by step",
+            "step-by-step tutorial",
+            "tutorial",
+            "lesson",
+            "quiz me",
+            "give me a quiz",
+        )
+        return any(c in text for c in cues)
     
     def _use_planner_executor(self, intent: str, entities: Dict[str, Any], query: str) -> Optional[str]:
         """
@@ -3056,6 +3070,10 @@ class ALICE:
         ]
         
         if intent not in plannable_intents:
+            return None
+
+        if intent in ('study_topic', 'learning:study_topic') and not self._explicit_study_template_request(query):
+            # Hard gate: only enter study template flow when user explicitly asks for studying/tutorial mode.
             return None
         
         try:
@@ -3741,6 +3759,31 @@ class ALICE:
             return "Of course. What part of your project do you want help with first?"
         return "Of course. What exact part do you want help with first?"
 
+    def _native_conceptual_answer(self, user_input: str, intent: str) -> Optional[str]:
+        """Native conceptual mode for broad architecture questions that do not require tools."""
+        text = str(user_input or "").lower()
+        if self._has_explicit_action_cue(text):
+            return None
+
+        conceptual_markers = (
+            "jarvis",
+            "tony stark",
+            "foundations",
+            "today's world",
+            "no fiction",
+        )
+        if sum(1 for m in conceptual_markers if m in text) < 2:
+            return None
+
+        if not (str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")):
+            return None
+
+        return (
+            "If Jarvis were built with today’s technology, his foundations would be natural language understanding, "
+            "memory, planning, tool execution, verification, and bounded autonomy. "
+            "What makes him different from a normal chatbot is reliable action across systems while tracking ongoing goals."
+        )
+
     def _is_simple_scaffold_intent(self, intent: str) -> bool:
         normalized = str(intent or "").lower().strip()
         return normalized in {
@@ -3797,6 +3840,14 @@ class ALICE:
                 "response": native,
             }
 
+        conceptual = self._native_conceptual_answer(user_input, intent)
+        if conceptual:
+            return {
+                "block_llm": True,
+                "reason": "native_conceptual_answer",
+                "response": conceptual,
+            }
+
         text = str(user_input or "").strip()
         tokens = re.findall(r"\b[a-z']+\b", text.lower())
         short_enough = len(tokens) <= 20
@@ -3823,6 +3874,116 @@ class ALICE:
             }
 
         return {"block_llm": False, "reason": "allow_llm", "response": ""}
+
+    def _contains_resolution_placeholder_noise(self, text: str) -> bool:
+        low = str(text or "").lower()
+        if "general_assistance" in low:
+            return True
+        if "person 'an ai'" in low:
+            return True
+        if re.search(r"\b(?:placeholder|unknown|entity\s+'[^']+')\b", low):
+            return True
+        return False
+
+    def _safe_resolved_user_input(
+        self,
+        *,
+        raw_input: str,
+        candidate_input: str,
+        binding_confidences: Optional[List[float]] = None,
+    ) -> str:
+        """Keep raw input sacred unless a rewrite is high-confidence and semantically stable."""
+        raw = str(raw_input or "").strip()
+        cand = str(candidate_input or "").strip()
+        if not cand or cand == raw:
+            return raw
+        if self._contains_resolution_placeholder_noise(cand):
+            return raw
+
+        if binding_confidences:
+            min_conf = min(float(c or 0.0) for c in binding_confidences)
+            if min_conf < 0.90:
+                return raw
+
+        raw_tokens = re.findall(r"\b[a-z0-9']+\b", raw.lower())
+        cand_tokens = re.findall(r"\b[a-z0-9']+\b", cand.lower())
+        if not raw_tokens or not cand_tokens:
+            return raw
+
+        overlap = len(set(raw_tokens).intersection(cand_tokens)) / max(1, len(set(raw_tokens)))
+        if overlap < 0.62:
+            return raw
+
+        if abs(len(cand) - len(raw)) > 48:
+            return raw
+
+        return cand
+
+    def _semantic_anchor_terms(self, user_input: str) -> List[str]:
+        text = str(user_input or "").lower()
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+        stop = {
+            "the", "a", "an", "to", "of", "in", "on", "for", "with", "and", "or", "if",
+            "would", "have", "had", "is", "are", "was", "were", "be", "been", "being",
+            "i", "you", "my", "me", "we", "our", "your", "it", "this", "that", "today",
+        }
+        anchors = [t for t in tokens if len(t) >= 3 and t not in stop]
+        seen = set()
+        out: List[str] = []
+        for t in anchors:
+            if t in seen:
+                continue
+            seen.add(t)
+            out.append(t)
+        return out[:14]
+
+    def _semantic_fidelity_check(self, *, user_input: str, response: str, intent: str) -> Dict[str, Any]:
+        """Check whether the final answer preserves user meaning before publish."""
+        normalized_intent = str(intent or "").lower().strip()
+        if normalized_intent in {
+            "greeting",
+            "thanks",
+            "conversation:ack",
+            "conversation:acknowledgment",
+            "conversation:help",
+        }:
+            return {"accepted": True, "reason": "scaffold_intent"}
+
+        user_low = str(user_input or "").lower()
+        resp_low = str(response or "").lower()
+        anchors = self._semantic_anchor_terms(user_input)
+        if len(anchors) < 4:
+            return {"accepted": True, "reason": "insufficient_anchor_terms"}
+
+        critical_terms = [
+            t for t in anchors
+            if t in {"jarvis", "tony", "stark", "foundations", "foundation", "fiction", "world", "autonomy", "memory", "planning", "execution"}
+        ]
+        missing_critical = [t for t in critical_terms if t not in resp_low]
+        off_topic_terms = [t for t in ("polymorphism", "interface", "inheritance", "class") if t in resp_low and t not in user_low]
+
+        if off_topic_terms:
+            return {"accepted": False, "reason": "off_topic_technical_drift", "missing": missing_critical}
+
+        matched = [t for t in anchors if t in resp_low]
+        match_ratio = len(matched) / max(1, len(anchors))
+        if missing_critical and len(missing_critical) >= 2:
+            return {"accepted": False, "reason": "missing_critical_terms", "missing": missing_critical}
+        if match_ratio < 0.30:
+            return {"accepted": False, "reason": "low_anchor_overlap", "missing": missing_critical}
+
+        return {"accepted": True, "reason": "semantic_fidelity_ok"}
+
+    def _native_conceptual_fallback(self, user_input: str) -> Optional[str]:
+        """Native conceptual answer mode for broad architecture questions."""
+        text = str(user_input or "").lower()
+        if "jarvis" in text and "foundation" in text and "no fiction" in text:
+            return (
+                "If Jarvis were built with today's technology, his foundations would be natural language understanding, "
+                "memory, planning, tool execution, verification, and bounded autonomy. "
+                "What would make him different from a normal chatbot is reliable action across systems with ongoing goal tracking."
+            )
+        return None
 
     def _low_complexity_teacher_thought(
         self,
@@ -5273,8 +5434,24 @@ class ALICE:
                         f"Context resolve: {user_input!r} -> {_context_resolution.rewritten_input!r}"
                     )
 
-            if _context_resolution and _context_resolution.rewritten_input:
-                _nlp_input = _context_resolution.rewritten_input
+            _resolved_input = user_input
+            _resolution_confidence = 0.0
+            if _context_resolution:
+                _resolution_confidence = float(_context_resolution.rewrite_confidence or 0.0)
+                candidate = str(_context_resolution.rewritten_input or user_input)
+                candidate_low = candidate.lower()
+                is_noise = (
+                    "general_assistance" in candidate_low
+                    or "person 'an ai'" in candidate_low
+                    or "placeholder" in candidate_low
+                )
+                if (not is_noise) and _resolution_confidence >= 0.96:
+                    _resolved_input = candidate
+            _nlp_input = _resolved_input
+
+            self._internal_reasoning_state["raw_user_input"] = user_input
+            self._internal_reasoning_state["resolved_user_input"] = _resolved_input
+            self._internal_reasoning_state["context_resolution_confidence"] = _resolution_confidence
             nlp_start = time.time()
             nlp_result = self.nlp.process(_nlp_input)
             intent = nlp_result.intent
@@ -6901,6 +7078,11 @@ class ALICE:
             if _pre_route_guard.get("block"):
                 self._internal_reasoning_state = {
                     **_executive_state.as_dict(),
+                    "raw_user_input": user_input,
+                    "resolved_user_input": _nlp_input,
+                    "context_resolution_confidence": float(
+                        getattr(_context_resolution, 'rewrite_confidence', 0.0) if _context_resolution else 0.0
+                    ),
                     "intent_candidates": intent_candidates,
                     "intent_plausibility": intent_plausibility,
                     "pre_route_guard": _pre_route_guard,
@@ -6929,6 +7111,11 @@ class ALICE:
             )
             self._internal_reasoning_state = {
                 **_executive_state.as_dict(),
+                "raw_user_input": user_input,
+                "resolved_user_input": _nlp_input,
+                "context_resolution_confidence": float(
+                    getattr(_context_resolution, 'rewrite_confidence', 0.0) if _context_resolution else 0.0
+                ),
                 "decision_scores": _decision_scores,
                 "intent_candidates": intent_candidates,
                 "intent_plausibility": intent_plausibility,

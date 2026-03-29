@@ -1,0 +1,108 @@
+from dataclasses import dataclass
+
+from ai.context_resolver import ContextResolver
+from ai.core.executive_controller import ExecutiveController
+from app.main import ALICE
+
+
+EXACT_PROMPT = (
+    "i want to learn the foundations that jarvis would have had if tony stark "
+    "created him in today's world, no fiction"
+)
+
+
+@dataclass
+class _FakeResolveResult:
+    rewritten_input: str
+    resolved_bindings: dict
+    unresolved_pronouns: list
+
+
+def test_context_resolver_keeps_raw_input_when_rewrite_has_placeholder_noise(monkeypatch):
+    resolver = ContextResolver()
+
+    def _fake_resolve(user_input, state):
+        return _FakeResolveResult(
+            rewritten_input="the foundations person 'an ai' jarvis general_assistance",
+            resolved_bindings={"it": "jarvis"},
+            unresolved_pronouns=[],
+        )
+
+    monkeypatch.setattr(resolver.reference_resolver, "resolve", _fake_resolve)
+    monkeypatch.setattr(resolver.ambiguity_detector, "should_clarify", lambda **kwargs: False)
+
+    result = resolver.resolve(EXACT_PROMPT, {"referenced_entities": []})
+
+    assert result.rewritten_input == EXACT_PROMPT
+    assert result.rewrite_confidence == 0.0
+
+
+def test_semantic_fidelity_guard_rejects_programming_drift_response():
+    controller = ExecutiveController()
+    bad = (
+        "Polymorphism and interface inheritance are the foundations to understand this topic."
+    )
+
+    evaluation = controller.evaluate_response(
+        user_input=EXACT_PROMPT,
+        intent="conversation:question",
+        response=bad,
+        route="llm",
+        context={},
+    )
+
+    assert evaluation["accepted"] is False
+    assert evaluation["reason"] in {
+        "semantic_drift_programming_domain",
+        "semantic_core_missing",
+    }
+
+
+def test_semantic_fidelity_guard_accepts_on_topic_foundations_response():
+    controller = ExecutiveController()
+    good = (
+        "If Jarvis were built in today's world, the core foundations would be natural language understanding, "
+        "memory, planning, execution, verification, and bounded autonomy."
+    )
+
+    evaluation = controller.evaluate_response(
+        user_input=EXACT_PROMPT,
+        intent="conversation:question",
+        response=good,
+        route="llm",
+        context={},
+    )
+
+    assert evaluation["accepted"] is True
+
+
+def test_study_flow_not_promoted_for_broad_conceptual_question_without_explicit_study_request():
+    alice = ALICE.__new__(ALICE)
+
+    intent, entities = alice._promote_learning_goal_intent(
+        EXACT_PROMPT,
+        "conversation:question",
+        {},
+    )
+
+    assert intent == "conversation:question"
+    assert entities == {}
+
+
+def test_native_conceptual_mode_returns_direct_foundation_answer():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._native_conceptual_answer(
+        EXACT_PROMPT,
+        "conversation:question",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "jarvis" in low
+    assert "memory" in low
+    assert "planning" in low
+    assert "execution" in low
+    assert "autonomy" in low
+    assert "person 'an ai'" not in low
+    assert "polymorphism" not in low
