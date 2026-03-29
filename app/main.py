@@ -2638,6 +2638,68 @@ class ALICE:
                 return response
         return response
 
+    def _is_unsolicited_summary_response(self, user_input: str, response: str) -> bool:
+        """Detect summary-like responses when user did not ask for a summary."""
+        if not response:
+            return False
+
+        input_l = (user_input or '').lower()
+        response_l = (response or '').lower()
+
+        summary_request_cues = (
+            'summary', 'summarize', 'summarise', 'recap', 'overview',
+            'what did we discuss', "what we've discussed", 'catch me up',
+        )
+        if any(cue in input_l for cue in summary_request_cues):
+            return False
+
+        summary_response_cues = (
+            'high-level overview',
+            "summary of what we've discussed",
+            'to recap',
+            'so far we were',
+            'what we discussed so far',
+        )
+        return any(cue in response_l for cue in summary_response_cues)
+
+    def _fallback_from_intent(self, intent: str, plugin_result: Optional[Dict[str, Any]]) -> str:
+        """Return a safe intent-specific fallback when response drift is detected."""
+        intent_l = (intent or '').lower()
+
+        if intent_l.startswith('weather'):
+            plugin_data = (plugin_result or {}).get('data', {}) if isinstance(plugin_result, dict) else {}
+            err = str(plugin_data.get('error') or '').lower()
+            if err == 'no_location':
+                return "I need your city to check weather. Tell me your city, or set it with /location <City>."
+            if err:
+                return f"I couldn't fetch weather right now ({err}). Please try again in a moment."
+
+            city = None
+            try:
+                city = getattr(self.context.user_prefs, 'city', None)
+            except Exception:
+                city = None
+            if city:
+                return f"I couldn't fetch weather for {city} right now. Please try again in a moment."
+            return "I couldn't fetch weather right now. Tell me your city, or set it with /location <City>."
+
+        return "I misunderstood that response path. Please repeat your request in one line and I will answer directly."
+
+    def _prevent_unsolicited_summary(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        response: str,
+        plugin_result: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Replace accidental summary drift with intent-grounded fallback responses."""
+        if not self._is_unsolicited_summary_response(user_input, response):
+            return response
+
+        self._think("Response drift detected: unsolicited summary suppressed")
+        return self._fallback_from_intent(intent, plugin_result)
+
     def _handle_advanced_reasoning_queries(self, user_input: str) -> Optional[str]:
         """Handle advanced reasoning prompts directly for transparency and speed."""
         text = str(user_input or '').strip()
@@ -7325,6 +7387,12 @@ class ALICE:
                             response = f"{response}\n\n{_sec_summary}" if response else _sec_summary
 
                 response = self._apply_response_style_constraints(response)
+                response = self._prevent_unsolicited_summary(
+                    user_input=user_input,
+                    intent=intent,
+                    response=response,
+                    plugin_result=plugin_result if isinstance(plugin_result, dict) else None,
+                )
                 
                 # Track incomplete tasks for proactive follow-up
                 if getattr(self, 'proactive_assistant', None) and not success:
@@ -7709,6 +7777,12 @@ class ALICE:
                     },
                 )
             response = self._apply_response_style_constraints(response)
+            response = self._prevent_unsolicited_summary(
+                user_input=user_input,
+                intent=intent,
+                response=response,
+                plugin_result=plugin_result if 'plugin_result' in locals() and isinstance(plugin_result, dict) else None,
+            )
 
             response = self._executive_apply_response_gate(
                 user_input=user_input,
