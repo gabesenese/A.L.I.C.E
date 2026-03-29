@@ -279,10 +279,10 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
 
 [{self.colors['warning']}]General Commands:[/{self.colors['warning']}]
   /help         - Show this help message
+    /exit, /quit  - Exit A.L.I.C.E
   /clear        - Clear conversation history
   /save         - Save current state
   /status       - Show system status
-  /exit, exit   - Exit A.L.I.C.E
 
 [{self.colors['warning']}]Memory & Context:[/{self.colors['warning']}]
   /memory       - Show memory statistics
@@ -290,6 +290,11 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
   /context      - Show current context
   /topics       - List conversation topics
   /entities     - Show tracked entities
+    /relationships- Show entity relationships
+    /mem-list     - List memories by type
+    /mem-search   - Search memories by similarity
+    /mem-delete   - Delete memory by ID
+    /patterns     - Review proposed patterns
 
 [{self.colors['warning']}]Plugins:[/{self.colors['warning']}]
   /plugins      - List available plugins
@@ -302,6 +307,13 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
   /correct      - Correct my last response
   /feedback     - Rate my last response
   /learning     - Show learning statistics
+    /realtime-status - Show live learning metrics
+    /formulation  - Show formulation learning status
+    /autolearn    - Show learning audit report
+
+[{self.colors['warning']}]Autonomous Mode:[/{self.colors['warning']}]
+    /autonomous <start|stop|pause|resume|status>
+    /goals        - Show active and completed goals
 """
         panel = Panel(
             help_text,

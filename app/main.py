@@ -8804,6 +8804,7 @@ class ALICE:
         if cmd == '/help':
             print("\nAvailable Commands:")
             print("   /help              - Show this help message")
+            print("   /exit, /quit       - End conversation and exit")
             print("   /voice             - Toggle voice mode on/off")
             print("   /clear             - Clear conversation history")
             print("   /memory            - Show memory system statistics")
@@ -8838,7 +8839,14 @@ class ALICE:
             print("   /realtime-status   - Show continuous learning metrics and velocity")
             print("   /formulation       - Show response formulation learning progress")
             print("   /autolearn [days]  - Show automated learning audit report (default: 7 days)")
-            print("   exit               - End conversation and exit")
+
+        elif cmd in {'/exit', '/quit'}:
+            farewell = self._get_farewell()
+            print(f"\nA.L.I.C.E: {farewell}\n")
+            if self.speech and self.voice_enabled:
+                self.speech.speak(farewell, blocking=True)
+            self.running = False
+            self.shutdown()
         
         elif cmd == '/voice':
             if self.speech:

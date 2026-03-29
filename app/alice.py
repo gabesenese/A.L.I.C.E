@@ -74,7 +74,7 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
         while True:
             user_input = ui.get_input()
             
-            if user_input is None or user_input.lower() in ['exit', 'quit', 'goodbye', 'bye']:
+            if user_input is None or user_input.lower() in ['exit', 'quit', 'goodbye', 'bye', '/exit', '/quit']:
                 ui.show_goodbye()
                 break
             
@@ -83,13 +83,11 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
             
             # Handle special commands
             if user_input.startswith('/'):
-                if user_input == '/help':
-                    ui.show_help()
-                    continue
-                else:
-                    # Handle other commands through ALICE's command handler
-                    alice._handle_command(user_input)
-                    continue
+                alice._handle_command(user_input)
+                if not getattr(alice, 'running', True):
+                    ui.show_goodbye()
+                    break
+                continue
             
             # Process input
             try:
