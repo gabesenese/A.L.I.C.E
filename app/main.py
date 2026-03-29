@@ -6982,6 +6982,15 @@ class ALICE:
 
                 # Track plugin execution timing
                 plugin_start = time.time()
+                _risk_scope = getattr(_rbac_decision, 'required_scope', None) if '_rbac_decision' in locals() else None
+                _risk_scope_value = str(getattr(_risk_scope, 'value', _risk_scope) or '').lower()
+                if _risk_scope_value in {'delete', 'execute', 'admin'}:
+                    _risk_level = 'high'
+                elif _risk_scope_value == 'read':
+                    _risk_level = 'low'
+                else:
+                    _risk_level = 'medium'
+
                 action_request = ActionRequest(
                     goal=(active_goal.description if active_goal else user_input),
                     plugin=_plugin_name,
@@ -7005,11 +7014,7 @@ class ALICE:
                         or (entities or {}).get("title")
                         or (entities or {}).get("note_title")
                     },
-                    risk_level=(
-                        "high"
-                        if ('_rbac_decision' in locals() and getattr(_rbac_decision, 'required_scope', None) is not None)
-                        else "medium"
-                    ),
+                    risk_level=_risk_level,
                     retry_budget=(1 if _action_name in {"read", "list", "search"} else 0),
                     rollback_policy=("manual" if _action_name in {"delete", "update", "append"} else "none"),
                 )
