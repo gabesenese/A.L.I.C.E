@@ -7015,6 +7015,7 @@ class ALICE:
                 )
                 action_result = self.action_engine.execute(action_request)
                 self.action_engine.apply_state_updates(self, action_result)
+                self._evaluate_autonomy_triggers()
 
                 plugin_result = None
                 if action_result.status != "not_handled":
@@ -10003,6 +10004,14 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                 confidence_threshold=0.7,
                 enabled=False,
             ),
+            AutonomyLoop(
+                name="approval_guard",
+                permission_level="operator",
+                scope="pending approval enforcement",
+                stop_conditions=["manual_stop", "approval_queue_empty"],
+                confidence_threshold=0.65,
+                enabled=True,
+            ),
         ]
 
         existing = set((self.autonomy_manager.status() or {}).get("enabled_loops", []))
@@ -10027,6 +10036,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         autonomy_status = {}
         if hasattr(self, 'autonomy_manager') and self.autonomy_manager:
             autonomy_status = self.autonomy_manager.status()
+        trigger_events = self._evaluate_autonomy_triggers()
 
         print("\nUnified Action Engine:")
         print(f"   Bound: {'Yes' if hasattr(self, 'action_engine') and self.action_engine else 'No'}")
@@ -10057,7 +10067,63 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         print(f"   Total Loops: {autonomy_status.get('total_loops', 0)}")
         print(f"   Enabled Loops: {', '.join(autonomy_status.get('enabled_loops', [])) or 'none'}")
         print(f"   Disabled Loops: {', '.join(autonomy_status.get('disabled_loops', [])) or 'none'}")
+        if trigger_events:
+            print("   Trigger Events:")
+            for ev in trigger_events[:5]:
+                print(
+                    f"      - {ev['loop']} [{ev['severity']}] {ev['reason']} "
+                    f"-> {ev['recommended_action']}"
+                )
         print("=" * 70)
+
+    def _evaluate_autonomy_triggers(self):
+        """Evaluate bounded-autonomy loop triggers using live operator context."""
+        if not hasattr(self, 'autonomy_manager') or not self.autonomy_manager:
+            return []
+
+        world_state = {}
+        if hasattr(self, 'world_state_memory') and self.world_state_memory:
+            world_state = self.world_state_memory.snapshot()
+
+        goal_summary = {}
+        if hasattr(self, 'goal_system') and self.goal_system:
+            try:
+                goal_summary = self.goal_system.get_all_goals_summary()
+            except Exception:
+                goal_summary = {}
+
+        journal_summary = {}
+        if hasattr(self, 'execution_journal') and self.execution_journal:
+            journal_summary = self.execution_journal.summary()
+
+        execution_state = {
+            "autonomous_running": bool(self.execution_loop.is_running()) if hasattr(self, 'execution_loop') and self.execution_loop else False,
+            "autonomous_paused": bool(self.execution_loop.paused) if hasattr(self, 'execution_loop') and self.execution_loop else False,
+            "tool_verified": bool(((self._internal_reasoning_state or {}).get('tool_verification') or {}).get('accepted', False)),
+        }
+
+        events = self.autonomy_manager.evaluate_triggers(
+            world_state=world_state,
+            goal_summary=goal_summary,
+            journal_summary=journal_summary,
+            execution_state=execution_state,
+        )
+
+        event_dicts = [
+            {
+                "loop": ev.loop,
+                "severity": ev.severity,
+                "reason": ev.reason,
+                "recommended_action": ev.recommended_action,
+                "confidence": ev.confidence,
+            }
+            for ev in events
+        ]
+
+        if event_dicts:
+            self._internal_reasoning_state["autonomy_triggers"] = event_dicts
+
+        return event_dicts
 
     def _handle_autonomous_command(self, command: str):
         """Handle autonomous mode commands"""
@@ -10099,6 +10165,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             is_paused = self.execution_loop.paused
             active_goals = self.goal_system.get_active_goals() if hasattr(self, 'goal_system') else []
             autonomy_status = self.autonomy_manager.status() if hasattr(self, 'autonomy_manager') and self.autonomy_manager else {}
+            trigger_events = self._evaluate_autonomy_triggers()
 
             print("\n Autonomous Agent Status:")
             print("=" * 50)
@@ -10106,6 +10173,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             print(f"   Paused: {'Yes' if is_paused else 'No'}")
             print(f"   Active Goals: {len(active_goals)}")
             print(f"   Bounded Loops Enabled: {len(autonomy_status.get('enabled_loops', []))}")
+            print(f"   Trigger Events: {len(trigger_events)}")
 
             if active_goals:
                 print("\n   Current Goals:")

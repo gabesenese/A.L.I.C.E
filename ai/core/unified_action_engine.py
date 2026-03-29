@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from ai.core.execution_journal import ExecutionJournal, get_execution_journal
 from ai.core.goal_action_verifier import GoalActionVerifier, get_goal_action_verifier
+from ai.core.rollback_executor import RollbackExecutor, get_rollback_executor
 from ai.core.tool_executor import ToolExecutor, get_tool_executor
 from ai.core.world_state_memory import WorldStateMemory, get_world_state_memory
 from ai.planning.action_planner import ActionPlanner, get_action_planner
@@ -80,12 +81,14 @@ class UnifiedActionEngine:
         world_state_memory: Optional[WorldStateMemory] = None,
         execution_journal: Optional[ExecutionJournal] = None,
         planner: Optional[ActionPlanner] = None,
+        rollback_executor: Optional[RollbackExecutor] = None,
     ) -> None:
         self.tool_executor = tool_executor or get_tool_executor()
         self.goal_verifier = goal_verifier or get_goal_action_verifier()
         self.world_state_memory = world_state_memory or get_world_state_memory()
         self.execution_journal = execution_journal or get_execution_journal()
         self.planner = planner or get_action_planner()
+        self.rollback_executor = rollback_executor or get_rollback_executor()
         self.plugin_manager: Any = None
 
     def bind_plugin_manager(self, plugin_manager: Any) -> None:
@@ -261,6 +264,15 @@ class UnifiedActionEngine:
                 recovery_path="retry",
             )
 
+        rollback_outcome = self._maybe_rollback(request, last_result)
+        if rollback_outcome:
+            last_result.state_updates["rollback"] = rollback_outcome
+            last_result.recovery_path = (
+                "rollback_success"
+                if rollback_outcome.get("success", False)
+                else "rollback_failed_escalate"
+            )
+
         self.world_state_memory.update_from_action(request, last_result)
         return last_result
 
@@ -355,6 +367,36 @@ class UnifiedActionEngine:
                 "ambiguity_flags": list(result.ambiguity_flags or []),
             }
         )
+
+    def _maybe_rollback(self, request: ActionRequest, result: ActionResult) -> Optional[Dict[str, Any]]:
+        policy = str(request.rollback_policy or "none").lower()
+        if policy not in {"auto", "best_effort", "immediate"}:
+            return None
+
+        if result.goal_satisfied:
+            return None
+
+        if not result.side_effects and not result.verification_report.get("partial_success", False):
+            return None
+
+        outcome = self.rollback_executor.execute(
+            plugin_manager=self.plugin_manager,
+            request=request,
+            result=result,
+        ).to_dict()
+
+        self.execution_journal.record(
+            {
+                "event": "rollback",
+                "goal": request.goal,
+                "plugin": request.plugin,
+                "action": request.action,
+                "success": bool(outcome.get("success", False)),
+                "status": outcome.get("status", "rollback_unknown"),
+                "goal_satisfied": result.goal_satisfied,
+            }
+        )
+        return outcome
 
     def _compose_intent(self, request: ActionRequest) -> str:
         source_intent = str(request.source_intent or "").strip()
