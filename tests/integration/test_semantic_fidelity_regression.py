@@ -6,8 +6,8 @@ from app.main import ALICE
 
 
 EXACT_PROMPT = (
-    "i want to learn the foundations that jarvis would have had if tony stark "
-    "created him in today's world, no fiction"
+    "i want to learn the foundations an advanced assistant system should have "
+    "in today's world with no fiction"
 )
 
 
@@ -23,8 +23,8 @@ def test_context_resolver_keeps_raw_input_when_rewrite_has_placeholder_noise(mon
 
     def _fake_resolve(user_input, state):
         return _FakeResolveResult(
-            rewritten_input="the foundations person 'an ai' jarvis general_assistance",
-            resolved_bindings={"it": "jarvis"},
+            rewritten_input="the foundations person 'an ai' assistant general_assistance",
+            resolved_bindings={"it": "assistant"},
             unresolved_pronouns=[],
         )
 
@@ -61,7 +61,7 @@ def test_semantic_fidelity_guard_rejects_programming_drift_response():
 def test_semantic_fidelity_guard_accepts_on_topic_foundations_response():
     controller = ExecutiveController()
     good = (
-        "If Jarvis were built in today's world, the core foundations would be natural language understanding, "
+        "A real-world assistant system needs natural language understanding, "
         "memory, planning, execution, verification, and bounded autonomy."
     )
 
@@ -99,7 +99,7 @@ def test_native_conceptual_mode_returns_direct_foundation_answer():
 
     assert response is not None
     low = response.lower()
-    assert "jarvis" in low
+    assert "assistant" in low
     assert "memory" in low
     assert "planning" in low
     assert "execution" in low

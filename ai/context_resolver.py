@@ -39,7 +39,7 @@ class ContextResolver:
         low = str(text or "").lower()
         if "general_assistance" in low:
             return True
-        if "an ai" in low and "jarvis" in low:
+        if re.search(r"\b(?:person|assistant|system)\s+'[^']+'", low):
             return True
         if re.search(r"\bperson\s+'an ai'\b", low):
             return True

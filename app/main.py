@@ -696,7 +696,7 @@ class ALICE:
                     component='tier_improvements',
                     active_systems=10
                 )
-                logger.info("[OK] All 10 Tier Improvements active - JARVIS-like capabilities enabled")
+                logger.info("[OK] All 10 Tier Improvements active - advanced assistant capabilities enabled")
             except Exception as e:
                 logger.error(f"[ERROR] Tier improvements initialization failed: {e}")
                 import traceback
@@ -3766,11 +3766,14 @@ class ALICE:
             return None
 
         conceptual_markers = (
-            "jarvis",
-            "tony stark",
+            "foundation",
             "foundations",
-            "today's world",
-            "no fiction",
+            "assistant",
+            "system",
+            "real world",
+            "today",
+            "modern",
+            "architecture",
         )
         if sum(1 for m in conceptual_markers if m in text) < 2:
             return None
@@ -3779,9 +3782,9 @@ class ALICE:
             return None
 
         return (
-            "If Jarvis were built with today’s technology, his foundations would be natural language understanding, "
+            "A real-world assistant architecture needs six foundations: natural language understanding, "
             "memory, planning, tool execution, verification, and bounded autonomy. "
-            "What makes him different from a normal chatbot is reliable action across systems while tracking ongoing goals."
+            "The key difference from a basic chatbot is reliable action across systems while tracking ongoing goals."
         )
 
     def _is_simple_scaffold_intent(self, intent: str) -> bool:
@@ -3955,10 +3958,12 @@ class ALICE:
         if len(anchors) < 4:
             return {"accepted": True, "reason": "insufficient_anchor_terms"}
 
+        # Generalized critical-term logic: high-information anchors are terms
+        # with strong semantic payload, not topic-specific names.
         critical_terms = [
             t for t in anchors
-            if t in {"jarvis", "tony", "stark", "foundations", "foundation", "fiction", "world", "autonomy", "memory", "planning", "execution"}
-        ]
+            if len(t) >= 6 or t.endswith("tion") or t.endswith("ment")
+        ][:8]
         missing_critical = [t for t in critical_terms if t not in resp_low]
         off_topic_terms = [t for t in ("polymorphism", "interface", "inheritance", "class") if t in resp_low and t not in user_low]
 
@@ -3977,11 +3982,10 @@ class ALICE:
     def _native_conceptual_fallback(self, user_input: str) -> Optional[str]:
         """Native conceptual answer mode for broad architecture questions."""
         text = str(user_input or "").lower()
-        if "jarvis" in text and "foundation" in text and "no fiction" in text:
+        if "foundation" in text and any(k in text for k in ("assistant", "system", "architecture", "real world")):
             return (
-                "If Jarvis were built with today's technology, his foundations would be natural language understanding, "
-                "memory, planning, tool execution, verification, and bounded autonomy. "
-                "What would make him different from a normal chatbot is reliable action across systems with ongoing goal tracking."
+                "A practical assistant system should be built on understanding, memory, planning, execution, verification, "
+                "and bounded autonomy, with clear safety and escalation rules."
             )
         return None
 
