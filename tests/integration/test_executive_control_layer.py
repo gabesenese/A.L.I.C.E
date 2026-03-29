@@ -283,6 +283,49 @@ def test_runtime_controls_reduce_tool_usage_when_clarify_first() -> None:
     assert int(controls["thinking_depth"]) >= 3
 
 
+    def test_help_intent_prefers_native_scaffold_over_llm() -> None:
+        controller = ExecutiveController()
+        state = controller.build_state(
+            user_input="i need help",
+            intent="conversation:help",
+            confidence=0.95,
+            entities={},
+            conversation_state={},
+        )
+
+        decision = controller.decide(
+            state,
+            is_pure_conversation=True,
+            has_explicit_action_cue=False,
+            has_active_goal=False,
+            force_plugins_for_notes=False,
+        )
+
+        assert decision.action == "answer_direct"
+        assert decision.reason == "native_conversation_scaffold"
+
+
+    def test_help_opener_reduces_llm_score() -> None:
+        controller = ExecutiveController()
+        state = controller.build_state(
+            user_input="can you help with this",
+            intent="conversation:general",
+            confidence=0.97,
+            entities={},
+            conversation_state={},
+        )
+
+        scores = controller.score_decisions(
+            state,
+            is_pure_conversation=True,
+            has_explicit_action_cue=False,
+            has_active_goal=False,
+            force_plugins_for_notes=False,
+        )
+
+        assert scores["llm"] <= 0.45
+
+
 def test_clarification_needed_intent_answers_instead_of_looping() -> None:
     controller = ExecutiveController()
     state = controller.build_state(
@@ -301,5 +344,5 @@ def test_clarification_needed_intent_answers_instead_of_looping() -> None:
         force_plugins_for_notes=False,
     )
 
-    assert decision.action == "use_llm"
-    assert decision.reason == "clarification_answer_requested"
+    assert decision.action == "answer_direct"
+    assert decision.reason == "native_conversation_scaffold"

@@ -51,6 +51,23 @@ def test_phrasing_learner_skips_high_variance_conversation_patterns(tmp_path: Pa
     assert learner.can_phrase_myself(thought, "helpful") is False
 
 
+def test_phrasing_learner_learns_low_complexity_help_opener(tmp_path: Path) -> None:
+    learner = PhrasingLearner(storage_path=str(tmp_path / "phrasing_help.jsonl"))
+    thought = {
+        "type": "conversation:help_opener",
+        "data": {"user_input": "i need help with my project"},
+    }
+
+    for _ in range(3):
+        learner.record_phrasing(
+            alice_thought=thought,
+            ollama_phrasing="Of course. What part of your project should we focus on first?",
+            context={"tone": "helpful"},
+        )
+
+    assert learner.can_phrase_myself(thought, "helpful") is True
+
+
 def test_router_does_not_intercept_low_confidence_conversation_question() -> None:
     """Low-confidence conversational questions should fall through to LLM fallback."""
     router = RequestRouter()

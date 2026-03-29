@@ -8,12 +8,14 @@ decision signal for routing behavior. It is intentionally not chain-of-thought.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Dict, List
 
 
 @dataclass
 class ReasoningState:
     user_intent: str
+    source_text: str
     topic: str
     confidence: float
     intent_plausibility: float
@@ -29,6 +31,7 @@ class ReasoningState:
     def as_dict(self) -> Dict[str, Any]:
         return {
             "user_intent": self.user_intent,
+            "source_text": self.source_text,
             "topic": self.topic,
             "confidence": self.confidence,
             "intent_plausibility": self.intent_plausibility,
@@ -66,6 +69,18 @@ class ExecutiveController:
         "system:",
         "weather:",
         "time:",
+    )
+    SIMPLE_SCAFFOLD_INTENTS = {
+        "conversation:help",
+        "conversation:ack",
+        "conversation:acknowledgment",
+        "thanks",
+        "greeting",
+        "conversation:clarification_needed",
+    }
+    HELP_OPENER_RE = re.compile(
+        r"\b(i\s+need\s+help|can\s+you\s+help|help\s+me|help\s+with\s+this|help\s+with\s+my\s+project)\b",
+        re.IGNORECASE,
     )
 
     def __init__(self) -> None:
@@ -120,6 +135,7 @@ class ExecutiveController:
 
         return ReasoningState(
             user_intent=intent or "unknown",
+            source_text=str(user_input or ""),
             topic=topic,
             confidence=max(0.0, min(1.0, float(confidence or 0.0))),
             intent_plausibility=intent_plausibility,
@@ -195,6 +211,17 @@ class ExecutiveController:
                 store_memory=False,
             )
 
+        if self._should_force_native_scaffold(
+            state=state,
+            has_explicit_action_cue=has_explicit_action_cue,
+            has_active_goal=has_active_goal,
+        ):
+            return ExecutiveDecision(
+                action="answer_direct",
+                reason="native_conversation_scaffold",
+                store_memory=True,
+            )
+
         normalized_intent = (state.user_intent or "").lower().strip()
         if (
             normalized_intent == "conversation:clarification_needed"
@@ -261,6 +288,28 @@ class ExecutiveController:
         return ExecutiveDecision(
             action="use_llm", reason="score_llm", store_memory=True
         )
+
+    def _is_help_opener(self, state: ReasoningState) -> bool:
+        text = " ".join(
+            str(x)
+            for x in (state.source_text, state.topic, state.user_goal, state.user_intent)
+            if x
+        )
+        return bool(self.HELP_OPENER_RE.search(text))
+
+    def _should_force_native_scaffold(
+        self,
+        *,
+        state: ReasoningState,
+        has_explicit_action_cue: bool,
+        has_active_goal: bool,
+    ) -> bool:
+        normalized_intent = (state.user_intent or "").lower().strip()
+        if normalized_intent in self.SIMPLE_SCAFFOLD_INTENTS:
+            return not has_explicit_action_cue
+        if normalized_intent == "conversation:general" and self._is_help_opener(state):
+            return (not has_explicit_action_cue) and (not has_active_goal)
+        return False
 
     def should_veto_tool_execution(
         self,
@@ -427,6 +476,19 @@ class ExecutiveController:
             scores["tools"] += 0.60
         if is_pure_conversation:
             scores["llm"] += 0.20
+
+        if self._is_help_opener(state):
+            # Generic help-openers should steer toward native brief guidance,
+            # not deep LLM reasoning.
+            scores["llm"] -= 0.45
+            scores["memory"] -= 0.18
+            scores["rag"] -= 0.15
+            scores["clarify"] += 0.20
+
+        if normalized_intent in self.SIMPLE_SCAFFOLD_INTENTS:
+            scores["llm"] -= 0.30
+            scores["clarify"] += 0.15
+            scores["defer"] -= 0.10
         if conf < 0.35 and not state.topic:
             scores["clarify"] += 0.35
         if conf < 0.20 and not has_explicit_action_cue and not state.user_goal:

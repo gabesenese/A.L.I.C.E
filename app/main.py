@@ -2413,17 +2413,29 @@ class ALICE:
                     user_input=user_input,
                 )
                 # Alice learns from Ollama's phrasing so she needs it less next time
+                _teacher_thought = self._low_complexity_teacher_thought(
+                    context=context,
+                    response_type=str(response_type or ''),
+                    user_input=user_input,
+                )
+                _thought_for_learning = _teacher_thought or thought_content
+                _teacher_source = (
+                    'ollama_teacher_low_complexity'
+                    if _teacher_thought is not None
+                    else 'ollama_teacher'
+                )
                 self.phrasing_learner.record_phrasing(
-                    alice_thought=thought_content,
+                    alice_thought=_thought_for_learning,
                     ollama_phrasing=natural_response,
                     context={
                         'tone': tone,
                         'intent': context.current_intent if hasattr(context, 'current_intent') else 'unknown',
                         'user_input': user_input,
-                        'source': 'ollama_teacher',
+                        'response_type': str(response_type or ''),
+                        'source': _teacher_source,
                     },
                 )
-                if self.phrasing_learner.can_phrase_myself(thought_content, tone):
+                if self.phrasing_learner.can_phrase_myself(_thought_for_learning, tone):
                     self._think(f"Alice learned '{response_type}' — can now phrase independently!")
                 # Prepend an empathy phrase when the interaction policy asks for it
                 # (applies only to open-ended/conversational Ollama-assisted responses).
@@ -3698,6 +3710,158 @@ class ALICE:
             r"weather|forecast|temperature|time|date)\b"
         )
         return bool(re.search(action_pattern, text))
+
+    def _is_help_opener_input(self, user_input: str, intent: str) -> bool:
+        """Detect broad help-opening prompts that should stay native and concise."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+        if self._has_explicit_action_cue(text):
+            return False
+
+        if intent not in {"conversation:help", "conversation:general"}:
+            return False
+
+        help_patterns = [
+            r"\bi need help\b",
+            r"\bcan you help\b",
+            r"\bhelp me\b",
+            r"\bhelp with this\b",
+            r"\bhelp with my project\b",
+            r"\bi need help with\b",
+        ]
+        return any(re.search(pat, text) for pat in help_patterns)
+
+    def _native_help_opener_response(self, user_input: str) -> str:
+        """Native response policy for generic help-openers: acknowledge + narrow + one question."""
+        text = str(user_input or "").lower()
+        if "project" in text and "ai" in text:
+            return "Of course. What part of your AI project do you want help with first?"
+        if "project" in text:
+            return "Of course. What part of your project do you want help with first?"
+        return "Of course. What exact part do you want help with first?"
+
+    def _is_simple_scaffold_intent(self, intent: str) -> bool:
+        normalized = str(intent or "").lower().strip()
+        return normalized in {
+            "conversation:help",
+            "conversation:ack",
+            "conversation:acknowledgment",
+            "thanks",
+            "greeting",
+            "conversation:clarification_needed",
+        }
+
+    def _native_scaffold_response(self, user_input: str, intent: str) -> Optional[str]:
+        """Return native short scaffolding replies for low-complexity conversational turns."""
+        normalized = str(intent or "").lower().strip()
+        if self._is_help_opener_input(user_input, normalized):
+            return self._native_help_opener_response(user_input)
+
+        if normalized in {"conversation:ack", "conversation:acknowledgment"}:
+            return "Understood. What should we do next?"
+        if normalized == "thanks":
+            return "You are welcome. What do you want to tackle next?"
+        if normalized == "conversation:clarification_needed":
+            return "I can help. What exact result do you want?"
+        if normalized == "conversation:help":
+            return "I can help. What exact part should we focus on first?"
+        if normalized == "greeting":
+            user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
+            asked_how = bool(re.search(r"\bhow\s+(are\s+you|is\s+it\s+going)\b", str(user_input or ""), re.IGNORECASE))
+            learned = self._learned_greeting_response(
+                user_input=user_input,
+                user_name=user_name,
+                asked_how=asked_how,
+            )
+            if learned:
+                return learned
+            return "Hi. What can I help you with right now?"
+        return None
+
+    def _self_answer_first_gate(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        entities: Dict[str, Any],
+        has_active_goal: bool,
+        has_explicit_action_cue: bool,
+    ) -> Dict[str, Any]:
+        """Block LLM when a direct low-risk native response is sufficient."""
+        native = self._native_scaffold_response(user_input, intent)
+        if native:
+            return {
+                "block_llm": True,
+                "reason": "native_scaffold",
+                "response": native,
+            }
+
+        text = str(user_input or "").strip()
+        tokens = re.findall(r"\b[a-z']+\b", text.lower())
+        short_enough = len(tokens) <= 20
+        low_risk_intent = str(intent or "").startswith("conversation:") or intent in {"greeting", "thanks"}
+        no_tool_needed = (not has_explicit_action_cue) and (not has_active_goal)
+        no_missing_knowledge = not any(
+            cue in text.lower()
+            for cue in (
+                "what is",
+                "why",
+                "how does",
+                "compare",
+                "explain",
+            )
+        )
+        under_two_sentence_direct = short_enough and len(text) > 0
+
+        if under_two_sentence_direct and low_risk_intent and no_tool_needed and no_missing_knowledge:
+            direct = "I can help. What exact result do you want?"
+            return {
+                "block_llm": True,
+                "reason": "self_answer_first",
+                "response": direct,
+            }
+
+        return {"block_llm": False, "reason": "allow_llm", "response": ""}
+
+    def _low_complexity_teacher_thought(
+        self,
+        *,
+        context: Any,
+        response_type: str,
+        user_input: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Build a low-complexity thought shape that can be reused natively later."""
+        intent = ""
+        if context is not None and hasattr(context, "current_intent"):
+            intent = str(getattr(context, "current_intent") or "")
+        intent = intent.lower().strip()
+
+        if response_type == "clarification_prompt":
+            return {
+                "type": "conversation:clarification_needed",
+                "data": {"user_input": user_input},
+            }
+
+        if self._is_help_opener_input(user_input, intent or "conversation:help"):
+            return {
+                "type": "conversation:help_opener",
+                "data": {"user_input": user_input},
+            }
+
+        if intent in {
+            "conversation:ack",
+            "conversation:acknowledgment",
+            "conversation:help",
+            "greeting",
+            "thanks",
+        }:
+            return {
+                "type": intent,
+                "data": {"user_input": user_input},
+            }
+
+        return None
 
     def _should_attach_goal_context(self, user_input: str, intent: str) -> bool:
         """Attach active-goal context only for task-directed turns."""
@@ -5575,6 +5739,17 @@ class ALICE:
                     self.speech.speak(weather_followup_early, blocking=False)
                 logger.info(f"A.L.I.C.E: {weather_followup_early[:100]}...")
                 return weather_followup_early
+
+            # 0.56 DEDICATED HELP-OPENER PATH: acknowledge + narrow scope + ask one question.
+            if self._is_help_opener_input(user_input, intent):
+                self._think("Help-opener detected → native response policy (no LLM)")
+                help_response = self._native_help_opener_response(user_input)
+                self._cache_put(user_input, "conversation:help", help_response)
+                self._store_interaction(user_input, help_response, "conversation:help", entities)
+                if use_voice and self.speech:
+                    self.speech.speak(help_response, blocking=False)
+                logger.info(f"A.L.I.C.E: {help_response[:100]}...")
+                return help_response
             
             # 0.5 Check if cached response exists (with 5-minute expiry for variation)
             # Cache conversational intents for faster responses to repeated questions
@@ -5629,7 +5804,7 @@ class ALICE:
                     intent = "conversation:general"
                     intent_confidence = min(intent_confidence, 0.55)
 
-                if intent == "greeting" and explicit_greeting_input and getattr(self, "llm_gateway", None):
+                if intent == "greeting" and explicit_greeting_input:
                     # Check conversational engine first for learned greetings
                     if hasattr(self, 'conversational_engine') and self.conversational_engine:
                         conv_context = ConversationalContext(
@@ -5650,108 +5825,16 @@ class ALICE:
                                     self.speech.speak(response, blocking=False)
                                 logger.info(f"A.L.I.C.E: {response[:100]}...")
                                 return response
-                    
-                    # No learned greeting - use LLM and learn from it
-                    user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
-                    asked_how = bool(re.search(r"\bhow\s+(are\s+you|are\s+things|have\s+you\s+been|do\s+you\s+do|is\s+it\s+going|is\s+your\s+day)\b|\bhow's\s+(it\s+going|your\s+day)\b", user_input, re.IGNORECASE))
-                    prompt = (
-                        f"The user said: {user_input!r}. "
-                        "Respond directly and briefly (under 18 words). "
-                        "Do not mention being an AI or your name. "
-                        "Do not wrap the response in quotes. "
-                        "Only comment on your wellbeing if the user explicitly asked. "
-                        f"If a name is available, you may include it: {user_name!r}."
-                    )
-                    llm_response = self.llm_gateway.request(
-                        prompt=prompt,
-                        call_type=LLMCallType.CHITCHAT,
-                        use_history=False,
-                        user_input=user_input
-                    )
-                    if llm_response.success and llm_response.response:
-                        response = self._clamp_final_response(
-                            llm_response.response,
-                            tone='casual and friendly',
-                            response_type='greeting',
-                            route='greeting',
-                            user_input=user_input,
-                        )
-                    else:
-                        # No hardcoded greetings: use learned greetings if LLM unavailable/denied
-                        response = self._learned_greeting_response(
-                            user_input=user_input,
-                            user_name=user_name,
-                            asked_how=asked_how,
-                        ) or llm_response.response
-                    
-                    if response and not asked_how:
-                        response = re.sub(
-                            r"\b(I\s*'m|I\s+am)\s+(doing\s+)?(well|good|great|fine)\b[.!]*\s*",
-                            "",
-                            response,
-                            flags=re.IGNORECASE
-                        ).strip()
-                        if not response and getattr(self, "llm_gateway", None):
-                            # Retry via gateway without wellbeing
-                            retry_response = self.llm_gateway.request(
-                                prompt="Give a short greeting only. Do not comment on your wellbeing.",
-                                call_type=LLMCallType.CHITCHAT,
-                                use_history=False,
-                                user_input=user_input
-                            )
-                            response = (
-                                self._clamp_final_response(
-                                    retry_response.response,
-                                    tone='casual and friendly',
-                                    response_type='greeting',
-                                    route='greeting',
-                                    user_input=user_input,
-                                )
-                                if retry_response.success and retry_response.response
-                                else None
-                            )
-                    if response:
-                        # Store as learned pattern for future use
-                        if getattr(self, 'learning_engine', None):
-                            self.learning_engine.collect_interaction(
-                                user_input=user_input,
-                                assistant_response=response,
-                                intent='greeting',
-                                entities=entities or {},
-                                quality_score=0.95  # High quality - greetings are straightforward
-                            )
 
-                        # LEARN phrasing so A.L.I.C.E can greet independently
-                        if self.phrasing_learner:
-                            self.phrasing_learner.record_phrasing(
-                                alice_thought={
-                                    'type': 'greeting',
-                                    'data': {
-                                        'user_input': user_input,
-                                        'user_name': user_name,
-                                        'asked_how': asked_how
-                                    }
-                                },
-                                ollama_phrasing=response,
-                                context={
-                                    'tone': 'friendly',
-                                    'intent': 'greeting',
-                                    'user_input': user_input
-                                }
-                            )
-
-                        # Don't add to conversational_engine.learned_greetings
-                        # Always use LLM for greetings to get fresh, varied responses
-                        self._think("LLM → greeting response (will be learned)")
-
-                        # Cache the greeting response (5-minute expiry for variation)
-                        self._cache_put(user_input, intent, response)
-
-                        self._store_interaction(user_input, response, intent, entities)
+                    # No LLM fallback for greeting scaffolding: use native/learned phrasing only.
+                    native_greeting = self._native_scaffold_response(user_input, "greeting")
+                    if native_greeting:
+                        self._cache_put(user_input, intent, native_greeting)
+                        self._store_interaction(user_input, native_greeting, intent, entities)
                         if use_voice and self.speech:
-                            self.speech.speak(response, blocking=False)
-                        logger.info(f"A.L.I.C.E: {response[:100]}...")
-                        return response
+                            self.speech.speak(native_greeting, blocking=False)
+                        logger.info(f"A.L.I.C.E: {native_greeting[:100]}...")
+                        return native_greeting
 
             # Store for active learning
             self.last_user_input = user_input
@@ -6902,6 +6985,25 @@ class ALICE:
                 "Executive scores → "
                 + ", ".join(f"{k}:{v:.2f}" for k, v in sorted(_decision_scores.items(), key=lambda kv: kv[1], reverse=True)[:4])
             )
+
+            if _executive_decision.action in ("use_llm", "answer_direct"):
+                _self_answer = self._self_answer_first_gate(
+                    user_input=user_input,
+                    intent=intent,
+                    entities=entities or {},
+                    has_active_goal=bool(active_goal),
+                    has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
+                )
+                if _self_answer.get("block_llm"):
+                    response = str(_self_answer.get("response") or "").strip()
+                    if response:
+                        self._think(f"Self-answer-first gate → {_self_answer.get('reason', 'native')}")
+                        self._cache_put(user_input, intent, response)
+                        self._store_interaction(user_input, response, intent, entities)
+                        if use_voice and self.speech:
+                            self.speech.speak(response, blocking=False)
+                        logger.info(f"A.L.I.C.E: {response[:100]}...")
+                        return response
 
             if _executive_decision.action == "ask_clarification":
                 _uncertainty = self.executive_controller.format_candidate_uncertainty(

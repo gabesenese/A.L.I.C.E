@@ -146,7 +146,10 @@ class PhrasingLearner:
         # Broad conversation buckets are too diverse for safe template replay.
         if thought_type.startswith("conversation:") and thought_type not in {
             "conversation:ack",
+            "conversation:acknowledgment",
             "conversation:clarification_needed",
+            "conversation:help",
+            "conversation:help_opener",
         }:
             return True
 
