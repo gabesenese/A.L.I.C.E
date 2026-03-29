@@ -140,3 +140,21 @@ class TestLayeredTokenizer:
         rejection = self.nlp.process("not that one")
 
         assert not rejection.intent.startswith("weather:")
+
+    def test_pending_help_narrowing_slot_consumes_short_answer(self):
+        self.nlp.context.pending_clarification = {
+            "type": "help_narrowing",
+            "slot": "project_subdomain",
+            "parent_topic": "ai_project",
+        }
+
+        result = self.nlp.process("NLP")
+        modifiers = result.parsed_command.get("modifiers", {})
+        slot_followup = modifiers.get("pending_slot_followup", {})
+        followup_resolution = modifiers.get("followup_resolution", {})
+
+        assert result.intent == "conversation:clarification_needed"
+        assert slot_followup.get("filled") is True
+        assert slot_followup.get("slot") == "project_subdomain"
+        assert slot_followup.get("value", "").lower() == "nlp"
+        assert followup_resolution.get("was_followup") is True

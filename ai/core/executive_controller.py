@@ -26,6 +26,8 @@ class ReasoningState:
     planner_depth: int = 1
     route_bias: str = "balanced"
     tool_budget: int = 1
+    pending_followup_slot: bool = False
+    pending_followup_slot_name: str = ""
     plan: List[str] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -42,6 +44,8 @@ class ReasoningState:
             "planner_depth": self.planner_depth,
             "route_bias": self.route_bias,
             "tool_budget": self.tool_budget,
+            "pending_followup_slot": self.pending_followup_slot,
+            "pending_followup_slot_name": self.pending_followup_slot_name,
             "plan": list(self.plan),
         }
 
@@ -150,6 +154,10 @@ class ExecutiveController:
             str(conversation_state.get("route_bias") or "balanced").strip().lower()
         )
         tool_budget = int(conversation_state.get("tool_budget") or 1)
+        pending_followup_slot = bool(conversation_state.get("pending_followup_slot", False))
+        pending_followup_slot_name = str(
+            conversation_state.get("pending_followup_slot_name") or ""
+        ).strip()
 
         plan = self._derive_plan(
             intent=intent, topic=topic, depth_level=depth_level, user_input=user_input
@@ -168,6 +176,8 @@ class ExecutiveController:
             planner_depth=max(1, min(4, planner_depth)),
             route_bias=route_bias or "balanced",
             tool_budget=max(0, min(3, tool_budget)),
+            pending_followup_slot=pending_followup_slot,
+            pending_followup_slot_name=pending_followup_slot_name,
             plan=plan,
         )
 
@@ -231,6 +241,17 @@ class ExecutiveController:
                 action="ignore",
                 reason="empty_intent",
                 store_memory=False,
+            )
+
+        if self._is_pending_followup_slot_answer(
+            state=state,
+            has_explicit_action_cue=has_explicit_action_cue,
+            has_active_goal=has_active_goal,
+        ):
+            return ExecutiveDecision(
+                action="use_llm",
+                reason="pending_followup_slot_answer",
+                store_memory=True,
             )
 
         if self._is_simple_native_conversation(
@@ -329,6 +350,37 @@ class ExecutiveController:
             if x
         )
         return bool(self.HELP_OPENER_RE.search(text))
+
+    def _is_pending_followup_slot_answer(
+        self,
+        *,
+        state: ReasoningState,
+        has_explicit_action_cue: bool,
+        has_active_goal: bool,
+    ) -> bool:
+        if not bool(getattr(state, "pending_followup_slot", False)):
+            return False
+        if has_explicit_action_cue or has_active_goal:
+            return False
+
+        text = str(state.source_text or "").strip().lower()
+        if not text or "?" in text:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+        if not tokens or len(tokens) > 5:
+            return False
+
+        social_words = {
+            "hi", "hello", "hey", "thanks", "thank", "bye", "goodbye", "ok", "okay", "sure"
+        }
+        if all(tok in social_words for tok in tokens):
+            return False
+
+        if self.HELP_OPENER_RE.search(text):
+            return False
+
+        return True
 
     def _is_simple_native_conversation(
         self,

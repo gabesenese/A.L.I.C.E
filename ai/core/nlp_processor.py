@@ -3041,6 +3041,51 @@ class NLPProcessor:
                 },
             )
 
+        _pending_slot = self.context.pending_clarification if hasattr(self.context, "pending_clarification") else {}
+        if isinstance(_pending_slot, dict) and _pending_slot.get("type") == "help_narrowing":
+            _slot_text = normalized_text.strip().strip(".!,;:")
+            _slot_tokens = re.findall(r"\b[a-z0-9']+\b", _slot_text.lower())
+            _has_action_word = bool(
+                re.search(
+                    r"\b(open|launch|play|send|create|make|delete|remove|search|find|show|list|read|write|edit|update|schedule|set|remind)\b",
+                    _slot_text.lower(),
+                )
+            )
+            _social_only = set(_slot_tokens).issubset(
+                {"hi", "hello", "hey", "thanks", "thank", "ok", "okay", "sure", "bye", "goodbye"}
+            )
+            if (
+                _slot_text
+                and "?" not in _slot_text
+                and 1 <= len(_slot_tokens) <= 5
+                and not _has_action_word
+                and not _social_only
+            ):
+                intent = "conversation:clarification_needed"
+                intent_confidence = max(float(intent_confidence or 0.0), 0.84)
+                _slot_name = str(_pending_slot.get("slot") or "project_subdomain")
+                parsed_command.modifiers["pending_slot_followup"] = {
+                    "filled": True,
+                    "slot": _slot_name,
+                    "value": _slot_text,
+                    "parent_topic": str(_pending_slot.get("parent_topic") or ""),
+                    "reason": "pending_help_narrowing_slot",
+                }
+                parsed_command.modifiers["followup_resolution"] = {
+                    "was_followup": True,
+                    "domain": "conversation",
+                    "reason": "pending_help_narrowing_slot",
+                    "resolved_intent": intent,
+                    "confidence": float(intent_confidence),
+                }
+                route = RouteDecision(
+                    intent=intent,
+                    confidence=float(intent_confidence),
+                    plugin="conversation",
+                    action="clarification_needed",
+                    trace={"source": "pending_help_slot"},
+                )
+
         # ── Dialogue-state gate ────────────────────────────────────────────────
         # If Alice is waiting for the user to disambiguate (dialogue_state ==
         # "clarifying") and the current response looks like a clarification

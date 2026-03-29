@@ -326,6 +326,7 @@ class ALICE:
         self.last_entities = {}
         self.last_nlp_result = {}
         self.last_interaction = None
+        self._pending_conversation_slot = {}
         # Turn index at which the active intent domain last changed.
         # Used to compute turn_distance for FollowUpResolver decay.
         self._last_intent_turn = 0
@@ -3759,6 +3760,35 @@ class ALICE:
             return "Of course. What part of your project do you want help with first?"
         return "Of course. What exact part do you want help with first?"
 
+    def _arm_help_narrowing_slot(self, user_input: str, prompt_response: str) -> None:
+        """Store a pending narrowing slot for short follow-up answers."""
+        text = str(user_input or "").lower()
+        parent_topic = "ai_project" if ("project" in text and "ai" in text) else "project"
+        self._pending_conversation_slot = {
+            "active": True,
+            "type": "narrowing",
+            "slot": "project_subdomain",
+            "parent_topic": parent_topic,
+            "parent_intent": "conversation:help",
+            "prompt": str(prompt_response or ""),
+        }
+        if getattr(self, "nlp", None) and getattr(self.nlp, "context", None):
+            self.nlp.context.pending_clarification = {
+                "type": "help_narrowing",
+                "slot": "project_subdomain",
+                "parent_topic": parent_topic,
+            }
+
+    def _pending_help_slot_followup_response(self, slot_value: str) -> str:
+        low = str(slot_value or "").lower().strip()
+        if "nlp" in low:
+            return "Good, NLP is a strong focus. Do you want help with intent routing, entity extraction, embeddings, or conversation flow first?"
+        if "memory" in low:
+            return "Great, memory is a strong focus. Do you want to start with short-term context, long-term storage, or retrieval quality first?"
+        if "vision" in low:
+            return "Great, vision is a strong focus. Do you want to start with OCR, scene understanding, or multimodal grounding first?"
+        return f"Got it. For {slot_value}, do you want to start with foundations, architecture, or debugging first?"
+
     def _native_conceptual_answer(self, user_input: str, intent: str) -> Optional[str]:
         """Native conceptual mode for broad architecture questions that do not require tools."""
         text = str(user_input or "").lower()
@@ -5576,6 +5606,28 @@ class ALICE:
             if not _followup_applied:
                 self._think("No NLP follow-up metadata this turn; continuing without secondary follow-up override.")
 
+            _slot_followup = (
+                _modifiers.get('pending_slot_followup')
+                if isinstance(_modifiers, dict)
+                else None
+            )
+            if isinstance(_slot_followup, dict) and _slot_followup.get('filled'):
+                _slot_value = str(_slot_followup.get('value') or user_input).strip()
+                if _slot_value:
+                    response = self._pending_help_slot_followup_response(_slot_value)
+                    entities = dict(entities or {})
+                    entities['topic'] = _slot_value
+                    entities['project_area'] = _slot_value
+                    self._pending_conversation_slot = {}
+                    if getattr(self, 'nlp', None) and getattr(self.nlp, 'context', None):
+                        self.nlp.context.pending_clarification = {}
+                    self._cache_put(user_input, 'conversation:clarification_needed', response)
+                    self._store_interaction(user_input, response, 'conversation:clarification_needed', entities)
+                    if use_voice and self.speech:
+                        self.speech.speak(response, blocking=False)
+                    logger.info(f"A.L.I.C.E: {response[:100]}...")
+                    return response
+
             # 1.35 Context-aware intent refinement: same surface words can map
             # to different intents based on recent topic and domain continuity.
             if self.context_intent_refiner:
@@ -5947,6 +5999,7 @@ class ALICE:
             if self._is_help_opener_input(user_input, intent):
                 self._think("Help-opener detected → native response policy (no LLM)")
                 help_response = self._native_help_opener_response(user_input)
+                self._arm_help_narrowing_slot(user_input, help_response)
                 self._cache_put(user_input, "conversation:help", help_response)
                 self._store_interaction(user_input, help_response, "conversation:help", entities)
                 if use_voice and self.speech:
@@ -7058,6 +7111,14 @@ class ALICE:
                 if _penalty > 0.0:
                     intent_confidence = max(0.0, float(intent_confidence or 0.0) - _penalty)
                     self._think(f"Immediate feedback penalty applied ({_penalty:.2f}) → confidence={intent_confidence:.2f}")
+
+            _pending_slot_state = getattr(self, '_pending_conversation_slot', {}) or {}
+            if bool(_pending_slot_state.get('active')):
+                _conversation_state = {
+                    **(_conversation_state or {}),
+                    "pending_followup_slot": True,
+                    "pending_followup_slot_name": str(_pending_slot_state.get('slot') or ''),
+                }
 
             _entities_for_exec = dict(entities or {})
             _entities_for_exec["_intent_plausibility"] = float(intent_plausibility or 0.0)

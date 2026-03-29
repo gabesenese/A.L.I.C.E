@@ -373,6 +373,31 @@ def test_help_intent_with_educational_question_does_not_force_simple_native_path
     assert decision.reason != "simple_conversational_native_path"
 
 
+def test_pending_followup_slot_short_answer_avoids_scaffold_loop() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="NLP",
+        intent="conversation:general",
+        confidence=0.72,
+        entities={},
+        conversation_state={
+            "pending_followup_slot": True,
+            "pending_followup_slot_name": "project_subdomain",
+        },
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "use_llm"
+    assert decision.reason == "pending_followup_slot_answer"
+
+
 def test_clarification_needed_intent_answers_instead_of_looping() -> None:
     controller = ExecutiveController()
     state = controller.build_state(
