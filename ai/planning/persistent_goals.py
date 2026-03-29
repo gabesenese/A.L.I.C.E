@@ -295,6 +295,14 @@ class PersistentGoalSystem:
             not in [GoalStatus.COMPLETED, GoalStatus.CANCELLED, GoalStatus.FAILED]
         ]
 
+    def get_completed_goals(self) -> List[Goal]:
+        """Get all goals that reached completed status (most recent first)."""
+        completed = [
+            goal for goal in self.goals.values() if goal.status == GoalStatus.COMPLETED
+        ]
+        completed.sort(key=lambda g: g.completed_at or g.updated_at or g.created_at, reverse=True)
+        return completed
+
     def get_goals_by_priority(self, priority: GoalPriority) -> List[Goal]:
         """Get goals by priority level"""
         return [goal for goal in self.goals.values() if goal.priority == priority]

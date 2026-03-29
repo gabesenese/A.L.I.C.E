@@ -10026,13 +10026,16 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
         if active_goals:
             for i, goal in enumerate(active_goals, 1):
-                print(f"\n{i}. {goal.title} (ID: {goal.id})")
-                print(f"   Status: {goal.status}")
+                print(f"\n{i}. {goal.title} (ID: {goal.goal_id})")
+                _status = goal.status.value if hasattr(goal.status, 'value') else str(goal.status)
+                print(f"   Status: {_status}")
                 print(f"   Progress: {int(goal.progress * 100)}%")
-                print(f"   Created: {goal.created_at.strftime('%Y-%m-%d %H:%M')}")
+                _created = datetime.fromtimestamp(goal.created_at).strftime('%Y-%m-%d %H:%M')
+                print(f"   Created: {_created}")
 
                 if goal.deadline:
-                    print(f"   Deadline: {goal.deadline.strftime('%Y-%m-%d')}")
+                    _deadline = datetime.fromtimestamp(goal.deadline).strftime('%Y-%m-%d')
+                    print(f"   Deadline: {_deadline}")
 
                 total_steps = len(goal.steps)
                 completed_steps = sum(1 for s in goal.steps if s.status == 'completed')
@@ -10048,7 +10051,9 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if completed_goals:
             print(f"\n Completed Goals: {len(completed_goals)}")
             for goal in completed_goals[:3]:
-                print(f"   - {goal.title} (completed {goal.updated_at.strftime('%Y-%m-%d')})")
+                _completed_ts = goal.completed_at or goal.updated_at
+                _completed = datetime.fromtimestamp(_completed_ts).strftime('%Y-%m-%d')
+                print(f"   - {goal.title} (completed {_completed})")
 
         print("=" * 70)
 
