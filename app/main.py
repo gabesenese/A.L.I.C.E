@@ -123,6 +123,7 @@ from ai.core.unified_action_engine import ActionRequest, get_unified_action_engi
 from ai.core.world_state_memory import get_world_state_memory
 from ai.core.execution_journal import get_execution_journal
 from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_manager
+from ai.core.autonomy_dispatcher import TinyAutonomyDispatcher, OUTCOME_ESCALATE_AND_STOP
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
 from ai.lab_simulator import LabSimulator
@@ -785,6 +786,8 @@ class ALICE:
             self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
             self.execution_journal = get_execution_journal(storage_path="data/action_journal.jsonl")
             self.autonomy_manager = get_bounded_autonomy_manager(storage_path="data/autonomy_loops.json")
+            self.autonomy_dispatcher = TinyAutonomyDispatcher()
+            self._autonomy_medium_ask_history = {}
             self._init_bounded_autonomy_loops()
             logger.info("[OK] RBAC and unified action guards active")
             
@@ -7108,7 +7111,10 @@ class ALICE:
                 )
                 action_result = self.action_engine.execute(action_request)
                 self.action_engine.apply_state_updates(self, action_result)
-                self._evaluate_autonomy_triggers()
+                self._evaluate_autonomy_triggers(
+                    active_goal_id=(active_goal.goal_id if active_goal else ""),
+                    action_result=action_result,
+                )
 
                 plugin_result = None
                 if action_result.status != "not_handled":
@@ -10181,7 +10187,26 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                 )
         print("=" * 70)
 
-    def _evaluate_autonomy_triggers(self):
+    def _get_pending_approval_snapshots(self):
+        pending = []
+        if not getattr(self, 'approval_ledger', None):
+            return pending
+        try:
+            raw_pending = getattr(self.approval_ledger, '_pending', {}) or {}
+            for req in raw_pending.values():
+                pending.append(
+                    {
+                        "approval_id": str(getattr(req, 'approval_id', '') or ''),
+                        "action": str(getattr(req, 'action', '') or ''),
+                        "scope": str(getattr(req, 'scope', '') or ''),
+                        "summary": str(getattr(req, 'summary', '') or ''),
+                    }
+                )
+        except Exception:
+            return []
+        return pending
+
+    def _evaluate_autonomy_triggers(self, active_goal_id: str = "", action_result=None):
         """Evaluate bounded-autonomy loop triggers using live operator context."""
         if not hasattr(self, 'autonomy_manager') or not self.autonomy_manager:
             return []
@@ -10210,6 +10235,9 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         world_state = {}
         if hasattr(self, 'world_state_memory') and self.world_state_memory:
             world_state = self.world_state_memory.snapshot()
+        pending_approvals = self._get_pending_approval_snapshots()
+        if pending_approvals:
+            world_state["pending_approvals"] = pending_approvals
 
         goal_summary = {}
         if hasattr(self, 'goal_system') and self.goal_system:
@@ -10246,8 +10274,84 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             for ev in events
         ]
 
+        rollback = {}
+        if action_result is not None:
+            rollback = ((getattr(action_result, 'state_updates', {}) or {}).get('rollback') or {})
+        rollback_status = str((rollback or {}).get('status') or '').strip().lower()
+        if rollback_status == "rollback_success":
+            event_dicts.append(
+                {
+                    "loop": "rollback_watch",
+                    "severity": "low",
+                    "reason": "rollback_success",
+                    "recommended_action": "continue_goal_flow",
+                    "confidence": 0.9,
+                }
+            )
+        elif rollback_status in {"rollback_failed", "rollback_confirmation_required"}:
+            event_dicts.append(
+                {
+                    "loop": "rollback_watch",
+                    "severity": "high",
+                    "reason": "rollback_failure",
+                    "recommended_action": "escalate_after_failed_rollback",
+                    "confidence": 0.9,
+                }
+            )
+
+        goal_actions = []
+        operator_prompt = ""
+        decisions = []
+        if getattr(self, 'autonomy_dispatcher', None):
+            for ev in event_dicts:
+                decision = self.autonomy_dispatcher.dispatch(
+                    event=ev,
+                    goal_summary=goal_summary,
+                    active_goal_id=active_goal_id,
+                    ask_history=self._autonomy_medium_ask_history,
+                )
+                decision_dict = decision.to_dict()
+                if decision.trigger_reason == "pending_approvals_waiting" and decision.should_notify_user:
+                    approval_ids = [p.get("approval_id") for p in pending_approvals if p.get("approval_id")]
+                    if approval_ids:
+                        decision_dict["operator_message"] = (
+                            "Pending operator decisions: "
+                            + ", ".join(approval_ids[:3])
+                            + ". Reply with operator approve <approval_id> or operator reject <approval_id>."
+                        )
+                if decision_dict.get("should_notify_user") and not operator_prompt:
+                    operator_prompt = str(decision_dict.get("operator_message") or "")
+                goal_actions.append(
+                    {
+                        "goal_id": decision.affected_goal_id,
+                        "trigger_reason": decision.trigger_reason,
+                        "next_goal_action": decision.next_goal_action,
+                    }
+                )
+                decisions.append(decision_dict)
+
+                if decision.outcome == OUTCOME_ESCALATE_AND_STOP:
+                    self._internal_reasoning_state["autonomy_escalation"] = {
+                        "reason": decision.trigger_reason,
+                        "severity": decision.severity,
+                        "goal_id": decision.affected_goal_id,
+                    }
+                    _loop = self.execution_loop if hasattr(self, 'execution_loop') else None
+                    if _loop and hasattr(_loop, 'pause'):
+                        try:
+                            _loop.pause()
+                        except Exception:
+                            pass
+
         if event_dicts:
             self._internal_reasoning_state["autonomy_triggers"] = event_dicts
+        if decisions:
+            self._internal_reasoning_state["autonomy_dispatch_decisions"] = decisions
+            self._internal_reasoning_state["autonomy_goal_actions"] = goal_actions
+        if operator_prompt:
+            self._internal_reasoning_state["autonomy_operator_prompt"] = operator_prompt
+        else:
+            self._internal_reasoning_state.pop("autonomy_operator_prompt", None)
 
         return event_dicts
 

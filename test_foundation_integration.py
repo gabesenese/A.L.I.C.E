@@ -19,10 +19,8 @@ def test_foundation_import():
     try:
         from ai.foundation_integration import FoundationIntegration
         print("✓ Foundation integration imports successfully")
-        return True
     except ImportError as e:
-        print(f"✗ Failed to import foundation integration: {e}")
-        return False
+        raise AssertionError(f"Failed to import foundation integration: {e}") from e
 
 def test_foundation_instantiation():
     """Test that foundation systems can be instantiated"""
@@ -43,12 +41,11 @@ def test_foundation_instantiation():
         print(f"  - Response Variance Engine: {foundations.response_engine is not None}")
         print(f"  - Personality Evolution: {foundations.personality_engine is not None}")
         print(f"  - Context Graph: {foundations.context_graph is not None}")
-        return True
+        assert foundations.response_engine is not None
+        assert foundations.personality_engine is not None
+        assert foundations.context_graph is not None
     except Exception as e:
-        print(f"✗ Failed to instantiate foundation systems: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        raise AssertionError(f"Failed to instantiate foundation systems: {e}") from e
 
 def test_response_generation():
     """Test response generation with foundation systems"""
@@ -77,15 +74,10 @@ def test_response_generation():
         if response:
             print("✓ Foundation response generation works")
             print(f"  Response: {response[:100]}...")
-            return True
         else:
-            print("✗ Foundation response generation failed - no response")
-            return False
+            raise AssertionError("Foundation response generation failed - no response")
     except Exception as e:
-        print(f"✗ Failed to generate response: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        raise AssertionError(f"Failed to generate response: {e}") from e
 
 def test_repetition_detection():
     """Test that repetition detection works"""
@@ -125,16 +117,11 @@ def test_repetition_detection():
             print("✓ Response variance works - different responses each time")
             for i, resp in enumerate(responses, 1):
                 print(f"  Response {i}: {resp[:60]}...")
-            return True
         else:
-            print("⚠ All responses identical - variance may not be working")
-            return False
+            raise AssertionError("All responses identical - variance may not be working")
             
     except Exception as e:
-        print(f"✗ Repetition detection test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        raise AssertionError(f"Repetition detection test failed: {e}") from e
 
 def test_personality_evolution():
     """Test personality adaptation"""
@@ -169,13 +156,9 @@ def test_personality_evolution():
         print(f"  Adapted personality: {adapted_personality[:100]}...")
         
         print("✓ Personality evolution system functional")
-        return True
         
     except Exception as e:
-        print(f"✗ Personality evolution test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        raise AssertionError(f"Personality evolution test failed: {e}") from e
 
 def test_context_graph():
     """Test context graph memory"""
@@ -213,16 +196,11 @@ def test_context_graph():
         if "Gabriel" in context or "New York" in context:
             print("✓ Context graph stores and retrieves information")
             print(f"  Context: {context[:150]}...")
-            return True
         else:
-            print("⚠ Context may not be storing entities correctly")
-            return False
+            raise AssertionError("Context may not be storing entities correctly")
             
     except Exception as e:
-        print(f"✗ Context graph test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        raise AssertionError(f"Context graph test failed: {e}") from e
 
 def main():
     """Run all tests"""
@@ -245,8 +223,8 @@ def main():
         print(f"\n{name}:")
         print("-" * 60)
         try:
-            result = test_func()
-            results.append((name, result))
+            test_func()
+            results.append((name, True))
         except Exception as e:
             print(f"✗ Test crashed: {e}")
             import traceback

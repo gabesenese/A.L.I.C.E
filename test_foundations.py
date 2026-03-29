@@ -61,7 +61,6 @@ def test_context_graph():
     print(f"✓ Statistics: {stats['total_entities']} entities, {stats['total_relationships']} relationships")
     
     print("\n✅ Context Graph: ALL TESTS PASSED")
-    return True
 
 
 def test_personality_evolution():
@@ -112,7 +111,6 @@ def test_personality_evolution():
     print(f"  - Formality: {profile['description']['formality']}")
     
     print("\n✅ Personality Evolution: ALL TESTS PASSED")
-    return True
 
 
 def test_response_variance():
@@ -173,7 +171,6 @@ def test_response_variance():
     print(f"✓ Quality feedback recorded")
     
     print("\n✅ Response Variance Engine: ALL TESTS PASSED")
-    return True
 
 
 def test_integration():
@@ -227,7 +224,6 @@ def test_integration():
     print(f"  Personality users: {stats['personality_users']}")
     
     print("\n✅ Full Integration: ALL TESTS PASSED")
-    return True
 
 
 def main():
@@ -246,8 +242,8 @@ def main():
     results = []
     for name, test_func in tests:
         try:
-            passed = test_func()
-            results.append((name, passed))
+            test_func()
+            results.append((name, True))
         except Exception as e:
             print(f"\n❌ {name}: FAILED")
             print(f"   Error: {e}")

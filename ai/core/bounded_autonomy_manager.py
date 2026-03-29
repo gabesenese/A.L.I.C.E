@@ -133,10 +133,10 @@ class BoundedAutonomyManager:
                     events.append(
                         LoopTriggerEvent(
                             loop=loop.name,
-                            severity="low",
+                            severity="medium",
                             reason="pending_approvals_waiting",
                             recommended_action="request_operator_decision",
-                            confidence=max(loop.confidence_threshold, 0.66),
+                            confidence=max(loop.confidence_threshold, 0.7),
                             timestamp=now,
                         )
                     )

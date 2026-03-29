@@ -94,6 +94,15 @@ class AutonomousExecutionLoop:
             self.state = ExecutionLoopState.RUNNING
             logger.info("Execution loop resumed")
 
+    def is_running(self) -> bool:
+        """Compatibility helper for callers that expect is_running()."""
+        return self.state == ExecutionLoopState.RUNNING
+
+    @property
+    def paused(self) -> bool:
+        """Compatibility helper for callers that inspect paused state."""
+        return self.state == ExecutionLoopState.PAUSED
+
     def _execution_loop(self):
         """Main execution loop"""
         while self.state != ExecutionLoopState.STOPPED:
