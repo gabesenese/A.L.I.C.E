@@ -10081,6 +10081,27 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if not hasattr(self, 'autonomy_manager') or not self.autonomy_manager:
             return []
 
+        _loop = self.execution_loop if hasattr(self, 'execution_loop') else None
+        _state_val = ""
+        if _loop and hasattr(_loop, 'state'):
+            _state = getattr(_loop, 'state')
+            _state_val = str(getattr(_state, 'value', _state)).lower()
+
+        _is_running = False
+        if _loop and hasattr(_loop, 'is_running'):
+            try:
+                _is_running = bool(_loop.is_running())
+            except Exception:
+                _is_running = False
+        elif _loop:
+            _is_running = _state_val == "running"
+
+        _is_paused = False
+        if _loop and hasattr(_loop, 'paused'):
+            _is_paused = bool(getattr(_loop, 'paused'))
+        elif _loop:
+            _is_paused = _state_val == "paused"
+
         world_state = {}
         if hasattr(self, 'world_state_memory') and self.world_state_memory:
             world_state = self.world_state_memory.snapshot()
@@ -10097,8 +10118,8 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             journal_summary = self.execution_journal.summary()
 
         execution_state = {
-            "autonomous_running": bool(self.execution_loop.is_running()) if hasattr(self, 'execution_loop') and self.execution_loop else False,
-            "autonomous_paused": bool(self.execution_loop.paused) if hasattr(self, 'execution_loop') and self.execution_loop else False,
+            "autonomous_running": _is_running,
+            "autonomous_paused": _is_paused,
             "tool_verified": bool(((self._internal_reasoning_state or {}).get('tool_verification') or {}).get('accepted', False)),
         }
 
@@ -10161,8 +10182,24 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             print("\n[OK] Autonomous execution resumed")
 
         elif subcommand == 'status':
-            is_running = self.execution_loop.is_running()
-            is_paused = self.execution_loop.paused
+            _loop = self.execution_loop
+            _state_val = ""
+            if hasattr(_loop, 'state'):
+                _state = getattr(_loop, 'state')
+                _state_val = str(getattr(_state, 'value', _state)).lower()
+
+            if hasattr(_loop, 'is_running'):
+                try:
+                    is_running = bool(_loop.is_running())
+                except Exception:
+                    is_running = (_state_val == 'running')
+            else:
+                is_running = (_state_val == 'running')
+
+            if hasattr(_loop, 'paused'):
+                is_paused = bool(getattr(_loop, 'paused'))
+            else:
+                is_paused = (_state_val == 'paused')
             active_goals = self.goal_system.get_active_goals() if hasattr(self, 'goal_system') else []
             autonomy_status = self.autonomy_manager.status() if hasattr(self, 'autonomy_manager') and self.autonomy_manager else {}
             trigger_events = self._evaluate_autonomy_triggers()
