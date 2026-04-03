@@ -36,7 +36,9 @@ class RouteCoordinator:
         plugin_scores: Dict[str, float],
         semantic_intent: Optional[Tuple[str, float]],
         weighted_candidates: List[Tuple[str, float]],
-        build_uncertainty_prompt: Callable[[Any, Any, Dict[str, float]], Dict[str, Any]],
+        build_uncertainty_prompt: Callable[
+            [Any, Any, Dict[str, float]], Dict[str, Any]
+        ],
         build_top_intent_candidates: Callable[..., List[Dict[str, Any]]],
         validate_intent_plausibility: Callable[..., Tuple[float, List[str]]],
         should_force_unknown_fallback: Callable[..., bool],
@@ -75,7 +77,8 @@ class RouteCoordinator:
         if uncertainty:
             modifiers["disambiguation"] = uncertainty
             if (
-                intent_confidence < self.config.clarification_intent_confidence_threshold
+                intent_confidence
+                < self.config.clarification_intent_confidence_threshold
                 and not intent.startswith(("notes:", "email:", "calendar:", "system:"))
             ):
                 intent = "conversation:clarification_needed"
@@ -207,19 +210,28 @@ class RouteCoordinator:
         should_force_unknown_fallback: Callable[..., bool],
     ) -> Tuple[str, float]:
         modifiers = parsed_command.modifiers
-        pending_unknown_fallback = bool(modifiers.get("pending_unknown_fallback", False))
-        should_fallback_final = pending_unknown_fallback or should_force_unknown_fallback(
-            intent=intent,
-            confidence=float(intent_confidence or 0.0),
-            plausibility=float(final_plausibility),
-            uncertainty=(
-                modifiers.get("disambiguation")
-                if isinstance(modifiers.get("disambiguation"), dict)
-                else None
-            ),
+        pending_unknown_fallback = bool(
+            modifiers.get("pending_unknown_fallback", False)
+        )
+        should_fallback_final = (
+            pending_unknown_fallback
+            or should_force_unknown_fallback(
+                intent=intent,
+                confidence=float(intent_confidence or 0.0),
+                plausibility=float(final_plausibility),
+                uncertainty=(
+                    modifiers.get("disambiguation")
+                    if isinstance(modifiers.get("disambiguation"), dict)
+                    else None
+                ),
+            )
         )
 
-        if (not strong_action_frame) and (not followup_locked_final) and should_fallback_final:
+        if (
+            (not strong_action_frame)
+            and (not followup_locked_final)
+            and should_fallback_final
+        ):
             modifiers["unknown_intent_fallback"] = True
             modifiers["disambiguation"] = {
                 "needs_clarification": True,
@@ -239,7 +251,10 @@ class RouteCoordinator:
             intent = "conversation:clarification_needed"
             intent_confidence = max(
                 self.config.clarification_confidence_min,
-                min(self.config.clarification_confidence_max, float(intent_confidence or 0.0)),
+                min(
+                    self.config.clarification_confidence_max,
+                    float(intent_confidence or 0.0),
+                ),
             )
         else:
             modifiers["unknown_intent_fallback"] = bool(

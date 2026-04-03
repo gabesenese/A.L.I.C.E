@@ -66,7 +66,11 @@ class BoundedAutonomyManager:
 
     def register_loop(self, loop: AutonomyLoop) -> None:
         self.loops[loop.name] = loop
-        self._audit("register", loop.name, {"scope": loop.scope, "permission": loop.permission_level})
+        self._audit(
+            "register",
+            loop.name,
+            {"scope": loop.scope, "permission": loop.permission_level},
+        )
         self._save()
 
     def set_enabled(self, name: str, enabled: bool, actor: str = "operator") -> bool:
@@ -79,7 +83,9 @@ class BoundedAutonomyManager:
         return True
 
     def _audit(self, event: str, name: str, data: Dict[str, Any]) -> None:
-        self.audit_log.append({"event": event, "loop": name, "data": data, "at": time.time()})
+        self.audit_log.append(
+            {"event": event, "loop": name, "data": data, "at": time.time()}
+        )
         self.audit_log = self.audit_log[-200:]
 
     def evaluate_triggers(
@@ -99,7 +105,9 @@ class BoundedAutonomyManager:
 
             if loop.name == "goal_health":
                 active_goals = int(goal_summary.get("active_goals", 0) or 0)
-                unresolved_ambiguity = len((world_state or {}).get("unresolved_ambiguity") or [])
+                unresolved_ambiguity = len(
+                    (world_state or {}).get("unresolved_ambiguity") or []
+                )
                 if active_goals > 0 and unresolved_ambiguity > 0:
                     events.append(
                         LoopTriggerEvent(
@@ -128,7 +136,9 @@ class BoundedAutonomyManager:
                     )
 
             elif loop.name == "approval_guard":
-                pending_approvals = len((world_state or {}).get("pending_approvals") or [])
+                pending_approvals = len(
+                    (world_state or {}).get("pending_approvals") or []
+                )
                 if pending_approvals > 0:
                     events.append(
                         LoopTriggerEvent(
@@ -154,7 +164,9 @@ class BoundedAutonomyManager:
         return {
             "total_loops": len(self.loops),
             "enabled_loops": enabled,
-            "disabled_loops": [name for name in self.loops.keys() if name not in enabled],
+            "disabled_loops": [
+                name for name in self.loops.keys() if name not in enabled
+            ],
             "recent_audit": self.audit_log[-10:],
             "recent_triggers": self.trigger_events[-10:],
         }
@@ -163,7 +175,9 @@ class BoundedAutonomyManager:
 _bounded_autonomy_manager: BoundedAutonomyManager | None = None
 
 
-def get_bounded_autonomy_manager(storage_path: str = "data/autonomy_loops.json") -> BoundedAutonomyManager:
+def get_bounded_autonomy_manager(
+    storage_path: str = "data/autonomy_loops.json",
+) -> BoundedAutonomyManager:
     global _bounded_autonomy_manager
     if _bounded_autonomy_manager is None:
         _bounded_autonomy_manager = BoundedAutonomyManager(storage_path=storage_path)

@@ -23,7 +23,9 @@ class ActionPlanner:
 
         return [goal]
 
-    def recovery_path(self, *, retry_count: int, retry_budget: int, partial_success: bool) -> str:
+    def recovery_path(
+        self, *, retry_count: int, retry_budget: int, partial_success: bool
+    ) -> str:
         if partial_success:
             return "clarify_then_continue"
         if retry_count < max(0, retry_budget):

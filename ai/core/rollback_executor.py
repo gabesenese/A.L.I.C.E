@@ -41,7 +41,9 @@ class RollbackExecutor:
     """Runs best-effort compensating actions per plugin/action class."""
 
     def plan(self, *, request: Any, result: Any) -> RollbackPlan:
-        rollback_intent, rollback_entities = self._build_compensating_call(request, result)
+        rollback_intent, rollback_entities = self._build_compensating_call(
+            request, result
+        )
         if not rollback_intent:
             return RollbackPlan(False, reason="no_compensation_mapping")
         return RollbackPlan(
@@ -60,11 +62,18 @@ class RollbackExecutor:
         dry_run: bool = False,
     ) -> RollbackOutcome:
         if plugin_manager is None and not dry_run:
-            return RollbackOutcome(False, False, "rollback_unavailable", details={"reason": "missing_plugin_manager"})
+            return RollbackOutcome(
+                False,
+                False,
+                "rollback_unavailable",
+                details={"reason": "missing_plugin_manager"},
+            )
 
         plan = self.plan(request=request, result=result)
         if not plan.applicable:
-            return RollbackOutcome(False, False, "rollback_not_applicable", details={"reason": plan.reason})
+            return RollbackOutcome(
+                False, False, "rollback_not_applicable", details={"reason": plan.reason}
+            )
 
         rollback_intent = plan.rollback_intent
         rollback_entities = plan.rollback_entities or {}
@@ -87,9 +96,16 @@ class RollbackExecutor:
                 rollback_intent,
                 raw_query,
                 rollback_entities,
-                {"rollback": True, "source_intent": getattr(request, "source_intent", "")},
+                {
+                    "rollback": True,
+                    "source_intent": getattr(request, "source_intent", ""),
+                },
             )
-            ok = bool((rollback_result or {}).get("success", False)) if isinstance(rollback_result, dict) else False
+            ok = (
+                bool((rollback_result or {}).get("success", False))
+                if isinstance(rollback_result, dict)
+                else False
+            )
             return RollbackOutcome(
                 attempted=True,
                 success=ok,
@@ -97,7 +113,11 @@ class RollbackExecutor:
                 rollback_intent=rollback_intent,
                 details={
                     "entities": rollback_entities,
-                    "result": rollback_result if isinstance(rollback_result, dict) else {"raw": str(rollback_result)},
+                    "result": (
+                        rollback_result
+                        if isinstance(rollback_result, dict)
+                        else {"raw": str(rollback_result)}
+                    ),
                 },
             )
         except Exception as exc:
@@ -109,31 +129,65 @@ class RollbackExecutor:
                 details={"error": str(exc), "entities": rollback_entities},
             )
 
-    def _build_compensating_call(self, request: Any, result: Any) -> tuple[str, Dict[str, Any]]:
+    def _build_compensating_call(
+        self, request: Any, result: Any
+    ) -> tuple[str, Dict[str, Any]]:
         plugin = self._normalize_plugin(str(getattr(request, "plugin", "") or ""))
         action = str(getattr(request, "action", "") or "").strip().lower()
 
         if action not in {"create", "append", "update"}:
             return "", {}
 
-        data = getattr(result, "data", {}) if isinstance(getattr(result, "data", {}), dict) else {}
-        params = getattr(request, "params", {}) if isinstance(getattr(request, "params", {}), dict) else {}
+        data = (
+            getattr(result, "data", {})
+            if isinstance(getattr(result, "data", {}), dict)
+            else {}
+        )
+        params = (
+            getattr(request, "params", {})
+            if isinstance(getattr(request, "params", {}), dict)
+            else {}
+        )
 
         if plugin == "notes":
-            target = data.get("note_id") or data.get("id") or data.get("title") or params.get("title")
+            target = (
+                data.get("note_id")
+                or data.get("id")
+                or data.get("title")
+                or params.get("title")
+            )
             if target:
-                return "notes:delete", {"target": target, "note_id": data.get("note_id") or target}
+                return "notes:delete", {
+                    "target": target,
+                    "note_id": data.get("note_id") or target,
+                }
 
         if plugin == "file_operations":
-            filepath = data.get("filepath") or params.get("path") or params.get("filename") or params.get("target")
+            filepath = (
+                data.get("filepath")
+                or params.get("path")
+                or params.get("filename")
+                or params.get("target")
+            )
             if filepath:
                 filename = Path(str(filepath)).name
-                return "file_operations:delete", {"filename": filename, "target": filename}
+                return "file_operations:delete", {
+                    "filename": filename,
+                    "target": filename,
+                }
 
         if plugin == "calendar":
-            target = data.get("event_id") or data.get("id") or params.get("title") or params.get("target")
+            target = (
+                data.get("event_id")
+                or data.get("id")
+                or params.get("title")
+                or params.get("target")
+            )
             if target:
-                return "calendar:delete", {"target": target, "event_id": data.get("event_id") or target}
+                return "calendar:delete", {
+                    "target": target,
+                    "event_id": data.get("event_id") or target,
+                }
 
         if plugin == "memory":
             target = data.get("id") or params.get("target") or params.get("memory_id")

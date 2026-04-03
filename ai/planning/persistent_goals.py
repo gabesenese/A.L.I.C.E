@@ -300,7 +300,9 @@ class PersistentGoalSystem:
         completed = [
             goal for goal in self.goals.values() if goal.status == GoalStatus.COMPLETED
         ]
-        completed.sort(key=lambda g: g.completed_at or g.updated_at or g.created_at, reverse=True)
+        completed.sort(
+            key=lambda g: g.completed_at or g.updated_at or g.created_at, reverse=True
+        )
         return completed
 
     def get_goals_by_priority(self, priority: GoalPriority) -> List[Goal]:

@@ -40,7 +40,7 @@ class ExecutionJournal:
         except Exception:
             return []
 
-        return rows[-max(1, limit):]
+        return rows[-max(1, limit) :]
 
     def summary(self) -> Dict[str, Any]:
         rows = self.recent(limit=200)
@@ -70,7 +70,9 @@ class ExecutionJournal:
 _execution_journal: ExecutionJournal | None = None
 
 
-def get_execution_journal(storage_path: str = "data/action_journal.jsonl") -> ExecutionJournal:
+def get_execution_journal(
+    storage_path: str = "data/action_journal.jsonl",
+) -> ExecutionJournal:
     global _execution_journal
     if _execution_journal is None:
         _execution_journal = ExecutionJournal(storage_path=storage_path)

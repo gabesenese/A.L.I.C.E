@@ -112,7 +112,9 @@ class Perception:
             "mood": mood,
             "ambiguity": ambiguity,
             "followup_domain": followup_domain,
-            "response_length": "brief" if mood in ("frustrated", "urgent") else "normal",
+            "response_length": (
+                "brief" if mood in ("frustrated", "urgent") else "normal"
+            ),
             "empathy": mood in ("frustrated", "negative"),
         }
         return PerceptionResult(
@@ -131,7 +133,12 @@ class Perception:
         lower = query.original_text.lower()
         tokens = set(lower.split())
 
-        if query.urgency_level == "high" or tokens & {"asap", "urgent", "now", "immediately"}:
+        if query.urgency_level == "high" or tokens & {
+            "asap",
+            "urgent",
+            "now",
+            "immediately",
+        }:
             return "urgent"
         if tokens & self.FRUSTRATION_MARKERS and compound < -0.05:
             return "frustrated"
@@ -189,7 +196,11 @@ class Perception:
             return domain
 
         generic_cues = {"and", "also", "that", "this", "it", "then", "what about"}
-        if generic_cues & clean_words and query.intent_confidence < 0.55 and len(clean_words) <= 4:
+        if (
+            generic_cues & clean_words
+            and query.intent_confidence < 0.55
+            and len(clean_words) <= 4
+        ):
             return domain
         return None
 
@@ -199,10 +210,19 @@ class Perception:
         ambiguity: float,
     ) -> Tuple[bool, Optional[str]]:
         parsed_cmd = query.parsed_command or {}
-        modifiers = parsed_cmd if isinstance(parsed_cmd, dict) else getattr(parsed_cmd, "modifiers", {})
-        disamb = modifiers.get("disambiguation") or modifiers.get("modifiers", {}).get("disambiguation")
+        modifiers = (
+            parsed_cmd
+            if isinstance(parsed_cmd, dict)
+            else getattr(parsed_cmd, "modifiers", {})
+        )
+        disamb = modifiers.get("disambiguation") or modifiers.get("modifiers", {}).get(
+            "disambiguation"
+        )
         if disamb and disamb.get("needs_clarification"):
             return True, disamb.get("question")
-        if ambiguity >= self.AMBIGUITY_CLARIFICATION_THRESHOLD and query.intent_confidence < self.CLARIFICATION_CONFIDENCE_THRESHOLD:
+        if (
+            ambiguity >= self.AMBIGUITY_CLARIFICATION_THRESHOLD
+            and query.intent_confidence < self.CLARIFICATION_CONFIDENCE_THRESHOLD
+        ):
             return True, "Could you clarify what you'd like me to do?"
         return False, None

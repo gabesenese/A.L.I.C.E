@@ -66,11 +66,15 @@ class ContextResolver:
         if not orig_tokens or not rew_tokens:
             return 0.0
 
-        overlap = len(set(orig_tokens).intersection(rew_tokens)) / max(1, len(set(orig_tokens)))
+        overlap = len(set(orig_tokens).intersection(rew_tokens)) / max(
+            1, len(set(orig_tokens))
+        )
         length_delta = abs(len(rewritten) - len(original))
         length_penalty = 0.0 if length_delta <= 24 else min(0.40, length_delta / 200.0)
         binding_bonus = min(0.20, 0.05 * len(bindings))
-        confidence = max(0.0, min(1.0, 0.75 + (0.25 * overlap) + binding_bonus - length_penalty))
+        confidence = max(
+            0.0, min(1.0, 0.75 + (0.25 * overlap) + binding_bonus - length_penalty)
+        )
         return confidence
 
     def resolve(self, user_input: str, state: Dict[str, object]) -> ContextResolution:

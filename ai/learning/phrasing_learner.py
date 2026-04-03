@@ -228,7 +228,12 @@ class PhrasingLearner:
             text = re.sub(pattern, "", text, flags=re.IGNORECASE)
 
         # Remove repetitive hedging.
-        text = re.sub(r"\b(?:maybe|perhaps|kind of|sort of|just)\b\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(
+            r"\b(?:maybe|perhaps|kind of|sort of|just)\b\s*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
         text = re.sub(r"\s+", " ", text).strip()
 
         # Keep at most two sentences to avoid over-explaining.

@@ -55,7 +55,9 @@ class ToolExecutor:
             )
             verification = self.verifier.verify(result)
             result["verification"] = verification.to_dict()
-            return ToolExecutionOutcome(handled=False, verified=verification.accepted, result=result)
+            return ToolExecutionOutcome(
+                handled=False, verified=verification.accepted, result=result
+            )
 
         raw = plugin_manager.execute_for_intent(intent, query, entities, context)
         normalized = self._normalize_result(intent=intent, raw=raw)
@@ -76,7 +78,9 @@ class ToolExecutor:
             }
 
         handled = raw is not None
-        return ToolExecutionOutcome(handled=handled, verified=verification.accepted, result=normalized)
+        return ToolExecutionOutcome(
+            handled=handled, verified=verification.accepted, result=normalized
+        )
 
     def _infer_action(self, intent: str) -> str:
         if ":" in (intent or ""):
@@ -116,7 +120,18 @@ class ToolExecutor:
                 or entities.get("note_id")
                 or entities.get("filename")
                 or entities.get("path")
-                or any(tok in query_l for tok in (" it", " this", " that", " note", " file", " email", " event"))
+                or any(
+                    tok in query_l
+                    for tok in (
+                        " it",
+                        " this",
+                        " that",
+                        " note",
+                        " file",
+                        " email",
+                        " event",
+                    )
+                )
             )
 
         checks = {
@@ -131,7 +146,9 @@ class ToolExecutor:
 
         return missing
 
-    def _normalize_result(self, *, intent: str, raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _normalize_result(
+        self, *, intent: str, raw: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         plugin = self._infer_plugin(intent)
         action = self._infer_action(intent)
 
@@ -169,7 +186,11 @@ class ToolExecutor:
         confidence = self._coerce_confidence(raw.get("confidence"), success)
         status = self._normalize_status(raw.get("status"), success)
         retryable = bool(raw.get("retryable", not success))
-        side_effects = raw.get("side_effects") if isinstance(raw.get("side_effects"), list) else self._infer_side_effects(action, success)
+        side_effects = (
+            raw.get("side_effects")
+            if isinstance(raw.get("side_effects"), list)
+            else self._infer_side_effects(action, success)
+        )
 
         normalized = self._build_result(
             success=success,

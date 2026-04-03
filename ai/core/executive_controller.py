@@ -102,11 +102,58 @@ class ExecutiveController:
         re.IGNORECASE,
     )
     SEMANTIC_STOPWORDS = {
-        "the", "a", "an", "and", "or", "to", "of", "for", "with", "in", "on", "at", "by",
-        "is", "are", "was", "were", "be", "been", "being", "it", "this", "that", "these", "those",
-        "i", "you", "we", "they", "he", "she", "them", "my", "your", "our", "their", "me",
-        "can", "could", "would", "should", "want", "need", "help", "today", "world", "real",
-        "learn", "about", "explain", "tell", "please",
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "to",
+        "of",
+        "for",
+        "with",
+        "in",
+        "on",
+        "at",
+        "by",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "it",
+        "this",
+        "that",
+        "these",
+        "those",
+        "i",
+        "you",
+        "we",
+        "they",
+        "he",
+        "she",
+        "them",
+        "my",
+        "your",
+        "our",
+        "their",
+        "me",
+        "can",
+        "could",
+        "would",
+        "should",
+        "want",
+        "need",
+        "help",
+        "today",
+        "world",
+        "real",
+        "learn",
+        "about",
+        "explain",
+        "tell",
+        "please",
     }
 
     def __init__(self) -> None:
@@ -154,7 +201,9 @@ class ExecutiveController:
             str(conversation_state.get("route_bias") or "balanced").strip().lower()
         )
         tool_budget = int(conversation_state.get("tool_budget") or 1)
-        pending_followup_slot = bool(conversation_state.get("pending_followup_slot", False))
+        pending_followup_slot = bool(
+            conversation_state.get("pending_followup_slot", False)
+        )
         pending_followup_slot_name = str(
             conversation_state.get("pending_followup_slot_name") or ""
         ).strip()
@@ -346,7 +395,12 @@ class ExecutiveController:
     def _is_help_opener(self, state: ReasoningState) -> bool:
         text = " ".join(
             str(x)
-            for x in (state.source_text, state.topic, state.user_goal, state.user_intent)
+            for x in (
+                state.source_text,
+                state.topic,
+                state.user_goal,
+                state.user_intent,
+            )
             if x
         )
         return bool(self.HELP_OPENER_RE.search(text))
@@ -372,7 +426,16 @@ class ExecutiveController:
             return False
 
         social_words = {
-            "hi", "hello", "hey", "thanks", "thank", "bye", "goodbye", "ok", "okay", "sure"
+            "hi",
+            "hello",
+            "hey",
+            "thanks",
+            "thank",
+            "bye",
+            "goodbye",
+            "ok",
+            "okay",
+            "sure",
         }
         if all(tok in social_words for tok in tokens):
             return False
@@ -394,7 +457,9 @@ class ExecutiveController:
             return False
 
         normalized_intent = (state.user_intent or "").lower().strip()
-        if not normalized_intent.startswith("conversation:") and normalized_intent not in {
+        if not normalized_intent.startswith(
+            "conversation:"
+        ) and normalized_intent not in {
             "greeting",
             "thanks",
             "farewell",
@@ -429,8 +494,13 @@ class ExecutiveController:
 
         # Only allow help/clarification intents through deterministic native path
         # when the actual utterance is genuinely short/simple.
-        if normalized_intent in {"conversation:help", "conversation:clarification_needed"}:
-            return bool(self.SIMPLE_NATIVE_RE.match(text) or self.HELP_OPENER_RE.search(text))
+        if normalized_intent in {
+            "conversation:help",
+            "conversation:clarification_needed",
+        }:
+            return bool(
+                self.SIMPLE_NATIVE_RE.match(text) or self.HELP_OPENER_RE.search(text)
+            )
 
         return bool(self.SIMPLE_NATIVE_RE.match(text))
 
@@ -445,11 +515,17 @@ class ExecutiveController:
         text = str(state.source_text or "").strip().lower()
         if normalized_intent in self.SIMPLE_SCAFFOLD_INTENTS:
             return not has_explicit_action_cue
-        if normalized_intent in {"conversation:help", "conversation:clarification_needed"}:
+        if normalized_intent in {
+            "conversation:help",
+            "conversation:clarification_needed",
+        }:
             return (
                 (not has_explicit_action_cue)
                 and (not has_active_goal)
-                and bool(self.SIMPLE_NATIVE_RE.match(text) or self.HELP_OPENER_RE.search(text))
+                and bool(
+                    self.SIMPLE_NATIVE_RE.match(text)
+                    or self.HELP_OPENER_RE.search(text)
+                )
             )
         if normalized_intent == "conversation:general" and self._is_help_opener(state):
             return (not has_explicit_action_cue) and (not has_active_goal)
@@ -954,8 +1030,16 @@ class ExecutiveController:
             }
 
         # Guard against programming-language drift on conceptual assistant architecture questions.
-        programming_drift_terms = {"polymorphism", "interface", "inheritance", "encapsulation", "oop"}
-        if programming_drift_terms.intersection(response_tokens) and not programming_drift_terms.intersection(set(user_anchors)):
+        programming_drift_terms = {
+            "polymorphism",
+            "interface",
+            "inheritance",
+            "encapsulation",
+            "oop",
+        }
+        if programming_drift_terms.intersection(
+            response_tokens
+        ) and not programming_drift_terms.intersection(set(user_anchors)):
             return {
                 "accepted": False,
                 "score": 0.0,

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-
 OUTCOME_ACT_AUTOMATICALLY = "act_automatically"
 OUTCOME_ASK_USER = "ask_user"
 OUTCOME_LOG_SILENTLY = "log_silently"
@@ -97,8 +96,13 @@ class TinyAutonomyDispatcher:
         outcome = self.can_act_without_user(reason, severity)
         rule = self._TRUSTED_TRIGGER_RULES.get(reason, {})
 
-        goal_id = self._resolve_goal_id(active_goal_id=active_goal_id, goal_summary=goal_summary)
-        next_goal_action = str(rule.get("next_goal_action") or self._default_goal_action_for_outcome(outcome))
+        goal_id = self._resolve_goal_id(
+            active_goal_id=active_goal_id, goal_summary=goal_summary
+        )
+        next_goal_action = str(
+            rule.get("next_goal_action")
+            or self._default_goal_action_for_outcome(outcome)
+        )
         message = str(rule.get("message") or "")
 
         should_notify_user = self._should_notify(

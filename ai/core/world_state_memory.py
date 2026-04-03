@@ -64,7 +64,12 @@ class WorldStateMemory:
             target = (getattr(request, "target_spec", {}) or {}).get("target")
             if not target:
                 params = getattr(request, "params", {}) or {}
-                target = params.get("target") or params.get("path") or params.get("note_id") or params.get("title")
+                target = (
+                    params.get("target")
+                    or params.get("path")
+                    or params.get("note_id")
+                    or params.get("title")
+                )
             if target:
                 self._state["last_successful_target"] = target
 
@@ -91,7 +96,9 @@ class WorldStateMemory:
 _world_state_memory: WorldStateMemory | None = None
 
 
-def get_world_state_memory(storage_path: str = "data/world_state.json") -> WorldStateMemory:
+def get_world_state_memory(
+    storage_path: str = "data/world_state.json",
+) -> WorldStateMemory:
     global _world_state_memory
     if _world_state_memory is None:
         _world_state_memory = WorldStateMemory(storage_path=storage_path)

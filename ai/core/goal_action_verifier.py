@@ -23,13 +23,19 @@ class GoalVerificationReport:
 class GoalActionVerifier:
     """Checks whether an action result satisfied the requested goal and target."""
 
-    def verify(self, request: Any, tool_result: Dict[str, Any]) -> GoalVerificationReport:
+    def verify(
+        self, request: Any, tool_result: Dict[str, Any]
+    ) -> GoalVerificationReport:
         issues: List[str] = []
         ambiguity_flags: List[str] = []
 
         success = bool((tool_result or {}).get("success", False))
         status = str((tool_result or {}).get("status", "")).strip().lower()
-        data = (tool_result or {}).get("data") if isinstance((tool_result or {}).get("data"), dict) else {}
+        data = (
+            (tool_result or {}).get("data")
+            if isinstance((tool_result or {}).get("data"), dict)
+            else {}
+        )
 
         target_score = self._target_match_score(request, data)
         if target_score < 0.5:
@@ -44,7 +50,19 @@ class GoalActionVerifier:
 
         partial_success = status == "partial" or (not success and bool(data))
         goal_satisfied = bool(success and target_score >= 0.5 and not ambiguity_flags)
-        accepted = bool((status in {"success", "partial", "failed", "verification_failed", "not_handled"}) and target_score >= 0.3)
+        accepted = bool(
+            (
+                status
+                in {
+                    "success",
+                    "partial",
+                    "failed",
+                    "verification_failed",
+                    "not_handled",
+                }
+            )
+            and target_score >= 0.3
+        )
 
         if goal_satisfied:
             next_action = "continue"
@@ -99,10 +117,16 @@ class GoalActionVerifier:
             return True
 
         params = getattr(request, "params", {}) or {}
-        if any(params.get(k) for k in ("target", "path", "filename", "note_id", "title", "note_title")):
+        if any(
+            params.get(k)
+            for k in ("target", "path", "filename", "note_id", "title", "note_title")
+        ):
             return True
 
-        if any(data.get(k) for k in ("target", "path", "filename", "note_id", "title", "note_title")):
+        if any(
+            data.get(k)
+            for k in ("target", "path", "filename", "note_id", "title", "note_title")
+        ):
             return True
 
         return False
