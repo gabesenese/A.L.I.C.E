@@ -18,6 +18,12 @@ class WorldStateMemory:
             "last_successful_target": None,
             "pending_approvals": [],
             "unresolved_ambiguity": [],
+            "pending_clarification": {},
+            "current_narrowing_question": "",
+            "selected_object_reference": "",
+            "paused_autonomy_reason": "",
+            "last_recovery_outcome": "",
+            "last_trigger_decision": {},
             "workflow_chain": [],
             "environment": {},
             "updated_at": time.time(),
@@ -73,6 +79,34 @@ class WorldStateMemory:
         payload = env.get(str(key))
         return dict(payload) if isinstance(payload, dict) else {}
 
+    def set_pending_clarification(self, payload: Dict[str, Any]) -> None:
+        self._state["pending_clarification"] = dict(payload or {})
+        question = str((payload or {}).get("last_narrowing_question") or "").strip()
+        if question:
+            self._state["current_narrowing_question"] = question
+        self._save()
+
+    def clear_pending_clarification(self) -> None:
+        self._state["pending_clarification"] = {}
+        self._state["current_narrowing_question"] = ""
+        self._save()
+
+    def set_selected_object_reference(self, value: str) -> None:
+        self._state["selected_object_reference"] = str(value or "")
+        self._save()
+
+    def set_autonomy_pause_reason(self, reason: str) -> None:
+        self._state["paused_autonomy_reason"] = str(reason or "")
+        self._save()
+
+    def set_last_recovery_outcome(self, outcome: str) -> None:
+        self._state["last_recovery_outcome"] = str(outcome or "")
+        self._save()
+
+    def set_last_trigger_decision(self, decision: Dict[str, Any]) -> None:
+        self._state["last_trigger_decision"] = dict(decision or {})
+        self._save()
+
     def update_from_action(self, request: Any, result: Any) -> None:
         req_goal = str(getattr(request, "goal", "") or "").strip() or None
         req_plugin = str(getattr(request, "plugin", "") or "").strip() or None
@@ -103,8 +137,29 @@ class WorldStateMemory:
         ambiguity = list(getattr(result, "ambiguity_flags", []) or [])
         if ambiguity:
             self._state["unresolved_ambiguity"] = ambiguity
+            self._state["pending_clarification"] = {
+                "slot_type": "goal_linked_clarification",
+                "parent_goal": req_goal or "",
+                "expected_answer_shape": "short_disambiguation_or_selection",
+                "last_narrowing_question": "Which exact target should I use?",
+                "ambiguity_flags": ambiguity,
+            }
+            self._state["current_narrowing_question"] = "Which exact target should I use?"
         elif self._state.get("unresolved_ambiguity"):
             self._state["unresolved_ambiguity"] = []
+            self._state["pending_clarification"] = {}
+            self._state["current_narrowing_question"] = ""
+
+        recovery_path = str(getattr(result, "recovery_path", "") or "").strip()
+        if recovery_path:
+            self._state["last_recovery_outcome"] = recovery_path
+
+        state_updates = getattr(result, "state_updates", {}) or {}
+        rollback = state_updates.get("rollback") if isinstance(state_updates, dict) else {}
+        if isinstance(rollback, dict):
+            rollback_status = str(rollback.get("status") or "").strip()
+            if rollback_status:
+                self._state["last_recovery_outcome"] = rollback_status
 
         chain = self._state.get("workflow_chain") or []
         chain.append(

@@ -3891,20 +3891,33 @@ class ALICE:
         """Store a pending narrowing slot for short follow-up answers."""
         text = str(user_input or "").lower()
         parent_topic = "ai_project" if ("project" in text and "ai" in text) else "project"
-        self._pending_conversation_slot = {
+        slot_state = {
             "active": True,
             "type": "narrowing",
+            "slot_type": "help_narrowing",
             "slot": "project_subdomain",
             "parent_topic": parent_topic,
             "parent_intent": "conversation:help",
             "prompt": str(prompt_response or ""),
+            "expected_answer_shape": "short_topic_or_subdomain",
+            "last_narrowing_question": "What exact part do you want help with first?",
         }
+        self._pending_conversation_slot = dict(slot_state)
         if getattr(self, "nlp", None) and getattr(self.nlp, "context", None):
-            self.nlp.context.pending_clarification = {
-                "type": "help_narrowing",
-                "slot": "project_subdomain",
-                "parent_topic": parent_topic,
-            }
+            self.nlp.context.pending_clarification = dict(slot_state)
+
+        if getattr(self, "conversation_state_tracker", None):
+            try:
+                self.conversation_state_tracker.set_pending_followup_slot(slot_state)
+                self.conversation_state_tracker.set_pending_clarification(slot_state)
+            except Exception:
+                pass
+
+        if getattr(self, "world_state_memory", None):
+            try:
+                self.world_state_memory.set_pending_clarification(slot_state)
+            except Exception:
+                pass
 
     def _pending_help_slot_followup_response(self, slot_value: str) -> str:
         low = str(slot_value or "").lower().strip()
@@ -5881,12 +5894,40 @@ class ALICE:
                     self._pending_conversation_slot = {}
                     if getattr(self, 'nlp', None) and getattr(self.nlp, 'context', None):
                         self.nlp.context.pending_clarification = {}
+                    if getattr(self, 'conversation_state_tracker', None):
+                        try:
+                            self.conversation_state_tracker.clear_pending_followup_slot()
+                            self.conversation_state_tracker.clear_pending_clarification()
+                            self.conversation_state_tracker.set_selected_object_reference(_slot_value)
+                        except Exception:
+                            pass
+                    if getattr(self, 'world_state_memory', None):
+                        try:
+                            self.world_state_memory.clear_pending_clarification()
+                            self.world_state_memory.set_selected_object_reference(_slot_value)
+                        except Exception:
+                            pass
                     self._cache_put(user_input, 'conversation:clarification_needed', response)
                     self._store_interaction(user_input, response, 'conversation:clarification_needed', entities)
                     if use_voice and self.speech:
                         self.speech.speak(response, blocking=False)
                     logger.info(f"A.L.I.C.E: {response[:100]}...")
                     return response
+
+            _selected_reference = str(
+                _modifiers.get('selected_object_reference') if isinstance(_modifiers, dict) else ""
+            ).strip()
+            if _selected_reference:
+                if getattr(self, 'conversation_state_tracker', None):
+                    try:
+                        self.conversation_state_tracker.set_selected_object_reference(_selected_reference)
+                    except Exception:
+                        pass
+                if getattr(self, 'world_state_memory', None):
+                    try:
+                        self.world_state_memory.set_selected_object_reference(_selected_reference)
+                    except Exception:
+                        pass
 
             # 1.35 Context-aware intent refinement: same surface words can map
             # to different intents based on recent topic and domain continuity.
@@ -6264,6 +6305,19 @@ class ALICE:
 
             # 0.56 DEDICATED HELP-OPENER PATH: acknowledge + narrow scope + ask one question.
             if self._is_help_opener_input(user_input, intent):
+                _pending_slot = getattr(self, '_pending_conversation_slot', {}) or {}
+                if bool(_pending_slot.get('active')):
+                    reminder = str(
+                        _pending_slot.get('last_narrowing_question')
+                        or "Tell me the specific area first, like NLP, memory, routing, or planning."
+                    ).strip()
+                    if reminder:
+                        self._think("Help-opener repeated while narrowing slot active → reminder question")
+                        self._store_interaction(user_input, reminder, 'conversation:help', entities)
+                        if use_voice and self.speech:
+                            self.speech.speak(reminder, blocking=False)
+                        logger.info(f"A.L.I.C.E: {reminder[:100]}...")
+                        return reminder
                 self._think("Help-opener detected → native response policy (no LLM)")
                 help_response = self._native_help_opener_response(user_input)
                 self._arm_help_narrowing_slot(user_input, help_response)
@@ -7385,6 +7439,16 @@ class ALICE:
                     **(_conversation_state or {}),
                     "pending_followup_slot": True,
                     "pending_followup_slot_name": str(_pending_slot_state.get('slot') or ''),
+                    "pending_followup_slot_state": dict(_pending_slot_state),
+                }
+
+            _pending_clarification = {}
+            if getattr(self, 'nlp', None) and getattr(self.nlp, 'context', None):
+                _pending_clarification = dict(getattr(self.nlp.context, 'pending_clarification', {}) or {})
+            if _pending_clarification:
+                _conversation_state = {
+                    **(_conversation_state or {}),
+                    "pending_clarification": _pending_clarification,
                 }
 
             _entities_for_exec = dict(entities or {})
@@ -7765,6 +7829,33 @@ class ALICE:
                 )
                 action_result = self.action_engine.execute(action_request)
                 self.action_engine.apply_state_updates(self, action_result)
+
+                _verification_report = dict(getattr(action_result, 'verification_report', {}) or {})
+                _recommended_next = str(_verification_report.get('recommended_next_action') or '').strip().lower()
+                if action_result.goal_satisfied and active_goal and getattr(self, 'goal_system', None):
+                    try:
+                        self.goal_system.complete_current_step(
+                            active_goal.goal_id,
+                            result=f"{_plugin_name}:{_action_name} satisfied goal criteria",
+                        )
+                    except Exception:
+                        pass
+
+                _recovery_outcome = str(getattr(action_result, 'recovery_path', '') or '').strip()
+                if _recovery_outcome and getattr(self, 'conversation_state_tracker', None):
+                    try:
+                        self.conversation_state_tracker.set_last_recovery_outcome(_recovery_outcome)
+                    except Exception:
+                        pass
+                if _recovery_outcome and getattr(self, 'world_state_memory', None):
+                    try:
+                        self.world_state_memory.set_last_recovery_outcome(_recovery_outcome)
+                    except Exception:
+                        pass
+
+                if _recommended_next in {'retry', 'clarify_then_continue', 'escalate'}:
+                    self._internal_reasoning_state['goal_verifier_next_action'] = _recommended_next
+
                 self._evaluate_autonomy_triggers(
                     active_goal_id=(active_goal.goal_id if active_goal else ""),
                     action_result=action_result,
@@ -10929,10 +11020,13 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         event_dicts = [
             {
                 "loop": ev.loop,
+                "trigger": ev.reason,
                 "severity": ev.severity,
                 "reason": ev.reason,
                 "recommended_action": ev.recommended_action,
                 "confidence": ev.confidence,
+                "affected_goal_id": str(active_goal_id or ""),
+                "runtime_outcome": "trigger_detected",
             }
             for ev in events
         ]
@@ -10940,25 +11034,60 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         rollback = {}
         if action_result is not None:
             rollback = ((getattr(action_result, 'state_updates', {}) or {}).get('rollback') or {})
+            _verification_report = dict(getattr(action_result, 'verification_report', {}) or {})
+            _verifier_next = str(_verification_report.get('recommended_next_action') or '').strip().lower()
+            _verifier_conf = float(_verification_report.get('target_match_score', 0.0) or 0.0)
+            if _verifier_next == 'retry':
+                event_dicts.append(
+                    {
+                        "loop": "goal_verification",
+                        "trigger": "goal_verification_retry_recommended",
+                        "severity": "medium",
+                        "reason": "goal_verification_retry_recommended",
+                        "recommended_action": "retry_with_adjusted_target",
+                        "confidence": _verifier_conf,
+                        "affected_goal_id": str(active_goal_id or ""),
+                        "runtime_outcome": "retry_recommended",
+                    }
+                )
+            elif _verifier_next == 'clarify_then_continue':
+                event_dicts.append(
+                    {
+                        "loop": "goal_verification",
+                        "trigger": "goal_verification_clarify_required",
+                        "severity": "medium",
+                        "reason": "goal_verification_clarify_required",
+                        "recommended_action": "ask_clarification_then_replan",
+                        "confidence": _verifier_conf,
+                        "affected_goal_id": str(active_goal_id or ""),
+                        "runtime_outcome": "clarification_required",
+                    }
+                )
         rollback_status = str((rollback or {}).get('status') or '').strip().lower()
         if rollback_status == "rollback_success":
             event_dicts.append(
                 {
                     "loop": "rollback_watch",
+                    "trigger": "rollback_success",
                     "severity": "low",
                     "reason": "rollback_success",
                     "recommended_action": "continue_goal_flow",
                     "confidence": 0.9,
+                    "affected_goal_id": str(active_goal_id or ""),
+                    "runtime_outcome": "rollback_success",
                 }
             )
         elif rollback_status in {"rollback_failed", "rollback_confirmation_required"}:
             event_dicts.append(
                 {
                     "loop": "rollback_watch",
+                    "trigger": "rollback_failure",
                     "severity": "high",
                     "reason": "rollback_failure",
                     "recommended_action": "escalate_after_failed_rollback",
                     "confidence": 0.9,
+                    "affected_goal_id": str(active_goal_id or ""),
+                    "runtime_outcome": rollback_status,
                 }
             )
 
@@ -10993,6 +11122,20 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                 )
                 decisions.append(decision_dict)
 
+                if getattr(self, 'world_state_memory', None):
+                    try:
+                        self.world_state_memory.set_last_trigger_decision(decision_dict)
+                    except Exception:
+                        pass
+                if getattr(self, 'conversation_state_tracker', None):
+                    try:
+                        if decision.affected_goal_id:
+                            self.conversation_state_tracker.set_last_trigger_goal(decision.affected_goal_id)
+                        if decision.pause_autonomy:
+                            self.conversation_state_tracker.set_autonomy_pause_reason(decision.trigger_reason)
+                    except Exception:
+                        pass
+
                 if decision.outcome == OUTCOME_ESCALATE_AND_STOP:
                     self._internal_reasoning_state["autonomy_escalation"] = {
                         "reason": decision.trigger_reason,
@@ -11003,6 +11146,11 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                     if _loop and hasattr(_loop, 'pause'):
                         try:
                             _loop.pause()
+                        except Exception:
+                            pass
+                    if getattr(self, 'world_state_memory', None):
+                        try:
+                            self.world_state_memory.set_autonomy_pause_reason(decision.trigger_reason)
                         except Exception:
                             pass
 

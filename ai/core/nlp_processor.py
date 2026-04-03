@@ -3045,7 +3045,12 @@ class NLPProcessor:
             )
 
         _pending_slot = self.context.pending_clarification if hasattr(self.context, "pending_clarification") else {}
-        if isinstance(_pending_slot, dict) and _pending_slot.get("type") == "help_narrowing":
+        _pending_slot_type = str(
+            (_pending_slot or {}).get("slot_type")
+            or (_pending_slot or {}).get("type")
+            or ""
+        ).strip().lower()
+        if isinstance(_pending_slot, dict) and _pending_slot_type in {"help_narrowing", "narrowing"}:
             _slot_text = normalized_text.strip().strip(".!,;:")
             _slot_tokens = re.findall(r"\b[a-z0-9']+\b", _slot_text.lower())
             _has_action_word = bool(
@@ -3057,12 +3062,37 @@ class NLPProcessor:
             _social_only = set(_slot_tokens).issubset(
                 {"hi", "hello", "hey", "thanks", "thank", "ok", "okay", "sure", "bye", "goodbye"}
             )
+            _looks_like_help_opener = bool(
+                re.search(
+                    r"\b(i\s+need\s+help|can\s+you\s+help|help\s+me|help\s+with\s+this|i\s+am\s+(?:a\s+)?beginner|i'?m\s+(?:a\s+)?beginner|want\s+an\s+explanation)\b",
+                    _slot_text.lower(),
+                )
+            )
+            _expected_shape = str(_pending_slot.get("expected_answer_shape") or "").strip().lower()
+            _ordinal_selected = ""
+            if re.search(r"\b(second|2nd|two)\b", _slot_text.lower()):
+                _ordinal_selected = "second"
+            elif re.search(r"\b(third|3rd|three)\b", _slot_text.lower()):
+                _ordinal_selected = "third"
+            elif re.search(r"\b(first|1st)\b", _slot_text.lower()):
+                _ordinal_selected = "first"
+            elif len(_slot_tokens) == 1 and _slot_tokens[0] == "one":
+                _ordinal_selected = "first"
+
+            _shape_allows_fill = True
+            if _expected_shape == "single_token":
+                _shape_allows_fill = len(_slot_tokens) == 1
+            elif _expected_shape in {"short_topic_or_subdomain", "short_disambiguation_or_selection", "ordinal_or_short_phrase"}:
+                _shape_allows_fill = (1 <= len(_slot_tokens) <= 5)
+
             if (
                 _slot_text
                 and "?" not in _slot_text
                 and 1 <= len(_slot_tokens) <= 5
                 and not _has_action_word
                 and not _social_only
+                and not _looks_like_help_opener
+                and _shape_allows_fill
             ):
                 intent = "conversation:clarification_needed"
                 intent_confidence = max(float(intent_confidence or 0.0), 0.84)
@@ -3073,7 +3103,11 @@ class NLPProcessor:
                     "value": _slot_text,
                     "parent_topic": str(_pending_slot.get("parent_topic") or ""),
                     "reason": "pending_help_narrowing_slot",
+                    "expected_answer_shape": _expected_shape,
                 }
+                if _ordinal_selected:
+                    parsed_command.modifiers["pending_slot_followup"]["selected_reference"] = _ordinal_selected
+                    parsed_command.modifiers["selected_object_reference"] = _ordinal_selected
                 parsed_command.modifiers["followup_resolution"] = {
                     "was_followup": True,
                     "domain": "conversation",
@@ -3115,6 +3149,7 @@ class NLPProcessor:
                 _sel = _pending_plugins[min(_idx, len(_pending_plugins) - 1)]
                 intent = f"{_sel}:general"
                 intent_confidence = 0.78
+                parsed_command.modifiers["selected_object_reference"] = f"candidate_plugin:{_sel}"
                 route = RouteDecision(
                     intent=intent,
                     confidence=intent_confidence,

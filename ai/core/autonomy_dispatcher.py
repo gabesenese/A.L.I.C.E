@@ -18,6 +18,10 @@ class AutonomyDispatchDecision:
     outcome: str
     affected_goal_id: str
     next_goal_action: str
+    recommended_action: str
+    runtime_outcome: str
+    confidence: float
+    dedupe_key: str
     should_notify_user: bool
     operator_message: str
     pause_autonomy: bool
@@ -25,11 +29,17 @@ class AutonomyDispatchDecision:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "trigger": self.trigger_reason,
             "trigger_reason": self.trigger_reason,
             "severity": self.severity,
             "outcome": self.outcome,
+            "runtime_outcome": self.runtime_outcome,
             "affected_goal_id": self.affected_goal_id,
+            "affected_goal": self.affected_goal_id,
             "next_goal_action": self.next_goal_action,
+            "recommended_action": self.recommended_action,
+            "confidence": float(self.confidence),
+            "dedupe_key": self.dedupe_key,
             "should_notify_user": self.should_notify_user,
             "operator_message": self.operator_message,
             "pause_autonomy": self.pause_autonomy,
@@ -65,6 +75,16 @@ class TinyAutonomyDispatcher:
             "outcome": OUTCOME_ESCALATE_AND_STOP,
             "next_goal_action": "pause",
             "message": "Rollback did not complete safely. I paused autonomous execution and need operator guidance.",
+        },
+        "goal_verification_retry_recommended": {
+            "outcome": OUTCOME_ACT_AUTOMATICALLY,
+            "next_goal_action": "retry",
+            "message": "",
+        },
+        "goal_verification_clarify_required": {
+            "outcome": OUTCOME_ASK_USER,
+            "next_goal_action": "clarify",
+            "message": "I need one more detail to hit your exact target before I continue.",
         },
     }
 
@@ -104,12 +124,18 @@ class TinyAutonomyDispatcher:
             or self._default_goal_action_for_outcome(outcome)
         )
         message = str(rule.get("message") or "")
+        recommended_action = str(
+            (event or {}).get("recommended_action") or next_goal_action
+        ).strip() or next_goal_action
+        confidence = float((event or {}).get("confidence", 0.0) or 0.0)
+        dedupe_key = f"{reason}:{goal_id or 'none'}:{severity}:{recommended_action}"
 
         should_notify_user = self._should_notify(
             reason=reason,
             severity=severity,
             outcome=outcome,
             goal_id=goal_id,
+            dedupe_key=dedupe_key,
             ask_history=ask_history,
         )
 
@@ -119,6 +145,10 @@ class TinyAutonomyDispatcher:
             outcome=outcome,
             affected_goal_id=goal_id,
             next_goal_action=next_goal_action,
+            recommended_action=recommended_action,
+            runtime_outcome=outcome,
+            confidence=confidence,
+            dedupe_key=dedupe_key,
             should_notify_user=should_notify_user,
             operator_message=message if should_notify_user else "",
             pause_autonomy=(outcome == OUTCOME_ESCALATE_AND_STOP),
@@ -156,6 +186,7 @@ class TinyAutonomyDispatcher:
         severity: str,
         outcome: str,
         goal_id: str,
+        dedupe_key: str,
         ask_history: Optional[Dict[str, float]],
     ) -> bool:
         # Proactive messaging policy:
@@ -172,7 +203,7 @@ class TinyAutonomyDispatcher:
         if outcome != OUTCOME_ASK_USER:
             return False
 
-        key = f"{reason}:{goal_id or 'none'}"
+        key = dedupe_key or f"{reason}:{goal_id or 'none'}"
         if ask_history is None:
             return True
         if key in ask_history:

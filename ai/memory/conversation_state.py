@@ -26,6 +26,12 @@ class ConversationState:
     depth_level: int = 0
     question_chain: List[str] = field(default_factory=list)
     intent_chain: List[str] = field(default_factory=list)
+    pending_followup_slot: Dict[str, Any] = field(default_factory=dict)
+    pending_clarification: Dict[str, Any] = field(default_factory=dict)
+    selected_object_reference: str = ""
+    paused_autonomy_reason: str = ""
+    last_recovery_outcome: str = ""
+    last_trigger_goal: str = ""
     last_updated: str = ""
 
 
@@ -123,6 +129,12 @@ class ConversationStateTracker:
             "depth_level": self._state.depth_level,
             "question_chain": list(self._state.question_chain),
             "intent_chain": list(self._state.intent_chain),
+            "pending_followup_slot": dict(self._state.pending_followup_slot or {}),
+            "pending_clarification": dict(self._state.pending_clarification or {}),
+            "selected_object_reference": self._state.selected_object_reference,
+            "paused_autonomy_reason": self._state.paused_autonomy_reason,
+            "last_recovery_outcome": self._state.last_recovery_outcome,
+            "last_trigger_goal": self._state.last_trigger_goal,
             "last_updated": self._state.last_updated,
         }
 
@@ -166,6 +178,38 @@ class ConversationStateTracker:
     def to_dict(self) -> Dict[str, Any]:
         return self.get_state_summary()
 
+    def set_pending_followup_slot(self, slot_state: Dict[str, Any]) -> None:
+        self._state.pending_followup_slot = dict(slot_state or {})
+        self._state.last_updated = datetime.now().isoformat()
+
+    def clear_pending_followup_slot(self) -> None:
+        self._state.pending_followup_slot = {}
+        self._state.last_updated = datetime.now().isoformat()
+
+    def set_pending_clarification(self, pending: Dict[str, Any]) -> None:
+        self._state.pending_clarification = dict(pending or {})
+        self._state.last_updated = datetime.now().isoformat()
+
+    def clear_pending_clarification(self) -> None:
+        self._state.pending_clarification = {}
+        self._state.last_updated = datetime.now().isoformat()
+
+    def set_selected_object_reference(self, value: str) -> None:
+        self._state.selected_object_reference = str(value or "")
+        self._state.last_updated = datetime.now().isoformat()
+
+    def set_autonomy_pause_reason(self, reason: str) -> None:
+        self._state.paused_autonomy_reason = str(reason or "")
+        self._state.last_updated = datetime.now().isoformat()
+
+    def set_last_recovery_outcome(self, outcome: str) -> None:
+        self._state.last_recovery_outcome = str(outcome or "")
+        self._state.last_updated = datetime.now().isoformat()
+
+    def set_last_trigger_goal(self, goal_id: str) -> None:
+        self._state.last_trigger_goal = str(goal_id or "")
+        self._state.last_updated = datetime.now().isoformat()
+
     def load_state(self, data: Dict[str, Any]) -> None:
         if not isinstance(data, dict):
             return
@@ -180,6 +224,12 @@ class ConversationStateTracker:
             intent_chain=[
                 str(x) for x in data.get("intent_chain", [])[-self.max_chain :]
             ],
+            pending_followup_slot=dict(data.get("pending_followup_slot", {}) or {}),
+            pending_clarification=dict(data.get("pending_clarification", {}) or {}),
+            selected_object_reference=str(data.get("selected_object_reference", "") or ""),
+            paused_autonomy_reason=str(data.get("paused_autonomy_reason", "") or ""),
+            last_recovery_outcome=str(data.get("last_recovery_outcome", "") or ""),
+            last_trigger_goal=str(data.get("last_trigger_goal", "") or ""),
             last_updated=str(data.get("last_updated", "") or ""),
         )
 

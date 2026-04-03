@@ -69,7 +69,9 @@ class RouteCoordinator:
             if route is not None
             else None
         )
-        goal_statement_intent = (intent or "").lower().strip() == "conversation:goal_statement"
+        goal_statement_intent = (
+            intent or ""
+        ).lower().strip() == "conversation:goal_statement"
         if intent.startswith("vague_") and not uncertainty:
             uncertainty = {
                 "needs_clarification": True,

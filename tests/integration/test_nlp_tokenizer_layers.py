@@ -160,6 +160,7 @@ class TestLayeredTokenizer:
             "type": "help_narrowing",
             "slot": "project_subdomain",
             "parent_topic": "ai_project",
+            "expected_answer_shape": "short_topic_or_subdomain",
         }
 
         result = self.nlp.process("NLP")
@@ -172,3 +173,32 @@ class TestLayeredTokenizer:
         assert slot_followup.get("slot") == "project_subdomain"
         assert slot_followup.get("value", "").lower() == "nlp"
         assert followup_resolution.get("was_followup") is True
+
+    def test_pending_help_narrowing_slot_does_not_consume_help_opener(self):
+        self.nlp.context.pending_clarification = {
+            "type": "help_narrowing",
+            "slot": "project_subdomain",
+            "parent_topic": "ai_project",
+            "expected_answer_shape": "short_topic_or_subdomain",
+        }
+
+        result = self.nlp.process("can you help me")
+        modifiers = result.parsed_command.get("modifiers", {})
+
+        assert modifiers.get("pending_slot_followup") is None
+
+    def test_pending_help_narrowing_slot_marks_selected_reference_for_ordinals(self):
+        self.nlp.context.pending_clarification = {
+            "type": "help_narrowing",
+            "slot": "project_subdomain",
+            "parent_topic": "ai_project",
+            "expected_answer_shape": "ordinal_or_short_phrase",
+        }
+
+        result = self.nlp.process("the second one")
+        modifiers = result.parsed_command.get("modifiers", {})
+        slot_followup = modifiers.get("pending_slot_followup", {})
+
+        assert slot_followup.get("filled") is True
+        assert slot_followup.get("selected_reference") == "second"
+        assert modifiers.get("selected_object_reference") == "second"

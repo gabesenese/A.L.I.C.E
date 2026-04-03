@@ -115,6 +115,7 @@ class UnifiedActionEngine:
                     verified=False,
                     goal_satisfied=False,
                     handled=False,
+                    goal_report={},
                 ),
                 recovery_path="await_confirmation",
             )
@@ -139,6 +140,7 @@ class UnifiedActionEngine:
                     verified=False,
                     goal_satisfied=False,
                     handled=False,
+                    goal_report={},
                 ),
                 recovery_path="retry",
             )
@@ -163,6 +165,7 @@ class UnifiedActionEngine:
                     verified=False,
                     goal_satisfied=False,
                     handled=False,
+                    goal_report={},
                 ),
                 ambiguity_flags=["policy_confirmation_required"],
                 recovery_path="clarify_then_continue",
@@ -223,6 +226,7 @@ class UnifiedActionEngine:
                 verified=verified,
                 goal_satisfied=goal_satisfied,
                 handled=bool(tool_outcome.handled),
+                goal_report=goal_report,
             )
 
             confidence = self._coerce_confidence(
@@ -388,6 +392,8 @@ class UnifiedActionEngine:
             return False
         if result.goal_satisfied:
             return False
+        if str((result.verification_report or {}).get("recommended_next_action") or "").strip().lower() == "retry":
+            return True
         if result.ambiguity_flags:
             return False
         return True
@@ -529,9 +535,13 @@ class UnifiedActionEngine:
         verified: bool,
         goal_satisfied: bool,
         handled: bool,
+        goal_report: Dict[str, Any],
     ) -> Dict[str, Any]:
+        goal_report = dict(goal_report or {})
+        recommended_next = str(goal_report.get("recommended_next_action") or "").strip().lower()
         return {
             "verification": dict(tool_result.get("verification") or {}),
+            "goal_verification": goal_report,
             "last_action_request": {
                 "goal": request.goal,
                 "plugin": request.plugin,
@@ -553,8 +563,10 @@ class UnifiedActionEngine:
                 "plugin": str(tool_result.get("plugin") or request.plugin or "unknown"),
                 "action": str(tool_result.get("action") or request.action or "unknown"),
                 "verified": bool(verified),
+                "recommended_next_action": recommended_next,
             },
             "goal_satisfied": goal_satisfied,
+            "recommended_next_action": recommended_next,
         }
 
 

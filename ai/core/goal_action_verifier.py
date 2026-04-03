@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 
 @dataclass
@@ -11,6 +11,8 @@ class GoalVerificationReport:
     accepted: bool
     goal_satisfied: bool
     partial_success: bool
+    tool_succeeded: bool
+    target_matched: bool
     target_match_score: float
     ambiguity_flags: List[str]
     issues: List[str]
@@ -37,19 +39,35 @@ class GoalActionVerifier:
             else {}
         )
 
+        tool_succeeded = bool(success or status in {"success", "partial"})
         target_score = self._target_match_score(request, data)
+        target_matched = bool(target_score >= 0.6)
         if target_score < 0.5:
             ambiguity_flags.append("target_mismatch")
             issues.append("target_match_low")
 
-        required_target_actions = {"read", "delete", "update", "append"}
+        required_target_actions = {"read", "delete", "update", "append", "open"}
         action = str(getattr(request, "action", "") or "").strip().lower()
         if action in required_target_actions and not self._has_target(request, data):
             ambiguity_flags.append("target_ambiguous")
             issues.append("missing_target")
 
-        partial_success = status == "partial" or (not success and bool(data))
-        goal_satisfied = bool(success and target_score >= 0.5 and not ambiguity_flags)
+        domain_ok, domain_issues = self._domain_specific_checks(
+            request=request,
+            action=action,
+            data=data,
+            tool_result=tool_result,
+        )
+        issues.extend(domain_issues)
+        if not domain_ok:
+            ambiguity_flags.append("domain_postcondition_unmet")
+
+        partial_success = bool(
+            status == "partial"
+            or (tool_succeeded and (not target_matched or not domain_ok))
+            or (not success and bool(data))
+        )
+        goal_satisfied = bool(success and target_matched and domain_ok and not ambiguity_flags)
         accepted = bool(
             (
                 status
@@ -66,8 +84,10 @@ class GoalActionVerifier:
 
         if goal_satisfied:
             next_action = "continue"
-        elif partial_success:
+        elif ambiguity_flags:
             next_action = "clarify_then_continue"
+        elif partial_success:
+            next_action = "verify_target_then_continue"
         elif (tool_result or {}).get("retryable", False):
             next_action = "retry"
         else:
@@ -77,11 +97,50 @@ class GoalActionVerifier:
             accepted=accepted,
             goal_satisfied=goal_satisfied,
             partial_success=partial_success,
+            tool_succeeded=tool_succeeded,
+            target_matched=target_matched,
             target_match_score=target_score,
             ambiguity_flags=ambiguity_flags,
             issues=issues,
             recommended_next_action=next_action,
         )
+
+    def _domain_specific_checks(
+        self,
+        *,
+        request: Any,
+        action: str,
+        data: Dict[str, Any],
+        tool_result: Dict[str, Any],
+    ) -> Tuple[bool, List[str]]:
+        plugin = str(getattr(request, "plugin", "") or "").strip().lower()
+        issues: List[str] = []
+
+        if plugin == "notes" and action in {"create", "read", "update", "delete"}:
+            if action == "create" and not any(data.get(k) for k in ("note_id", "id", "title", "note_title")):
+                issues.append("notes_create_missing_identifier")
+            if action == "read" and not any(data.get(k) for k in ("content", "body", "text", "note")):
+                issues.append("notes_read_missing_content")
+
+        if plugin == "email" and action in {"send", "draft", "read"}:
+            if action == "send" and not any(data.get(k) for k in ("message_id", "id", "sent", "status")):
+                issues.append("email_send_unconfirmed")
+            if action == "read" and not any(data.get(k) for k in ("subject", "messages", "body", "content")):
+                issues.append("email_read_missing_payload")
+
+        if plugin == "calendar" and action in {"create", "update", "read", "list"}:
+            if action in {"create", "update"} and not any(data.get(k) for k in ("event_id", "id", "event", "title")):
+                issues.append("calendar_write_missing_event_reference")
+            if action in {"read", "list"} and not any(data.get(k) for k in ("events", "event", "items")):
+                issues.append("calendar_read_missing_events")
+
+        if plugin in {"file_operations", "files", "file"} and action in {"read", "write", "delete", "update", "append"}:
+            if not any(data.get(k) for k in ("path", "file", "filename", "target")):
+                issues.append("file_operation_missing_path_echo")
+
+        if bool((tool_result or {}).get("success", False)) and not issues:
+            return True, []
+        return len(issues) == 0, issues
 
     def _target_match_score(self, request: Any, data: Dict[str, Any]) -> float:
         target_spec = getattr(request, "target_spec", {}) or {}

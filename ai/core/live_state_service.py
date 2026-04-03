@@ -72,7 +72,9 @@ class LiveStateService:
         freshest = max(candidates, key=lambda x: float(x.captured_at or 0.0))
         return dict(freshest.data or {})
 
-    def _from_reasoning_entity(self, reasoning_engine: Any, entity_id: str) -> Optional[LiveSnapshot]:
+    def _from_reasoning_entity(
+        self, reasoning_engine: Any, entity_id: str
+    ) -> Optional[LiveSnapshot]:
         if not reasoning_engine:
             return None
         try:

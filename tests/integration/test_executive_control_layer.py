@@ -443,6 +443,57 @@ def test_pending_followup_slot_short_answer_avoids_scaffold_loop() -> None:
     assert decision.reason == "pending_followup_slot_answer"
 
 
+def test_pending_followup_slot_ordinal_answer_avoids_scaffold_loop() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="the second one",
+        intent="conversation:general",
+        confidence=0.66,
+        entities={},
+        conversation_state={
+            "pending_followup_slot": True,
+            "pending_followup_slot_name": "project_subdomain",
+            "pending_followup_slot_state": {
+                "expected_answer_shape": "ordinal_or_short_phrase",
+                "slot": "project_subdomain",
+            },
+        },
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "use_llm"
+    assert decision.reason == "pending_followup_slot_answer"
+
+
+def test_clear_informational_request_prefers_direct_answer() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="explain nlp intent routing in simple terms for beginners",
+        intent="conversation:help",
+        confidence=0.88,
+        entities={},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "answer_direct"
+    assert decision.reason == "clear_informational_request"
+
+
 def test_clarification_needed_intent_answers_instead_of_looping() -> None:
     controller = ExecutiveController()
     state = controller.build_state(

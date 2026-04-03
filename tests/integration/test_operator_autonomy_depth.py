@@ -247,6 +247,98 @@ def test_pending_approval_trigger_requests_operator_decision():
     assert decision.affected_goal_id == "goal-write"
 
 
+def test_dispatcher_decision_dict_exposes_standard_contract_fields():
+    dispatcher = TinyAutonomyDispatcher()
+    decision = dispatcher.dispatch(
+        event={
+            "severity": "medium",
+            "reason": "active_goals_with_unresolved_ambiguity",
+            "recommended_action": "ask_clarification_then_replan",
+            "confidence": 0.73,
+        },
+        goal_summary={"goals": [{"goal_id": "goal-clarify"}]},
+        active_goal_id="goal-clarify",
+        ask_history={},
+    )
+
+    payload = decision.to_dict()
+
+    assert payload.get("trigger") == "active_goals_with_unresolved_ambiguity"
+    assert payload.get("severity") == "medium"
+    assert payload.get("affected_goal") == "goal-clarify"
+    assert payload.get("recommended_action") == "ask_clarification_then_replan"
+    assert payload.get("runtime_outcome") in {"ask_user", "act_automatically", "log_silently", "escalate_and_stop"}
+    assert isinstance(payload.get("dedupe_key"), str)
+    assert payload.get("confidence") == 0.73
+
+
+def test_dispatcher_medium_dedupe_key_respects_recommended_action_variant():
+    dispatcher = TinyAutonomyDispatcher()
+    ask_history = {}
+
+    first = dispatcher.dispatch(
+        event={
+            "severity": "medium",
+            "reason": "active_goals_with_unresolved_ambiguity",
+            "recommended_action": "ask_clarification_then_replan",
+        },
+        goal_summary={"goals": [{"goal_id": "goal-123"}]},
+        active_goal_id="goal-123",
+        ask_history=ask_history,
+    )
+    second = dispatcher.dispatch(
+        event={
+            "severity": "medium",
+            "reason": "active_goals_with_unresolved_ambiguity",
+            "recommended_action": "ask_operator_for_target",
+        },
+        goal_summary={"goals": [{"goal_id": "goal-123"}]},
+        active_goal_id="goal-123",
+        ask_history=ask_history,
+    )
+
+    assert first.should_notify_user is True
+    assert second.should_notify_user is True
+
+
+def test_goal_verification_clarify_trigger_asks_user():
+    dispatcher = TinyAutonomyDispatcher()
+
+    decision = dispatcher.dispatch(
+        event={
+            "severity": "medium",
+            "reason": "goal_verification_clarify_required",
+            "recommended_action": "ask_clarification_then_replan",
+        },
+        goal_summary={"goals": [{"goal_id": "goal-verify"}]},
+        active_goal_id="goal-verify",
+        ask_history={},
+    )
+
+    assert decision.outcome == OUTCOME_ASK_USER
+    assert decision.should_notify_user is True
+    assert decision.next_goal_action == "clarify"
+
+
+def test_goal_verification_retry_trigger_continues_automatically():
+    dispatcher = TinyAutonomyDispatcher()
+
+    decision = dispatcher.dispatch(
+        event={
+            "severity": "medium",
+            "reason": "goal_verification_retry_recommended",
+            "recommended_action": "retry_with_adjusted_target",
+        },
+        goal_summary={"goals": [{"goal_id": "goal-retry"}]},
+        active_goal_id="goal-retry",
+        ask_history={},
+    )
+
+    assert decision.outcome == OUTCOME_ACT_AUTOMATICALLY
+    assert decision.pause_autonomy is False
+    assert decision.next_goal_action == "retry"
+
+
 def test_partial_side_effect_with_rollback_policy_reports_outcome():
     plugin_manager = _StubPluginManager()
     engine = UnifiedActionEngine(tool_executor=_StubToolExecutor())

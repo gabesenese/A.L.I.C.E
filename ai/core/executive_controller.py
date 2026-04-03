@@ -28,6 +28,7 @@ class ReasoningState:
     tool_budget: int = 1
     pending_followup_slot: bool = False
     pending_followup_slot_name: str = ""
+    pending_followup_slot_state: Dict[str, Any] = field(default_factory=dict)
     plan: List[str] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -46,6 +47,7 @@ class ReasoningState:
             "tool_budget": self.tool_budget,
             "pending_followup_slot": self.pending_followup_slot,
             "pending_followup_slot_name": self.pending_followup_slot_name,
+            "pending_followup_slot_state": dict(self.pending_followup_slot_state or {}),
             "plan": list(self.plan),
         }
 
@@ -207,6 +209,9 @@ class ExecutiveController:
         pending_followup_slot_name = str(
             conversation_state.get("pending_followup_slot_name") or ""
         ).strip()
+        pending_followup_slot_state = dict(
+            conversation_state.get("pending_followup_slot_state") or {}
+        )
 
         plan = self._derive_plan(
             intent=intent, topic=topic, depth_level=depth_level, user_input=user_input
@@ -227,6 +232,7 @@ class ExecutiveController:
             tool_budget=max(0, min(3, tool_budget)),
             pending_followup_slot=pending_followup_slot,
             pending_followup_slot_name=pending_followup_slot_name,
+            pending_followup_slot_state=pending_followup_slot_state,
             plan=plan,
         )
 
@@ -322,6 +328,13 @@ class ExecutiveController:
             return ExecutiveDecision(
                 action="answer_direct",
                 reason="native_conversation_scaffold",
+                store_memory=True,
+            )
+
+        if self._is_clear_informational_request(state):
+            return ExecutiveDecision(
+                action="answer_direct",
+                reason="clear_informational_request",
                 store_memory=True,
             )
 
@@ -424,6 +437,9 @@ class ExecutiveController:
         if has_explicit_action_cue or has_active_goal:
             return False
 
+        slot_state = dict(getattr(state, "pending_followup_slot_state", {}) or {})
+        expected_shape = str(slot_state.get("expected_answer_shape") or "").strip().lower()
+
         text = str(state.source_text or "").strip().lower()
         if not text or "?" in text:
             return False
@@ -450,7 +466,31 @@ class ExecutiveController:
         if self.HELP_OPENER_RE.search(text):
             return False
 
+        if expected_shape in {
+            "short_topic_or_subdomain",
+            "short_disambiguation_or_selection",
+            "ordinal_or_short_phrase",
+        }:
+            if re.search(r"\b(first|second|third|1st|2nd|3rd|one|two|three)\b", text):
+                return True
+            _slot_tokens = re.findall(r"\b[a-z0-9']+\b", text)
+            if 1 <= len(_slot_tokens) <= 5:
+                return True
+
+        if expected_shape == "single_token" and len(tokens) == 1:
+            return True
+
         return True
+
+    def _is_clear_informational_request(self, state: ReasoningState) -> bool:
+        text = str(state.source_text or "").strip().lower()
+        if not text:
+            return False
+
+        has_ask = any(cue in text for cue in ("explain", "what is", "how does", "give me"))
+        has_format = any(cue in text for cue in ("step by step", "brief", "simple", "for beginner", "for beginners"))
+        topic_tokens = [t for t in re.findall(r"\b[a-z0-9']+\b", text) if t not in self.SEMANTIC_STOPWORDS]
+        return bool(has_ask and has_format and len(topic_tokens) >= 2)
 
     def _is_simple_native_conversation(
         self,
@@ -717,7 +757,7 @@ class ExecutiveController:
         if force_plugins_for_notes:
             scores["tools"] += 0.60
         if is_pure_conversation:
-            scores["llm"] += 0.20
+            scores["llm"] += 0.12
 
         if self._is_help_opener(state):
             # Generic help-openers should steer toward native brief guidance,
@@ -731,6 +771,8 @@ class ExecutiveController:
             scores["llm"] -= 0.30
             scores["clarify"] += 0.15
             scores["defer"] -= 0.10
+        if normalized_intent.startswith("conversation:") and len(str(state.source_text or "").split()) <= 10:
+            scores["llm"] -= 0.10
         if conf < 0.35 and not state.topic:
             scores["clarify"] += 0.35
         if conf < 0.20 and not has_explicit_action_cue and not state.user_goal:
