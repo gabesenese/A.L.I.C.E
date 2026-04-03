@@ -230,7 +230,7 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
         if is_multiline or has_markdown or has_numbered:
             ts = datetime.now().strftime("%H:%M")
             try:
-                panel_width = min(self.console.width - 2, 100)
+                panel_width = max(40, self.console.width - 2)
             except Exception:
                 panel_width = 98
             panel = Panel(
@@ -245,9 +245,9 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
             self.console.print()
             self.console.print(panel)
         else:
-            self.console.print(
-                f"\n[{self.colors['assistant']}]A.L.I.C.E:[/{self.colors['assistant']}] {text}"
-            )
+            self.console.print()
+            self.console.print(f"[{self.colors['assistant']}]A.L.I.C.E:[/{self.colors['assistant']}]", end=" ")
+            self.console.print(Text(text, overflow="fold"))
 
         self.conversation_history.append(("assistant", text))
         self.console.print()

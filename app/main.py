@@ -1753,9 +1753,11 @@ class ALICE:
         if not text:
             return "I need one more detail to answer correctly."
 
-        # Normalize shell quoting and whitespace noise.
+        # Normalize shell quoting while preserving paragraph structure.
         text = text.strip().strip('"').strip("'")
-        text = re.sub(r"\s+", " ", text).strip()
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        text = "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")).strip()
+        text = re.sub(r"\n{3,}", "\n\n", text)
 
         # Remove common filler/over-softening prefixes.
         text = re.sub(
@@ -1774,19 +1776,31 @@ class ALICE:
 
         # Tone-aware trim: keep professional tones concise.
         max_chars = {
-            "clarification_prompt": 140,
-            "operation_success": 160,
-            "operation_failure": 180,
-            "knowledge_answer": 220,
-            "wake_word_ack": 80,
-            "farewell": 100,
-        }.get(response_type, 320)
+            "clarification_prompt": 220,
+            "operation_success": 320,
+            "operation_failure": 360,
+            "knowledge_answer": 1400,
+            "wake_word_ack": 100,
+            "farewell": 140,
+        }.get(response_type, 1600)
 
         if "professional" in tone or "precise" in tone:
-            max_chars = min(max_chars, 220)
+            max_chars = min(max_chars, 1400)
 
-        if len(text) > max_chars:
+        # Only hard-truncate short/system response types. Keep general answers intact.
+        hard_truncate_types = {
+            "clarification_prompt",
+            "operation_success",
+            "operation_failure",
+            "wake_word_ack",
+            "farewell",
+        }
+        if response_type in hard_truncate_types and len(text) > max_chars:
             text = text[: max_chars - 3].rstrip() + "..."
+
+        # Safety cap for pathological outputs.
+        if len(text) > 6000:
+            text = text[:5997].rstrip() + "..."
 
         # Enforce one-line concise output for micro conversational routes.
         if route in {"wake_word", "farewell", "greeting", "ollama_phrase_micro"}:
