@@ -16,6 +16,31 @@ class ResolutionResult:
 
 class ReferenceResolver:
     PRONOUNS = ("it", "that", "this", "them", "those")
+    _TEMPORAL_DEICTIC = {
+        "week",
+        "weekend",
+        "month",
+        "year",
+        "morning",
+        "afternoon",
+        "evening",
+        "night",
+        "tonight",
+        "today",
+        "tomorrow",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "spring",
+        "summer",
+        "autumn",
+        "fall",
+        "winter",
+    }
 
     def resolve(self, user_input: str, state: Dict[str, object]) -> ResolutionResult:
         text = (user_input or "").strip()
@@ -37,6 +62,8 @@ class ReferenceResolver:
         for pronoun in self.PRONOUNS:
             if local_ai_antecedent and pronoun == "it":
                 continue
+            if pronoun == "this" and self._is_temporal_deictic_usage(rewritten):
+                continue
             if re.search(rf"\b{re.escape(pronoun)}\b", rewritten, flags=re.IGNORECASE):
                 if subject:
                     rewritten = re.sub(
@@ -55,6 +82,13 @@ class ReferenceResolver:
             resolved_bindings=resolved_bindings,
             unresolved_pronouns=unresolved_pronouns,
         )
+
+    @classmethod
+    def _is_temporal_deictic_usage(cls, text: str) -> bool:
+        match = re.search(r"\bthis\s+([a-z]+)\b", text or "", flags=re.IGNORECASE)
+        if not match:
+            return False
+        return match.group(1).lower() in cls._TEMPORAL_DEICTIC
 
     @staticmethod
     def _pick_subject(state: Dict[str, object]) -> str:

@@ -54,3 +54,21 @@ def test_context_resolver_preserves_local_ai_antecedent_over_cross_turn_subject(
 
     assert result.rewritten_input == user_text
     assert "it" not in result.resolved_bindings
+
+
+def test_context_resolver_does_not_clarify_temporal_deictic_this_weekend():
+    state = {
+        "current_topic": "",
+        "last_subject": "",
+        "last_intent": "",
+        "active_goal": "",
+        "referenced_entities": [],
+        "last_entities": {},
+    }
+    resolver = ContextResolver()
+
+    result = resolver.resolve("hows the weather for this weekend?", state)
+
+    assert result.needs_clarification is False
+    assert "this" not in result.unresolved_pronouns
+    assert result.rewritten_input == "hows the weather for this weekend?"
