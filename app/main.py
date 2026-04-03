@@ -3771,6 +3771,21 @@ class ALICE:
         )
         return bool(re.search(action_pattern, text))
 
+    def _is_beginner_explanation_request(self, user_input: str) -> bool:
+        """Detect beginner-level explanation asks that should stay in help mode."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        patterns = (
+            r"\bi\s+am\s+(?:a\s+)?beginner\b",
+            r"\bi'?m\s+(?:a\s+)?beginner\b",
+            r"\bbeginner\b.*\b(explain|explanation)\b",
+            r"\bwant\s+an\s+explanation\b",
+            r"\bexplain\s+(?:it|this|that)\s+(?:simply|for\s+beginners)?\b",
+        )
+        return any(re.search(pat, text) for pat in patterns)
+
     def _is_help_opener_input(self, user_input: str, intent: str) -> bool:
         """Detect broad help-opening prompts that should stay native and concise."""
         text = str(user_input or "").lower().strip()
@@ -3781,6 +3796,9 @@ class ALICE:
 
         if intent not in {"conversation:help", "conversation:general"}:
             return False
+
+        if self._is_beginner_explanation_request(text):
+            return True
 
         help_patterns = [
             r"\bi need help\b",
@@ -3795,6 +3813,8 @@ class ALICE:
     def _native_help_opener_response(self, user_input: str) -> str:
         """Native response policy for generic help-openers: acknowledge + narrow + one question."""
         text = str(user_input or "").lower()
+        if self._is_beginner_explanation_request(text):
+            return "Absolutely. I can explain step by step at beginner level. Tell me the topic you want first, and I will keep it simple."
         if "project" in text and "ai" in text:
             return "Of course. What part of your AI project do you want help with first?"
         if "project" in text:
@@ -5457,6 +5477,11 @@ class ALICE:
 
         fallback_action = evaluation.get("fallback_action", "safe_reply")
         if fallback_action == "clarify":
+            if (
+                str(intent or "").lower().strip().startswith("conversation:")
+                and self._is_beginner_explanation_request(user_input)
+            ):
+                return "Absolutely. I can explain this at a beginner level. Tell me the topic you want explained first, and I will break it down step by step."
             return "I want to make sure I answer correctly. Do you want an explanation, a direct action, or a quick search?"
         return "I may be off-track. Let me answer more directly: tell me the exact outcome you want and I will do that."
 

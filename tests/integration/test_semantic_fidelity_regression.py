@@ -118,6 +118,20 @@ def test_native_scaffold_handles_simple_conversation_openers_without_llm():
     assert alice._native_scaffold_response("thanks", "conversation:general") is not None
 
 
+def test_native_scaffold_handles_beginner_explanation_help_request():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._native_scaffold_response(
+        "i am beginner so i want an explanation",
+        "conversation:help",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "beginner level" in low
+    assert "step by step" in low
+
+
 def test_native_scaffold_does_not_flatten_detailed_help_issue_report():
     alice = ALICE.__new__(ALICE)
     detailed = "my ai is not able to correctly give me some informations or it gets the intent wrong"

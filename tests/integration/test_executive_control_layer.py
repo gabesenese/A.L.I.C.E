@@ -373,6 +373,31 @@ def test_help_intent_with_educational_question_does_not_force_simple_native_path
     assert decision.reason != "simple_conversational_native_path"
 
 
+def test_beginner_explanation_help_request_prefers_native_scaffold() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="i am beginner so i want an explanation",
+        intent="conversation:help",
+        confidence=0.70,
+        entities={},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "answer_direct"
+    assert decision.reason in {
+        "native_conversation_scaffold",
+        "simple_conversational_native_path",
+    }
+
+
 def test_pending_followup_slot_short_answer_avoids_scaffold_loop() -> None:
     controller = ExecutiveController()
     state = controller.build_state(

@@ -83,7 +83,7 @@ class ExecutiveController:
         "farewell",
     }
     HELP_OPENER_RE = re.compile(
-        r"\b(i\s+need\s+help|can\s+you\s+help|help\s+me|help\s+with\s+this|help\s+with\s+my\s+project)\b",
+        r"\b(i\s+need\s+help|can\s+you\s+help|help\s+me|help\s+with\s+this|help\s+with\s+my\s+project|i\s+am\s+(?:a\s+)?beginner|i'?m\s+(?:a\s+)?beginner|want\s+an\s+explanation)\b",
         re.IGNORECASE,
     )
     SIMPLE_NATIVE_RE = re.compile(
