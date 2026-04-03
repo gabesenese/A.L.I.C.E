@@ -93,6 +93,13 @@ class TestLayeredTokenizer:
         assert result.intent == "conversation:goal_statement"
         assert result.intent_confidence >= 0.8
 
+    def test_goal_statement_objective_phrase_is_recognized(self):
+        result = self.nlp.process(
+            "My objective is to build a reliable agent architecture with planning and verification"
+        )
+        assert result.intent == "conversation:goal_statement"
+        assert result.intent_confidence >= 0.8
+
     def test_weather_plausibility_requires_entity_or_forecast_signals(self):
         score, issues = self.nlp._validate_intent_plausibility(
             "please help with this", "weather:current", ParsedCommand(), {}

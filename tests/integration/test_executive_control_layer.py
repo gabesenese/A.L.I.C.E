@@ -178,6 +178,26 @@ def test_planner_authority_for_learning_turns() -> None:
     assert controller.should_use_planner(state, scores) is True
 
 
+def test_planner_authority_for_beginner_explanation_help_turn() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="i am beginner and explain this step by step",
+        intent="conversation:help",
+        confidence=0.70,
+        entities={},
+        conversation_state={"depth_level": 1},
+    )
+    scores = controller.score_decisions(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert controller.should_use_planner(state, scores) is True
+
+
 def test_uncertainty_behavior_can_defer() -> None:
     controller = ExecutiveController()
     state = controller.build_state(

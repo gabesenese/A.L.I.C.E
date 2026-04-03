@@ -6,6 +6,8 @@ Keeps intent decision policy out of NLPProcessor orchestration flow.
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from ai.core.goal_recognizer import get_goal_recognizer
+
 
 @dataclass
 class RouteCoordinatorConfig:
@@ -25,6 +27,7 @@ class RouteCoordinator:
 
     def __init__(self, config: Optional[RouteCoordinatorConfig] = None) -> None:
         self.config = config or RouteCoordinatorConfig()
+        self.goal_recognizer = get_goal_recognizer()
 
     def apply_initial_routing_policy(
         self,
@@ -45,6 +48,21 @@ class RouteCoordinator:
         normalized_text: str,
     ) -> Tuple[str, float]:
         modifiers = parsed_command.modifiers
+
+        if str(intent or "").lower().strip() != "conversation:goal_statement":
+            _goal_signal = self.goal_recognizer.detect(normalized_text)
+            if _goal_signal is not None:
+                intent = "conversation:goal_statement"
+                intent_confidence = max(
+                    float(intent_confidence or 0.0),
+                    float(_goal_signal.confidence or 0.84),
+                )
+                modifiers["goal_statement_signal"] = {
+                    "goal": _goal_signal.goal,
+                    "project_direction": _goal_signal.project_direction,
+                    "markers": list(_goal_signal.markers or []),
+                    "source": "route_coordinator",
+                }
 
         uncertainty = (
             build_uncertainty_prompt(route, parsed_command, plugin_scores)

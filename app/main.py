@@ -103,6 +103,10 @@ from ai.core.response_planner import get_response_planner
 from ai.core.goal_tracker import get_goal_tracker
 from ai.core.response_quality_tracker import get_response_quality_tracker
 from ai.core.cognitive_orchestrator import get_cognitive_orchestrator
+from ai.core.goal_recognizer import get_goal_recognizer
+from ai.core.turn_routing_policy import get_turn_routing_policy
+from ai.core.live_state_service import get_live_state_service
+from ai.core.execution_verifier import get_execution_verifier
 from ai.core.activity_monitor import ActivityMonitor
 from ai.core.temporal_reasoner import TemporalReasoner
 from ai.core.adaptive_intent_calibrator import AdaptiveIntentCalibrator
@@ -786,6 +790,10 @@ class ALICE:
             self.roadmap_stack = get_roadmap_completion_stack()
             self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
             self.execution_journal = get_execution_journal(storage_path="data/action_journal.jsonl")
+            self.goal_recognizer = get_goal_recognizer()
+            self.turn_routing_policy = get_turn_routing_policy()
+            self.live_state_service = get_live_state_service()
+            self.execution_verifier = get_execution_verifier()
             self.autonomy_manager = get_bounded_autonomy_manager(storage_path="data/autonomy_loops.json")
             self.autonomy_dispatcher = TinyAutonomyDispatcher()
             self._autonomy_medium_ask_history = {}
@@ -3089,6 +3097,28 @@ class ALICE:
             "give me a quiz",
         )
         return any(c in text for c in cues)
+
+    def _verify_planned_execution_payload(
+        self,
+        *,
+        intent: str,
+        result: Any,
+        all_results: Dict[str, Any] | Dict[int, Any] | None,
+    ) -> bool:
+        verifier = getattr(self, 'execution_verifier', None)
+        if verifier is None:
+            verifier = get_execution_verifier()
+
+        report = verifier.verify_task_result(
+            intent=intent,
+            result=result,
+            all_results=all_results,
+        )
+        self._internal_reasoning_state['task_verification'] = report.to_dict()
+        self._think(
+            f"Task verification -> accepted={report.accepted} confidence={report.confidence:.2f}"
+        )
+        return bool(report.accepted)
     
     def _use_planner_executor(self, intent: str, entities: Dict[str, Any], query: str) -> Optional[str]:
         """
@@ -3102,19 +3132,26 @@ class ALICE:
         Returns:
             Response or None if not planned
         """
-        # Only use planner for specific intents that benefit from structured execution
-        plannable_intents = [
-            'summarize_notes', 'check_calendar', 'send_email',
-            'create_note', 'question', 'conversation:question',
-            'study_topic', 'learning:study_topic'
-        ]
-        
-        if intent not in plannable_intents:
+        normalized_intent = str(intent or '').lower().strip()
+        # Planner/task queue is the primary path for conversational reasoning turns.
+        plannable_prefixes = (
+            'learning:',
+            'conversation:question',
+            'conversation:help',
+            'conversation:goal_statement',
+            'question',
+            'study_topic',
+        )
+
+        if not any(normalized_intent.startswith(prefix) for prefix in plannable_prefixes):
             return None
 
         if intent in ('study_topic', 'learning:study_topic') and not self._explicit_study_template_request(query):
             # Hard gate: only enter study template flow when user explicitly asks for studying/tutorial mode.
             return None
+
+        entities = dict(entities or {})
+        entities.setdefault('query', query)
         
         try:
             if self.reasoning_planner and self.persistent_task_queue:
@@ -3143,6 +3180,13 @@ class ALICE:
                 queue_result = self._await_queue_task_result(queued_task.task_id, timeout_seconds=4.0)
                 if queue_result and queue_result.get("success"):
                     all_results = queue_result.get("all_results", {}) or {}
+                    if not self._verify_planned_execution_payload(
+                        intent=intent,
+                        result=queue_result.get("result"),
+                        all_results=all_results,
+                    ):
+                        logger.warning("Queued planner result failed verification; falling back")
+                        return None
                     if intent in ("study_topic", "learning:study_topic"):
                         explain = all_results.get(1, "")
                         example = all_results.get(2, "")
@@ -3184,6 +3228,13 @@ class ALICE:
             if result['success']:
                 if intent in ('study_topic', 'learning:study_topic'):
                     all_results = result.get('all_results', {}) or {}
+                    if not self._verify_planned_execution_payload(
+                        intent=intent,
+                        result=result.get('result'),
+                        all_results=all_results,
+                    ):
+                        logger.warning("Direct planner result failed verification")
+                        return None
                     explain = all_results.get(1, '')
                     example = all_results.get(2, '')
                     check = all_results.get(3, '')
@@ -3200,6 +3251,13 @@ class ALICE:
                         parts.append(f"4) Next Step\n{deeper}")
                     if parts:
                         return "\n\n".join(parts)
+                if not self._verify_planned_execution_payload(
+                    intent=intent,
+                    result=result.get('result'),
+                    all_results=result.get('all_results', {}),
+                ):
+                    logger.warning("Planner result failed verification")
+                    return None
                 return result.get('result')
             else:
                 logger.error(f"Plan execution failed: {result.get('error')}")
@@ -3303,16 +3361,24 @@ class ALICE:
             self._think("Self-reflection context added")
         
         # 0.7. Recent plugin data (e.g., weather from last query)
-        if hasattr(self, 'reasoning_engine') and self.reasoning_engine:
-            weather_entity = self.reasoning_engine.get_entity('current_weather')
-            if weather_entity and weather_entity.data:
-                wd = weather_entity.data
-                weather_context = f"RECENT WEATHER: In {wd.get('location', 'your area')}, it's {wd.get('temperature')}°C with {wd.get('condition')}. "
-                weather_context += f"Humidity: {wd.get('humidity')}%, Wind: {wd.get('wind_speed')} km/h. "
-                weather_context += "Use this when answering questions about going outside, clothing, or weather-related decisions."
-                context_parts.append(weather_context)
-                context_types.append("recent_weather")
-                self._think("Recent weather data included in context")
+        _live_state = getattr(self, 'live_state_service', None) or get_live_state_service()
+        weather_snapshot = _live_state.freshest_weather_snapshot(
+            reasoning_engine=getattr(self, 'reasoning_engine', None),
+            world_state_memory=getattr(self, 'world_state_memory', None),
+        )
+        if weather_snapshot and isinstance(weather_snapshot.get('data'), dict):
+            wd = weather_snapshot.get('data', {})
+            weather_context = (
+                f"RECENT WEATHER: In {wd.get('location', 'your area')}, "
+                f"it's {wd.get('temperature')}°C with {wd.get('condition')}. "
+            )
+            weather_context += f"Humidity: {wd.get('humidity')}%, Wind: {wd.get('wind_speed')} km/h. "
+            weather_context += "Use this when answering questions about going outside, clothing, or weather-related decisions."
+            context_parts.append(weather_context)
+            context_types.append("recent_weather")
+            self._think(
+                f"Recent weather data included in context (source={weather_snapshot.get('source', 'unknown')})"
+            )
         
         # 1. Personalization
         personalization = self.context.get_personalization_context()
@@ -3855,81 +3921,16 @@ class ALICE:
         text = str(user_input or "").strip()
         if not text:
             return {}
-
-        low = text.lower()
-        lead_patterns = (
-            r"\bi\s+(?:want|need|am\s+trying|am\s+aiming|intend|plan)\s+to\b",
-            r"\bi'?m\s+(?:building|working\s+on)\b",
-            r"\bmy\s+goal\s+is\s+to\b",
-            r"\bi\s+do\s+not\s+want\b",
-            r"\bi\s+don't\s+want\b",
-        )
-        if not any(re.search(pat, low) for pat in lead_patterns):
+        recognizer = getattr(self, "goal_recognizer", None) or get_goal_recognizer()
+        signal = recognizer.detect(text)
+        if signal is None:
             return {}
-
-        direction_markers = (
-            "agent",
-            "autonomous",
-            "autonomy",
-            "chatbot",
-            "architecture",
-            "orchestration",
-            "planning",
-            "think in steps",
-            "step by step",
-            "task persistence",
-            "state",
-            "initiative",
-            "project",
-            "vision",
-            "more like",
-        )
-        markers = [marker for marker in direction_markers if marker in low]
-        if not markers:
-            return {}
-
-        has_tool_target = any(
-            token in low
-            for token in (
-                "email",
-                "calendar",
-                "note",
-                "notes",
-                "file",
-                "files",
-                "weather",
-                "time",
-                "reminder",
-                "song",
-                "music",
-            )
-        )
-        has_tool_verb = bool(
-            re.search(
-                r"\b(open|launch|send|delete|remove|list|search|read|write|schedule|set|remind|play)\b",
-                low,
-            )
-        )
-        if has_tool_target and has_tool_verb:
-            return {}
-
-        extracted_goal = text
-        goal_match = re.search(
-            r"\b(?:i\s+(?:want|need|am\s+trying|intend|plan)\s+to|my\s+goal\s+is\s+to|i'?m\s+(?:building|working\s+on))\s+(.+)",
-            text,
-            re.IGNORECASE,
-        )
-        if goal_match:
-            extracted_goal = goal_match.group(1).strip(" .!?;:")
-
-        project_direction = "agentic_autonomy"
-        if "chatbot" in low and "agent" not in low:
-            project_direction = "non_chatbot_behavior"
 
         return {
-            "goal": extracted_goal[:180] if extracted_goal else text[:180],
-            "project_direction": project_direction,
-            "markers": markers[:8],
+            "goal": str(signal.goal or text[:180]),
+            "project_direction": str(signal.project_direction or "agentic_autonomy"),
+            "markers": list(signal.markers or [])[:8],
+            "confidence": float(signal.confidence or 0.84),
         }
 
     def _goal_statement_alignment_response(self, user_input: str, signal: Dict[str, Any]) -> str:
@@ -4033,6 +4034,7 @@ class ALICE:
 
         enriched_entities = dict(entities or {})
         goal_text = str(signal.get("goal") or "").strip()
+        signal_confidence = float(signal.get("confidence") or 0.84)
         if goal_text:
             enriched_entities.setdefault("goal", goal_text)
             enriched_entities.setdefault("user_goal", goal_text)
@@ -4059,7 +4061,7 @@ class ALICE:
             self._think(
                 f"Goal declaration recognized: {normalized_intent or 'unknown'} -> conversation:goal_statement"
             )
-        return "conversation:goal_statement", enriched_entities, max(float(intent_confidence or 0.0), 0.84)
+        return "conversation:goal_statement", enriched_entities, max(float(intent_confidence or 0.0), signal_confidence)
 
     def _native_conceptual_answer(self, user_input: str, intent: str) -> Optional[str]:
         """Native conceptual mode for broad architecture questions that do not require tools."""
@@ -5134,16 +5136,14 @@ class ALICE:
 
         if mentioned_time_range:
             self._think(f"Detected weather time-range follow-up: {mentioned_time_range} (intent was {intent})")
-            if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
-                self._think("Reasoning engine not available for weather follow-up")
-                return None
-
-            forecast_entity = self.reasoning_engine.get_entity('weather_forecast')
-            if not forecast_entity or not forecast_entity.data:
+            _live_state = getattr(self, 'live_state_service', None) or get_live_state_service()
+            forecast_data = _live_state.latest_weather_forecast(
+                reasoning_engine=getattr(self, 'reasoning_engine', None),
+                world_state_memory=getattr(self, 'world_state_memory', None),
+            )
+            if not forecast_data:
                 self._think(f"No forecast entity found for '{mentioned_time_range}' follow-up")
                 return None
-
-            forecast_data = forecast_entity.data
             self._think(
                 f"Using stored forecast data for time-range '{mentioned_time_range}' with {len(forecast_data.get('forecast', []))} days"
             )
@@ -5174,21 +5174,14 @@ class ALICE:
         
         if mentioned_day:
             self._think(f"Detected weekday mention: {mentioned_day} (intent was {intent})")
-            if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
-                self._think("Reasoning engine not available for weather follow-up")
-                return None
-            
-            # Try to get stored forecast data
-            forecast_entity = self.reasoning_engine.get_entity('weather_forecast')
-            if not forecast_entity:
+            _live_state = getattr(self, 'live_state_service', None) or get_live_state_service()
+            forecast_data = _live_state.latest_weather_forecast(
+                reasoning_engine=getattr(self, 'reasoning_engine', None),
+                world_state_memory=getattr(self, 'world_state_memory', None),
+            )
+            if not forecast_data:
                 self._think(f"No forecast entity found for '{mentioned_day}' follow-up - may be first weather query")
                 return None
-            
-            if not forecast_entity.data:
-                self._think(f"Forecast entity exists but has no data")
-                return None
-
-            forecast_data = forecast_entity.data
             self._think(f"Using stored forecast data for {mentioned_day} query: {type(forecast_data)} with {len(forecast_data.get('forecast', []))} days")
             
             from ai.models.simple_formatters import WeatherFormatter
@@ -5220,36 +5213,16 @@ class ALICE:
 
         if any(re.search(r'\b' + re.escape(kw) + r'\b', input_lower)
                for kw in weather_question_indicators):
-            if not hasattr(self, 'reasoning_engine') or not self.reasoning_engine:
+            _live_state = getattr(self, 'live_state_service', None) or get_live_state_service()
+            weather_snapshot = _live_state.freshest_weather_snapshot(
+                reasoning_engine=getattr(self, 'reasoning_engine', None),
+                world_state_memory=getattr(self, 'world_state_memory', None),
+            )
+            if not weather_snapshot:
                 return None
-
-            current_entity = self.reasoning_engine.get_entity('current_weather')
-            forecast_entity = self.reasoning_engine.get_entity('weather_forecast')
-            has_current = bool(current_entity and current_entity.data)
-            has_forecast = bool(forecast_entity and forecast_entity.data)
-            if not has_current and not has_forecast:
-                return None
-
-            def _entity_age_score(ent) -> float:
-                try:
-                    return ent.created_at.timestamp()
-                except Exception:
-                    return 0.0
-
-            # Prefer whichever weather snapshot is newer; this avoids stale
-            # current-weather entities overriding a fresh forecast context.
-            weather_entity = None
-            if has_current and has_forecast:
-                weather_entity = (
-                    current_entity
-                    if _entity_age_score(current_entity) >= _entity_age_score(forecast_entity)
-                    else forecast_entity
-                )
-            else:
-                weather_entity = current_entity if has_current else forecast_entity
 
             # We have weather data — A.L.I.C.E answers directly using her own reasoning
-            wd = weather_entity.data
+            wd = dict(weather_snapshot.get('data') or {})
             location = wd.get('location', 'your area')
             condition = (wd.get('condition') or '').lower()
             temp = wd.get('temperature')
@@ -7605,15 +7578,26 @@ class ALICE:
                     "I need a little clarification before I trigger a tool."
                 )
 
-            _force_skip_plugins = _executive_decision.action in ("use_llm", "answer_direct")
-            _force_try_plugins = _executive_decision.action in ("use_plugin", "search")
-            if not bool(_runtime_controls.get("allow_tools", True)):
-                _force_skip_plugins = True
-            if _runtime_controls.get("routing_preference") == "tool_first" and bool(_runtime_controls.get("allow_tools", True)):
-                _force_try_plugins = True
-            _should_try_plugins = (
-                (_force_try_plugins or ((not _is_short_followup and not is_pure_conversation) or force_plugins_for_notes))
-                and not _force_skip_plugins
+            _turn_policy = getattr(self, 'turn_routing_policy', None) or get_turn_routing_policy()
+            _routing_decision = _turn_policy.decide(
+                executive_action=_executive_decision.action,
+                runtime_allow_tools=bool(_runtime_controls.get("allow_tools", True)),
+                runtime_preference=str(_runtime_controls.get("routing_preference") or "balanced"),
+                is_short_followup=bool(_is_short_followup),
+                is_pure_conversation=bool(is_pure_conversation),
+                force_plugins_for_notes=bool(force_plugins_for_notes),
+            )
+            _should_try_plugins = bool(_routing_decision.should_try_plugins)
+            self._internal_reasoning_state["routing_owner"] = _routing_decision.owner
+            self._internal_reasoning_state["routing_decision"] = {
+                "should_try_plugins": _routing_decision.should_try_plugins,
+                "force_skip_plugins": _routing_decision.force_skip_plugins,
+                "force_try_plugins": _routing_decision.force_try_plugins,
+                "reason": _routing_decision.reason,
+            }
+            self._think(
+                f"Routing owner={_routing_decision.owner} decision={_routing_decision.reason} "
+                f"plugins={_should_try_plugins}"
             )
 
             if getattr(self, 'roadmap_stack', None):
@@ -8120,6 +8104,15 @@ class ALICE:
                         weather_data = plugin_result['data']
                         weather_data = dict(weather_data)
                         weather_data['captured_at'] = datetime.now().isoformat()
+                        if getattr(self, 'world_state_memory', None):
+                            try:
+                                self.world_state_memory.set_environment_state(
+                                    'weather',
+                                    weather_data,
+                                    captured_at=weather_data.get('captured_at'),
+                                )
+                            except Exception:
+                                pass
                         from ai.core.reasoning_engine import WorldEntity, EntityKind
                         message_code = weather_data.get('message_code')
                         if message_code == 'weather:forecast':

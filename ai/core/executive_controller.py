@@ -605,7 +605,22 @@ class ExecutiveController:
     ) -> bool:
         """Executive authority for when planning is required before response."""
         intent = (state.user_intent or "").lower()
+        text = (state.source_text or "").lower()
         if intent.startswith("learning:") or intent.startswith("question:"):
+            return True
+        if intent in {"conversation:question", "conversation:help"} and any(
+            cue in text
+            for cue in (
+                "explain",
+                "beginner",
+                "step by step",
+                "foundations",
+                "architecture",
+                "strategy",
+            )
+        ):
+            return True
+        if any(cue in text for cue in (" then ", " after ", " next ", " and then ")):
             return True
         if state.depth_level >= 2 and state.topic:
             return True

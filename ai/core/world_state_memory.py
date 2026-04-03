@@ -46,6 +46,33 @@ class WorldStateMemory:
     def snapshot(self) -> Dict[str, Any]:
         return dict(self._state)
 
+    def set_environment_state(
+        self,
+        key: str,
+        data: Dict[str, Any],
+        *,
+        captured_at: Any = None,
+    ) -> None:
+        env = self._state.get("environment")
+        if not isinstance(env, dict):
+            env = {}
+            self._state["environment"] = env
+
+        entry = {
+            "data": dict(data or {}),
+            "captured_at": captured_at,
+            "updated_at": time.time(),
+        }
+        env[str(key)] = entry
+        self._save()
+
+    def get_environment_state(self, key: str) -> Dict[str, Any]:
+        env = self._state.get("environment")
+        if not isinstance(env, dict):
+            return {}
+        payload = env.get(str(key))
+        return dict(payload) if isinstance(payload, dict) else {}
+
     def update_from_action(self, request: Any, result: Any) -> None:
         req_goal = str(getattr(request, "goal", "") or "").strip() or None
         req_plugin = str(getattr(request, "plugin", "") or "").strip() or None
