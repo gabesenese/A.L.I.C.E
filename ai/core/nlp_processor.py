@@ -1310,6 +1310,7 @@ class NLPProcessor:
                 "question",
                 "meta_question",
                 "clarification_needed",
+                "goal_statement",
             },
         }
         self._intent_action_defaults = {
@@ -3851,6 +3852,55 @@ class NLPProcessor:
                 ]
             ):
                 return "conversation:question", 0.85
+
+        # Goal/vision declarations: strategic project direction (not immediate tool action).
+        goal_lead_patterns = (
+            r"\bi\s+(?:want|need|am\s+trying|am\s+aiming|intend|plan)\s+to\b",
+            r"\bi'?m\s+(?:building|working\s+on)\b",
+            r"\bmy\s+goal\s+is\s+to\b",
+            r"\bi\s+do\s+not\s+want\b",
+            r"\bi\s+don't\s+want\b",
+        )
+        goal_direction_markers = (
+            "agent",
+            "autonomous",
+            "autonomy",
+            "chatbot",
+            "architecture",
+            "orchestration",
+            "planning",
+            "think in steps",
+            "step by step",
+            "task persistence",
+            "stateful",
+            "initiative",
+            "project vision",
+            "more like",
+        )
+        tool_direction_markers = (
+            "email",
+            "calendar",
+            "note",
+            "notes",
+            "file",
+            "files",
+            "weather",
+            "time",
+            "reminder",
+            "song",
+            "music",
+        )
+        has_goal_lead = any(re.search(pat, text_lower) for pat in goal_lead_patterns)
+        direction_hits = sum(1 for marker in goal_direction_markers if marker in text_lower)
+        has_tool_target = any(marker in text_lower for marker in tool_direction_markers)
+        has_tool_verb = bool(
+            re.search(
+                r"\b(open|launch|send|delete|remove|list|search|read|write|schedule|set|remind|play)\b",
+                text_lower,
+            )
+        )
+        if has_goal_lead and direction_hits >= 1 and not (has_tool_target and has_tool_verb):
+            return "conversation:goal_statement", 0.86
 
         # CLARIFICATION INTENTS (must run before semantic to catch vague patterns)
         # Vague pronouns without context: "who is he/she", "what is that", "who is that"

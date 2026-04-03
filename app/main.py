@@ -26,7 +26,7 @@ import logging
 import re
 import html
 import time
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
@@ -1948,6 +1948,28 @@ class ALICE:
                 # Use proper Unicode minus sign (U+2212) instead of ASCII hyphen-minus (U+002D)
                 return f"−{abs(rounded)}"
             return str(rounded)
+
+        _unknown_condition_tokens = {
+            "",
+            "unknown",
+            "n/a",
+            "na",
+            "none",
+            "null",
+            "unavailable",
+            "conditions unavailable",
+        }
+
+        def _is_unknown_condition(value) -> bool:
+            return str(value or "").strip().lower() in _unknown_condition_tokens
+
+        def _display_condition(value, *, title_case: bool = False) -> str:
+            text = (
+                "conditions unavailable"
+                if _is_unknown_condition(value)
+                else str(value).strip()
+            )
+            return text.title() if title_case else text
         
         if response_type == 'weather_report':
             temp = alice_response.get('temperature')
@@ -1956,7 +1978,7 @@ class ALICE:
             is_followup = alice_response.get('is_followup', False)
             
             loc_str = f" in {location}" if location else ""
-            cond_cap = condition.capitalize() if condition else ""
+            cond_cap = _display_condition(condition, title_case=True)
             temp_str = f"{_format_temp(temp)}°C" if temp is not None else ""
             
             if is_followup:
@@ -1983,6 +2005,9 @@ class ALICE:
             condition = condition_raw
             for bad, good in _cond_fixups.items():
                 condition = condition.replace(bad, good)
+
+            if _is_unknown_condition(condition):
+                condition = ""
 
             def _item_phrase(it: str) -> str:
                 if it == 'umbrella':
@@ -2041,7 +2066,7 @@ class ALICE:
 
         if response_type == 'weather_prediction':
             answer = alice_response.get('answer', '').capitalize()
-            condition = alice_response.get('condition', '')
+            condition = _display_condition(alice_response.get('condition', ''))
             return f"{answer}. Current condition: {condition}." if condition else f"{answer}."
 
         if response_type == 'weather_forecast':
@@ -2071,7 +2096,7 @@ class ALICE:
                 label = _day_label(d)
                 high  = day.get('high')
                 low   = day.get('low')
-                cond  = day.get('condition', 'unknown').title()
+                cond  = _display_condition(day.get('condition'), title_case=True)
                 temp  = f"{_format_temp(low)}° to {_format_temp(high)}°C" if (high is not None and low is not None) else "—"
                 return f"| {label} | {cond} | {temp} |"
 
@@ -2085,7 +2110,7 @@ class ALICE:
                         d = _dt.strptime(day.get('date', ''), '%Y-%m-%d').date()
                         if d.weekday() == target_wd:
                             high, low = day.get('high'), day.get('low')
-                            cond = day.get('condition', 'unknown').title()
+                            cond = _display_condition(day.get('condition'), title_case=True)
                             temp = f"{_format_temp(low)}° to {_format_temp(high)}°C" if (high is not None and low is not None) else ''
                             return f"**{_day_label(d)}{loc_str}** {cond}{', ' + temp if temp else ''}"
                     except Exception:
@@ -2118,7 +2143,7 @@ class ALICE:
                     if day.get('date') == tomorrow_str:
                         d = _dt.strptime(tomorrow_str, '%Y-%m-%d').date()
                         high, low = day.get('high'), day.get('low')
-                        cond = day.get('condition', 'unknown').title()
+                        cond = _display_condition(day.get('condition'), title_case=True)
                         temp = f"{_format_temp(low)}° to {_format_temp(high)}°C" if (high is not None and low is not None) else ''
                         return f"**Tomorrow{loc_str}** {cond}{', ' + temp if temp else ''}"
 
@@ -3487,6 +3512,7 @@ class ALICE:
             "conversation:help",
             "conversation:question",
             "conversation:meta_question",
+            "conversation:goal_statement",
             "greeting",
             "farewell",
             "thanks",
@@ -3708,6 +3734,7 @@ class ALICE:
         # to avoid intercepting knowledge/tool-adjacent queries.
         conversational_intents = [
             'conversation:ack',
+            'conversation:goal_statement',
             'greeting',
             'farewell',
             'thanks',
@@ -3803,6 +3830,217 @@ class ALICE:
             return "Great, vision is a strong focus. Do you want to start with OCR, scene understanding, or multimodal grounding first?"
         return f"Got it. For {slot_value}, do you want to start with foundations, architecture, or debugging first?"
 
+    def _extract_goal_statement_signal(self, user_input: str) -> Dict[str, Any]:
+        """Extract strategic goal/vision statements from declarative project direction turns."""
+        text = str(user_input or "").strip()
+        if not text:
+            return {}
+
+        low = text.lower()
+        lead_patterns = (
+            r"\bi\s+(?:want|need|am\s+trying|am\s+aiming|intend|plan)\s+to\b",
+            r"\bi'?m\s+(?:building|working\s+on)\b",
+            r"\bmy\s+goal\s+is\s+to\b",
+            r"\bi\s+do\s+not\s+want\b",
+            r"\bi\s+don't\s+want\b",
+        )
+        if not any(re.search(pat, low) for pat in lead_patterns):
+            return {}
+
+        direction_markers = (
+            "agent",
+            "autonomous",
+            "autonomy",
+            "chatbot",
+            "architecture",
+            "orchestration",
+            "planning",
+            "think in steps",
+            "step by step",
+            "task persistence",
+            "state",
+            "initiative",
+            "project",
+            "vision",
+            "more like",
+        )
+        markers = [marker for marker in direction_markers if marker in low]
+        if not markers:
+            return {}
+
+        has_tool_target = any(
+            token in low
+            for token in (
+                "email",
+                "calendar",
+                "note",
+                "notes",
+                "file",
+                "files",
+                "weather",
+                "time",
+                "reminder",
+                "song",
+                "music",
+            )
+        )
+        has_tool_verb = bool(
+            re.search(
+                r"\b(open|launch|send|delete|remove|list|search|read|write|schedule|set|remind|play)\b",
+                low,
+            )
+        )
+        if has_tool_target and has_tool_verb:
+            return {}
+
+        extracted_goal = text
+        goal_match = re.search(
+            r"\b(?:i\s+(?:want|need|am\s+trying|intend|plan)\s+to|my\s+goal\s+is\s+to|i'?m\s+(?:building|working\s+on))\s+(.+)",
+            text,
+            re.IGNORECASE,
+        )
+        if goal_match:
+            extracted_goal = goal_match.group(1).strip(" .!?;:")
+
+        project_direction = "agentic_autonomy"
+        if "chatbot" in low and "agent" not in low:
+            project_direction = "non_chatbot_behavior"
+
+        return {
+            "goal": extracted_goal[:180] if extracted_goal else text[:180],
+            "project_direction": project_direction,
+            "markers": markers[:8],
+        }
+
+    def _goal_statement_alignment_response(self, user_input: str, signal: Dict[str, Any]) -> str:
+        """Return an alignment-style response for strategic project declarations."""
+        signal = signal or self._extract_goal_statement_signal(user_input)
+        declared_goal = str((signal or {}).get("goal") or user_input or "").strip()
+        if not declared_goal:
+            declared_goal = "shift toward agent behavior"
+
+        project_direction = str((signal or {}).get("project_direction") or "agentic_autonomy")
+        markers = [
+            str(m).lower().strip()
+            for m in list((signal or {}).get("markers") or [])
+            if str(m).strip()
+        ]
+        marker_set = set(markers)
+
+        priorities: List[str] = []
+
+        def _add_priority(value: str) -> None:
+            if value and value not in priorities:
+                priorities.append(value)
+
+        if project_direction == "agentic_autonomy" or marker_set.intersection(
+            {"agent", "autonomous", "autonomy", "initiative"}
+        ):
+            _add_priority("planning")
+            _add_priority("persistent memory")
+            _add_priority("task state")
+            _add_priority("tool execution")
+            _add_priority("verification loops")
+
+        if marker_set.intersection({"planning", "think in steps", "step by step"}):
+            _add_priority("step-wise reasoning")
+
+        if marker_set.intersection({"architecture", "orchestration", "vision"}):
+            _add_priority("orchestration contracts")
+
+        if marker_set.intersection({"task persistence", "state"}):
+            _add_priority("long-running task persistence")
+
+        if "chatbot" in marker_set:
+            _add_priority("goal-aware intent recognition")
+
+        if len(priorities) < 5:
+            for fallback in (
+                "planning",
+                "persistent memory",
+                "task state",
+                "tool execution",
+                "verification loops",
+            ):
+                _add_priority(fallback)
+                if len(priorities) >= 5:
+                    break
+
+        recommendations: List[str] = []
+
+        def _add_rec(value: str) -> None:
+            if value and value not in recommendations:
+                recommendations.append(value)
+
+        if "chatbot" in marker_set or project_direction == "non_chatbot_behavior":
+            _add_rec("Route declarative goal statements to strategy mode instead of clarification prompts.")
+
+        _add_rec("Persist declared project direction into conversation and goal state for continuity.")
+
+        if marker_set.intersection({"agent", "autonomous", "autonomy", "planning", "think in steps", "step by step"}) or project_direction == "agentic_autonomy":
+            _add_rec("Add planner-first checkpoints for autonomy work: plan, execute, verify, and recover.")
+
+        if marker_set.intersection({"architecture", "orchestration", "vision"}):
+            _add_rec("Strengthen orchestration boundaries so routing, execution, and verification are explicitly separated.")
+
+        if marker_set.intersection({"task persistence", "state", "memory"}):
+            _add_rec("Track long-running objectives with persistent task state and resumable execution context.")
+
+        _add_rec("Prefer alignment + implementation recommendations when no immediate tool action is requested.")
+
+        recommendation_lines = [
+            f"{idx}. {item}" for idx, item in enumerate(recommendations[:4], start=1)
+        ]
+
+        return (
+            f"Aligned. I understand the direction: {declared_goal}. "
+            f"To move toward agent behavior, I will prioritize {', '.join(priorities[:5])}.\n\n"
+            "Recommended next upgrades:\n"
+            + "\n".join(recommendation_lines)
+        )
+
+    def _promote_goal_statement_intent(
+        self,
+        user_input: str,
+        intent: str,
+        entities: Dict[str, Any],
+        intent_confidence: float,
+    ) -> Tuple[str, Dict[str, Any], float]:
+        """Promote strategic declarative turns into explicit goal-statement intent."""
+        signal = self._extract_goal_statement_signal(user_input)
+        if not signal:
+            return intent, entities or {}, intent_confidence
+
+        enriched_entities = dict(entities or {})
+        goal_text = str(signal.get("goal") or "").strip()
+        if goal_text:
+            enriched_entities.setdefault("goal", goal_text)
+            enriched_entities.setdefault("user_goal", goal_text)
+            enriched_entities.setdefault("objective", goal_text)
+        enriched_entities["project_direction"] = str(signal.get("project_direction") or "agentic_autonomy")
+        enriched_entities["goal_statement_markers"] = list(signal.get("markers") or [])
+
+        normalized_intent = str(intent or "").lower().strip()
+        tool_prefixes = (
+            "notes:",
+            "email:",
+            "calendar:",
+            "file_operations:",
+            "memory:",
+            "reminder:",
+            "system:",
+            "weather:",
+            "time:",
+        )
+        if normalized_intent.startswith(tool_prefixes):
+            return intent, enriched_entities, intent_confidence
+
+        if normalized_intent != "conversation:goal_statement":
+            self._think(
+                f"Goal declaration recognized: {normalized_intent or 'unknown'} -> conversation:goal_statement"
+            )
+        return "conversation:goal_statement", enriched_entities, max(float(intent_confidence or 0.0), 0.84)
+
     def _native_conceptual_answer(self, user_input: str, intent: str) -> Optional[str]:
         """Native conceptual mode for broad architecture questions that do not require tools."""
         text = str(user_input or "").lower()
@@ -3840,6 +4078,7 @@ class ALICE:
             "thanks",
             "greeting",
             "conversation:clarification_needed",
+            "conversation:goal_statement",
         }
 
     def _native_scaffold_response(self, user_input: str, intent: str) -> Optional[str]:
@@ -3871,6 +4110,9 @@ class ALICE:
             return "You are welcome. What do you want to tackle next?"
         if normalized == "conversation:clarification_needed":
             return "I can help. What exact result do you want?"
+        if normalized == "conversation:goal_statement":
+            signal = self._extract_goal_statement_signal(user_input)
+            return self._goal_statement_alignment_response(user_input, signal)
         if normalized == "conversation:help":
             if self._is_help_opener_input(user_input, normalized):
                 return "I can help. What exact part should we focus on first?"
@@ -4013,6 +4255,7 @@ class ALICE:
             "conversation:ack",
             "conversation:acknowledgment",
             "conversation:help",
+            "conversation:goal_statement",
         }:
             return {"accepted": True, "reason": "scaffold_intent"}
 
@@ -4082,6 +4325,7 @@ class ALICE:
             "conversation:ack",
             "conversation:acknowledgment",
             "conversation:help",
+            "conversation:goal_statement",
             "greeting",
             "thanks",
         }:
@@ -4100,6 +4344,7 @@ class ALICE:
             'conversation:help',
             'conversation:question',
             'conversation:meta_question',
+            'conversation:goal_statement',
             'greeting',
             'farewell',
             'thanks',
@@ -5683,6 +5928,13 @@ class ALICE:
                     for _k, _v in entities.items():
                         _merged_entities[_k] = _v  # current turn wins
                     entities = _merged_entities
+
+            intent, entities, intent_confidence = self._promote_goal_statement_intent(
+                user_input=user_input,
+                intent=intent,
+                entities=entities or {},
+                intent_confidence=float(intent_confidence or 0.0),
+            )
 
             # ── 1.4  Validation / clarification gate ─────────────────────────────
             # Now validates the *resolved* intent — follow-up corrections are

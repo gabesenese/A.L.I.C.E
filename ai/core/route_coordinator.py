@@ -51,6 +51,7 @@ class RouteCoordinator:
             if route is not None
             else None
         )
+        goal_statement_intent = (intent or "").lower().strip() == "conversation:goal_statement"
         if intent.startswith("vague_") and not uncertainty:
             uncertainty = {
                 "needs_clarification": True,
@@ -76,7 +77,9 @@ class RouteCoordinator:
 
         if uncertainty:
             modifiers["disambiguation"] = uncertainty
-            if (
+            if goal_statement_intent:
+                modifiers["goal_statement_preserved"] = True
+            elif (
                 intent_confidence
                 < self.config.clarification_intent_confidence_threshold
                 and not intent.startswith(("notes:", "email:", "calendar:", "system:"))
@@ -210,6 +213,11 @@ class RouteCoordinator:
         should_force_unknown_fallback: Callable[..., bool],
     ) -> Tuple[str, float]:
         modifiers = parsed_command.modifiers
+        normalized_intent = (intent or "").lower().strip()
+        if normalized_intent == "conversation:goal_statement":
+            modifiers["unknown_intent_fallback"] = False
+            return intent, intent_confidence
+
         pending_unknown_fallback = bool(
             modifiers.get("pending_unknown_fallback", False)
         )

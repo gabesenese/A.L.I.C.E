@@ -326,6 +326,13 @@ class ExecutiveController:
             )
 
         normalized_intent = (state.user_intent or "").lower().strip()
+        if normalized_intent == "conversation:goal_statement":
+            return ExecutiveDecision(
+                action="answer_direct",
+                reason="goal_statement_alignment",
+                store_memory=True,
+            )
+
         if (
             normalized_intent == "conversation:clarification_needed"
             and state.confidence >= 0.45

@@ -287,6 +287,8 @@ class ConversationStateTracker:
             return "learning"
         if lowered_intent in {"conversation:question", "study_topic"}:
             return "learning"
+        if lowered_intent == "conversation:goal_statement":
+            return "project_direction"
         if lowered_intent.startswith("notes:"):
             return "note_management"
         if lowered_intent.startswith("email:"):

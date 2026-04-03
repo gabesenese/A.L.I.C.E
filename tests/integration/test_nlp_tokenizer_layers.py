@@ -86,6 +86,13 @@ class TestLayeredTokenizer:
         assert modifiers.get("tool_execution_disabled") is True
         assert result.intent.startswith("conversation:")
 
+    def test_goal_statement_is_classified_as_conversation_goal_statement(self):
+        result = self.nlp.process(
+            "I want to make Alice more autonomous and less like a chatbot"
+        )
+        assert result.intent == "conversation:goal_statement"
+        assert result.intent_confidence >= 0.8
+
     def test_weather_plausibility_requires_entity_or_forecast_signals(self):
         score, issues = self.nlp._validate_intent_plausibility(
             "please help with this", "weather:current", ParsedCommand(), {}

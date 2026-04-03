@@ -541,16 +541,25 @@ class WeatherPlugin(PluginInterface):
                     51: "light drizzle",
                     53: "drizzle",
                     55: "heavy drizzle",
+                    56: "light freezing drizzle",
+                    57: "freezing drizzle",
                     61: "light rain",
                     63: "rain",
                     65: "heavy rain",
+                    66: "light freezing rain",
+                    67: "freezing rain",
                     71: "light snow",
                     73: "snow",
                     75: "heavy snow",
+                    77: "snow grains",
                     80: "rain showers",
                     81: "rain showers",
                     82: "heavy rain showers",
+                    85: "snow showers",
+                    86: "heavy snow showers",
                     95: "thunderstorm",
+                    96: "thunderstorm with hail",
+                    99: "severe thunderstorm with hail",
                 }
 
                 # Use .get() with None defaults - API may omit or null any field
@@ -558,14 +567,10 @@ class WeatherPlugin(PluginInterface):
                 humidity = current.get("relative_humidity_2m")
                 wind = current.get("wind_speed_10m")
                 weather_code = current.get("weather_code")
-                condition = (
-                    weather_codes.get(weather_code, "unknown")
-                    if weather_code is not None
-                    else "unknown"
-                )
+                condition = weather_codes.get(weather_code) if weather_code is not None else None
 
                 # If no usable data came back, treat as a no-data response
-                if temp is None and condition == "unknown":
+                if temp is None and condition is None:
                     logger.warning(
                         f"Weather API returned no usable data for {location_name}"
                     )
@@ -585,7 +590,7 @@ class WeatherPlugin(PluginInterface):
                     "response": None,
                     "data": {
                         "temperature": temp,
-                        "condition": condition,
+                        "condition": condition or "conditions unavailable",
                         "humidity": humidity,
                         "wind_speed": wind,
                         "location": location_name,
@@ -683,16 +688,25 @@ class WeatherPlugin(PluginInterface):
                 51: "light drizzle",
                 53: "drizzle",
                 55: "heavy drizzle",
+                56: "light freezing drizzle",
+                57: "freezing drizzle",
                 61: "light rain",
                 63: "rain",
                 65: "heavy rain",
+                66: "light freezing rain",
+                67: "freezing rain",
                 71: "light snow",
                 73: "snow",
                 75: "heavy snow",
+                77: "snow grains",
                 80: "rain showers",
                 81: "rain showers",
                 82: "heavy rain showers",
+                85: "snow showers",
+                86: "heavy snow showers",
                 95: "thunderstorm",
+                96: "thunderstorm with hail",
+                99: "severe thunderstorm with hail",
             }
 
             forecast = []
@@ -706,13 +720,14 @@ class WeatherPlugin(PluginInterface):
                 high = maxes[i] if i < len(maxes) else None
                 low = mins[i] if i < len(mins) else None
                 code = codes[i] if i < len(codes) else None
-                condition = (
-                    weather_codes.get(code, "unknown")
-                    if code is not None
-                    else "unknown"
-                )
+                condition = weather_codes.get(code) if code is not None else None
                 forecast.append(
-                    {"date": dates[i], "high": high, "low": low, "condition": condition}
+                    {
+                        "date": dates[i],
+                        "high": high,
+                        "low": low,
+                        "condition": condition or "conditions unavailable",
+                    }
                 )
 
             if not forecast:

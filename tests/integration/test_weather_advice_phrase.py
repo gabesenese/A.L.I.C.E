@@ -36,3 +36,36 @@ def test_weather_advice_coat_yes_no_grammar():
     )
     assert out.startswith("Yes,")
     assert "a coat" in out
+
+
+def test_weather_advice_unknown_condition_does_not_surface_unknown_text():
+    alice = _alice_stub()
+    out = alice._alice_direct_phrase(
+        "weather_advice",
+        {
+            "temperature": None,
+            "condition": "unknown",
+            "location": "Kitchener",
+            "clothing_item": "jacket",
+            "force_yes_no": True,
+        },
+    )
+    assert "unknown" not in out.lower()
+    assert "conditions look cool" in out.lower()
+
+
+def test_weather_forecast_weekend_unknown_condition_uses_friendly_label():
+    alice = _alice_stub()
+    out = alice._alice_direct_phrase(
+        "weather_forecast",
+        {
+            "location": "Kitchener",
+            "user_input": "what is the weather this weekend",
+            "forecast": [
+                {"date": "2030-06-01", "high": 22, "low": 13, "condition": "unknown"},
+                {"date": "2030-06-02", "high": 21, "low": 12, "condition": "clear sky"},
+            ],
+        },
+    )
+    assert "Unknown" not in out
+    assert "Conditions Unavailable" in out

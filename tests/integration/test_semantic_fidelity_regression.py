@@ -123,3 +123,35 @@ def test_native_scaffold_does_not_flatten_detailed_help_issue_report():
     detailed = "my ai is not able to correctly give me some informations or it gets the intent wrong"
 
     assert alice._native_scaffold_response(detailed, "conversation:help") is None
+
+
+def test_goal_statement_promotion_enriches_entities_and_intent():
+    alice = ALICE.__new__(ALICE)
+    text = "I want to build an agent and not just a chatbot"
+
+    intent, entities, confidence = alice._promote_goal_statement_intent(
+        user_input=text,
+        intent="conversation:general",
+        entities={},
+        intent_confidence=0.41,
+    )
+
+    assert intent == "conversation:goal_statement"
+    assert confidence >= 0.84
+    assert entities.get("goal")
+    assert entities.get("user_goal")
+    assert entities.get("project_direction")
+
+
+def test_native_scaffold_goal_statement_returns_alignment_response():
+    alice = ALICE.__new__(ALICE)
+    text = "I want to make Alice think in steps and become more autonomous"
+
+    response = alice._native_scaffold_response(text, "conversation:goal_statement")
+
+    assert response is not None
+    low = response.lower()
+    assert "agent behavior" in low
+    assert "planning" in low
+    assert "persistent memory" in low
+    assert "tool execution" in low
