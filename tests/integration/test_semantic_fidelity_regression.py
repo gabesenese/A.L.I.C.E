@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from ai.context_resolver import ContextResolver
 from ai.core.executive_controller import ExecutiveController
@@ -106,6 +107,117 @@ def test_native_conceptual_mode_returns_direct_foundation_answer():
     assert "autonomy" in low
     assert "person 'an ai'" not in low
     assert "polymorphism" not in low
+
+
+def test_native_conceptual_mode_returns_nlp_algorithm_answer():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._native_conceptual_answer(
+        "give me some nlp algorithms",
+        "conversation:help",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "nlp" in low
+    assert "transformer" in low
+    assert "tf-idf" in low
+
+
+def test_help_opener_detection_does_not_downgrade_substantive_request():
+    alice = ALICE.__new__(ALICE)
+
+    detected = alice._is_help_opener_input(
+        "help me with my ai project, i need to know some nlp algorithms",
+        "conversation:help",
+    )
+
+    assert detected is False
+
+
+def test_deterministic_knowledge_fallback_handles_embedding_model_request():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._deterministic_knowledge_fallback(
+        "what are some embeddings models i should use",
+        "conversation:question",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "embedding" in low
+    assert "tf-idf" in low or "transformer" in low or "retrieval" in low
+
+
+def test_deterministic_knowledge_fallback_handles_nlp_learning_overview_request():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._deterministic_knowledge_fallback(
+        "i want to learn abit more about nlp",
+        "conversation:help",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "nlp" in low
+    assert "intent" in low
+    assert "conversation flow" in low
+
+
+def test_deterministic_knowledge_fallback_does_not_echo_instruction_verb_as_topic():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._deterministic_knowledge_fallback(
+        "teach me about nlp",
+        "conversation:help",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "teach first" not in low
+    assert "intent routing" in low or "entity extraction" in low
+
+
+def test_llm_failure_recovery_keeps_answer_directly_for_understood_safe_goal():
+    alice = ALICE.__new__(ALICE)
+    alice._internal_reasoning_state = {
+        "confidence": 0.81,
+        "response_plan": {"strategy": "answer_directly"},
+    }
+
+    response = alice._safe_llm_failure_response(
+        user_input="i want to learn abit more about nlp",
+        intent="conversation:help",
+        llm_response=SimpleNamespace(
+            success=False,
+            response="Primary generation route is unavailable right now.",
+            error="Primary generation route is unavailable right now.",
+        ),
+    )
+
+    low = response.lower()
+    assert "clarify" not in low
+    assert "nlp" in low
+    assert "intent" in low
+    assert "conversation flow" in low
+
+    state = dict(getattr(alice, "_internal_reasoning_state", {}) or {})
+    recovery = dict(state.get("failure_recovery", {}) or {})
+    assert recovery.get("avoid_clarification") is True
+
+
+def test_compose_understood_goal_recovery_avoids_fixed_fallback_message():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._compose_understood_goal_recovery(
+        "teach me about nlp",
+        "conversation:help",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "i still understand your goal" not in low
+    assert "nlp" in low
 
 
 def test_native_scaffold_handles_simple_conversation_openers_without_llm():

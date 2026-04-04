@@ -3141,6 +3141,8 @@ class NLPProcessor:
                     "slot": "route_choice",
                     "value": _choice,
                     "parent_topic": str(_pending_slot.get("parent_topic") or "conversation"),
+                    "parent_request": str(_pending_slot.get("parent_request") or ""),
+                    "parent_intent": str(_pending_slot.get("parent_intent") or "conversation:help"),
                     "reason": "pending_route_choice_slot",
                     "expected_answer_shape": "single_token",
                 }

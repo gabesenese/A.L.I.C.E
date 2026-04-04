@@ -230,7 +230,10 @@ class LLMGateway:
                         route_source="multi_router",
                     )
                 if call_type == LLMCallType.GENERATION and self.strict_generation_router:
-                    err = str(routed.get("response") or "Multi-router generation failed")
+                    _raw_err = str(routed.get("response") or "")
+                    if _raw_err:
+                        logger.info("[LLMGateway] strict generation blocked: %s", _raw_err)
+                    err = "Primary generation route is unavailable right now."
                     self._last_route = {
                         "source": "multi_router",
                         "call_type": call_type.value,

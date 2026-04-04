@@ -183,10 +183,7 @@ class ModelRouter:
                 "missing_roles": list(missing_roles),
             }
             return {
-                "response": (
-                    "Multi-LLM strict mode is enabled, but required model roles are not ready: "
-                    + ", ".join(missing_roles)
-                ),
+                "response": "Primary generation route is temporarily unavailable.",
                 "confidence": 0.0,
                 "reasoning_used": True,
                 "model": "router_unavailable",

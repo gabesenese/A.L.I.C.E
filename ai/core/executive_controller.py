@@ -256,7 +256,7 @@ class ExecutiveController:
             return {
                 "block": True,
                 "reason": "pre_route_low_plausibility",
-                "question": "I may be misclassifying your intent. Do you want a concrete tool action or a normal explanation?",
+                "question": "I may be misclassifying this. What exact outcome do you want me to produce?",
             }
 
         if (not has_explicit_action_cue) and conf < 0.50 and plausibility < 0.60:
@@ -277,7 +277,7 @@ class ExecutiveController:
                 return {
                     "block": True,
                     "reason": "pre_route_ambiguous_candidates",
-                    "question": "I see multiple likely intents. Should I execute a tool or stay in discussion mode?",
+                    "question": "I see multiple likely intents. What is the one concrete result you want right now?",
                 }
 
         return {"block": False, "reason": "allowed"}
@@ -370,7 +370,7 @@ class ExecutiveController:
                     action="ask_clarification",
                     reason="uncertainty_clarify",
                     store_memory=False,
-                    clarification_question="I can help, but I am not fully certain. Did you want action X or explanation Y?",
+                    clarification_question="I can help, but one detail is missing. What exact result should I produce?",
                 )
             if uncertainty == "defer":
                 return ExecutiveDecision(
@@ -391,7 +391,7 @@ class ExecutiveController:
                 action="ask_clarification",
                 reason="score_clarify",
                 store_memory=False,
-                clarification_question="I want to help accurately. Do you mean tool action, explanation, or search?",
+                clarification_question="I want to help accurately. What exact result do you want?",
             )
         if winner == "reject":
             return ExecutiveDecision(
@@ -611,7 +611,7 @@ class ExecutiveController:
             return {
                 "veto": True,
                 "reason": "conversational_input_not_actionable",
-                "question": "This sounds like discussion mode. Do you want brainstorming help or a concrete tool action?",
+                "question": "This seems high-level. What concrete outcome should I execute?",
             }
 
         if plausibility < 0.46:
@@ -635,7 +635,7 @@ class ExecutiveController:
                 return {
                     "veto": True,
                     "reason": "ambiguous_top_intents",
-                    "question": "I see multiple possible intents. Should I execute a tool command or keep this conversational?",
+                    "question": "I see multiple possible intents. Which single outcome should I execute?",
                 }
 
         return {"veto": False, "reason": "allowed"}

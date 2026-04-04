@@ -153,3 +153,6 @@ def test_generation_strict_mode_blocks_legacy_fallback_when_router_unavailable(m
     assert response.success is False
     assert response.route_source == "multi_router"
     assert response.policy_reason == "strict_generation_router"
+    low = str(response.response or "").lower()
+    assert "required model roles" not in low
+    assert "strict mode" not in low

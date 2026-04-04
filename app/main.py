@@ -107,6 +107,7 @@ from ai.core.goal_recognizer import get_goal_recognizer
 from ai.core.turn_routing_policy import get_turn_routing_policy
 from ai.core.live_state_service import get_live_state_service
 from ai.core.execution_verifier import get_execution_verifier
+from ai.core.clarification_resolver import get_clarification_resolver
 from ai.core.activity_monitor import ActivityMonitor
 from ai.core.temporal_reasoner import TemporalReasoner
 from ai.core.adaptive_intent_calibrator import AdaptiveIntentCalibrator
@@ -334,6 +335,7 @@ class ALICE:
         self.last_nlp_result = {}
         self.last_interaction = None
         self._pending_conversation_slot = {}
+        self.clarification_resolver = get_clarification_resolver()
         # Turn index at which the active intent domain last changed.
         # Used to compute turn_distance for FollowUpResolver decay.
         self._last_intent_turn = 0
@@ -3865,7 +3867,7 @@ class ALICE:
         return any(re.search(pat, text) for pat in patterns)
 
     def _is_help_opener_input(self, user_input: str, intent: str) -> bool:
-        """Detect broad help-opening prompts that should stay native and concise."""
+        """Detect generic help-openers only (do not downgrade substantive requests)."""
         text = str(user_input or "").lower().strip()
         if not text:
             return False
@@ -3877,6 +3879,36 @@ class ALICE:
 
         if self._is_beginner_explanation_request(text):
             return True
+
+        # Keep technical/informational asks on the full reasoning path.
+        informational_cues = (
+            "what is",
+            "what are",
+            "how do",
+            "how to",
+            "give me",
+            "need to know",
+            "tell me about",
+            "algorithm",
+            "algorithms",
+            "embedding",
+            "embeddings",
+            "intent routing",
+            "entity extraction",
+            "conversation flow",
+            "architecture",
+            "design pattern",
+            "python",
+            "git",
+            "machine learning",
+            "nlp",
+        )
+        if any(cue in text for cue in informational_cues):
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+        if len(tokens) > 8:
+            return False
 
         help_patterns = [
             r"\bi need help\b",
@@ -3910,6 +3942,7 @@ class ALICE:
             "slot": "project_subdomain",
             "parent_topic": parent_topic,
             "parent_intent": "conversation:help",
+            "parent_request": str(user_input or ""),
             "prompt": str(prompt_response or ""),
             "expected_answer_shape": "short_topic_or_subdomain",
             "last_narrowing_question": "What exact part do you want help with first?",
@@ -3931,7 +3964,7 @@ class ALICE:
             except Exception:
                 pass
 
-    def _arm_route_choice_slot(self, prompt_response: str) -> None:
+    def _arm_route_choice_slot(self, prompt_response: str, *, parent_request: str = "", parent_intent: str = "conversation:help") -> None:
         """Store a pending route-choice slot for clarification follow-ups."""
         slot_state = {
             "active": True,
@@ -3939,11 +3972,52 @@ class ALICE:
             "slot_type": "route_choice",
             "slot": "route_choice",
             "parent_topic": "conversation",
-            "parent_intent": "conversation:help",
+            "parent_intent": str(parent_intent or "conversation:help"),
+            "parent_request": str(parent_request or ""),
             "prompt": str(prompt_response or ""),
             "expected_answer_shape": "single_token",
             "allowed_values": ["explanation", "direct_action", "quick_search"],
             "last_narrowing_question": "Do you want an explanation, a direct action, or a quick search?",
+        }
+        self._pending_conversation_slot = dict(slot_state)
+        if getattr(self, "nlp", None) and getattr(self.nlp, "context", None):
+            self.nlp.context.pending_clarification = dict(slot_state)
+
+        if getattr(self, "conversation_state_tracker", None):
+            try:
+                self.conversation_state_tracker.set_pending_followup_slot(slot_state)
+                self.conversation_state_tracker.set_pending_clarification(slot_state)
+            except Exception:
+                pass
+
+        if getattr(self, "world_state_memory", None):
+            try:
+                self.world_state_memory.set_pending_clarification(slot_state)
+            except Exception:
+                pass
+
+    def _arm_topic_branch_slot(
+        self,
+        prompt_response: str,
+        *,
+        parent_request: str,
+        parent_intent: str = "conversation:question",
+        parent_topic: str = "topic",
+        allowed_values: Optional[List[str]] = None,
+    ) -> None:
+        """Store a pending branch-selection slot for domain follow-up choices."""
+        slot_state = {
+            "active": True,
+            "type": "topic_branch",
+            "slot_type": "topic_branch",
+            "slot": "topic_branch",
+            "parent_topic": str(parent_topic or "topic"),
+            "parent_intent": str(parent_intent or "conversation:question"),
+            "parent_request": str(parent_request or ""),
+            "prompt": str(prompt_response or ""),
+            "expected_answer_shape": "short_topic_or_branch",
+            "allowed_values": list(allowed_values or []),
+            "last_narrowing_question": str(prompt_response or ""),
         }
         self._pending_conversation_slot = dict(slot_state)
         if getattr(self, "nlp", None) and getattr(self.nlp, "context", None):
@@ -3982,6 +4056,47 @@ class ALICE:
         if picked == "quick_search":
             return "Sure. Tell me what you want me to search for, and I will do a quick lookup."
         return "Tell me whether you want an explanation, a direct action, or a quick search."
+
+    def _clear_pending_conversation_slot_state(self, selected_reference: str = "") -> None:
+        self._pending_conversation_slot = {}
+        if getattr(self, 'nlp', None) and getattr(self.nlp, 'context', None):
+            self.nlp.context.pending_clarification = {}
+        if getattr(self, 'conversation_state_tracker', None):
+            try:
+                self.conversation_state_tracker.clear_pending_followup_slot()
+                self.conversation_state_tracker.clear_pending_clarification()
+                if selected_reference:
+                    self.conversation_state_tracker.set_selected_object_reference(selected_reference)
+            except Exception:
+                pass
+        if getattr(self, 'world_state_memory', None):
+            try:
+                self.world_state_memory.clear_pending_clarification()
+                if selected_reference:
+                    self.world_state_memory.set_selected_object_reference(selected_reference)
+            except Exception:
+                pass
+
+    def _resolve_quick_search_from_clarification(self, query: str) -> str:
+        q = str(query or "").strip()
+        if not q:
+            return "Tell me what you want me to search for, and I will do a quick lookup."
+
+        plugin_result = None
+        if getattr(self, 'plugins', None):
+            try:
+                plugin_result = self.plugins.execute_for_intent(
+                    intent="search",
+                    query=q,
+                    entities={"query": q},
+                    context={"source": "clarification_resolver"},
+                )
+            except Exception:
+                plugin_result = None
+
+        if isinstance(plugin_result, dict) and plugin_result.get('success'):
+            return str(plugin_result.get('response') or f"I'll search the web for '{q}'.")
+        return f"I'll run a quick search for '{q}'."
 
     def _extract_goal_statement_signal(self, user_input: str) -> Dict[str, Any]:
         """Extract strategic goal/vision statements from declarative project direction turns."""
@@ -4130,11 +4245,378 @@ class ALICE:
             )
         return "conversation:goal_statement", enriched_entities, max(float(intent_confidence or 0.0), signal_confidence)
 
+    def _format_compact_list(self, items: List[str]) -> str:
+        values = [str(x).strip() for x in list(items or []) if str(x).strip()]
+        if not values:
+            return ""
+        if len(values) == 1:
+            return values[0]
+        if len(values) == 2:
+            return f"{values[0]} and {values[1]}"
+        return f"{', '.join(values[:-1])}, and {values[-1]}"
+
+    def _extract_learning_terms(self, text: str, max_terms: int = 10) -> List[str]:
+        tokens = re.findall(r"\b[a-z0-9']+\b", str(text or "").lower())
+        stop = {
+            "i", "me", "my", "we", "our", "you", "your", "the", "a", "an", "and", "or",
+            "to", "for", "of", "in", "on", "with", "about", "more", "abit", "bit", "learn",
+            "learning", "want", "need", "know", "give", "some", "what", "how", "is", "are",
+            "teach", "teaching", "explain", "explaining", "show", "telling", "tell", "guide",
+            "should", "would", "could", "can", "please", "start", "first", "topic",
+        }
+        out: List[str] = []
+        seen = set()
+        for token in tokens:
+            if len(token) < 3 or token in stop or token in seen:
+                continue
+            seen.add(token)
+            out.append(token)
+            if len(out) >= max_terms:
+                break
+        return out
+
+    def _fallback_branch_options(self, domain: str, focuses: List[str]) -> List[str]:
+        """Return concise branch options for follow-up deep dives."""
+        options: List[str] = []
+        for focus in list(focuses or []):
+            value = str(focus).strip().lower()
+            if not value:
+                continue
+            if value not in options:
+                options.append(value)
+
+        domain_defaults = {
+            "nlp": ["intent routing", "entity extraction", "embeddings", "conversation flow"],
+            "ml": ["data quality", "model selection", "evaluation metrics", "error analysis"],
+            "python": ["functions and modules", "typing and tests", "error handling"],
+            "git": ["branching strategy", "commit hygiene", "conflict resolution"],
+            "architecture": ["orchestration boundaries", "state authority", "recovery policy"],
+        }
+        for item in domain_defaults.get(str(domain or "").lower(), []):
+            val = str(item).strip().lower()
+            if val and val not in options:
+                options.append(val)
+
+        return options[:4]
+
+    def _infer_learning_domain(self, text: str) -> str:
+        low = str(text or "").lower()
+        domain_markers = {
+            "nlp": ["nlp", "intent", "entity", "token", "embedding", "conversation flow", "transformer"],
+            "ml": ["machine learning", "classification", "regression", "model training", "feature"],
+            "python": ["python", "function", "class", "module", "package", "typing"],
+            "git": ["git", "commit", "branch", "merge", "rebase", "pull", "push"],
+            "architecture": ["architecture", "system design", "orchestration", "service", "pipeline"],
+        }
+
+        scored: List[Tuple[str, int]] = []
+        for domain, markers in domain_markers.items():
+            score = sum(1 for marker in markers if marker in low)
+            scored.append((domain, score))
+
+        scored.sort(key=lambda kv: kv[1], reverse=True)
+        if not scored or scored[0][1] <= 0:
+            return ""
+        return scored[0][0]
+
+    def _learning_blueprint(self, domain: str) -> Dict[str, List[str]]:
+        blueprints: Dict[str, Dict[str, List[str]]] = {
+            "nlp": {
+                "foundations": [
+                    "tokenization and normalization",
+                    "intent detection",
+                    "entity extraction",
+                    "reference resolution",
+                ],
+                "methods": [
+                    "sparse baselines such as TF-IDF classifiers",
+                    "sequence labeling models such as CRF",
+                    "transformer encoders",
+                    "embedding-based retrieval and ranking",
+                ],
+                "project": [
+                    "intent routing contracts",
+                    "memory-aware context stitching",
+                    "conversation flow control",
+                    "verification and fallback loops",
+                ],
+            },
+            "ml": {
+                "foundations": [
+                    "problem framing",
+                    "data quality and labeling",
+                    "feature engineering",
+                    "evaluation metrics",
+                ],
+                "methods": [
+                    "linear and tree baselines",
+                    "boosting models",
+                    "neural network architectures",
+                    "error analysis loops",
+                ],
+                "project": [
+                    "offline validation",
+                    "robust deployment checks",
+                    "monitoring and drift detection",
+                    "safe rollback paths",
+                ],
+            },
+            "python": {
+                "foundations": [
+                    "control flow and data structures",
+                    "functions and modules",
+                    "classes and interfaces",
+                    "error handling",
+                ],
+                "methods": [
+                    "type hints and linting",
+                    "test-driven development",
+                    "package and environment management",
+                    "profiling and refactoring",
+                ],
+                "project": [
+                    "clear module boundaries",
+                    "repeatable test workflow",
+                    "instrumentation and logging",
+                    "small safe iteration loops",
+                ],
+            },
+            "git": {
+                "foundations": [
+                    "working tree status",
+                    "atomic commits",
+                    "branch discipline",
+                    "history inspection",
+                ],
+                "methods": [
+                    "feature branches",
+                    "merge versus rebase strategy",
+                    "conflict resolution",
+                    "safe recovery with reflog",
+                ],
+                "project": [
+                    "small reviewable commits",
+                    "clean branch hygiene",
+                    "predictable release flow",
+                    "rollback readiness",
+                ],
+            },
+            "architecture": {
+                "foundations": [
+                    "clear service boundaries",
+                    "state authority and ownership",
+                    "failure isolation",
+                    "observability",
+                ],
+                "methods": [
+                    "contract-first interfaces",
+                    "orchestration versus execution separation",
+                    "verification loops",
+                    "risk-aware fallback policies",
+                ],
+                "project": [
+                    "single source of truth for state",
+                    "planner-first control loop",
+                    "explicit recovery strategy",
+                    "progressive hardening with tests",
+                ],
+            },
+        }
+        return dict(blueprints.get(domain, {}))
+
+    def _detected_learning_focuses(self, text: str) -> List[str]:
+        low = str(text or "").lower()
+        focus_map = [
+            ("intent routing", ["intent", "routing", "router"]),
+            ("entity extraction", ["entity", "entities", "ner", "slot"]),
+            ("embeddings", ["embedding", "embeddings", "vector"]),
+            ("conversation flow", ["conversation flow", "dialogue", "dialog"]),
+            ("transformer models", ["transformer", "bert", "attention"]),
+            ("retrieval", ["retrieval", "rag", "ranking"]),
+            ("algorithm selection", ["algorithm", "algorithms", "method", "technique"]),
+        ]
+        out: List[str] = []
+        for label, cues in focus_map:
+            if any(cue in low for cue in cues):
+                out.append(label)
+        return out[:4]
+
+    def _best_learned_recovery_response(self, user_input: str, intent: str) -> Optional[str]:
+        """Return the most relevant learned response for this recovery turn when available."""
+        engine = getattr(self, "knowledge_engine", None)
+        if engine is None or not hasattr(engine, "learned_responses"):
+            return None
+
+        pools: List[str] = []
+        normalized = str(intent or "").strip()
+        if normalized:
+            pools.append(normalized)
+        if normalized.startswith("conversation:"):
+            pools.append("conversation:question")
+            pools.append("conversation:help")
+
+        seen = set()
+        candidates: List[Dict[str, Any]] = []
+        for key in pools:
+            if key in seen:
+                continue
+            seen.add(key)
+            rows = list(getattr(engine, "learned_responses", {}).get(key, []) or [])
+            candidates.extend(r for r in rows if isinstance(r, dict))
+
+        if not candidates:
+            return None
+
+        query_terms = set(self._extract_learning_terms(user_input, max_terms=12))
+        if not query_terms:
+            return None
+
+        def _score(row: Dict[str, Any]) -> float:
+            u = str(row.get("user_input") or "")
+            r = str(row.get("response") or "")
+            terms = set(self._extract_learning_terms(f"{u} {r}", max_terms=18))
+            if not terms:
+                return 0.0
+            return len(query_terms.intersection(terms)) / max(1, len(query_terms))
+
+        ranked = sorted(candidates, key=_score, reverse=True)
+        best = ranked[0] if ranked else {}
+        best_score = _score(best)
+        best_response = str(best.get("response") or "").strip()
+        if best_score < 0.30 or not best_response:
+            return None
+
+        return self._clamp_final_response(
+            best_response,
+            tone="professional and precise",
+            response_type="knowledge_answer",
+            route="learned_recovery",
+            user_input=user_input,
+        )
+
+    def _build_recovery_answer_seed(self, user_input: str, intent: str) -> str:
+        """Build a structured, non-canned seed that can be phrased through Alice's normal response path."""
+        domain = self._infer_learning_domain(user_input)
+        focuses = self._detected_learning_focuses(user_input)
+        terms = self._extract_learning_terms(user_input, max_terms=8)
+        blueprint = self._learning_blueprint(domain) if domain else {}
+
+        parts: List[str] = []
+        if domain:
+            parts.append(f"domain={domain}")
+        if focuses:
+            parts.append(f"focus={self._format_compact_list(focuses[:3])}")
+        if blueprint:
+            fnd = list(blueprint.get("foundations") or [])[:3]
+            mth = list(blueprint.get("methods") or [])[:3]
+            prj = list(blueprint.get("project") or [])[:3]
+            if fnd:
+                parts.append(f"foundations={self._format_compact_list(fnd)}")
+            if mth:
+                parts.append(f"methods={self._format_compact_list(mth)}")
+            if prj:
+                parts.append(f"project_priorities={self._format_compact_list(prj)}")
+        if terms:
+            parts.append(f"keywords={self._format_compact_list(terms[:4])}")
+        parts.append(f"user_goal={str(user_input or '').strip()}")
+        parts.append(f"intent={str(intent or '').strip() or 'conversation:help'}")
+
+        return "; ".join(p for p in parts if p)
+
+    def _compose_understood_goal_recovery(self, user_input: str, intent: str) -> str:
+        learned = self._best_learned_recovery_response(user_input, intent)
+        if learned:
+            return learned
+
+        domain = self._infer_learning_domain(user_input)
+        composed = self._deterministic_knowledge_fallback(user_input, intent)
+        if composed:
+            return composed
+        seed = self._build_recovery_answer_seed(user_input, intent)
+        return self._generate_natural_response(
+            {
+                "type": "knowledge_answer",
+                "answer": seed,
+                "question": str(user_input or "").strip(),
+                "intent": str(intent or "conversation:help"),
+            },
+            "professional and precise",
+            None,
+            user_input,
+        )
+
+    def _deterministic_knowledge_fallback(self, user_input: str, intent: str) -> Optional[str]:
+        """Build non-LLM first-pass answers from inferred domain structure rather than fixed canned replies."""
+        text = str(user_input or "").lower().strip()
+        if not text or self._has_explicit_action_cue(text):
+            return None
+
+        in_learning_mode = str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")
+        if not in_learning_mode:
+            return None
+
+        domain = self._infer_learning_domain(text)
+        if not domain:
+            return None
+
+        blueprint = self._learning_blueprint(domain)
+        if not blueprint:
+            return None
+
+        focuses = self._detected_learning_focuses(text)
+        terms = self._extract_learning_terms(text)
+        domain_label = {
+            "nlp": "NLP",
+            "ml": "machine learning",
+            "python": "Python",
+            "git": "Git",
+            "architecture": "assistant architecture",
+        }.get(domain, domain)
+
+        start_topics: List[str] = []
+        start_topics.extend(focuses[:2])
+        for item in list(blueprint.get("foundations") or []):
+            if item not in start_topics and len(start_topics) < 3:
+                start_topics.append(item)
+
+        method_topics = list(blueprint.get("methods") or [])[:3]
+        project_topics = list(blueprint.get("project") or [])[:3]
+
+        method_lead = "Then move to" if any(k in text for k in ("algorithm", "algorithms", "method", "technique")) else "Then add"
+        response = (
+            f"You are asking about {domain_label}. "
+            f"Start with {self._format_compact_list(start_topics)}. "
+            f"{method_lead} {self._format_compact_list(method_topics)}. "
+            f"For your AI project, prioritize {self._format_compact_list(project_topics)}."
+        )
+
+        if terms:
+            tail_terms = [t for t in terms[:3] if t not in {"nlp", "ai", "project"}]
+            branch_options = self._fallback_branch_options(domain, focuses)
+            if branch_options:
+                response += f" I can go deeper on {self._format_compact_list(branch_options[:2])} first."
+            elif tail_terms:
+                response += f" I can go deeper on {self._format_compact_list(tail_terms)} first."
+            else:
+                response += " I can go deeper on one branch first."
+        else:
+            branch_options = self._fallback_branch_options(domain, focuses)
+            if branch_options:
+                response += f" I can go deeper on {self._format_compact_list(branch_options[:2])} first."
+            else:
+                response += " I can go deeper on one branch first."
+
+        return response
+
     def _native_conceptual_answer(self, user_input: str, intent: str) -> Optional[str]:
         """Native conceptual mode for broad architecture questions that do not require tools."""
         text = str(user_input or "").lower()
         if self._has_explicit_action_cue(text):
             return None
+
+        deterministic = self._deterministic_knowledge_fallback(user_input, intent)
+        if deterministic:
+            return deterministic
 
         conceptual_markers = (
             "foundation",
@@ -4230,6 +4712,14 @@ class ALICE:
         has_explicit_action_cue: bool,
     ) -> Dict[str, Any]:
         """Block LLM when a direct low-risk native response is sufficient."""
+        deterministic = self._deterministic_knowledge_fallback(user_input, intent)
+        if deterministic:
+            return {
+                "block_llm": True,
+                "reason": "deterministic_knowledge_fallback",
+                "response": deterministic,
+            }
+
         native = self._native_scaffold_response(user_input, intent)
         if native:
             return {
@@ -5446,7 +5936,192 @@ class ALICE:
 
         return intent, float(intent_confidence or 0.0)
 
-    def _apply_confidence_cascade(self, intent: str, confidence: float, nlp_result) -> dict:
+    def _prune_confidence_candidates(self, user_input: str, scores: Dict[str, Any]) -> Dict[str, float]:
+        """Remove low-relevance intent candidates before surfacing uncertainty options."""
+        parsed: Dict[str, float] = {}
+        for key, value in dict(scores or {}).items():
+            try:
+                parsed[str(key)] = float(value)
+            except Exception:
+                continue
+        if not parsed:
+            return {}
+
+        text = str(user_input or "").lower()
+        has_note_signal = bool(re.search(r"\b(note|notes|memo|notebook)\b", text))
+        has_knowledge_signal = bool(
+            re.search(r"\b(nlp|algorithm|algorithms|embedding|embeddings|intent|routing|entity|conversation flow|architecture|pattern|python|git)\b", text)
+        )
+        if has_knowledge_signal and not has_note_signal:
+            parsed = {
+                k: v
+                for k, v in parsed.items()
+                if (
+                    k.startswith("conversation:")
+                    or k.startswith("learning:")
+                    or k.startswith("question")
+                    or "search" in k
+                )
+            } or parsed
+
+        return parsed
+
+    def _is_internal_infra_leakage(self, text: str) -> bool:
+        low = str(text or "").lower()
+        if not low:
+            return False
+        markers = (
+            "multi-llm",
+            "strict mode",
+            "strict_generation",
+            "required model roles",
+            "role not ready",
+            "router unavailable",
+            "route mode",
+            "plugin owner ambiguity",
+            "model roles",
+            "primary generation route",
+            "temporarily unavailable",
+        )
+        return any(m in low for m in markers)
+
+    def _is_understandable_informational_goal(self, user_input: str, intent: str) -> bool:
+        """Return True when the request is broad but already understandable and safe to answer."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+        if self._has_explicit_action_cue(text):
+            return False
+
+        normalized_intent = str(intent or "").lower().strip()
+        if not (
+            normalized_intent.startswith("conversation:")
+            or normalized_intent.startswith("learning:")
+            or normalized_intent in {"question", "study_topic"}
+        ):
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+        if len(tokens) < 3:
+            return False
+
+        informational_cues = (
+            "learn",
+            "explain",
+            "about",
+            "overview",
+            "basics",
+            "beginner",
+            "how",
+            "what",
+            "nlp",
+            "embedding",
+            "algorithm",
+            "intent",
+            "entity",
+            "conversation flow",
+            "architecture",
+            "design pattern",
+            "python",
+            "git",
+            "machine learning",
+            "ai",
+        )
+        return any(cue in text for cue in informational_cues)
+
+    def _should_force_failure_recovery_answer(self, user_input: str, intent: str) -> bool:
+        """Enforce direct fallback answers for understood informational goals on execution failure."""
+        if not self._is_understandable_informational_goal(user_input, intent):
+            return False
+
+        state = dict(getattr(self, "_internal_reasoning_state", {}) or {})
+        plan = dict(state.get("response_plan", {}) or {})
+        strategy = str(plan.get("strategy") or "").lower().strip()
+        confidence = float(state.get("confidence", 0.0) or 0.0)
+
+        if strategy == "answer_directly":
+            return True
+        return confidence >= 0.55
+
+    def _record_failure_recovery_state(self, *, reason: str, response: str, task_understood: bool) -> None:
+        if not isinstance(getattr(self, "_internal_reasoning_state", None), dict):
+            self._internal_reasoning_state = {}
+        self._internal_reasoning_state["failure_recovery"] = {
+            "reason": str(reason or "execution_failure"),
+            "task_understood": bool(task_understood),
+            "avoid_clarification": bool(task_understood),
+        }
+        self._internal_reasoning_state["failure_recovery_response"] = str(response or "")
+
+    def _safe_llm_failure_response(self, *, user_input: str, intent: str, llm_response: Any) -> str:
+        """Convert execution failures into resilient responses without conflating with ambiguity."""
+        force_direct_recovery = self._should_force_failure_recovery_answer(user_input, intent)
+
+        deterministic = self._deterministic_knowledge_fallback(user_input, intent)
+        if deterministic:
+            self._record_failure_recovery_state(
+                reason="deterministic_fallback",
+                response=deterministic,
+                task_understood=True,
+            )
+            return deterministic
+
+        conceptual = self._native_conceptual_answer(user_input, intent)
+        if conceptual and force_direct_recovery:
+            self._record_failure_recovery_state(
+                reason="conceptual_fallback",
+                response=conceptual,
+                task_understood=True,
+            )
+            return conceptual
+
+        if isinstance(llm_response, dict):
+            raw = str(llm_response.get("response") or llm_response.get("error") or "").strip()
+        else:
+            raw = str(getattr(llm_response, "response", "") or getattr(llm_response, "error", "") or "").strip()
+
+        if force_direct_recovery:
+            fallback = self._compose_understood_goal_recovery(user_input, intent)
+            self._record_failure_recovery_state(
+                reason="forced_direct_recovery",
+                response=fallback,
+                task_understood=True,
+            )
+            return fallback
+
+        if raw and not self._is_internal_infra_leakage(raw):
+            passthrough = self._clamp_final_response(
+                raw,
+                tone="professional and precise",
+                response_type="operation_failure",
+                route="llm_failure_passthrough",
+                user_input=user_input,
+            )
+            self._record_failure_recovery_state(
+                reason="safe_passthrough",
+                response=passthrough,
+                task_understood=False,
+            )
+            return passthrough
+
+        scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
+        if scaffold:
+            self._record_failure_recovery_state(
+                reason="clarification_scaffold",
+                response=scaffold,
+                task_understood=False,
+            )
+            return scaffold
+
+        generic = self._compose_understood_goal_recovery(user_input, intent)
+        self._record_failure_recovery_state(
+            reason="generic_safe_mode",
+            response=generic,
+            task_understood=False,
+        )
+        return generic
+
+    def _apply_confidence_cascade(self, intent: str, confidence: float, nlp_result, user_input: str = "") -> dict:
         """
         Confidence cascade policy:
           >= 0.85 → execute directly
@@ -5469,7 +6144,10 @@ class ALICE:
                 "question": "Could you clarify what you'd like me to do?",
             }
         # < 0.45: surface top-2 candidates
-        scores = getattr(nlp_result, 'plugin_scores', {}) or {}
+        scores = self._prune_confidence_candidates(
+            user_input=user_input,
+            scores=getattr(nlp_result, 'plugin_scores', {}) or {},
+        )
         top2 = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:2]
         options = [f"{p} ({v:.0%})" for p, v in top2] if top2 else [intent]
         return {
@@ -5478,6 +6156,69 @@ class ALICE:
             "options": options,
             "question": f"Did you mean: {' or '.join(options)}?",
         }
+
+    def _executive_gate_fallback_response(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        response: str,
+        fallback_action: str,
+    ) -> str:
+        """Build executive-gate fallback responses without inline hardcoded branches."""
+        normalized_intent = str(intent or "").lower().strip()
+        _failure_recovery = dict(
+            (getattr(self, "_internal_reasoning_state", {}) or {}).get("failure_recovery", {}) or {}
+        )
+        if bool(_failure_recovery.get("avoid_clarification")):
+            _recovered = str(
+                (getattr(self, "_internal_reasoning_state", {}) or {}).get("failure_recovery_response") or ""
+            ).strip()
+            if _recovered:
+                return _recovered
+
+        if fallback_action == "clarify":
+            conceptual = self._native_conceptual_answer(user_input, intent)
+            if conceptual:
+                return conceptual
+
+            if normalized_intent.startswith("conversation:") and self._is_beginner_explanation_request(user_input):
+                beginner = self._native_help_opener_response(user_input)
+                if beginner:
+                    return beginner
+
+            clarification = self._generate_natural_response(
+                {
+                    "type": "clarification_prompt",
+                    "options": [],
+                    "pronouns": [],
+                },
+                "professional and precise",
+                None,
+                user_input,
+            )
+            if clarification:
+                return clarification
+
+            scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
+            if scaffold:
+                return scaffold
+
+        scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
+        if scaffold:
+            return scaffold
+
+        recovered = self._fallback_from_intent(intent, None)
+        if recovered:
+            return recovered
+
+        return self._clamp_final_response(
+            response,
+            tone="professional and precise",
+            response_type="operation_failure",
+            route="exec_gate_fallback",
+            user_input=user_input,
+        )
 
     def _executive_apply_response_gate(
         self,
@@ -5516,16 +6257,12 @@ class ALICE:
             return response
 
         fallback_action = evaluation.get("fallback_action", "safe_reply")
-        if fallback_action == "clarify":
-            if (
-                str(intent or "").lower().strip().startswith("conversation:")
-                and self._is_beginner_explanation_request(user_input)
-            ):
-                return "Absolutely. I can explain this at a beginner level. Tell me the topic you want explained first, and I will break it down step by step."
-            prompt = "I want to make sure I answer correctly. Do you want an explanation, a direct action, or a quick search?"
-            self._arm_route_choice_slot(prompt)
-            return prompt
-        return "I may be off-track. Let me answer more directly: tell me the exact outcome you want and I will do that."
+        return self._executive_gate_fallback_response(
+            user_input=user_input,
+            intent=intent,
+            response=response,
+            fallback_action=str(fallback_action or "safe_reply"),
+        )
 
     def _run_executive_reflection(
         self,
@@ -5865,6 +6602,41 @@ class ALICE:
                         self.nlp.context.pending_clarification = dict(_rehydrated_slot)
                         self._pending_conversation_slot = dict(_rehydrated_slot)
 
+            _clarification_resolution = None
+            if (
+                getattr(self, 'clarification_resolver', None)
+                and getattr(self, 'nlp', None)
+                and getattr(self.nlp, 'context', None)
+            ):
+                try:
+                    _pending_state = dict(getattr(self.nlp.context, 'pending_clarification', {}) or {})
+                    _clarification_resolution = self.clarification_resolver.resolve(
+                        user_input=user_input,
+                        pending_slot=_pending_state,
+                    )
+                except Exception:
+                    _clarification_resolution = None
+
+            if _clarification_resolution and _clarification_resolution.consumed:
+                _choice = str(_clarification_resolution.route_choice or "").strip().lower()
+                _selected_branch = str(getattr(_clarification_resolution, 'selected_branch', '') or '').strip().lower()
+                self._internal_reasoning_state["clarification_resolution"] = _clarification_resolution.as_dict()
+                if _choice == "quick_search":
+                    _search_query = str(_clarification_resolution.reconstructed_input or "").strip()
+                    response = self._resolve_quick_search_from_clarification(_search_query)
+                    entities = {"route_choice": "quick_search", "query": _search_query}
+                    self._clear_pending_conversation_slot_state("quick_search")
+                    self._store_interaction(user_input, response, 'search', entities)
+                    if use_voice and self.speech:
+                        self.speech.speak(response, blocking=False)
+                    logger.info(f"A.L.I.C.E: {response[:100]}...")
+                    return response
+
+                _reconstructed = str(_clarification_resolution.reconstructed_input or "").strip()
+                if _reconstructed:
+                    self._clear_pending_conversation_slot_state(_choice or _selected_branch or "resolved")
+                    _nlp_input = _reconstructed
+
             self._internal_reasoning_state["raw_user_input"] = user_input
             self._internal_reasoning_state["resolved_user_input"] = _resolved_input
             self._internal_reasoning_state["context_resolution_confidence"] = _resolution_confidence
@@ -6014,22 +6786,26 @@ class ALICE:
                     entities = dict(entities or {})
                     entities['topic'] = _slot_value
                     entities['project_area'] = _slot_value
-                    self._pending_conversation_slot = {}
-                    if getattr(self, 'nlp', None) and getattr(self.nlp, 'context', None):
-                        self.nlp.context.pending_clarification = {}
-                    if getattr(self, 'conversation_state_tracker', None):
-                        try:
-                            self.conversation_state_tracker.clear_pending_followup_slot()
-                            self.conversation_state_tracker.clear_pending_clarification()
-                            self.conversation_state_tracker.set_selected_object_reference(_slot_value)
-                        except Exception:
-                            pass
-                    if getattr(self, 'world_state_memory', None):
-                        try:
-                            self.world_state_memory.clear_pending_clarification()
-                            self.world_state_memory.set_selected_object_reference(_slot_value)
-                        except Exception:
-                            pass
+                    _slot_value_low = str(_slot_value).lower().strip()
+                    _parent_slot = dict(getattr(self, '_pending_conversation_slot', {}) or {})
+                    _parent_request = str(_parent_slot.get('parent_request') or '').strip()
+                    if _slot_value_low == 'nlp':
+                        _seed_request = _parent_request or "help me with my ai project, i need to know some nlp algorithms"
+                        self._arm_topic_branch_slot(
+                            response,
+                            parent_request=_seed_request,
+                            parent_intent='conversation:question',
+                            parent_topic='nlp_algorithms',
+                            allowed_values=[
+                                'intent_routing',
+                                'entity_extraction',
+                                'embeddings',
+                                'conversation_flow',
+                            ],
+                        )
+                        self._think("Branch-selection slot armed for NLP follow-up continuity")
+                    else:
+                        self._clear_pending_conversation_slot_state(_slot_value)
                     self._cache_put(user_input, 'conversation:clarification_needed', response)
                     self._store_interaction(user_input, response, 'conversation:clarification_needed', entities)
                     if use_voice and self.speech:
@@ -7920,7 +8696,12 @@ class ALICE:
                             return _rbac_decision.reason
 
                 # Confidence cascade: gate plugin execution on intent confidence
-                _cascade = self._apply_confidence_cascade(intent, intent_confidence or 0.0, nlp_result)
+                _cascade = self._apply_confidence_cascade(
+                    intent,
+                    intent_confidence or 0.0,
+                    nlp_result,
+                    user_input=user_input,
+                )
                 if _cascade["action"] == "clarify":
                     return _cascade["question"]
                 if _cascade["action"] == "interpret":
@@ -8755,11 +9536,19 @@ class ALICE:
                             self._think(f"Alice learned from this interaction (confidence in '{intent}' topics growing)")
                 else:
                     # Gateway denied or error - provide fallback
-                    response = llm_response.response or "I don't have enough training data to answer that yet. Keep interacting with me so I can learn!"
+                    response = self._safe_llm_failure_response(
+                        user_input=user_input,
+                        intent=intent,
+                        llm_response=llm_response,
+                    )
             
             except Exception as e:
                 logger.error(f"LLM call failed: {e}")
-                response = "I'm having trouble connecting to my language model. Please make sure Ollama is running and try again."
+                response = self._safe_llm_failure_response(
+                    user_input=user_input,
+                    intent=intent,
+                    llm_response={"error": str(e)},
+                )
             
             # Optimize response for clarity and user preference
             if getattr(self, 'response_optimizer', None):

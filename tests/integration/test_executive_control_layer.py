@@ -273,6 +273,9 @@ def test_pre_route_guard_blocks_ambiguous_low_plausibility_before_routing() -> N
 
     assert guard["block"] is True
     assert "question" in guard
+    low = str(guard["question"]).lower()
+    assert "tool" not in low
+    assert "conversational" not in low
 
 
 def test_runtime_controls_reduce_tool_usage_when_clarify_first() -> None:
