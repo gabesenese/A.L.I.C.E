@@ -264,6 +264,34 @@ class PlanExecutor:
         method = getattr(plugin, method_name)
         return method(**params)
 
+    def _llm_generate(self, prompt: str, max_tokens: Optional[int] = None) -> str:
+        """Compatibility layer for engines exposing either generate() or chat()."""
+        if not self.llm_engine:
+            raise ValueError("LLM engine not configured")
+
+        generate = getattr(self.llm_engine, "generate", None)
+        if callable(generate):
+            try:
+                if max_tokens is not None:
+                    out = generate(prompt, max_tokens=max_tokens)
+                else:
+                    out = generate(prompt)
+            except TypeError:
+                out = generate(prompt)
+            return str(out or "")
+
+        chat = getattr(self.llm_engine, "chat", None)
+        if callable(chat):
+            try:
+                out = chat(prompt, use_history=False)
+            except TypeError:
+                out = chat(prompt)
+            return str(out or "")
+
+        raise AttributeError(
+            "LLM engine must provide generate(prompt) or chat(prompt)"
+        )
+
     def _execute_llm_summarize(self, action: str, params: Dict[str, Any]) -> str:
         """Execute LLM summarization"""
         content = params.get("content", "")
@@ -274,7 +302,7 @@ class PlanExecutor:
             prompt += f" focusing on {focus}"
         prompt += f":\n\n{content}"
 
-        return self.llm_engine.generate(prompt, max_tokens=500)
+        return self._llm_generate(prompt, max_tokens=500)
 
     def _execute_llm_answer(self, action: str, params: Dict[str, Any]) -> str:
         """Execute LLM question answering"""
@@ -287,7 +315,7 @@ class PlanExecutor:
         else:
             prompt += f": {query}"
 
-        return self.llm_engine.generate(prompt)
+        return self._llm_generate(prompt)
 
     def _execute_llm_draft(self, action: str, params: Dict[str, Any]) -> str:
         """Execute LLM email drafting"""
@@ -296,7 +324,7 @@ class PlanExecutor:
 
         prompt = f"Draft a professional email with subject: {subject}"
 
-        return self.llm_engine.generate(prompt, max_tokens=300)
+        return self._llm_generate(prompt, max_tokens=300)
 
     def _execute_llm_process(self, action: str, params: Dict[str, Any]) -> str:
         """Execute generic LLM processing"""
@@ -305,7 +333,7 @@ class PlanExecutor:
 
         prompt = f"Process this intent: {intent}\nEntities: {entities}"
 
-        return self.llm_engine.generate(prompt)
+        return self._llm_generate(prompt)
 
     def _execute_memory_search(self, action: str, params: Dict[str, Any]) -> List[Dict]:
         """Execute memory search"""
@@ -346,7 +374,7 @@ class PlanExecutor:
                 )
                 if query:
                     prompt += f" The user asked: {query!r}."
-                answer = self.llm_engine.generate(prompt, max_tokens=220)
+                answer = self._llm_generate(prompt, max_tokens=220)
                 if answer:
                     return answer.strip()
             except Exception:

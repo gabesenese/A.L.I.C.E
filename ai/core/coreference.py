@@ -39,6 +39,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from ai.core.entity_registry import get_entity_registry
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -501,6 +503,17 @@ class AdvancedCoreferenceResolver:
                 etype, evalue = "PRONOUN_GENERIC", candidate
                 logger.info("[COREF] PRONOUN '%s' -> '%s'", old, replacement)
 
+        if isinstance(evalue, str) and evalue.strip():
+            try:
+                get_entity_registry().register(
+                    label=evalue,
+                    entity_type=str(etype or "coref"),
+                    source="coreference",
+                    metadata={"confidence": float(conf or 0.0)},
+                )
+            except Exception:
+                pass
+
         return text, sub_map, etype, evalue, conf, candidates
 
     # ------------------------------------------------------------------
@@ -521,6 +534,12 @@ class AdvancedCoreferenceResolver:
         rs = self.memory.get_result_set()
         if len(rs) == 1:
             return rs[0]
+        try:
+            reg_hit = get_entity_registry().resolve_reference("it")
+            if isinstance(reg_hit, str) and reg_hit.strip():
+                return reg_hit.strip()
+        except Exception:
+            pass
         return None
 
     def _find_by_attribute(

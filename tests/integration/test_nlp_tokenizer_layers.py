@@ -202,3 +202,55 @@ class TestLayeredTokenizer:
         assert slot_followup.get("filled") is True
         assert slot_followup.get("selected_reference") == "second"
         assert modifiers.get("selected_object_reference") == "second"
+
+    def test_pending_route_choice_slot_consumes_explanation(self):
+        self.nlp.context.pending_clarification = {
+            "type": "route_choice",
+            "slot": "route_choice",
+            "parent_topic": "conversation",
+            "expected_answer_shape": "single_token",
+        }
+
+        result = self.nlp.process("explanation")
+        modifiers = result.parsed_command.get("modifiers", {})
+        slot_followup = modifiers.get("pending_slot_followup", {})
+
+        assert result.intent == "conversation:clarification_needed"
+        assert slot_followup.get("filled") is True
+        assert slot_followup.get("slot") == "route_choice"
+        assert slot_followup.get("value") == "explanation"
+
+    def test_pending_route_choice_slot_persists_when_not_filled(self):
+        self.nlp.context.pending_clarification = {
+            "type": "route_choice",
+            "slot_type": "route_choice",
+            "slot": "route_choice",
+            "parent_topic": "conversation",
+            "expected_answer_shape": "single_token",
+            "active": True,
+        }
+
+        result = self.nlp.process("okay")
+        modifiers = result.parsed_command.get("modifiers", {})
+
+        assert modifiers.get("pending_slot_followup") is None
+        assert isinstance(self.nlp.context.pending_clarification, dict)
+        assert self.nlp.context.pending_clarification.get("slot_type") == "route_choice"
+
+    def test_pending_route_choice_slot_clears_after_fill(self):
+        self.nlp.context.pending_clarification = {
+            "type": "route_choice",
+            "slot_type": "route_choice",
+            "slot": "route_choice",
+            "parent_topic": "conversation",
+            "expected_answer_shape": "single_token",
+            "active": True,
+        }
+
+        result = self.nlp.process("quick search")
+        modifiers = result.parsed_command.get("modifiers", {})
+
+        assert modifiers.get("pending_slot_followup", {}).get("filled") is True
+        pending = self.nlp.context.pending_clarification
+        pending_type = str((pending or {}).get("slot_type") or (pending or {}).get("type") or "").lower()
+        assert pending_type != "route_choice"

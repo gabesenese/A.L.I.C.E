@@ -124,6 +124,9 @@ from ai.core.memory_consolidator import MemoryConsolidator
 from ai.core.cross_session_pattern_detector import CrossSessionPatternDetector
 from ai.core.system_design_response_guard import SystemDesignResponseGuard
 from ai.core.unified_action_engine import ActionRequest, get_unified_action_engine
+from ai.core.entity_registry import get_entity_registry
+from ai.core.turn_state_assembler import TurnStateAssembler
+from ai.core.turn_state_diff import generate_turn_diff
 from ai.core.world_state_memory import get_world_state_memory
 from ai.core.execution_journal import get_execution_journal
 from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_manager
@@ -790,6 +793,8 @@ class ALICE:
             self.roadmap_stack = get_roadmap_completion_stack()
             self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
             self.execution_journal = get_execution_journal(storage_path="data/action_journal.jsonl")
+            self.entity_registry = get_entity_registry(storage_path="data/entity_registry.json")
+            self.turn_state_assembler = TurnStateAssembler(self.world_state_memory)
             self.goal_recognizer = get_goal_recognizer()
             self.turn_routing_policy = get_turn_routing_policy()
             self.live_state_service = get_live_state_service()
@@ -798,6 +803,13 @@ class ALICE:
             self.autonomy_dispatcher = TinyAutonomyDispatcher()
             self._autonomy_medium_ask_history = {}
             self._init_bounded_autonomy_loops()
+            if getattr(self, 'cognitive_orchestrator', None):
+                try:
+                    self.action_engine.bind_simulation_callback(
+                        self.cognitive_orchestrator.simulate_before_action
+                    )
+                except Exception:
+                    pass
             logger.info("[OK] RBAC and unified action guards active")
             
             # 4.5. Conversation Summarizer (now uses gateway for policy enforcement)
@@ -3919,6 +3931,37 @@ class ALICE:
             except Exception:
                 pass
 
+    def _arm_route_choice_slot(self, prompt_response: str) -> None:
+        """Store a pending route-choice slot for clarification follow-ups."""
+        slot_state = {
+            "active": True,
+            "type": "route_choice",
+            "slot_type": "route_choice",
+            "slot": "route_choice",
+            "parent_topic": "conversation",
+            "parent_intent": "conversation:help",
+            "prompt": str(prompt_response or ""),
+            "expected_answer_shape": "single_token",
+            "allowed_values": ["explanation", "direct_action", "quick_search"],
+            "last_narrowing_question": "Do you want an explanation, a direct action, or a quick search?",
+        }
+        self._pending_conversation_slot = dict(slot_state)
+        if getattr(self, "nlp", None) and getattr(self.nlp, "context", None):
+            self.nlp.context.pending_clarification = dict(slot_state)
+
+        if getattr(self, "conversation_state_tracker", None):
+            try:
+                self.conversation_state_tracker.set_pending_followup_slot(slot_state)
+                self.conversation_state_tracker.set_pending_clarification(slot_state)
+            except Exception:
+                pass
+
+        if getattr(self, "world_state_memory", None):
+            try:
+                self.world_state_memory.set_pending_clarification(slot_state)
+            except Exception:
+                pass
+
     def _pending_help_slot_followup_response(self, slot_value: str) -> str:
         low = str(slot_value or "").lower().strip()
         if "nlp" in low:
@@ -3928,6 +3971,17 @@ class ALICE:
         if "vision" in low:
             return "Great, vision is a strong focus. Do you want to start with OCR, scene understanding, or multimodal grounding first?"
         return f"Got it. For {slot_value}, do you want to start with foundations, architecture, or debugging first?"
+
+    def _pending_route_choice_followup_response(self, choice: str) -> str:
+        """Native response path for route-choice clarifications."""
+        picked = str(choice or "").strip().lower()
+        if picked == "explanation":
+            return "Great. I will stay in explanation mode. Tell me the topic and I will break it down step by step."
+        if picked == "direct_action":
+            return "Understood. Tell me the exact action you want me to run, and I will execute it directly."
+        if picked == "quick_search":
+            return "Sure. Tell me what you want me to search for, and I will do a quick lookup."
+        return "Tell me whether you want an explanation, a direct action, or a quick search."
 
     def _extract_goal_statement_signal(self, user_input: str) -> Dict[str, Any]:
         """Extract strategic goal/vision statements from declarative project direction turns."""
@@ -5468,7 +5522,9 @@ class ALICE:
                 and self._is_beginner_explanation_request(user_input)
             ):
                 return "Absolutely. I can explain this at a beginner level. Tell me the topic you want explained first, and I will break it down step by step."
-            return "I want to make sure I answer correctly. Do you want an explanation, a direct action, or a quick search?"
+            prompt = "I want to make sure I answer correctly. Do you want an explanation, a direct action, or a quick search?"
+            self._arm_route_choice_slot(prompt)
+            return prompt
         return "I may be off-track. Let me answer more directly: tell me the exact outcome you want and I will do that."
 
     def _run_executive_reflection(
@@ -5555,6 +5611,13 @@ class ALICE:
             self._exec_should_store_memory = True
             self._internal_reasoning_state = {}
             self._last_exec_gate_eval = {}
+            if getattr(self, 'world_state_memory', None):
+                try:
+                    self._turn_state_pre_snapshot = self.world_state_memory.snapshot()
+                except Exception:
+                    self._turn_state_pre_snapshot = {}
+            else:
+                self._turn_state_pre_snapshot = {}
 
             # Per-turn quality tracking flags (read by _store_interaction)
             self._last_plugin_called = None
@@ -5773,6 +5836,35 @@ class ALICE:
                     _resolved_input = candidate
             _nlp_input = _resolved_input
 
+            if getattr(self, 'nlp', None) and getattr(self.nlp, 'context', None):
+                _pending_now = dict(getattr(self.nlp.context, 'pending_clarification', {}) or {})
+                if not _pending_now:
+                    _rehydrated_slot = {}
+                    _local_slot = dict(getattr(self, '_pending_conversation_slot', {}) or {})
+                    if bool(_local_slot.get('active')) and (_local_slot.get('slot_type') or _local_slot.get('type')):
+                        _rehydrated_slot = _local_slot
+                    if not _rehydrated_slot and getattr(self, 'conversation_state_tracker', None):
+                        try:
+                            _cs = self.conversation_state_tracker.get_state_summary() or {}
+                            _candidate = dict(_cs.get('pending_followup_slot', {}) or {})
+                            if not _candidate:
+                                _candidate = dict(_cs.get('pending_clarification', {}) or {})
+                            if _candidate:
+                                _rehydrated_slot = _candidate
+                        except Exception:
+                            pass
+                    if not _rehydrated_slot and getattr(self, 'world_state_memory', None):
+                        try:
+                            _ws = self.world_state_memory.snapshot() or {}
+                            _candidate = dict(_ws.get('pending_clarification', {}) or {})
+                            if _candidate:
+                                _rehydrated_slot = _candidate
+                        except Exception:
+                            pass
+                    if _rehydrated_slot:
+                        self.nlp.context.pending_clarification = dict(_rehydrated_slot)
+                        self._pending_conversation_slot = dict(_rehydrated_slot)
+
             self._internal_reasoning_state["raw_user_input"] = user_input
             self._internal_reasoning_state["resolved_user_input"] = _resolved_input
             self._internal_reasoning_state["context_resolution_confidence"] = _resolution_confidence
@@ -5885,6 +5977,37 @@ class ALICE:
                 else None
             )
             if isinstance(_slot_followup, dict) and _slot_followup.get('filled'):
+                _slot_name = str(_slot_followup.get('slot') or '').strip().lower()
+                _slot_reason = str(_slot_followup.get('reason') or '').strip().lower()
+                if _slot_name == 'route_choice' or _slot_reason == 'pending_route_choice_slot':
+                    _route_choice_value = str(_slot_followup.get('value') or '').strip().lower()
+                    response = self._pending_route_choice_followup_response(_route_choice_value)
+                    entities = dict(entities or {})
+                    entities['route_choice'] = _route_choice_value
+                    self._pending_conversation_slot = {}
+                    if getattr(self, 'nlp', None) and getattr(self.nlp, 'context', None):
+                        self.nlp.context.pending_clarification = {}
+                    if getattr(self, 'conversation_state_tracker', None):
+                        try:
+                            self.conversation_state_tracker.clear_pending_followup_slot()
+                            self.conversation_state_tracker.clear_pending_clarification()
+                            self.conversation_state_tracker.set_selected_object_reference(_route_choice_value)
+                        except Exception:
+                            pass
+                    if getattr(self, 'world_state_memory', None):
+                        try:
+                            self.world_state_memory.clear_pending_clarification()
+                            self.world_state_memory.set_selected_object_reference(_route_choice_value)
+                        except Exception:
+                            pass
+                    self._internal_reasoning_state['route_choice'] = _route_choice_value
+                    self._cache_put(user_input, 'conversation:clarification_needed', response)
+                    self._store_interaction(user_input, response, 'conversation:clarification_needed', entities)
+                    if use_voice and self.speech:
+                        self.speech.speak(response, blocking=False)
+                    logger.info(f"A.L.I.C.E: {response[:100]}...")
+                    return response
+
                 _slot_value = str(_slot_followup.get('value') or user_input).strip()
                 if _slot_value:
                     response = self._pending_help_slot_followup_response(_slot_value)
@@ -7451,6 +7574,44 @@ class ALICE:
                     "pending_clarification": _pending_clarification,
                 }
 
+            _world_state_before_route = {}
+            if getattr(self, 'world_state_memory', None):
+                try:
+                    _world_state_before_route = dict(self.world_state_memory.snapshot() or {})
+                except Exception:
+                    _world_state_before_route = {}
+
+            _hidden_state_snapshot = {}
+            _hidden_state_summary = ""
+            if getattr(self, 'turn_state_assembler', None):
+                try:
+                    _slot_for_summary = _pending_clarification or _pending_slot_state
+                    _hidden_state_snapshot = self.turn_state_assembler.build(
+                        user_input=user_input,
+                        intent=intent,
+                        action_context={
+                            "confidence": float(intent_confidence or 0.0),
+                            "pending_slot": _slot_for_summary,
+                            "risk_level": "medium",
+                        },
+                        before_state=_world_state_before_route,
+                        extra={
+                            "intent_confidence": float(intent_confidence or 0.0),
+                            "intent_plausibility": float(intent_plausibility or 0.0),
+                        },
+                    )
+                    _hidden_state_summary = self.turn_state_assembler.to_text(_hidden_state_snapshot)
+                except Exception:
+                    _hidden_state_snapshot = {}
+                    _hidden_state_summary = ""
+
+            if _hidden_state_summary:
+                _conversation_state = {
+                    **(_conversation_state or {}),
+                    "hidden_situation_summary": _hidden_state_summary,
+                    "hidden_situation_snapshot": dict(_hidden_state_snapshot or {}),
+                }
+
             _entities_for_exec = dict(entities or {})
             _entities_for_exec["_intent_plausibility"] = float(intent_plausibility or 0.0)
             _executive_state = self.executive_controller.build_state(
@@ -7508,6 +7669,9 @@ class ALICE:
                     "response_preferences": _response_prefs,
                     "response_style": _response_style,
                     "secondary_intents": _secondary_intents,
+                    "hidden_situation_summary": _hidden_state_summary,
+                    "hidden_situation_snapshot": dict(_hidden_state_snapshot or {}),
+                    "world_state_pre_route": dict(_world_state_before_route or {}),
                 }
                 if _turn_reasoning_plan is not None:
                     self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
@@ -7542,6 +7706,9 @@ class ALICE:
                 "response_preferences": _response_prefs,
                 "response_style": _response_style,
                 "secondary_intents": _secondary_intents,
+                "hidden_situation_summary": _hidden_state_summary,
+                "hidden_situation_snapshot": dict(_hidden_state_snapshot or {}),
+                "world_state_pre_route": dict(_world_state_before_route or {}),
             }
             if _turn_reasoning_plan is not None:
                 self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
@@ -7590,6 +7757,32 @@ class ALICE:
                 "Executive scores → "
                 + ", ".join(f"{k}:{v:.2f}" for k, v in sorted(_decision_scores.items(), key=lambda kv: kv[1], reverse=True)[:4])
             )
+
+            if getattr(self, 'execution_journal', None) and getattr(self, 'world_state_memory', None):
+                try:
+                    _decision_state_now = dict(self.world_state_memory.snapshot() or {})
+                    _decision_diff = generate_turn_diff(
+                        _world_state_before_route,
+                        _decision_state_now,
+                        event="turn_decision",
+                        metadata={
+                            "intent": intent,
+                            "confidence": float(intent_confidence or 0.0),
+                            "executive_action": _executive_decision.action,
+                        },
+                    )
+                    self.execution_journal.record(
+                        {
+                            "event": "turn_decision",
+                            "intent": intent,
+                            "executive_action": _executive_decision.action,
+                            "confidence": float(intent_confidence or 0.0),
+                            "hidden_situation_summary": _hidden_state_summary,
+                            "turn_diff": _decision_diff,
+                        }
+                    )
+                except Exception:
+                    pass
 
             if _executive_decision.action in ("use_llm", "answer_direct"):
                 _self_answer = self._self_answer_first_gate(
@@ -7903,6 +8096,33 @@ class ALICE:
                     _p_success = plugin_result.get('success', False)
                     _p_verified = bool((plugin_result.get('verification') or {}).get('accepted', False))
                     self._last_plugin_result = plugin_result
+                    if getattr(self, 'entity_registry', None) and _p_success:
+                        try:
+                            _pdata = plugin_result.get('data', {}) if isinstance(plugin_result, dict) else {}
+                            _source = f"plugin:{_p_name}:{_p_action}"
+                            for _key in ('title', 'note_title', 'target', 'path', 'filename', 'id', 'event_id', 'subject', 'location'):
+                                _val = _pdata.get(_key) if isinstance(_pdata, dict) else None
+                                if isinstance(_val, str) and _val.strip():
+                                    self.entity_registry.register(
+                                        label=_val.strip(),
+                                        entity_type=_key,
+                                        source=_source,
+                                        metadata={'intent': intent},
+                                    )
+                            _titles = []
+                            if isinstance(_pdata, dict):
+                                _titles = _pdata.get('titles', []) or _pdata.get('items', []) or []
+                            if isinstance(_titles, list):
+                                for _item in _titles[:12]:
+                                    if isinstance(_item, str) and _item.strip():
+                                        self.entity_registry.register(
+                                            label=_item.strip(),
+                                            entity_type='result_item',
+                                            source=_source,
+                                            metadata={'intent': intent},
+                                        )
+                        except Exception:
+                            pass
                     try:
                         if self.capability_graph is not None and _p_verified:
                             self.capability_graph.record_execution(_p_name, intent, _p_success)
@@ -8418,6 +8638,16 @@ class ALICE:
             self._think("A.L.I.C.E needs Ollama for complex reasoning/knowledge...")
             # Build enhanced context with smart caching and adaptive selection, including goal
             enhanced_context = self._build_llm_context(user_input_processed, intent, entities, goal_res)
+            _hidden_summary_for_llm = str(
+                (getattr(self, '_internal_reasoning_state', {}) or {}).get('hidden_situation_summary')
+                or ""
+            ).strip()
+            if _hidden_summary_for_llm:
+                enhanced_context = (
+                    f"{enhanced_context}\n\n{_hidden_summary_for_llm}"
+                    if enhanced_context
+                    else _hidden_summary_for_llm
+                )
             
             # Add active learning guidance if available
             learning_guidance = improved_nlp_result.get("learning_guidance")
@@ -8449,7 +8679,12 @@ class ALICE:
                     call_type=LLMCallType.GENERATION,
                     use_history=True,
                     user_input=user_input,
-                    context={'intent': intent, 'entities': entities, 'goal': goal_res.goal if goal_res else None}
+                    context={
+                        'intent': intent,
+                        'entities': entities,
+                        'goal': goal_res.goal if goal_res else None,
+                        'hidden_situation_summary': _hidden_summary_for_llm,
+                    }
                 )
                 llm_duration = time.time() - llm_start
                 
@@ -9334,6 +9569,28 @@ class ALICE:
             "entities": entities or {}
         }
         try:
+            if getattr(self, 'entity_registry', None) and isinstance(entities, dict):
+                try:
+                    for _etype, _eval in entities.items():
+                        if isinstance(_eval, str) and _eval.strip():
+                            self.entity_registry.register(
+                                label=_eval.strip(),
+                                entity_type=str(_etype),
+                                source='turn_entities',
+                                metadata={'intent': intent},
+                            )
+                        elif isinstance(_eval, list):
+                            for _item in _eval[:10]:
+                                if isinstance(_item, str) and _item.strip():
+                                    self.entity_registry.register(
+                                        label=_item.strip(),
+                                        entity_type=str(_etype),
+                                        source='turn_entities',
+                                        metadata={'intent': intent},
+                                    )
+                except Exception:
+                    pass
+
             if getattr(self, 'conversation_state_tracker', None):
                 goal_hint = ""
                 if isinstance(entities, dict):
@@ -9588,6 +9845,30 @@ class ALICE:
                     self.self_debugger.analyse_turn(_pm, _components)
             except Exception:
                 pass
+
+            if getattr(self, 'world_state_memory', None) and getattr(self, 'execution_journal', None):
+                try:
+                    _before = dict(getattr(self, '_turn_state_pre_snapshot', {}) or {})
+                    _after = dict(self.world_state_memory.snapshot() or {})
+                    _turn_diff = generate_turn_diff(
+                        _before,
+                        _after,
+                        event='turn_complete',
+                        metadata={
+                            'intent': intent,
+                            'route_choice': str((entities or {}).get('route_choice') or ''),
+                        },
+                    )
+                    self.execution_journal.record(
+                        {
+                            'event': 'turn_complete',
+                            'intent': intent,
+                            'turn_diff': _turn_diff,
+                        }
+                    )
+                    self._turn_state_pre_snapshot = _after
+                except Exception:
+                    pass
             
         except Exception as e:
             logger.warning(f"[WARNING] Error storing interaction: {e}")
@@ -9821,6 +10102,7 @@ class ALICE:
                 print(f"   Formatter Usage: {gateway_stats['formatter_calls']} ({gateway_stats.get('formatter_percentage', 0)}%)")
                 print(f"   LLM Fallback: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_fallback_percentage', 0)}%)")
                 print(f"   Multi-LLM Router: {'Enabled' if gateway_stats.get('multi_llm_enabled') else 'Disabled'}")
+                print(f"   Strict Generation Router: {'Enabled' if gateway_stats.get('strict_generation_router') else 'Disabled'}")
                 print(f"   Multi-LLM Calls: {gateway_stats.get('multi_router_calls', 0)} ({gateway_stats.get('multi_router_percentage', 0)}%)")
                 print(f"   Policy Denials: {gateway_stats['policy_denials']} ({gateway_stats.get('denial_percentage', 0)}%)")
 
@@ -9829,6 +10111,16 @@ class ALICE:
                     print("\n   Model Roles:")
                     for role, model in sorted(model_roles.items()):
                         print(f"      {role}: {model}")
+
+                runtime_status = gateway_stats.get('model_runtime_status', {}) or {}
+                if runtime_status:
+                    print("\n   Model Runtime:")
+                    print(f"      all_roles_ready: {runtime_status.get('all_roles_ready')}")
+                    role_health = runtime_status.get('role_health', {}) or {}
+                    for role, is_ready in sorted(role_health.items()):
+                        print(f"      {role}_ready: {is_ready}")
+                    if runtime_status.get('health_error'):
+                        print(f"      health_error: {runtime_status.get('health_error')}")
 
                 last_route = gateway_stats.get('last_route', {}) or {}
                 if last_route:

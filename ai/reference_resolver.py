@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List
 
+from ai.core.entity_registry import get_entity_registry
+
 
 @dataclass
 class ResolutionResult:
@@ -48,6 +50,11 @@ class ReferenceResolver:
             return ResolutionResult(rewritten_input="")
 
         subject = self._pick_subject(state)
+        if not subject:
+            try:
+                subject = str(get_entity_registry().resolve_reference(text) or "").strip()
+            except Exception:
+                subject = ""
         resolved_bindings: Dict[str, str] = {}
         unresolved_pronouns: List[str] = []
         rewritten = text
@@ -76,6 +83,17 @@ class ReferenceResolver:
                     resolved_bindings[pronoun] = subject
                 else:
                     unresolved_pronouns.append(pronoun)
+
+        if subject:
+            try:
+                get_entity_registry().register(
+                    label=subject,
+                    entity_type="subject",
+                    source="reference_resolver",
+                    metadata={"resolved_bindings": dict(resolved_bindings or {})},
+                )
+            except Exception:
+                pass
 
         return ResolutionResult(
             rewritten_input=rewritten,

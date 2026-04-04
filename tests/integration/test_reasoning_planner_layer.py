@@ -23,6 +23,11 @@ class _DummyLLM:
         return f"LLM:{prompt[:60]}"
 
 
+class _DummyChatOnlyLLM:
+    def chat(self, prompt, use_history=False):
+        return f"CHAT:{prompt[:60]}"
+
+
 class _DummyMemory:
     def search(self, query, top_k=3):
         return [{"query": query, "top_k": top_k}]
@@ -67,3 +72,23 @@ def test_study_topic_plan_executes_all_steps() -> None:
     assert set(result["all_results"].keys()) == {1, 2, 3, 4}
     assert "polymorphism" in result["all_results"][2].lower()
     assert "quick check" in result["all_results"][3].lower()
+
+
+def test_conversation_question_plan_executes_with_chat_only_llm() -> None:
+    planner = TaskPlanner()
+    executor = PlanExecutor(
+        plugin_manager=_DummyPluginManager(),
+        llm_engine=_DummyChatOnlyLLM(),
+        memory_system=_DummyMemory(),
+    )
+
+    plan = planner.create_plan(
+        intent="conversation:question",
+        entities={"query": "explain each to me"},
+        context={},
+    )
+
+    result = executor.execute(plan)
+
+    assert result["success"] is True
+    assert "CHAT:" in str(result["all_results"][2])

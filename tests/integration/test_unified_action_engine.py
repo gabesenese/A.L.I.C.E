@@ -205,3 +205,88 @@ def test_unified_action_engine_detects_target_mismatch():
     assert res.success is True
     assert res.goal_satisfied is False
     assert "target_mismatch" in res.ambiguity_flags
+
+
+def test_unified_action_engine_blocks_medium_risk_when_simulation_fails():
+    stub = _StubToolExecutor(
+        result={
+            "success": True,
+            "status": "success",
+            "plugin": "notes",
+            "action": "update",
+            "data": {"note_id": "n1", "target": "Roadmap"},
+            "message": "Updated",
+            "confidence": 0.9,
+            "retryable": False,
+            "side_effects": ["updated"],
+            "verification": {"accepted": True, "confidence": 0.9, "issues": []},
+        }
+    )
+    engine = UnifiedActionEngine(tool_executor=stub)
+    engine.bind_plugin_manager(object())
+    engine.bind_simulation_callback(
+        lambda candidates, context=None: {
+            "best_action": {
+                "action_id": "notes:update",
+                "score": 0.0,
+                "risk": 0.7,
+                "confidence": 0.2,
+            },
+            "ranked": [],
+            "context": context or {},
+        }
+    )
+
+    req = ActionRequest(
+        goal="update roadmap note",
+        plugin="notes",
+        action="update",
+        params={"target": "Roadmap", "_raw_query": "update roadmap note"},
+        source_intent="notes:update",
+        confidence=0.4,
+        requires_confirmation=False,
+        risk_level="medium",
+    )
+
+    res = engine.execute(req)
+
+    assert res.success is False
+    assert res.status == "simulation_blocked"
+    assert stub.call_count == 0
+
+
+def test_unified_action_engine_attaches_turn_diff_on_success():
+    stub = _StubToolExecutor(
+        result={
+            "success": True,
+            "status": "success",
+            "plugin": "notes",
+            "action": "create",
+            "data": {"note_id": "n2", "title": "Plan"},
+            "message": "Created",
+            "confidence": 0.95,
+            "retryable": False,
+            "side_effects": ["created"],
+            "verification": {"accepted": True, "confidence": 0.95, "issues": []},
+        }
+    )
+    engine = UnifiedActionEngine(tool_executor=stub)
+    engine.bind_plugin_manager(object())
+
+    req = ActionRequest(
+        goal="create plan note",
+        plugin="notes",
+        action="create",
+        params={"title": "Plan", "_raw_query": "create plan note"},
+        source_intent="notes:create",
+        confidence=0.9,
+        requires_confirmation=False,
+        risk_level="low",
+    )
+
+    res = engine.execute(req)
+    turn_diff = (res.state_updates or {}).get("turn_diff", {})
+
+    assert res.success is True
+    assert isinstance(turn_diff, dict)
+    assert turn_diff.get("event") == "action_execution"

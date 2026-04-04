@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Tuple
 
+from ai.core.entity_registry import get_entity_registry
+
 
 @dataclass
 class GoalVerificationReport:
@@ -115,11 +117,30 @@ class GoalActionVerifier:
     ) -> Tuple[bool, List[str]]:
         plugin = str(getattr(request, "plugin", "") or "").strip().lower()
         issues: List[str] = []
+        tool_succeeded = bool(
+            bool((tool_result or {}).get("success", False))
+            or str((tool_result or {}).get("status", "")).strip().lower() in {"success", "partial"}
+        )
+        if not tool_succeeded:
+            return True, []
 
         if plugin == "notes" and action in {"create", "read", "update", "delete"}:
             if action == "create" and not any(data.get(k) for k in ("note_id", "id", "title", "note_title")):
                 issues.append("notes_create_missing_identifier")
-            if action == "read" and not any(data.get(k) for k in ("content", "body", "text", "note")):
+            if action == "read" and not any(
+                data.get(k)
+                for k in (
+                    "content",
+                    "body",
+                    "text",
+                    "note",
+                    "note_id",
+                    "id",
+                    "title",
+                    "note_title",
+                    "target",
+                )
+            ):
                 issues.append("notes_read_missing_content")
 
         if plugin == "email" and action in {"send", "draft", "read"}:
@@ -138,7 +159,7 @@ class GoalActionVerifier:
             if not any(data.get(k) for k in ("path", "file", "filename", "target")):
                 issues.append("file_operation_missing_path_echo")
 
-        if bool((tool_result or {}).get("success", False)) and not issues:
+        if tool_succeeded and not issues:
             return True, []
         return len(issues) == 0, issues
 
@@ -147,11 +168,24 @@ class GoalActionVerifier:
         if not isinstance(target_spec, dict) or not target_spec:
             return 0.7
 
+        registry = None
+        try:
+            registry = get_entity_registry()
+        except Exception:
+            registry = None
+
         candidates = {
             str(v).strip().lower()
             for v in data.values()
             if isinstance(v, (str, int, float)) and str(v).strip()
         }
+        if registry and candidates:
+            expanded_candidates = set(candidates)
+            for cand in list(candidates):
+                resolved = str(registry.resolve_label(cand) or "").strip().lower()
+                if resolved:
+                    expanded_candidates.add(resolved)
+            candidates = expanded_candidates
         if not candidates:
             return 0.4
 
@@ -160,6 +194,13 @@ class GoalActionVerifier:
             for v in target_spec.values()
             if isinstance(v, (str, int, float)) and str(v).strip()
         }
+        if registry and desired:
+            expanded_desired = set(desired)
+            for want in list(desired):
+                resolved = str(registry.resolve_label(want) or "").strip().lower()
+                if resolved:
+                    expanded_desired.add(resolved)
+            desired = expanded_desired
         if not desired:
             return 0.7
 

@@ -3123,6 +3123,43 @@ class NLPProcessor:
                     trace={"source": "pending_help_slot"},
                 )
 
+        if isinstance(_pending_slot, dict) and _pending_slot_type in {"route_choice", "help_route_choice"}:
+            _choice_text = normalized_text.strip().lower()
+            _choice = ""
+            if re.search(r"\b(explanation|explain|walk\s*through|teach|how|why)\b", _choice_text):
+                _choice = "explanation"
+            elif re.search(r"\b(direct\s+action|action|do\s+it|execute|perform|run\s+it)\b", _choice_text):
+                _choice = "direct_action"
+            elif re.search(r"\b(quick\s+search|search|look\s*up|find\s+info|web|online)\b", _choice_text):
+                _choice = "quick_search"
+
+            if _choice:
+                intent = "conversation:clarification_needed"
+                intent_confidence = max(float(intent_confidence or 0.0), 0.88)
+                parsed_command.modifiers["pending_slot_followup"] = {
+                    "filled": True,
+                    "slot": "route_choice",
+                    "value": _choice,
+                    "parent_topic": str(_pending_slot.get("parent_topic") or "conversation"),
+                    "reason": "pending_route_choice_slot",
+                    "expected_answer_shape": "single_token",
+                }
+                parsed_command.modifiers["route_choice"] = _choice
+                parsed_command.modifiers["followup_resolution"] = {
+                    "was_followup": True,
+                    "domain": "conversation",
+                    "reason": "pending_route_choice_slot",
+                    "resolved_intent": intent,
+                    "confidence": float(intent_confidence),
+                }
+                route = RouteDecision(
+                    intent=intent,
+                    confidence=float(intent_confidence),
+                    plugin="conversation",
+                    action="clarification_needed",
+                    trace={"source": "pending_route_choice_slot"},
+                )
+
         # ── Dialogue-state gate ────────────────────────────────────────────────
         # If Alice is waiting for the user to disambiguate (dialogue_state ==
         # "clarifying") and the current response looks like a clarification
@@ -4124,6 +4161,11 @@ class NLPProcessor:
 
     def _update_context(self, result: ProcessedQuery):
         """Update conversation context"""
+        _existing_pending = (
+            dict(getattr(self.context, "pending_clarification", {}) or {})
+            if hasattr(self, "context")
+            else {}
+        )
         self.context.last_intent = result.intent
         self.context.query_history.append(result.original_text)
         self.context.turn_index += 1
@@ -4141,11 +4183,36 @@ class NLPProcessor:
             )
 
         disambiguation = {}
+        _pending_slot_followup = {}
         if isinstance(result.parsed_command, dict):
-            disambiguation = result.parsed_command.get("modifiers", {}).get(
-                "disambiguation", {}
-            )
-        self.context.pending_clarification = disambiguation if disambiguation else {}
+            _modifiers = result.parsed_command.get("modifiers", {}) or {}
+            disambiguation = _modifiers.get("disambiguation", {})
+            _pending_slot_followup = _modifiers.get("pending_slot_followup", {})
+
+        _existing_slot_type = str(
+            (_existing_pending or {}).get("slot_type")
+            or (_existing_pending or {}).get("type")
+            or ""
+        ).strip().lower()
+        _preserve_existing_slot = bool(
+            isinstance(_existing_pending, dict)
+            and _existing_pending
+            and _existing_slot_type in {"route_choice", "help_route_choice", "help_narrowing", "narrowing"}
+            and bool(_existing_pending.get("active", True))
+        )
+        _slot_was_filled = bool(
+            isinstance(_pending_slot_followup, dict)
+            and _pending_slot_followup.get("filled")
+        )
+
+        if disambiguation:
+            self.context.pending_clarification = disambiguation
+        elif _slot_was_filled:
+            self.context.pending_clarification = {}
+        elif _preserve_existing_slot:
+            self.context.pending_clarification = dict(_existing_pending)
+        else:
+            self.context.pending_clarification = {}
 
         # Persist the semantic frame for follow-up merging
         if isinstance(result.parsed_command, dict):

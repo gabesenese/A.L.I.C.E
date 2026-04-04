@@ -96,6 +96,14 @@ class LLMGateway:
             "off",
             "no",
         }
+        self.strict_generation_router = os.getenv(
+            "ALICE_MULTI_LLM_STRICT_GENERATION", "1"
+        ).strip().lower() not in {
+            "0",
+            "false",
+            "off",
+            "no",
+        }
         if self.multi_llm_enabled and ModelRouter is not None:
             try:
                 self.model_router = ModelRouter()
@@ -220,6 +228,23 @@ class LLMGateway:
                         used_llm=True,
                         model_used=model_used,
                         route_source="multi_router",
+                    )
+                if call_type == LLMCallType.GENERATION and self.strict_generation_router:
+                    err = str(routed.get("response") or "Multi-router generation failed")
+                    self._last_route = {
+                        "source": "multi_router",
+                        "call_type": call_type.value,
+                        "model": str(routed.get("model") or ""),
+                        "role": (getattr(self.model_router, "last_route", {}) or {}).get("role", ""),
+                    }
+                    return LLMResponse(
+                        success=False,
+                        error=err,
+                        response=err,
+                        denied_by_policy=True,
+                        policy_reason="strict_generation_router",
+                        route_source="multi_router",
+                        model_used=str(routed.get("model") or ""),
                     )
 
             # Tool-based routing: Alice uses Ollama as a tool
@@ -374,6 +399,7 @@ class LLMGateway:
         return call_type in {
             LLMCallType.CHITCHAT,
             LLMCallType.QUERY_KNOWLEDGE,
+            LLMCallType.GENERATION,
         }
 
     def _active_model_name(self) -> str:
@@ -639,10 +665,17 @@ Be conversational and helpful. Do not mention the tool name or technical details
             "multi_llm_enabled": bool(
                 self.multi_llm_enabled and self.model_router is not None
             ),
+            "strict_generation_router": bool(self.strict_generation_router),
             "model_roles": (
                 self.model_router.describe_models()
                 if self.model_router is not None
                 and hasattr(self.model_router, "describe_models")
+                else {}
+            ),
+            "model_runtime_status": (
+                self.model_router.runtime_status()
+                if self.model_router is not None
+                and hasattr(self.model_router, "runtime_status")
                 else {}
             ),
             "last_route": dict(self._last_route or {}),

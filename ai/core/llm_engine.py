@@ -439,6 +439,57 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             logger.error(f"Error in stream chat: {e}")
             yield "\n\nI encountered an error. Please try again."
 
+    def generate(
+        self,
+        prompt: str,
+        max_tokens: Optional[int] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Compatibility API for planner paths that expect generate()."""
+        prompt_text = str(prompt or "")
+        if context:
+            try:
+                context_blob = json.dumps(context, ensure_ascii=False, default=str)
+            except Exception:
+                context_blob = str(context)
+            prompt_text = f"Context:\n{context_blob}\n\nPrompt:\n{prompt_text}"
+
+        try:
+            options = {
+                "temperature": self.config.temperature,
+                "num_gpu": 1,
+                "num_thread": 16,
+                "num_ctx": 4096,
+            }
+            if max_tokens is not None:
+                options["num_predict"] = max(1, int(max_tokens))
+
+            active_model = self.config.active_model
+            response = requests.post(
+                f"{self.config.base_url}/api/generate",
+                json={
+                    "model": active_model,
+                    "prompt": prompt_text,
+                    "stream": False,
+                    "options": options,
+                },
+                timeout=self.config.timeout,
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                text = str(result.get("response", "")).strip()
+                if text:
+                    return text
+
+            logger.warning(
+                "generate() received non-200 or empty body; falling back to chat()"
+            )
+        except Exception as e:
+            logger.warning(f"generate() fallback to chat() due to: {e}")
+
+        return self.chat(prompt_text, use_history=False)
+
     def query_knowledge(self, question: str) -> str:
         """
         Alice asks Ollama for knowledge about a topic.

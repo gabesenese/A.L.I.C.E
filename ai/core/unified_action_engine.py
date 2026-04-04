@@ -9,6 +9,7 @@ from ai.core.execution_journal import ExecutionJournal, get_execution_journal
 from ai.core.goal_action_verifier import GoalActionVerifier, get_goal_action_verifier
 from ai.core.rollback_executor import RollbackExecutor, get_rollback_executor
 from ai.core.tool_executor import ToolExecutor, get_tool_executor
+from ai.core.turn_state_diff import generate_turn_diff
 from ai.core.world_state_memory import WorldStateMemory, get_world_state_memory
 from ai.planning.action_planner import ActionPlanner, get_action_planner
 
@@ -90,12 +91,17 @@ class UnifiedActionEngine:
         self.planner = planner or get_action_planner()
         self.rollback_executor = rollback_executor or get_rollback_executor()
         self.plugin_manager: Any = None
+        self.simulation_callback: Any = None
 
     def bind_plugin_manager(self, plugin_manager: Any) -> None:
         self.plugin_manager = plugin_manager
 
+    def bind_simulation_callback(self, callback: Any) -> None:
+        self.simulation_callback = callback
+
     def execute(self, request: ActionRequest) -> ActionResult:
         request = self._normalize_request(request)
+        before_state = self.world_state_memory.snapshot()
 
         if request.requires_confirmation:
             result = ActionResult(
@@ -173,6 +179,42 @@ class UnifiedActionEngine:
             self._record_journal("policy_blocked", request, result)
             return result
 
+        simulation_gate = self._run_simulation_gate(request)
+        if simulation_gate.get("required") and not simulation_gate.get("allowed", False):
+            result = ActionResult(
+                success=False,
+                status="simulation_blocked",
+                plugin=request.plugin,
+                action=request.action,
+                goal_satisfied=False,
+                data={},
+                error=str(
+                    simulation_gate.get("reason")
+                    or "I need a safer plan before running this action."
+                ),
+                retryable=True,
+                confidence=max(0.0, min(1.0, float(request.confidence or 0.0))),
+                side_effects=[],
+                state_updates=self._build_state_updates(
+                    request=request,
+                    tool_result={},
+                    verified=False,
+                    goal_satisfied=False,
+                    handled=False,
+                    goal_report={},
+                    simulation_report=simulation_gate,
+                ),
+                ambiguity_flags=["simulation_blocked"],
+                recovery_path="clarify_then_continue",
+            )
+            self._record_journal(
+                "simulation_blocked",
+                request,
+                result,
+                extra={"simulation": simulation_gate},
+            )
+            return result
+
         intent = self._compose_intent(request)
         raw_query = (
             request.params.get("_raw_query")
@@ -227,6 +269,7 @@ class UnifiedActionEngine:
                 goal_satisfied=goal_satisfied,
                 handled=bool(tool_outcome.handled),
                 goal_report=goal_report,
+                simulation_report=simulation_gate,
             )
 
             confidence = self._coerce_confidence(
@@ -265,7 +308,12 @@ class UnifiedActionEngine:
                 retry_count=attempt_idx,
             )
 
-            self._record_journal("attempt", request, last_result)
+            self._record_journal(
+                "attempt",
+                request,
+                last_result,
+                extra={"simulation": simulation_gate},
+            )
 
             should_retry = self._should_retry(request, last_result, attempt_idx)
             if should_retry:
@@ -298,6 +346,27 @@ class UnifiedActionEngine:
             )
 
         self.world_state_memory.update_from_action(request, last_result)
+        after_state = self.world_state_memory.snapshot()
+        turn_diff = generate_turn_diff(
+            before_state,
+            after_state,
+            event="action_execution",
+            metadata={
+                "plugin": request.plugin,
+                "action": request.action,
+                "risk_level": request.risk_level,
+                "status": last_result.status,
+                "success": bool(last_result.success),
+            },
+        )
+        if isinstance(last_result.state_updates, dict):
+            last_result.state_updates["turn_diff"] = turn_diff
+        self._record_journal(
+            "state_diff",
+            request,
+            last_result,
+            extra={"turn_diff": turn_diff, "simulation": simulation_gate},
+        )
         return last_result
 
     def apply_state_updates(self, assistant: Any, result: ActionResult) -> None:
@@ -399,26 +468,91 @@ class UnifiedActionEngine:
         return True
 
     def _record_journal(
-        self, event: str, request: ActionRequest, result: ActionResult
+        self,
+        event: str,
+        request: ActionRequest,
+        result: ActionResult,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self.execution_journal.record(
-            {
-                "event": event,
-                "goal": request.goal,
-                "plugin": request.plugin,
-                "action": request.action,
-                "risk_level": request.risk_level,
-                "retry_budget": request.retry_budget,
-                "rollback_policy": request.rollback_policy,
-                "success": result.success,
-                "status": result.status,
-                "goal_satisfied": result.goal_satisfied,
-                "confidence": result.confidence,
-                "retry_count": result.retry_count,
-                "recovery_path": result.recovery_path,
-                "ambiguity_flags": list(result.ambiguity_flags or []),
+        payload = {
+            "event": event,
+            "goal": request.goal,
+            "plugin": request.plugin,
+            "action": request.action,
+            "risk_level": request.risk_level,
+            "retry_budget": request.retry_budget,
+            "rollback_policy": request.rollback_policy,
+            "success": result.success,
+            "status": result.status,
+            "goal_satisfied": result.goal_satisfied,
+            "confidence": result.confidence,
+            "retry_count": result.retry_count,
+            "recovery_path": result.recovery_path,
+            "ambiguity_flags": list(result.ambiguity_flags or []),
+        }
+        if isinstance(extra, dict) and extra:
+            payload.update(extra)
+        self.execution_journal.record(payload)
+
+    def _run_simulation_gate(self, request: ActionRequest) -> Dict[str, Any]:
+        risk_level = str(request.risk_level or "low").strip().lower()
+        if risk_level not in {"medium", "high", "critical"}:
+            return {"required": False, "allowed": True, "reason": "low_risk"}
+
+        risk_value = {"medium": 0.55, "high": 0.78, "critical": 0.92}.get(risk_level, 0.40)
+        action_low = str(request.action or "").strip().lower()
+        cost = 0.55 if action_low in {"delete", "execute", "write", "update", "append"} else 0.30
+        candidate = {
+            "action_id": f"{request.plugin}:{request.action}",
+            "expected_gain": max(0.1, min(1.0, float(request.confidence or 0.5))),
+            "risk": risk_value,
+            "cost": cost,
+            "confidence": max(0.05, min(1.0, float(request.confidence or 0.5))),
+            "reversible": bool(str(request.rollback_policy or "none").lower() in {"auto", "best_effort", "immediate"}),
+        }
+
+        report: Dict[str, Any] = {}
+        try:
+            if callable(self.simulation_callback):
+                report = self.simulation_callback(
+                    [candidate],
+                    context={
+                        "goal": request.goal,
+                        "plugin": request.plugin,
+                        "action": request.action,
+                        "risk_level": risk_level,
+                    },
+                ) or {}
+        except Exception:
+            report = {}
+
+        if not report:
+            score = (0.50 * candidate["expected_gain"]) + (0.20 * candidate["confidence"]) - (0.22 * candidate["risk"]) - (0.08 * candidate["cost"])
+            report = {
+                "best_action": {
+                    "action_id": candidate["action_id"],
+                    "score": score,
+                    "risk": candidate["risk"],
+                    "confidence": candidate["confidence"],
+                },
+                "ranked": [],
+                "context": {"source": "fallback"},
             }
-        )
+
+        best = report.get("best_action") if isinstance(report, dict) else {}
+        best_score = float((best or {}).get("score", 0.0) or 0.0)
+        has_approval = self._has_explicit_approval(request)
+        threshold = 0.12 if risk_level in {"high", "critical"} else 0.03
+        allowed = bool(best_score >= threshold or has_approval)
+        reason = "simulation_passed" if allowed else "simulation_confidence_low"
+        return {
+            "required": True,
+            "allowed": allowed,
+            "reason": reason,
+            "threshold": threshold,
+            "best_score": best_score,
+            "report": report,
+        }
 
     def _maybe_rollback(
         self, request: ActionRequest, result: ActionResult
@@ -536,10 +670,11 @@ class UnifiedActionEngine:
         goal_satisfied: bool,
         handled: bool,
         goal_report: Dict[str, Any],
+        simulation_report: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         goal_report = dict(goal_report or {})
         recommended_next = str(goal_report.get("recommended_next_action") or "").strip().lower()
-        return {
+        payload = {
             "verification": dict(tool_result.get("verification") or {}),
             "goal_verification": goal_report,
             "last_action_request": {
@@ -568,6 +703,9 @@ class UnifiedActionEngine:
             "goal_satisfied": goal_satisfied,
             "recommended_next_action": recommended_next,
         }
+        if isinstance(simulation_report, dict) and simulation_report:
+            payload["simulation"] = simulation_report
+        return payload
 
 
 _unified_action_engine: Optional[UnifiedActionEngine] = None

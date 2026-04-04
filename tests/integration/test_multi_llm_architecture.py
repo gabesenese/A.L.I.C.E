@@ -28,3 +28,27 @@ def test_model_router_generate_uses_standard_output(monkeypatch):
     assert set(["response", "confidence", "reasoning_used", "model"]).issubset(out.keys())
     assert isinstance(out["response"], str)
     assert 0.0 <= float(out["confidence"]) <= 1.0
+
+
+def test_model_router_rebalances_simple_traffic_when_reasoning_overused(monkeypatch):
+    monkeypatch.setenv("ALICE_MULTI_LLM_MOCK", "1")
+    router = ModelRouter()
+
+    # Simulate recent overuse of reasoning role.
+    router._recent_roles = ["reasoning"] * 10
+
+    selected = router.route("hello", context={"intent": "conversation:general"})
+    assert selected == "fast"
+
+
+def test_model_router_runtime_status_reports_role_health(monkeypatch):
+    monkeypatch.setenv("ALICE_MULTI_LLM_MOCK", "1")
+    router = ModelRouter()
+
+    status = router.runtime_status()
+
+    assert status.get("all_roles_ready") is True
+    role_health = status.get("role_health", {})
+    assert role_health.get("fast") is True
+    assert role_health.get("reasoning") is True
+    assert role_health.get("coding") is True
