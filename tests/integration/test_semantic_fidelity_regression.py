@@ -402,3 +402,111 @@ def test_native_scaffold_goal_statement_returns_alignment_response():
     assert "planning" in low
     assert "persistent memory" in low
     assert "tool execution" in low
+
+
+def test_execution_mode_prefers_conversational_fast_lane_for_conceptual_design_prompt():
+    alice = ALICE.__new__(ALICE)
+    prompt = "how can i design a real-world ai assistant architecture with today's technology and no fiction"
+
+    mode, reason = alice._select_execution_mode(
+        user_input=prompt,
+        intent="learning:system_design",
+        intent_confidence=0.84,
+        has_active_goal=False,
+        has_explicit_action_cue=False,
+        force_plugins_for_notes=False,
+        pending_action=None,
+    )
+
+    assert mode == "conversational_intelligence"
+    assert reason == "rich_conceptual_fast_lane"
+
+
+def test_execution_mode_uses_operator_for_explicit_action_turn():
+    alice = ALICE.__new__(ALICE)
+
+    mode, reason = alice._select_execution_mode(
+        user_input="delete note 2 from my notebook",
+        intent="notes:delete",
+        intent_confidence=0.93,
+        has_active_goal=False,
+        has_explicit_action_cue=True,
+        force_plugins_for_notes=False,
+        pending_action=None,
+    )
+
+    assert mode == "operator"
+    assert reason == "explicit_action_cue"
+
+
+def test_conversational_fast_lane_detector_allows_brainstorming_without_tools():
+    alice = ALICE.__new__(ALICE)
+
+    is_fast_lane = alice._is_conversational_fast_lane_turn(
+        user_input="can we brainstorm design options for an assistant memory strategy",
+        intent="conversation:question",
+        intent_confidence=0.76,
+        has_active_goal=False,
+        has_explicit_action_cue=False,
+        force_plugins_for_notes=False,
+        pending_action=None,
+    )
+
+    assert is_fast_lane is True
+
+
+def test_recovery_seed_for_ai_project_prompt_is_natural_not_debug_key_value():
+    alice = ALICE.__new__(ALICE)
+
+    seed = alice._build_recovery_answer_seed(
+        "i want to work on an ai project",
+        "conversation:help",
+    )
+
+    low = seed.lower()
+    assert "keywords=" not in low
+    assert "user_goal=" not in low
+    assert "intent=" not in low
+    assert "prototype" in low
+
+
+def test_distributed_cache_disabled_for_learning_prompts():
+    alice = ALICE.__new__(ALICE)
+
+    assert alice._should_use_distributed_response_cache("i want to learn about nlp") is False
+    assert alice._should_use_distributed_response_cache("explain transformer embeddings") is False
+    assert alice._should_use_distributed_response_cache("open notepad") is True
+
+
+def test_execution_mode_prefers_fast_lane_for_active_goal_dialogue_turn():
+    alice = ALICE.__new__(ALICE)
+
+    mode, reason = alice._select_execution_mode(
+        user_input="i want to learn about nlp",
+        intent="conversation:help",
+        intent_confidence=0.70,
+        has_active_goal=True,
+        has_explicit_action_cue=False,
+        force_plugins_for_notes=False,
+        pending_action=None,
+    )
+
+    assert mode == "conversational_intelligence"
+    assert reason == "active_goal_dialogue_fast_lane"
+
+
+def test_deterministic_knowledge_fallback_varies_across_repeated_turns():
+    alice = ALICE.__new__(ALICE)
+
+    first = alice._deterministic_knowledge_fallback(
+        "i want to learn about nlp",
+        "conversation:help",
+    )
+    second = alice._deterministic_knowledge_fallback(
+        "i want to learn about nlp",
+        "conversation:help",
+    )
+
+    assert first is not None
+    assert second is not None
+    assert first != second

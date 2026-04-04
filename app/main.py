@@ -97,7 +97,7 @@ from ai.core.conversational_engine import get_conversational_engine, Conversatio
 from ai.core.llm_gateway import get_llm_gateway, LLMGateway
 from ai.core.llm_policy import LLMCallType
 from ai.core.response_self_critic import get_response_self_critic
-from ai.core.executive_controller import get_executive_controller
+from ai.core.executive_controller import get_executive_controller, ExecutiveDecision
 from ai.core.reflection_engine import get_reflection_engine
 from ai.core.response_planner import get_response_planner
 from ai.core.goal_tracker import get_goal_tracker
@@ -3134,6 +3134,44 @@ class ALICE:
             f"Task verification -> accepted={report.accepted} confidence={report.confidence:.2f}"
         )
         return bool(report.accepted)
+
+    def _normalize_entities_for_planning(self, entities: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert NLP entities into planner-safe primitive values."""
+        def _normalize(value: Any) -> Any:
+            if value is None or isinstance(value, (str, int, float, bool)):
+                return value
+            if isinstance(value, dict):
+                return {str(k): _normalize(v) for k, v in value.items()}
+            if isinstance(value, (list, tuple, set)):
+                normalized_list = [_normalize(v) for v in value]
+                if len(normalized_list) == 1:
+                    return normalized_list[0]
+                return normalized_list
+
+            # NLP Entity-like objects: preserve normalized_value/value when available.
+            _normalized = getattr(value, "normalized_value", None)
+            if _normalized is not None:
+                return _normalize(_normalized)
+            _semantic = getattr(value, "value", None)
+            if _semantic is not None:
+                return _normalize(_semantic)
+
+            if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
+                try:
+                    return _normalize(value.to_dict())
+                except Exception:
+                    pass
+            if hasattr(value, "__dict__"):
+                try:
+                    return _normalize(vars(value))
+                except Exception:
+                    pass
+            return str(value)
+
+        normalized_entities = {}
+        for key, raw_value in dict(entities or {}).items():
+            normalized_entities[str(key)] = _normalize(raw_value)
+        return normalized_entities
     
     def _use_planner_executor(self, intent: str, entities: Dict[str, Any], query: str) -> Optional[str]:
         """
@@ -3161,11 +3199,17 @@ class ALICE:
         if not any(normalized_intent.startswith(prefix) for prefix in plannable_prefixes):
             return None
 
+        # Conversational help/goal turns should stay in fast lane unless there is
+        # an explicit tutorial intent or a concrete action cue.
+        if normalized_intent in ("conversation:help", "conversation:goal_statement"):
+            if not self._explicit_study_template_request(query) and not self._has_explicit_action_cue(query):
+                return None
+
         if intent in ('study_topic', 'learning:study_topic') and not self._explicit_study_template_request(query):
             # Hard gate: only enter study template flow when user explicitly asks for studying/tutorial mode.
             return None
 
-        entities = dict(entities or {})
+        entities = self._normalize_entities_for_planning(entities or {})
         entities.setdefault('query', query)
         
         try:
@@ -3186,7 +3230,7 @@ class ALICE:
                     kind="execute_plan",
                     payload={
                         "intent": intent,
-                        "entities": dict(entities or {}),
+                        "entities": self._normalize_entities_for_planning(entities or {}),
                     },
                     priority=2,
                     max_attempts=2,
@@ -3286,7 +3330,7 @@ class ALICE:
         """Execute one queued planning task with the legacy planner/executor path."""
         payload = dict(task.payload or {})
         intent = str(payload.get("intent") or "question")
-        entities = dict(payload.get("entities") or {})
+        entities = self._normalize_entities_for_planning(payload.get("entities") or {})
         context = {
             'user_prefs': vars(self.context.user_prefs),
             'system_state': self.state_tracker.get_status().value if self.state_tracker else 'unknown'
@@ -3805,6 +3849,38 @@ class ALICE:
             # Remove first (oldest) item
             oldest_key = next(iter(self._response_cache))
             del self._response_cache[oldest_key]
+
+    def _should_use_distributed_response_cache(self, user_input: str) -> bool:
+        """Only allow distributed cache for stable command-like prompts."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        dynamic_cues = (
+            "learn",
+            "explain",
+            "about",
+            "brainstorm",
+            "design",
+            "architecture",
+            "idea",
+            "project",
+            "why",
+            "how",
+            "what",
+            "help me",
+            "i want to",
+            "weather",
+            "forecast",
+            "time",
+            "date",
+            "today",
+            "tomorrow",
+        )
+        if text.endswith("?") or any(cue in text for cue in dynamic_cues):
+            return False
+
+        return bool(self._has_explicit_action_cue(text))
     
     def _is_conversational_input(self, user_input: str, intent: str) -> bool:
         """Check if this is a pure conversational input (no commands/actions)"""
@@ -3837,6 +3913,141 @@ class ALICE:
             return False
         
         return True
+
+    def _is_conversational_fast_lane_turn(
+        self,
+        user_input: str,
+        intent: str,
+        intent_confidence: float,
+        *,
+        has_active_goal: bool,
+        has_explicit_action_cue: bool,
+        force_plugins_for_notes: bool,
+        pending_action: Optional[str],
+    ) -> bool:
+        """Decide whether this turn should stay on low-friction conversational routing."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        if pending_action:
+            return False
+        if has_explicit_action_cue or force_plugins_for_notes:
+            return False
+        if has_active_goal:
+            return False
+
+        tool_domains = (
+            "notes:",
+            "email:",
+            "calendar:",
+            "file_operations:",
+            "memory:",
+            "reminder:",
+            "system:",
+            "weather:",
+            "time:",
+        )
+        if any(str(intent or "").startswith(prefix) for prefix in tool_domains):
+            return False
+
+        conceptual_turn = (
+            self._is_rich_conceptual_request(text)
+            or self._is_conceptual_build_architecture_prompt(text)
+        )
+        if conceptual_turn:
+            return True
+
+        ideation_cues = (
+            "brainstorm",
+            "design",
+            "architecture",
+            "explain",
+            "ideation",
+            "ideas",
+            "think through",
+            "walk me through",
+            "what if",
+            "why does",
+        )
+        if any(cue in text for cue in ideation_cues):
+            return True
+
+        intent_text = str(intent or "")
+        if intent_text == "conversation:clarification_needed":
+            return False
+
+        if intent_text.startswith("conversation:"):
+            return float(intent_confidence or 0.0) >= 0.30
+        if intent_text == "learning:system_design":
+            return True
+        if intent_text in {"greeting", "farewell", "thanks", "status_inquiry"}:
+            return True
+        return False
+
+    def _select_execution_mode(
+        self,
+        user_input: str,
+        intent: str,
+        intent_confidence: float,
+        *,
+        has_active_goal: bool,
+        has_explicit_action_cue: bool,
+        force_plugins_for_notes: bool,
+        pending_action: Optional[str],
+    ) -> Tuple[str, str]:
+        """Pick internal execution mode: conversational intelligence vs operator."""
+        if pending_action:
+            return "operator", "pending_multistep_action"
+        if force_plugins_for_notes:
+            return "operator", "notes_followup_requires_tool"
+        if has_explicit_action_cue:
+            return "operator", "explicit_action_cue"
+
+        tool_domains = (
+            "notes:",
+            "email:",
+            "calendar:",
+            "file_operations:",
+            "memory:",
+            "reminder:",
+            "system:",
+            "weather:",
+            "time:",
+        )
+        if any(str(intent or "").startswith(prefix) for prefix in tool_domains):
+            return "operator", "tool_intent_domain"
+
+        if self._is_conversational_fast_lane_turn(
+            user_input,
+            intent,
+            float(intent_confidence or 0.0),
+            has_active_goal=has_active_goal,
+            has_explicit_action_cue=has_explicit_action_cue,
+            force_plugins_for_notes=force_plugins_for_notes,
+            pending_action=pending_action,
+        ):
+            if self._is_rich_conceptual_request(user_input):
+                return "conversational_intelligence", "rich_conceptual_fast_lane"
+            return "conversational_intelligence", "conversation_fast_lane"
+
+        # Keep conversational/learning dialogue in fast lane even if a soft
+        # active goal exists, unless there is an explicit action/tool cue.
+        _intent_text = str(intent or "").lower().strip()
+        if (
+            has_active_goal
+            and not has_explicit_action_cue
+            and (
+                _intent_text.startswith("conversation:")
+                or _intent_text.startswith("learning:")
+                or _intent_text in {"question", "study_topic"}
+            )
+        ):
+            return "conversational_intelligence", "active_goal_dialogue_fast_lane"
+
+        if has_active_goal:
+            return "operator", "active_goal_execution"
+        return "operator", "balanced_default"
 
     def _has_explicit_action_cue(self, user_input: str) -> bool:
         """Return True when the utterance clearly asks for an action/tool operation."""
@@ -4516,6 +4727,22 @@ class ALICE:
             return f"{values[0]} and {values[1]}"
         return f"{', '.join(values[:-1])}, and {values[-1]}"
 
+    def _rotate_fallback_options(self, key: str, items: List[str], take: int = 1) -> List[str]:
+        """Return a rotating, non-repeating slice for fallback phrasing variety."""
+        values = [str(x).strip() for x in list(items or []) if str(x).strip()]
+        if not values:
+            return []
+        if take <= 0:
+            return []
+
+        state = dict(getattr(self, "_fallback_rotation_state", {}) or {})
+        cursor = int(state.get(key, 0) or 0) % len(values)
+        count = min(int(take), len(values))
+        picked = [values[(cursor + i) % len(values)] for i in range(count)]
+        state[key] = (cursor + 1) % len(values)
+        self._fallback_rotation_state = state
+        return picked
+
     def _extract_learning_terms(self, text: str, max_terms: int = 10) -> List[str]:
         tokens = re.findall(r"\b[a-z0-9']+\b", str(text or "").lower())
         stop = {
@@ -4827,33 +5054,64 @@ class ALICE:
         )
 
     def _build_recovery_answer_seed(self, user_input: str, intent: str) -> str:
-        """Build a structured, non-canned seed that can be phrased through Alice's normal response path."""
+        """Build a natural recovery seed for known goals when generation is unavailable."""
         domain = self._infer_learning_domain(user_input)
         focuses = self._detected_learning_focuses(user_input)
         terms = self._extract_learning_terms(user_input, max_terms=8)
         blueprint = self._learning_blueprint(domain) if domain else {}
 
-        parts: List[str] = []
-        if domain:
-            parts.append(f"domain={domain}")
-        if focuses:
-            parts.append(f"focus={self._format_compact_list(focuses[:3])}")
-        if blueprint:
-            fnd = list(blueprint.get("foundations") or [])[:3]
-            mth = list(blueprint.get("methods") or [])[:3]
-            prj = list(blueprint.get("project") or [])[:3]
-            if fnd:
-                parts.append(f"foundations={self._format_compact_list(fnd)}")
-            if mth:
-                parts.append(f"methods={self._format_compact_list(mth)}")
-            if prj:
-                parts.append(f"project_priorities={self._format_compact_list(prj)}")
-        if terms:
-            parts.append(f"keywords={self._format_compact_list(terms[:4])}")
-        parts.append(f"user_goal={str(user_input or '').strip()}")
-        parts.append(f"intent={str(intent or '').strip() or 'conversation:help'}")
+        goal_text = str(user_input or "").strip()
+        lower_goal = goal_text.lower()
+        if "ai" in lower_goal and "project" in lower_goal:
+            return (
+                "Great direction. Start with one concrete AI use case, define success metrics, "
+                "build a small prototype, then iterate using evaluation and user feedback."
+            )
 
-        return "; ".join(p for p in parts if p)
+        sentences: List[str] = []
+        if goal_text:
+            sentences.append(f"I understand your goal: {goal_text}.")
+
+        if blueprint:
+            foundations = list(blueprint.get("foundations") or [])[:3]
+            methods = list(blueprint.get("methods") or [])[:3]
+            project_steps = list(blueprint.get("project") or [])[:3]
+            if foundations:
+                sentences.append(
+                    "Start with foundations like "
+                    + self._format_compact_list(foundations)
+                    + "."
+                )
+            if methods:
+                sentences.append(
+                    "Then practice methods such as "
+                    + self._format_compact_list(methods)
+                    + "."
+                )
+            if project_steps:
+                sentences.append(
+                    "For implementation, prioritize "
+                    + self._format_compact_list(project_steps)
+                    + "."
+                )
+        elif focuses:
+            sentences.append(
+                "A practical starting path is to focus on "
+                + self._format_compact_list(focuses[:3])
+                + "."
+            )
+        elif terms:
+            sentences.append(
+                "We can start by breaking this into clear steps around "
+                + self._format_compact_list(terms[:4])
+                + "."
+            )
+        else:
+            sentences.append(
+                "We can map this into clear phases: scope, architecture, implementation, and validation."
+            )
+
+        return " ".join(s for s in sentences if s).strip()
 
     def _compose_understood_goal_recovery(self, user_input: str, intent: str) -> str:
         learned = self._best_learned_recovery_response(user_input, intent)
@@ -4921,29 +5179,42 @@ class ALICE:
         method_topics = list(blueprint.get("methods") or [])[:3]
         project_topics = list(blueprint.get("project") or [])[:3]
 
-        method_lead = "Then move to" if any(k in text for k in ("algorithm", "algorithms", "method", "technique")) else "Then add"
-        response = (
-            f"You are asking about {domain_label}. "
-            f"Start with {self._format_compact_list(start_topics)}. "
-            f"{method_lead} {self._format_compact_list(method_topics)}. "
-            f"For your AI project, prioritize {self._format_compact_list(project_topics)}."
-        )
+        method_lead = "move to" if any(k in text for k in ("algorithm", "algorithms", "method", "technique")) else "add"
+        openers = [
+            f"Great topic. For {domain_label}, start with {self._format_compact_list(start_topics)}.",
+            f"Good direction. In {domain_label}, begin with {self._format_compact_list(start_topics)}.",
+            f"Solid goal. To learn {domain_label}, first focus on {self._format_compact_list(start_topics)}.",
+        ]
+        opener = self._rotate_fallback_options(f"{domain}:opener", openers, take=1)
+        response = (opener[0] if opener else openers[0])
 
+        if method_topics:
+            response += f" Then {method_lead} {self._format_compact_list(method_topics)}."
+        if project_topics:
+            response += f" For your AI project, prioritize {self._format_compact_list(project_topics)}."
+
+        branch_options = self._fallback_branch_options(domain, focuses)
+        branch_pick = self._rotate_fallback_options(f"{domain}:branch", branch_options, take=2)
+        closing_templates = [
+            "Pick one and I will map a 20-minute learning sprint.",
+            "Tell me which branch you want first and I will give focused exercises.",
+            "Choose one branch and I will turn it into a practical mini-roadmap.",
+        ]
+        closing = self._rotate_fallback_options(f"{domain}:closing", closing_templates, take=1)
+        closing_text = closing[0] if closing else closing_templates[0]
         if terms:
             tail_terms = [t for t in terms[:3] if t not in {"nlp", "ai", "project"}]
-            branch_options = self._fallback_branch_options(domain, focuses)
-            if branch_options:
-                response += f" I can go deeper on {self._format_compact_list(branch_options[:2])} first."
+            if branch_pick:
+                response += f" We can go deeper on {self._format_compact_list(branch_pick)} first. {closing_text}"
             elif tail_terms:
-                response += f" I can go deeper on {self._format_compact_list(tail_terms)} first."
+                response += f" We can go deeper on {self._format_compact_list(tail_terms)} first. {closing_text}"
             else:
-                response += " I can go deeper on one branch first."
+                response += f" We can go deeper on one branch first. {closing_text}"
         else:
-            branch_options = self._fallback_branch_options(domain, focuses)
-            if branch_options:
-                response += f" I can go deeper on {self._format_compact_list(branch_options[:2])} first."
+            if branch_pick:
+                response += f" We can go deeper on {self._format_compact_list(branch_pick)} first. {closing_text}"
             else:
-                response += " I can go deeper on one branch first."
+                response += f" We can go deeper on one branch first. {closing_text}"
 
         return response
 
@@ -6780,8 +7051,9 @@ class ALICE:
             # ===== DISTRIBUTED CACHE CHECK =====
             # Check if we have a cached response for this exact input
             cache_key = f"response_{hash(user_input)}"
+            _allow_distributed_cache = self._should_use_distributed_response_cache(user_input)
             cached_response = None
-            if not is_location_query:
+            if (not is_location_query) and _allow_distributed_cache:
                 cached_response = self.cache.get('responses', cache_key)
             if cached_response:
                 duration = time.time() - start_time
@@ -8702,6 +8974,16 @@ class ALICE:
                 and re.search(r"\bnotes?\b", user_input.lower())
             )
             force_plugins_for_notes = force_plugins_for_note_followup or force_plugins_for_explicit_note_read
+            _has_action_cue = bool(self._has_explicit_action_cue(user_input))
+            _execution_mode, _execution_mode_reason = self._select_execution_mode(
+                user_input=user_input,
+                intent=intent,
+                intent_confidence=float(intent_confidence or 0.0),
+                has_active_goal=bool(_authoritative_goal_stack),
+                has_explicit_action_cue=_has_action_cue,
+                force_plugins_for_notes=bool(force_plugins_for_notes),
+                pending_action=getattr(self, 'pending_action', None),
+            )
 
             _conversation_state = {}
             if getattr(self, 'conversation_state_tracker', None):
@@ -8837,17 +9119,23 @@ class ALICE:
                         _executive_state.planner_hint = 'increase_structure_depth'
                     if (
                         getattr(_pre_response_plan, 'response_type', '') in ('instruction', 'debugging', 'troubleshooting')
-                        and bool(self._has_explicit_action_cue(user_input))
+                        and _has_action_cue
                     ):
                         _executive_state.route_bias = 'tool_first'
                 except Exception:
                     _pre_response_plan = None
 
-            _pre_route_guard = self.executive_controller.should_preempt_for_plausibility(
-                _executive_state,
-                has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
-                intent_candidates=intent_candidates,
-            )
+            if _execution_mode == "conversational_intelligence":
+                _pre_route_guard = {
+                    "block": False,
+                    "reason": "conversational_fast_lane_bypass",
+                }
+            else:
+                _pre_route_guard = self.executive_controller.should_preempt_for_plausibility(
+                    _executive_state,
+                    has_explicit_action_cue=_has_action_cue,
+                    intent_candidates=intent_candidates,
+                )
             if _pre_route_guard.get("block"):
                 self._internal_reasoning_state = {
                     **_executive_state.as_dict(),
@@ -8866,6 +9154,8 @@ class ALICE:
                     "hidden_situation_summary": _hidden_state_summary,
                     "hidden_situation_snapshot": dict(_hidden_state_snapshot or {}),
                     "world_state_pre_route": dict(_world_state_before_route or {}),
+                    "execution_mode": _execution_mode,
+                    "execution_mode_reason": _execution_mode_reason,
                 }
                 if _turn_reasoning_plan is not None:
                     self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
@@ -8877,7 +9167,7 @@ class ALICE:
             _decision_scores = self.executive_controller.score_decisions(
                 _executive_state,
                 is_pure_conversation=bool(is_pure_conversation),
-                has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
+                has_explicit_action_cue=_has_action_cue,
                 has_active_goal=bool(_authoritative_goal_stack),
                 force_plugins_for_notes=bool(force_plugins_for_notes),
             )
@@ -8903,18 +9193,28 @@ class ALICE:
                 "hidden_situation_summary": _hidden_state_summary,
                 "hidden_situation_snapshot": dict(_hidden_state_snapshot or {}),
                 "world_state_pre_route": dict(_world_state_before_route or {}),
+                "execution_mode": _execution_mode,
+                "execution_mode_reason": _execution_mode_reason,
             }
             if _turn_reasoning_plan is not None:
                 self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
             if _pre_response_plan is not None:
                 self._internal_reasoning_state["response_plan"] = _pre_response_plan.as_dict()
-            _executive_decision = self.executive_controller.decide(
-                _executive_state,
-                is_pure_conversation=bool(is_pure_conversation),
-                has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
-                has_active_goal=bool(_authoritative_goal_stack),
-                force_plugins_for_notes=bool(force_plugins_for_notes),
-            )
+            if _execution_mode == "conversational_intelligence":
+                _executive_decision = ExecutiveDecision(
+                    action="use_llm",
+                    reason=f"conversational_fast_lane:{_execution_mode_reason}",
+                    store_memory=True,
+                    clarification_question="",
+                )
+            else:
+                _executive_decision = self.executive_controller.decide(
+                    _executive_state,
+                    is_pure_conversation=bool(is_pure_conversation),
+                    has_explicit_action_cue=_has_action_cue,
+                    has_active_goal=bool(_authoritative_goal_stack),
+                    force_plugins_for_notes=bool(force_plugins_for_notes),
+                )
             _learning_decision = self.executive_controller.decide_learning(
                 relevance=max(_decision_scores.get("llm", 0.0), _decision_scores.get("tools", 0.0), _decision_scores.get("search", 0.0)),
                 confidence=float(intent_confidence or 0.0),
@@ -8984,7 +9284,7 @@ class ALICE:
                     intent=intent,
                     entities=entities or {},
                     has_active_goal=bool(_authoritative_goal_stack),
-                    has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
+                    has_explicit_action_cue=_has_action_cue,
                 )
                 if _self_answer.get("block_llm"):
                     response = str(_self_answer.get("response") or "").strip()
@@ -9015,13 +9315,19 @@ class ALICE:
             if _executive_decision.action == "ignore":
                 return "I need a bit more context to act on that."
 
-            _tool_veto = self.executive_controller.should_veto_tool_execution(
-                user_input=user_input,
-                intent=intent,
-                confidence=float(intent_confidence or 0.0),
-                intent_plausibility=float(intent_plausibility or 0.0),
-                intent_candidates=intent_candidates,
-            )
+            if _execution_mode == "conversational_intelligence":
+                _tool_veto = {
+                    "veto": False,
+                    "reason": "conversational_fast_lane_bypass",
+                }
+            else:
+                _tool_veto = self.executive_controller.should_veto_tool_execution(
+                    user_input=user_input,
+                    intent=intent,
+                    confidence=float(intent_confidence or 0.0),
+                    intent_plausibility=float(intent_plausibility or 0.0),
+                    intent_candidates=intent_candidates,
+                )
             self._internal_reasoning_state["tool_veto"] = _tool_veto
             if _tool_veto.get("veto"):
                 self._think(f"Executive veto → {_tool_veto.get('reason', 'unknown')}")
@@ -9029,29 +9335,43 @@ class ALICE:
                     "I need a little clarification before I trigger a tool."
                 )
 
-            _turn_policy = getattr(self, 'turn_routing_policy', None) or get_turn_routing_policy()
-            _routing_decision = _turn_policy.decide(
-                executive_action=_executive_decision.action,
-                runtime_allow_tools=bool(_runtime_controls.get("allow_tools", True)),
-                runtime_preference=str(_runtime_controls.get("routing_preference") or "balanced"),
-                is_short_followup=bool(_is_short_followup),
-                is_pure_conversation=bool(is_pure_conversation),
-                force_plugins_for_notes=bool(force_plugins_for_notes),
-            )
-            _should_try_plugins = bool(_routing_decision.should_try_plugins)
-            self._internal_reasoning_state["routing_owner"] = _routing_decision.owner
-            self._internal_reasoning_state["routing_decision"] = {
-                "should_try_plugins": _routing_decision.should_try_plugins,
-                "force_skip_plugins": _routing_decision.force_skip_plugins,
-                "force_try_plugins": _routing_decision.force_try_plugins,
-                "reason": _routing_decision.reason,
-            }
+            if _execution_mode == "conversational_intelligence":
+                _should_try_plugins = False
+                _routing_owner = "conversational_fast_lane"
+                _routing_reason = f"skip_plugins:{_execution_mode_reason}"
+                self._internal_reasoning_state["routing_owner"] = _routing_owner
+                self._internal_reasoning_state["routing_decision"] = {
+                    "should_try_plugins": False,
+                    "force_skip_plugins": True,
+                    "force_try_plugins": False,
+                    "reason": _routing_reason,
+                }
+            else:
+                _turn_policy = getattr(self, 'turn_routing_policy', None) or get_turn_routing_policy()
+                _routing_decision = _turn_policy.decide(
+                    executive_action=_executive_decision.action,
+                    runtime_allow_tools=bool(_runtime_controls.get("allow_tools", True)),
+                    runtime_preference=str(_runtime_controls.get("routing_preference") or "balanced"),
+                    is_short_followup=bool(_is_short_followup),
+                    is_pure_conversation=bool(is_pure_conversation),
+                    force_plugins_for_notes=bool(force_plugins_for_notes),
+                )
+                _should_try_plugins = bool(_routing_decision.should_try_plugins)
+                _routing_owner = _routing_decision.owner
+                _routing_reason = _routing_decision.reason
+                self._internal_reasoning_state["routing_owner"] = _routing_owner
+                self._internal_reasoning_state["routing_decision"] = {
+                    "should_try_plugins": _routing_decision.should_try_plugins,
+                    "force_skip_plugins": _routing_decision.force_skip_plugins,
+                    "force_try_plugins": _routing_decision.force_try_plugins,
+                    "reason": _routing_decision.reason,
+                }
             self._think(
-                f"Routing owner={_routing_decision.owner} decision={_routing_decision.reason} "
+                f"Routing owner={_routing_owner} decision={_routing_reason} "
                 f"plugins={_should_try_plugins}"
             )
 
-            if getattr(self, 'roadmap_stack', None):
+            if getattr(self, 'roadmap_stack', None) and _execution_mode != "conversational_intelligence":
                 _route_choice = "tool" if _should_try_plugins else "clarify"
                 _route_ok, _route_reason = self.roadmap_stack.route_contracts.validate(
                     route=_route_choice,
@@ -9062,7 +9382,9 @@ class ALICE:
                     _should_try_plugins = False
 
             if not _should_try_plugins:
-                if is_pure_conversation:
+                if _execution_mode == "conversational_intelligence":
+                    self._think("Conversational fast lane → LLM-first response path")
+                elif is_pure_conversation:
                     self._think("Pure conversation → skipping plugins, using LLM")
                 else:
                     self._think("Short follow-up (no command words, no goal) → skipping plugins, using LLM")
@@ -10272,7 +10594,12 @@ class ALICE:
 
             # ===== PRODUCTION: CACHE & METRICS =====
             # Cache successful responses for future fast retrieval
-            if response and len(response) > 10:  # Don't cache trivial/error responses
+            if (
+                response
+                and len(response) > 10
+                and bool(locals().get('_allow_distributed_cache', False))
+                and not bool((getattr(self, '_internal_reasoning_state', {}) or {}).get('failure_recovery'))
+            ):  # Don't cache dynamic/failure-recovery responses
                 try:
                     self.cache.set('responses', cache_key, response, ttl=300)
                     self.metrics.track_cache('set', 'success')

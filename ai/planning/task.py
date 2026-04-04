@@ -9,9 +9,46 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from dataclasses import asdict, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+
+def _to_json_safe(value: Any) -> Any:
+    """Convert arbitrary runtime objects to JSON-serializable structures."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    if isinstance(value, dict):
+        return {str(k): _to_json_safe(v) for k, v in value.items()}
+
+    if isinstance(value, (list, tuple, set)):
+        return [_to_json_safe(v) for v in value]
+
+    if is_dataclass(value):
+        return _to_json_safe(asdict(value))
+
+    if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
+        try:
+            return _to_json_safe(value.to_dict())
+        except Exception:
+            pass
+
+    # NLP entity-like objects should preserve their semantic value when present.
+    normalized = getattr(value, "normalized_value", None)
+    if normalized is not None:
+        return _to_json_safe(normalized)
+    semantic_value = getattr(value, "value", None)
+    if semantic_value is not None:
+        return _to_json_safe(semantic_value)
+
+    if hasattr(value, "__dict__"):
+        try:
+            return _to_json_safe(vars(value))
+        except Exception:
+            pass
+
+    return str(value)
 
 
 class TaskStatus(str, Enum):
@@ -40,13 +77,13 @@ class Task:
         return {
             "task_id": self.task_id,
             "kind": self.kind,
-            "payload": self.payload,
+            "payload": _to_json_safe(self.payload),
             "priority": int(self.priority),
             "dependencies": list(self.dependencies),
             "status": self.status.value,
             "created_at": float(self.created_at),
             "updated_at": float(self.updated_at),
-            "result": self.result,
+            "result": _to_json_safe(self.result),
             "error": self.error,
             "attempts": int(self.attempts),
             "max_attempts": int(self.max_attempts),
@@ -104,7 +141,7 @@ class PersistentTaskQueue:
         task = Task(
             task_id=f"task-{uuid.uuid4().hex[:10]}",
             kind=kind,
-            payload=dict(payload or {}),
+            payload=_to_json_safe(dict(payload or {})),
             priority=max(0, min(9, int(priority))),
             dependencies=deps,
             max_attempts=max(1, int(max_attempts)),

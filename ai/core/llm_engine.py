@@ -17,10 +17,21 @@ import time
 import os
 from pathlib import Path
 
-# Encoding
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
-sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
+def _configure_stdio_utf8() -> None:
+    """Configure stdio encoding for direct interactive runs without import side effects."""
+    try:
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return
+
+        if getattr(sys.stdout, "buffer", None) is not None and not sys.stdout.closed:
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+        if getattr(sys.stderr, "buffer", None) is not None and not sys.stderr.closed:
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
+        if getattr(sys.stdin, "buffer", None) is not None and not sys.stdin.closed:
+            sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.debug("Skipping stdio utf-8 reconfiguration: %s", e)
 
 # Set up logging
 logging.basicConfig(
@@ -139,6 +150,7 @@ class LocalLLMEngine:
     def __init__(self, config: Optional[LLMConfig] = None):
         self.config = config or LLMConfig()
         self.conversation_history = []
+        self._available_models: List[str] = []
         self.system_prompt = """You are A.L.I.C.E (Artificial Linguistic Intelligence Computer Entity), a personal AI assistant.
 
 You're being trained on your user's actual interactions. Every conversation helps you learn their preferences and develop your unique personality. You're not a generic LLM - you're A.L.I.C.E, learning and evolving with each interaction.
@@ -286,18 +298,20 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             if response.status_code == 200:
                 models = response.json().get("models", [])
                 model_names = [m["name"] for m in models]
+                self._available_models = list(model_names)
 
                 logger.info("Ollama connection established")
                 logger.info(
                     f"Available models: {', '.join(model_names) if model_names else 'None'}"
                 )
 
-                if self.config.model.split(":")[0] not in " ".join(model_names):
-                    logger.warning(f"Model {self.config.model} not found")
-                    logger.info(f"Run: ollama pull {self.config.model}")
-                else:
-                    logger.info(f"Model {self.config.model} ready")
-                    logger.info("GPU acceleration enabled")
+                if not model_names:
+                    logger.error("No local models available. Run: ollama pull llama3.1:8b")
+                    return False
+
+                self._ensure_active_model_available(model_names)
+                logger.info(f"Model {self.config.active_model} ready")
+                logger.info("GPU acceleration enabled")
 
                 return True
         except requests.exceptions.ConnectionError:
@@ -307,18 +321,81 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             logger.error(f"Connection check failed: {e}")
             return False
 
-    def chat(self, user_input: str, use_history: bool = True) -> str:
+    def _pick_fallback_model(self, model_names: List[str]) -> Optional[str]:
+        """Pick the best available local model when the configured one is missing."""
+        if not model_names:
+            return None
+
+        priorities = (
+            "llama3.3",
+            "llama3.2",
+            "llama3.1",
+            "llama3",
+            "qwen",
+            "mistral",
+        )
+        lowered = {name.lower(): name for name in model_names}
+        for pref in priorities:
+            for key, original in lowered.items():
+                if key.startswith(pref):
+                    return original
+        return model_names[0]
+
+    def _ensure_active_model_available(self, model_names: List[str]) -> None:
+        """Ensure active model exists locally; fallback automatically if missing."""
+        active_model = str(self.config.active_model or "").strip()
+        if active_model in model_names:
+            return
+
+        base = active_model.split(":", 1)[0].lower()
+        same_family = [m for m in model_names if m.lower().startswith(f"{base}:")]
+        fallback = same_family[0] if same_family else self._pick_fallback_model(model_names)
+        if not fallback:
+            return
+
+        logger.warning(
+            "Model %s not found locally. Falling back to %s",
+            active_model,
+            fallback,
+        )
+        self.config._fine_tuned_model = None
+        self.config.model = fallback
+        logger.info("Run this later to restore preferred model: ollama pull %s", active_model)
+
+    def _resolve_temperature(self, temperature: Optional[float]) -> float:
+        """Resolve a per-call temperature override with safe fallback."""
+        if temperature is None:
+            return float(self.config.temperature)
+
+        try:
+            return max(0.0, min(1.0, float(temperature)))
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid temperature override %r; using config value", temperature
+            )
+            return float(self.config.temperature)
+
+    def chat(
+        self,
+        user_input: str,
+        use_history: bool = True,
+        temperature: Optional[float] = None,
+    ) -> str:
         """
         Send message to LLM with GPU acceleration
 
         Args:
             user_input: User's message
             use_history: Include conversation history for context
+            temperature: Optional per-call temperature override
 
         Returns:
             Assistant's response
         """
         try:
+            if self._available_models:
+                self._ensure_active_model_available(self._available_models)
+
             # Build message history
             messages = [{"role": "system", "content": self.system_prompt}]
 
@@ -337,7 +414,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                     "messages": messages,
                     "stream": False,
                     "options": {
-                        "temperature": self.config.temperature,
+                        "temperature": self._resolve_temperature(temperature),
                         "num_gpu": 1,  # Use GPU
                         "num_thread": 16,  # Utilize your i7-14700K cores
                         "num_ctx": 4096,  # Context window
@@ -348,7 +425,12 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
 
             if response.status_code == 200:
                 result = response.json()
-                assistant_message = result["message"]["content"]
+                assistant_message = str(
+                    (result.get("message") or {}).get("content") or ""
+                ).strip()
+                if not assistant_message:
+                    logger.warning("LLM returned an empty chat response")
+                    return "I received an empty response from the model. Please try again."
 
                 # Store in conversation history
                 self.conversation_history.append(
@@ -373,7 +455,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         except requests.exceptions.ConnectionError:
             logger.error("[A.L.I.C.E.] Connection lost - attempting auto-restart...")
             if self._ensure_ollama_running():
-                return self.chat(user_input, use_history)  # Retry once
+                return self.chat(
+                    user_input, use_history, temperature=temperature
+                )  # Retry once
             raise Exception("Service temporarily unavailable - Ollama not running")
         except Exception as e:
             logger.error(f"Error in LLM chat: {e}")
@@ -390,6 +474,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             Response chunks as they're generated
         """
         try:
+            if self._available_models:
+                self._ensure_active_model_available(self._available_models)
+
             messages = [{"role": "system", "content": self.system_prompt}]
             messages.extend(self.conversation_history[-self.config.max_history :])
             messages.append({"role": "user", "content": user_input})
@@ -413,17 +500,40 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                 timeout=self.config.timeout,
             )
 
+            if response.status_code != 200:
+                error_text = ""
+                try:
+                    payload = response.json()
+                    error_text = str(payload.get("error") or "").strip()
+                except Exception:
+                    error_text = str(getattr(response, "text", "") or "").strip()
+                if not error_text:
+                    error_text = f"LLM API error: {response.status_code}"
+                logger.error("Streaming failed: %s", error_text)
+                yield f"\n\n[ERROR] {error_text}"
+                return
+
             full_response = ""
             for line in response.iter_lines():
                 if line:
                     try:
                         chunk = json.loads(line)
+                        if "error" in chunk:
+                            err = str(chunk.get("error") or "Unknown stream error").strip()
+                            logger.error("Streaming chunk error: %s", err)
+                            yield f"\n\n[ERROR] {err}"
+                            return
                         if "message" in chunk:
                             content = chunk["message"].get("content", "")
                             full_response += content
                             yield content
                     except json.JSONDecodeError:
                         continue
+
+            if not full_response.strip():
+                logger.warning("Streaming returned no content")
+                yield "\n\n[WARNING] I received no output from the model. Try /stream to toggle mode or pull a local model."
+                return
 
             # Store in history
             self.conversation_history.append({"role": "user", "content": user_input})
@@ -444,6 +554,8 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         prompt: str,
         max_tokens: Optional[int] = None,
         context: Optional[Dict[str, Any]] = None,
+        temperature: Optional[float] = None,
+        **kwargs: Any,
     ) -> str:
         """Compatibility API for planner paths that expect generate()."""
         prompt_text = str(prompt or "")
@@ -454,9 +566,15 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                 context_blob = str(context)
             prompt_text = f"Context:\n{context_blob}\n\nPrompt:\n{prompt_text}"
 
+        if kwargs:
+            logger.debug(
+                "Ignoring unsupported generate() kwargs: %s",
+                ", ".join(sorted(kwargs.keys())),
+            )
+
         try:
             options = {
-                "temperature": self.config.temperature,
+                "temperature": self._resolve_temperature(temperature),
                 "num_gpu": 1,
                 "num_thread": 16,
                 "num_ctx": 4096,
@@ -488,7 +606,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         except Exception as e:
             logger.warning(f"generate() fallback to chat() due to: {e}")
 
-        return self.chat(prompt_text, use_history=False)
+        return self.chat(prompt_text, use_history=False, temperature=temperature)
 
     def query_knowledge(self, question: str) -> str:
         """
@@ -782,6 +900,7 @@ Provide:
 
 # Main interface
 if __name__ == "__main__":
+    _configure_stdio_utf8()
     print("=" * 80)
     print("A.L.I.C.E - Advanced GPU-Accelerated AI Assistant")
     print("=" * 80)

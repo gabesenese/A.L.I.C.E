@@ -14,9 +14,18 @@ All code should call LLMGateway.request() instead of llm.chat() directly.
 import logging
 import json
 import os
+import sys
 from typing import Optional, Dict, Any, Callable
 from datetime import datetime
 from dataclasses import dataclass
+
+# Allow direct execution from ai/core (e.g. `py llm_gateway.py`) by ensuring
+# the project root is available for absolute `ai.*` imports.
+if __package__ in (None, ""):
+    _CORE_DIR = os.path.dirname(os.path.abspath(__file__))
+    _PROJECT_ROOT = os.path.dirname(os.path.dirname(_CORE_DIR))
+    if _PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, _PROJECT_ROOT)
 
 from ai.core.llm_policy import get_llm_policy, LLMCallType
 from ai.models.simple_formatters import FormatterRegistry

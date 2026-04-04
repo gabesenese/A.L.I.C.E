@@ -109,3 +109,27 @@ def test_persistent_task_queue_background_loop(tmp_path: Path) -> None:
 
     snap = queue.snapshot()
     assert snap["counts"][TaskStatus.COMPLETED.value] >= 1
+
+
+def test_persistent_task_queue_serializes_entity_like_payload(tmp_path: Path) -> None:
+    store = tmp_path / "tasks.json"
+    queue = PersistentTaskQueue(str(store))
+
+    class _EntityLike:
+        def __init__(self, value: str):
+            self.value = value
+
+    queue.register_handler("echo", lambda task: {"payload": task.payload})
+    created = queue.create_task(
+        "echo",
+        {"CATEGORY": [_EntityLike("work")], "query": "i want to work on an ai project"},
+    )
+
+    ran = queue.run_once()
+    assert ran is True
+
+    reloaded = PersistentTaskQueue(str(store))
+    tasks = {t.task_id: t for t in reloaded.list_tasks()}
+    loaded = tasks[created.task_id]
+    assert loaded.status == TaskStatus.COMPLETED
+    assert loaded.payload.get("CATEGORY") == ["work"]
