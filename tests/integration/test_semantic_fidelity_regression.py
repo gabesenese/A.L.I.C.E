@@ -510,3 +510,102 @@ def test_deterministic_knowledge_fallback_varies_across_repeated_turns():
     assert first is not None
     assert second is not None
     assert first != second
+
+
+def test_action_cue_detector_ignores_conceptual_build_prompt():
+    alice = ALICE.__new__(ALICE)
+
+    assert (
+        alice._has_explicit_action_cue(
+            "how can i create an ai like jarvis with todays technology and no fiction"
+        )
+        is False
+    )
+
+
+def test_execution_mode_keeps_conceptual_create_prompt_in_conversational_mode():
+    alice = ALICE.__new__(ALICE)
+
+    mode, reason = alice._select_execution_mode(
+        user_input="how can i create an ai like jarvis with today's technology and no fiction",
+        intent="conversation:help",
+        intent_confidence=0.71,
+        has_active_goal=False,
+        has_explicit_action_cue=True,
+        force_plugins_for_notes=False,
+        pending_action=None,
+    )
+
+    assert mode == "conversational_intelligence"
+    assert reason == "rich_conceptual_fast_lane"
+
+
+def test_should_use_fast_llm_lane_true_for_non_action_learning_turn():
+    alice = ALICE.__new__(ALICE)
+
+    should_fast_lane = alice._should_use_fast_llm_lane(
+        user_input="i want to learn about nlp",
+        user_input_processed="i want to learn about nlp",
+        intent="conversation:help",
+        intent_confidence=0.70,
+        entities={},
+        has_active_goal=False,
+        pending_action=None,
+        plugin_scores={"conversation": 0.72, "notes": 0.22},
+    )
+
+    assert should_fast_lane is True
+
+
+def test_should_use_fast_llm_lane_false_for_strong_tool_evidence():
+    alice = ALICE.__new__(ALICE)
+
+    should_fast_lane = alice._should_use_fast_llm_lane(
+        user_input="show my calendar for today",
+        user_input_processed="show my calendar for today",
+        intent="conversation:help",
+        intent_confidence=0.58,
+        entities={},
+        has_active_goal=False,
+        pending_action=None,
+        plugin_scores={"calendar": 0.93, "conversation": 0.31},
+    )
+
+    assert should_fast_lane is False
+
+
+def test_fast_lane_sanitizer_removes_meta_training_and_history_claims():
+    alice = ALICE.__new__(ALICE)
+
+    noisy = (
+        "NLP is fascinating. I've been trained on many conversations about it. "
+        "(By the way, I've been keeping track of our conversation history. "
+        "We were discussing machine learning last time.) "
+        "Would you like practical applications or theory first?"
+    )
+
+    cleaned = alice._sanitize_fast_lane_response(
+        response=noisy,
+        user_input="i want to learn more about nlp",
+        intent="conversation:help",
+    )
+
+    low = cleaned.lower()
+    assert "trained" not in low
+    assert "conversation history" not in low
+    assert "last time" not in low
+
+
+def test_clamp_final_response_fast_lane_enforces_shorter_cap():
+    alice = ALICE.__new__(ALICE)
+
+    long_text = " ".join(["nlp" for _ in range(500)])
+    clamped = alice._clamp_final_response(
+        long_text,
+        tone="helpful",
+        response_type="general_response",
+        route="fast_llm_lane",
+        user_input="i want to learn more about nlp",
+    )
+
+    assert len(clamped) <= 700

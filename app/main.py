@@ -1810,6 +1810,9 @@ class ALICE:
         if "professional" in tone or "precise" in tone:
             max_chars = min(max_chars, 1400)
 
+        if route in {"fast_llm_lane", "fast_llm_publish"}:
+            max_chars = min(max_chars, 700)
+
         # Only hard-truncate short/system response types. Keep general answers intact.
         hard_truncate_types = {
             "clarification_prompt",
@@ -1824,6 +1827,9 @@ class ALICE:
         # Safety cap for pathological outputs.
         if len(text) > 6000:
             text = text[:5997].rstrip() + "..."
+
+        if route in {"fast_llm_lane", "fast_llm_publish"} and len(text) > max_chars:
+            text = text[: max_chars - 3].rstrip() + "..."
 
         # Enforce one-line concise output for micro conversational routes.
         if route in {"wake_word", "farewell", "greeting", "ollama_phrase_micro"}:
@@ -4001,6 +4007,12 @@ class ALICE:
             return "operator", "pending_multistep_action"
         if force_plugins_for_notes:
             return "operator", "notes_followup_requires_tool"
+
+        # Conceptual/build prompts stay conversational even when they contain
+        # words like "create" or "build".
+        if self._is_rich_conceptual_request(user_input) or self._is_conceptual_build_architecture_prompt(user_input):
+            return "conversational_intelligence", "rich_conceptual_fast_lane"
+
         if has_explicit_action_cue:
             return "operator", "explicit_action_cue"
 
@@ -4055,6 +4067,9 @@ class ALICE:
             return False
 
         text = user_input.lower().strip()
+        if self._is_rich_conceptual_request(text) or self._is_conceptual_build_architecture_prompt(text):
+            return False
+
         action_pattern = (
             r"\b(open|launch|play|send|create|make|delete|remove|search|find|"
             r"show|list|check|read|write|edit|update|move|copy|archive|"
@@ -4062,6 +4077,263 @@ class ALICE:
             r"weather|forecast|temperature|time|date)\b"
         )
         return bool(re.search(action_pattern, text))
+
+    def _is_high_risk_conversational_request(self, user_input: str) -> bool:
+        """Detect high-risk categories that should avoid direct conversational bypass."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+        risky_pattern = (
+            r"\b(medical|diagnos|legal|lawsuit|financial|investment|tax|"
+            r"security|exploit|malware|password|credential|breach)\b"
+        )
+        return bool(re.search(risky_pattern, text))
+
+    def _should_use_fast_llm_lane(
+        self,
+        *,
+        user_input: str,
+        user_input_processed: str,
+        intent: str,
+        intent_confidence: float,
+        entities: Dict[str, Any],
+        has_active_goal: bool,
+        pending_action: Optional[str],
+        plugin_scores: Optional[Dict[str, float]] = None,
+    ) -> bool:
+        """Single decision point for conversational fast lane routing."""
+        text = str(user_input or "").strip()
+        if not text:
+            return False
+        if pending_action:
+            return False
+        if self._is_high_risk_conversational_request(text):
+            return False
+
+        normalized_intent = str(intent or "").lower().strip()
+        tool_domains = (
+            "notes:",
+            "email:",
+            "calendar:",
+            "file_operations:",
+            "memory:",
+            "reminder:",
+            "system:",
+            "weather:",
+            "time:",
+        )
+        if any(normalized_intent.startswith(prefix) for prefix in tool_domains):
+            return False
+
+        explicit_action = bool(self._has_explicit_action_cue(user_input_processed or user_input))
+        if explicit_action:
+            return False
+
+        # Strong non-conversational plugin evidence should keep operator mode.
+        top_plugin = 0.0
+        top_plugin_name = ""
+        for key, value in dict(plugin_scores or {}).items():
+            try:
+                score = float(value)
+            except Exception:
+                continue
+            if score > top_plugin:
+                top_plugin = score
+                top_plugin_name = str(key or "")
+        if (
+            top_plugin >= 0.85
+            and top_plugin_name
+            and not top_plugin_name.startswith("conversation")
+            and not top_plugin_name.startswith("learning")
+        ):
+            return False
+
+        if self._is_conversational_fast_lane_turn(
+            user_input,
+            intent,
+            float(intent_confidence or 0.0),
+            has_active_goal=has_active_goal,
+            has_explicit_action_cue=False,
+            force_plugins_for_notes=False,
+            pending_action=pending_action,
+        ):
+            return True
+
+        if (
+            has_active_goal
+            and (
+                normalized_intent.startswith("conversation:")
+                or normalized_intent.startswith("learning:")
+                or normalized_intent in {"question", "study_topic"}
+            )
+        ):
+            return True
+
+        return False
+
+    def _run_fast_llm_lane(
+        self,
+        *,
+        user_input: str,
+        user_input_processed: str,
+        intent: str,
+        entities: Dict[str, Any],
+        goal_res: Any,
+    ) -> Optional[str]:
+        """Use llm_engine as the default conversational surface for non-action turns."""
+        llm_input = str(user_input_processed or user_input or "").strip()
+        if not llm_input:
+            return None
+
+        lane_prompt = (
+            "You are A.L.I.C.E. Answer naturally in 2-4 concise sentences. "
+            "Be direct and practical. Do not mention being trained, model internals, "
+            "or conversation history unless the user explicitly asks about them. "
+            "Do not invent prior-session details.\n\n"
+            f"User request: {llm_input}"
+        )
+
+        if goal_res and goal_res.goal and self._should_attach_goal_context(llm_input, intent):
+            goal_note = (
+                f"\n[Context: Help the user move toward this goal while staying natural: "
+                f"{goal_res.goal.description}]"
+            )
+            lane_prompt = lane_prompt + goal_note
+
+        try:
+            response = self.llm.chat(
+                lane_prompt,
+                use_history=True,
+                temperature=0.45,
+            )
+        except Exception as e:
+            logger.debug("Fast LLM lane failed: %s", e)
+            return None
+
+        response_text = str(response or "").strip()
+        if not response_text:
+            return None
+
+        response_text = self._clamp_final_response(
+            response_text,
+            tone='helpful',
+            response_type='general_response',
+            route='fast_llm_lane',
+            user_input=user_input,
+        )
+        response_text = self._apply_response_style_constraints(response_text)
+        response_text = self._prevent_unsolicited_summary(
+            user_input=user_input,
+            intent=intent,
+            response=response_text,
+            plugin_result=None,
+        )
+        response_text = self._sanitize_fast_lane_response(
+            response=response_text,
+            user_input=user_input,
+            intent=intent,
+        )
+        return response_text
+
+    def _sanitize_fast_lane_response(self, *, response: str, user_input: str, intent: str) -> str:
+        """Strip meta/hallucinated assistant chatter from fast-lane replies."""
+        text = str(response or "").strip()
+        if not text:
+            return text
+
+        blocked_patterns = (
+            r"\bi(?:'| a)?m\s+an?\s+ai\b",
+            r"\blanguage model\b",
+            r"\bi(?:'| )?ve been trained\b",
+            r"\bconversation history\b",
+            r"\blast time we were discussing\b",
+            r"\bby the way\b",
+            r"\bI've got a few resources\b",
+        )
+
+        filtered_lines = []
+        for line in text.splitlines():
+            normalized = line.strip()
+            if not normalized:
+                continue
+            if any(re.search(pattern, normalized, flags=re.IGNORECASE) for pattern in blocked_patterns):
+                continue
+            filtered_lines.append(normalized)
+
+        compact = " ".join(filtered_lines).strip()
+        compact = re.sub(r"\s+", " ", compact)
+        compact = re.sub(r"\(\s*\)", "", compact)
+
+        sentences = re.split(r"(?<=[.!?])\s+", compact)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        if len(sentences) > 4:
+            sentences = sentences[:4]
+
+        question_count = 0
+        trimmed = []
+        for sentence in sentences:
+            if sentence.endswith("?"):
+                question_count += 1
+                if question_count > 1:
+                    continue
+            trimmed.append(sentence)
+
+        out = " ".join(trimmed).strip()
+        if not out:
+            fallback = self._deterministic_knowledge_fallback(user_input, intent)
+            if fallback:
+                out = fallback
+            else:
+                out = "Great topic. We can start with foundations, then move into practical examples."
+
+        return self._clamp_final_response(
+            out,
+            tone="helpful",
+            response_type="general_response",
+            route="fast_llm_lane",
+            user_input=user_input,
+        )
+
+    def _publish_with_fast_llm_style(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        response: str,
+    ) -> str:
+        """Polish final publishing tone through llm_engine while keeping meaning intact."""
+        base = str(response or "").strip()
+        if not base:
+            return base
+
+        if self._is_high_risk_conversational_request(user_input):
+            return base
+
+        if len(base) < 20 or len(base) > 650:
+            return base
+
+        rewrite_prompt = (
+            "Rewrite this assistant reply so it sounds natural, clear, and concise. "
+            "Keep facts unchanged. Do not add new claims.\n\n"
+            f"User: {str(user_input or '').strip()}\n"
+            f"Intent: {str(intent or '').strip()}\n"
+            f"Draft reply: {base}"
+        )
+        try:
+            polished = self.llm.chat(rewrite_prompt, use_history=False, temperature=0.35)
+            polished_text = str(polished or "").strip()
+            if polished_text:
+                return self._clamp_final_response(
+                    polished_text,
+                    tone='helpful',
+                    response_type='general_response',
+                    route='fast_llm_publish',
+                    user_input=user_input,
+                )
+        except Exception as e:
+            logger.debug("Fast publish polish skipped: %s", e)
+
+        return base
 
     def _is_rich_conceptual_request(self, user_input: str) -> bool:
         """Return True for conceptual architecture prompts with clear framing and constraints."""
@@ -8320,6 +8592,59 @@ class ALICE:
                 # Only show suggestions on non-urgent intents
                 return proactive_suggestion
             
+            _fast_goal_stack = self._authoritative_goal_stack(
+                goal_res,
+                preferred_goal=_goal_followup_goal_object,
+            )
+            _fast_lane_enabled = self._should_use_fast_llm_lane(
+                user_input=user_input,
+                user_input_processed=user_input_processed,
+                intent=intent,
+                intent_confidence=float(intent_confidence or 0.0),
+                entities=entities or {},
+                has_active_goal=bool(_fast_goal_stack),
+                pending_action=getattr(self, 'pending_action', None),
+                plugin_scores=getattr(nlp_result, 'plugin_scores', {}) if nlp_result else {},
+            )
+            if _fast_lane_enabled:
+                self._think("Fast conversational lane → llm_engine default path")
+                _fast_response = self._run_fast_llm_lane(
+                    user_input=user_input,
+                    user_input_processed=user_input_processed,
+                    intent=intent,
+                    entities=entities or {},
+                    goal_res=goal_res,
+                )
+                if _fast_response:
+                    if not isinstance(getattr(self, '_internal_reasoning_state', None), dict):
+                        self._internal_reasoning_state = {}
+                    self._internal_reasoning_state.update(
+                        {
+                            "execution_mode": "conversational_intelligence",
+                            "execution_mode_reason": "fast_llm_lane_early",
+                            "routing_owner": "fast_llm_lane",
+                            "routing_decision": {
+                                "should_try_plugins": False,
+                                "force_skip_plugins": True,
+                                "force_try_plugins": False,
+                                "reason": "fast_llm_lane_early",
+                            },
+                        }
+                    )
+                    self._store_interaction(user_input, _fast_response, intent, entities)
+                    self.last_assistant_response = _fast_response
+                    self._run_executive_reflection(
+                        user_input=user_input,
+                        intent=intent,
+                        response=_fast_response,
+                        route="llm",
+                        prior_confidence=float(intent_confidence or 0.0),
+                    )
+                    if use_voice and self.speech:
+                        self.speech.speak(_fast_response, blocking=False)
+                    logger.info(f"A.L.I.C.E (fast-lane): {_fast_response[:100]}...")
+                    return _fast_response
+
             # Try planner/executor for structured tasks first
             intent, entities = self._promote_learning_goal_intent(
                 user_input_processed, intent, entities
@@ -9889,6 +10214,13 @@ class ALICE:
                         _sec_summary = self.multi_step_reasoning_engine.summarize_outcomes(_sec_outcomes)
                         if _sec_summary:
                             response = f"{response}\n\n{_sec_summary}" if response else _sec_summary
+
+                if success and response:
+                    response = self._publish_with_fast_llm_style(
+                        user_input=user_input,
+                        intent=intent,
+                        response=response,
+                    )
 
                 response = self._apply_response_style_constraints(response)
                 response = self._prevent_unsolicited_summary(
