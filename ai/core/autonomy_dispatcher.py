@@ -124,9 +124,10 @@ class TinyAutonomyDispatcher:
             or self._default_goal_action_for_outcome(outcome)
         )
         message = str(rule.get("message") or "")
-        recommended_action = str(
-            (event or {}).get("recommended_action") or next_goal_action
-        ).strip() or next_goal_action
+        recommended_action = (
+            str((event or {}).get("recommended_action") or next_goal_action).strip()
+            or next_goal_action
+        )
         confidence = float((event or {}).get("confidence", 0.0) or 0.0)
         dedupe_key = f"{reason}:{goal_id or 'none'}:{severity}:{recommended_action}"
 

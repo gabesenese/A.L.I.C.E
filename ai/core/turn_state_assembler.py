@@ -46,7 +46,9 @@ class TurnStateAssembler:
         return {}
 
     def _recent_events(self, limit: int = 3) -> List[str]:
-        if not self.world_memory or not hasattr(self.world_memory, "memory"):  # pragma: no cover - depends on runtime object
+        if not self.world_memory or not hasattr(
+            self.world_memory, "memory"
+        ):  # pragma: no cover - depends on runtime object
             return []
         events: List[str] = []
         try:
@@ -58,16 +60,29 @@ class TurnStateAssembler:
             return []
         return events[-limit:]
 
-    def _confidence_state(self, world_state: Dict[str, Any], action_context: Dict[str, Any]) -> Dict[str, Any]:
+    def _confidence_state(
+        self, world_state: Dict[str, Any], action_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         confidence = action_context.get("confidence")
         if confidence is None:
             confidence = world_state.get("last_confidence", 0.5)
         return {
-            "confidence": max(0.0, min(1.0, float(confidence) if isinstance(confidence, (int, float)) else 0.5)),
-            "ambiguous": bool(action_context.get("ambiguity_detected") or world_state.get("ambiguity_detected")),
+            "confidence": max(
+                0.0,
+                min(
+                    1.0,
+                    float(confidence) if isinstance(confidence, (int, float)) else 0.5,
+                ),
+            ),
+            "ambiguous": bool(
+                action_context.get("ambiguity_detected")
+                or world_state.get("ambiguity_detected")
+            ),
         }
 
-    def _question_state(self, world_state: Dict[str, Any], action_context: Dict[str, Any]) -> Dict[str, Any]:
+    def _question_state(
+        self, world_state: Dict[str, Any], action_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         open_questions = _coerce_list(world_state.get("open_questions"))
         pending_slot = action_context.get("pending_slot")
         return {
@@ -77,7 +92,9 @@ class TurnStateAssembler:
             "has_pending_slot": bool(pending_slot),
         }
 
-    def _goal_progress(self, world_state: Dict[str, Any], action_context: Dict[str, Any]) -> Dict[str, Any]:
+    def _goal_progress(
+        self, world_state: Dict[str, Any], action_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         goals = _coerce_list(world_state.get("active_goals"))
         completed = _safe_int(world_state.get("goals_completed"), 0)
         return {
@@ -87,7 +104,9 @@ class TurnStateAssembler:
             "priority_goal": action_context.get("goal") or (goals[0] if goals else ""),
         }
 
-    def _goal_state(self, world_state: Dict[str, Any], action_context: Dict[str, Any]) -> Dict[str, Any]:
+    def _goal_state(
+        self, world_state: Dict[str, Any], action_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         raw_stack: List[Any] = []
 
         if action_context.get("goal") is not None:
@@ -115,7 +134,9 @@ class TurnStateAssembler:
         priority = normalized[0] if normalized else {}
         blockers: List[str] = []
         for g in normalized:
-            blockers.extend([str(x) for x in list(g.get("blockers") or []) if str(x).strip()])
+            blockers.extend(
+                [str(x) for x in list(g.get("blockers") or []) if str(x).strip()]
+            )
 
         dedup_blockers: List[str] = []
         bseen = set()
@@ -134,7 +155,9 @@ class TurnStateAssembler:
             "status": str((priority or {}).get("status") or "").strip().lower(),
         }
 
-    def _continuation_state(self, world_state: Dict[str, Any], action_context: Dict[str, Any]) -> Dict[str, Any]:
+    def _continuation_state(
+        self, world_state: Dict[str, Any], action_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         pending_slot = action_context.get("pending_slot")
         if not isinstance(pending_slot, dict):
             pending_slot = world_state.get("pending_clarification")
@@ -151,7 +174,9 @@ class TurnStateAssembler:
         parent_context = {
             "parent_request": str(pending_slot.get("parent_request") or "").strip(),
             "parent_intent": str(pending_slot.get("parent_intent") or "").strip(),
-            "slot_type": str(pending_slot.get("slot_type") or pending_slot.get("type") or "").strip(),
+            "slot_type": str(
+                pending_slot.get("slot_type") or pending_slot.get("type") or ""
+            ).strip(),
         }
 
         mode = "normal"
@@ -181,13 +206,19 @@ class TurnStateAssembler:
 
         return {
             "plugin": str(world_state.get("last_plugin") or "").strip(),
-            "action": str(world_state.get("last_tool_action") or world_state.get("last_action_name") or "").strip(),
+            "action": str(
+                world_state.get("last_tool_action")
+                or world_state.get("last_action_name")
+                or ""
+            ).strip(),
             "status": str(world_state.get("last_status") or "").strip(),
             "success": bool(world_state.get("last_success", False)),
             "timestamp": str(world_state.get("last_action_at") or "").strip(),
         }
 
-    def _selected_focus_state(self, world_state: Dict[str, Any], action_context: Dict[str, Any]) -> Dict[str, Any]:
+    def _selected_focus_state(
+        self, world_state: Dict[str, Any], action_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         selected_entity = str(
             action_context.get("selected_entity")
             or world_state.get("selected_object_reference")

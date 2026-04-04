@@ -24,7 +24,9 @@ class ClarificationResolution:
 class ClarificationResolver:
     """Consume pending clarification slots before generic routing."""
 
-    def resolve(self, user_input: str, pending_slot: Dict[str, Any] | None) -> ClarificationResolution:
+    def resolve(
+        self, user_input: str, pending_slot: Dict[str, Any] | None
+    ) -> ClarificationResolution:
         slot = dict(pending_slot or {})
         slot_type = str(slot.get("slot_type") or slot.get("type") or "").strip().lower()
         text = str(user_input or "").strip()
@@ -43,10 +45,14 @@ class ClarificationResolver:
 
             parent_request = str(slot.get("parent_request") or "").strip()
             parent_topic = str(slot.get("parent_topic") or "topic").strip()
-            parent_intent = str(slot.get("parent_intent") or "conversation:question").strip()
+            parent_intent = str(
+                slot.get("parent_intent") or "conversation:question"
+            ).strip()
 
             if parent_request:
-                reconstructed_input = f"{parent_request}. Focus first on {branch.replace('_', ' ')}."
+                reconstructed_input = (
+                    f"{parent_request}. Focus first on {branch.replace('_', ' ')}."
+                )
             else:
                 reconstructed_input = f"Give me a practical overview of {parent_topic} with focus on {branch.replace('_', ' ')}."
 
@@ -65,12 +71,18 @@ class ClarificationResolver:
     def _parse_topic_branch(text_low: str, allowed_values: list[str]) -> str:
         value_map = {
             "intent_routing": (r"\b(intent\s*routing|routing|router)\b",),
-            "entity_extraction": (r"\b(entity\s*extraction|entities|slot\s*filling|ner)\b",),
+            "entity_extraction": (
+                r"\b(entity\s*extraction|entities|slot\s*filling|ner)\b",
+            ),
             "embeddings": (r"\b(embedding|embeddings|vector|sentence\s*embedding)\b",),
-            "conversation_flow": (r"\b(conversation\s*flow|dialogue\s*flow|dialog\s*flow|flow)\b",),
+            "conversation_flow": (
+                r"\b(conversation\s*flow|dialogue\s*flow|dialog\s*flow|flow)\b",
+            ),
         }
 
-        normalized_allowed = [str(v).strip().lower() for v in list(allowed_values or []) if str(v).strip()]
+        normalized_allowed = [
+            str(v).strip().lower() for v in list(allowed_values or []) if str(v).strip()
+        ]
         candidates = normalized_allowed or list(value_map.keys())
         for candidate in candidates:
             patterns = value_map.get(candidate, ())

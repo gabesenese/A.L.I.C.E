@@ -229,16 +229,23 @@ class LLMGateway:
                         model_used=model_used,
                         route_source="multi_router",
                     )
-                if call_type == LLMCallType.GENERATION and self.strict_generation_router:
+                if (
+                    call_type == LLMCallType.GENERATION
+                    and self.strict_generation_router
+                ):
                     _raw_err = str(routed.get("response") or "")
                     if _raw_err:
-                        logger.info("[LLMGateway] strict generation blocked: %s", _raw_err)
+                        logger.info(
+                            "[LLMGateway] strict generation blocked: %s", _raw_err
+                        )
                     err = "Primary generation route is unavailable right now."
                     self._last_route = {
                         "source": "multi_router",
                         "call_type": call_type.value,
                         "model": str(routed.get("model") or ""),
-                        "role": (getattr(self.model_router, "last_route", {}) or {}).get("role", ""),
+                        "role": (
+                            getattr(self.model_router, "last_route", {}) or {}
+                        ).get("role", ""),
                     }
                     return LLMResponse(
                         success=False,

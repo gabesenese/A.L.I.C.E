@@ -226,7 +226,9 @@ class ConversationStateTracker:
             ],
             pending_followup_slot=dict(data.get("pending_followup_slot", {}) or {}),
             pending_clarification=dict(data.get("pending_clarification", {}) or {}),
-            selected_object_reference=str(data.get("selected_object_reference", "") or ""),
+            selected_object_reference=str(
+                data.get("selected_object_reference", "") or ""
+            ),
             paused_autonomy_reason=str(data.get("paused_autonomy_reason", "") or ""),
             last_recovery_outcome=str(data.get("last_recovery_outcome", "") or ""),
             last_trigger_goal=str(data.get("last_trigger_goal", "") or ""),

@@ -185,10 +185,14 @@ class ExecutiveController:
         entities = entities or {}
         conversation_state = conversation_state or {}
 
-        hidden_snapshot = dict(conversation_state.get("hidden_situation_snapshot") or {})
+        hidden_snapshot = dict(
+            conversation_state.get("hidden_situation_snapshot") or {}
+        )
         hidden_goal_state = dict(hidden_snapshot.get("goal_state") or {})
         priority_goal = dict(hidden_goal_state.get("priority_goal") or {})
-        current_goal = dict(conversation_state.get("current_goal") or priority_goal or {})
+        current_goal = dict(
+            conversation_state.get("current_goal") or priority_goal or {}
+        )
 
         raw_goal_stack: List[Dict[str, Any]] = []
         for candidate in (
@@ -213,12 +217,16 @@ class ExecutiveController:
             priority_goal = dict(deduped_goal_stack[0] or {})
             current_goal = dict(priority_goal)
 
-        goal_status = str(
-            current_goal.get("status")
-            or priority_goal.get("status")
-            or hidden_goal_state.get("status")
-            or ""
-        ).strip().lower()
+        goal_status = (
+            str(
+                current_goal.get("status")
+                or priority_goal.get("status")
+                or hidden_goal_state.get("status")
+                or ""
+            )
+            .strip()
+            .lower()
+        )
         goal_next_action = str(
             current_goal.get("next_action")
             or priority_goal.get("next_action")
@@ -245,7 +253,9 @@ class ExecutiveController:
 
         goal_active_count = int(hidden_goal_state.get("active_goal_count") or 0)
         if goal_active_count <= 0:
-            goal_active_count = len(raw_goal_stack) if raw_goal_stack else (1 if priority_goal else 0)
+            goal_active_count = (
+                len(raw_goal_stack) if raw_goal_stack else (1 if priority_goal else 0)
+            )
 
         topic = str(
             entities.get("topic")
@@ -439,14 +449,18 @@ class ExecutiveController:
 
         # Minimal executive kernel (4 decisions):
         # ACT, ANSWER, ASK, WAIT/DEFER
-        act_score = max(float(scores.get("tools", 0.0)), float(scores.get("search", 0.0)))
+        act_score = max(
+            float(scores.get("tools", 0.0)), float(scores.get("search", 0.0))
+        )
         answer_score = max(
             float(scores.get("llm", 0.0)),
             float(scores.get("memory", 0.0)),
             float(scores.get("rag", 0.0)),
         )
         ask_score = float(scores.get("clarify", 0.0))
-        wait_score = max(float(scores.get("defer", 0.0)), float(scores.get("reject", 0.0)))
+        wait_score = max(
+            float(scores.get("defer", 0.0)), float(scores.get("reject", 0.0))
+        )
 
         if (
             normalized_intent.startswith("conversation:")
@@ -487,7 +501,11 @@ class ExecutiveController:
                 store_memory=False,
             )
         if act_score >= max(answer_score, ask_score, wait_score):
-            winner = "search" if float(scores.get("search", 0.0)) > float(scores.get("tools", 0.0)) else "tools"
+            winner = (
+                "search"
+                if float(scores.get("search", 0.0)) > float(scores.get("tools", 0.0))
+                else "tools"
+            )
             return ExecutiveDecision(
                 action="use_plugin", reason=f"score_{winner}", store_memory=True
             )
@@ -513,7 +531,9 @@ class ExecutiveController:
             return False
 
         slot_state = dict(getattr(state, "pending_followup_slot_state", {}) or {})
-        expected_shape = str(slot_state.get("expected_answer_shape") or "").strip().lower()
+        expected_shape = (
+            str(slot_state.get("expected_answer_shape") or "").strip().lower()
+        )
 
         text = str(state.source_text or "").strip().lower()
         if not text or "?" in text:
@@ -559,9 +579,24 @@ class ExecutiveController:
         if not text:
             return False
 
-        has_ask = any(cue in text for cue in ("explain", "what is", "how does", "give me"))
-        has_format = any(cue in text for cue in ("step by step", "brief", "simple", "for beginner", "for beginners"))
-        topic_tokens = [t for t in re.findall(r"\b[a-z0-9']+\b", text) if t not in self.SEMANTIC_STOPWORDS]
+        has_ask = any(
+            cue in text for cue in ("explain", "what is", "how does", "give me")
+        )
+        has_format = any(
+            cue in text
+            for cue in (
+                "step by step",
+                "brief",
+                "simple",
+                "for beginner",
+                "for beginners",
+            )
+        )
+        topic_tokens = [
+            t
+            for t in re.findall(r"\b[a-z0-9']+\b", text)
+            if t not in self.SEMANTIC_STOPWORDS
+        ]
         return bool(has_ask and has_format and len(topic_tokens) >= 2)
 
     def _is_simple_native_conversation(
@@ -816,11 +851,19 @@ class ExecutiveController:
         interruption_cost = float(axes["user_interruption_cost"])
 
         act_score = can_act_now * safe_to_act * enough_information * target_confidence
-        answer_score = expected_progress * max(target_confidence, 0.45) * max(enough_information, 0.45)
+        answer_score = (
+            expected_progress
+            * max(target_confidence, 0.45)
+            * max(enough_information, 0.45)
+        )
         if can_act_now >= 0.50:
             # When execution is clearly available, bias the kernel toward ACT over ANSWER.
             answer_score *= 0.78
-        ask_score = (1.0 - enough_information) * max(can_act_now, 0.45) * (1.0 - (0.45 * interruption_cost))
+        ask_score = (
+            (1.0 - enough_information)
+            * max(can_act_now, 0.45)
+            * (1.0 - (0.45 * interruption_cost))
+        )
         wait_score = (1.0 - safe_to_act) * max(can_act_now, 0.45)
 
         scores = {
@@ -835,7 +878,11 @@ class ExecutiveController:
         }
 
         scores["tools"] = act_score
-        scores["search"] = act_score * (1.05 if ("search" in text_intent or "research" in text or "look up" in text) else 0.45)
+        scores["search"] = act_score * (
+            1.05
+            if ("search" in text_intent or "research" in text or "look up" in text)
+            else 0.45
+        )
         scores["llm"] = answer_score
         scores["memory"] = (0.70 * answer_score) + (0.20 if state.topic else 0.0)
         scores["rag"] = (0.65 * answer_score) + (0.25 if state.user_goal else 0.0)
@@ -910,13 +957,17 @@ class ExecutiveController:
         has_goal_next_action = bool(goal_next_action)
         multiple_active_goals = int(getattr(state, "goal_active_count", 0) or 0) >= 2
 
-        can_act_now = 1.0 if (
-            has_explicit_action_cue
-            or has_active_goal
-            or force_plugins_for_notes
-            or any(intent.startswith(domain) for domain in self.TOOL_DOMAINS)
-            or intent.startswith("search")
-        ) else 0.15
+        can_act_now = (
+            1.0
+            if (
+                has_explicit_action_cue
+                or has_active_goal
+                or force_plugins_for_notes
+                or any(intent.startswith(domain) for domain in self.TOOL_DOMAINS)
+                or intent.startswith("search")
+            )
+            else 0.15
+        )
         if has_goal_next_action:
             can_act_now = max(can_act_now, 0.72)
         elif has_active_goal:
@@ -961,9 +1012,15 @@ class ExecutiveController:
             target_confidence -= 0.04
 
         if can_act_now >= 0.50:
-            expected_mission_progress = 0.10 + (0.55 * safe_to_act * enough_information) + (0.35 * target_confidence)
+            expected_mission_progress = (
+                0.10
+                + (0.55 * safe_to_act * enough_information)
+                + (0.35 * target_confidence)
+            )
         else:
-            expected_mission_progress = 0.25 + (0.45 * target_confidence) + (0.30 * enough_information)
+            expected_mission_progress = (
+                0.25 + (0.45 * target_confidence) + (0.30 * enough_information)
+            )
         if self._is_clear_informational_request(state):
             expected_mission_progress += 0.10
         if has_goal_next_action and not goal_blocked:

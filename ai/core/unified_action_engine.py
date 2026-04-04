@@ -182,7 +182,9 @@ class UnifiedActionEngine:
             return result
 
         simulation_gate = self._run_simulation_gate(request)
-        if simulation_gate.get("required") and not simulation_gate.get("allowed", False):
+        if simulation_gate.get("required") and not simulation_gate.get(
+            "allowed", False
+        ):
             result = ActionResult(
                 success=False,
                 status="simulation_blocked",
@@ -482,7 +484,12 @@ class UnifiedActionEngine:
             return False
         if result.goal_satisfied:
             return False
-        if str((result.verification_report or {}).get("recommended_next_action") or "").strip().lower() == "retry":
+        if (
+            str((result.verification_report or {}).get("recommended_next_action") or "")
+            .strip()
+            .lower()
+            == "retry"
+        ):
             return True
         if result.ambiguity_flags:
             return False
@@ -521,35 +528,52 @@ class UnifiedActionEngine:
         if risk_level not in {"medium", "high", "critical"}:
             return {"required": False, "allowed": True, "reason": "low_risk"}
 
-        risk_value = {"medium": 0.55, "high": 0.78, "critical": 0.92}.get(risk_level, 0.40)
+        risk_value = {"medium": 0.55, "high": 0.78, "critical": 0.92}.get(
+            risk_level, 0.40
+        )
         action_low = str(request.action or "").strip().lower()
-        cost = 0.55 if action_low in {"delete", "execute", "write", "update", "append"} else 0.30
+        cost = (
+            0.55
+            if action_low in {"delete", "execute", "write", "update", "append"}
+            else 0.30
+        )
         candidate = {
             "action_id": f"{request.plugin}:{request.action}",
             "expected_gain": max(0.1, min(1.0, float(request.confidence or 0.5))),
             "risk": risk_value,
             "cost": cost,
             "confidence": max(0.05, min(1.0, float(request.confidence or 0.5))),
-            "reversible": bool(str(request.rollback_policy or "none").lower() in {"auto", "best_effort", "immediate"}),
+            "reversible": bool(
+                str(request.rollback_policy or "none").lower()
+                in {"auto", "best_effort", "immediate"}
+            ),
         }
 
         report: Dict[str, Any] = {}
         try:
             if callable(self.simulation_callback):
-                report = self.simulation_callback(
-                    [candidate],
-                    context={
-                        "goal": request.goal,
-                        "plugin": request.plugin,
-                        "action": request.action,
-                        "risk_level": risk_level,
-                    },
-                ) or {}
+                report = (
+                    self.simulation_callback(
+                        [candidate],
+                        context={
+                            "goal": request.goal,
+                            "plugin": request.plugin,
+                            "action": request.action,
+                            "risk_level": risk_level,
+                        },
+                    )
+                    or {}
+                )
         except Exception:
             report = {}
 
         if not report:
-            score = (0.50 * candidate["expected_gain"]) + (0.20 * candidate["confidence"]) - (0.22 * candidate["risk"]) - (0.08 * candidate["cost"])
+            score = (
+                (0.50 * candidate["expected_gain"])
+                + (0.20 * candidate["confidence"])
+                - (0.22 * candidate["risk"])
+                - (0.08 * candidate["cost"])
+            )
             report = {
                 "best_action": {
                     "action_id": candidate["action_id"],
@@ -695,7 +719,9 @@ class UnifiedActionEngine:
         simulation_report: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         goal_report = dict(goal_report or {})
-        recommended_next = str(goal_report.get("recommended_next_action") or "").strip().lower()
+        recommended_next = (
+            str(goal_report.get("recommended_next_action") or "").strip().lower()
+        )
         payload = {
             "verification": dict(tool_result.get("verification") or {}),
             "goal_verification": goal_report,

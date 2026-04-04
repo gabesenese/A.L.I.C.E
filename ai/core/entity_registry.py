@@ -43,13 +43,17 @@ class EntityRegistry:
             return
         try:
             payload = json.loads(self.storage_path.read_text(encoding="utf-8"))
-            rows = list(payload.get("entities") or []) if isinstance(payload, dict) else []
+            rows = (
+                list(payload.get("entities") or []) if isinstance(payload, dict) else []
+            )
             for row in rows:
                 rec = EntityRecord(
                     entity_id=str(row.get("entity_id") or uuid.uuid4().hex),
                     kind=str(row.get("kind") or "unknown"),
                     label=str(row.get("label") or "").strip(),
-                    aliases=[str(x) for x in list(row.get("aliases") or []) if str(x).strip()],
+                    aliases=[
+                        str(x) for x in list(row.get("aliases") or []) if str(x).strip()
+                    ],
                     confidence=float(row.get("confidence", 0.8) or 0.8),
                     source=str(row.get("source") or ""),
                     metadata=dict(row.get("metadata") or {}),
@@ -68,7 +72,9 @@ class EntityRegistry:
             "entities": [rec.to_dict() for rec in self._records.values()],
         }
         try:
-            self.storage_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+            self.storage_path.write_text(
+                json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8"
+            )
         except Exception:
             return
 
@@ -92,7 +98,9 @@ class EntityRegistry:
         alias_list = list(dict.fromkeys(alias_list))
 
         with self._lock:
-            existing_id = self._find_existing_id(normalized_kind, normalized_label, alias_list)
+            existing_id = self._find_existing_id(
+                normalized_kind, normalized_label, alias_list
+            )
             now = time.time()
             if existing_id:
                 rec = self._records[existing_id]
@@ -102,7 +110,11 @@ class EntityRegistry:
                 if source:
                     rec.source = str(source)
                 rec.metadata = {**rec.metadata, **dict(metadata or {})}
-                merged_aliases = list(dict.fromkeys(list(rec.aliases or []) + alias_list + [normalized_label]))
+                merged_aliases = list(
+                    dict.fromkeys(
+                        list(rec.aliases or []) + alias_list + [normalized_label]
+                    )
+                )
                 rec.aliases = merged_aliases[:20]
                 self._save()
                 return existing_id
@@ -140,7 +152,11 @@ class EntityRegistry:
         if not needle:
             return None
 
-        preferred = {str(k).strip().lower() for k in list(preferred_kinds or []) if str(k).strip()}
+        preferred = {
+            str(k).strip().lower()
+            for k in list(preferred_kinds or [])
+            if str(k).strip()
+        }
         with self._lock:
             best: Optional[EntityRecord] = None
             best_score = -1.0
@@ -148,7 +164,9 @@ class EntityRegistry:
                 if preferred and rec.kind not in preferred:
                     continue
 
-                labels = [str(rec.label or "").lower()] + [str(a).lower() for a in list(rec.aliases or [])]
+                labels = [str(rec.label or "").lower()] + [
+                    str(a).lower() for a in list(rec.aliases or [])
+                ]
                 score = 0.0
                 for candidate in labels:
                     if not candidate:
@@ -161,7 +179,13 @@ class EntityRegistry:
                 if score <= 0.0:
                     continue
 
-                recency_bonus = min(0.25, max(0.0, (time.time() - float(rec.last_seen or 0.0)) / -3600.0 + 0.25))
+                recency_bonus = min(
+                    0.25,
+                    max(
+                        0.0,
+                        (time.time() - float(rec.last_seen or 0.0)) / -3600.0 + 0.25,
+                    ),
+                )
                 final = score + recency_bonus + (0.05 * min(rec.mention_count, 5))
                 if final > best_score:
                     best_score = final
@@ -169,7 +193,9 @@ class EntityRegistry:
 
             return best.to_dict() if best else None
 
-    def resolve_label(self, reference: str, *, preferred_kinds: Optional[List[str]] = None) -> str:
+    def resolve_label(
+        self, reference: str, *, preferred_kinds: Optional[List[str]] = None
+    ) -> str:
         hit = self.resolve_reference(reference, preferred_kinds=preferred_kinds)
         if not isinstance(hit, dict):
             return ""
@@ -201,7 +227,9 @@ class EntityRegistry:
 _entity_registry: EntityRegistry | None = None
 
 
-def get_entity_registry(storage_path: str = "data/entity_registry.json") -> EntityRegistry:
+def get_entity_registry(
+    storage_path: str = "data/entity_registry.json",
+) -> EntityRegistry:
     global _entity_registry
     if _entity_registry is None:
         _entity_registry = EntityRegistry(storage_path=storage_path)

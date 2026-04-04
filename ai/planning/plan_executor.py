@@ -288,9 +288,7 @@ class PlanExecutor:
                 out = chat(prompt)
             return str(out or "")
 
-        raise AttributeError(
-            "LLM engine must provide generate(prompt) or chat(prompt)"
-        )
+        raise AttributeError("LLM engine must provide generate(prompt) or chat(prompt)")
 
     def _execute_llm_summarize(self, action: str, params: Dict[str, Any]) -> str:
         """Execute LLM summarization"""

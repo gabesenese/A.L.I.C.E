@@ -56,18 +56,24 @@ def goal_from_any(raw: Any) -> Goal:
         ).strip()
         kind = str(raw.get("kind") or raw.get("intent") or "task").strip()
         status = str(raw.get("status") or "active").strip().lower()
-        parent_goal_id = str(raw.get("parent_goal_id") or raw.get("parent_id") or "").strip() or None
+        parent_goal_id = (
+            str(raw.get("parent_goal_id") or raw.get("parent_id") or "").strip() or None
+        )
         blockers = [str(x) for x in list(raw.get("blockers") or []) if str(x).strip()]
         success_criteria = [
             str(x)
             for x in list(raw.get("success_criteria") or raw.get("criteria") or [])
             if str(x).strip()
         ]
-        next_action = str(raw.get("next_action") or raw.get("recommended_next_action") or "").strip()
+        next_action = str(
+            raw.get("next_action") or raw.get("recommended_next_action") or ""
+        ).strip()
         confidence = float(raw.get("confidence") or 0.0)
         autonomy_level = str(raw.get("autonomy_level") or "assisted").strip()
         source_turn = str(raw.get("source_turn") or "").strip()
-        last_result = raw.get("last_result") if isinstance(raw.get("last_result"), dict) else {}
+        last_result = (
+            raw.get("last_result") if isinstance(raw.get("last_result"), dict) else {}
+        )
         if not goal_id:
             goal_id = f"goal::{title[:32]}" if title else "goal::unknown"
         return Goal(
@@ -95,10 +101,15 @@ def goal_from_any(raw: Any) -> Goal:
     ).strip()
     kind = str(getattr(raw, "kind", "") or getattr(raw, "intent", "") or "task").strip()
     status = str(getattr(raw, "status", "active") or "active").strip().lower()
-    parent_goal_id = str(
-        getattr(raw, "parent_goal_id", "") or getattr(raw, "parent_id", "") or ""
-    ).strip() or None
-    blockers = [str(x) for x in list(getattr(raw, "blockers", []) or []) if str(x).strip()]
+    parent_goal_id = (
+        str(
+            getattr(raw, "parent_goal_id", "") or getattr(raw, "parent_id", "") or ""
+        ).strip()
+        or None
+    )
+    blockers = [
+        str(x) for x in list(getattr(raw, "blockers", []) or []) if str(x).strip()
+    ]
     success_criteria = [
         str(x)
         for x in list(getattr(raw, "success_criteria", []) or [])
@@ -106,9 +117,15 @@ def goal_from_any(raw: Any) -> Goal:
     ]
     next_action = str(getattr(raw, "next_action", "") or "").strip()
     confidence = float(getattr(raw, "confidence", 0.0) or 0.0)
-    autonomy_level = str(getattr(raw, "autonomy_level", "assisted") or "assisted").strip()
+    autonomy_level = str(
+        getattr(raw, "autonomy_level", "assisted") or "assisted"
+    ).strip()
     source_turn = str(getattr(raw, "source_turn", "") or "").strip()
-    last_result = getattr(raw, "last_result", {}) if isinstance(getattr(raw, "last_result", {}), dict) else {}
+    last_result = (
+        getattr(raw, "last_result", {})
+        if isinstance(getattr(raw, "last_result", {}), dict)
+        else {}
+    )
 
     if not goal_id:
         goal_id = f"goal::{title[:32]}" if title else "goal::unknown"

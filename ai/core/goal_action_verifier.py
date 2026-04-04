@@ -69,7 +69,9 @@ class GoalActionVerifier:
             or (tool_succeeded and (not target_matched or not domain_ok))
             or (not success and bool(data))
         )
-        goal_satisfied = bool(success and target_matched and domain_ok and not ambiguity_flags)
+        goal_satisfied = bool(
+            success and target_matched and domain_ok and not ambiguity_flags
+        )
         accepted = bool(
             (
                 status
@@ -119,13 +121,16 @@ class GoalActionVerifier:
         issues: List[str] = []
         tool_succeeded = bool(
             bool((tool_result or {}).get("success", False))
-            or str((tool_result or {}).get("status", "")).strip().lower() in {"success", "partial"}
+            or str((tool_result or {}).get("status", "")).strip().lower()
+            in {"success", "partial"}
         )
         if not tool_succeeded:
             return True, []
 
         if plugin == "notes" and action in {"create", "read", "update", "delete"}:
-            if action == "create" and not any(data.get(k) for k in ("note_id", "id", "title", "note_title")):
+            if action == "create" and not any(
+                data.get(k) for k in ("note_id", "id", "title", "note_title")
+            ):
                 issues.append("notes_create_missing_identifier")
             if action == "read" and not any(
                 data.get(k)
@@ -144,18 +149,32 @@ class GoalActionVerifier:
                 issues.append("notes_read_missing_content")
 
         if plugin == "email" and action in {"send", "draft", "read"}:
-            if action == "send" and not any(data.get(k) for k in ("message_id", "id", "sent", "status")):
+            if action == "send" and not any(
+                data.get(k) for k in ("message_id", "id", "sent", "status")
+            ):
                 issues.append("email_send_unconfirmed")
-            if action == "read" and not any(data.get(k) for k in ("subject", "messages", "body", "content")):
+            if action == "read" and not any(
+                data.get(k) for k in ("subject", "messages", "body", "content")
+            ):
                 issues.append("email_read_missing_payload")
 
         if plugin == "calendar" and action in {"create", "update", "read", "list"}:
-            if action in {"create", "update"} and not any(data.get(k) for k in ("event_id", "id", "event", "title")):
+            if action in {"create", "update"} and not any(
+                data.get(k) for k in ("event_id", "id", "event", "title")
+            ):
                 issues.append("calendar_write_missing_event_reference")
-            if action in {"read", "list"} and not any(data.get(k) for k in ("events", "event", "items")):
+            if action in {"read", "list"} and not any(
+                data.get(k) for k in ("events", "event", "items")
+            ):
                 issues.append("calendar_read_missing_events")
 
-        if plugin in {"file_operations", "files", "file"} and action in {"read", "write", "delete", "update", "append"}:
+        if plugin in {"file_operations", "files", "file"} and action in {
+            "read",
+            "write",
+            "delete",
+            "update",
+            "append",
+        }:
             if not any(data.get(k) for k in ("path", "file", "filename", "target")):
                 issues.append("file_operation_missing_path_echo")
 
