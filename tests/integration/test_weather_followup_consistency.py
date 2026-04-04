@@ -104,3 +104,39 @@ def test_umbrella_typo_followup_maps_to_umbrella_item():
     assert result.get("type") == "weather_advice"
     assert result.get("clothing_item") == "umbrella"
     assert result.get("force_yes_no") is True
+
+
+def test_rain_tomorrow_question_returns_yes_no_outlook_phrase():
+    now = datetime.now()
+    tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    fresh_forecast = WorldEntity(
+        id="weather_forecast",
+        kind=EntityKind.TOPIC,
+        label="Forecast weather",
+        created_at=now,
+        data={
+            "forecast": [
+                {
+                    "date": tomorrow,
+                    "low": 0,
+                    "high": 8,
+                    "condition": "heavy drizzle",
+                }
+            ],
+            "location": "Kitchener",
+            "message_code": "weather:forecast",
+        },
+    )
+
+    alice = _make_alice_stub({"weather_forecast": fresh_forecast})
+
+    result = alice._handle_weather_followup(
+        "is it gonna rain tomorrow?", "weather:forecast"
+    )
+
+    assert isinstance(result, str)
+    low = result.lower()
+    assert low.startswith("yes")
+    assert "tomorrow" in low
+    assert "drizzle" in low or "rain" in low

@@ -5903,6 +5903,26 @@ class ALICE:
         input_lower = user_input.lower()
         umbrella_aliases = ['umbrella', 'umbrela', 'umberella', 'umbralla']
 
+        def _rain_outlook_reply(time_label: str, weather_line: str) -> Optional[str]:
+            asks_rain = bool(
+                re.search(r"\b(rain|drizzle|shower|storm|thunder|precip)\b", input_lower)
+                and re.search(r"\b(will|gonna|going\s+to|is\s+it|chance|expect)\b", input_lower)
+            )
+            if not asks_rain or not weather_line:
+                return None
+
+            line_low = weather_line.lower()
+            rainy_terms = ("rain", "drizzle", "shower", "storm", "thunder")
+            dry_terms = ("clear", "sunny", "partly cloudy", "cloudy", "overcast", "fog", "windy")
+            label = str(time_label or "").strip().lower()
+            time_phrase = f"for {label}" if label else ""
+
+            if any(term in line_low for term in rainy_terms):
+                return f"Yes, rain looks likely {time_phrase}. {weather_line}".strip()
+            if any(term in line_low for term in dry_terms):
+                return f"No, rain is not in the forecast {time_phrase}. {weather_line}".strip()
+            return f"Rain is uncertain {time_phrase}. {weather_line}".strip()
+
         weekday_keywords = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         time_range_keywords = [
             'rest of the week', 'rest of week',
@@ -5937,6 +5957,11 @@ class ALICE:
                     entities={'TIME_RANGE': [mentioned_time_range]}
                 )
                 if result:
+                    rain_reply = _rain_outlook_reply(mentioned_time_range, result)
+                    if rain_reply:
+                        self._think(f"Rain outlook reply generated for '{mentioned_time_range}'")
+                        logger.info(f"Weather follow-up (rain outlook) → {rain_reply[:60]}...")
+                        return rain_reply
                     self._think(f"Forecast formatter returned: {result[:60]}...")
                     logger.info(f"Weather follow-up (stored, time-range) → {result[:60]}...")
                     return result
@@ -5973,6 +5998,11 @@ class ALICE:
                     entities={'TIME_RANGE': [mentioned_day]}
                 )
                 if result:
+                    rain_reply = _rain_outlook_reply(mentioned_day, result)
+                    if rain_reply:
+                        self._think(f"Rain outlook reply generated for '{mentioned_day}'")
+                        logger.info(f"Weather follow-up (rain outlook) → {rain_reply[:60]}...")
+                        return rain_reply
                     self._think(f"Forecast formatter returned: {result[:60]}...")
                     logger.info(f"Weather follow-up (stored) → {result[:60]}...")
                     return result
@@ -6121,8 +6151,14 @@ class ALICE:
         intent: str,
         intent_confidence: float,
     ) -> tuple[str, float]:
-        """Promote weather:current to weather:forecast for explicit time-range weather requests."""
-        if str(intent or "") != "weather:current":
+        """Promote weather-like low-confidence intents to weather:forecast for explicit time-range weather requests."""
+        normalized_intent = str(intent or "").strip().lower()
+        if normalized_intent not in {
+            "weather:current",
+            "conversation:clarification_needed",
+            "conversation:general",
+            "conversation:question",
+        }:
             return intent, float(intent_confidence or 0.0)
 
         text = (user_input or "").lower()
@@ -6146,11 +6182,21 @@ class ALICE:
             "this week",
             "next week",
             "weekend",
+            "this weekend",
             "weekly",
             "next few days",
             "coming days",
             "for the week",
             "for this week",
+            "tomorrow",
+            "tonight",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
         )
         if any(cue in text for cue in time_range_cues):
             if hasattr(self, "_think"):
