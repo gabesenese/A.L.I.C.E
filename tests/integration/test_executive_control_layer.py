@@ -644,3 +644,73 @@ def test_simple_conversational_prompts_force_native_direct_path(utterance: str, 
 
     assert decision.action == "answer_direct"
     assert decision.reason == "simple_conversational_native_path"
+
+
+def test_pre_route_guard_allows_rich_conceptual_prompt_even_when_plausibility_is_low() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="let's imagine how jarvis would be created with today's technology no fiction",
+        intent="notes:list",
+        confidence=0.40,
+        entities={"_intent_plausibility": 0.31},
+        conversation_state={},
+    )
+
+    guard = controller.should_preempt_for_plausibility(
+        state,
+        has_explicit_action_cue=False,
+        intent_candidates=[
+            {"intent": "notes:list", "score": 0.51},
+            {"intent": "conversation:question", "score": 0.49},
+        ],
+    )
+
+    assert guard["block"] is False
+    assert guard["reason"] == "rich_conceptual_prompt"
+
+
+def test_rich_conceptual_prompt_with_clarification_intent_prefers_direct_answer_mode() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="let's imagine how jarvis would be created with today's technology no fiction",
+        intent="conversation:clarification_needed",
+        confidence=0.63,
+        entities={"_intent_plausibility": 0.55},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "use_llm"
+    assert decision.reason == "conceptual_build_question"
+
+
+def test_rich_conceptual_build_prompt_with_clarification_bias_still_uses_fresh_reasoning() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="how can i create an ai just like jarvis but with todays technology",
+        intent="conversation:clarification_needed",
+        confidence=0.52,
+        entities={"_intent_plausibility": 0.44},
+        conversation_state={
+            "conversation_goal": "clarifying",
+            "user_goal": "understand architecture",
+        },
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=True,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "use_llm"
+    assert decision.reason == "conceptual_build_question"

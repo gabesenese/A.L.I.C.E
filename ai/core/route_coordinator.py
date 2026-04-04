@@ -131,6 +131,7 @@ class RouteCoordinator:
             confidence=float(intent_confidence or 0.0),
             plausibility=float(plausibility_score),
             uncertainty=uncertainty,
+            text=normalized_text,
         ):
             modifiers["pending_unknown_fallback"] = True
         else:
@@ -231,6 +232,7 @@ class RouteCoordinator:
         strong_action_frame: bool,
         followup_locked_final: bool,
         should_force_unknown_fallback: Callable[..., bool],
+        normalized_text: str = "",
     ) -> Tuple[str, float]:
         modifiers = parsed_command.modifiers
         normalized_intent = (intent or "").lower().strip()
@@ -252,6 +254,7 @@ class RouteCoordinator:
                     if isinstance(modifiers.get("disambiguation"), dict)
                     else None
                 ),
+                text=normalized_text,
             )
         )
 

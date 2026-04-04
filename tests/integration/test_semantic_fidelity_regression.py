@@ -11,6 +11,10 @@ EXACT_PROMPT = (
     "in today's world with no fiction"
 )
 
+EXACT_LOG_PROMPT = "let's imagine how jarvis would be created with today's technology no fiction"
+EXACT_TONY_PROMPT = "let's imagine how tony stark would have created Jarvis with todays technology, no fiction"
+EXACT_CREATE_PROMPT = "how can i create an ai just like jarvis but with todays technology"
+
 
 @dataclass
 class _FakeResolveResult:
@@ -269,6 +273,103 @@ def test_native_scaffold_does_not_flatten_detailed_help_issue_report():
     detailed = "my ai is not able to correctly give me some informations or it gets the intent wrong"
 
     assert alice._native_scaffold_response(detailed, "conversation:help") is None
+
+
+def test_native_scaffold_disallowed_for_rich_conceptual_prompt():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._native_scaffold_response(
+        EXACT_LOG_PROMPT,
+        "conversation:clarification_needed",
+    )
+
+    assert response is None
+
+
+def test_self_answer_gate_prefers_native_conceptual_for_rich_prompt():
+    alice = ALICE.__new__(ALICE)
+
+    gate = alice._self_answer_first_gate(
+        user_input=EXACT_LOG_PROMPT,
+        intent="conversation:clarification_needed",
+        entities={},
+        has_active_goal=False,
+        has_explicit_action_cue=False,
+    )
+
+    assert gate.get("block_llm") is True
+    assert gate.get("reason") == "native_conceptual_answer"
+    response = str(gate.get("response") or "").lower()
+    assert "real-world" in response or "real world" in response
+    assert "architecture" in response
+    assert "foundations" in response
+
+
+def test_exact_tony_prompt_blocks_scaffold_and_returns_direct_architecture_answer():
+    alice = ALICE.__new__(ALICE)
+
+    scaffold = alice._native_scaffold_response(
+        EXACT_TONY_PROMPT,
+        "conversation:clarification_needed",
+    )
+    assert scaffold is None
+
+    gate = alice._self_answer_first_gate(
+        user_input=EXACT_TONY_PROMPT,
+        intent="conversation:clarification_needed",
+        entities={},
+        has_active_goal=False,
+        has_explicit_action_cue=False,
+    )
+
+    assert gate.get("block_llm") is True
+    assert gate.get("reason") == "native_conceptual_answer"
+    response = str(gate.get("response") or "").lower()
+    assert "language" in response and "understanding" in response
+    assert "memory" in response
+    assert "planning" in response
+    assert "tool" in response
+    assert "verification" in response
+    assert "bounded autonomy" in response
+
+
+def test_exact_create_prompt_blocks_scaffold_and_returns_direct_architecture_answer():
+    alice = ALICE.__new__(ALICE)
+
+    scaffold = alice._native_scaffold_response(
+        EXACT_CREATE_PROMPT,
+        "conversation:clarification_needed",
+    )
+    assert scaffold is None
+
+    gate = alice._self_answer_first_gate(
+        user_input=EXACT_CREATE_PROMPT,
+        intent="conversation:clarification_needed",
+        entities={},
+        has_active_goal=False,
+        has_explicit_action_cue=False,
+    )
+
+    assert gate.get("block_llm") is True
+    assert gate.get("reason") == "native_conceptual_answer"
+    response = str(gate.get("response") or "").lower()
+    assert "language" in response and "understanding" in response
+    assert "memory" in response
+    assert "planning" in response
+    assert "tool" in response
+    assert "verification" in response
+    assert "bounded autonomy" in response
+
+
+def test_conceptual_build_prompt_does_not_reuse_goal_intent():
+    alice = ALICE.__new__(ALICE)
+
+    should_reuse = alice._should_reuse_goal_intent(
+        EXACT_CREATE_PROMPT,
+        "conversation clarification for route choice",
+    )
+
+    assert should_reuse is False
 
 
 def test_goal_statement_promotion_enriches_entities_and_intent():

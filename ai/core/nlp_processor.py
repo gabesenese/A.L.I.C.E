@@ -1820,6 +1820,7 @@ class NLPProcessor:
         chosen_intent = (intent or "conversation:general").lower()
         issues: List[str] = []
         score = 0.62
+        rich_conceptual = self._is_rich_conceptual_request(text)
 
         def _contains_cue(cue: str) -> bool:
             cue_text = (cue or "").strip().lower()
@@ -1954,6 +1955,13 @@ class NLPProcessor:
             score -= 0.16
             issues.append("conversational_prompt_vs_action_intent")
 
+        if rich_conceptual:
+            if intent_plugin in {"conversation", "learning"}:
+                score += 0.20
+            else:
+                score -= 0.12
+                issues.append("rich_conceptual_vs_action_intent")
+
         if chosen_intent.startswith("conversation:"):
             score += 0.10
 
@@ -2054,6 +2062,113 @@ class NLPProcessor:
             return "tool"
         return "mixed"
 
+    def _is_rich_conceptual_request(self, text: str) -> bool:
+        """Detect high-signal conceptual prompts that should route to direct explanation."""
+        low = str(text or "").lower().strip()
+        if not low:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", low)
+        if len(tokens) < 6:
+            return False
+
+        task_patterns = (
+            r"\blet'?s\s+imagine\b",
+            r"\bhow\s+would\b",
+            r"\bhow\s+can\s+i\s+create\b",
+            r"\bhow\s+can\s+i\s+build\b",
+            r"\bhow\s+would\s+i\s+build\b",
+            r"\bhow\s+would\s+someone\s+build\b",
+            r"\bwould\s+.+\s+be\s+built\b",
+            r"\bhow\s+.+\s+be\s+created\b",
+            r"\barchitecture\b",
+        )
+        has_task = any(re.search(pattern, low) for pattern in task_patterns)
+        if not has_task:
+            return False
+
+        has_build_verb = bool(re.search(r"\b(create|created|build|built|make|made)\b", low))
+
+        constraint_cues = {
+            "no fiction",
+            "non fiction",
+            "non-fiction",
+            "real world",
+            "real-world",
+            "today's technology",
+            "todays technology",
+            "with today's technology",
+        }
+        has_constraint = any(cue in low for cue in constraint_cues)
+        if not has_constraint:
+            return False
+
+        subject_cues = {
+            "jarvis",
+            "tony stark",
+            "assistant",
+            "ai",
+            "technology",
+            "system",
+            "architecture",
+            "foundations",
+        }
+        has_subject = any(cue in low for cue in subject_cues)
+
+        if has_subject and has_constraint and has_build_verb:
+            return True
+
+        stop = {
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "to",
+            "of",
+            "for",
+            "with",
+            "in",
+            "on",
+            "how",
+            "would",
+            "today",
+            "no",
+            "fiction",
+            "real",
+            "world",
+        }
+        strong_terms = [t for t in tokens if len(t) >= 5 and t not in stop]
+
+        return has_subject or len(set(strong_terms)) >= 3
+
+    def _is_conceptual_build_architecture_prompt(self, text: str) -> bool:
+        """Detect conceptual build/design questions that should use a dedicated system-design route."""
+        low = str(text or "").lower().strip()
+        if not low:
+            return False
+        if not self._is_rich_conceptual_request(low):
+            return False
+
+        has_build = bool(re.search(r"\b(create|created|build|built|make|made)\b", low))
+        has_subject = any(
+            cue in low
+            for cue in (
+                "ai",
+                "assistant",
+                "jarvis",
+                "system",
+                "architecture",
+            )
+        )
+        has_question_frame = bool(
+            re.search(
+                r"\b(how\s+can\s+i|how\s+would\s+i|how\s+would\s+someone|how\s+would|let'?s\s+imagine)\b",
+                low,
+            )
+        )
+        return has_build and has_subject and has_question_frame
+
     def _should_force_unknown_fallback(
         self,
         *,
@@ -2061,10 +2176,13 @@ class NLPProcessor:
         confidence: float,
         plausibility: float,
         uncertainty: Optional[Dict[str, Any]],
+        text: str = "",
     ) -> bool:
         """Decide whether to force a safe clarification fallback for unstable intent."""
         normalized_intent = (intent or "").lower()
         if normalized_intent.startswith("conversation:"):
+            return False
+        if self._is_rich_conceptual_request(text):
             return False
         if uncertainty and uncertainty.get("needs_clarification"):
             return True
@@ -3125,6 +3243,8 @@ class NLPProcessor:
 
         if isinstance(_pending_slot, dict) and _pending_slot_type in {"route_choice", "help_route_choice"}:
             _choice_text = normalized_text.strip().lower()
+            _choice_tokens = re.findall(r"\b[a-z0-9']+\b", _choice_text)
+            _compact_choice = len(_choice_tokens) <= 4
             _choice = ""
             if re.search(r"\b(explanation|explain|walk\s*through|teach|how|why)\b", _choice_text):
                 _choice = "explanation"
@@ -3133,7 +3253,7 @@ class NLPProcessor:
             elif re.search(r"\b(quick\s+search|search|look\s*up|find\s+info|web|online)\b", _choice_text):
                 _choice = "quick_search"
 
-            if _choice:
+            if _choice and _compact_choice and not self._is_rich_conceptual_request(_choice_text):
                 intent = "conversation:clarification_needed"
                 intent_confidence = max(float(intent_confidence or 0.0), 0.88)
                 parsed_command.modifiers["pending_slot_followup"] = {
@@ -3161,6 +3281,31 @@ class NLPProcessor:
                     action="clarification_needed",
                     trace={"source": "pending_route_choice_slot"},
                 )
+
+        if self._is_rich_conceptual_request(normalized_text) and intent == "conversation:clarification_needed":
+            intent = (
+                "learning:system_design"
+                if self._is_conceptual_build_architecture_prompt(normalized_text)
+                else "conversation:question"
+            )
+            intent_confidence = max(float(intent_confidence or 0.0), 0.78)
+            parsed_command.modifiers["pending_unknown_fallback"] = False
+            parsed_command.modifiers["unknown_intent_fallback"] = False
+            parsed_command.modifiers.pop("disambiguation", None)
+            parsed_command.modifiers.pop("pending_slot_followup", None)
+            if isinstance(route, RouteDecision):
+                route.intent = intent
+                route.confidence = float(intent_confidence)
+                if intent.startswith("learning:"):
+                    route.plugin = "learning"
+                    route.action = intent.split(":", 1)[1]
+                else:
+                    route.plugin = "conversation"
+                    route.action = "question"
+                route.trace = {
+                    **(route.trace or {}),
+                    "source": "rich_conceptual_override",
+                }
 
         # ── Dialogue-state gate ────────────────────────────────────────────────
         # If Alice is waiting for the user to disambiguate (dialogue_state ==
@@ -3306,6 +3451,7 @@ class NLPProcessor:
             strong_action_frame=_strong_action_frame,
             followup_locked_final=_followup_locked_final,
             should_force_unknown_fallback=self._should_force_unknown_fallback,
+            normalized_text=normalized_text,
         )
 
         # Continue with rest of processing
@@ -3933,6 +4079,12 @@ class NLPProcessor:
         goal_signal = self.goal_recognizer.detect(text_lower)
         if goal_signal is not None:
             return "conversation:goal_statement", float(goal_signal.confidence or 0.86)
+
+        # Strong conceptual/build route: keep these prompts in direct architecture explanation mode.
+        if self._is_conceptual_build_architecture_prompt(text_lower):
+            return "learning:system_design", 0.93
+        if self._is_rich_conceptual_request(text_lower):
+            return "conversation:question", 0.92
 
         # CLARIFICATION INTENTS (must run before semantic to catch vague patterns)
         # Vague pronouns without context: "who is he/she", "what is that", "who is that"

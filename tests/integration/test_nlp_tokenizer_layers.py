@@ -9,6 +9,11 @@ sys.path.insert(0, str(project_root))
 from ai.core.nlp_processor import NLPProcessor, ParsedCommand
 
 
+EXACT_LOG_PROMPT = "let's imagine how jarvis would be created with today's technology no fiction"
+EXACT_TONY_PROMPT = "let's imagine how tony stark would have created Jarvis with todays technology, no fiction"
+EXACT_CREATE_PROMPT = "how can i create an ai just like jarvis but with todays technology"
+
+
 class TestLayeredTokenizer:
     def setup_method(self):
         self.nlp = NLPProcessor()
@@ -254,3 +259,43 @@ class TestLayeredTokenizer:
         pending = self.nlp.context.pending_clarification
         pending_type = str((pending or {}).get("slot_type") or (pending or {}).get("type") or "").lower()
         assert pending_type != "route_choice"
+
+    def test_rich_conceptual_prompt_not_classified_as_clarification_needed(self):
+        result = self.nlp.process(EXACT_LOG_PROMPT)
+
+        assert result.intent != "conversation:clarification_needed"
+        assert result.intent in {"learning:system_design", "conversation:question"}
+        assert result.intent_plausibility >= 0.70
+
+    def test_route_choice_pending_slot_does_not_hijack_rich_conceptual_prompt(self):
+        self.nlp.context.pending_clarification = {
+            "type": "route_choice",
+            "slot_type": "route_choice",
+            "slot": "route_choice",
+            "parent_topic": "conversation",
+            "expected_answer_shape": "single_token",
+            "active": True,
+        }
+
+        result = self.nlp.process(EXACT_LOG_PROMPT)
+        modifiers = result.parsed_command.get("modifiers", {})
+
+        assert result.intent != "conversation:clarification_needed"
+        assert modifiers.get("pending_slot_followup") is None
+        assert modifiers.get("unknown_intent_fallback") is False
+
+    def test_exact_tony_prompt_routes_without_clarification_or_unknown_fallback(self):
+        result = self.nlp.process(EXACT_TONY_PROMPT)
+        modifiers = result.parsed_command.get("modifiers", {})
+
+        assert result.intent != "conversation:clarification_needed"
+        assert result.intent == "learning:system_design"
+        assert modifiers.get("unknown_intent_fallback") is False
+
+    def test_exact_create_prompt_routes_without_clarification_or_unknown_fallback(self):
+        result = self.nlp.process(EXACT_CREATE_PROMPT)
+        modifiers = result.parsed_command.get("modifiers", {})
+
+        assert result.intent != "conversation:clarification_needed"
+        assert result.intent == "learning:system_design"
+        assert modifiers.get("unknown_intent_fallback") is False

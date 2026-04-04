@@ -3852,6 +3852,116 @@ class ALICE:
         )
         return bool(re.search(action_pattern, text))
 
+    def _is_rich_conceptual_request(self, user_input: str) -> bool:
+        """Return True for conceptual architecture prompts with clear framing and constraints."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+        if len(tokens) < 6:
+            return False
+
+        has_task = any(
+            re.search(pattern, text)
+            for pattern in (
+                r"\blet'?s\s+imagine\b",
+                r"\bhow\s+would\b",
+                r"\bhow\s+can\s+i\s+create\b",
+                r"\bhow\s+can\s+i\s+build\b",
+                r"\bhow\s+would\s+i\s+build\b",
+                r"\bhow\s+would\s+someone\s+build\b",
+                r"\bwould\s+.+\s+be\s+built\b",
+                r"\bhow\s+.+\s+be\s+created\b",
+                r"\barchitecture\b",
+            )
+        )
+        if not has_task:
+            return False
+
+        has_build_verb = bool(re.search(r"\b(create|created|build|built|make|made)\b", text))
+
+        has_constraint = any(
+            cue in text
+            for cue in (
+                "no fiction",
+                "non fiction",
+                "non-fiction",
+                "real world",
+                "real-world",
+                "today's technology",
+                "todays technology",
+            )
+        )
+        if not has_constraint:
+            return False
+
+        has_subject = any(
+            cue in text
+            for cue in (
+                "jarvis",
+                "tony stark",
+                "assistant",
+                "technology",
+                "system",
+                "architecture",
+                "foundations",
+                "ai",
+            )
+        )
+        if has_constraint and has_subject and has_build_verb:
+            return True
+
+        stop = {
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "to",
+            "of",
+            "for",
+            "with",
+            "in",
+            "on",
+            "how",
+            "would",
+            "no",
+            "fiction",
+            "today",
+            "real",
+            "world",
+        }
+        strong_terms = [t for t in tokens if len(t) >= 5 and t not in stop]
+        return len(set(strong_terms)) >= 3
+
+    def _is_conceptual_build_architecture_prompt(self, user_input: str) -> bool:
+        """Detect conceptual build/system-design questions that deserve a dedicated route."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+        if not self._is_rich_conceptual_request(text):
+            return False
+
+        has_build = bool(re.search(r"\b(create|created|build|built|make|made)\b", text))
+        has_subject = any(
+            cue in text
+            for cue in (
+                "ai",
+                "assistant",
+                "jarvis",
+                "system",
+                "architecture",
+            )
+        )
+        has_question_frame = bool(
+            re.search(
+                r"\b(how\s+can\s+i|how\s+would\s+i|how\s+would\s+someone|how\s+would|let'?s\s+imagine)\b",
+                text,
+            )
+        )
+        return has_build and has_subject and has_question_frame
+
     def _is_beginner_explanation_request(self, user_input: str) -> bool:
         """Detect beginner-level explanation asks that should stay in help mode."""
         text = str(user_input or "").lower().strip()
@@ -4840,7 +4950,8 @@ class ALICE:
     def _native_conceptual_answer(self, user_input: str, intent: str) -> Optional[str]:
         """Native conceptual mode for broad architecture questions that do not require tools."""
         text = str(user_input or "").lower()
-        if self._has_explicit_action_cue(text):
+        rich_conceptual = self._is_rich_conceptual_request(user_input)
+        if self._has_explicit_action_cue(text) and not rich_conceptual:
             return None
 
         deterministic = self._deterministic_knowledge_fallback(user_input, intent)
@@ -4856,8 +4967,11 @@ class ALICE:
             "today",
             "modern",
             "architecture",
+            "technology",
+            "imagine",
+            "no fiction",
         )
-        if sum(1 for m in conceptual_markers if m in text) < 2:
+        if sum(1 for m in conceptual_markers if m in text) < 2 and not rich_conceptual:
             return None
 
         if not (str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")):
@@ -4905,6 +5019,8 @@ class ALICE:
         if normalized == "thanks":
             return "You are welcome. What do you want to tackle next?"
         if normalized == "conversation:clarification_needed":
+            if self._is_rich_conceptual_request(user_input):
+                return None
             return "I can help. What exact result do you want?"
         if normalized == "conversation:goal_statement":
             signal = self._extract_goal_statement_signal(user_input)
@@ -4951,20 +5067,20 @@ class ALICE:
                 "response": deterministic,
             }
 
-        native = self._native_scaffold_response(user_input, intent)
-        if native:
-            return {
-                "block_llm": True,
-                "reason": "native_scaffold",
-                "response": native,
-            }
-
         conceptual = self._native_conceptual_answer(user_input, intent)
         if conceptual:
             return {
                 "block_llm": True,
                 "reason": "native_conceptual_answer",
                 "response": conceptual,
+            }
+
+        native = self._native_scaffold_response(user_input, intent)
+        if native:
+            return {
+                "block_llm": True,
+                "reason": "native_scaffold",
+                "response": native,
             }
 
         text = str(user_input or "").strip()
@@ -5394,6 +5510,9 @@ class ALICE:
         """
         if not (user_input and goal_description):
             return False  # Don't reuse if missing context
+
+        if self._is_rich_conceptual_request(user_input):
+            return False
 
         input_lower = user_input.lower()
 
@@ -8533,10 +8652,20 @@ class ALICE:
                 )
             intent_candidates = getattr(nlp_result, 'intent_candidates', []) or []
             intent_plausibility = float(getattr(nlp_result, 'intent_plausibility', 1.0) or 1.0)
+            _rich_conceptual_prompt = self._is_rich_conceptual_request(user_input)
+            _conceptual_build_prompt = self._is_conceptual_build_architecture_prompt(user_input)
+
+            if _rich_conceptual_prompt and intent == "conversation:clarification_needed":
+                self._think("Rich conceptual build prompt detected → overriding clarification intent")
+                intent = "learning:system_design" if _conceptual_build_prompt else "conversation:question"
+                intent_confidence = max(float(intent_confidence or 0.0), 0.82)
+
             if (
                 active_goal
                 and intent_confidence < 0.7
                 and intent_plausibility >= 0.60
+                and not _rich_conceptual_prompt
+                and str(active_goal.intent or "").lower().strip() != "conversation:clarification_needed"
                 and self._should_reuse_goal_intent(user_input, active_goal.description)
             ):
                 self._think(f"Low confidence ({intent_confidence:.2f}) but active goal → using goal intent: {active_goal.intent}")
@@ -8544,7 +8673,11 @@ class ALICE:
                 entities = {**(entities if entities else {}), **(active_goal.entities if active_goal.entities else {})}
                 intent_confidence = 0.8
             else:
-                if active_goal and intent_confidence < 0.7 and not self._should_reuse_goal_intent(user_input, active_goal.description):
+                if active_goal and intent_confidence < 0.7 and _rich_conceptual_prompt:
+                    self._think("Rich conceptual prompt → forcing fresh intent, not reusing goal intent")
+                elif active_goal and intent_confidence < 0.7 and str(active_goal.intent or "").lower().strip() == "conversation:clarification_needed":
+                    self._think("Active goal is clarification_needed → not reusing goal intent")
+                elif active_goal and intent_confidence < 0.7 and not self._should_reuse_goal_intent(user_input, active_goal.description):
                     self._think("Topic shift (low overlap with goal) → not reusing goal intent")    
                 elif active_goal and intent_confidence < 0.7 and intent_plausibility < 0.60:
                     self._think("Low plausibility detected → not reusing goal intent")

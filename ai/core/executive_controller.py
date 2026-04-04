@@ -336,6 +336,9 @@ class ExecutiveController:
         plausibility = max(0.0, min(1.0, float(state.intent_plausibility)))
         intent = (state.user_intent or "").lower().strip()
 
+        if self._is_rich_conceptual_request(str(state.source_text or "")):
+            return {"block": False, "reason": "rich_conceptual_prompt"}
+
         if intent.startswith("conversation:"):
             return {"block": False, "reason": "conversation_intent"}
 
@@ -415,6 +418,25 @@ class ExecutiveController:
             )
 
         normalized_intent = (state.user_intent or "").lower().strip()
+        rich_conceptual = self._is_rich_conceptual_request(state.source_text)
+        conceptual_build = self._is_conceptual_build_architecture_prompt(
+            state.source_text
+        )
+
+        if conceptual_build:
+            return ExecutiveDecision(
+                action="use_llm",
+                reason="conceptual_build_question",
+                store_memory=True,
+            )
+
+        if rich_conceptual:
+            return ExecutiveDecision(
+                action="use_llm",
+                reason="rich_conceptual_request",
+                store_memory=True,
+            )
+
         if normalized_intent == "conversation:goal_statement":
             return ExecutiveDecision(
                 action="answer_direct",
@@ -517,6 +539,116 @@ class ExecutiveController:
     def _is_help_opener(self, state: ReasoningState) -> bool:
         # Help-openers should not downgrade routing decisions.
         return False
+
+    def _is_rich_conceptual_request(self, text: str) -> bool:
+        """Detect conceptual architecture prompts that are answerable without clarification."""
+        low = str(text or "").lower().strip()
+        if not low:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", low)
+        if len(tokens) < 6:
+            return False
+
+        has_task = any(
+            re.search(pattern, low)
+            for pattern in (
+                r"\blet'?s\s+imagine\b",
+                r"\bhow\s+would\b",
+                r"\bhow\s+can\s+i\s+create\b",
+                r"\bhow\s+can\s+i\s+build\b",
+                r"\bhow\s+would\s+i\s+build\b",
+                r"\bhow\s+would\s+someone\s+build\b",
+                r"\bwould\s+.+\s+be\s+built\b",
+                r"\bhow\s+.+\s+be\s+created\b",
+                r"\barchitecture\b",
+            )
+        )
+        if not has_task:
+            return False
+
+        has_build_verb = bool(re.search(r"\b(create|created|build|built|make|made)\b", low))
+
+        has_constraint = any(
+            cue in low
+            for cue in (
+                "no fiction",
+                "non fiction",
+                "non-fiction",
+                "real world",
+                "real-world",
+                "today's technology",
+                "todays technology",
+            )
+        )
+        if not has_constraint:
+            return False
+
+        has_subject = any(
+            cue in low
+            for cue in (
+                "jarvis",
+                "tony stark",
+                "assistant",
+                "technology",
+                "system",
+                "architecture",
+                "foundations",
+                "ai",
+            )
+        )
+        if has_subject and has_constraint and has_build_verb:
+            return True
+
+        stop = {
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "to",
+            "of",
+            "for",
+            "with",
+            "in",
+            "on",
+            "how",
+            "would",
+            "no",
+            "fiction",
+            "today",
+            "real",
+            "world",
+        }
+        strong_terms = [t for t in tokens if len(t) >= 5 and t not in stop]
+        return len(set(strong_terms)) >= 3
+
+    def _is_conceptual_build_architecture_prompt(self, text: str) -> bool:
+        """Detect build/create architecture questions for dedicated reasoning routes."""
+        low = str(text or "").lower().strip()
+        if not low:
+            return False
+        if not self._is_rich_conceptual_request(low):
+            return False
+
+        has_build = bool(re.search(r"\b(create|created|build|built|make|made)\b", low))
+        has_subject = any(
+            cue in low
+            for cue in (
+                "ai",
+                "assistant",
+                "jarvis",
+                "system",
+                "architecture",
+            )
+        )
+        has_question_frame = bool(
+            re.search(
+                r"\b(how\s+can\s+i|how\s+would\s+i|how\s+would\s+someone|how\s+would|let'?s\s+imagine)\b",
+                low,
+            )
+        )
+        return has_build and has_subject and has_question_frame
 
     def _is_pending_followup_slot_answer(
         self,
@@ -649,7 +781,7 @@ class ExecutiveController:
         # Only allow help/clarification intents through deterministic native path
         # when the actual utterance is genuinely short/simple.
         if normalized_intent == "conversation:clarification_needed":
-            return bool(self.SIMPLE_NATIVE_RE.match(text))
+            return bool(self.SIMPLE_NATIVE_RE.match(text)) and (not self._is_rich_conceptual_request(text))
 
         if normalized_intent == "conversation:help":
             return False
@@ -672,6 +804,7 @@ class ExecutiveController:
                 (not has_explicit_action_cue)
                 and (not has_active_goal)
                 and bool(self.SIMPLE_NATIVE_RE.match(text))
+                and (not self._is_rich_conceptual_request(text))
             )
         return False
 
@@ -690,6 +823,9 @@ class ExecutiveController:
         plausibility = max(0.0, min(1.0, float(intent_plausibility or 0.0)))
         candidates = intent_candidates or []
         text_lower = (user_input or "").lower()
+
+        if self._is_rich_conceptual_request(text_lower):
+            return {"veto": False, "reason": "rich_conceptual_prompt"}
 
         if normalized_intent.startswith("conversation:"):
             return {"veto": False, "reason": "conversation_intent"}
