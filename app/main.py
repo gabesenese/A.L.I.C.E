@@ -78,7 +78,7 @@ from ai.planning.task_planner import get_planner
 from ai.planning.plan_executor import initialize_executor, get_executor
 from ai.planning.planner import ReasoningPlanner
 from ai.planning.task import PersistentTaskQueue, Task, TaskStatus as QueueTaskStatus
-from ai.core.reasoning_engine import get_reasoning_engine, WorldEntity, EntityKind
+from ai.core.reasoning_engine import get_reasoning_engine, WorldEntity, EntityKind, ActiveGoal as ReasoningActiveGoal
 from ai.planning.proactive_assistant import (
     get_proactive_assistant,
     parse_reminder_time,
@@ -130,6 +130,7 @@ from ai.core.turn_state_assembler import TurnStateAssembler
 from ai.core.turn_state_diff import generate_turn_diff
 from ai.core.world_state_memory import get_world_state_memory
 from ai.core.execution_journal import get_execution_journal
+from ai.core.goal_object import goal_from_any
 from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_manager
 from ai.core.autonomy_dispatcher import TinyAutonomyDispatcher, OUTCOME_ESCALATE_AND_STOP
 from ai.learning.phrasing_learner import PhrasingLearner
@@ -4245,6 +4246,156 @@ class ALICE:
             )
         return "conversation:goal_statement", enriched_entities, max(float(intent_confidence or 0.0), signal_confidence)
 
+    def _goal_to_authoritative_record(self, raw_goal: Any) -> Dict[str, Any]:
+        """Normalize any goal-like runtime object into one authoritative record."""
+        base = goal_from_any(raw_goal).to_dict()
+
+        if isinstance(raw_goal, dict):
+            description = str(raw_goal.get("description") or raw_goal.get("title") or "").strip()
+            intent = str(raw_goal.get("intent") or raw_goal.get("kind") or "").strip()
+            entities = dict(raw_goal.get("entities") or raw_goal.get("context") or {})
+            progress = float(raw_goal.get("progress") or 0.0)
+            next_action = str(raw_goal.get("next_action") or "").strip()
+        else:
+            description = str(
+                getattr(raw_goal, "description", "") or getattr(raw_goal, "title", "") or ""
+            ).strip()
+            intent = str(
+                getattr(raw_goal, "intent", "")
+                or getattr(raw_goal, "kind", "")
+                or getattr(getattr(raw_goal, "metadata", {}), "get", lambda *_: "")("intent")
+                or ""
+            ).strip()
+            entities = dict(getattr(raw_goal, "entities", {}) or getattr(raw_goal, "context", {}) or {})
+            progress = float(getattr(raw_goal, "progress", 0.0) or 0.0)
+            next_action = str(getattr(raw_goal, "next_action", "") or "").strip()
+
+        if (not next_action) and hasattr(raw_goal, "get_next_step"):
+            try:
+                _step = raw_goal.get_next_step()
+                if _step is not None:
+                    next_action = str(getattr(_step, "description", "") or "").strip()
+            except Exception:
+                pass
+
+        if not intent or ":" not in intent:
+            intent = str(base.get("kind") or "conversation:question")
+
+        return {
+            **base,
+            "description": description or str(base.get("title") or ""),
+            "intent": intent,
+            "entities": entities,
+            "progress": max(0.0, min(1.0, progress)),
+            "next_action": next_action or str(base.get("next_action") or ""),
+        }
+
+    def _authoritative_goal_stack(
+        self,
+        goal_res: Any = None,
+        preferred_goal: Any = None,
+    ) -> List[Dict[str, Any]]:
+        """Return active goals in priority order for this turn."""
+        raw_goals: List[Any] = []
+        if preferred_goal is not None:
+            raw_goals.append(preferred_goal)
+        if goal_res is not None and getattr(goal_res, "goal", None) is not None:
+            raw_goals.append(goal_res.goal)
+
+        if getattr(self, "reasoning_engine", None) is not None:
+            _active = getattr(self.reasoning_engine, "active_goal", None)
+            if _active is not None:
+                raw_goals.append(_active)
+            _stack = list(getattr(self.reasoning_engine, "_goal_stack", []) or [])
+            raw_goals.extend(_stack[-5:])
+
+        if getattr(self, "goal_system", None) is not None:
+            try:
+                raw_goals.extend(list(self.goal_system.get_active_goals() or []))
+            except Exception:
+                pass
+
+        normalized: List[Dict[str, Any]] = []
+        seen = set()
+        for raw in raw_goals:
+            try:
+                rec = self._goal_to_authoritative_record(raw)
+            except Exception:
+                continue
+            gid = str(rec.get("goal_id") or "").strip()
+            if not gid or gid in seen:
+                continue
+            seen.add(gid)
+            normalized.append(rec)
+
+        status_rank = {
+            "active": 0,
+            "in_progress": 0,
+            "planning": 1,
+            "blocked": 2,
+            "paused": 3,
+            "created": 4,
+            "failed": 5,
+            "cancelled": 6,
+            "completed": 7,
+        }
+        normalized.sort(
+            key=lambda g: (
+                status_rank.get(str(g.get("status") or "active").lower(), 4),
+                -float(g.get("confidence", 0.0) or 0.0),
+                -float(g.get("progress", 0.0) or 0.0),
+            )
+        )
+        return normalized[:8]
+
+    def _resolve_goal_followup_from_stack(
+        self,
+        user_input: str,
+        goal_stack: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Resolve short follow-up utterances directly to active goal objects."""
+        text = str(user_input or "").strip()
+        low = text.lower()
+        if not text or not goal_stack:
+            return {"matched": False, "reason": "no_goal_stack"}
+        if len(text.split()) > 8 and not re.search(r"\b(continue|resume|next step|that one|this one|first|second|third|last|it)\b", low):
+            return {"matched": False, "reason": "not_short_followup"}
+
+        idx = None
+        if re.search(r"\b(second|2nd|two)\b", low):
+            idx = 1
+        elif re.search(r"\b(third|3rd|three)\b", low):
+            idx = 2
+        elif re.search(r"\b(last|latest|final)\b", low):
+            idx = len(goal_stack) - 1
+        elif re.search(r"\b(first|1st|one)\b", low):
+            idx = 0
+        elif re.search(r"\b(continue|resume|next step|that one|this one|it|go on|keep going)\b", low):
+            idx = 0
+
+        if idx is None:
+            return {"matched": False, "reason": "no_followup_cue"}
+        if idx < 0 or idx >= len(goal_stack):
+            return {"matched": False, "reason": "goal_index_out_of_range"}
+
+        goal = dict(goal_stack[idx] or {})
+        title = str(goal.get("title") or goal.get("description") or "goal").strip()
+        desc = str(goal.get("description") or title).strip()
+        next_action = str(goal.get("next_action") or "").strip()
+
+        if re.search(r"\b(continue|resume|next step|go on|keep going)\b", low):
+            reconstructed = f"Continue goal {title}. {next_action or desc}".strip()
+        else:
+            reconstructed = f"For goal {title}: {next_action or desc}".strip()
+
+        return {
+            "matched": True,
+            "reason": "goal_stack_followup",
+            "goal": goal,
+            "reconstructed_input": reconstructed,
+            "intent_hint": str(goal.get("intent") or "").strip(),
+        }
+
     def _format_compact_list(self, items: List[str]) -> str:
         values = [str(x).strip() for x in list(items or []) if str(x).strip()]
         if not values:
@@ -4441,6 +4592,77 @@ class ALICE:
                 out.append(label)
         return out[:4]
 
+    def _is_structured_teaching_request(self, user_input: str, intent: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        if not text or self._has_explicit_action_cue(text):
+            return False
+
+        learning_mode = str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")
+        if not learning_mode:
+            return False
+
+        teaching_cues = (
+            "teach me",
+            "explain",
+            "help me understand",
+            "overview of",
+            "walk me through",
+            "step by step",
+        )
+        return any(cue in text for cue in teaching_cues)
+
+    def _structured_teaching_mode_response(self, user_input: str, intent: str) -> Optional[str]:
+        if not self._is_structured_teaching_request(user_input, intent):
+            return None
+
+        text = str(user_input or "").strip()
+        domain = self._infer_learning_domain(text)
+        blueprint = self._learning_blueprint(domain) if domain else {}
+        focuses = self._detected_learning_focuses(text)
+        terms = self._extract_learning_terms(text, max_terms=8)
+
+        domain_label = {
+            "nlp": "NLP",
+            "ml": "machine learning",
+            "python": "Python",
+            "git": "Git",
+            "architecture": "assistant architecture",
+        }.get(domain, "this topic")
+
+        foundations = list(blueprint.get("foundations") or [])[:3]
+        methods = list(blueprint.get("methods") or [])[:3]
+        project = list(blueprint.get("project") or [])[:3]
+
+        if not foundations:
+            foundations = focuses[:2] or terms[:2] or ["core concepts", "key terminology"]
+        if not methods:
+            methods = focuses[:2] or ["worked examples", "comparative trade-offs"]
+        if not project:
+            project = ["apply one concept in your current project", "verify outcome with a small test"]
+
+        first_exercise = focuses[0] if focuses else (terms[0] if terms else "a small practical example")
+        answer = (
+            f"Topic: {domain_label}.\n"
+            "Learning outline:\n"
+            f"1) Foundations: {self._format_compact_list(foundations)}.\n"
+            f"2) Methods: {self._format_compact_list(methods)}.\n"
+            f"3) Project application: {self._format_compact_list(project)}.\n"
+            f"4) First exercise: implement {first_exercise} and validate it with one focused test.\n"
+            "If you want, I can now expand section 1 in detail with concrete examples."
+        )
+
+        return self._generate_natural_response(
+            {
+                "type": "knowledge_answer",
+                "answer": answer,
+                "question": text,
+                "intent": str(intent or "conversation:question"),
+            },
+            "professional and precise",
+            None,
+            user_input,
+        )
+
     def _best_learned_recovery_response(self, user_input: str, intent: str) -> Optional[str]:
         """Return the most relevant learned response for this recovery turn when available."""
         engine = getattr(self, "knowledge_engine", None)
@@ -4528,6 +4750,10 @@ class ALICE:
         if learned:
             return learned
 
+        structured = self._structured_teaching_mode_response(user_input, intent)
+        if structured:
+            return structured
+
         domain = self._infer_learning_domain(user_input)
         composed = self._deterministic_knowledge_fallback(user_input, intent)
         if composed:
@@ -4549,6 +4775,9 @@ class ALICE:
         """Build non-LLM first-pass answers from inferred domain structure rather than fixed canned replies."""
         text = str(user_input or "").lower().strip()
         if not text or self._has_explicit_action_cue(text):
+            return None
+
+        if self._is_structured_teaching_request(text, intent):
             return None
 
         in_learning_mode = str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")
@@ -4656,8 +4885,6 @@ class ALICE:
         """Return native short scaffolding replies for low-complexity conversational turns."""
         normalized = str(intent or "").lower().strip()
         text = str(user_input or "").strip().lower()
-        if self._is_help_opener_input(user_input, normalized):
-            return self._native_help_opener_response(user_input)
 
         if normalized in {"conversation:general", "conversation:question"}:
             if re.fullmatch(r"(?:hi|hello|hey|yo|sup)\??", text):
@@ -4668,8 +4895,6 @@ class ALICE:
                 return "You are welcome. What should we work on next?"
             if re.fullmatch(r"(?:bye|goodbye|see you)\??", text):
                 return "Goodbye. I am here when you need me."
-            if re.fullmatch(r"(?:can you help me|help me|i need help(?: with.*)?)\??", text):
-                return "Of course. What exact part do you want help with first?"
             if re.fullmatch(r"(?:ok|okay|sure|got it|understood|noted)\??", text):
                 return "Understood. What is the next step?"
 
@@ -4685,9 +4910,7 @@ class ALICE:
             signal = self._extract_goal_statement_signal(user_input)
             return self._goal_statement_alignment_response(user_input, signal)
         if normalized == "conversation:help":
-            if self._is_help_opener_input(user_input, normalized):
-                return "I can help. What exact part should we focus on first?"
-            # Do not flatten detailed issue reports that were labeled conversation:help.
+            # Keep help turns on full reasoning/planning rather than scaffold prompts.
             return None
         if normalized == "greeting":
             user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
@@ -4712,6 +4935,14 @@ class ALICE:
         has_explicit_action_cue: bool,
     ) -> Dict[str, Any]:
         """Block LLM when a direct low-risk native response is sufficient."""
+        structured_teaching = self._structured_teaching_mode_response(user_input, intent)
+        if structured_teaching:
+            return {
+                "block_llm": True,
+                "reason": "structured_teaching_mode",
+                "response": structured_teaching,
+            }
+
         deterministic = self._deterministic_knowledge_fallback(user_input, intent)
         if deterministic:
             return {
@@ -4891,12 +5122,6 @@ class ALICE:
         if response_type == "clarification_prompt":
             return {
                 "type": "conversation:clarification_needed",
-                "data": {"user_input": user_input},
-            }
-
-        if self._is_help_opener_input(user_input, intent or "conversation:help"):
-            return {
-                "type": "conversation:help_opener",
                 "data": {"user_input": user_input},
             }
 
@@ -6182,11 +6407,6 @@ class ALICE:
             if conceptual:
                 return conceptual
 
-            if normalized_intent.startswith("conversation:") and self._is_beginner_explanation_request(user_input):
-                beginner = self._native_help_opener_response(user_input)
-                if beginner:
-                    return beginner
-
             clarification = self._generate_natural_response(
                 {
                     "type": "clarification_prompt",
@@ -6752,66 +6972,28 @@ class ALICE:
                 _slot_name = str(_slot_followup.get('slot') or '').strip().lower()
                 _slot_reason = str(_slot_followup.get('reason') or '').strip().lower()
                 if _slot_name == 'route_choice' or _slot_reason == 'pending_route_choice_slot':
-                    _route_choice_value = str(_slot_followup.get('value') or '').strip().lower()
-                    response = self._pending_route_choice_followup_response(_route_choice_value)
-                    entities = dict(entities or {})
-                    entities['route_choice'] = _route_choice_value
-                    self._pending_conversation_slot = {}
-                    if getattr(self, 'nlp', None) and getattr(self.nlp, 'context', None):
-                        self.nlp.context.pending_clarification = {}
-                    if getattr(self, 'conversation_state_tracker', None):
-                        try:
-                            self.conversation_state_tracker.clear_pending_followup_slot()
-                            self.conversation_state_tracker.clear_pending_clarification()
-                            self.conversation_state_tracker.set_selected_object_reference(_route_choice_value)
-                        except Exception:
-                            pass
-                    if getattr(self, 'world_state_memory', None):
-                        try:
-                            self.world_state_memory.clear_pending_clarification()
-                            self.world_state_memory.set_selected_object_reference(_route_choice_value)
-                        except Exception:
-                            pass
-                    self._internal_reasoning_state['route_choice'] = _route_choice_value
-                    self._cache_put(user_input, 'conversation:clarification_needed', response)
-                    self._store_interaction(user_input, response, 'conversation:clarification_needed', entities)
-                    if use_voice and self.speech:
-                        self.speech.speak(response, blocking=False)
-                    logger.info(f"A.L.I.C.E: {response[:100]}...")
-                    return response
+                    _parent_request = str(
+                        _slot_followup.get('parent_request')
+                        or (getattr(self, '_pending_conversation_slot', {}) or {}).get('parent_request')
+                        or ''
+                    ).strip()
+                    self._clear_pending_conversation_slot_state('resolved')
+                    if _parent_request:
+                        _nlp_input = _parent_request
 
                 _slot_value = str(_slot_followup.get('value') or user_input).strip()
                 if _slot_value:
-                    response = self._pending_help_slot_followup_response(_slot_value)
-                    entities = dict(entities or {})
-                    entities['topic'] = _slot_value
-                    entities['project_area'] = _slot_value
-                    _slot_value_low = str(_slot_value).lower().strip()
                     _parent_slot = dict(getattr(self, '_pending_conversation_slot', {}) or {})
-                    _parent_request = str(_parent_slot.get('parent_request') or '').strip()
-                    if _slot_value_low == 'nlp':
-                        _seed_request = _parent_request or "help me with my ai project, i need to know some nlp algorithms"
-                        self._arm_topic_branch_slot(
-                            response,
-                            parent_request=_seed_request,
-                            parent_intent='conversation:question',
-                            parent_topic='nlp_algorithms',
-                            allowed_values=[
-                                'intent_routing',
-                                'entity_extraction',
-                                'embeddings',
-                                'conversation_flow',
-                            ],
-                        )
-                        self._think("Branch-selection slot armed for NLP follow-up continuity")
+                    _parent_request = str(
+                        _slot_followup.get('parent_request')
+                        or _parent_slot.get('parent_request')
+                        or ''
+                    ).strip()
+                    self._clear_pending_conversation_slot_state(_slot_value)
+                    if _parent_request:
+                        _nlp_input = f"{_parent_request}. Focus first on {_slot_value}."
                     else:
-                        self._clear_pending_conversation_slot_state(_slot_value)
-                    self._cache_put(user_input, 'conversation:clarification_needed', response)
-                    self._store_interaction(user_input, response, 'conversation:clarification_needed', entities)
-                    if use_voice and self.speech:
-                        self.speech.speak(response, blocking=False)
-                    logger.info(f"A.L.I.C.E: {response[:100]}...")
-                    return response
+                        _nlp_input = _slot_value
 
             _selected_reference = str(
                 _modifiers.get('selected_object_reference') if isinstance(_modifiers, dict) else ""
@@ -7202,31 +7384,6 @@ class ALICE:
                 logger.info(f"A.L.I.C.E: {weather_followup_early[:100]}...")
                 return weather_followup_early
 
-            # 0.56 DEDICATED HELP-OPENER PATH: acknowledge + narrow scope + ask one question.
-            if self._is_help_opener_input(user_input, intent):
-                _pending_slot = getattr(self, '_pending_conversation_slot', {}) or {}
-                if bool(_pending_slot.get('active')):
-                    reminder = str(
-                        _pending_slot.get('last_narrowing_question')
-                        or "Tell me the specific area first, like NLP, memory, routing, or planning."
-                    ).strip()
-                    if reminder:
-                        self._think("Help-opener repeated while narrowing slot active → reminder question")
-                        self._store_interaction(user_input, reminder, 'conversation:help', entities)
-                        if use_voice and self.speech:
-                            self.speech.speak(reminder, blocking=False)
-                        logger.info(f"A.L.I.C.E: {reminder[:100]}...")
-                        return reminder
-                self._think("Help-opener detected → native response policy (no LLM)")
-                help_response = self._native_help_opener_response(user_input)
-                self._arm_help_narrowing_slot(user_input, help_response)
-                self._cache_put(user_input, "conversation:help", help_response)
-                self._store_interaction(user_input, help_response, "conversation:help", entities)
-                if use_voice and self.speech:
-                    self.speech.speak(help_response, blocking=False)
-                logger.info(f"A.L.I.C.E: {help_response[:100]}...")
-                return help_response
-            
             # 0.5 Check if cached response exists (with 5-minute expiry for variation)
             # Cache conversational intents for faster responses to repeated questions
             cacheable_intents = [
@@ -7509,6 +7666,8 @@ class ALICE:
             # 1.5.7. A.L.I.C.E's conversational reasoning (no Ollama unless needed)
             # Initialize goal_res early so conversational engine can check for active goals
             goal_res = None
+            _goal_followup_resolution: Dict[str, Any] = {}
+            _goal_followup_goal_object: Optional[ReasoningActiveGoal] = None
             
             if getattr(self, 'conversational_engine', None):
                 conv_context = ConversationalContext(
@@ -7596,6 +7755,44 @@ class ALICE:
                 except Exception as e:
                     logger.warning(f"Reference/goal resolution skipped: {e}")
                     # Graceful degradation - continue without resolution
+
+            _goal_stack_for_followup = self._authoritative_goal_stack(goal_res)
+            _goal_followup_resolution = self._resolve_goal_followup_from_stack(
+                user_input=user_input,
+                goal_stack=_goal_stack_for_followup,
+            )
+            if _goal_followup_resolution.get("matched"):
+                _goal_record = dict(_goal_followup_resolution.get("goal") or {})
+                _goal_desc = str(_goal_record.get("description") or _goal_record.get("title") or "").strip()
+                _goal_intent = str(_goal_followup_resolution.get("intent_hint") or "").strip()
+                _goal_entities = dict(_goal_record.get("entities") or {})
+                _goal_id = str(_goal_record.get("goal_id") or "").strip()
+                if _goal_desc:
+                    _goal_followup_goal_object = ReasoningActiveGoal(
+                        goal_id=_goal_id or f"goal::{_goal_desc[:24]}",
+                        description=_goal_desc,
+                        intent=_goal_intent or intent,
+                        entities=_goal_entities,
+                    )
+                if _goal_id:
+                    entities = dict(entities or {})
+                    entities.setdefault("goal_id", _goal_id)
+                    entities.setdefault("goal_title", str(_goal_record.get("title") or _goal_desc))
+                    entities.setdefault("goal_status", str(_goal_record.get("status") or "active"))
+                if _goal_entities:
+                    entities = {**(entities or {}), **_goal_entities}
+                if _goal_intent and (
+                    intent.startswith("conversation:")
+                    or float(intent_confidence or 0.0) < 0.70
+                ):
+                    intent = _goal_intent
+                    intent_confidence = max(float(intent_confidence or 0.0), 0.74)
+                _reconstructed_goal_input = str(_goal_followup_resolution.get("reconstructed_input") or "").strip()
+                if _reconstructed_goal_input:
+                    user_input_processed = _reconstructed_goal_input
+                self._think(
+                    f"Goal follow-up resolved -> {entities.get('goal_id', 'goal')} ({_goal_followup_resolution.get('reason', 'goal_stack_followup')})"
+                )
             
             # 3. General Entity Detection (for non-email interactions)
             if self.advanced_context and not (intent and intent.startswith("email")):
@@ -7695,6 +7892,16 @@ class ALICE:
                 _pre_conv_state = {}
                 if getattr(self, 'conversation_state_tracker', None):
                     _pre_conv_state = self.conversation_state_tracker.get_state_summary()
+                _pre_goal_stack = self._authoritative_goal_stack(
+                    goal_res,
+                    preferred_goal=_goal_followup_goal_object,
+                )
+                if _pre_goal_stack:
+                    _pre_conv_state = {
+                        **(_pre_conv_state or {}),
+                        "active_goal_stack": list(_pre_goal_stack),
+                        "current_goal": dict(_pre_goal_stack[0]),
+                    }
                 _pre_exec_state = self.executive_controller.build_state(
                     user_input=user_input_processed,
                     intent=intent,
@@ -7706,7 +7913,7 @@ class ALICE:
                     _pre_exec_state,
                     is_pure_conversation=False,
                     has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input_processed)),
-                    has_active_goal=bool(goal_res and goal_res.goal),
+                    has_active_goal=bool(_pre_goal_stack),
                     force_plugins_for_notes=False,
                 )
                 _plan_allowed = self.executive_controller.should_use_planner(_pre_exec_state, _pre_scores)
@@ -8264,8 +8471,20 @@ class ALICE:
                 "file", "weather", "time", "how many", "what's", "show", "find", "remind",
             )
             
-            # If there's an active goal, use it to enhance intent understanding
-            active_goal = goal_res.goal if goal_res else None
+            # Use the authoritative goal stack as the source of truth.
+            _authoritative_goal_stack = self._authoritative_goal_stack(
+                goal_res,
+                preferred_goal=_goal_followup_goal_object,
+            )
+            active_goal = goal_res.goal if (goal_res and goal_res.goal) else _goal_followup_goal_object
+            if active_goal is None and _authoritative_goal_stack:
+                _g = dict(_authoritative_goal_stack[0])
+                active_goal = ReasoningActiveGoal(
+                    goal_id=str(_g.get("goal_id") or "goal::active"),
+                    description=str(_g.get("description") or _g.get("title") or "active goal"),
+                    intent=str(_g.get("intent") or intent),
+                    entities=dict(_g.get("entities") or {}),
+                )
             intent_candidates = getattr(nlp_result, 'intent_candidates', []) or []
             intent_plausibility = float(getattr(nlp_result, 'intent_plausibility', 1.0) or 1.0)
             if (
@@ -8308,6 +8527,20 @@ class ALICE:
             _conversation_state = {}
             if getattr(self, 'conversation_state_tracker', None):
                 _conversation_state = self.conversation_state_tracker.get_state_summary()
+            if _authoritative_goal_stack:
+                _conversation_state = {
+                    **(_conversation_state or {}),
+                    "active_goal_stack": list(_authoritative_goal_stack),
+                    "active_goals": list(_authoritative_goal_stack),
+                    "current_goal": dict(_authoritative_goal_stack[0]),
+                    "conversation_goal": str(_authoritative_goal_stack[0].get("status") or _conversation_state.get("conversation_goal") or "").strip(),
+                    "user_goal": str(_authoritative_goal_stack[0].get("description") or _authoritative_goal_stack[0].get("title") or _conversation_state.get("user_goal") or "").strip(),
+                }
+            if _goal_followup_resolution:
+                _conversation_state = {
+                    **(_conversation_state or {}),
+                    "goal_followup_resolution": dict(_goal_followup_resolution),
+                }
             _cognitive_guidance = {}
             if getattr(self, 'cognitive_orchestrator', None):
                 try:
@@ -8368,6 +8601,12 @@ class ALICE:
                         action_context={
                             "confidence": float(intent_confidence or 0.0),
                             "pending_slot": _slot_for_summary,
+                            "goal": active_goal,
+                            "selected_reference": str(
+                                (_pending_slot_state or {}).get('selected_reference')
+                                or (_pending_clarification or {}).get('selected_reference')
+                                or ''
+                            ).strip(),
                             "risk_level": "medium",
                         },
                         before_state=_world_state_before_route,
@@ -8460,7 +8699,7 @@ class ALICE:
                 _executive_state,
                 is_pure_conversation=bool(is_pure_conversation),
                 has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
-                has_active_goal=bool(active_goal),
+                has_active_goal=bool(_authoritative_goal_stack),
                 force_plugins_for_notes=bool(force_plugins_for_notes),
             )
             _runtime_controls = self.executive_controller.derive_runtime_controls(
@@ -8494,7 +8733,7 @@ class ALICE:
                 _executive_state,
                 is_pure_conversation=bool(is_pure_conversation),
                 has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
-                has_active_goal=bool(active_goal),
+                has_active_goal=bool(_authoritative_goal_stack),
                 force_plugins_for_notes=bool(force_plugins_for_notes),
             )
             _learning_decision = self.executive_controller.decide_learning(
@@ -8565,7 +8804,7 @@ class ALICE:
                     user_input=user_input,
                     intent=intent,
                     entities=entities or {},
-                    has_active_goal=bool(active_goal),
+                    has_active_goal=bool(_authoritative_goal_stack),
                     has_explicit_action_cue=bool(self._has_explicit_action_cue(user_input)),
                 )
                 if _self_answer.get("block_llm"):
@@ -8800,6 +9039,18 @@ class ALICE:
                     risk_level=_risk_level,
                     retry_budget=(1 if _action_name in {"read", "list", "search"} else 0),
                     rollback_policy=("manual" if _action_name in {"delete", "update", "append"} else "none"),
+                    goal_ref=(
+                        {
+                            "goal_id": str(getattr(active_goal, 'goal_id', '') or ''),
+                            "title": str(getattr(active_goal, 'description', '') or ''),
+                            "kind": str(getattr(active_goal, 'intent', '') or 'task'),
+                            "status": str(getattr(getattr(active_goal, 'status', ''), 'value', getattr(active_goal, 'status', 'active')) or 'active'),
+                            "next_action": str(getattr(active_goal, 'next_action', '') or ''),
+                            "confidence": float(getattr(active_goal, 'confidence', intent_confidence or 0.0) or 0.0),
+                        }
+                        if active_goal
+                        else None
+                    ),
                 )
                 action_result = self.action_engine.execute(action_request)
                 self.action_engine.apply_state_updates(self, action_result)

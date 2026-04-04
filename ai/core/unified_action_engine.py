@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 from ai.core.execution_journal import ExecutionJournal, get_execution_journal
+from ai.core.goal_object import goal_from_any
 from ai.core.goal_action_verifier import GoalActionVerifier, get_goal_action_verifier
 from ai.core.rollback_executor import RollbackExecutor, get_rollback_executor
 from ai.core.tool_executor import ToolExecutor, get_tool_executor
@@ -29,6 +30,7 @@ class ActionRequest:
     retry_budget: int = 1
     rollback_policy: str = "none"
     plan_steps: list[str] = field(default_factory=list)
+    goal_ref: Any = None
 
 
 @dataclass
@@ -412,6 +414,17 @@ class UnifiedActionEngine:
             return
 
     def _normalize_request(self, request: ActionRequest) -> ActionRequest:
+        if request.goal_ref is not None:
+            try:
+                g = goal_from_any(request.goal_ref)
+                if not str(request.goal or "").strip():
+                    request.goal = str(g.title or g.goal_id or "").strip()
+                request.target_spec = request.target_spec or {}
+                request.target_spec.setdefault("goal_id", str(g.goal_id or ""))
+                request.target_spec.setdefault("goal_status", str(g.status or ""))
+            except Exception:
+                pass
+
         request.goal = str(request.goal or "").strip()
         request.plugin = str(request.plugin or "unknown").strip().lower() or "unknown"
         request.action = str(request.action or "unknown").strip().lower() or "unknown"
@@ -427,6 +440,14 @@ class UnifiedActionEngine:
         request.rollback_policy = str(request.rollback_policy or "none").strip().lower()
         request.plan_steps = list(request.plan_steps or [])
         return request
+
+    def _request_goal_id(self, request: ActionRequest) -> str:
+        if request.goal_ref is None:
+            return ""
+        try:
+            return str(goal_from_any(request.goal_ref).goal_id or "").strip()
+        except Exception:
+            return ""
 
     def _policy_requires_clarification(self, request: ActionRequest) -> bool:
         if request.risk_level not in {"high", "critical"}:
@@ -477,6 +498,7 @@ class UnifiedActionEngine:
         payload = {
             "event": event,
             "goal": request.goal,
+            "goal_id": self._request_goal_id(request),
             "plugin": request.plugin,
             "action": request.action,
             "risk_level": request.risk_level,

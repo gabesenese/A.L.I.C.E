@@ -22,6 +22,10 @@ class ReasoningState:
     conversation_goal: str
     user_goal: str
     depth_level: int
+    goal_status: str = ""
+    goal_next_action: str = ""
+    goal_blockers: List[str] = field(default_factory=list)
+    goal_active_count: int = 0
     planner_hint: str = ""
     planner_depth: int = 1
     route_bias: str = "balanced"
@@ -40,6 +44,10 @@ class ReasoningState:
             "intent_plausibility": self.intent_plausibility,
             "conversation_goal": self.conversation_goal,
             "user_goal": self.user_goal,
+            "goal_status": self.goal_status,
+            "goal_next_action": self.goal_next_action,
+            "goal_blockers": list(self.goal_blockers),
+            "goal_active_count": self.goal_active_count,
             "depth_level": self.depth_level,
             "planner_hint": self.planner_hint,
             "planner_depth": self.planner_depth,
@@ -84,17 +92,12 @@ class ExecutiveController:
         "status_inquiry",
         "farewell",
     }
-    HELP_OPENER_RE = re.compile(
-        r"\b(i\s+need\s+help|can\s+you\s+help|help\s+me|help\s+with\s+this|help\s+with\s+my\s+project|i\s+am\s+(?:a\s+)?beginner|i'?m\s+(?:a\s+)?beginner|want\s+an\s+explanation)\b",
-        re.IGNORECASE,
-    )
     SIMPLE_NATIVE_RE = re.compile(
         r"^(?:"
         r"hi|hello|hey|yo|sup|"
         r"thanks|thank\s+you|thx|"
         r"bye|goodbye|see\s+you|"
         r"how\s+are\s+you|how\s+are\s+you\s+doing|hows\s+it\s+going|"
-        r"can\s+you\s+help\s+me|i\s+need(?:\s+some)?\s+help(?:\s+with.*)?|help\s+me|"
         r"ok|okay|sure|got\s+it|understood|noted"
         r")\??$",
         re.IGNORECASE,
@@ -182,15 +185,85 @@ class ExecutiveController:
         entities = entities or {}
         conversation_state = conversation_state or {}
 
+        hidden_snapshot = dict(conversation_state.get("hidden_situation_snapshot") or {})
+        hidden_goal_state = dict(hidden_snapshot.get("goal_state") or {})
+        priority_goal = dict(hidden_goal_state.get("priority_goal") or {})
+        current_goal = dict(conversation_state.get("current_goal") or priority_goal or {})
+
+        raw_goal_stack: List[Dict[str, Any]] = []
+        for candidate in (
+            [current_goal]
+            + list(conversation_state.get("active_goal_stack") or [])
+            + list(conversation_state.get("active_goals") or [])
+            + list(hidden_goal_state.get("active_goal_stack") or [])
+        ):
+            if isinstance(candidate, dict):
+                raw_goal_stack.append(dict(candidate))
+
+        if raw_goal_stack:
+            deduped_goal_stack: List[Dict[str, Any]] = []
+            seen = set()
+            for goal in raw_goal_stack:
+                goal_key = str(goal.get("goal_id") or goal.get("title") or "").strip()
+                if goal_key and goal_key in seen:
+                    continue
+                if goal_key:
+                    seen.add(goal_key)
+                deduped_goal_stack.append(goal)
+            priority_goal = dict(deduped_goal_stack[0] or {})
+            current_goal = dict(priority_goal)
+
+        goal_status = str(
+            current_goal.get("status")
+            or priority_goal.get("status")
+            or hidden_goal_state.get("status")
+            or ""
+        ).strip().lower()
+        goal_next_action = str(
+            current_goal.get("next_action")
+            or priority_goal.get("next_action")
+            or hidden_goal_state.get("next_action")
+            or ""
+        ).strip()
+
+        goal_blockers: List[str] = []
+        raw_blockers = (
+            current_goal.get("blockers")
+            or priority_goal.get("blockers")
+            or hidden_goal_state.get("blockers")
+            or []
+        )
+        if isinstance(raw_blockers, list):
+            for blocker in raw_blockers:
+                blocker_text = str(blocker or "").strip()
+                if blocker_text and blocker_text not in goal_blockers:
+                    goal_blockers.append(blocker_text)
+        else:
+            blocker_text = str(raw_blockers or "").strip()
+            if blocker_text:
+                goal_blockers.append(blocker_text)
+
+        goal_active_count = int(hidden_goal_state.get("active_goal_count") or 0)
+        if goal_active_count <= 0:
+            goal_active_count = len(raw_goal_stack) if raw_goal_stack else (1 if priority_goal else 0)
+
         topic = str(
-            entities.get("topic") or conversation_state.get("conversation_topic") or ""
+            entities.get("topic")
+            or conversation_state.get("conversation_topic")
+            or priority_goal.get("title")
+            or ""
         ).strip()
 
         conversation_goal = str(
-            conversation_state.get("conversation_goal") or ""
+            conversation_state.get("conversation_goal")
+            or hidden_goal_state.get("status")
+            or ""
         ).strip()
         user_goal = str(
-            conversation_state.get("user_goal") or entities.get("goal") or ""
+            conversation_state.get("user_goal")
+            or entities.get("goal")
+            or priority_goal.get("title")
+            or ""
         ).strip()
         depth_level = int(conversation_state.get("depth_level") or 0)
         intent_plausibility = max(
@@ -225,6 +298,10 @@ class ExecutiveController:
             intent_plausibility=intent_plausibility,
             conversation_goal=conversation_goal,
             user_goal=user_goal,
+            goal_status=goal_status,
+            goal_next_action=goal_next_action,
+            goal_blockers=goal_blockers,
+            goal_active_count=max(0, goal_active_count),
             depth_level=depth_level,
             planner_hint=planner_hint,
             planner_depth=max(1, min(4, planner_depth)),
@@ -320,17 +397,6 @@ class ExecutiveController:
                 store_memory=True,
             )
 
-        if self._should_force_native_scaffold(
-            state=state,
-            has_explicit_action_cue=has_explicit_action_cue,
-            has_active_goal=has_active_goal,
-        ):
-            return ExecutiveDecision(
-                action="answer_direct",
-                reason="native_conversation_scaffold",
-                store_memory=True,
-            )
-
         if self._is_clear_informational_request(state):
             return ExecutiveDecision(
                 action="answer_direct",
@@ -363,49 +429,67 @@ class ExecutiveController:
             has_active_goal=has_active_goal,
             force_plugins_for_notes=force_plugins_for_notes,
         )
-        uncertainty = self.uncertainty_behavior(state, scores)
-        if uncertainty in ("clarify", "defer", "reject"):
-            if uncertainty == "clarify":
-                return ExecutiveDecision(
-                    action="ask_clarification",
-                    reason="uncertainty_clarify",
-                    store_memory=False,
-                    clarification_question="I can help, but one detail is missing. What exact result should I produce?",
-                )
-            if uncertainty == "defer":
-                return ExecutiveDecision(
-                    action="defer",
-                    reason="uncertainty_defer",
-                    store_memory=False,
-                )
+        axes = self._decision_axes(
+            state=state,
+            is_pure_conversation=is_pure_conversation,
+            has_explicit_action_cue=has_explicit_action_cue,
+            has_active_goal=has_active_goal,
+            force_plugins_for_notes=force_plugins_for_notes,
+        )
+
+        # Minimal executive kernel (4 decisions):
+        # ACT, ANSWER, ASK, WAIT/DEFER
+        act_score = max(float(scores.get("tools", 0.0)), float(scores.get("search", 0.0)))
+        answer_score = max(
+            float(scores.get("llm", 0.0)),
+            float(scores.get("memory", 0.0)),
+            float(scores.get("rag", 0.0)),
+        )
+        ask_score = float(scores.get("clarify", 0.0))
+        wait_score = max(float(scores.get("defer", 0.0)), float(scores.get("reject", 0.0)))
+
+        if (
+            normalized_intent.startswith("conversation:")
+            and float(state.confidence or 0.0) < 0.35
+            and not has_explicit_action_cue
+            and not has_active_goal
+        ):
             return ExecutiveDecision(
-                action="ignore",
-                reason="uncertainty_reject",
+                action="ask_clarification",
+                reason="kernel_low_confidence_conversation",
                 store_memory=False,
+                clarification_question="I want to help accurately. What exact result do you want?",
             )
 
-        winner = max(scores.items(), key=lambda kv: kv[1])[0]
+        if (
+            float(axes.get("target_confidence", 0.0)) < 0.38
+            and float(axes.get("enough_information", 0.0)) < 0.45
+            and float(axes.get("can_act_now", 0.0)) < 0.50
+        ):
+            return ExecutiveDecision(
+                action="ask_clarification",
+                reason="kernel_low_confidence_ask",
+                store_memory=False,
+                clarification_question="I want to help accurately. What exact result do you want?",
+            )
 
-        if winner == "clarify":
+        if ask_score >= max(act_score, answer_score, wait_score):
             return ExecutiveDecision(
                 action="ask_clarification",
                 reason="score_clarify",
                 store_memory=False,
                 clarification_question="I want to help accurately. What exact result do you want?",
             )
-        if winner == "reject":
+        if wait_score >= max(act_score, answer_score, 0.58):
             return ExecutiveDecision(
-                action="ignore",
-                reason="score_reject",
+                action="defer",
+                reason="score_defer",
                 store_memory=False,
             )
-        if winner in ("tools", "search"):
+        if act_score >= max(answer_score, ask_score, wait_score):
+            winner = "search" if float(scores.get("search", 0.0)) > float(scores.get("tools", 0.0)) else "tools"
             return ExecutiveDecision(
                 action="use_plugin", reason=f"score_{winner}", store_memory=True
-            )
-        if winner == "memory":
-            return ExecutiveDecision(
-                action="use_llm", reason="score_memory", store_memory=True
             )
 
         return ExecutiveDecision(
@@ -413,17 +497,8 @@ class ExecutiveController:
         )
 
     def _is_help_opener(self, state: ReasoningState) -> bool:
-        text = " ".join(
-            str(x)
-            for x in (
-                state.source_text,
-                state.topic,
-                state.user_goal,
-                state.user_intent,
-            )
-            if x
-        )
-        return bool(self.HELP_OPENER_RE.search(text))
+        # Help-openers should not downgrade routing decisions.
+        return False
 
     def _is_pending_followup_slot_answer(
         self,
@@ -461,9 +536,6 @@ class ExecutiveController:
             "sure",
         }
         if all(tok in social_words for tok in tokens):
-            return False
-
-        if self.HELP_OPENER_RE.search(text):
             return False
 
         if expected_shape in {
@@ -541,13 +613,11 @@ class ExecutiveController:
 
         # Only allow help/clarification intents through deterministic native path
         # when the actual utterance is genuinely short/simple.
-        if normalized_intent in {
-            "conversation:help",
-            "conversation:clarification_needed",
-        }:
-            return bool(
-                self.SIMPLE_NATIVE_RE.match(text) or self.HELP_OPENER_RE.search(text)
-            )
+        if normalized_intent == "conversation:clarification_needed":
+            return bool(self.SIMPLE_NATIVE_RE.match(text))
+
+        if normalized_intent == "conversation:help":
+            return False
 
         return bool(self.SIMPLE_NATIVE_RE.match(text))
 
@@ -562,20 +632,12 @@ class ExecutiveController:
         text = str(state.source_text or "").strip().lower()
         if normalized_intent in self.SIMPLE_SCAFFOLD_INTENTS:
             return not has_explicit_action_cue
-        if normalized_intent in {
-            "conversation:help",
-            "conversation:clarification_needed",
-        }:
+        if normalized_intent == "conversation:clarification_needed":
             return (
                 (not has_explicit_action_cue)
                 and (not has_active_goal)
-                and bool(
-                    self.SIMPLE_NATIVE_RE.match(text)
-                    or self.HELP_OPENER_RE.search(text)
-                )
+                and bool(self.SIMPLE_NATIVE_RE.match(text))
             )
-        if normalized_intent == "conversation:general" and self._is_help_opener(state):
-            return (not has_explicit_action_cue) and (not has_active_goal)
         return False
 
     def should_veto_tool_execution(
@@ -726,8 +788,41 @@ class ExecutiveController:
         has_active_goal: bool,
         force_plugins_for_notes: bool,
     ) -> Dict[str, float]:
-        """Return a probabilistic-like score table for routing decisions."""
-        text_intent = (state.user_intent or "").lower()
+        """Score decisions from five compact executive axes.
+
+        Axes:
+        - can_act_now
+        - safe_to_act
+        - enough_information
+        - target_confidence
+        - expected_mission_progress (+ user_interruption_cost)
+        """
+        text_intent = (state.user_intent or "").lower().strip()
+        text = str(state.source_text or "").lower().strip()
+
+        axes = self._decision_axes(
+            state=state,
+            is_pure_conversation=is_pure_conversation,
+            has_explicit_action_cue=has_explicit_action_cue,
+            has_active_goal=has_active_goal,
+            force_plugins_for_notes=force_plugins_for_notes,
+        )
+
+        can_act_now = float(axes["can_act_now"])
+        safe_to_act = float(axes["safe_to_act"])
+        enough_information = float(axes["enough_information"])
+        target_confidence = float(axes["target_confidence"])
+        expected_progress = float(axes["expected_mission_progress"])
+        interruption_cost = float(axes["user_interruption_cost"])
+
+        act_score = can_act_now * safe_to_act * enough_information * target_confidence
+        answer_score = expected_progress * max(target_confidence, 0.45) * max(enough_information, 0.45)
+        if can_act_now >= 0.50:
+            # When execution is clearly available, bias the kernel toward ACT over ANSWER.
+            answer_score *= 0.78
+        ask_score = (1.0 - enough_information) * max(can_act_now, 0.45) * (1.0 - (0.45 * interruption_cost))
+        wait_score = (1.0 - safe_to_act) * max(can_act_now, 0.45)
+
         scores = {
             "tools": 0.0,
             "memory": 0.0,
@@ -739,79 +834,38 @@ class ExecutiveController:
             "defer": 0.0,
         }
 
-        conf = max(0.0, min(1.0, state.confidence))
-        normalized_intent = (state.user_intent or "").lower().strip()
-        scores["llm"] = 0.40 + (0.40 * conf)
-        scores["memory"] = 0.25 + (0.25 * (1.0 if state.topic else 0.0))
-        scores["rag"] = 0.20 + (0.30 * (1.0 if state.user_goal else 0.0))
-        scores["clarify"] = 0.15 + (0.55 * (1.0 - conf))
+        scores["tools"] = act_score
+        scores["search"] = act_score * (1.05 if ("search" in text_intent or "research" in text or "look up" in text) else 0.45)
+        scores["llm"] = answer_score
+        scores["memory"] = (0.70 * answer_score) + (0.20 if state.topic else 0.0)
+        scores["rag"] = (0.65 * answer_score) + (0.25 if state.user_goal else 0.0)
+        scores["clarify"] = ask_score
+        scores["defer"] = wait_score
+        scores["reject"] = max(0.0, (0.40 - target_confidence) + (0.35 - safe_to_act))
 
+        normalized_intent = text_intent
         if normalized_intent == "conversation:clarification_needed":
-            scores["llm"] += 0.30
-            scores["clarify"] -= 0.30
-
-        if has_explicit_action_cue or has_active_goal:
-            scores["tools"] += 0.55
-        if any(text_intent.startswith(domain) for domain in self.TOOL_DOMAINS):
-            scores["tools"] += 0.35
-        if force_plugins_for_notes:
-            scores["tools"] += 0.60
+            scores["llm"] += 0.20
+            scores["clarify"] -= 0.15
         if is_pure_conversation:
-            scores["llm"] += 0.12
-
-        if self._is_help_opener(state):
-            # Generic help-openers should steer toward native brief guidance,
-            # not deep LLM reasoning.
-            scores["llm"] -= 0.45
-            scores["memory"] -= 0.18
-            scores["rag"] -= 0.15
-            scores["clarify"] += 0.20
-
-        if normalized_intent in self.SIMPLE_SCAFFOLD_INTENTS:
-            scores["llm"] -= 0.30
-            scores["clarify"] += 0.15
-            scores["defer"] -= 0.10
-        if normalized_intent.startswith("conversation:") and len(str(state.source_text or "").split()) <= 10:
-            scores["llm"] -= 0.10
-        if conf < 0.35 and not state.topic:
-            scores["clarify"] += 0.35
-        if conf < 0.20 and not has_explicit_action_cue and not state.user_goal:
-            scores["reject"] += 0.55
-        if conf < 0.35:
-            scores["defer"] += 0.40
-        if "search" in text_intent or "research" in text_intent:
-            scores["search"] += 0.60
-
-        # Intent plausibility and runtime planner/cognition influences.
-        plausibility = max(0.0, min(1.0, float(state.intent_plausibility)))
-        if plausibility < 0.55:
-            scores["clarify"] += 0.20
-            scores["defer"] += 0.10
-            scores["tools"] -= 0.12
-            scores["search"] -= 0.08
-        if plausibility < 0.40:
-            scores["clarify"] += 0.25
-            scores["tools"] -= 0.20
-            scores["search"] -= 0.15
+            scores["llm"] += 0.08
+            scores["clarify"] *= 0.85
 
         if state.route_bias == "clarify_first":
-            scores["clarify"] += 0.20
-            scores["tools"] -= 0.10
+            scores["clarify"] += 0.15
+            scores["tools"] *= 0.85
+            scores["search"] *= 0.85
         elif state.route_bias == "tool_first":
             scores["tools"] += 0.12
+            scores["search"] += 0.10
         elif state.route_bias == "goal_first":
-            scores["llm"] += 0.08
+            scores["llm"] += 0.06
             scores["memory"] += 0.06
 
         if state.tool_budget <= 0:
-            scores["tools"] -= 0.30
-            scores["search"] -= 0.20
-        elif state.tool_budget >= 2 and (has_explicit_action_cue or has_active_goal):
-            scores["tools"] += 0.12
-
-        if state.planner_depth >= 3:
-            scores["llm"] += 0.08
-            scores["clarify"] += 0.04
+            scores["tools"] *= 0.30
+            scores["search"] *= 0.25
+            scores["defer"] += 0.10
 
         if state.planner_hint == "increase_structure_depth":
             scores["llm"] += 0.05
@@ -824,6 +878,121 @@ class ExecutiveController:
         for k, v in list(scores.items()):
             scores[k] = max(0.0, min(1.0, float(v)))
         return scores
+
+    def _decision_axes(
+        self,
+        *,
+        state: ReasoningState,
+        is_pure_conversation: bool,
+        has_explicit_action_cue: bool,
+        has_active_goal: bool,
+        force_plugins_for_notes: bool,
+    ) -> Dict[str, float]:
+        """Compute compact executive axes used by the 4-way kernel."""
+        intent = (state.user_intent or "").lower().strip()
+        text = str(state.source_text or "").lower().strip()
+        conf = max(0.0, min(1.0, float(state.confidence)))
+        plausibility = max(0.0, min(1.0, float(state.intent_plausibility)))
+        goal_status = str(getattr(state, "goal_status", "") or "").strip().lower()
+        goal_next_action = str(getattr(state, "goal_next_action", "") or "").strip()
+        goal_blockers = [
+            str(x).strip()
+            for x in list(getattr(state, "goal_blockers", []) or [])
+            if str(x).strip()
+        ]
+        goal_blocked = bool(goal_blockers) or goal_status in {
+            "blocked",
+            "stalled",
+            "waiting",
+            "on_hold",
+            "needs_input",
+        }
+        has_goal_next_action = bool(goal_next_action)
+        multiple_active_goals = int(getattr(state, "goal_active_count", 0) or 0) >= 2
+
+        can_act_now = 1.0 if (
+            has_explicit_action_cue
+            or has_active_goal
+            or force_plugins_for_notes
+            or any(intent.startswith(domain) for domain in self.TOOL_DOMAINS)
+            or intent.startswith("search")
+        ) else 0.15
+        if has_goal_next_action:
+            can_act_now = max(can_act_now, 0.72)
+        elif has_active_goal:
+            can_act_now = max(can_act_now, 0.58)
+        if goal_blocked:
+            can_act_now *= 0.72
+            if not has_goal_next_action and not has_explicit_action_cue:
+                can_act_now = min(can_act_now, 0.42)
+
+        safe_to_act = 1.0
+        if self.RISKY_CONVERSATION_RE.search(text):
+            safe_to_act *= 0.45
+        if plausibility < 0.55:
+            safe_to_act *= 0.78
+        if plausibility < 0.40:
+            safe_to_act *= 0.72
+        if conf < 0.45:
+            safe_to_act *= 0.82
+        if has_goal_next_action and not goal_blocked:
+            safe_to_act = min(1.0, safe_to_act + 0.08)
+        if goal_blocked:
+            safe_to_act *= 0.74
+
+        enough_information = 0.25 + (0.45 * conf) + (0.30 * plausibility)
+        if state.topic or state.user_goal:
+            enough_information += 0.12
+        if has_explicit_action_cue:
+            enough_information += 0.18
+        if self._is_clear_informational_request(state):
+            enough_information += 0.12
+        if intent == "conversation:clarification_needed":
+            enough_information += 0.10
+        if has_goal_next_action:
+            enough_information += 0.14
+        if goal_blocked and not has_goal_next_action:
+            enough_information -= 0.10
+        if multiple_active_goals and not has_explicit_action_cue and not state.topic:
+            enough_information -= 0.06
+
+        target_confidence = (0.55 * conf) + (0.45 * plausibility)
+        if goal_blocked and not has_goal_next_action:
+            target_confidence -= 0.04
+
+        if can_act_now >= 0.50:
+            expected_mission_progress = 0.10 + (0.55 * safe_to_act * enough_information) + (0.35 * target_confidence)
+        else:
+            expected_mission_progress = 0.25 + (0.45 * target_confidence) + (0.30 * enough_information)
+        if self._is_clear_informational_request(state):
+            expected_mission_progress += 0.10
+        if has_goal_next_action and not goal_blocked:
+            expected_mission_progress += 0.14
+        if goal_blocked:
+            expected_mission_progress *= 0.72
+            if has_goal_next_action:
+                expected_mission_progress += 0.08
+
+        user_interruption_cost = 0.30
+        if is_pure_conversation or intent.startswith("conversation:"):
+            user_interruption_cost += 0.20
+        if self._is_clear_informational_request(state):
+            user_interruption_cost += 0.25
+        if can_act_now >= 0.50 and (safe_to_act < 0.50 or enough_information < 0.50):
+            user_interruption_cost -= 0.18
+        if has_goal_next_action and not goal_blocked:
+            user_interruption_cost += 0.08
+        if goal_blocked and not has_goal_next_action:
+            user_interruption_cost -= 0.12
+
+        return {
+            "can_act_now": max(0.0, min(1.0, can_act_now)),
+            "safe_to_act": max(0.0, min(1.0, safe_to_act)),
+            "enough_information": max(0.0, min(1.0, enough_information)),
+            "target_confidence": max(0.0, min(1.0, target_confidence)),
+            "expected_mission_progress": max(0.0, min(1.0, expected_mission_progress)),
+            "user_interruption_cost": max(0.0, min(1.0, user_interruption_cost)),
+        }
 
     def apply_reflection(self, reflection: Dict[str, Any]) -> None:
         """Adjust routing matrix based on reflection feedback."""

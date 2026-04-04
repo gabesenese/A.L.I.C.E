@@ -290,3 +290,44 @@ def test_unified_action_engine_attaches_turn_diff_on_success():
     assert res.success is True
     assert isinstance(turn_diff, dict)
     assert turn_diff.get("event") == "action_execution"
+
+
+def test_unified_action_engine_normalizes_goal_ref_into_target_spec():
+    stub = _StubToolExecutor(
+        result={
+            "success": True,
+            "status": "success",
+            "plugin": "notes",
+            "action": "create",
+            "data": {"note_id": "n3"},
+            "message": "Created",
+            "confidence": 0.9,
+            "retryable": False,
+            "side_effects": ["created"],
+            "verification": {"accepted": True, "confidence": 0.9, "issues": []},
+        }
+    )
+    engine = UnifiedActionEngine(tool_executor=stub)
+    engine.bind_plugin_manager(object())
+
+    req = ActionRequest(
+        goal="",
+        plugin="notes",
+        action="create",
+        params={"title": "Kernel Plan", "_raw_query": "create note kernel plan"},
+        source_intent="notes:create",
+        confidence=0.8,
+        goal_ref={
+            "goal_id": "goal_exec_01",
+            "title": "Rebuild executive kernel",
+            "status": "active",
+        },
+    )
+
+    res = engine.execute(req)
+
+    assert res.success is True
+    assert stub.last_call is not None
+    target_spec = (stub.last_call.get("context") or {}).get("target_spec", {})
+    assert target_spec.get("goal_id") == "goal_exec_01"
+    assert target_spec.get("goal_status") == "active"

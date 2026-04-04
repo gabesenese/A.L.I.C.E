@@ -307,7 +307,7 @@ def test_runtime_controls_reduce_tool_usage_when_clarify_first() -> None:
     assert int(controls["thinking_depth"]) >= 3
 
 
-def test_help_intent_prefers_native_scaffold_over_llm() -> None:
+def test_help_intent_no_longer_forces_native_scaffold() -> None:
     controller = ExecutiveController()
     state = controller.build_state(
         user_input="i need help",
@@ -325,14 +325,11 @@ def test_help_intent_prefers_native_scaffold_over_llm() -> None:
         force_plugins_for_notes=False,
     )
 
-    assert decision.action == "answer_direct"
-    assert decision.reason in {
-        "native_conversation_scaffold",
-        "simple_conversational_native_path",
-    }
+    assert decision.action == "use_llm"
+    assert decision.reason == "score_llm"
 
 
-def test_help_opener_reduces_llm_score() -> None:
+def test_help_opener_no_longer_reduces_llm_score() -> None:
     controller = ExecutiveController()
     state = controller.build_state(
         user_input="can you help with this",
@@ -350,7 +347,7 @@ def test_help_opener_reduces_llm_score() -> None:
         force_plugins_for_notes=False,
     )
 
-    assert scores["llm"] <= 0.60
+    assert scores["llm"] >= 0.75
 
 
 def test_status_inquiry_forces_simple_native_path() -> None:
@@ -396,7 +393,7 @@ def test_help_intent_with_educational_question_does_not_force_simple_native_path
     assert decision.reason != "simple_conversational_native_path"
 
 
-def test_beginner_explanation_help_request_prefers_native_scaffold() -> None:
+def test_beginner_explanation_help_request_routes_to_reasoning() -> None:
     controller = ExecutiveController()
     state = controller.build_state(
         user_input="i am beginner so i want an explanation",
@@ -414,11 +411,8 @@ def test_beginner_explanation_help_request_prefers_native_scaffold() -> None:
         force_plugins_for_notes=False,
     )
 
-    assert decision.action == "answer_direct"
-    assert decision.reason in {
-        "native_conversation_scaffold",
-        "simple_conversational_native_path",
-    }
+    assert decision.action == "use_llm"
+    assert decision.reason == "score_llm"
 
 
 def test_pending_followup_slot_short_answer_avoids_scaffold_loop() -> None:
@@ -515,12 +509,111 @@ def test_clarification_needed_intent_answers_instead_of_looping() -> None:
         force_plugins_for_notes=False,
     )
 
-    assert decision.action in {"answer_direct", "use_llm"}
-    assert decision.reason in {
-        "native_conversation_scaffold",
-        "simple_conversational_native_path",
-        "clarification_answer_requested",
-    }
+    assert decision.action == "use_llm"
+    assert decision.reason == "clarification_answer_requested"
+
+
+def test_build_state_threads_goal_blockers_and_next_action_from_stack() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="continue",
+        intent="conversation:general",
+        confidence=0.74,
+        entities={},
+        conversation_state={
+            "active_goal_stack": [
+                {
+                    "goal_id": "g1",
+                    "title": "Ship parser",
+                    "status": "blocked",
+                    "next_action": "ask for fixture format",
+                    "blockers": ["fixture format missing"],
+                }
+            ],
+            "current_goal": {
+                "goal_id": "g1",
+                "title": "Ship parser",
+                "status": "blocked",
+                "next_action": "ask for fixture format",
+                "blockers": ["fixture format missing"],
+            },
+        },
+    )
+
+    assert state.goal_status == "blocked"
+    assert state.goal_next_action == "ask for fixture format"
+    assert "fixture format missing" in state.goal_blockers
+    assert state.goal_active_count >= 1
+
+
+def test_goal_blockers_and_next_action_shape_routing_scores() -> None:
+    controller = ExecutiveController()
+    actionable_state = controller.build_state(
+        user_input="continue",
+        intent="conversation:general",
+        confidence=0.72,
+        entities={"_intent_plausibility": 0.80},
+        conversation_state={
+            "active_goal_stack": [
+                {
+                    "goal_id": "g-action",
+                    "title": "Clean project notes",
+                    "status": "active",
+                    "next_action": "archive stale entries",
+                    "blockers": [],
+                }
+            ],
+            "current_goal": {
+                "goal_id": "g-action",
+                "title": "Clean project notes",
+                "status": "active",
+                "next_action": "archive stale entries",
+                "blockers": [],
+            },
+        },
+    )
+    blocked_state = controller.build_state(
+        user_input="continue",
+        intent="conversation:general",
+        confidence=0.72,
+        entities={"_intent_plausibility": 0.80},
+        conversation_state={
+            "active_goal_stack": [
+                {
+                    "goal_id": "g-blocked",
+                    "title": "Clean project notes",
+                    "status": "blocked",
+                    "next_action": "",
+                    "blockers": ["waiting for project name"],
+                }
+            ],
+            "current_goal": {
+                "goal_id": "g-blocked",
+                "title": "Clean project notes",
+                "status": "blocked",
+                "next_action": "",
+                "blockers": ["waiting for project name"],
+            },
+        },
+    )
+
+    actionable_scores = controller.score_decisions(
+        actionable_state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=False,
+        has_active_goal=True,
+        force_plugins_for_notes=False,
+    )
+    blocked_scores = controller.score_decisions(
+        blocked_state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=False,
+        has_active_goal=True,
+        force_plugins_for_notes=False,
+    )
+
+    assert actionable_scores["tools"] > blocked_scores["tools"]
+    assert blocked_scores["clarify"] > actionable_scores["clarify"]
 
 
 @pytest.mark.parametrize(
@@ -528,8 +621,6 @@ def test_clarification_needed_intent_answers_instead_of_looping() -> None:
     [
         ("how are you?", "conversation:general"),
         ("hello", "conversation:general"),
-        ("can you help me?", "conversation:help"),
-        ("i need some help", "conversation:help"),
         ("thanks", "conversation:general"),
     ],
 )

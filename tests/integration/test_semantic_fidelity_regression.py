@@ -164,18 +164,24 @@ def test_deterministic_knowledge_fallback_handles_nlp_learning_overview_request(
     assert "conversation flow" in low
 
 
-def test_deterministic_knowledge_fallback_does_not_echo_instruction_verb_as_topic():
+def test_teaching_request_prefers_structured_mode_over_deterministic_fallback():
     alice = ALICE.__new__(ALICE)
 
-    response = alice._deterministic_knowledge_fallback(
+    deterministic = alice._deterministic_knowledge_fallback(
+        "teach me about nlp",
+        "conversation:help",
+    )
+    structured = alice._structured_teaching_mode_response(
         "teach me about nlp",
         "conversation:help",
     )
 
-    assert response is not None
-    low = response.lower()
-    assert "teach first" not in low
-    assert "intent routing" in low or "entity extraction" in low
+    assert deterministic is None
+    assert structured is not None
+    low = structured.lower()
+    assert "learning outline" in low
+    assert "foundations" in low
+    assert "methods" in low
 
 
 def test_llm_failure_recovery_keeps_answer_directly_for_understood_safe_goal():
@@ -220,17 +226,34 @@ def test_compose_understood_goal_recovery_avoids_fixed_fallback_message():
     assert "nlp" in low
 
 
+def test_self_answer_first_gate_uses_structured_teaching_mode_for_teach_prompts():
+    alice = ALICE.__new__(ALICE)
+
+    gate = alice._self_answer_first_gate(
+        user_input="teach me about nlp",
+        intent="conversation:help",
+        entities={},
+        has_active_goal=False,
+        has_explicit_action_cue=False,
+    )
+
+    assert gate.get("block_llm") is True
+    assert gate.get("reason") == "structured_teaching_mode"
+    response = str(gate.get("response") or "")
+    assert "Learning outline" in response
+
+
 def test_native_scaffold_handles_simple_conversation_openers_without_llm():
     alice = ALICE.__new__(ALICE)
 
     assert alice._native_scaffold_response("how are you?", "status_inquiry") is not None
     assert alice._native_scaffold_response("how are you?", "conversation:general") is not None
     assert alice._native_scaffold_response("hello", "conversation:general") is not None
-    assert alice._native_scaffold_response("can you help me?", "conversation:help") is not None
+    assert alice._native_scaffold_response("can you help me?", "conversation:help") is None
     assert alice._native_scaffold_response("thanks", "conversation:general") is not None
 
 
-def test_native_scaffold_handles_beginner_explanation_help_request():
+def test_native_scaffold_does_not_flatten_beginner_explanation_help_request():
     alice = ALICE.__new__(ALICE)
 
     response = alice._native_scaffold_response(
@@ -238,10 +261,7 @@ def test_native_scaffold_handles_beginner_explanation_help_request():
         "conversation:help",
     )
 
-    assert response is not None
-    low = response.lower()
-    assert "beginner level" in low
-    assert "step by step" in low
+    assert response is None
 
 
 def test_native_scaffold_does_not_flatten_detailed_help_issue_report():

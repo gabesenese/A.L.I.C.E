@@ -33,35 +33,6 @@ class ClarificationResolver:
         if not text or not slot_type:
             return ClarificationResolution()
 
-        if slot_type in {"route_choice", "help_route_choice"}:
-            choice = self._parse_route_choice(text_low)
-            if not choice:
-                return ClarificationResolution(consumed=False, slot_type=slot_type)
-
-            parent_request = str(
-                slot.get("parent_request")
-                or slot.get("parent_query")
-                or slot.get("source_user_input")
-                or ""
-            ).strip()
-            parent_intent = str(slot.get("parent_intent") or "conversation:help").strip()
-
-            reconstructed_input = parent_request
-            reconstructed_intent = parent_intent
-            if choice == "quick_search":
-                reconstructed_intent = "search"
-                if not reconstructed_input:
-                    reconstructed_input = str(slot.get("parent_topic") or "").strip()
-
-            return ClarificationResolution(
-                consumed=True,
-                route_choice=choice,
-                slot_type=slot_type,
-                reconstructed_input=reconstructed_input,
-                reconstructed_intent=reconstructed_intent,
-                reason="route_choice_slot_consumed",
-            )
-
         if slot_type in {"topic_branch", "help_topic_branch", "project_branch"}:
             branch = self._parse_topic_branch(
                 text_low,
@@ -89,16 +60,6 @@ class ClarificationResolver:
             )
 
         return ClarificationResolution()
-
-    @staticmethod
-    def _parse_route_choice(text_low: str) -> str:
-        if re.search(r"\b(explanation|explain|walk\s*through|teach|how|why)\b", text_low):
-            return "explanation"
-        if re.search(r"\b(direct\s+action|action|do\s+it|execute|perform|run\s+it)\b", text_low):
-            return "direct_action"
-        if re.search(r"\b(quick\s+search|search|look\s*up|find\s+info|web|online)\b", text_low):
-            return "quick_search"
-        return ""
 
     @staticmethod
     def _parse_topic_branch(text_low: str, allowed_values: list[str]) -> str:

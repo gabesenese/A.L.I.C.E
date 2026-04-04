@@ -1,44 +1,10 @@
 from ai.core.clarification_resolver import ClarificationResolver
 
 
-def test_route_choice_quick_search_reconstructs_parent_request():
+def test_route_choice_slots_are_not_consumed_anymore():
     resolver = ClarificationResolver()
     resolution = resolver.resolve(
         user_input="quick search",
-        pending_slot={
-            "slot_type": "route_choice",
-            "parent_request": "give me some nlp algorithms",
-            "parent_intent": "conversation:help",
-        },
-    )
-
-    assert resolution.consumed is True
-    assert resolution.route_choice == "quick_search"
-    assert resolution.reconstructed_input == "give me some nlp algorithms"
-    assert resolution.reconstructed_intent == "search"
-
-
-def test_route_choice_explanation_reconstructs_parent_intent():
-    resolver = ClarificationResolver()
-    resolution = resolver.resolve(
-        user_input="explanation",
-        pending_slot={
-            "slot_type": "route_choice",
-            "parent_request": "compare stemming and lemmatization",
-            "parent_intent": "conversation:help",
-        },
-    )
-
-    assert resolution.consumed is True
-    assert resolution.route_choice == "explanation"
-    assert resolution.reconstructed_input == "compare stemming and lemmatization"
-    assert resolution.reconstructed_intent == "conversation:help"
-
-
-def test_route_choice_unrecognized_reply_is_not_consumed():
-    resolver = ClarificationResolver()
-    resolution = resolver.resolve(
-        user_input="maybe",
         pending_slot={
             "slot_type": "route_choice",
             "parent_request": "give me some nlp algorithms",
