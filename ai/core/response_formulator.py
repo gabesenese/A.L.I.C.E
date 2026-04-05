@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,23 @@ class ResponseTemplate:
     example_data: Dict[str, Any]  # Example data structure
     example_phrasings: List[str]  # Multiple ways to phrase it
     formulation_rules: List[str]  # Rules for generating response
+
+
+@dataclass
+class ReasoningOutput:
+    """Internal reasoning artifact that must never be sent directly to users."""
+
+    internal_summary: str
+    intent: str
+    plan: List[str]
+    confidence: float
+
+
+@dataclass
+class UserResponse:
+    """Final user-facing response contract."""
+
+    message: str
 
 
 class ResponseFormulator:
@@ -60,6 +78,143 @@ class ResponseFormulator:
         # Track what Alice can formulate independently
         self.independent_actions = set()
         self._load_independence_data()
+
+    INTERNAL_LEAK_PATTERNS: List[str] = [
+        "the user wants",
+        "some possible follow-up",
+        "key points",
+        "analysis:",
+        "context:",
+        "internal reasoning",
+        "reasoning output",
+        "intent:",
+        "plan:",
+    ]
+
+    def is_internal(self, text: str) -> bool:
+        """Return True when a text looks like internal reasoning or scaffold leakage."""
+        low = str(text or "").lower()
+        if not low.strip():
+            return False
+        return any(pattern in low for pattern in self.INTERNAL_LEAK_PATTERNS)
+
+    def _sanitize_user_message(self, text: str) -> str:
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return ""
+
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = re.sub(r"^(analysis|context|intent|plan)\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = cleaned.strip(" \t\n\r-:;,.\"")
+        if cleaned and not re.search(r"[.!?]$", cleaned):
+            cleaned += "."
+        return cleaned
+
+    def _regenerate_clean_message(
+        self,
+        *,
+        intent: str,
+        context: Optional[Dict[str, Any]],
+        tool_results: Optional[Dict[str, Any]],
+        reasoning_output: Optional[ReasoningOutput],
+    ) -> str:
+        """Deterministic fallback when candidate output leaks internal text."""
+        intent_text = str(intent or "").lower().strip()
+
+        if "clarification" in intent_text or "vague" in intent_text:
+            return "Can you clarify the exact outcome you want?"
+
+        if tool_results and isinstance(tool_results, dict):
+            msg = str(
+                tool_results.get("response")
+                or tool_results.get("message")
+                or ""
+            ).strip()
+            if msg and not self.is_internal(msg):
+                return msg
+
+            data = tool_results.get("data") if isinstance(tool_results.get("data"), dict) else {}
+            plugin = str(tool_results.get("plugin") or "").strip()
+            action = str(tool_results.get("action") or "").strip()
+            if plugin or action:
+                return f"Done. {plugin} {action} completed.".strip()
+            if data:
+                return "Done. I processed that request."
+
+        if "goal" in intent_text or "project" in intent_text or "learning:" in intent_text:
+            return (
+                "Alright - let's turn that into an action plan. "
+                "I can break it into architecture, execution, and memory, then start with step one."
+            )
+
+        if reasoning_output and str(reasoning_output.internal_summary or "").strip():
+            summary = self._sanitize_user_message(reasoning_output.internal_summary)
+            if summary and not self.is_internal(summary):
+                return summary
+
+        user_input = str((context or {}).get("user_input") or "").strip()
+        if user_input:
+            return "Understood. Here is the direct answer without internal analysis."
+
+        return "I can help with that."
+
+    def _enforce_jarvis_tone(self, message: str) -> str:
+        """Keep final responses clean, direct, and practical."""
+        text = self._sanitize_user_message(message)
+        if not text:
+            return ""
+
+        text = re.sub(
+            r"^(sure|of course|absolutely|definitely|no problem|happy to help)[:,.!]?\s+",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def generate(
+        self,
+        intent: str,
+        context: Optional[Dict[str, Any]],
+        tool_results: Optional[Dict[str, Any]],
+        reasoning_output: Optional[ReasoningOutput],
+        mode: str = "final_answer_only",
+    ) -> UserResponse:
+        """Final authority layer: always produce a user-safe UserResponse."""
+        _ = mode  # Reserved for future policy branching.
+
+        candidate = ""
+
+        if tool_results and isinstance(tool_results, dict):
+            candidate = str(
+                tool_results.get("response")
+                or tool_results.get("message")
+                or ""
+            ).strip()
+
+        if not candidate and reasoning_output is not None:
+            candidate = str(reasoning_output.internal_summary or "").strip()
+
+        if not candidate:
+            candidate = str((context or {}).get("response") or "").strip()
+
+        candidate = self._sanitize_user_message(candidate)
+        if not candidate or self.is_internal(candidate):
+            candidate = self._regenerate_clean_message(
+                intent=intent,
+                context=context,
+                tool_results=tool_results,
+                reasoning_output=reasoning_output,
+            )
+            candidate = self._sanitize_user_message(candidate)
+
+        if not candidate or self.is_internal(candidate):
+            candidate = "I can help - tell me the exact result you want."
+
+        candidate = self._enforce_jarvis_tone(candidate)
+
+        return UserResponse(message=candidate)
 
     def _load_templates(self) -> None:
         """Load response templates from storage"""

@@ -134,7 +134,11 @@ from ai.core.goal_object import goal_from_any
 from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_manager
 from ai.core.autonomy_dispatcher import TinyAutonomyDispatcher, OUTCOME_ESCALATE_AND_STOP
 from ai.learning.phrasing_learner import PhrasingLearner
-from ai.core.response_formulator import get_response_formulator
+from ai.core.response_formulator import (
+    get_response_formulator,
+    ReasoningOutput,
+    UserResponse,
+)
 from ai.lab_simulator import LabSimulator
 from ai.red_team_tester import RedTeamTester
 
@@ -219,7 +223,6 @@ class ALICE:
         self.debug = debug
         self.privacy_mode = privacy_mode
         self.llm_policy = llm_policy
-        self.user_name = user_name
         self.strict_no_llm = llm_policy == "strict"
         self.running = False
         
@@ -1169,7 +1172,6 @@ class ALICE:
         This is Alice's emotional intelligence - coded, not prompted.
 
         Args:
-            intent: The classified intent
             context: Conversational context
             user_input: Original user input
 
@@ -1797,6 +1799,27 @@ class ALICE:
                 return self._answerability_gate_fallback_response(user_input)
             if response_type == "clarification_prompt":
                 return "Please clarify the exact outcome you want so I can route this correctly."
+            return "I can help with that. Tell me the exact result you want."
+
+        leak_patterns = (
+            "the user wants",
+            "some possible follow-up",
+            "key points",
+            "analysis:",
+            "context:",
+            "intent:",
+            "plan:",
+        )
+        if any(pattern in lower for pattern in leak_patterns):
+            if response_type == "clarification_prompt":
+                return "Can you clarify the exact outcome you want?"
+            if self._is_answerability_direct_question(user_input):
+                return self._answerability_gate_fallback_response(user_input)
+            return "I can help with that. Tell me the exact result you want."
+
+        if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(text):
+            if response_type == "clarification_prompt":
+                return "Can you clarify the exact outcome you want?"
             return "I can help with that. Tell me the exact result you want."
 
         # Tone-aware trim: keep professional tones concise.
@@ -4255,6 +4278,7 @@ class ALICE:
                 lane_prompt,
                 use_history=not _project_ideation_turn,
                 temperature=0.45,
+                mode="final_answer_only",
             )
         except Exception as e:
             logger.debug("Fast LLM lane failed: %s", e)
@@ -4531,7 +4555,12 @@ class ALICE:
             f"Draft reply: {base}"
         )
         try:
-            polished = self.llm.chat(rewrite_prompt, use_history=False, temperature=0.35)
+            polished = self.llm.chat(
+                rewrite_prompt,
+                use_history=False,
+                temperature=0.35,
+                mode="final_answer_only",
+            )
             polished_text = str(polished or "").strip()
             if polished_text:
                 return self._clamp_final_response(
@@ -7964,7 +7993,127 @@ class ALICE:
         except Exception as e:
             logger.debug(f"[ExecutiveReflection] {e}")
 
+    def _build_reasoning_output_contract(
+        self,
+        *,
+        user_input: str,
+        raw_response: str,
+    ) -> ReasoningOutput:
+        """Build internal reasoning artifact for final response formulation."""
+        state = dict(getattr(self, '_internal_reasoning_state', {}) or {})
+        response_plan = dict(state.get('response_plan', {}) or {})
+        routing_decision = dict(state.get('routing_decision', {}) or {})
+        intent = str(
+            state.get('intent')
+            or state.get('resolved_intent')
+            or getattr(self, '_last_routed_intent', None)
+            or getattr(self, 'last_intent', None)
+            or "conversation:general"
+        ).strip()
+        confidence = float(
+            state.get('confidence')
+            or state.get('intent_confidence')
+            or getattr(self, '_last_intent_confidence', 0.0)
+            or 0.0
+        )
+        summary_parts = [
+            f"intent={intent}",
+            f"confidence={confidence:.2f}",
+            f"route={str(state.get('routing_owner') or routing_decision.get('reason') or 'unknown')}",
+            f"user_input={str(user_input or '').strip()[:120]}",
+            f"raw_response={str(raw_response or '').strip()[:180]}",
+        ]
+        plan = [
+            str(response_plan.get('strategy') or '').strip(),
+            str(response_plan.get('response_type') or '').strip(),
+            str(routing_decision.get('reason') or '').strip(),
+        ]
+        plan = [step for step in plan if step]
+        return ReasoningOutput(
+            internal_summary=" | ".join(summary_parts),
+            intent=intent,
+            plan=plan,
+            confidence=max(0.0, min(1.0, confidence)),
+        )
+
+    def _finalize_user_response_contract(self, *, user_input: str, raw_response: str) -> str:
+        """Final authority: only a UserResponse may be emitted to the user."""
+        base = str(raw_response or "").strip()
+        reasoning_output = self._build_reasoning_output_contract(
+            user_input=user_input,
+            raw_response=base,
+        )
+        tool_results = (
+            dict(getattr(self, '_last_plugin_result', {}) or {})
+            if isinstance(getattr(self, '_last_plugin_result', None), dict)
+            else {}
+        )
+        context = {
+            "user_input": str(user_input or "").strip(),
+            "response": base,
+            "tone": str(getattr(getattr(self, '_last_policy', None), 'tone', 'neutral') or 'neutral'),
+        }
+
+        message = base
+        try:
+            if getattr(self, 'response_formulator', None):
+                final_payload = self.response_formulator.generate(
+                    intent=reasoning_output.intent,
+                    context=context,
+                    tool_results=tool_results,
+                    reasoning_output=reasoning_output,
+                    mode="final_answer_only",
+                )
+                if isinstance(final_payload, UserResponse):
+                    message = str(final_payload.message or "").strip()
+                else:
+                    logger.warning("Response contract violation: non-UserResponse emitted from formulator")
+
+            message = self._clamp_final_response(
+                message,
+                tone='helpful',
+                response_type='general_response',
+                route='final_authority',
+                user_input=user_input,
+            )
+
+            if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(message):
+                regenerated = self.response_formulator.generate(
+                    intent=reasoning_output.intent,
+                    context={**context, "response": ""},
+                    tool_results=tool_results,
+                    reasoning_output=reasoning_output,
+                    mode="final_answer_only",
+                )
+                if isinstance(regenerated, UserResponse):
+                    message = self._clamp_final_response(
+                        str(regenerated.message or ""),
+                        tone='helpful',
+                        response_type='general_response',
+                        route='final_authority_regen',
+                        user_input=user_input,
+                    )
+
+            if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(message):
+                message = "I can help with that. Tell me the exact result you want."
+
+        except Exception as e:
+            logger.debug("Final response contract fallback due to error: %s", e)
+            message = base
+
+        message = str(message or "").strip() or "I need one more detail to help."
+        self.last_assistant_response = message
+        return message
+
     def process_input(self, user_input: str, use_voice: bool = False) -> str:
+        """Public entrypoint with strict thought-vs-output contract enforcement."""
+        raw_response = self._process_input_internal(user_input, use_voice=use_voice)
+        return self._finalize_user_response_contract(
+            user_input=user_input,
+            raw_response=raw_response,
+        )
+
+    def _process_input_internal(self, user_input: str, use_voice: bool = False) -> str:
         """
         Process user input through the complete pipeline
         
