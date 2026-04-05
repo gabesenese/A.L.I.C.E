@@ -241,6 +241,28 @@ class TestFollowUpResolver:
         assert r.domain == "weather"
         assert r.confidence > 0.79
 
+    def test_weather_time_range_followup_promotes_to_forecast_from_current(self):
+        r = self._resolve(
+            "what about this week?",
+            last_intent="weather:current",
+            nlp_intent="weather:current",
+            nlp_confidence=0.71,
+        )
+        assert r.was_followup is True
+        assert r.domain == "weather"
+        assert r.resolved_intent == "weather:forecast"
+
+    def test_weather_time_range_followup_promotes_to_forecast_from_conversation(self):
+        r = self._resolve(
+            "next few days?",
+            last_intent="weather:current",
+            nlp_intent="conversation:general",
+            nlp_confidence=0.42,
+        )
+        assert r.was_followup is True
+        assert r.domain == "weather"
+        assert r.resolved_intent == "weather:forecast"
+
     def test_layer1_domain_signal_music_skip(self):
         r = self._resolve(
             "skip this song",

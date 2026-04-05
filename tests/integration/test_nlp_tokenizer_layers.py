@@ -105,6 +105,19 @@ class TestLayeredTokenizer:
         assert result.intent == "conversation:goal_statement"
         assert result.intent_confidence >= 0.8
 
+    def test_answerability_gate_routes_specific_domain_question_to_learning_explanation_request(self):
+        result = self.nlp.process("how does optimizer training work in nlp models?")
+        modifiers = result.parsed_command.get("modifiers", {})
+
+        assert result.intent == "learning:explanation_request"
+        assert modifiers.get("allow_direct_answer") is True
+        assert modifiers.get("block_clarification") is True
+
+    def test_answerability_gate_does_not_fire_for_ambiguous_domain_question(self):
+        result = self.nlp.process("how does optimizer stuff work?")
+
+        assert result.intent != "learning:explanation_request"
+
     def test_weather_plausibility_requires_entity_or_forecast_signals(self):
         score, issues = self.nlp._validate_intent_plausibility(
             "please help with this", "weather:current", ParsedCommand(), {}
@@ -121,6 +134,19 @@ class TestLayeredTokenizer:
         )
         assert score < 0.35
         assert "negative_evidence_weather_contradiction" in issues
+
+    def test_weather_signal_query_prefers_weather_over_notes_scores(self):
+        debug = self.nlp.debug_tokenizer("is it gonna snow by any chance?")
+        scores = debug.get("plugin_scores", {})
+
+        assert scores.get("weather", 0.0) > scores.get("notes", 0.0)
+        assert scores.get("weather", 0.0) >= 2.0
+
+    def test_weather_signal_query_not_misclassified_as_notes(self):
+        result = self.nlp.process("is it gonna snow by any chance?")
+
+        assert result.intent.startswith("weather:")
+        assert not result.intent.startswith("notes:")
 
     def test_memory_recall_phrase_not_misclassified_as_store(self):
         result = self.nlp.process("do you remember that coding problem we were talking about?")

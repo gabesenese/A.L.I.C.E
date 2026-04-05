@@ -168,6 +168,98 @@ def test_deterministic_knowledge_fallback_handles_nlp_learning_overview_request(
     assert "conversation flow" in low
 
 
+def test_answerability_gate_detects_specific_domain_questions_and_ignores_ambiguous_phrasing():
+    alice = ALICE.__new__(ALICE)
+
+    assert alice._is_answerability_direct_question(
+        "how does optimizer training work in nlp models?"
+    ) is True
+    assert alice._is_answerability_direct_question(
+        "how does optimizer stuff work?"
+    ) is False
+
+
+def test_answerability_gate_forces_answer_first_without_clarification():
+    alice = ALICE.__new__(ALICE)
+
+    assert alice._should_answer_first_without_clarification(
+        "how does optimizer training work in nlp models?",
+        "conversation:question",
+    ) is True
+
+
+def test_fast_lane_sanitizer_removes_clarification_dead_end_for_answerable_question():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._sanitize_fast_lane_response(
+        response=(
+            "Please clarify what you mean. "
+            "In NLP model training, the optimizer updates weights using gradient steps."
+        ),
+        user_input="how does optimizer training work in nlp model?",
+        intent="learning:explanation_request",
+    )
+
+    low = response.lower()
+    assert "please clarify" not in low
+    assert "optimizer" in low
+
+
+def test_fast_lane_sanitizer_repairs_abrupt_endings_in_algorithm_turns():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._sanitize_fast_lane_response(
+        response="For an AI agent, start with transformer encoders and",
+        user_input="and which algorithms are best for an ai agent",
+        intent="conversation:general",
+    )
+
+    low = response.lower().strip()
+    assert not low.endswith(" and")
+    assert response.endswith(".")
+
+
+def test_deterministic_knowledge_fallback_handles_ai_agent_algorithm_question():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._deterministic_knowledge_fallback(
+        "and which algorithms are best for an ai agent",
+        "conversation:general",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "transformer" in low
+    assert "retrieval" in low
+    assert "verification" in low
+
+
+def test_agent_algorithm_question_detector_matches_user_style_query():
+    alice = ALICE.__new__(ALICE)
+
+    assert alice._is_agent_algorithm_question(
+        "and which algorithms are best for an ai agent"
+    ) is True
+
+
+def test_fast_lane_sanitizer_removes_hype_opener_and_inline_breaks():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._sanitize_fast_lane_response(
+        response=(
+            "You're looking to dive deeper into machine learning! Some popular advanced algorithms include Gradient Boosting.\n"
+            "XGBoost and LightGBM are also strong choices."
+        ),
+        user_input="and which algorithms are best for an ai agent",
+        intent="conversation:general",
+    )
+
+    low = response.lower()
+    assert "you're looking to dive deeper" not in low
+    assert "xgboost" in low
+    assert "\n" not in response
+
+
 def test_teaching_request_prefers_structured_mode_over_deterministic_fallback():
     alice = ALICE.__new__(ALICE)
 

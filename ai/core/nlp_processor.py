@@ -289,7 +289,8 @@ _P1_VAGUE_REQUESTS: tuple = (
 # Weather
 _P1_WEATHER_KEYWORDS: frozenset = frozenset({
     "weather", "forecast", "temperature", "rain", "snow",
-    "sunny", "cloudy", "humid", "cold", "hot",
+    "sunny", "cloudy", "overcast", "humid", "cold", "hot",
+    "wind", "windy", "storm",
 })
 _P1_FORECAST_WORDS: frozenset = frozenset({
     "tomorrow", "tonight", "weekend", "next week", "forecast",
@@ -1306,6 +1307,7 @@ class NLPProcessor:
             },
             "email": {"compose", "read", "list", "search", "delete", "reply"},
             "calendar": {"create", "list", "search", "update", "delete"},
+            "weather": {"current", "forecast"},
             "system": {"status", "debug_tokens"},
             "conversation": {
                 "general",
@@ -1319,6 +1321,7 @@ class NLPProcessor:
             "notes": "list",
             "email": "list",
             "calendar": "list",
+            "weather": "current",
             "system": "status",
             "conversation": "general",
         }
@@ -1348,6 +1351,17 @@ class NLPProcessor:
             "todo",
             "task",
             "tasks",
+            "weather",
+            "forecast",
+            "temperature",
+            "rain",
+            "snow",
+            "sunny",
+            "cloudy",
+            "overcast",
+            "wind",
+            "windy",
+            "storm",
             "read",
             "open",
             "show",
@@ -1559,6 +1573,12 @@ class NLPProcessor:
             weight = self._grammar_action_weights.get(parsed.action, 1.0)
             confidence = min(0.96, 0.68 * weight)
             candidates.append((f"notes:{parsed.action}", confidence))
+
+        if (
+            parsed.object_type == "weather"
+            and parsed.action in self._plugin_actions["weather"]
+        ):
+            candidates.append((f"weather:{parsed.action}", 0.84))
 
         if parsed.object_type == "unknown":
             lower = text.lower()
@@ -2047,14 +2067,55 @@ class NLPProcessor:
         }
 
         has_conversation_cue = bool(words & conversation_cues) or "?" in text_lower
-        has_tool_cue = bool(words & tool_cues)
+        explicit_tool_cues = bool(words & tool_cues)
+        has_tool_cue = explicit_tool_cues
 
-        if parsed_command.action not in {"unknown", "general"}:
-            has_tool_cue = True
+        action_hint = str(parsed_command.action or "").lower().strip()
+        object_hint = str(parsed_command.object_type or "").lower().strip()
+        tool_objects = {
+            "note",
+            "notes",
+            "email",
+            "calendar",
+            "event",
+            "reminder",
+            "file",
+            "files",
+            "weather",
+            "time",
+            "date",
+        }
+        if action_hint not in {"unknown", "general"}:
+            # Avoid false tool classification for conceptual conversation turns.
+            if explicit_tool_cues or object_hint in tool_objects:
+                has_tool_cue = True
         if plugin_scores:
             best_plugin, best_score = max(plugin_scores.items(), key=lambda item: float(item[1]))
-            if best_plugin != "conversation" and float(best_score) >= 1.35:
+            tool_plugins = {
+                "notes",
+                "email",
+                "calendar",
+                "file_operations",
+                "memory",
+                "reminder",
+                "system",
+                "weather",
+                "time",
+            }
+            if best_plugin in tool_plugins and float(best_score) >= 1.35:
                 has_tool_cue = True
+
+        design_conversation_cues = {
+            "brainstorm",
+            "architecture",
+            "design",
+            "ideas",
+            "idea",
+            "strategy",
+            "plan",
+        }
+        if has_conversation_cue and bool(words & design_conversation_cues) and not explicit_tool_cues:
+            return "conversation"
 
         if has_conversation_cue and not has_tool_cue:
             return "conversation"
@@ -2169,6 +2230,29 @@ class NLPProcessor:
         )
         return has_build and has_subject and has_question_frame
 
+    def _is_answerability_direct_question(self, text: str) -> bool:
+        """Rule gate: direct answer for specific domain questions instead of clarification."""
+        low = str(text or "").lower().strip()
+        if not low:
+            return False
+
+        tokens = set(re.findall(r"\b[a-z0-9']+\b", low))
+        question_terms = {"what", "which", "how", "why"}
+        domain_terms = {"optimizer", "optimizers", "nlp", "model", "models", "training"}
+        ambiguity_terms = {"something", "anything", "stuff", "idk"}
+
+        has_question_term = bool(tokens & question_terms)
+        is_question = ("?" in low) or bool(re.match(r"^\s*(what|which|how|why)\b", low))
+        has_domain_content = bool(tokens & domain_terms)
+        has_ambiguity_markers = bool(tokens & ambiguity_terms)
+
+        return bool(
+            has_question_term
+            and is_question
+            and has_domain_content
+            and not has_ambiguity_markers
+        )
+
     def _should_force_unknown_fallback(
         self,
         *,
@@ -2181,6 +2265,8 @@ class NLPProcessor:
         """Decide whether to force a safe clarification fallback for unstable intent."""
         normalized_intent = (intent or "").lower()
         if normalized_intent.startswith("conversation:"):
+            return False
+        if normalized_intent == "learning:explanation_request":
             return False
         if self._is_rich_conceptual_request(text):
             return False
@@ -2538,6 +2624,9 @@ class NLPProcessor:
         ):
             parsed.action = "list" if re.search(r"\b(show|list)\b", lower) else "search"
             parsed.object_type = "calendar"
+        elif any(word in lower for word in _P1_WEATHER_KEYWORDS):
+            parsed.action = "forecast" if any(word in lower for word in _P1_FORECAST_WORDS) else "current"
+            parsed.object_type = "weather"
 
         title_match = re.search(
             r"(?:called|named|titled|about)\s+([a-z0-9\s'\-]+)$", lower
@@ -2580,6 +2669,7 @@ class NLPProcessor:
             "notes": 0.0,
             "email": 0.0,
             "calendar": 0.0,
+            "weather": 0.0,
             "system": 0.0,
             "conversation": 0.2,
         }
@@ -2591,12 +2681,58 @@ class NLPProcessor:
         note_terms = {"note", "notes", "list", "lists", "todo", "task", "tasks"}
         email_terms = {"email", "emails", "mail", "inbox", "sender", "subject"}
         cal_terms = {"calendar", "event", "events", "meeting", "schedule"}
+        weather_terms = {
+            "weather",
+            "forecast",
+            "temperature",
+            "rain",
+            "snow",
+            "sunny",
+            "cloudy",
+            "overcast",
+            "wind",
+            "windy",
+            "storm",
+            "humidity",
+            "humid",
+            "outside",
+            "precipitation",
+            "precip",
+            "drizzle",
+            "thunder",
+            "thunderstorm",
+        }
+        weather_forecast_terms = {
+            "tomorrow",
+            "tonight",
+            "week",
+            "weekend",
+            "forecast",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+            "chance",
+            "expect",
+            "later",
+        }
         system_terms = {"system", "cpu", "memory", "disk", "battery", "status"}
 
         scores["notes"] += sum(1.2 for word in normalized if word in note_terms)
         scores["email"] += sum(1.2 for word in normalized if word in email_terms)
         scores["calendar"] += sum(1.2 for word in normalized if word in cal_terms)
+        scores["weather"] += sum(1.35 for word in normalized if word in weather_terms)
         scores["system"] += sum(1.2 for word in normalized if word in system_terms)
+        if any(word in normalized for word in weather_forecast_terms):
+            scores["weather"] += 0.8
+        if (
+            any(word in normalized for word in {"snow", "rain", "storm", "drizzle", "thunder"})
+            and any(word in normalized for word in {"will", "gonna", "going", "chance", "expect", "is"})
+        ):
+            scores["weather"] += 0.9
 
         if parsed.object_type == "note":
             scores["notes"] += 1.5
@@ -2604,6 +2740,8 @@ class NLPProcessor:
             scores["email"] += 1.5
         if parsed.object_type == "calendar":
             scores["calendar"] += 1.5
+        if parsed.object_type == "weather":
+            scores["weather"] += 1.6
         if (
             parsed.action in {"read", "append", "create", "list", "query_exist"}
             and parsed.object_type == "note"
@@ -2619,6 +2757,11 @@ class NLPProcessor:
             and parsed.object_type == "calendar"
         ):
             scores["calendar"] += 1.0
+        if (
+            parsed.action in {"current", "forecast"}
+            and parsed.object_type == "weather"
+        ):
+            scores["weather"] += 1.0
         if parsed.references:
             scores["notes"] += 0.6
 
@@ -2641,19 +2784,47 @@ class NLPProcessor:
             "append": "notes",
             "compose": "email",
             "reply": "email",
+            "forecast": "weather",
+            "current": "weather",
             "status": "system",
         }
         preferred = action_bias.get(parsed.action)
         if preferred:
             scores[preferred] += 0.45
 
+        # Strong weather language should outrank weak lexical collisions in notes/email/calendar.
+        weather_signal_strength = sum(1 for word in normalized if word in weather_terms)
+        has_explicit_non_weather_target = bool(
+            set(normalized)
+            & {
+                "note",
+                "notes",
+                "memo",
+                "email",
+                "emails",
+                "mail",
+                "calendar",
+                "event",
+                "events",
+                "meeting",
+            }
+        )
+        if weather_signal_strength >= 1 and not has_explicit_non_weather_target:
+            scores["notes"] *= 0.35
+            scores["email"] *= 0.45
+            scores["calendar"] *= 0.45
+        if weather_signal_strength >= 2:
+            scores["notes"] *= 0.20
+            scores["email"] *= 0.30
+            scores["calendar"] *= 0.30
+
         if self.tokenizer_profile == "strict":
-            for key in ("email", "calendar", "system"):
+            for key in ("email", "calendar", "weather", "system"):
                 if scores[key] < 1.0:
                     scores[key] *= 0.7
 
         if self.tokenizer_profile == "llm-assisted":
-            for key in ("notes", "email", "calendar", "system"):
+            for key in ("notes", "email", "calendar", "weather", "system"):
                 scores[key] *= 1.05
 
         return scores
@@ -3306,6 +3477,36 @@ class NLPProcessor:
                     **(route.trace or {}),
                     "source": "rich_conceptual_override",
                 }
+
+        if self._is_answerability_direct_question(normalized_text):
+            parsed_command.modifiers["allow_direct_answer"] = True
+            parsed_command.modifiers["block_clarification"] = True
+            parsed_command.modifiers["answerability_gate"] = {
+                "matched": True,
+                "reason": "specific_domain_question",
+            }
+            if intent in {
+                "conversation:clarification_needed",
+                "conversation:question",
+                "conversation:general",
+                "vague_question",
+                "vague_request",
+                "vague_temporal_question",
+            }:
+                intent = "learning:explanation_request"
+                intent_confidence = max(float(intent_confidence or 0.0), 0.90)
+                parsed_command.modifiers["pending_unknown_fallback"] = False
+                parsed_command.modifiers["unknown_intent_fallback"] = False
+                parsed_command.modifiers.pop("disambiguation", None)
+                if isinstance(route, RouteDecision):
+                    route.intent = intent
+                    route.confidence = float(intent_confidence)
+                    route.plugin = "learning"
+                    route.action = "explanation_request"
+                    route.trace = {
+                        **(route.trace or {}),
+                        "source": "answerability_gate_override",
+                    }
 
         # ── Dialogue-state gate ────────────────────────────────────────────────
         # If Alice is waiting for the user to disambiguate (dialogue_state ==
@@ -4032,6 +4233,9 @@ class NLPProcessor:
         if _P1_GREETING_WORDS & greeting_tokens and len(text_lower.split()) <= 4:
             return "greeting", 0.9
 
+        if self._is_answerability_direct_question(text_lower):
+            return "learning:explanation_request", 0.9
+
         # Knowledge/definition questions: "what is X?", "what are X?", "who is X?", "define X"
         # Must be before vague patterns to prevent misclassification
         if (
@@ -4218,6 +4422,7 @@ class NLPProcessor:
                     "notes": "notes:list",
                     "email": "email:list",
                     "calendar": "calendar:list",
+                    "weather": "weather:current",
                     "system": "system:status",
                 }
                 if plugin_name in plugin_intent_map:

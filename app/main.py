@@ -1793,6 +1793,8 @@ class ALICE:
         # Reject meta-assistant leakage and replace with Alice-safe fallback.
         lower = text.lower()
         if "as an ai" in lower or "language model" in lower:
+            if self._is_answerability_direct_question(user_input):
+                return self._answerability_gate_fallback_response(user_input)
             if response_type == "clarification_prompt":
                 return "Please clarify the exact outcome you want so I can route this correctly."
             return "I can help with that. Tell me the exact result you want."
@@ -1834,6 +1836,11 @@ class ALICE:
         # Enforce one-line concise output for micro conversational routes.
         if route in {"wake_word", "farewell", "greeting", "ollama_phrase_micro"}:
             text = text.split("\n", 1)[0].strip()
+
+        if route in {"fast_llm_lane", "fast_llm_publish"}:
+            text = re.sub(r"\s*\n+\s*", " ", text).strip()
+            if text and not re.search(r"[.!?)]\s*$", text):
+                text = text.rstrip(" ,:;-") + "."
 
         return text or "I need one more detail to answer correctly."
 
@@ -2256,6 +2263,14 @@ class ALICE:
             return "\n".join(lines).rstrip()
 
         if response_type == 'clarification_prompt':
+            _source_text = str(
+                alice_response.get('user_input')
+                or alice_response.get('question')
+                or alice_response.get('content')
+                or ''
+            )
+            if _source_text and self._is_answerability_direct_question(_source_text):
+                return self._answerability_gate_fallback_response(_source_text)
             options = [
                 str(x).strip()
                 for x in list(alice_response.get('options') or [])[:3]
@@ -2337,6 +2352,8 @@ class ALICE:
                 err = str(alice_response.get('error') or '').strip()
                 return f"Failed: {op}. {err}".strip()
             if response_type == 'clarification_prompt':
+                if self._is_answerability_direct_question(user_input):
+                    return self._answerability_gate_fallback_response(user_input)
                 return "Please clarify the exact outcome you want so I can route this safely."
             return self._clamp_final_response(
                 str(content),
@@ -3981,11 +3998,15 @@ class ALICE:
 
         intent_text = str(intent or "")
         if intent_text == "conversation:clarification_needed":
-            return False
+            return self._should_answer_first_without_clarification(
+                user_input,
+                intent_text,
+                has_explicit_action_cue=has_explicit_action_cue,
+            )
 
         if intent_text.startswith("conversation:"):
             return float(intent_confidence or 0.0) >= 0.30
-        if intent_text == "learning:system_design":
+        if intent_text.startswith("learning:"):
             return True
         if intent_text in {"greeting", "farewell", "thanks", "status_inquiry"}:
             return True
@@ -4185,13 +4206,42 @@ class ALICE:
         if not llm_input:
             return None
 
-        lane_prompt = (
-            "You are A.L.I.C.E. Answer naturally in 2-4 concise sentences. "
-            "Be direct and practical. Do not mention being trained, model internals, "
-            "or conversation history unless the user explicitly asks about them. "
-            "Do not invent prior-session details.\n\n"
-            f"User request: {llm_input}"
-        )
+        if self._is_agent_algorithm_question(llm_input):
+            direct = self._deterministic_knowledge_fallback(llm_input, intent)
+            if direct:
+                return self._clamp_final_response(
+                    direct,
+                    tone='helpful',
+                    response_type='general_response',
+                    route='fast_llm_lane',
+                    user_input=user_input,
+                )
+
+        _project_ideation_turn = self._is_project_ideation_turn(llm_input, intent)
+        if _project_ideation_turn:
+            lane_prompt = (
+                "You are A.L.I.C.E in project-ideation mode. "
+                "Answer in natural prose only. "
+                "If the user asks a specific, answerable question, do not ask for clarification. Answer directly first. "
+                "Silently do three things: acknowledge the goal, propose 3-5 concrete project directions, "
+                "and ask one useful narrowing question. "
+                "Avoid vague clarification wording such as 'what exact result do you want', "
+                "'please clarify your request', or similar dead-end prompts. "
+                "Do not mention intent classification, entities, internal reasoning, response plans, or templates. "
+                "Do not use section labels, headings, or numbering unless the user explicitly asks for a list. "
+                "Keep it practical and forward-moving. "
+                "Do not mention model internals or conversation history.\n\n"
+                f"User request: {llm_input}"
+            )
+        else:
+            lane_prompt = (
+                "You are A.L.I.C.E. Answer naturally in 2-4 concise sentences. "
+                "If the user asks a specific, answerable question, do not ask for clarification. Answer directly first. "
+                "Be direct and practical. Do not mention being trained, model internals, "
+                "or conversation history unless the user explicitly asks about them. "
+                "Do not invent prior-session details.\n\n"
+                f"User request: {llm_input}"
+            )
 
         if goal_res and goal_res.goal and self._should_attach_goal_context(llm_input, intent):
             goal_note = (
@@ -4203,7 +4253,7 @@ class ALICE:
         try:
             response = self.llm.chat(
                 lane_prompt,
-                use_history=True,
+                use_history=not _project_ideation_turn,
                 temperature=0.45,
             )
         except Exception as e:
@@ -4233,7 +4283,104 @@ class ALICE:
             user_input=user_input,
             intent=intent,
         )
+
+        if self.phrasing_learner:
+            try:
+                thought_type = str(intent or "conversation:help").strip().lower()
+                if thought_type in {"conversation:general", "conversation:question"}:
+                    thought_type = "conversation:help"
+                self.phrasing_learner.record_phrasing(
+                    alice_thought={
+                        "type": thought_type,
+                        "data": {
+                            "user_input": str(user_input or "").strip(),
+                            "intent": str(intent or "").strip(),
+                        },
+                    },
+                    ollama_phrasing=response_text,
+                    context={
+                        "tone": "helpful",
+                        "intent": str(intent or "").strip(),
+                        "route": "fast_llm_lane",
+                        "user_input": str(user_input or "").strip(),
+                    },
+                )
+            except Exception:
+                pass
+
         return response_text
+
+    def _contains_fast_lane_meta_leakage(self, text: str) -> bool:
+        """Detect prompt/plan scaffolding leakage in user-facing text."""
+        low = str(text or "").lower().strip()
+        if not low:
+            return False
+
+        patterns = (
+            r"\bbased\s+on\s+(?:the\s+)?(?:provided\s+)?(?:intent|entities|intent\s+and\s+entities)\b",
+            r"\bgiven\s+(?:the\s+)?(?:intent|entities)\b",
+            r"\backnowledging\s+the\s+goal\b",
+            r"\bthe\s+user\s+is\s+interested\s+in\b",
+            r"\bit\s+seems\s+like\s+the\s+user\b",
+            r"\b(?:step|part)\s*[0-9]+\b",
+            r"\bresponse\s+plan\b",
+            r"\binternal\s+reasoning\b",
+        )
+        return any(re.search(pattern, low, flags=re.IGNORECASE) for pattern in patterns)
+
+    def _strip_fast_lane_meta_leakage(self, text: str) -> str:
+        """Remove common scaffold/meta artifacts from fast-lane output."""
+        cleaned = str(text or "")
+        if not cleaned:
+            return ""
+
+        replacements = (
+            r"\bbased\s+on\s+(?:the\s+)?(?:provided\s+)?(?:intent|entities|intent\s+and\s+entities)\s*[:,.-]*\s*",
+            r"\bgiven\s+(?:the\s+)?(?:intent|entities)\s*[:,.-]*\s*",
+            r"\backnowledging\s+the\s+goal\s*[:.-]*\s*",
+            r"\bthe\s+user\s+is\s+interested\s+in\s*",
+            r"\bit\s+seems\s+like\s+the\s+user\s*",
+            r"\b(?:step|part)\s*[0-9]+\s*[:.)-]*\s*",
+            r"\bresponse\s+plan\s*[:.-]*\s*",
+            r"\binternal\s+reasoning\s*[:.-]*\s*",
+        )
+        for pattern in replacements:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        cleaned = cleaned.strip("-:;,. ")
+        return cleaned
+
+    def _looks_abrupt_fast_lane_ending(self, text: str) -> bool:
+        """Detect replies that appear truncated mid-thought."""
+        value = str(text or "").strip()
+        if not value:
+            return False
+
+        if re.search(r"[.!?)]\s*$", value):
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", value.lower())
+        if len(tokens) < 8:
+            return False
+
+        dangling_enders = {
+            "and",
+            "or",
+            "to",
+            "for",
+            "with",
+            "about",
+            "like",
+            "including",
+            "such",
+            "explore",
+            "consider",
+            "using",
+        }
+        if tokens[-1] in dangling_enders:
+            return True
+        return bool(re.search(r"[,;:\-]\s*$", value))
 
     def _sanitize_fast_lane_response(self, *, response: str, user_input: str, intent: str) -> str:
         """Strip meta/hallucinated assistant chatter from fast-lane replies."""
@@ -4263,6 +4410,7 @@ class ALICE:
         compact = " ".join(filtered_lines).strip()
         compact = re.sub(r"\s+", " ", compact)
         compact = re.sub(r"\(\s*\)", "", compact)
+        compact = self._strip_fast_lane_meta_leakage(compact)
 
         sentences = re.split(r"(?<=[.!?])\s+", compact)
         sentences = [s.strip() for s in sentences if s.strip()]
@@ -4279,10 +4427,73 @@ class ALICE:
             trimmed.append(sentence)
 
         out = " ".join(trimmed).strip()
+        out = self._strip_fast_lane_meta_leakage(out)
+        out = re.sub(
+            r"^you're\s+looking\s+to\s+(?:dive\s+deeper|learn\s+more)\s+into\s+[^.!?]+[.!?]\s*",
+            "",
+            out,
+            flags=re.IGNORECASE,
+        )
+        _has_meta_leak = self._contains_fast_lane_meta_leakage(out)
+        _answerable_direct_question = self._is_answerability_direct_question(user_input)
+        if _answerable_direct_question:
+            _dead_end_patterns = (
+                r"\btell\s+me\s+the\s+exact\s+result\s+you\s+want\b",
+                r"\bplease\s+clarify\b",
+                r"\bwhat\s+do\s+you\s+mean\b",
+                r"\bwhat\s+exact\s+result\s+do\s+you\s+want\b",
+                r"\bcan\s+you\s+clarify\b",
+            )
+            _sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", out) if s.strip()]
+            _filtered_sentences = []
+            for sentence in _sentences:
+                low_sentence = sentence.lower()
+                if any(re.search(pattern, low_sentence, flags=re.IGNORECASE) for pattern in _dead_end_patterns):
+                    continue
+                _filtered_sentences.append(sentence)
+            out = " ".join(_filtered_sentences).strip() if _filtered_sentences else ""
+
+        if self._is_project_ideation_turn(user_input, intent):
+            _dead_end_patterns = (
+                r"\bwhat\s+exact\s+result\s+do\s+you\s+want\b",
+                r"\bplease\s+clarify\s+your\s+request\b",
+                r"\btell\s+me\s+exactly\s+what\s+you\s+want\b",
+                r"\bcan\s+you\s+clarify\b",
+                r"\bwhat\s+do\s+you\s+want\b",
+            )
+            _out_low = out.lower()
+            _has_dead_end = any(
+                re.search(pattern, _out_low, flags=re.IGNORECASE)
+                for pattern in _dead_end_patterns
+            )
+            _has_options_signal = (
+                "," in out
+                or " you could " in _out_low
+                or " options " in _out_low
+                or "build" in _out_low
+                or "or" in _out_low
+            )
+
+            if _has_meta_leak or _has_dead_end or not _has_options_signal or len(out) < 70:
+                out = self._project_ideation_guidance_response(user_input)
+            elif "?" not in out:
+                out = out.rstrip(". ") + " " + self._project_ideation_narrowing_question(user_input)
+        elif _has_meta_leak:
+            out = ""
+
+        if out and self._looks_abrupt_fast_lane_ending(out):
+            repaired = self._deterministic_knowledge_fallback(user_input, intent)
+            if repaired:
+                out = repaired
+            else:
+                out = out.rstrip(" ,:;-") + "."
+
         if not out:
             fallback = self._deterministic_knowledge_fallback(user_input, intent)
             if fallback:
                 out = fallback
+            elif _answerable_direct_question:
+                out = self._answerability_gate_fallback_response(user_input)
             else:
                 out = "Great topic. We can start with foundations, then move into practical examples."
 
@@ -4514,6 +4725,30 @@ class ALICE:
         ]
         return any(re.search(pat, text) for pat in help_patterns)
 
+    def _promote_help_opener_intent(
+        self,
+        user_input: str,
+        intent: str,
+        entities: Dict[str, Any],
+        intent_confidence: float,
+    ) -> Tuple[str, Dict[str, Any], float]:
+        """Split generic help-openers from substantive goal/project statements."""
+        normalized_intent = str(intent or "").lower().strip()
+        if normalized_intent not in {"conversation:help", "conversation:general"}:
+            return intent, dict(entities or {}), float(intent_confidence or 0.0)
+        if self._is_project_ideation_request(user_input):
+            return intent, dict(entities or {}), float(intent_confidence or 0.0)
+        if not self._is_help_opener_input(user_input, normalized_intent):
+            return intent, dict(entities or {}), float(intent_confidence or 0.0)
+
+        out_entities = dict(entities or {})
+        out_entities.setdefault("help_mode", "opener")
+        if normalized_intent != "conversation:help_opener":
+            self._think(
+                f"Help opener recognized: {normalized_intent or 'unknown'} -> conversation:help_opener"
+            )
+        return "conversation:help_opener", out_entities, max(float(intent_confidence or 0.0), 0.82)
+
     def _native_help_opener_response(self, user_input: str) -> str:
         """Native response policy for generic help-openers: acknowledge + narrow + one question."""
         text = str(user_input or "").lower()
@@ -4709,6 +4944,161 @@ class ALICE:
             "confidence": float(signal.confidence or 0.84),
         }
 
+    def _extract_project_ideation_domain(self, user_input: str) -> str:
+        """Extract likely domain for project-start ideation prompts."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return ""
+
+        domain_markers = {
+            "nlp": ["nlp", "natural language", "intent", "entity", "embedding", "token"],
+            "assistant": ["assistant", "jarvis", "copilot", "agent"],
+            "machine_learning": ["machine learning", "ml", "classification", "regression"],
+            "ai": ["ai", "artificial intelligence", "llm", "rag"],
+            "python": ["python", "fastapi", "flask", "django"],
+        }
+
+        best_domain = ""
+        best_score = 0
+        for domain, markers in domain_markers.items():
+            score = sum(1 for marker in markers if marker in text)
+            if score > best_score:
+                best_domain = domain
+                best_score = score
+
+        return best_domain if best_score > 0 else ""
+
+    def _is_project_ideation_request(self, user_input: str) -> bool:
+        """Detect project-start statements that should trigger ideation mode."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        has_goal_opener = any(
+            re.search(pattern, text)
+            for pattern in (
+                r"\bi\s+want\s+to\s+(?:start|build|create|make)\b",
+                r"\bhelp\s+me\s+(?:start|build|create|make)\b",
+                r"\blet'?s\s+(?:start|build|create|make)\b",
+                r"\bi'?m\s+starting\b",
+                r"\bstart\s+an?\b",
+            )
+        )
+        if not has_goal_opener:
+            return False
+
+        has_project_noun = any(
+            token in text
+            for token in (
+                "project",
+                "assistant",
+                "agent",
+                "tool",
+                "app",
+                "system",
+                "chatbot",
+            )
+        )
+        domain = self._extract_project_ideation_domain(text)
+        return bool(has_project_noun or domain)
+
+    def _is_project_ideation_turn(self, user_input: str, intent: str) -> bool:
+        """Resolve whether current turn should use project ideation response mode."""
+        normalized_intent = str(intent or "").lower().strip()
+        if normalized_intent == "learning:project_ideation":
+            return True
+        if normalized_intent == "conversation:goal_statement":
+            return self._is_project_ideation_request(user_input)
+        if normalized_intent in {
+            "conversation:help",
+            "conversation:general",
+            "conversation:question",
+            "conversation:clarification_needed",
+        }:
+            return self._is_project_ideation_request(user_input)
+        return False
+
+    def _project_ideation_narrowing_question(self, user_input: str) -> str:
+        """Return one narrowing question for project ideation mode."""
+        domain = self._extract_project_ideation_domain(user_input)
+        if domain == "nlp":
+            return "Do you want a beginner project, one practical for Alice, or something advanced?"
+        if domain in {"assistant", "ai"}:
+            return "Do you want to focus first on memory, tool-use, or conversational quality?"
+        if domain == "python":
+            return "Do you want a CLI prototype, a web app, or an automation workflow?"
+        return "Do you want a beginner scope, a practical build, or an advanced version?"
+
+    def _project_ideation_guidance_response(self, user_input: str) -> str:
+        """Build deterministic forward-moving ideation response when fast-lane output is too generic."""
+        domain = self._extract_project_ideation_domain(user_input)
+        domain_label = {
+            "nlp": "NLP",
+            "assistant": "assistant systems",
+            "machine_learning": "machine learning",
+            "ai": "AI",
+            "python": "Python",
+        }.get(domain, "this")
+
+        options_map = {
+            "nlp": [
+                "a chatbot",
+                "a sentiment analyzer",
+                "an entity extractor",
+                "a summarizer",
+                "a semantic search tool",
+            ],
+            "assistant": [
+                "a task-oriented assistant",
+                "a memory-aware conversation assistant",
+                "a planner-plus-tool executor",
+                "a voice command assistant",
+                "a personal knowledge assistant",
+            ],
+            "machine_learning": [
+                "a classification pipeline",
+                "a recommendation prototype",
+                "a forecasting model",
+                "an anomaly detector",
+                "a model-evaluation dashboard",
+            ],
+            "ai": [
+                "a retrieval-augmented Q&A app",
+                "a multi-step reasoning assistant",
+                "an agent with tool-use",
+                "a summarization copilot",
+                "a domain tutor",
+            ],
+            "python": [
+                "a command-line utility",
+                "a FastAPI service",
+                "a data-processing pipeline",
+                "an automation script bundle",
+                "a testing-focused starter app",
+            ],
+        }
+        options = list(options_map.get(domain, [])) or [
+            "a focused chatbot",
+            "a practical automation tool",
+            "a domain-specific assistant",
+            "a summarization app",
+            "a search-and-retrieval helper",
+        ]
+        picked = self._rotate_fallback_options(
+            f"project_ideation:{domain or 'general'}",
+            options,
+            take=min(5, len(options)),
+        )
+        if not picked:
+            picked = options[:5]
+
+        options_text = self._format_compact_list(picked)
+        question = self._project_ideation_narrowing_question(user_input)
+        return (
+            f"Good. {domain_label} is a strong place to start. "
+            f"You could build {options_text}. {question}"
+        )
+
     def _goal_statement_alignment_response(self, user_input: str, signal: Dict[str, Any]) -> str:
         """Return an alignment-style response for strategic project declarations."""
         signal = signal or self._extract_goal_statement_signal(user_input)
@@ -4805,18 +5195,29 @@ class ALICE:
     ) -> Tuple[str, Dict[str, Any], float]:
         """Promote strategic declarative turns into explicit goal-statement intent."""
         signal = self._extract_goal_statement_signal(user_input)
-        if not signal:
+        project_ideation = self._is_project_ideation_request(user_input)
+        if not signal and not project_ideation:
             return intent, entities or {}, intent_confidence
 
         enriched_entities = dict(entities or {})
-        goal_text = str(signal.get("goal") or "").strip()
-        signal_confidence = float(signal.get("confidence") or 0.84)
+        goal_text = str((signal or {}).get("goal") or "").strip()
+        signal_confidence = float((signal or {}).get("confidence") or (0.86 if project_ideation else 0.84))
         if goal_text:
             enriched_entities.setdefault("goal", goal_text)
             enriched_entities.setdefault("user_goal", goal_text)
             enriched_entities.setdefault("objective", goal_text)
-        enriched_entities["project_direction"] = str(signal.get("project_direction") or "agentic_autonomy")
-        enriched_entities["goal_statement_markers"] = list(signal.get("markers") or [])
+        if project_ideation and not goal_text:
+            enriched_entities.setdefault("goal", str(user_input or "").strip())
+            enriched_entities.setdefault("user_goal", str(user_input or "").strip())
+            enriched_entities.setdefault("objective", str(user_input or "").strip())
+        enriched_entities["project_direction"] = str((signal or {}).get("project_direction") or "agentic_autonomy")
+        enriched_entities["goal_statement_markers"] = list((signal or {}).get("markers") or [])
+        if project_ideation:
+            domain = self._extract_project_ideation_domain(user_input)
+            if domain:
+                enriched_entities["project_domain"] = domain
+                enriched_entities.setdefault("domain", domain)
+                enriched_entities.setdefault("topic", domain)
 
         normalized_intent = str(intent or "").lower().strip()
         tool_prefixes = (
@@ -4832,6 +5233,13 @@ class ALICE:
         )
         if normalized_intent.startswith(tool_prefixes):
             return intent, enriched_entities, intent_confidence
+
+        if project_ideation and not signal:
+            if normalized_intent != "learning:project_ideation":
+                self._think(
+                    f"Project ideation recognized: {normalized_intent or 'unknown'} -> learning:project_ideation"
+                )
+            return "learning:project_ideation", enriched_entities, max(float(intent_confidence or 0.0), signal_confidence)
 
         if normalized_intent != "conversation:goal_statement":
             self._think(
@@ -5061,12 +5469,15 @@ class ALICE:
 
     def _infer_learning_domain(self, text: str) -> str:
         low = str(text or "").lower()
+        if re.search(r"\bnlp\b", low):
+            return "nlp"
+
         domain_markers = {
             "nlp": ["nlp", "intent", "entity", "token", "embedding", "conversation flow", "transformer"],
-            "ml": ["machine learning", "classification", "regression", "model training", "feature"],
+            "ml": ["machine learning", "classification", "regression", "model training", "feature", "algorithm", "algorithms", "optimizer"],
             "python": ["python", "function", "class", "module", "package", "typing"],
             "git": ["git", "commit", "branch", "merge", "rebase", "pull", "push"],
-            "architecture": ["architecture", "system design", "orchestration", "service", "pipeline"],
+            "architecture": ["architecture", "system design", "orchestration", "service", "pipeline", "agent", "ai agent", "assistant"],
         }
 
         scored: List[Tuple[str, int]] = []
@@ -5078,6 +5489,18 @@ class ALICE:
         if not scored or scored[0][1] <= 0:
             return ""
         return scored[0][0]
+
+    def _is_agent_algorithm_question(self, user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        asks_algorithms = bool(
+            re.search(r"\b(which|what)\s+algorithms?\b", text)
+            or re.search(r"\bbest\s+algorithms?\b", text)
+        )
+        targets_agent = any(cue in text for cue in ("ai agent", "agent", "assistant"))
+        return asks_algorithms and targets_agent
 
     def _learning_blueprint(self, domain: str) -> Dict[str, List[str]]:
         blueprints: Dict[str, Dict[str, List[str]]] = {
@@ -5417,12 +5840,35 @@ class ALICE:
         if not text or self._has_explicit_action_cue(text):
             return None
 
+        if self._is_rich_conceptual_request(text):
+            return None
+
         if self._is_structured_teaching_request(text, intent):
             return None
 
         in_learning_mode = str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")
         if not in_learning_mode:
             return None
+
+        if self._is_agent_algorithm_question(text):
+            return (
+                "For an AI agent, use a hybrid stack: transformer language understanding, "
+                "embedding retrieval for memory lookup, a planner for task decomposition, "
+                "and a policy layer that selects tools with verification checks. "
+                "Strong practical baselines are transformer encoders, vector similarity retrieval, "
+                "scoring-based action selection, and confidence-gated fallback rules."
+            )
+
+        if (
+            "foundation" in text
+            and any(cue in text for cue in ("assistant", "ai"))
+            and any(cue in text for cue in ("today", "today's", "no fiction", "real world", "real-world"))
+        ):
+            return (
+                "A real-world assistant architecture needs six foundations: natural language understanding, "
+                "memory, planning, tool execution, verification, and bounded autonomy. "
+                "The key difference from a basic chatbot is reliable action across systems while tracking ongoing goals."
+            )
 
         domain = self._infer_learning_domain(text)
         if not domain:
@@ -5530,6 +5976,7 @@ class ALICE:
         normalized = str(intent or "").lower().strip()
         return normalized in {
             "conversation:help",
+            "conversation:help_opener",
             "conversation:ack",
             "conversation:acknowledgment",
             "thanks",
@@ -5544,25 +5991,23 @@ class ALICE:
         text = str(user_input or "").strip().lower()
 
         if normalized in {"conversation:general", "conversation:question"}:
-            if re.fullmatch(r"(?:hi|hello|hey|yo|sup)\??", text):
-                return "Hi. What can I help you with right now?"
-            if re.fullmatch(r"(?:how are you|how are you doing|hows it going)\??", text):
-                return "I am doing well. What are you working on?"
-            if re.fullmatch(r"(?:thanks|thank you|thx)\??", text):
-                return "You are welcome. What should we work on next?"
             if re.fullmatch(r"(?:bye|goodbye|see you)\??", text):
-                return "Goodbye. I am here when you need me."
-            if re.fullmatch(r"(?:ok|okay|sure|got it|understood|noted)\??", text):
-                return "Understood. What is the next step?"
+                return self._get_farewell()
+            if re.fullmatch(r"(?:hi|hello|hey|yo)[!.?]*", text):
+                return "Hey. What would you like to work on?"
+            if re.search(r"\bhow\s+(?:are\s+you|is\s+it\s+going)\b", text):
+                return "I am doing well and ready to help. What are you working on?"
+            if re.fullmatch(r"(?:thanks|thank you|thx)[!.?]*", text):
+                return "Anytime."
 
         if normalized in {"conversation:ack", "conversation:acknowledgment"}:
-            return "Understood. What should we do next?"
+            return None
         if normalized == "status_inquiry":
-            return "I am doing well. What are you working on right now?"
+            return "I am doing well and ready to help."
         if normalized == "thanks":
-            return "You are welcome. What do you want to tackle next?"
+            return "Anytime."
         if normalized == "conversation:clarification_needed":
-            if self._is_rich_conceptual_request(user_input):
+            if self._should_answer_first_without_clarification(user_input, normalized):
                 return None
             return "I can help. What exact result do you want?"
         if normalized == "conversation:goal_statement":
@@ -5571,6 +6016,8 @@ class ALICE:
         if normalized == "conversation:help":
             # Keep help turns on full reasoning/planning rather than scaffold prompts.
             return None
+        if normalized == "conversation:help_opener":
+            return self._native_help_opener_response(user_input)
         if normalized == "greeting":
             user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
             asked_how = bool(re.search(r"\bhow\s+(are\s+you|is\s+it\s+going)\b", str(user_input or ""), re.IGNORECASE))
@@ -5581,7 +6028,8 @@ class ALICE:
             )
             if learned:
                 return learned
-            return "Hi. What can I help you with right now?"
+            greeting = self._get_greeting()
+            return greeting or None
         return None
 
     def _self_answer_first_gate(
@@ -5626,6 +6074,17 @@ class ALICE:
                 "response": native,
             }
 
+        if self._should_answer_first_without_clarification(
+            user_input,
+            intent,
+            has_explicit_action_cue=has_explicit_action_cue,
+        ):
+            return {
+                "block_llm": False,
+                "reason": "answer_first_direct",
+                "response": "",
+            }
+
         text = str(user_input or "").strip()
         tokens = re.findall(r"\b[a-z']+\b", text.lower())
         short_enough = len(tokens) <= 20
@@ -5643,7 +6102,13 @@ class ALICE:
         )
         under_two_sentence_direct = short_enough and len(text) > 0
 
-        if under_two_sentence_direct and low_risk_intent and no_tool_needed and no_missing_knowledge:
+        if (
+            under_two_sentence_direct
+            and low_risk_intent
+            and no_tool_needed
+            and no_missing_knowledge
+            and not self._should_answer_first_without_clarification(user_input, intent)
+        ):
             direct = "I can help. What exact result do you want?"
             return {
                 "block_llm": True,
@@ -5788,6 +6253,7 @@ class ALICE:
             "conversation:ack",
             "conversation:acknowledgment",
             "conversation:help",
+            "conversation:help_opener",
             "conversation:goal_statement",
             "greeting",
             "thanks",
@@ -6606,7 +7072,10 @@ class ALICE:
                 world_state_memory=getattr(self, 'world_state_memory', None),
             )
             if not forecast_data:
-                self._think(f"No forecast entity found for '{mentioned_time_range}' follow-up")
+                self._think(
+                    f"No stored forecast snapshot for '{mentioned_time_range}' follow-up yet; "
+                    "continuing with forecast routing"
+                )
                 return None
             self._think(
                 f"Using stored forecast data for time-range '{mentioned_time_range}' with {len(forecast_data.get('forecast', []))} days"
@@ -6649,7 +7118,10 @@ class ALICE:
                 world_state_memory=getattr(self, 'world_state_memory', None),
             )
             if not forecast_data:
-                self._think(f"No forecast entity found for '{mentioned_day}' follow-up - may be first weather query")
+                self._think(
+                    f"No stored forecast snapshot for '{mentioned_day}' follow-up yet; "
+                    "continuing with forecast routing"
+                )
                 return None
             self._think(f"Using stored forecast data for {mentioned_day} query: {type(forecast_data)} with {len(forecast_data.get('forecast', []))} days")
             
@@ -6835,12 +7307,15 @@ class ALICE:
                 "outside",
             )
         )
-        if not has_weather_scope:
+        # If intent is already weather:current, treat explicit time-range as
+        # sufficient signal even without repeating the word "weather".
+        if not has_weather_scope and normalized_intent != "weather:current":
             return intent, float(intent_confidence or 0.0)
 
         time_range_cues = (
             "rest of the week",
             "rest of week",
+            "week",
             "this week",
             "next week",
             "weekend",
@@ -6868,6 +7343,150 @@ class ALICE:
             return "weather:forecast", max(float(intent_confidence or 0.0), 0.9)
 
         return intent, float(intent_confidence or 0.0)
+
+    def _has_strong_weather_signal(self, user_input: str) -> bool:
+        text = str(user_input or "").lower()
+        if not text:
+            return False
+        weather_terms = (
+            "weather",
+            "forecast",
+            "temperature",
+            "snow",
+            "rain",
+            "sunny",
+            "cloudy",
+            "overcast",
+            "wind",
+            "windy",
+            "storm",
+            "drizzle",
+            "thunder",
+            "humidity",
+            "outside",
+            "cold",
+            "hot",
+            "freezing",
+            "precipitation",
+            "precip",
+        )
+        return any(re.search(r"\b" + re.escape(term) + r"\b", text) for term in weather_terms)
+
+    def _resolved_reference_is_weather(self, entities: Optional[Dict[str, Any]]) -> bool:
+        resolved_reference = str((entities or {}).get("resolved_reference") or "").strip().lower()
+        if not resolved_reference:
+            return False
+        weather_markers = (
+            "weather",
+            "forecast",
+            "temperature",
+            "snow",
+            "rain",
+            "sunny",
+            "cloudy",
+            "overcast",
+            "wind",
+            "storm",
+            "humidity",
+        )
+        return any(marker in resolved_reference for marker in weather_markers)
+
+    def _recent_weather_domain_active(self, followup_meta: Optional[Dict[str, Any]] = None) -> bool:
+        if isinstance(followup_meta, dict):
+            domain = str(followup_meta.get("domain") or "").strip().lower()
+            if domain == "weather":
+                return True
+        if str(getattr(self, "last_intent", "") or "").startswith("weather:"):
+            return True
+        recent_topics = list(getattr(self, "conversation_topics", []) or [])
+        return any(str(topic or "").startswith("weather:") for topic in recent_topics[-3:])
+
+    def _select_weather_intent_from_signals(self, user_input: str, entities: Optional[Dict[str, Any]]) -> str:
+        text = str(user_input or "").lower()
+        resolved_reference = str((entities or {}).get("resolved_reference") or "").lower()
+        forecast_cues = (
+            "forecast",
+            "tomorrow",
+            "tonight",
+            "week",
+            "weekend",
+            "next week",
+            "this week",
+            "later",
+            "chance",
+            "will",
+            "gonna",
+            "going to",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        )
+        if any(cue in text for cue in forecast_cues) or "forecast" in resolved_reference:
+            return "weather:forecast"
+        return "weather:current"
+
+    def _apply_weather_domain_override(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        intent_confidence: float,
+        entities: Optional[Dict[str, Any]] = None,
+        followup_meta: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[str, float, Dict[str, Any]]:
+        """Promote weather intent when lexical and contextual evidence strongly conflicts with the raw intent."""
+        current_intent = str(intent or "conversation:general").strip()
+        intent_domain = current_intent.split(":", 1)[0].lower()
+        text = str(user_input or "").lower()
+
+        weather_signal = self._has_strong_weather_signal(text)
+        resolved_weather = self._resolved_reference_is_weather(entities)
+        recent_weather = self._recent_weather_domain_active(followup_meta)
+        explicit_non_weather_target = bool(
+            re.search(r"\b(note|notes|memo|email|emails|mail|calendar|event|events|reminder|reminders)\b", text)
+        )
+
+        evidence_score = 0
+        if weather_signal:
+            evidence_score += 2
+        if resolved_weather:
+            evidence_score += 3
+        if recent_weather:
+            evidence_score += 2
+        if intent_domain in {"notes", "email", "calendar", "reminder"}:
+            evidence_score += 1
+        if explicit_non_weather_target and not resolved_weather:
+            evidence_score -= 3
+
+        if evidence_score < 4:
+            return current_intent, float(intent_confidence or 0.0), {
+                "applied": False,
+                "reason": "insufficient_weather_evidence",
+                "evidence_score": evidence_score,
+            }
+
+        target_intent = self._select_weather_intent_from_signals(text, entities)
+        if target_intent == current_intent:
+            return current_intent, float(intent_confidence or 0.0), {
+                "applied": False,
+                "reason": "already_weather",
+                "evidence_score": evidence_score,
+            }
+
+        return target_intent, max(float(intent_confidence or 0.0), 0.90), {
+            "applied": True,
+            "reason": "weather_domain_override",
+            "evidence_score": evidence_score,
+            "weather_signal": weather_signal,
+            "resolved_weather": resolved_weather,
+            "recent_weather": recent_weather,
+            "from_intent": current_intent,
+            "to_intent": target_intent,
+        }
 
     def _prune_confidence_candidates(self, user_input: str, scores: Dict[str, Any]) -> Dict[str, float]:
         """Remove low-relevance intent candidates before surfacing uncertainty options."""
@@ -6961,6 +7580,82 @@ class ALICE:
             "ai",
         )
         return any(cue in text for cue in informational_cues)
+
+    def _is_answerability_direct_question(self, user_input: str) -> bool:
+        """Detect specific answerable domain questions that should bypass clarification."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        tokens = set(re.findall(r"\b[a-z0-9']+\b", text))
+        question_terms = {"what", "which", "how", "why"}
+        domain_terms = {"optimizer", "optimizers", "nlp", "model", "models", "training"}
+        ambiguity_terms = {"something", "anything", "stuff", "idk"}
+
+        has_question_term = bool(tokens & question_terms)
+        is_question = ("?" in text) or bool(re.match(r"^\s*(what|which|how|why)\b", text))
+        has_domain_content = bool(tokens & domain_terms)
+        has_ambiguity_markers = bool(tokens & ambiguity_terms)
+
+        return bool(
+            has_question_term
+            and is_question
+            and has_domain_content
+            and not has_ambiguity_markers
+        )
+
+    def _answerability_gate_fallback_response(self, user_input: str) -> str:
+        """Provide a concise direct fallback when answerable questions lose content after sanitization."""
+        text = str(user_input or "").lower()
+        if "optimizer" in text:
+            return "Short answer: an optimizer updates model weights to reduce loss during training, usually with gradient-based steps like SGD or Adam."
+        if "training" in text or "model" in text:
+            return "Short answer: model training learns parameters from data by minimizing a loss function and validating performance on held-out examples."
+        if "nlp" in text:
+            return "Short answer: NLP combines text preprocessing, representation, and model inference to understand or generate language."
+        return "Short answer: the direct explanation is feasible here, so I will answer the question instead of asking for clarification."
+
+    def _should_answer_first_without_clarification(
+        self,
+        user_input: str,
+        intent: str,
+        *,
+        has_explicit_action_cue: bool = False,
+    ) -> bool:
+        """Prefer direct answer generation for plausible conceptual/informational turns."""
+        text = str(user_input or "").strip()
+        if not text:
+            return False
+
+        if self._is_answerability_direct_question(text):
+            return True
+
+        if self._is_project_ideation_turn(text, intent):
+            return True
+
+        if has_explicit_action_cue or self._has_explicit_action_cue(text):
+            return False
+        if self._is_high_risk_conversational_request(text):
+            return False
+
+        normalized_intent = str(intent or "").lower().strip()
+        in_answerable_scope = (
+            normalized_intent.startswith("conversation:")
+            or normalized_intent.startswith("learning:")
+            or normalized_intent in {"question", "study_topic", "greeting", "thanks", "status_inquiry"}
+        )
+        if not in_answerable_scope:
+            return False
+
+        if self._is_conceptual_build_architecture_prompt(text):
+            return True
+        if self._is_rich_conceptual_request(text):
+            return True
+        if self._is_understandable_informational_goal(text, normalized_intent):
+            return True
+        if self._is_structured_teaching_request(text, normalized_intent):
+            return True
+        return False
 
     def _should_force_failure_recovery_answer(self, user_input: str, intent: str) -> bool:
         """Enforce direct fallback answers for understood informational goals on execution failure."""
@@ -7071,12 +7766,24 @@ class ALICE:
                 "marker": "I'm not 100% sure, but I'll try—",
             }
         if confidence >= 0.45:
+            if self._should_answer_first_without_clarification(user_input, intent):
+                return {
+                    "action": "execute_low_conf",
+                    "confidence": confidence,
+                    "marker": "I might be slightly off, but I can still answer this directly.",
+                }
             return {
                 "action": "clarify",
                 "confidence": confidence,
                 "question": "Could you clarify what you'd like me to do?",
             }
         # < 0.45: surface top-2 candidates
+        if self._should_answer_first_without_clarification(user_input, intent):
+            return {
+                "action": "execute_low_conf",
+                "confidence": confidence,
+                "marker": "I may be missing some detail, but I'll start with a direct answer.",
+            }
         scores = self._prune_confidence_candidates(
             user_input=user_input,
             scores=getattr(nlp_result, 'plugin_scores', {}) or {},
@@ -7764,6 +8471,12 @@ class ALICE:
                 entities=entities or {},
                 intent_confidence=float(intent_confidence or 0.0),
             )
+            intent, entities, intent_confidence = self._promote_help_opener_intent(
+                user_input=user_input,
+                intent=intent,
+                entities=entities or {},
+                intent_confidence=float(intent_confidence or 0.0),
+            )
 
             # ── 1.4  Validation / clarification gate ─────────────────────────────
             # Now validates the *resolved* intent — follow-up corrections are
@@ -8056,6 +8769,23 @@ class ALICE:
                 # conversational flow rather than returning a hardcoded line.
                 intent = 'conversation:general'
                 intent_confidence = min(float(intent_confidence or 0.5), 0.6)
+
+            # Domain consistency guard: if weather evidence is strong, do not
+            # allow stale non-weather intents (like notes) to hijack routing.
+            intent, intent_confidence, _weather_override_early = self._apply_weather_domain_override(
+                user_input=user_input,
+                intent=intent,
+                intent_confidence=float(intent_confidence or 0.0),
+                entities=entities,
+                followup_meta=_followup_meta if isinstance(_followup_meta, dict) else None,
+            )
+            if _weather_override_early.get("applied"):
+                self._think(
+                    "Weather domain override (early) "
+                    f"{_weather_override_early.get('from_intent')} -> {intent}"
+                )
+                entities = dict(entities or {})
+                entities.setdefault("domain_override", _weather_override_early.get("reason", "weather_domain_override"))
 
             # 0.55 PRIORITY WEATHER FOLLOW-UP PATH: handle weather context BEFORE
             # conversational fast path so weather follow-ups don't depend on LLM.
@@ -9278,6 +10008,21 @@ class ALICE:
                     self._think("Topic shift (low overlap with goal) → not reusing goal intent")    
                 elif active_goal and intent_confidence < 0.7 and intent_plausibility < 0.60:
                     self._think("Low plausibility detected → not reusing goal intent")
+
+            intent, intent_confidence, _weather_override_late = self._apply_weather_domain_override(
+                user_input=user_input,
+                intent=intent,
+                intent_confidence=float(intent_confidence or 0.0),
+                entities=entities,
+                followup_meta=_followup_meta if isinstance(_followup_meta, dict) else None,
+            )
+            if _weather_override_late.get("applied"):
+                self._think(
+                    "Weather domain override (late) "
+                    f"{_weather_override_late.get('from_intent')} -> {intent}"
+                )
+                entities = dict(entities or {})
+                entities.setdefault("domain_override", _weather_override_late.get("reason", "weather_domain_override"))
             
             _is_short_followup = (
                 len(user_input.split()) <= 12
@@ -9461,6 +10206,23 @@ class ALICE:
                     has_explicit_action_cue=_has_action_cue,
                     intent_candidates=intent_candidates,
                 )
+
+            _followup_same_domain = False
+            if isinstance(_followup_meta, dict) and _followup_meta.get('was_followup'):
+                _followup_domain = str(_followup_meta.get('domain') or '').strip().lower()
+                _intent_domain = str(intent or '').split(':', 1)[0].lower().strip()
+                if _followup_domain and _followup_domain == _intent_domain:
+                    _followup_same_domain = True
+
+            if _pre_route_guard.get("block") and _followup_same_domain:
+                _pre_route_guard = {
+                    "block": False,
+                    "reason": "followup_same_domain_bypass",
+                }
+                self._think(
+                    "Pre-route plausibility bypassed (same-domain follow-up continuity)"
+                )
+
             if _pre_route_guard.get("block"):
                 self._internal_reasoning_state = {
                     **_executive_state.as_dict(),
@@ -9623,6 +10385,26 @@ class ALICE:
                         return response
 
             if _executive_decision.action == "ask_clarification":
+                if self._should_answer_first_without_clarification(
+                    user_input,
+                    intent,
+                    has_explicit_action_cue=_has_action_cue,
+                ):
+                    self._think("Executive clarification overridden → answer-first conversational path")
+                    _fast_direct = self._run_fast_llm_lane(
+                        user_input=user_input,
+                        user_input_processed=user_input_processed,
+                        intent=intent,
+                        entities=entities or {},
+                        goal_res=goal_res,
+                    )
+                    if _fast_direct:
+                        self._store_interaction(user_input, _fast_direct, intent, entities)
+                        if use_voice and self.speech:
+                            self.speech.speak(_fast_direct, blocking=False)
+                        logger.info(f"A.L.I.C.E (clarification-override): {_fast_direct[:100]}...")
+                        return _fast_direct
+
                 _uncertainty = self.executive_controller.format_candidate_uncertainty(
                     intent_candidates,
                     limit=3,
@@ -9716,6 +10498,21 @@ class ALICE:
             else:
                 self._think(f"Trying plugins... (confidence: {intent_confidence:.2f}, goal: {active_goal.description[:30] if active_goal else 'none'}...)")
             if _should_try_plugins:
+                intent, intent_confidence, _weather_override_pre_plugin = self._apply_weather_domain_override(
+                    user_input=user_input,
+                    intent=intent,
+                    intent_confidence=float(intent_confidence or 0.0),
+                    entities=entities,
+                    followup_meta=_followup_meta if isinstance(_followup_meta, dict) else None,
+                )
+                if _weather_override_pre_plugin.get("applied"):
+                    self._think(
+                        "Pre-plugin domain sanity reroute "
+                        f"{_weather_override_pre_plugin.get('from_intent')} -> {intent}"
+                    )
+                    entities = dict(entities or {})
+                    entities.setdefault("domain_override", _weather_override_pre_plugin.get("reason", "weather_domain_override"))
+
                 if getattr(self, 'roadmap_stack', None):
                     _allowed, _reason = self.roadmap_stack.secondary_safety.validate(
                         action_text=user_input,
@@ -9881,13 +10678,72 @@ class ALICE:
                 action_result = self.action_engine.execute(action_request)
                 self.action_engine.apply_state_updates(self, action_result)
 
+                plugin_result = None
+                if action_result.status != "not_handled":
+                    plugin_result = action_result.to_plugin_result()
+
+                if plugin_result:
+                    _plugin_result_name = str(plugin_result.get("plugin") or "").strip().lower()
+                    _plugin_result_success = bool(plugin_result.get("success", False))
+                    _reroute_intent, _reroute_conf, _weather_plugin_guard = self._apply_weather_domain_override(
+                        user_input=user_input,
+                        intent=intent,
+                        intent_confidence=float(intent_confidence or 0.0),
+                        entities=entities,
+                        followup_meta=_followup_meta if isinstance(_followup_meta, dict) else None,
+                    )
+                    if (
+                        _plugin_result_name.startswith("notes")
+                        and _weather_plugin_guard.get("applied")
+                        and not _plugin_result_success
+                    ):
+                        self._think(
+                            "Plugin/result domain mismatch detected "
+                            f"({_plugin_result_name} failed on weather query) -> rerouting to {_reroute_intent}"
+                        )
+                        intent = _reroute_intent
+                        intent_confidence = max(float(intent_confidence or 0.0), float(_reroute_conf or 0.0))
+                        entities = dict(entities or {})
+                        entities.setdefault("domain_override", _weather_plugin_guard.get("reason", "weather_domain_override"))
+
+                        _reroute_plugin, _reroute_action = _reroute_intent.split(":", 1)
+                        _reroute_request = ActionRequest(
+                            goal=(active_goal.description if active_goal else user_input),
+                            plugin=(_reroute_plugin or "weather").strip().lower(),
+                            action=(_reroute_action or "forecast").strip().lower(),
+                            params={
+                                **(entities or {}),
+                                "_raw_query": user_input,
+                                "_approval_token": bool(
+                                    "confirm" in user_input.lower() or "operator approve" in user_input.lower()
+                                ),
+                            },
+                            source_intent=_reroute_intent,
+                            confidence=float(intent_confidence or 0.0),
+                            requires_confirmation=False,
+                            expected_outcome=f"Complete {_reroute_action} successfully",
+                            target_spec={
+                                "target": (entities or {}).get("target")
+                                or (entities or {}).get("location")
+                            },
+                            risk_level=_risk_level,
+                            retry_budget=1,
+                            rollback_policy="none",
+                        )
+                        action_result = self.action_engine.execute(_reroute_request)
+                        self.action_engine.apply_state_updates(self, action_result)
+                        if action_result.status != "not_handled":
+                            plugin_result = action_result.to_plugin_result()
+                        else:
+                            plugin_result = None
+
                 _verification_report = dict(getattr(action_result, 'verification_report', {}) or {})
                 _recommended_next = str(_verification_report.get('recommended_next_action') or '').strip().lower()
                 if action_result.goal_satisfied and active_goal and getattr(self, 'goal_system', None):
                     try:
                         self.goal_system.complete_current_step(
                             active_goal.goal_id,
-                            result=f"{_plugin_name}:{_action_name} satisfied goal criteria",
+                            result=f"{action_result.plugin}:{action_result.action} satisfied goal criteria",
                         )
                     except Exception:
                         pass
@@ -9911,10 +10767,6 @@ class ALICE:
                     active_goal_id=(active_goal.goal_id if active_goal else ""),
                     action_result=action_result,
                 )
-
-                plugin_result = None
-                if action_result.status != "not_handled":
-                    plugin_result = action_result.to_plugin_result()
 
                 if plugin_result:
                     _verification = action_result.state_updates.get("verification", {}) or {}

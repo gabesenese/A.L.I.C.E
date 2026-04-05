@@ -17,6 +17,7 @@ from rich import box
 from datetime import datetime
 import time
 import random
+import re
 
 
 class RichTerminalUI:
@@ -205,27 +206,61 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
         )
         self.conversation_history.append(("user", text))
 
+    def _format_assistant_terminal_text(self, text: str) -> str:
+        """Apply display-only spacing for long plain-text replies in terminal UI."""
+        value = str(text or "").strip()
+        if not value:
+            return value
+
+        if "\n" in value:
+            return value
+
+        md_markers = ("**", "##", "```", "| ", "- ", "* ")
+        if any(marker in value for marker in md_markers):
+            return value
+
+        if re.search(r"^\s*\d+\.\s+", value):
+            return value
+
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", value) if s.strip()]
+        if len(sentences) < 2:
+            return value
+
+        # Keep short lead-ins attached to the next sentence for smoother reading.
+        if len(sentences) >= 2:
+            lead_tokens = re.findall(r"\b\w+\b", sentences[0])
+            if len(lead_tokens) <= 2:
+                sentences = [f"{sentences[0]} {sentences[1]}".strip(), *sentences[2:]]
+
+        if len(value) < 120:
+            return value
+
+        return "\n\n".join(sentences)
+
     def print_assistant_response(self, text):
         """Display assistant response with consistent, clean formatting."""
         if not text:
             return
         text = text.strip()
+        display_text = self._format_assistant_terminal_text(text)
 
         # Detect content that benefits from Markdown rendering
         _MD_MARKERS = ('**', '##', '```', '| ', '- ', '* ')
-        is_multiline  = '\n' in text
-        has_markdown  = any(m in text for m in _MD_MARKERS)
+        is_multiline = '\n' in display_text
+        has_markdown = any(m in display_text for m in _MD_MARKERS)
         # Numbered list: lines starting with digit+dot (e.g. "1. Item")
-        has_numbered  = any(line.lstrip().startswith(tuple(f'{i}.' for i in range(1, 20)))
-                            for line in text.splitlines())
+        has_numbered = any(
+            line.lstrip().startswith(tuple(f'{i}.' for i in range(1, 20)))
+            for line in display_text.splitlines()
+        )
 
         if has_markdown or has_numbered:
             try:
-                content = Markdown(text)
+                content = Markdown(display_text)
             except Exception:
-                content = Text(text)
+                content = Text(display_text)
         elif is_multiline:
-            content = Text(text)
+            content = Text(display_text)
 
         if is_multiline or has_markdown or has_numbered:
             ts = datetime.now().strftime("%H:%M")
@@ -247,7 +282,7 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
         else:
             self.console.print()
             self.console.print(f"[{self.colors['assistant']}]A.L.I.C.E:[/{self.colors['assistant']}]", end=" ")
-            self.console.print(Text(text, overflow="fold"))
+            self.console.print(Text(display_text, overflow="fold"))
 
         self.conversation_history.append(("assistant", text))
         self.console.print()

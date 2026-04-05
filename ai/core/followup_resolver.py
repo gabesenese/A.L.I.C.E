@@ -23,6 +23,28 @@ class FollowUpResult:
 class FollowUpResolver:
     """Single authority for cross-turn follow-up inheritance."""
 
+    WEATHER_TIME_RANGE_CUES: List[str] = [
+        "week",
+        "this week",
+        "next week",
+        "rest of the week",
+        "rest of week",
+        "weekend",
+        "this weekend",
+        "next few days",
+        "coming days",
+        "forecast",
+        "tomorrow",
+        "tonight",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    ]
+
     DOMAIN_SIGNALS: Dict[str, List[str]] = {
         "weather": [
             "wear",
@@ -167,7 +189,26 @@ class FollowUpResolver:
         recent_domain = (
             recent_intent.split(":")[0] if ":" in recent_intent else recent_intent
         )
+        nlp_domain = nlp_intent.split(":")[0] if ":" in nlp_intent else nlp_intent
         generic_cue = bool(self._GENERIC_CUE_RE.search(lower))
+
+        if recent_domain == "weather":
+            has_time_range = any(cue in lower for cue in self.WEATHER_TIME_RANGE_CUES)
+            if has_time_range and nlp_intent != "weather:forecast":
+                decay = math.exp(-0.15 * max(0, turn_distance))
+                new_conf = max(nlp_confidence, 0.86 * decay)
+                logger.debug(
+                    "[FollowUpResolver] weather_time_range_followup -> weather:forecast (%.2f, decay=%.2f)",
+                    new_conf,
+                    decay,
+                )
+                return FollowUpResult(
+                    "weather:forecast",
+                    new_conf,
+                    True,
+                    "weather",
+                    "weather_time_range_followup",
+                )
 
         domain_signals = self.DOMAIN_SIGNALS.get(recent_domain, [])
         domain_signal_hits = [sig for sig in domain_signals if sig in lower]
@@ -184,7 +225,6 @@ class FollowUpResolver:
 
         is_conversational = nlp_intent in self.CONVERSATIONAL_INTENTS
         low_confidence = nlp_confidence < 0.7
-        nlp_domain = nlp_intent.split(":")[0] if ":" in nlp_intent else nlp_intent
         same_domain_specific = (
             nlp_domain == recent_domain
             and nlp_intent not in self.CONVERSATIONAL_INTENTS
