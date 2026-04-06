@@ -14,7 +14,7 @@ Philosophy:
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Pattern
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -90,13 +90,22 @@ class ResponseFormulator:
         "intent:",
         "plan:",
     ]
+    INTERNAL_LEAK_REGEX: List[Pattern[str]] = [
+        re.compile(
+            r"\b(?:intent|confidence|route|user_input|raw_response|resolved_intent|response_type|strategy|plan)\s*=",
+            re.IGNORECASE,
+        ),
+        re.compile(r"\b(?:analysis|context)\s*=", re.IGNORECASE),
+    ]
 
     def is_internal(self, text: str) -> bool:
         """Return True when a text looks like internal reasoning or scaffold leakage."""
         low = str(text or "").lower()
         if not low.strip():
             return False
-        return any(pattern in low for pattern in self.INTERNAL_LEAK_PATTERNS)
+        if any(pattern in low for pattern in self.INTERNAL_LEAK_PATTERNS):
+            return True
+        return any(pattern.search(low) for pattern in self.INTERNAL_LEAK_REGEX)
 
     def _sanitize_user_message(self, text: str) -> str:
         cleaned = str(text or "").strip()
@@ -147,11 +156,6 @@ class ResponseFormulator:
                 "I can break it into architecture, execution, and memory, then start with step one."
             )
 
-        if reasoning_output and str(reasoning_output.internal_summary or "").strip():
-            summary = self._sanitize_user_message(reasoning_output.internal_summary)
-            if summary and not self.is_internal(summary):
-                return summary
-
         user_input = str((context or {}).get("user_input") or "").strip()
         if user_input:
             return "Understood. Here is the direct answer without internal analysis."
@@ -192,9 +196,6 @@ class ResponseFormulator:
                 or tool_results.get("message")
                 or ""
             ).strip()
-
-        if not candidate and reasoning_output is not None:
-            candidate = str(reasoning_output.internal_summary or "").strip()
 
         if not candidate:
             candidate = str((context or {}).get("response") or "").strip()

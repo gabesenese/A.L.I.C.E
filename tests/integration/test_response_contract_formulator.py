@@ -53,6 +53,35 @@ def test_response_formulator_leak_filter_regenerates_internal_text():
     assert "key points" not in text
 
 
+def test_response_formulator_blocks_equals_delimited_internal_summary_leak():
+    formulator = ResponseFormulator()
+    reasoning = ReasoningOutput(
+        internal_summary=(
+            "intent=greeting | confidence=0.00 | route=unknown | "
+            "user_input=hey alice | raw_response=hi there"
+        ),
+        intent="conversation:greeting",
+        plan=["respond naturally"],
+        confidence=0.0,
+    )
+
+    final_response = formulator.generate(
+        intent="conversation:greeting",
+        context={"user_input": "hey alice", "response": ""},
+        tool_results={},
+        reasoning_output=reasoning,
+        mode="final_answer_only",
+    )
+
+    low = final_response.message.lower()
+    assert "intent=" not in low
+    assert "confidence=" not in low
+    assert "route=" not in low
+    assert "user_input=" not in low
+    assert "raw_response=" not in low
+    assert len(final_response.message.strip()) > 0
+
+
 def test_process_input_wrapper_blocks_internal_output_leakage():
     alice = ALICE.__new__(ALICE)
     alice.response_formulator = ResponseFormulator()
