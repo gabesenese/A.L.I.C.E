@@ -381,6 +381,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         user_input: str,
         use_history: bool = True,
         temperature: Optional[float] = None,
+        mode: Optional[str] = None,
     ) -> str:
         """
         Send message to LLM with GPU acceleration
@@ -389,6 +390,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             user_input: User's message
             use_history: Include conversation history for context
             temperature: Optional per-call temperature override
+            mode: Optional output mode (e.g. "final_answer_only")
 
         Returns:
             Assistant's response
@@ -399,6 +401,18 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
 
             # Build message history
             messages = [{"role": "system", "content": self.system_prompt}]
+
+            if str(mode or "").strip().lower() == "final_answer_only":
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "Output mode is final_answer_only. "
+                            "Return only the final user-facing answer. "
+                            "Do not output analysis, key points, plans, context labels, or internal reasoning."
+                        ),
+                    }
+                )
 
             if use_history:
                 messages.extend(self.conversation_history[-self.config.max_history :])
@@ -457,7 +471,10 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             logger.error("[A.L.I.C.E.] Connection lost - attempting auto-restart...")
             if self._ensure_ollama_running():
                 return self.chat(
-                    user_input, use_history, temperature=temperature
+                    user_input,
+                    use_history,
+                    temperature=temperature,
+                    mode=mode,
                 )  # Retry once
             raise Exception("Service temporarily unavailable - Ollama not running")
         except Exception as e:
@@ -556,6 +573,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         max_tokens: Optional[int] = None,
         context: Optional[Dict[str, Any]] = None,
         temperature: Optional[float] = None,
+        mode: Optional[str] = None,
         **kwargs: Any,
     ) -> str:
         """Compatibility API for planner paths that expect generate()."""
@@ -566,6 +584,14 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             except Exception:
                 context_blob = str(context)
             prompt_text = f"Context:\n{context_blob}\n\nPrompt:\n{prompt_text}"
+
+        if str(mode or "").strip().lower() == "final_answer_only":
+            prompt_text = (
+                "Output mode: final_answer_only. "
+                "Return only the final answer for the user. "
+                "Do not include analysis, plans, key points, or context headings.\n\n"
+                + prompt_text
+            )
 
         if kwargs:
             logger.debug(
@@ -607,7 +633,12 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         except Exception as e:
             logger.warning(f"generate() fallback to chat() due to: {e}")
 
-        return self.chat(prompt_text, use_history=False, temperature=temperature)
+        return self.chat(
+            prompt_text,
+            use_history=False,
+            temperature=temperature,
+            mode=mode,
+        )
 
     def query_knowledge(self, question: str) -> str:
         """
