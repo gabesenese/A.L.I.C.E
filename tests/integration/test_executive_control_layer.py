@@ -649,7 +649,7 @@ def test_simple_conversational_prompts_force_native_direct_path(utterance: str, 
 def test_pre_route_guard_allows_rich_conceptual_prompt_even_when_plausibility_is_low() -> None:
     controller = ExecutiveController()
     state = controller.build_state(
-        user_input="let's imagine how jarvis would be created with today's technology no fiction",
+        user_input="let's imagine how assistant would be created with today's technology no fiction",
         intent="notes:list",
         confidence=0.40,
         entities={"_intent_plausibility": 0.31},
@@ -672,7 +672,7 @@ def test_pre_route_guard_allows_rich_conceptual_prompt_even_when_plausibility_is
 def test_rich_conceptual_prompt_with_clarification_intent_prefers_direct_answer_mode() -> None:
     controller = ExecutiveController()
     state = controller.build_state(
-        user_input="let's imagine how jarvis would be created with today's technology no fiction",
+        user_input="let's imagine how assistant would be created with today's technology no fiction",
         intent="conversation:clarification_needed",
         confidence=0.63,
         entities={"_intent_plausibility": 0.55},
@@ -694,7 +694,7 @@ def test_rich_conceptual_prompt_with_clarification_intent_prefers_direct_answer_
 def test_rich_conceptual_build_prompt_with_clarification_bias_still_uses_fresh_reasoning() -> None:
     controller = ExecutiveController()
     state = controller.build_state(
-        user_input="how can i create an ai just like jarvis but with todays technology",
+        user_input="how can i create an ai just like assistant but with todays technology",
         intent="conversation:clarification_needed",
         confidence=0.52,
         entities={"_intent_plausibility": 0.44},

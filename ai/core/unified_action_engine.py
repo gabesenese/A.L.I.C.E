@@ -286,6 +286,11 @@ class UnifiedActionEngine:
                 retry_budget=request.retry_budget,
                 partial_success=bool(goal_report.get("partial_success", False)),
             )
+            recommendation = self._recommend_recovery_plan(
+                request=request,
+                result_dict=result_dict,
+                attempt_idx=attempt_idx,
+            )
 
             last_result = ActionResult(
                 success=success,
@@ -311,6 +316,12 @@ class UnifiedActionEngine:
                 recovery_path=recovery_path,
                 retry_count=attempt_idx,
             )
+            if recommendation:
+                last_result.state_updates["recovery_recommendation"] = recommendation
+                if not last_result.recovery_path:
+                    last_result.recovery_path = str(
+                        recommendation.get("next_step") or "clarify_then_continue"
+                    )
 
             self._record_journal(
                 "attempt",
@@ -442,6 +453,31 @@ class UnifiedActionEngine:
         request.rollback_policy = str(request.rollback_policy or "none").strip().lower()
         request.plan_steps = list(request.plan_steps or [])
         return request
+
+    def _recommend_recovery_plan(
+        self,
+        *,
+        request: ActionRequest,
+        result_dict: Dict[str, Any],
+        attempt_idx: int,
+    ) -> Dict[str, Any]:
+        """P0 recovery planner: deterministic next-step guidance for failed actions."""
+        if bool(result_dict.get("success", False)):
+            return {}
+        if attempt_idx < int(request.retry_budget or 0):
+            return {
+                "next_step": "retry_with_adjusted_params",
+                "reason": "retry_budget_remaining",
+            }
+        if not (request.target_spec or {}).get("target"):
+            return {
+                "next_step": "request_target_clarification",
+                "reason": "missing_target_spec",
+            }
+        return {
+            "next_step": "try_alternative_action",
+            "reason": "retry_exhausted_with_target_present",
+        }
 
     def _request_goal_id(self, request: ActionRequest) -> str:
         if request.goal_ref is None:

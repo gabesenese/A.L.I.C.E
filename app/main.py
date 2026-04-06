@@ -4622,8 +4622,8 @@ class ALICE:
         has_subject = any(
             cue in text
             for cue in (
-                "jarvis",
-                "tony stark",
+                "assistant",
+                "fictional inventor",
                 "assistant",
                 "technology",
                 "system",
@@ -4672,7 +4672,7 @@ class ALICE:
             for cue in (
                 "ai",
                 "assistant",
-                "jarvis",
+                "assistant",
                 "system",
                 "architecture",
             )
@@ -4981,7 +4981,7 @@ class ALICE:
 
         domain_markers = {
             "nlp": ["nlp", "natural language", "intent", "entity", "embedding", "token"],
-            "assistant": ["assistant", "jarvis", "copilot", "agent"],
+            "assistant": ["assistant", "assistant", "copilot", "agent"],
             "machine_learning": ["machine learning", "ml", "classification", "regression"],
             "ai": ["ai", "artificial intelligence", "llm", "rag"],
             "python": ["python", "fastapi", "flask", "django"],
