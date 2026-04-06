@@ -11,9 +11,9 @@ EXACT_PROMPT = (
     "in today's world with no fiction"
 )
 
-EXACT_LOG_PROMPT = "let's imagine how jarvis would be created with today's technology no fiction"
-EXACT_TONY_PROMPT = "let's imagine how tony stark would have created Jarvis with todays technology, no fiction"
-EXACT_CREATE_PROMPT = "how can i create an ai just like jarvis but with todays technology"
+EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
+EXACT_TONY_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
+EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
 
 
 @dataclass
@@ -609,7 +609,7 @@ def test_action_cue_detector_ignores_conceptual_build_prompt():
 
     assert (
         alice._has_explicit_action_cue(
-            "how can i create an ai like jarvis with todays technology and no fiction"
+            "how can i create an ai like assistant with todays technology and no fiction"
         )
         is False
     )
@@ -619,7 +619,7 @@ def test_execution_mode_keeps_conceptual_create_prompt_in_conversational_mode():
     alice = ALICE.__new__(ALICE)
 
     mode, reason = alice._select_execution_mode(
-        user_input="how can i create an ai like jarvis with today's technology and no fiction",
+        user_input="how can i create an ai like assistant with today's technology and no fiction",
         intent="conversation:help",
         intent_confidence=0.71,
         has_active_goal=False,

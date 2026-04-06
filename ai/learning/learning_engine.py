@@ -109,6 +109,8 @@ class LearningEngine:
 
         self._tfidf_matrix = None
         self._needs_refit = True
+        self._similarity_cache: Dict[Tuple[str, int], List[TrainingExample]] = {}
+        self._similarity_cache_max_entries = 256
 
         # Storage
         self.training_file = self.data_dir / "training_data.jsonl"
@@ -196,6 +198,7 @@ class LearningEngine:
 
             # Mark TF-IDF matrix as needing refit after new example
             self._needs_refit = True
+            self._similarity_cache.clear()
 
     def run_offline_training(self, max_entries: int = 500) -> Dict[str, Any]:
         """
@@ -320,6 +323,7 @@ class LearningEngine:
         texts = [ex.user_input for ex in self.examples]
         self._tfidf_matrix = self.vectorizer.fit_transform(texts)
         self._needs_refit = False
+        self._similarity_cache.clear()
 
     def _learn_pattern(self, example: TrainingExample):
         """Learn a single pattern"""
@@ -344,8 +348,15 @@ class LearningEngine:
             return []
         if len(self.examples) < 2:
             return []
+        if top_k <= 0:
+            return []
 
         try:
+            cache_key = (user_input, top_k)
+            cached = self._similarity_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
             # Refit the shared vectorizer only when examples have changed
             if self._needs_refit:
                 self._refit_vectorizer()
@@ -353,13 +364,18 @@ class LearningEngine:
             # Transform only the query using the already-fitted vectorizer
             query_vec = self.vectorizer.transform([user_input])
             similarities = cosine_similarity(query_vec, self._tfidf_matrix)[0]
-            top_indices = np.argsort(similarities)[::-1][:top_k]
+            candidate_count = min(top_k, len(similarities))
+            top_indices = np.argpartition(similarities, -candidate_count)[-candidate_count:]
+            top_indices = top_indices[np.argsort(similarities[top_indices])[::-1]]
 
             similar = []
             for idx in top_indices:
                 if similarities[idx] > 0.4:  # Minimum similarity threshold
                     similar.append(self.examples[idx])
 
+            self._similarity_cache[cache_key] = similar
+            if len(self._similarity_cache) > self._similarity_cache_max_entries:
+                self._similarity_cache.pop(next(iter(self._similarity_cache)))
             return similar
         except Exception as e:
             logger.warning(f"[Learning] Similarity search failed: {e}")

@@ -19,6 +19,13 @@ class UserState:
     last_route: str = ""
     last_intent: str = ""
     world_state_snapshot: Dict[str, Any] = field(default_factory=dict)
+    preferences: Dict[str, Any] = field(
+        default_factory=lambda: {
+            "response_brevity": "balanced",
+            "confirmation_style": "safety_first",
+            "risk_tolerance": "medium",
+        }
+    )
     updated_at: str = ""
 
 
@@ -62,5 +69,24 @@ class UserStateModel:
             state.last_result_produced = str(last_result_produced)
         if world_state_snapshot is not None:
             state.world_state_snapshot = dict(world_state_snapshot)
+        state.updated_at = datetime.utcnow().isoformat()
+        return state
+
+    def update_preferences(
+        self,
+        *,
+        user_id: str,
+        response_brevity: Optional[str] = None,
+        confirmation_style: Optional[str] = None,
+        risk_tolerance: Optional[str] = None,
+    ) -> UserState:
+        """P2 personalization profile updates."""
+        state = self.get_or_create(user_id)
+        if response_brevity:
+            state.preferences["response_brevity"] = str(response_brevity)
+        if confirmation_style:
+            state.preferences["confirmation_style"] = str(confirmation_style)
+        if risk_tolerance:
+            state.preferences["risk_tolerance"] = str(risk_tolerance)
         state.updated_at = datetime.utcnow().isoformat()
         return state
