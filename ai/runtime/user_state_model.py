@@ -90,3 +90,7 @@ class UserStateModel:
             state.preferences["risk_tolerance"] = str(risk_tolerance)
         state.updated_at = datetime.utcnow().isoformat()
         return state
+
+    def get_preference_profile(self, user_id: str) -> Dict[str, Any]:
+        state = self.get_or_create(user_id)
+        return dict(state.preferences)

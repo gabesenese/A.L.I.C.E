@@ -488,16 +488,32 @@ class UnifiedActionEngine:
             return ""
 
     def _policy_requires_clarification(self, request: ActionRequest) -> bool:
-        if request.risk_level not in {"high", "critical"}:
+        high_risk = request.risk_level in {"high", "critical"}
+        low_confidence = float(request.confidence or 0.0) < 0.70
+        missing_target = not bool((request.target_spec or {}).get("target"))
+        destructive_action = str(request.action or "").lower() in {
+            "delete",
+            "remove",
+            "shutdown",
+            "reboot",
+            "format",
+        }
+
+        if not (high_risk or destructive_action):
             return False
 
-        if request.confidence >= 0.8 and self._has_explicit_approval(request):
+        if request.confidence >= 0.85 and self._has_explicit_approval(request):
             return False
 
-        # Allow read-only actions with medium confidence.
-        if request.action in {"read", "list", "search"} and request.confidence >= 0.6:
+        # Read-only flows can proceed if confidence is acceptable and target is clear.
+        if (
+            request.action in {"read", "list", "search"}
+            and request.confidence >= 0.6
+            and not missing_target
+        ):
             return False
-        return True
+
+        return bool(low_confidence or missing_target or not self._has_explicit_approval(request))
 
     def _has_explicit_approval(self, request: ActionRequest) -> bool:
         params = request.params or {}

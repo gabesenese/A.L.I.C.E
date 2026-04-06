@@ -77,12 +77,23 @@ class FoundationLayers:
             hints["location"] = state["location"]
         if "timezone" in state:
             hints["timezone"] = state["timezone"]
+        if "is_stale" in state:
+            hints["is_stale"] = bool(state.get("is_stale"))
+            hints["requires_refresh"] = bool(state.get("is_stale"))
+        if "age_seconds" in state:
+            hints["age_seconds"] = float(state.get("age_seconds") or 0.0)
         if hints:
             parsed_command.setdefault("modifiers", {})["grounding_hints"] = hints
         return hints
 
     # 4) Proactive clarification policy.
-    def clarification_policy(self, *, plugin_scores: Dict[str, float], confidence: float) -> Dict[str, Any]:
+    def clarification_policy(
+        self,
+        *,
+        plugin_scores: Dict[str, float],
+        confidence: float,
+        profile: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         ordered = sorted(plugin_scores.items(), key=lambda x: x[1], reverse=True)
         top = ordered[0][1] if ordered else 0.0
         second = ordered[1][1] if len(ordered) > 1 else 0.0
@@ -97,10 +108,14 @@ class FoundationLayers:
         if needs and ordered:
             top_name = ordered[0][0]
             second_name = ordered[1][0] if len(ordered) > 1 else "conversation"
-            prompt = (
-                f"I can handle this as {top_name} or {second_name}. "
-                f"Which one do you want?"
-            )
+            brevity = str((profile or {}).get("response_brevity") or "balanced").lower()
+            if brevity == "concise":
+                prompt = f"{top_name} or {second_name}?"
+            else:
+                prompt = (
+                    f"I can handle this as {top_name} or {second_name}. "
+                    f"Which one do you want?"
+                )
         return {
             "needs_clarification": needs,
             "top_margin": margin,
@@ -110,6 +125,14 @@ class FoundationLayers:
                 "confidence": self._clarification_conf_threshold,
                 "margin": self._clarification_margin_threshold,
             },
+        }
+
+    def response_style_hint(self, profile: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+        prefs = dict(profile or {})
+        return {
+            "brevity": str(prefs.get("response_brevity") or "balanced"),
+            "confirmation": str(prefs.get("confirmation_style") or "safety_first"),
+            "risk_tolerance": str(prefs.get("risk_tolerance") or "medium"),
         }
 
     def tune_from_outcome(
@@ -141,11 +164,13 @@ class FoundationLayers:
     # 5) Evaluation harness (online turn metrics).
     def record_turn(self, *, confidence: float, clarification: bool, safety_blocked: bool) -> Dict[str, Any]:
         self._metrics["turns"] += 1
+        if clarification:
+            self._metrics["clarifications"] += 1
         if safety_blocked:
             self._metrics["safety_blocks"] += 1
         return {
             "turns": self._metrics["turns"],
-            "clarifications": self._metrics["clarifications"] + (1 if clarification else 0),
+            "clarifications": self._metrics["clarifications"],
             "safety_blocks": self._metrics["safety_blocks"],
             "last_confidence": float(confidence),
         }
