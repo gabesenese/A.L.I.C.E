@@ -82,6 +82,50 @@ def test_response_formulator_blocks_equals_delimited_internal_summary_leak():
     assert len(final_response.message.strip()) > 0
 
 
+def test_response_formulator_project_fallback_is_structured_multiline():
+    formulator = ResponseFormulator()
+    reasoning = ReasoningOutput(
+        internal_summary="analysis: project intent with leaked scaffold",
+        intent="learning:project_ideation",
+        plan=["respond"],
+        confidence=0.84,
+    )
+
+    final_response = formulator.generate(
+        intent="learning:project_ideation",
+        context={"user_input": "i want to create an ai agent", "response": "intent=learning:project_ideation"},
+        tool_results={},
+        reasoning_output=reasoning,
+        mode="final_answer_only",
+    )
+
+    text = final_response.message
+    assert "\n\n" in text
+    assert "Project Concept:" in text
+    assert "Action Plan:" in text
+    assert "1. Pick one domain and one measurable outcome." in text
+
+
+def test_response_formulator_preserves_newlines_from_safe_candidate():
+    formulator = ResponseFormulator()
+    reasoning = ReasoningOutput(
+        internal_summary="intent=conversation:help",
+        intent="conversation:help",
+        plan=["answer"],
+        confidence=0.8,
+    )
+
+    final_response = formulator.generate(
+        intent="conversation:help",
+        context={"user_input": "help", "response": "First line.\n\nSecond line."},
+        tool_results={},
+        reasoning_output=reasoning,
+        mode="final_answer_only",
+    )
+
+    assert final_response.message == "First line.\n\nSecond line."
+
+
 def test_process_input_wrapper_blocks_internal_output_leakage():
     alice = ALICE.__new__(ALICE)
     alice.response_formulator = ResponseFormulator()

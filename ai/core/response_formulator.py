@@ -88,7 +88,6 @@ class ResponseFormulator:
         "internal reasoning",
         "reasoning output",
         "intent:",
-        "plan:",
     ]
     INTERNAL_LEAK_REGEX: List[Pattern[str]] = [
         re.compile(
@@ -112,9 +111,15 @@ class ResponseFormulator:
         if not cleaned:
             return ""
 
-        cleaned = re.sub(r"\s+", " ", cleaned)
-        cleaned = re.sub(r"^(analysis|context|intent|plan)\s*:\s*", "", cleaned, flags=re.IGNORECASE)
-        cleaned = cleaned.strip(" \t\n\r-:;,.\"")
+        cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+        cleaned = "\n".join(
+            re.sub(r"[^\S\n]+", " ", line).strip() for line in cleaned.split("\n")
+        )
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        cleaned = re.sub(
+            r"^(analysis|context|intent|plan)\s*:\s*", "", cleaned, flags=re.IGNORECASE
+        )
+        cleaned = cleaned.strip(' \t\n\r-:;,."')
         if cleaned and not re.search(r"[.!?]$", cleaned):
             cleaned += "."
         return cleaned
@@ -135,14 +140,16 @@ class ResponseFormulator:
 
         if tool_results and isinstance(tool_results, dict):
             msg = str(
-                tool_results.get("response")
-                or tool_results.get("message")
-                or ""
+                tool_results.get("response") or tool_results.get("message") or ""
             ).strip()
             if msg and not self.is_internal(msg):
                 return msg
 
-            data = tool_results.get("data") if isinstance(tool_results.get("data"), dict) else {}
+            data = (
+                tool_results.get("data")
+                if isinstance(tool_results.get("data"), dict)
+                else {}
+            )
             plugin = str(tool_results.get("plugin") or "").strip()
             action = str(tool_results.get("action") or "").strip()
             if plugin or action:
@@ -150,10 +157,20 @@ class ResponseFormulator:
             if data:
                 return "Done. I processed that request."
 
-        if "goal" in intent_text or "project" in intent_text or "learning:" in intent_text:
+        if (
+            "goal" in intent_text
+            or "project" in intent_text
+            or "learning:" in intent_text
+        ):
             return (
-                "Alright - let's turn that into an action plan. "
-                "I can break it into architecture, execution, and memory, then start with step one."
+                "Great direction. Let's turn this into a concrete build plan.\n\n"
+                "Project Concept: Start with a focused AI agent that solves one recurring task end-to-end.\n\n"
+                "Action Plan:\n"
+                "1. Pick one domain and one measurable outcome.\n"
+                "2. Build a minimal agent loop: plan, execute, verify.\n"
+                "3. Add memory only for context that improves decisions.\n"
+                "4. Add one tool integration and validate with scenario tests.\n\n"
+                "Do you want to start with architecture, implementation steps, or a starter repo layout?"
             )
 
         user_input = str((context or {}).get("user_input") or "").strip()
@@ -174,7 +191,10 @@ class ResponseFormulator:
             text,
             flags=re.IGNORECASE,
         )
-        text = re.sub(r"\s+", " ", text).strip()
+        text = "\n".join(
+            re.sub(r"[^\S\n]+", " ", line).strip() for line in text.split("\n")
+        )
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
         return text
 
     def generate(
@@ -192,9 +212,7 @@ class ResponseFormulator:
 
         if tool_results and isinstance(tool_results, dict):
             candidate = str(
-                tool_results.get("response")
-                or tool_results.get("message")
-                or ""
+                tool_results.get("response") or tool_results.get("message") or ""
             ).strip()
 
         if not candidate:

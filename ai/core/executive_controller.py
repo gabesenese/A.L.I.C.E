@@ -567,7 +567,9 @@ class ExecutiveController:
         if not has_task:
             return False
 
-        has_build_verb = bool(re.search(r"\b(create|created|build|built|make|made)\b", low))
+        has_build_verb = bool(
+            re.search(r"\b(create|created|build|built|make|made)\b", low)
+        )
 
         has_constraint = any(
             cue in low
@@ -781,7 +783,9 @@ class ExecutiveController:
         # Only allow help/clarification intents through deterministic native path
         # when the actual utterance is genuinely short/simple.
         if normalized_intent == "conversation:clarification_needed":
-            return bool(self.SIMPLE_NATIVE_RE.match(text)) and (not self._is_rich_conceptual_request(text))
+            return bool(self.SIMPLE_NATIVE_RE.match(text)) and (
+                not self._is_rich_conceptual_request(text)
+            )
 
         if normalized_intent == "conversation:help":
             return False

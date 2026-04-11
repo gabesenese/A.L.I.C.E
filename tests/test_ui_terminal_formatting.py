@@ -31,3 +31,23 @@ def test_markdown_response_is_not_reformatted():
     out = ui._format_assistant_terminal_text(text)
 
     assert out == text
+
+
+def test_long_structured_single_line_response_gets_section_and_list_breaks():
+    ui = RichTerminalUI(user_name="Tester")
+    text = (
+        "Project Ideation for AI Project Project Concept: Develop an AI-powered system that enables "
+        "agentic autonomy, allowing it to take actions independently based on its understanding of the "
+        "environment. Objective: The objective of this project is to create an AI project that focuses on "
+        "agentic autonomy. Project Direction: Agentic Autonomy Domain: Artificial Intelligence (AI) "
+        "Key Features: 1. Autonomous Decision-Making: The AI system should be able to make decisions based "
+        "on its understanding of the environment and take actions accordingly. 2. Self-Improvement: The "
+        "system should have the ability to learn from its experiences and improve its performance over time."
+    )
+
+    out = ui._format_assistant_terminal_text(text)
+
+    assert "\n\nProject Concept:" in out
+    assert "\n\nObjective:" in out
+    assert "\n1. Autonomous Decision-Making:" in out
+    assert "\n2. Self-Improvement:" in out

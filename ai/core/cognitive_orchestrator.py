@@ -411,9 +411,9 @@ class CognitiveOrchestrator:
             if not success:
                 goal.state = GOAL_BLOCKED
                 goal.metadata["last_blocker"] = str(action_label or "unknown_action")
-                goal.metadata["stagnation_turns"] = int(
-                    goal.metadata.get("stagnation_turns", 0)
-                ) + 1
+                goal.metadata["stagnation_turns"] = (
+                    int(goal.metadata.get("stagnation_turns", 0)) + 1
+                )
                 goal.last_updated = time.time()
                 return {"updated": True, "state": goal.state, "progress": goal.progress}
 
@@ -429,7 +429,9 @@ class CognitiveOrchestrator:
             if matched:
                 goal.completed_milestones.append(matched)
             elif goal.milestones:
-                remaining = [m for m in goal.milestones if m not in goal.completed_milestones]
+                remaining = [
+                    m for m in goal.milestones if m not in goal.completed_milestones
+                ]
                 if remaining:
                     goal.completed_milestones.append(remaining[0])
 

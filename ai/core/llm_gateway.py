@@ -202,7 +202,11 @@ class LLMGateway:
         # Step 3: Route to appropriate LLM method based on call type
         try:
             logger.info(f"[LLMGateway] [CALL] LLM call ({call_type.value})")
-            output_mode = str((context or {}).get("output_mode") or "final_answer_only").strip().lower()
+            output_mode = (
+                str((context or {}).get("output_mode") or "final_answer_only")
+                .strip()
+                .lower()
+            )
 
             if (
                 self._should_use_multi_router(call_type)

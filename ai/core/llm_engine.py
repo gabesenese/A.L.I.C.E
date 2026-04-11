@@ -17,6 +17,7 @@ import time
 import os
 from pathlib import Path
 
+
 def _configure_stdio_utf8() -> None:
     """Configure stdio encoding for direct interactive runs without import side effects."""
     try:
@@ -32,6 +33,7 @@ def _configure_stdio_utf8() -> None:
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.debug("Skipping stdio utf-8 reconfiguration: %s", e)
+
 
 # Set up logging
 logging.basicConfig(
@@ -307,7 +309,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                 )
 
                 if not model_names:
-                    logger.error("No local models available. Run: ollama pull llama3.1:8b")
+                    logger.error(
+                        "No local models available. Run: ollama pull llama3.1:8b"
+                    )
                     return False
 
                 self._ensure_active_model_available(model_names)
@@ -350,7 +354,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
 
         base = active_model.split(":", 1)[0].lower()
         same_family = [m for m in model_names if m.lower().startswith(f"{base}:")]
-        fallback = same_family[0] if same_family else self._pick_fallback_model(model_names)
+        fallback = (
+            same_family[0] if same_family else self._pick_fallback_model(model_names)
+        )
         if not fallback:
             return
 
@@ -361,7 +367,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         )
         self.config._fine_tuned_model = None
         self.config.model = fallback
-        logger.info("Run this later to restore preferred model: ollama pull %s", active_model)
+        logger.info(
+            "Run this later to restore preferred model: ollama pull %s", active_model
+        )
 
     def _resolve_temperature(self, temperature: Optional[float]) -> float:
         """Resolve a per-call temperature override with safe fallback."""
@@ -445,7 +453,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                 ).strip()
                 if not assistant_message:
                     logger.warning("LLM returned an empty chat response")
-                    return "I received an empty response from the model. Please try again."
+                    return (
+                        "I received an empty response from the model. Please try again."
+                    )
 
                 # Store in conversation history
                 self.conversation_history.append(
@@ -537,7 +547,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                     try:
                         chunk = json.loads(line)
                         if "error" in chunk:
-                            err = str(chunk.get("error") or "Unknown stream error").strip()
+                            err = str(
+                                chunk.get("error") or "Unknown stream error"
+                            ).strip()
                             logger.error("Streaming chunk error: %s", err)
                             yield f"\n\n[ERROR] {err}"
                             return
