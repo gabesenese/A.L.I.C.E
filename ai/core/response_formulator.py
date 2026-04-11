@@ -96,6 +96,14 @@ class ResponseFormulator:
         ),
         re.compile(r"\b(?:analysis|context)\s*=", re.IGNORECASE),
     ]
+    CLARIFICATION_FALLBACK = "Can you clarify the exact outcome you want?"
+    GENERIC_FALLBACK = "I can help. Tell me the exact result you want."
+    DIRECT_RETRY_FALLBACK = (
+        "I can help. Tell me the exact result you want, and I will answer directly."
+    )
+    DIRECT_ANSWER_FALLBACK = (
+        "Short answer: this is a direct question, so I will answer it directly without task clarification."
+    )
 
     def is_internal(self, text: str) -> bool:
         """Return True when a text looks like internal reasoning or scaffold leakage."""
@@ -105,6 +113,49 @@ class ResponseFormulator:
         if any(pattern in low for pattern in self.INTERNAL_LEAK_PATTERNS):
             return True
         return any(pattern.search(low) for pattern in self.INTERNAL_LEAK_REGEX)
+
+    @staticmethod
+    def _is_direct_answer_question(user_input: str) -> bool:
+        """Detect definitional/comparative/explanatory self-contained questions."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        tokens = set(re.findall(r"\b[a-z0-9']+\b", text))
+        if len(tokens) < 3:
+            return False
+
+        if re.search(r"\b(help\s+me|build\s+me|make\s+me|do\s+this|do\s+that)\b", text):
+            return False
+
+        ambiguity_terms = {
+            "something",
+            "anything",
+            "stuff",
+            "idk",
+            "whatever",
+        }
+        if tokens & ambiguity_terms:
+            return False
+
+        direct_patterns = (
+            r"^\s*what\s+is\b",
+            r"^\s*what's\b",
+            r"^\s*what\s+are\b",
+            r"^\s*what(?:'s|\s+is)?\s+the\s+difference\b",
+            r"\bdifference\s+between\b",
+            r"^\s*compare\b",
+            r"^\s*explain\b",
+            r"^\s*how\s+does\b",
+            r"^\s*how\s+do\b",
+            r"^\s*why\s+does\b",
+            r"^\s*why\s+do\b",
+            r"^\s*define\b",
+        )
+
+        has_direct_structure = any(re.search(pat, text) for pat in direct_patterns)
+        is_question_like = bool("?" in text or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", text))
+        return bool(has_direct_structure and is_question_like)
 
     def _sanitize_user_message(self, text: str) -> str:
         cleaned = str(text or "").strip()
@@ -134,9 +185,13 @@ class ResponseFormulator:
     ) -> str:
         """Deterministic fallback when candidate output leaks internal text."""
         intent_text = str(intent or "").lower().strip()
+        user_input = str((context or {}).get("user_input") or "").strip()
+
+        if self._is_direct_answer_question(user_input):
+            return self.DIRECT_ANSWER_FALLBACK
 
         if "clarification" in intent_text or "vague" in intent_text:
-            return "Can you clarify the exact outcome you want?"
+            return self.CLARIFICATION_FALLBACK
 
         if tool_results and isinstance(tool_results, dict):
             msg = str(
@@ -173,11 +228,10 @@ class ResponseFormulator:
                 "Do you want to start with architecture, implementation steps, or a starter repo layout?"
             )
 
-        user_input = str((context or {}).get("user_input") or "").strip()
         if user_input:
-            return "Understood. Here is the direct answer without internal analysis."
+            return self.DIRECT_RETRY_FALLBACK
 
-        return "I can help with that."
+        return self.GENERIC_FALLBACK
 
     def _enforce_jarvis_tone(self, message: str) -> str:
         """Keep final responses clean, direct, and practical."""
@@ -229,7 +283,11 @@ class ResponseFormulator:
             candidate = self._sanitize_user_message(candidate)
 
         if not candidate or self.is_internal(candidate):
-            candidate = "I can help - tell me the exact result you want."
+            user_input = str((context or {}).get("user_input") or "").strip()
+            if self._is_direct_answer_question(user_input):
+                candidate = self.DIRECT_ANSWER_FALLBACK
+            else:
+                candidate = self.GENERIC_FALLBACK
 
         candidate = self._enforce_jarvis_tone(candidate)
 

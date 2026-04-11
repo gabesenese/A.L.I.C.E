@@ -126,6 +126,32 @@ def test_response_formulator_preserves_newlines_from_safe_candidate():
     assert final_response.message == "First line.\n\nSecond line."
 
 
+def test_response_formulator_direct_question_bypasses_clarification_fallback():
+    formulator = ResponseFormulator()
+    reasoning = ReasoningOutput(
+        internal_summary="analysis: route unclear",
+        intent="conversation:clarification_needed",
+        plan=["clarify"],
+        confidence=0.51,
+    )
+
+    final_response = formulator.generate(
+        intent="conversation:clarification_needed",
+        context={
+            "user_input": "what's the difference between rag and fine-tuning?",
+            "response": "",
+        },
+        tool_results={},
+        reasoning_output=reasoning,
+        mode="final_answer_only",
+    )
+
+    low = final_response.message.lower()
+    assert "clarify" not in low
+    assert "exact result" not in low
+    assert "short answer" in low
+
+
 def test_process_input_wrapper_blocks_internal_output_leakage():
     alice = ALICE.__new__(ALICE)
     alice.response_formulator = ResponseFormulator()
@@ -146,3 +172,65 @@ def test_process_input_wrapper_blocks_internal_output_leakage():
     assert "analysis:" not in lowered
     assert "the user wants" not in lowered
     assert len(user_text.strip()) > 0
+
+
+def test_process_input_wrapper_direct_question_avoids_clarification_fallback():
+    class _ClarifyingFormulator:
+        def generate(self, **_kwargs):
+            return UserResponse("Can you clarify the exact outcome you want?")
+
+        def is_internal(self, _text):
+            return False
+
+    alice = ALICE.__new__(ALICE)
+    alice.response_formulator = _ClarifyingFormulator()
+    alice._internal_reasoning_state = {}
+    alice._last_routed_intent = "conversation:clarification_needed"
+    alice.last_intent = "conversation:clarification_needed"
+    alice._last_intent_confidence = 0.55
+    alice._last_policy = None
+    alice._last_plugin_result = {}
+    alice.last_assistant_response = ""
+
+    alice._process_input_internal = lambda _user_input, use_voice=False: "internal"
+
+    user_text = ALICE.process_input(alice, "what is nlp?")
+
+    lowered = user_text.lower()
+    assert "clarify" not in lowered
+    assert "exact result" not in lowered
+    assert "short answer" in lowered
+
+
+def test_process_input_wrapper_agent_vs_assistant_gets_real_comparison_answer():
+    class _ClarifyingFormulator:
+        def generate(self, **_kwargs):
+            return UserResponse("Tell me the exact result you want.")
+
+        def is_internal(self, _text):
+            return False
+
+    alice = ALICE.__new__(ALICE)
+    alice.response_formulator = _ClarifyingFormulator()
+    alice._internal_reasoning_state = {}
+    alice._last_routed_intent = "conversation:general"
+    alice.last_intent = "conversation:general"
+    alice._last_intent_confidence = 0.71
+    alice._last_policy = None
+    alice._last_plugin_result = {}
+    alice.last_assistant_response = ""
+
+    alice._process_input_internal = lambda _user_input, use_voice=False: "internal"
+
+    user_text = ALICE.process_input(
+        alice,
+        "whats the difference between an ai agent and ai assistance?",
+    )
+
+    lowered = user_text.lower()
+    assert "exact result" not in lowered
+    assert "feasible here" not in lowered
+    assert "assistant" in lowered
+    assert "agent" in lowered
+    assert "reactive" in lowered
+    assert "proactive" in lowered

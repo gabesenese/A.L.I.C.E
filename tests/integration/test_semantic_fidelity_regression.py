@@ -14,6 +14,7 @@ EXACT_PROMPT = (
 EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
 EXACT_TONY_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
 EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
+EXACT_FRAMEWORKS_PROMPT = "research existing frameworks for agentic autonomy in ai"
 
 
 @dataclass
@@ -232,6 +233,41 @@ def test_deterministic_knowledge_fallback_handles_ai_agent_algorithm_question():
     assert "transformer" in low
     assert "retrieval" in low
     assert "verification" in low
+
+
+def test_deterministic_knowledge_fallback_handles_practical_agentic_framework_request():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._deterministic_knowledge_fallback(
+        EXACT_FRAMEWORKS_PROMPT,
+        "conversation:general",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "langchain" in low
+    assert "crewai" in low
+    assert "react" in low
+    assert "dennett" not in low
+    assert "integrated information theory" not in low
+
+
+def test_semantic_fidelity_guard_rejects_theoretical_drift_for_practical_framework_prompt():
+    controller = ExecutiveController()
+    bad = (
+        "A useful autonomy framework is Dennett's Intentional Stance and Tononi's IIT theory of consciousness."
+    )
+
+    evaluation = controller.evaluate_response(
+        user_input=EXACT_FRAMEWORKS_PROMPT,
+        intent="conversation:general",
+        response=bad,
+        route="llm",
+        context={},
+    )
+
+    assert evaluation["accepted"] is False
+    assert evaluation["reason"] == "semantic_drift_theoretical_domain"
 
 
 def test_agent_algorithm_question_detector_matches_user_style_query():

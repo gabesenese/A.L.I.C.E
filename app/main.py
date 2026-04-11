@@ -1764,6 +1764,46 @@ class ALICE:
             'timezone': timezone,
         }
 
+    def _fallback_clarification_response(
+        self,
+        user_input: str,
+        *,
+        strict: bool = False,
+        intent: str = "",
+    ) -> str:
+        """Return a centralized clarification fallback with intent-aware overrides."""
+        text = str(user_input or "").strip()
+        inferred_intent = str(intent or "").strip()
+
+        if text and self._is_answerability_direct_question(text):
+            return self._answerability_gate_fallback_response(text)
+
+        if text and (
+            self._is_project_ideation_turn(text, inferred_intent)
+            or self._is_project_ideation_request(text)
+        ):
+            return self._project_ideation_guidance_response(text)
+
+        if strict:
+            return "Please clarify the exact outcome you want so I can route this correctly."
+        return "Can you clarify the exact outcome you want?"
+
+    def _fallback_generic_response(self, user_input: str, *, intent: str = "") -> str:
+        """Return a centralized generic fallback with intent-aware overrides."""
+        text = str(user_input or "").strip()
+        inferred_intent = str(intent or "").strip()
+
+        if text and self._is_answerability_direct_question(text):
+            return self._answerability_gate_fallback_response(text)
+
+        if text and (
+            self._is_project_ideation_turn(text, inferred_intent)
+            or self._is_project_ideation_request(text)
+        ):
+            return self._project_ideation_guidance_response(text)
+
+        return "I can help. Tell me the exact result you want."
+
     def _clamp_final_response(
         self,
         response: str,
@@ -1799,19 +1839,15 @@ class ALICE:
             or getattr(self, 'last_intent', None)
             or ''
         ).strip()
-        is_project_ideation = (
-            self._is_project_ideation_turn(user_input, inferred_intent)
-            or self._is_project_ideation_request(user_input)
-        )
 
         if "as an ai" in lower or "language model" in lower:
-            if self._is_answerability_direct_question(user_input):
-                return self._answerability_gate_fallback_response(user_input)
-            if is_project_ideation:
-                return self._project_ideation_guidance_response(user_input)
             if response_type == "clarification_prompt":
-                return "Please clarify the exact outcome you want so I can route this correctly."
-            return "I can help with that. Tell me the exact result you want."
+                return self._fallback_clarification_response(
+                    user_input,
+                    strict=True,
+                    intent=inferred_intent,
+                )
+            return self._fallback_generic_response(user_input, intent=inferred_intent)
 
         leak_patterns = (
             "the user wants",
@@ -1824,19 +1860,19 @@ class ALICE:
         )
         if any(pattern in lower for pattern in leak_patterns):
             if response_type == "clarification_prompt":
-                return "Can you clarify the exact outcome you want?"
-            if self._is_answerability_direct_question(user_input):
-                return self._answerability_gate_fallback_response(user_input)
-            if is_project_ideation:
-                return self._project_ideation_guidance_response(user_input)
-            return "I can help with that. Tell me the exact result you want."
+                return self._fallback_clarification_response(
+                    user_input,
+                    intent=inferred_intent,
+                )
+            return self._fallback_generic_response(user_input, intent=inferred_intent)
 
         if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(text):
             if response_type == "clarification_prompt":
-                return "Can you clarify the exact outcome you want?"
-            if is_project_ideation:
-                return self._project_ideation_guidance_response(user_input)
-            return "I can help with that. Tell me the exact result you want."
+                return self._fallback_clarification_response(
+                    user_input,
+                    intent=inferred_intent,
+                )
+            return self._fallback_generic_response(user_input, intent=inferred_intent)
 
         # Tone-aware trim: keep professional tones concise.
         max_chars = {
@@ -2324,7 +2360,7 @@ class ALICE:
                 return f"Do you mean {', '.join(options[:-1]) + ' or ' + options[-1] if len(options) > 1 else options[0]}?"
             if pronouns:
                 return f"What does '{pronouns[0]}' refer to in your request?"
-            return "Please clarify the exact outcome you want so I can route this correctly."
+            return self._fallback_clarification_response(_source_text, strict=True)
 
         # Open-ended types — return None to let Ollama assist Alice
         return None
@@ -2391,9 +2427,7 @@ class ALICE:
                 err = str(alice_response.get('error') or '').strip()
                 return f"Failed: {op}. {err}".strip()
             if response_type == 'clarification_prompt':
-                if self._is_answerability_direct_question(user_input):
-                    return self._answerability_gate_fallback_response(user_input)
-                return "Please clarify the exact outcome you want so I can route this safely."
+                return self._fallback_clarification_response(user_input, strict=True)
             return self._clamp_final_response(
                 str(content),
                 tone=tone,
@@ -5547,6 +5581,52 @@ class ALICE:
         targets_agent = any(cue in text for cue in ("ai agent", "agent", "assistant"))
         return asks_algorithms and targets_agent
 
+    def _is_practical_agentic_framework_request(self, user_input: str) -> bool:
+        """Detect build-oriented framework queries for autonomous AI agents."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        has_framework_cue = any(
+            cue in text
+            for cue in ("framework", "frameworks", "architecture", "design pattern")
+        )
+        has_agentic_scope = any(
+            cue in text
+            for cue in (
+                "agentic autonomy",
+                "autonomous agent",
+                "ai agent",
+                "agent autonomy",
+                "autonomy in ai",
+            )
+        )
+        has_build_or_research_cue = any(
+            cue in text
+            for cue in (
+                "build",
+                "building",
+                "implement",
+                "implementation",
+                "existing",
+                "research",
+                "practical",
+                "production",
+            )
+        )
+
+        return bool(has_framework_cue and has_agentic_scope and has_build_or_research_cue)
+
+    @staticmethod
+    def _practical_agentic_frameworks_answer() -> str:
+        """Return practical engineering frameworks for agentic autonomy requests."""
+        return (
+            "For building autonomous AI agents, use engineering frameworks rather than consciousness theories. "
+            "Start with orchestration frameworks like LangChain Agents, Auto-GPT style task loops, and CrewAI for multi-agent coordination. "
+            "Then apply core design patterns: ReAct (reason + act), Plan-Execute-Reflect, tool-augmented action loops, and goal-driven state machines with memory and verification. "
+            "If you want, I can rank these by production readiness for A.L.I.C.E and propose a phased adoption plan."
+        )
+
     def _learning_blueprint(self, domain: str) -> Dict[str, List[str]]:
         blueprints: Dict[str, Dict[str, List[str]]] = {
             "nlp": {
@@ -5882,7 +5962,13 @@ class ALICE:
     def _deterministic_knowledge_fallback(self, user_input: str, intent: str) -> Optional[str]:
         """Build non-LLM first-pass answers from inferred domain structure rather than fixed canned replies."""
         text = str(user_input or "").lower().strip()
-        if not text or self._has_explicit_action_cue(text):
+        if not text:
+            return None
+
+        if self._is_practical_agentic_framework_request(text):
+            return self._practical_agentic_frameworks_answer()
+
+        if self._has_explicit_action_cue(text):
             return None
 
         if self._is_rich_conceptual_request(text):
@@ -6054,7 +6140,7 @@ class ALICE:
         if normalized == "conversation:clarification_needed":
             if self._should_answer_first_without_clarification(user_input, normalized):
                 return None
-            return "I can help. What exact result do you want?"
+            return self._fallback_generic_response(user_input, intent=normalized)
         if normalized == "conversation:goal_statement":
             signal = self._extract_goal_statement_signal(user_input)
             return self._goal_statement_alignment_response(user_input, signal)
@@ -7627,31 +7713,77 @@ class ALICE:
         return any(cue in text for cue in informational_cues)
 
     def _is_answerability_direct_question(self, user_input: str) -> bool:
-        """Detect specific answerable domain questions that should bypass clarification."""
+        """Detect self-contained direct questions that should bypass clarification."""
         text = str(user_input or "").lower().strip()
         if not text:
             return False
 
+        if self._has_explicit_action_cue(text):
+            return False
+
         tokens = set(re.findall(r"\b[a-z0-9']+\b", text))
-        question_terms = {"what", "which", "how", "why"}
-        domain_terms = {"optimizer", "optimizers", "nlp", "model", "models", "training"}
-        ambiguity_terms = {"something", "anything", "stuff", "idk"}
+        if len(tokens) < 3:
+            return False
 
-        has_question_term = bool(tokens & question_terms)
-        is_question = ("?" in text) or bool(re.match(r"^\s*(what|which|how|why)\b", text))
-        has_domain_content = bool(tokens & domain_terms)
-        has_ambiguity_markers = bool(tokens & ambiguity_terms)
+        ambiguity_terms = {
+            "something",
+            "anything",
+            "stuff",
+            "idk",
+            "whatever",
+            "somehow",
+        }
+        if tokens & ambiguity_terms:
+            return False
 
-        return bool(
-            has_question_term
-            and is_question
-            and has_domain_content
-            and not has_ambiguity_markers
+        if re.search(r"\b(help\s+me|do\s+this|do\s+that|build\s+me|make\s+me)\b", text):
+            return False
+
+        direct_question_patterns = (
+            r"^\s*what\s+is\b",
+            r"^\s*what's\b",
+            r"^\s*what\s+are\b",
+            r"^\s*what(?:'s|\s+is)?\s+the\s+difference\b",
+            r"\bdifference\s+between\b",
+            r"^\s*compare\b",
+            r"^\s*explain\b",
+            r"^\s*how\s+does\b",
+            r"^\s*how\s+do\b",
+            r"^\s*why\s+does\b",
+            r"^\s*why\s+do\b",
+            r"^\s*define\b",
         )
+
+        has_direct_structure = any(re.search(pat, text) for pat in direct_question_patterns)
+        is_question_like = bool("?" in text or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", text))
+        return bool(has_direct_structure and is_question_like)
+
+    @staticmethod
+    def _looks_like_clarification_fallback(text: str) -> bool:
+        """Detect clarification-style fallback wording in a response payload."""
+        low = str(text or "").lower().strip()
+        if not low:
+            return False
+        clarification_markers = (
+            "clarify",
+            "exact outcome",
+            "exact result",
+            "what exact result",
+        )
+        return any(marker in low for marker in clarification_markers)
 
     def _answerability_gate_fallback_response(self, user_input: str) -> str:
         """Provide a concise direct fallback when answerable questions lose content after sanitization."""
         text = str(user_input or "").lower()
+        if (
+            ("difference" in text or "compare" in text)
+            and "agent" in text
+            and ("assistant" in text or "assistance" in text)
+        ):
+            return (
+                "Short answer: an AI assistant is mostly reactive, helping when prompted, while an AI agent is proactive, "
+                "able to plan steps, use tools, and execute tasks toward a goal with less hand-holding."
+            )
         if "optimizer" in text:
             return "Short answer: an optimizer updates model weights to reduce loss during training, usually with gradient-based steps like SGD or Adam."
         if "training" in text or "model" in text:
@@ -8111,10 +8243,16 @@ class ALICE:
                     )
 
             if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(message):
-                if self._is_project_ideation_turn(user_input, reasoning_output.intent):
-                    message = self._project_ideation_guidance_response(user_input)
-                else:
-                    message = "I can help with that. Tell me the exact result you want."
+                message = self._fallback_generic_response(
+                    user_input,
+                    intent=reasoning_output.intent,
+                )
+
+            if (
+                self._is_answerability_direct_question(user_input)
+                and self._looks_like_clarification_fallback(message)
+            ):
+                message = self._answerability_gate_fallback_response(user_input)
 
         except Exception as e:
             logger.debug("Final response contract fallback due to error: %s", e)

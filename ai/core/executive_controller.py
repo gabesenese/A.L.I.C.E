@@ -1450,6 +1450,59 @@ class ExecutiveController:
             return None
 
         response_tokens = set(self._tokens(response))
+
+        user_low = (user_input or "").lower()
+        practical_framework_prompt = (
+            any(cue in user_low for cue in ("framework", "frameworks", "architecture"))
+            and any(
+                cue in user_low
+                for cue in (
+                    "agentic autonomy",
+                    "autonomous agent",
+                    "ai agent",
+                    "autonomy in ai",
+                )
+            )
+            and any(
+                cue in user_low
+                for cue in ("build", "building", "implement", "implementation", "existing", "research")
+            )
+        )
+        if practical_framework_prompt:
+            theoretical_terms = {
+                "dennett",
+                "intentional",
+                "tononi",
+                "iit",
+                "consciousness",
+                "cognitive",
+                "philosophy",
+            }
+            practical_terms = {
+                "langchain",
+                "autogpt",
+                "crewai",
+                "react",
+                "plan",
+                "execute",
+                "reflect",
+                "tool",
+                "memory",
+                "orchestration",
+                "state machine",
+                "act-r",
+                "soar",
+            }
+            has_theoretical_bias = bool(theoretical_terms.intersection(response_tokens))
+            has_practical_signal = bool(practical_terms.intersection(response_tokens))
+            if has_theoretical_bias and not has_practical_signal:
+                return {
+                    "accepted": False,
+                    "score": 0.0,
+                    "reason": "semantic_drift_theoretical_domain",
+                    "fallback_action": "clarify",
+                }
+
         overlap = [tok for tok in user_anchors if tok in response_tokens]
         if not overlap:
             return {
