@@ -70,6 +70,52 @@ class ExecutiveDecision:
     clarification_question: str = ""
 
 
+@dataclass
+class TurnExecutionContract:
+    """Canonical per-turn executive contract shared across runtime layers."""
+
+    task_type: str
+    goal: str
+    constraints: List[str] = field(default_factory=list)
+    chosen_route: str = ""
+    success_criteria: List[str] = field(default_factory=list)
+    next_action: str = ""
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "task_type": str(self.task_type or "conversation"),
+            "goal": str(self.goal or ""),
+            "constraints": [
+                str(x) for x in list(self.constraints or []) if str(x).strip()
+            ],
+            "chosen_route": str(self.chosen_route or "llm"),
+            "success_criteria": [
+                str(x) for x in list(self.success_criteria or []) if str(x).strip()
+            ],
+            "next_action": str(self.next_action or ""),
+        }
+
+
+@dataclass
+class TurnStateMachineResult:
+    """Single executive state-machine output for one turn."""
+
+    state: str
+    chosen_route: str
+    should_try_plugins: bool
+    terminal_action: str
+    contract: TurnExecutionContract
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "state": str(self.state or "conversation"),
+            "chosen_route": str(self.chosen_route or "llm"),
+            "should_try_plugins": bool(self.should_try_plugins),
+            "terminal_action": str(self.terminal_action or "proceed"),
+            "contract": self.contract.as_dict() if self.contract else {},
+        }
+
+
 class ExecutiveController:
     """Produces high-level decisions from compact state and runtime hints."""
 
@@ -321,6 +367,171 @@ class ExecutiveController:
             pending_followup_slot_name=pending_followup_slot_name,
             pending_followup_slot_state=pending_followup_slot_state,
             plan=plan,
+        )
+
+    def build_turn_contract(
+        self,
+        *,
+        state: ReasoningState,
+        decision: ExecutiveDecision,
+        should_try_plugins: bool,
+        has_explicit_action_cue: bool,
+        has_active_goal: bool,
+        pre_route_blocked: bool = False,
+        tool_vetoed: bool = False,
+    ) -> TurnExecutionContract:
+        """Build the single canonical per-turn contract object."""
+
+        if pre_route_blocked or decision.action == "ask_clarification":
+            task_type = "clarification-required"
+            chosen_route = "clarify"
+        elif tool_vetoed or decision.action in {"defer", "ignore"}:
+            task_type = "blocked/escalated"
+            chosen_route = "blocked"
+        elif should_try_plugins and has_active_goal and not has_explicit_action_cue:
+            task_type = "autonomous follow-through"
+            chosen_route = "tool"
+        elif should_try_plugins and has_explicit_action_cue and not has_active_goal:
+            task_type = "direct tool action"
+            chosen_route = "tool"
+        elif should_try_plugins:
+            task_type = "multi-step task"
+            chosen_route = "tool"
+        elif has_active_goal:
+            task_type = "multi-step task"
+            chosen_route = "llm"
+        else:
+            task_type = "conversation"
+            chosen_route = "llm"
+
+        goal = str(state.user_goal or state.topic or state.source_text).strip()[:200]
+        constraints: List[str] = [
+            str(x).strip()
+            for x in list(state.goal_blockers or [])
+            if str(x).strip()
+        ]
+        if state.route_bias and state.route_bias != "balanced":
+            constraints.append(f"route_bias:{state.route_bias}")
+        if int(state.tool_budget or 1) <= 0:
+            constraints.append("tool_budget:0")
+        if state.pending_followup_slot:
+            constraints.append("pending_followup_slot")
+
+        if task_type == "clarification-required":
+            success_criteria = [
+                "missing detail captured",
+                "next route can be decided confidently",
+            ]
+            next_action = (
+                decision.clarification_question.strip()
+                or "ask one targeted clarifying question"
+            )
+        elif task_type == "blocked/escalated":
+            success_criteria = [
+                "blocker identified",
+                "escalation path selected",
+            ]
+            next_action = (
+                str(state.goal_next_action or "").strip()
+                or "request operator/user intervention"
+            )
+        elif task_type == "direct tool action":
+            success_criteria = [
+                "tool call succeeds",
+                "result returned to user clearly",
+            ]
+            next_action = (
+                str(state.goal_next_action or "").strip()
+                or "execute requested tool and verify outcome"
+            )
+        elif task_type == "autonomous follow-through":
+            success_criteria = [
+                "active goal advances",
+                "state updated for continuity",
+            ]
+            next_action = (
+                str(state.goal_next_action or "").strip()
+                or "continue the active goal without extra prompting"
+            )
+        elif task_type == "multi-step task":
+            success_criteria = [
+                "step outcome validated",
+                "next step remains actionable",
+            ]
+            next_action = (
+                str(state.goal_next_action or "").strip()
+                or "continue planned execution and verify progress"
+            )
+        else:
+            success_criteria = [
+                "answer is directly relevant",
+                "response remains concise and actionable",
+            ]
+            next_action = "respond directly and wait for user follow-up"
+
+        return TurnExecutionContract(
+            task_type=task_type,
+            goal=goal,
+            constraints=constraints,
+            chosen_route=chosen_route,
+            success_criteria=success_criteria,
+            next_action=next_action,
+        )
+
+    def run_turn_state_machine(
+        self,
+        *,
+        state: ReasoningState,
+        decision: ExecutiveDecision,
+        has_explicit_action_cue: bool,
+        has_active_goal: bool,
+        pre_route_blocked: bool = False,
+        tool_vetoed: bool = False,
+    ) -> TurnStateMachineResult:
+        """Single-owner state machine for per-turn runtime control."""
+
+        if pre_route_blocked:
+            chosen_route = "clarify"
+            should_try_plugins = False
+            terminal_action = "clarify"
+        elif tool_vetoed or decision.action in {"defer", "ignore"}:
+            chosen_route = "blocked"
+            should_try_plugins = False
+            terminal_action = "blocked"
+        elif decision.action == "ask_clarification":
+            chosen_route = "clarify"
+            should_try_plugins = False
+            terminal_action = "clarify"
+        elif decision.action == "use_plugin":
+            chosen_route = "tool"
+            should_try_plugins = True
+            terminal_action = "proceed"
+        elif decision.action in {"use_llm", "answer_direct"}:
+            chosen_route = "llm"
+            should_try_plugins = False
+            terminal_action = "proceed"
+        else:
+            # Unknown actions are treated as blocked for safety.
+            chosen_route = "blocked"
+            should_try_plugins = False
+            terminal_action = "blocked"
+
+        contract = self.build_turn_contract(
+            state=state,
+            decision=decision,
+            should_try_plugins=should_try_plugins,
+            has_explicit_action_cue=has_explicit_action_cue,
+            has_active_goal=has_active_goal,
+            pre_route_blocked=pre_route_blocked,
+            tool_vetoed=tool_vetoed,
+        )
+
+        return TurnStateMachineResult(
+            state=contract.task_type,
+            chosen_route=chosen_route,
+            should_try_plugins=should_try_plugins,
+            terminal_action=terminal_action,
+            contract=contract,
         )
 
     def should_preempt_for_plausibility(

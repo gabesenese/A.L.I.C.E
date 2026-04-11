@@ -104,7 +104,6 @@ from ai.core.goal_tracker import get_goal_tracker
 from ai.core.response_quality_tracker import get_response_quality_tracker
 from ai.core.cognitive_orchestrator import get_cognitive_orchestrator
 from ai.core.goal_recognizer import get_goal_recognizer
-from ai.core.turn_routing_policy import get_turn_routing_policy
 from ai.core.live_state_service import get_live_state_service
 from ai.core.execution_verifier import get_execution_verifier
 from ai.core.clarification_resolver import get_clarification_resolver
@@ -802,7 +801,6 @@ class ALICE:
             self.entity_registry = get_entity_registry(storage_path="data/entity_registry.json")
             self.turn_state_assembler = TurnStateAssembler(self.world_state_memory)
             self.goal_recognizer = get_goal_recognizer()
-            self.turn_routing_policy = get_turn_routing_policy()
             self.live_state_service = get_live_state_service()
             self.execution_verifier = get_execution_verifier()
             self.autonomy_manager = get_bounded_autonomy_manager(storage_path="data/autonomy_loops.json")
@@ -9784,59 +9782,6 @@ class ALICE:
                 # Only show suggestions on non-urgent intents
                 return proactive_suggestion
             
-            _fast_goal_stack = self._authoritative_goal_stack(
-                goal_res,
-                preferred_goal=_goal_followup_goal_object,
-            )
-            _fast_lane_enabled = self._should_use_fast_llm_lane(
-                user_input=user_input,
-                user_input_processed=user_input_processed,
-                intent=intent,
-                intent_confidence=float(intent_confidence or 0.0),
-                entities=entities or {},
-                has_active_goal=bool(_fast_goal_stack),
-                pending_action=getattr(self, 'pending_action', None),
-                plugin_scores=getattr(nlp_result, 'plugin_scores', {}) if nlp_result else {},
-            )
-            if _fast_lane_enabled:
-                self._think("Fast conversational lane → llm_engine default path")
-                _fast_response = self._run_fast_llm_lane(
-                    user_input=user_input,
-                    user_input_processed=user_input_processed,
-                    intent=intent,
-                    entities=entities or {},
-                    goal_res=goal_res,
-                )
-                if _fast_response:
-                    if not isinstance(getattr(self, '_internal_reasoning_state', None), dict):
-                        self._internal_reasoning_state = {}
-                    self._internal_reasoning_state.update(
-                        {
-                            "execution_mode": "conversational_intelligence",
-                            "execution_mode_reason": "fast_llm_lane_early",
-                            "routing_owner": "fast_llm_lane",
-                            "routing_decision": {
-                                "should_try_plugins": False,
-                                "force_skip_plugins": True,
-                                "force_try_plugins": False,
-                                "reason": "fast_llm_lane_early",
-                            },
-                        }
-                    )
-                    self._store_interaction(user_input, _fast_response, intent, entities)
-                    self.last_assistant_response = _fast_response
-                    self._run_executive_reflection(
-                        user_input=user_input,
-                        intent=intent,
-                        response=_fast_response,
-                        route="llm",
-                        prior_confidence=float(intent_confidence or 0.0),
-                    )
-                    if use_voice and self.speech:
-                        self.speech.speak(_fast_response, blocking=False)
-                    logger.info(f"A.L.I.C.E (fast-lane): {_fast_response[:100]}...")
-                    return _fast_response
-
             # Try planner/executor for structured tasks first
             intent, entities = self._promote_learning_goal_intent(
                 user_input_processed, intent, entities
@@ -10657,17 +10602,11 @@ class ALICE:
                 except Exception:
                     _pre_response_plan = None
 
-            if _execution_mode == "conversational_intelligence":
-                _pre_route_guard = {
-                    "block": False,
-                    "reason": "conversational_fast_lane_bypass",
-                }
-            else:
-                _pre_route_guard = self.executive_controller.should_preempt_for_plausibility(
-                    _executive_state,
-                    has_explicit_action_cue=_has_action_cue,
-                    intent_candidates=intent_candidates,
-                )
+            _pre_route_guard = self.executive_controller.should_preempt_for_plausibility(
+                _executive_state,
+                has_explicit_action_cue=_has_action_cue,
+                intent_candidates=intent_candidates,
+            )
 
             _followup_same_domain = False
             if isinstance(_followup_meta, dict) and _followup_meta.get('was_followup'):
@@ -10686,6 +10625,20 @@ class ALICE:
                 )
 
             if _pre_route_guard.get("block"):
+                _pre_block_decision = ExecutiveDecision(
+                    action="ask_clarification",
+                    reason=str(_pre_route_guard.get("reason") or "pre_route_block"),
+                    store_memory=False,
+                    clarification_question=str(_pre_route_guard.get("question") or "").strip(),
+                )
+                _pre_block_state_machine = self.executive_controller.run_turn_state_machine(
+                    state=_executive_state,
+                    decision=_pre_block_decision,
+                    has_explicit_action_cue=bool(_has_action_cue),
+                    has_active_goal=bool(_authoritative_goal_stack),
+                    pre_route_blocked=True,
+                    tool_vetoed=False,
+                )
                 self._internal_reasoning_state = {
                     **_executive_state.as_dict(),
                     "raw_user_input": user_input,
@@ -10705,6 +10658,8 @@ class ALICE:
                     "world_state_pre_route": dict(_world_state_before_route or {}),
                     "execution_mode": _execution_mode,
                     "execution_mode_reason": _execution_mode_reason,
+                    "turn_state_machine": _pre_block_state_machine.as_dict(),
+                    "turn_contract": _pre_block_state_machine.contract.as_dict(),
                 }
                 if _turn_reasoning_plan is not None:
                     self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
@@ -10749,21 +10704,13 @@ class ALICE:
                 self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
             if _pre_response_plan is not None:
                 self._internal_reasoning_state["response_plan"] = _pre_response_plan.as_dict()
-            if _execution_mode == "conversational_intelligence":
-                _executive_decision = ExecutiveDecision(
-                    action="use_llm",
-                    reason=f"conversational_fast_lane:{_execution_mode_reason}",
-                    store_memory=True,
-                    clarification_question="",
-                )
-            else:
-                _executive_decision = self.executive_controller.decide(
-                    _executive_state,
-                    is_pure_conversation=bool(is_pure_conversation),
-                    has_explicit_action_cue=_has_action_cue,
-                    has_active_goal=bool(_authoritative_goal_stack),
-                    force_plugins_for_notes=bool(force_plugins_for_notes),
-                )
+            _executive_decision = self.executive_controller.decide(
+                _executive_state,
+                is_pure_conversation=bool(is_pure_conversation),
+                has_explicit_action_cue=_has_action_cue,
+                has_active_goal=bool(_authoritative_goal_stack),
+                force_plugins_for_notes=bool(force_plugins_for_notes),
+            )
             _learning_decision = self.executive_controller.decide_learning(
                 relevance=max(_decision_scores.get("llm", 0.0), _decision_scores.get("tools", 0.0), _decision_scores.get("search", 0.0)),
                 confidence=float(intent_confidence or 0.0),
@@ -10772,6 +10719,16 @@ class ALICE:
             )
             self._internal_reasoning_state["learning_decision"] = _learning_decision
             self._exec_should_store_memory = _learning_decision in ("store", "temporary") and bool(_executive_decision.store_memory)
+            _turn_state_machine = self.executive_controller.run_turn_state_machine(
+                state=_executive_state,
+                decision=_executive_decision,
+                has_explicit_action_cue=bool(_has_action_cue),
+                has_active_goal=bool(_authoritative_goal_stack),
+                pre_route_blocked=False,
+                tool_vetoed=False,
+            )
+            self._internal_reasoning_state["turn_state_machine"] = _turn_state_machine.as_dict()
+            self._internal_reasoning_state["turn_contract"] = _turn_state_machine.contract.as_dict()
 
             # Response planning: decide structure before LLM is called
             if getattr(self, 'response_planner', None):
@@ -10787,7 +10744,7 @@ class ALICE:
                         f"Response plan → type={_resp_plan.response_type}, "
                         f"strategy={_resp_plan.strategy}"
                     )
-                    if _resp_plan.strategy == "ask_guiding_question":
+                    if _resp_plan.strategy == "ask_guiding_question" and _turn_state_machine.chosen_route != "tool":
                         return self.response_planner.guiding_question(_resp_plan, user_input)
                 except Exception as _rp_err:
                     logger.debug(f"[ResponsePlanner] {_rp_err}")
@@ -10884,63 +10841,46 @@ class ALICE:
             if _executive_decision.action == "ignore":
                 return "I need a bit more context to act on that."
 
-            if _execution_mode == "conversational_intelligence":
-                _tool_veto = {
-                    "veto": False,
-                    "reason": "conversational_fast_lane_bypass",
-                }
-            else:
-                _tool_veto = self.executive_controller.should_veto_tool_execution(
-                    user_input=user_input,
-                    intent=intent,
-                    confidence=float(intent_confidence or 0.0),
-                    intent_plausibility=float(intent_plausibility or 0.0),
-                    intent_candidates=intent_candidates,
-                )
+            _tool_veto = self.executive_controller.should_veto_tool_execution(
+                user_input=user_input,
+                intent=intent,
+                confidence=float(intent_confidence or 0.0),
+                intent_plausibility=float(intent_plausibility or 0.0),
+                intent_candidates=intent_candidates,
+            )
             self._internal_reasoning_state["tool_veto"] = _tool_veto
             if _tool_veto.get("veto"):
+                _turn_state_machine = self.executive_controller.run_turn_state_machine(
+                    state=_executive_state,
+                    decision=_executive_decision,
+                    has_explicit_action_cue=bool(_has_action_cue),
+                    has_active_goal=bool(_authoritative_goal_stack),
+                    pre_route_blocked=False,
+                    tool_vetoed=True,
+                )
+                self._internal_reasoning_state["turn_state_machine"] = _turn_state_machine.as_dict()
+                self._internal_reasoning_state["turn_contract"] = _turn_state_machine.contract.as_dict()
                 self._think(f"Executive veto → {_tool_veto.get('reason', 'unknown')}")
                 return _tool_veto.get("question") or (
                     "I need a little clarification before I trigger a tool."
                 )
 
-            if _execution_mode == "conversational_intelligence":
-                _should_try_plugins = False
-                _routing_owner = "conversational_fast_lane"
-                _routing_reason = f"skip_plugins:{_execution_mode_reason}"
-                self._internal_reasoning_state["routing_owner"] = _routing_owner
-                self._internal_reasoning_state["routing_decision"] = {
-                    "should_try_plugins": False,
-                    "force_skip_plugins": True,
-                    "force_try_plugins": False,
-                    "reason": _routing_reason,
-                }
-            else:
-                _turn_policy = getattr(self, 'turn_routing_policy', None) or get_turn_routing_policy()
-                _routing_decision = _turn_policy.decide(
-                    executive_action=_executive_decision.action,
-                    runtime_allow_tools=bool(_runtime_controls.get("allow_tools", True)),
-                    runtime_preference=str(_runtime_controls.get("routing_preference") or "balanced"),
-                    is_short_followup=bool(_is_short_followup),
-                    is_pure_conversation=bool(is_pure_conversation),
-                    force_plugins_for_notes=bool(force_plugins_for_notes),
-                )
-                _should_try_plugins = bool(_routing_decision.should_try_plugins)
-                _routing_owner = _routing_decision.owner
-                _routing_reason = _routing_decision.reason
-                self._internal_reasoning_state["routing_owner"] = _routing_owner
-                self._internal_reasoning_state["routing_decision"] = {
-                    "should_try_plugins": _routing_decision.should_try_plugins,
-                    "force_skip_plugins": _routing_decision.force_skip_plugins,
-                    "force_try_plugins": _routing_decision.force_try_plugins,
-                    "reason": _routing_decision.reason,
-                }
+            _should_try_plugins = bool(_turn_state_machine.should_try_plugins)
+            _routing_owner = "executive_turn_state_machine"
+            _routing_reason = f"contract_route:{_turn_state_machine.chosen_route}"
+            self._internal_reasoning_state["routing_owner"] = _routing_owner
+            self._internal_reasoning_state["routing_decision"] = {
+                "should_try_plugins": bool(_should_try_plugins),
+                "force_skip_plugins": not bool(_should_try_plugins),
+                "force_try_plugins": bool(_should_try_plugins),
+                "reason": _routing_reason,
+            }
             self._think(
                 f"Routing owner={_routing_owner} decision={_routing_reason} "
                 f"plugins={_should_try_plugins}"
             )
 
-            if getattr(self, 'roadmap_stack', None) and _execution_mode != "conversational_intelligence":
+            if getattr(self, 'roadmap_stack', None):
                 _route_choice = "tool" if _should_try_plugins else "clarify"
                 _route_ok, _route_reason = self.roadmap_stack.route_contracts.validate(
                     route=_route_choice,
@@ -10950,10 +10890,32 @@ class ALICE:
                     self._think(f"Route-contract guard switched to clarify path: {_route_reason}")
                     _should_try_plugins = False
 
+            _turn_state_machine = self.executive_controller.run_turn_state_machine(
+                state=_executive_state,
+                decision=_executive_decision,
+                has_explicit_action_cue=bool(_has_action_cue),
+                has_active_goal=bool(_authoritative_goal_stack),
+                pre_route_blocked=False,
+                tool_vetoed=not bool(_should_try_plugins) and _executive_decision.action == "use_plugin",
+            )
+            if _should_try_plugins:
+                _turn_state_machine = self.executive_controller.run_turn_state_machine(
+                    state=_executive_state,
+                    decision=ExecutiveDecision(
+                        action="use_plugin",
+                        reason="contract_enforced_tool_route",
+                        store_memory=_executive_decision.store_memory,
+                    ),
+                    has_explicit_action_cue=bool(_has_action_cue),
+                    has_active_goal=bool(_authoritative_goal_stack),
+                    pre_route_blocked=False,
+                    tool_vetoed=False,
+                )
+            self._internal_reasoning_state["turn_state_machine"] = _turn_state_machine.as_dict()
+            self._internal_reasoning_state["turn_contract"] = _turn_state_machine.contract.as_dict()
+
             if not _should_try_plugins:
-                if _execution_mode == "conversational_intelligence":
-                    self._think("Conversational fast lane → LLM-first response path")
-                elif is_pure_conversation:
+                if is_pure_conversation:
                     self._think("Pure conversation → skipping plugins, using LLM")
                 else:
                     self._think("Short follow-up (no command words, no goal) → skipping plugins, using LLM")

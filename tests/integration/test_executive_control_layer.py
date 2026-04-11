@@ -65,6 +65,166 @@ def test_executive_requests_clarification_when_ambiguous() -> None:
         assert decision.clarification_question
 
 
+def test_turn_contract_conversation_shape_is_canonical() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="how are you?",
+        intent="status_inquiry",
+        confidence=0.95,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    contract = controller.build_turn_contract(
+        state=state,
+        decision=decision,
+        should_try_plugins=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+    )
+    payload = contract.as_dict()
+
+    assert payload["task_type"] == "conversation"
+    assert payload["chosen_route"] == "llm"
+    assert set(payload.keys()) == {
+        "task_type",
+        "goal",
+        "constraints",
+        "chosen_route",
+        "success_criteria",
+        "next_action",
+    }
+
+
+def test_turn_contract_direct_tool_action_shape() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.88,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    contract = controller.build_turn_contract(
+        state=state,
+        decision=decision,
+        should_try_plugins=True,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+    )
+
+    assert contract.task_type == "direct tool action"
+    assert contract.chosen_route == "tool"
+    assert any("tool" in x.lower() for x in contract.success_criteria)
+
+
+def test_turn_contract_clarification_required_shape() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="that one",
+        intent="conversation:general",
+        confidence=0.20,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    contract = controller.build_turn_contract(
+        state=state,
+        decision=decision,
+        should_try_plugins=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+    )
+
+    assert contract.task_type in {"clarification-required", "blocked/escalated"}
+    if contract.task_type == "clarification-required":
+        assert contract.chosen_route == "clarify"
+
+
+def test_turn_state_machine_produces_tool_route_for_plugin_decision() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.86,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    sm = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+
+    assert sm.chosen_route == "tool"
+    assert sm.should_try_plugins is True
+    assert sm.terminal_action == "proceed"
+
+
+def test_turn_state_machine_returns_clarify_terminal_for_pre_route_block() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="that one",
+        intent="conversation:general",
+        confidence=0.12,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    sm = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        pre_route_blocked=True,
+        tool_vetoed=False,
+    )
+
+    assert sm.chosen_route == "clarify"
+    assert sm.should_try_plugins is False
+    assert sm.terminal_action == "clarify"
+
+
 def test_reasoning_state_prompt_is_structured_not_cot() -> None:
     controller = ExecutiveController()
     state = controller.build_state(

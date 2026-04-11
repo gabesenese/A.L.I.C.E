@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 
+from ai.core.executive_controller import ExecutiveController
 from ai.core.execution_verifier import get_execution_verifier
 from ai.core.goal_recognizer import get_goal_recognizer
 from ai.core.live_state_service import get_live_state_service
-from ai.core.turn_routing_policy import get_turn_routing_policy
 
 
 class _Entity:
@@ -51,19 +51,35 @@ def test_goal_recognizer_rejects_immediate_tool_command():
     assert signal is None
 
 
-def test_turn_routing_policy_has_single_owner_decision():
-    policy = get_turn_routing_policy()
-    decision = policy.decide(
-        executive_action="use_plugin",
-        runtime_allow_tools=True,
-        runtime_preference="tool_first",
-        is_short_followup=True,
+def test_executive_state_machine_is_single_route_authority_for_tool_turns():
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.90,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
         is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
         force_plugins_for_notes=False,
     )
 
-    assert decision.owner == "executive_turn_routing_policy"
-    assert decision.should_try_plugins is True
+    state_machine = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+
+    assert state_machine.chosen_route == "tool"
+    assert state_machine.should_try_plugins is True
+    assert state_machine.contract.chosen_route == "tool"
 
 
 def test_live_state_service_prefers_freshest_world_snapshot():
