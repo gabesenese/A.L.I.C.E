@@ -1794,9 +1794,21 @@ class ALICE:
 
         # Reject meta-assistant leakage and replace with Alice-safe fallback.
         lower = text.lower()
+        inferred_intent = str(
+            getattr(self, '_last_routed_intent', None)
+            or getattr(self, 'last_intent', None)
+            or ''
+        ).strip()
+        is_project_ideation = (
+            self._is_project_ideation_turn(user_input, inferred_intent)
+            or self._is_project_ideation_request(user_input)
+        )
+
         if "as an ai" in lower or "language model" in lower:
             if self._is_answerability_direct_question(user_input):
                 return self._answerability_gate_fallback_response(user_input)
+            if is_project_ideation:
+                return self._project_ideation_guidance_response(user_input)
             if response_type == "clarification_prompt":
                 return "Please clarify the exact outcome you want so I can route this correctly."
             return "I can help with that. Tell me the exact result you want."
@@ -1815,11 +1827,15 @@ class ALICE:
                 return "Can you clarify the exact outcome you want?"
             if self._is_answerability_direct_question(user_input):
                 return self._answerability_gate_fallback_response(user_input)
+            if is_project_ideation:
+                return self._project_ideation_guidance_response(user_input)
             return "I can help with that. Tell me the exact result you want."
 
         if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(text):
             if response_type == "clarification_prompt":
                 return "Can you clarify the exact outcome you want?"
+            if is_project_ideation:
+                return self._project_ideation_guidance_response(user_input)
             return "I can help with that. Tell me the exact result you want."
 
         # Tone-aware trim: keep professional tones concise.
@@ -8095,7 +8111,10 @@ class ALICE:
                     )
 
             if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(message):
-                message = "I can help with that. Tell me the exact result you want."
+                if self._is_project_ideation_turn(user_input, reasoning_output.intent):
+                    message = self._project_ideation_guidance_response(user_input)
+                else:
+                    message = "I can help with that. Tell me the exact result you want."
 
         except Exception as e:
             logger.debug("Final response contract fallback due to error: %s", e)

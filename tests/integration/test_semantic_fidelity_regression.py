@@ -701,3 +701,21 @@ def test_clamp_final_response_fast_lane_enforces_shorter_cap():
     )
 
     assert len(clamped) <= 700
+
+
+def test_clamp_final_response_project_ideation_meta_leak_uses_guidance():
+    alice = ALICE.__new__(ALICE)
+
+    leaked = "analysis: project_ideation context: user wants an ai agent plan: ask for exact result"
+    clamped = alice._clamp_final_response(
+        leaked,
+        tone="helpful",
+        response_type="general_response",
+        route="generation",
+        user_input="let's create an ai project, an ai agent",
+    )
+
+    low = clamped.lower()
+    assert "i can help with that. tell me the exact result you want." not in low
+    assert "strong place to start" in low
+    assert "focus first on memory, tool-use, or conversational quality" in low
