@@ -97,7 +97,11 @@ from ai.core.conversational_engine import get_conversational_engine, Conversatio
 from ai.core.llm_gateway import get_llm_gateway, LLMGateway
 from ai.core.llm_policy import LLMCallType
 from ai.core.response_self_critic import get_response_self_critic
-from ai.core.executive_controller import get_executive_controller, ExecutiveDecision
+from ai.core.executive_controller import (
+    get_executive_controller,
+    ExecutiveDecision,
+    TurnExecutionOutcome,
+)
 from ai.core.reflection_engine import get_reflection_engine
 from ai.core.response_planner import get_response_planner
 from ai.core.goal_tracker import get_goal_tracker
@@ -3228,6 +3232,127 @@ class ALICE:
             f"Task verification -> accepted={report.accepted} confidence={report.confidence:.2f}"
         )
         return bool(report.accepted)
+
+    def _build_turn_execution_outcome(
+        self,
+        *,
+        contract: Any,
+        plugin_result: Optional[Dict[str, Any]],
+        action_result: Any,
+    ) -> TurnExecutionOutcome:
+        plugin_payload = dict(plugin_result or {})
+        verification = dict(plugin_payload.get("verification") or {})
+        report = dict(plugin_payload.get("verification_report") or {})
+        if not report and getattr(action_result, "verification_report", None):
+            report = dict(getattr(action_result, "verification_report", {}) or {})
+
+        issues: List[str] = []
+        for candidate in (report.get("issues") or [], verification.get("issues") or []):
+            if isinstance(candidate, list):
+                for item in candidate:
+                    text = str(item or "").strip()
+                    if text:
+                        issues.append(text)
+            else:
+                text = str(candidate or "").strip()
+                if text:
+                    issues.append(text)
+
+        recommended_next_action = str(
+            report.get("recommended_next_action")
+            or verification.get("recommended_next_action")
+            or ""
+        ).strip().lower()
+
+        verification_confidence = float(
+            verification.get("confidence")
+            or report.get("confidence")
+            or report.get("goal_confidence")
+            or 0.0
+        )
+
+        tool_success = bool(plugin_payload.get("success", False))
+        goal_advanced = bool(
+            getattr(action_result, "goal_satisfied", False)
+            or report.get("goal_satisfied", False)
+            or plugin_payload.get("goal_satisfied", False)
+        )
+        verification_passed = bool(
+            verification.get("accepted", False)
+            or report.get("accepted", False)
+        )
+
+        return self.executive_controller.build_execution_outcome(
+            contract=contract,
+            tool_success=tool_success,
+            goal_advanced=goal_advanced,
+            verification_passed=verification_passed,
+            recommended_next_action=recommended_next_action,
+            retryable=bool(plugin_payload.get("retryable", False)),
+            issues=issues,
+            verification_confidence=verification_confidence,
+            metadata={
+                "plugin": str(plugin_payload.get("plugin") or ""),
+                "action": str(plugin_payload.get("action") or ""),
+                "status": str(plugin_payload.get("status") or ""),
+            },
+        )
+
+    def _apply_post_execution_state_machine(
+        self,
+        *,
+        turn_state_machine: Any,
+        outcome: TurnExecutionOutcome,
+    ) -> Any:
+        post = self.executive_controller.run_post_execution_state_machine(
+            pre_execution=turn_state_machine,
+            outcome=outcome,
+        )
+        self._internal_reasoning_state["post_execution_state_machine"] = post.as_dict()
+        self._internal_reasoning_state["turn_contract"] = post.contract.as_dict()
+        self._internal_reasoning_state["turn_execution_outcome"] = outcome.as_dict()
+        self._last_turn_contract = post.contract.as_dict()
+        self._last_turn_execution_outcome = outcome.as_dict()
+        return post
+
+    def _build_verified_execution_response(
+        self,
+        *,
+        contract: Any,
+        outcome: TurnExecutionOutcome,
+        plugin_result: Optional[Dict[str, Any]],
+        fallback_response: str,
+    ) -> str:
+        if not outcome.verification_passed:
+            return str(fallback_response or "").strip()
+
+        payload = dict(plugin_result or {})
+        plugin_name = str(payload.get("plugin") or "tool").strip()
+        action = str(payload.get("action") or "action").strip()
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        detail = str(
+            payload.get("message")
+            or payload.get("response")
+            or data.get("summary")
+            or data.get("note_title")
+            or data.get("title")
+            or ""
+        ).strip()
+
+        summary = f"Verified execution via {plugin_name}.{action}."
+        if detail:
+            summary = f"{summary} {detail}"
+        if outcome.goal_advanced:
+            summary = f"{summary} Goal advanced."
+        if contract and getattr(contract, "next_action", ""):
+            summary = f"{summary} Next: {str(contract.next_action).strip()}"
+
+        fallback = str(fallback_response or "").strip()
+        if not fallback:
+            return summary.strip()
+        if fallback.lower().startswith(summary.lower()[:40]):
+            return fallback
+        return f"{summary.strip()}\n\n{fallback}"
 
     def _normalize_entities_for_planning(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Convert NLP entities into planner-safe primitive values."""
@@ -11060,6 +11185,17 @@ class ALICE:
                 else:
                     _risk_level = 'medium'
 
+                _contract_success_criteria = []
+                if _turn_state_machine and _turn_state_machine.contract:
+                    _contract_success_criteria = list(
+                        _turn_state_machine.contract.success_criteria or []
+                    )
+                _expected_outcome = (
+                    "; ".join(_contract_success_criteria)
+                    if _contract_success_criteria
+                    else (active_goal.description if active_goal else f"Complete {_action_name} successfully")
+                )
+
                 action_request = ActionRequest(
                     goal=(active_goal.description if active_goal else user_input),
                     plugin=_plugin_name,
@@ -11075,7 +11211,8 @@ class ALICE:
                     confidence=float(intent_confidence or 0.0),
                     # RBAC confirmation is already enforced above; do not re-block here.
                     requires_confirmation=False,
-                    expected_outcome=(active_goal.description if active_goal else f"Complete {_action_name} successfully"),
+                    expected_outcome=_expected_outcome,
+                    success_criteria=_contract_success_criteria,
                     target_spec={
                         "target": (entities or {}).get("target")
                         or (entities or {}).get("path")
@@ -11146,6 +11283,7 @@ class ALICE:
                             confidence=float(intent_confidence or 0.0),
                             requires_confirmation=False,
                             expected_outcome=f"Complete {_reroute_action} successfully",
+                            success_criteria=_contract_success_criteria,
                             target_spec={
                                 "target": (entities or {}).get("target")
                                 or (entities or {}).get("location")
@@ -11285,11 +11423,22 @@ class ALICE:
                 if not plugin_result and intent_confidence < 0.6:
                     self._think("Low confidence + no plugin match → using LLM with context")
             
+            _turn_execution_outcome = None
+            _post_execution = None
             if plugin_result:
                 # Plugin handled the request, regardless of success/failure
                 plugin_name = plugin_result.get('plugin', 'Unknown')
                 success = plugin_result.get('success', False)
-                _tool_verified = bool((plugin_result.get('verification') or {}).get('accepted', False))
+                _turn_execution_outcome = self._build_turn_execution_outcome(
+                    contract=_turn_state_machine.contract,
+                    plugin_result=plugin_result,
+                    action_result=action_result,
+                )
+                _post_execution = self._apply_post_execution_state_machine(
+                    turn_state_machine=_turn_state_machine,
+                    outcome=_turn_execution_outcome,
+                )
+                _tool_verified = bool(_turn_execution_outcome.verification_passed)
                 self._think(f"Plugin → {plugin_name} success={success}")
 
                 # Foundation 3 execution contract: do not mutate memory/state or
@@ -11301,6 +11450,22 @@ class ALICE:
                         or plugin_result.get('response')
                         or "I could not verify that tool output was reliable. Please clarify or try again."
                     )
+                    _contract_verification = self.execution_verifier.verify_task_result(
+                        intent=intent,
+                        result=response,
+                        all_results=(plugin_result.get('data') if isinstance(plugin_result, dict) else {}),
+                        success_criteria=(
+                            _post_execution.contract.success_criteria
+                            if _post_execution and _post_execution.contract
+                            else []
+                        ),
+                        outcome=(
+                            _turn_execution_outcome.as_dict()
+                            if _turn_execution_outcome is not None
+                            else {}
+                        ),
+                    )
+                    self._internal_reasoning_state['task_verification'] = _contract_verification.to_dict()
                     response = self._executive_apply_response_gate(
                         user_input=user_input,
                         intent=intent,
@@ -11505,6 +11670,81 @@ class ALICE:
                     response=response,
                     plugin_result=plugin_result if isinstance(plugin_result, dict) else None,
                 )
+
+                _contract_verification = self.execution_verifier.verify_task_result(
+                    intent=intent,
+                    result=response,
+                    all_results=(plugin_result.get('data') if isinstance(plugin_result, dict) else {}),
+                    success_criteria=(
+                        _post_execution.contract.success_criteria
+                        if _post_execution and _post_execution.contract
+                        else []
+                    ),
+                    outcome=(
+                        _turn_execution_outcome.as_dict()
+                        if _turn_execution_outcome is not None
+                        else {}
+                    ),
+                )
+                self._internal_reasoning_state['task_verification'] = _contract_verification.to_dict()
+
+                if _turn_execution_outcome is not None:
+                    _turn_execution_outcome.verification_passed = bool(
+                        _turn_execution_outcome.verification_passed
+                        and _contract_verification.accepted
+                    )
+                    if _contract_verification.issues:
+                        _turn_execution_outcome.issues = list(
+                            dict.fromkeys(
+                                list(_turn_execution_outcome.issues or [])
+                                + list(_contract_verification.issues or [])
+                            )
+                        )
+                    if (
+                        not _turn_execution_outcome.verification_passed
+                        and bool(plugin_result.get('retryable', False))
+                    ):
+                        _turn_execution_outcome.needs_retry = True
+                    if (
+                        not _turn_execution_outcome.verification_passed
+                        and not _turn_execution_outcome.needs_retry
+                    ):
+                        _turn_execution_outcome.needs_escalation = True
+                    _post_execution = self._apply_post_execution_state_machine(
+                        turn_state_machine=_turn_state_machine,
+                        outcome=_turn_execution_outcome,
+                    )
+
+                if _post_execution and _post_execution.contract and _turn_execution_outcome is not None:
+                    response = self._build_verified_execution_response(
+                        contract=_post_execution.contract,
+                        outcome=_turn_execution_outcome,
+                        plugin_result=plugin_result,
+                        fallback_response=response,
+                    )
+
+                if _turn_execution_outcome is not None and not _turn_execution_outcome.verification_passed:
+                    self._think(
+                        "Contract criteria not satisfied -> "
+                        f"post_phase={(_post_execution.phase if _post_execution else 'unknown')}"
+                    )
+                    response = self._executive_apply_response_gate(
+                        user_input=user_input,
+                        intent=intent,
+                        response=response,
+                        route="plugin",
+                    )
+                    self._store_interaction(user_input, response, intent, entities)
+                    self._run_executive_reflection(
+                        user_input=user_input,
+                        intent=intent,
+                        response=response,
+                        route="tools",
+                        prior_confidence=float(intent_confidence or 0.0),
+                    )
+                    if use_voice and self.speech:
+                        self.speech.speak(response, blocking=False)
+                    return response
                 
                 # Track incomplete tasks for proactive follow-up
                 if getattr(self, 'proactive_assistant', None) and not success:
@@ -12936,6 +13176,8 @@ class ALICE:
             
             # Store in episodic memory with enhanced metadata (unless privacy mode)
             if not self.privacy_mode and getattr(self, '_exec_should_store_memory', True):
+                _turn_contract = dict((getattr(self, '_internal_reasoning_state', {}) or {}).get('turn_contract', {}) or {})
+                _turn_outcome = dict((getattr(self, '_internal_reasoning_state', {}) or {}).get('turn_execution_outcome', {}) or {})
                 self.memory.store_memory(
                     content=f"User: {user_input} | Assistant: {response}",
                     memory_type="episodic",
@@ -12944,7 +13186,11 @@ class ALICE:
                         "entities": entities,
                         "topics": self.conversation_topics[-3:],
                         "has_email_context": bool(self.last_email_list),
-                        "pending_action": self.pending_action
+                        "pending_action": self.pending_action,
+                        "turn_contract_goal": str(_turn_contract.get('goal') or ''),
+                        "turn_contract_route": str(_turn_contract.get('chosen_route') or ''),
+                        "turn_contract_next_action": str(_turn_contract.get('next_action') or ''),
+                        "turn_execution_outcome": _turn_outcome,
                     },
                     importance=0.6,
                     tags=["conversation", intent]

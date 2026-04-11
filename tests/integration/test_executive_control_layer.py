@@ -93,6 +93,8 @@ def test_turn_contract_conversation_shape_is_canonical() -> None:
 
     assert payload["task_type"] == "conversation"
     assert payload["chosen_route"] == "llm"
+    assert payload["next_action_type"] == "respond"
+    assert payload["next_action_owner"] == "response_layer"
     assert set(payload.keys()) == {
         "task_type",
         "goal",
@@ -100,6 +102,12 @@ def test_turn_contract_conversation_shape_is_canonical() -> None:
         "chosen_route",
         "success_criteria",
         "next_action",
+        "next_action_type",
+        "continuation_payload",
+        "retry_target",
+        "blocking_reason",
+        "next_action_owner",
+        "continuation",
     }
 
 
@@ -223,6 +231,141 @@ def test_turn_state_machine_returns_clarify_terminal_for_pre_route_block() -> No
     assert sm.chosen_route == "clarify"
     assert sm.should_try_plugins is False
     assert sm.terminal_action == "clarify"
+
+
+def test_post_execution_state_machine_marks_retry_for_retryable_failure() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.82,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+    pre = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+    outcome = controller.build_execution_outcome(
+        contract=pre.contract,
+        tool_success=False,
+        goal_advanced=False,
+        verification_passed=False,
+        recommended_next_action="retry",
+        retryable=True,
+        issues=["tool_timeout"],
+        metadata={"plugin": "notes"},
+    )
+
+    post = controller.run_post_execution_state_machine(
+        pre_execution=pre,
+        outcome=outcome,
+    )
+
+    assert post.phase == "retry"
+    assert post.should_retry is True
+    assert post.contract.as_dict()["next_action_type"] == "retry_tool"
+
+
+def test_post_execution_state_machine_marks_completed_after_verified_goal_advance() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.90,
+        entities={},
+        conversation_state={"conversation_goal": "organize notes"},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=True,
+        force_plugins_for_notes=False,
+    )
+    pre = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=True,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+    outcome = controller.build_execution_outcome(
+        contract=pre.contract,
+        tool_success=True,
+        goal_advanced=True,
+        verification_passed=True,
+        recommended_next_action="continue",
+        retryable=False,
+        issues=[],
+        metadata={"plugin": "notes"},
+    )
+
+    post = controller.run_post_execution_state_machine(
+        pre_execution=pre,
+        outcome=outcome,
+    )
+
+    assert post.phase == "completed"
+    assert post.should_retry is False
+    assert post.should_replan is False
+    assert post.contract.as_dict()["next_action_type"] == "continue_goal"
+
+
+def test_post_execution_state_machine_escalates_unverified_non_retryable_tool_turn() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.88,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+    pre = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+    outcome = controller.build_execution_outcome(
+        contract=pre.contract,
+        tool_success=False,
+        goal_advanced=False,
+        verification_passed=False,
+        recommended_next_action="",
+        retryable=False,
+        issues=["verification_failed"],
+        metadata={"plugin": "notes"},
+    )
+
+    post = controller.run_post_execution_state_machine(
+        pre_execution=pre,
+        outcome=outcome,
+    )
+
+    assert post.phase == "escalated"
+    assert post.contract.as_dict()["next_action_type"] == "escalate"
 
 
 def test_reasoning_state_prompt_is_structured_not_cot() -> None:
