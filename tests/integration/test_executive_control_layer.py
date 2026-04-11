@@ -1047,3 +1047,46 @@ def test_rich_conceptual_build_prompt_with_clarification_bias_still_uses_fresh_r
 
     assert decision.action == "use_llm"
     assert decision.reason == "conceptual_build_question"
+
+
+def test_short_framework_overview_prompt_routes_to_llm_without_plugin_attempt() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="agentic ai frameworks",
+        intent="conversation:help",
+        confidence=0.70,
+        entities={"_intent_plausibility": 0.60},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "use_llm"
+    assert decision.reason == "short_framework_overview"
+
+
+def test_short_framework_prompt_with_explicit_action_cue_does_not_force_llm() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="search agentic ai frameworks",
+        intent="conversation:help",
+        confidence=0.72,
+        entities={"_intent_plausibility": 0.73},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.reason != "short_framework_overview"

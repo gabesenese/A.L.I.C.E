@@ -21,7 +21,9 @@ class AmbiguityDetector:
         low = str(user_input or "").lower()
         if not low:
             return False
-        pronouns = {str(p).strip().lower() for p in unresolved_pronouns if str(p).strip()}
+        pronouns = {
+            str(p).strip().lower() for p in unresolved_pronouns if str(p).strip()
+        }
         # Only bypass when the ambiguity is likely a weather placeholder pronoun.
         if not pronouns or not pronouns.issubset({"it", "its", "it's", "that", "this"}):
             return False

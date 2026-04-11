@@ -473,11 +473,12 @@ class ReasoningEngine:
                 str(v).lower() for v in current_goal.entities.values() if v
             )
             input_entities = set(str(v).lower() for v in entities.values() if v)
-            same_intent = str(intent or "").strip().lower() == str(
-                current_goal.intent or ""
-            ).strip().lower()
-            allow_intent_match = same_intent and not self._is_generic_conversational_intent(
-                intent
+            same_intent = (
+                str(intent or "").strip().lower()
+                == str(current_goal.intent or "").strip().lower()
+            )
+            allow_intent_match = (
+                same_intent and not self._is_generic_conversational_intent(intent)
             )
             goal_focus_words = [
                 tok
@@ -589,7 +590,10 @@ class ReasoningEngine:
     @classmethod
     def _is_generic_conversational_intent(cls, intent: str) -> bool:
         low = str(intent or "").strip().lower()
-        return low.startswith("conversation:") or low in cls._GENERIC_CONVERSATIONAL_INTENTS
+        return (
+            low.startswith("conversation:")
+            or low in cls._GENERIC_CONVERSATIONAL_INTENTS
+        )
 
     def get_current_goal(self) -> Optional[ActiveGoal]:
         """Get current active goal"""

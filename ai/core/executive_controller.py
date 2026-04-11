@@ -192,7 +192,9 @@ class TurnStateMachineResult:
             "state": str(self.state or TaskType.CONVERSATION.value),
             "chosen_route": str(self.chosen_route or RouteChoice.LLM.value),
             "should_try_plugins": bool(self.should_try_plugins),
-            "terminal_action": str(self.terminal_action or TerminalAction.PROCEED.value),
+            "terminal_action": str(
+                self.terminal_action or TerminalAction.PROCEED.value
+            ),
             "contract": self.contract.as_dict() if self.contract else {},
         }
 
@@ -241,7 +243,9 @@ class PostExecutionStateMachineResult:
     def as_dict(self) -> Dict[str, Any]:
         return {
             "phase": str(self.phase or PostExecutionPhase.EXECUTED.value),
-            "terminal_action": str(self.terminal_action or TerminalAction.PROCEED.value),
+            "terminal_action": str(
+                self.terminal_action or TerminalAction.PROCEED.value
+            ),
             "should_retry": bool(self.should_retry),
             "should_replan": bool(self.should_replan),
             "contract": self.contract.as_dict() if self.contract else {},
@@ -539,9 +543,7 @@ class ExecutiveController:
 
         goal = str(state.user_goal or state.topic or state.source_text).strip()[:200]
         constraints: List[str] = [
-            str(x).strip()
-            for x in list(state.goal_blockers or [])
-            if str(x).strip()
+            str(x).strip() for x in list(state.goal_blockers or []) if str(x).strip()
         ]
         if state.route_bias and state.route_bias != "balanced":
             constraints.append(f"route_bias:{state.route_bias}")
@@ -759,7 +761,10 @@ class ExecutiveController:
             )
         elif outcome.verification_passed:
             phase = PostExecutionPhase.VERIFIED.value
-            if pre_execution.chosen_route == RouteChoice.TOOL.value and outcome.goal_advanced:
+            if (
+                pre_execution.chosen_route == RouteChoice.TOOL.value
+                and outcome.goal_advanced
+            ):
                 phase = PostExecutionPhase.COMPLETED.value
                 contract = self._contract_with_continuation(
                     contract,
@@ -767,7 +772,10 @@ class ExecutiveController:
                     owner=NextActionOwner.EXECUTIVE.value,
                     next_action="goal advanced; continue with the next planned step",
                 )
-            elif pre_execution.chosen_route == RouteChoice.TOOL.value and not outcome.goal_advanced:
+            elif (
+                pre_execution.chosen_route == RouteChoice.TOOL.value
+                and not outcome.goal_advanced
+            ):
                 phase = PostExecutionPhase.REPLANNED.value
                 should_replan = True
                 contract = self._contract_with_continuation(
@@ -981,6 +989,23 @@ class ExecutiveController:
             return ExecutiveDecision(
                 action="use_llm",
                 reason="rich_conceptual_request",
+                store_memory=True,
+            )
+
+        if (
+            normalized_intent
+            in {
+                "conversation:help",
+                "conversation:question",
+                "conversation:general",
+            }
+            and self._is_short_framework_overview_prompt(state.source_text)
+            and not has_explicit_action_cue
+            and not has_active_goal
+        ):
+            return ExecutiveDecision(
+                action="use_llm",
+                reason="short_framework_overview",
                 store_memory=True,
             )
 
@@ -1205,6 +1230,50 @@ class ExecutiveController:
             )
         )
         return has_build and has_subject and has_question_frame
+
+    def _is_short_framework_overview_prompt(self, text: str) -> bool:
+        """Detect short conceptual framework prompts that should stay on conversational LLM path."""
+        low = str(text or "").strip().lower()
+        if not low:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", low)
+        if len(tokens) < 2 or len(tokens) > 7:
+            return False
+
+        action_cues = {
+            "create",
+            "build",
+            "implement",
+            "delete",
+            "remove",
+            "run",
+            "open",
+            "save",
+            "search",
+            "list",
+            "set",
+            "update",
+            "install",
+        }
+        if any(tok in action_cues for tok in tokens):
+            return False
+
+        framework_cues = {
+            "agentic",
+            "agent",
+            "agents",
+            "ai",
+            "framework",
+            "frameworks",
+            "orchestration",
+            "autonomous",
+            "autonomy",
+            "llm",
+            "rag",
+            "architecture",
+        }
+        return bool(framework_cues.intersection(tokens))
 
     def _is_pending_followup_slot_answer(
         self,
@@ -2019,7 +2088,14 @@ class ExecutiveController:
             )
             and any(
                 cue in user_low
-                for cue in ("build", "building", "implement", "implementation", "existing", "research")
+                for cue in (
+                    "build",
+                    "building",
+                    "implement",
+                    "implementation",
+                    "existing",
+                    "research",
+                )
             )
         )
         if practical_framework_prompt:

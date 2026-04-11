@@ -151,7 +151,10 @@ class ResponseFormulator:
         )
 
         has_direct_structure = any(re.search(pat, text) for pat in direct_patterns)
-        is_question_like = bool("?" in text or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", text))
+        is_question_like = bool(
+            "?" in text
+            or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", text)
+        )
         return bool(has_direct_structure and is_question_like)
 
     def _sanitize_user_message(self, text: str) -> str:
@@ -198,7 +201,9 @@ class ResponseFormulator:
         text = str(user_input or "").strip()
         low = text.lower()
 
-        diff_match = re.search(r"difference\s+between\s+(.+?)\s+and\s+(.+?)(?:\?|$)", low)
+        diff_match = re.search(
+            r"difference\s+between\s+(.+?)\s+and\s+(.+?)(?:\?|$)", low
+        )
         if diff_match:
             left = diff_match.group(1).strip(" .?!")
             right = diff_match.group(2).strip(" .?!")
