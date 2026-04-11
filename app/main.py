@@ -20,6 +20,10 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow warnings
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
+os.environ.setdefault('HF_HUB_DISABLE_PROGRESS_BARS', '1')
+os.environ.setdefault('TRANSFORMERS_VERBOSITY', 'error')
+os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
+os.environ.setdefault('SENTENCE_TRANSFORMERS_VERBOSITY', 'error')
 
 import sys
 import logging
@@ -6239,6 +6243,59 @@ class ALICE:
             "conversation:goal_statement",
         }
 
+    def _dynamic_short_greeting(
+        self,
+        *,
+        user_input: str,
+        user_name: str = "",
+        time_context: str = "",
+        allow_repeat: bool = False,
+    ) -> Optional[str]:
+        """Generate a short native greeting without invoking the LLM."""
+        previous = str(getattr(self, '_last_dynamic_greeting', '') or '').strip().lower()
+
+        resolved_time = str(time_context or '').strip().lower()
+        if not resolved_time:
+            hour = datetime.now().hour
+            if 5 <= hour < 12:
+                resolved_time = 'morning'
+            elif 12 <= hour < 17:
+                resolved_time = 'afternoon'
+            elif 17 <= hour < 22:
+                resolved_time = 'evening'
+            else:
+                resolved_time = 'late night'
+
+        name = str(user_name or '').strip()
+        name_fragment = f" {name}" if name else ''
+
+        base = [
+            f"Hi{name_fragment}. What would you like to work on?",
+            f"Hey{name_fragment}. What can I help you with right now?",
+            f"Hello{name_fragment}. What are we tackling today?",
+            f"Hey{name_fragment}. What should we start with?",
+            f"Hi{name_fragment}. What do you want to focus on first?",
+        ]
+
+        if resolved_time in {'morning', 'afternoon', 'evening', 'late night'}:
+            base.append(f"Good {resolved_time}{name_fragment}. What can I help with?")
+
+        idx = int(getattr(self, '_dynamic_greeting_index', 0) or 0)
+        total = max(1, len(base))
+        for step in range(total):
+            candidate = str(base[(idx + step) % total]).strip()
+            if allow_repeat or candidate.lower() != previous:
+                self._dynamic_greeting_index = (idx + step + 1) % total
+                self._last_dynamic_greeting = candidate
+                return candidate
+
+        # If all candidates are exhausted and repeats are not allowed,
+        # fall back to the next rotated candidate.
+        candidate = str(base[idx % total]).strip()
+        self._dynamic_greeting_index = (idx + 1) % total
+        self._last_dynamic_greeting = candidate
+        return candidate
+
     def _native_scaffold_response(self, user_input: str, intent: str) -> Optional[str]:
         """Return native short scaffolding replies for low-complexity conversational turns."""
         normalized = str(intent or "").lower().strip()
@@ -6248,7 +6305,17 @@ class ALICE:
             if re.fullmatch(r"(?:bye|goodbye|see you)\??", text):
                 return self._get_farewell()
             if re.fullmatch(r"(?:hi|hello|hey|yo)[!.?]*", text):
-                return "Hey. What would you like to work on?"
+                dynamic = self._dynamic_short_greeting(
+                    user_input=user_input,
+                    user_name=(
+                        getattr(getattr(self, 'context', None), 'user_prefs', None).name
+                        if getattr(getattr(self, 'context', None), 'user_prefs', None)
+                        else ""
+                    ),
+                )
+                if dynamic:
+                    return dynamic
+                return None
             if re.search(r"\bhow\s+(?:are\s+you|is\s+it\s+going)\b", text):
                 return "I am doing well and ready to help. What are you working on?"
             if re.fullmatch(r"(?:thanks|thank you|thx)[!.?]*", text):
@@ -6282,7 +6349,12 @@ class ALICE:
             )
             if learned:
                 return learned
-            greeting = self._get_greeting()
+            greeting = self._dynamic_short_greeting(
+                user_input=user_input,
+                user_name=user_name,
+            )
+            if not greeting:
+                greeting = self._get_greeting()
             return greeting or None
         return None
 
@@ -6744,7 +6816,10 @@ class ALICE:
                             self.conversational_engine.learned_greetings
                         )
                         if picked:
-                            return picked
+                            candidate = str(picked).strip()
+                            if candidate and candidate.lower() != str(getattr(self, '_last_dynamic_greeting', '') or '').strip().lower():
+                                self._last_dynamic_greeting = candidate
+                                return candidate
         except Exception:
             pass
 
@@ -6760,7 +6835,12 @@ class ALICE:
             }
             try:
                 if self.phrasing_learner.can_phrase_myself(greeting_thought, 'friendly'):
-                    return self.phrasing_learner.phrase_myself(greeting_thought, 'friendly')
+                    phrased = self.phrasing_learner.phrase_myself(greeting_thought, 'friendly')
+                    if phrased:
+                        candidate = str(phrased).strip()
+                        if candidate and candidate.lower() != str(getattr(self, '_last_dynamic_greeting', '') or '').strip().lower():
+                            self._last_dynamic_greeting = candidate
+                            return candidate
             except Exception:
                 pass
 
@@ -9452,7 +9532,7 @@ class ALICE:
                             logger.info(f"A.L.I.C.E: {response[:100]}...")
                             return response
                     else:
-                        self._think("Conversational engine → no learned pattern, will use LLM")
+                        self._think("Conversational engine → no learned pattern, using native greeting/fallback path")
 
                 # If this is a true greeting utterance, respond directly via gateway
                 explicit_greeting_input = self._is_explicit_greeting_input(user_input)
@@ -9492,6 +9572,27 @@ class ALICE:
                             self.speech.speak(native_greeting, blocking=False)
                         logger.info(f"A.L.I.C.E: {native_greeting[:100]}...")
                         return native_greeting
+
+                    final_greeting = self._dynamic_short_greeting(
+                        user_input=user_input,
+                        user_name=(
+                            getattr(getattr(self, 'context', None), 'user_prefs', None).name
+                            if getattr(getattr(self, 'context', None), 'user_prefs', None)
+                            else ""
+                        ),
+                        allow_repeat=True,
+                    )
+                    if final_greeting:
+                        self._cache_put(user_input, intent, final_greeting)
+                        self._store_interaction(user_input, final_greeting, intent, entities)
+                        if use_voice and self.speech:
+                            self.speech.speak(final_greeting, blocking=False)
+                        logger.info(f"A.L.I.C.E: {final_greeting[:100]}...")
+                        return final_greeting
+
+                    # Greeting turns should remain conversational and not route to tools.
+                    intent = "conversation:general"
+                    intent_confidence = min(float(intent_confidence or 0.5), 0.62)
 
             # Store for active learning
             self.last_user_input = user_input
@@ -13909,7 +14010,11 @@ class ALICE:
                     self.conversational_engine.learned_greetings
                 ) if hasattr(self.conversational_engine, '_unique_candidates') else self.conversational_engine.learned_greetings
                 if hasattr(self.conversational_engine, '_pick_non_repeating') and len(greeting_options) >= 2:
-                    return self.conversational_engine._pick_non_repeating(greeting_options)
+                    picked = self.conversational_engine._pick_non_repeating(greeting_options)
+                    candidate = str(picked).strip()
+                    if candidate and candidate.lower() != str(getattr(self, '_last_dynamic_greeting', '') or '').strip().lower():
+                        self._last_dynamic_greeting = candidate
+                        return candidate
 
         learned = self._learned_greeting_response(
             user_input="greeting",
@@ -13919,55 +14024,16 @@ class ALICE:
         )
         if learned:
             return learned
-        
-        # Fallback to Gateway for natural greeting generation
-        prompt = f"""Generate a brief, natural greeting for the user who just started the session.
-Context:
-- User's name: {name}
-- Time of day: {time_context}
-- This is the opening greeting
 
-Generate only the greeting (1 sentence), no other text. Be friendly and offer to help."""
-        
-        try:
-            llm_response = self.llm_gateway.request(
-                prompt=prompt,
-                call_type=LLMCallType.CHITCHAT,
-                use_history=False,
-                user_input="greeting"
-            )
-            if llm_response.success and llm_response.response:
-                greeting = self._clamp_final_response(
-                    llm_response.response.strip().strip('"').strip("'"),
-                    tone='casual and friendly',
-                    response_type='greeting',
-                    route='greeting',
-                    user_input='greeting',
-                )
-                if self.phrasing_learner:
-                    self.phrasing_learner.record_phrasing(
-                        alice_thought={
-                            'type': 'greeting',
-                            'data': {
-                                'user_input': 'greeting',
-                                'user_name': name,
-                                'asked_how': False,
-                                'time_context': time_context,
-                            },
-                        },
-                        ollama_phrasing=greeting,
-                        context={
-                            'tone': 'friendly',
-                            'intent': 'greeting',
-                            'user_input': 'greeting',
-                            'time_context': time_context,
-                        },
-                    )
-                return greeting
-        except Exception:
-            pass
+        dynamic = self._dynamic_short_greeting(
+            user_input="greeting",
+            user_name=name,
+            time_context=time_context,
+            allow_repeat=True,
+        )
+        if dynamic:
+            return dynamic
 
-        # No hardcoded greeting fallback: if no LLM and no learned greeting yet, stay silent.
         return ""
     
     def _get_farewell(self) -> str:

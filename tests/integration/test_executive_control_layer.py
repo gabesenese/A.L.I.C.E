@@ -368,6 +368,36 @@ def test_post_execution_state_machine_escalates_unverified_non_retryable_tool_tu
     assert post.contract.as_dict()["next_action_type"] == "escalate"
 
 
+def test_executive_keeps_greeting_on_native_conversational_path() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="hi alice",
+        intent="greeting",
+        confidence=0.90,
+        entities={},
+        conversation_state={
+            "active_goal_stack": [
+                {
+                    "goal_id": "goal::stale",
+                    "title": "old unfinished task",
+                    "status": "active",
+                }
+            ]
+        },
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=True,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "answer_direct"
+    assert decision.reason == "greeting_native_priority"
+
+
 def test_reasoning_state_prompt_is_structured_not_cot() -> None:
     controller = ExecutiveController()
     state = controller.build_state(

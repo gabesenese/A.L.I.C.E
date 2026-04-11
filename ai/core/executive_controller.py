@@ -991,6 +991,13 @@ class ExecutiveController:
                 store_memory=True,
             )
 
+        if normalized_intent == "greeting":
+            return ExecutiveDecision(
+                action="answer_direct",
+                reason="greeting_native_priority",
+                store_memory=True,
+            )
+
         if (
             normalized_intent == "conversation:clarification_needed"
             and state.confidence >= 0.45
