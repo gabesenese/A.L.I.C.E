@@ -88,18 +88,27 @@ class ResponseFormulator:
         "internal reasoning",
         "reasoning output",
         "intent:",
+        "executive decision",
+        "routing owner",
+        "response plan",
+        "contract_route",
+        "score_tools",
+        "score_llm",
+        "instead of asking for clarification",
+        "this is answerable",
+        "direct explanation is feasible",
     ]
     INTERNAL_LEAK_REGEX: List[Pattern[str]] = [
         re.compile(
-            r"\b(?:intent|confidence|route|user_input|raw_response|resolved_intent|response_type|strategy|plan)\s*=",
+            r"\b(?:intent|confidence|route|user_input|raw_response|resolved_intent|response_type|strategy|plan|score|policy|contract|decision|routing)\s*=",
             re.IGNORECASE,
         ),
-        re.compile(r"\b(?:analysis|context)\s*=", re.IGNORECASE),
+        re.compile(r"\b(?:analysis|context|executive|response\s+gate)\s*[=:]", re.IGNORECASE),
     ]
-    CLARIFICATION_FALLBACK = "Can you clarify the exact outcome you want?"
-    GENERIC_FALLBACK = "I can help. Tell me the exact result you want."
+    CLARIFICATION_FALLBACK = "Please share one missing detail so I can answer precisely."
+    GENERIC_FALLBACK = "I can help with that."
     DIRECT_RETRY_FALLBACK = (
-        "I can help. Tell me the exact result you want, and I will answer directly."
+        "I can answer directly once you share one concrete detail."
     )
 
     def is_internal(self, text: str) -> bool:
@@ -165,7 +174,7 @@ class ResponseFormulator:
         cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
         cleaned_lines: List[str] = []
         internal_key_equals = re.compile(
-            r"\b(?:intent|confidence|route|raw_response|user_input|resolved_intent|response_type|strategy|plan)\s*=",
+            r"\b(?:intent|confidence|route|raw_response|user_input|resolved_intent|response_type|strategy|plan|score|policy|contract|decision|routing)\s*=",
             re.IGNORECASE,
         )
         for line in cleaned.split("\n"):
@@ -174,7 +183,7 @@ class ResponseFormulator:
                 cleaned_lines.append("")
                 continue
             low_line = normalized.lower()
-            if re.match(r"^(analysis|context|intent|plan)\s*:\s*", low_line):
+            if re.match(r"^(analysis|context|intent|plan|executive|routing|decision|policy)\s*:\s*", low_line):
                 continue
             if internal_key_equals.search(low_line):
                 continue
@@ -188,7 +197,7 @@ class ResponseFormulator:
         cleaned = "\n".join(cleaned_lines)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         cleaned = re.sub(
-            r"^(analysis|context|intent|plan)\s*:\s*", "", cleaned, flags=re.IGNORECASE
+            r"^(analysis|context|intent|plan|executive|routing|decision|policy)\s*:\s*", "", cleaned, flags=re.IGNORECASE
         )
         cleaned = cleaned.strip(' \t\n\r-:;,."')
         if cleaned and not re.search(r"[.!?]$", cleaned):
@@ -240,7 +249,7 @@ class ResponseFormulator:
                     f"and objective-driven behavior in the system."
                 )
 
-        return "Short answer: this is a direct question, so here is a concise explanation without clarification prompts."
+        return "Short answer: this can be answered directly with a concise explanation and practical context."
 
     def _regenerate_clean_message(
         self,
@@ -256,9 +265,6 @@ class ResponseFormulator:
 
         if self._is_direct_answer_question(user_input):
             return self._compose_direct_answer_fallback(user_input)
-
-        if "clarification" in intent_text or "vague" in intent_text:
-            return self.CLARIFICATION_FALLBACK
 
         if tool_results and isinstance(tool_results, dict):
             msg = str(
@@ -279,21 +285,8 @@ class ResponseFormulator:
             if data:
                 return "Done. I processed that request."
 
-        if (
-            "goal" in intent_text
-            or "project" in intent_text
-            or "learning:" in intent_text
-        ):
-            return (
-                "Great direction. Let's turn this into a concrete build plan.\n\n"
-                "Project Concept: Start with a focused AI agent that solves one recurring task end-to-end.\n\n"
-                "Action Plan:\n"
-                "1. Pick one domain and one measurable outcome.\n"
-                "2. Build a minimal agent loop: plan, execute, verify.\n"
-                "3. Add memory only for context that improves decisions.\n"
-                "4. Add one tool integration and validate with scenario tests.\n\n"
-                "Do you want to start with architecture, implementation steps, or a starter repo layout?"
-            )
+        if "clarification" in intent_text or "vague" in intent_text:
+            return self.CLARIFICATION_FALLBACK
 
         if user_input:
             return self.DIRECT_RETRY_FALLBACK

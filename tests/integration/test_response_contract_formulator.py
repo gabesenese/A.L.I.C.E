@@ -82,7 +82,7 @@ def test_response_formulator_blocks_equals_delimited_internal_summary_leak():
     assert len(final_response.message.strip()) > 0
 
 
-def test_response_formulator_project_fallback_is_structured_multiline():
+def test_response_formulator_project_fallback_stays_concise_and_non_policy():
     formulator = ResponseFormulator()
     reasoning = ReasoningOutput(
         internal_summary="analysis: project intent with leaked scaffold",
@@ -100,10 +100,11 @@ def test_response_formulator_project_fallback_is_structured_multiline():
     )
 
     text = final_response.message
-    assert "\n\n" in text
-    assert "Project Concept:" in text
-    assert "Action Plan:" in text
-    assert "1. Pick one domain and one measurable outcome." in text
+    low = text.lower()
+    assert len(text.strip()) > 0
+    assert "project concept:" not in low
+    assert "action plan:" not in low
+    assert "analysis:" not in low
 
 
 def test_response_formulator_preserves_newlines_from_safe_candidate():

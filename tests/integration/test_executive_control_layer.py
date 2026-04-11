@@ -1090,3 +1090,44 @@ def test_short_framework_prompt_with_explicit_action_cue_does_not_force_llm() ->
     )
 
     assert decision.reason != "short_framework_overview"
+
+
+def test_answerability_direct_question_routes_to_answer_direct() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="what's the difference between an ai agent and an ai assistant?",
+        intent="conversation:help",
+        confidence=0.52,
+        entities={"_intent_plausibility": 0.61},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "answer_direct"
+    assert decision.reason in {
+        "answerability_gate_direct_question",
+        "clear_informational_request",
+    }
+
+
+def test_response_acceptance_gate_sets_llm_failure_reason_for_answerable_question() -> None:
+    controller = ExecutiveController()
+
+    result = controller.evaluate_response(
+        user_input="what is nlp?",
+        intent="conversation:question",
+        response="Maybe. I am not sure.",
+        route="llm",
+        context={},
+    )
+
+    assert result["accepted"] is False
+    assert result["fallback_action"] == "safe_reply"
+    assert result.get("fallback_reason") == "llm_failed_after_answer_directly"

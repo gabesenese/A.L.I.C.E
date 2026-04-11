@@ -1776,39 +1776,109 @@ class ALICE:
         *,
         strict: bool = False,
         intent: str = "",
+        fallback_reason: str = "clarification_due_to_missing_parameter",
     ) -> str:
         """Return a centralized clarification fallback with intent-aware overrides."""
         text = str(user_input or "").strip()
         inferred_intent = str(intent or "").strip()
 
         if text and self._is_answerability_direct_question(text):
-            return self._answerability_gate_fallback_response(text)
+            response = self._answerability_gate_fallback_response(text)
+            self._record_fallback_taxonomy(
+                reason="llm_failed_after_answer_directly",
+                source="fallback_clarification",
+                action="answer_direct",
+                task_understood=True,
+            )
+            return response
 
         if text and (
             self._is_project_ideation_turn(text, inferred_intent)
             or self._is_project_ideation_request(text)
         ):
-            return self._project_ideation_guidance_response(text)
+            response = self._project_ideation_guidance_response(text)
+            self._record_fallback_taxonomy(
+                reason="clarification_due_to_goal_narrowing",
+                source="fallback_clarification",
+                action="guide",
+                task_understood=True,
+            )
+            return response
 
         if strict:
-            return "Please clarify the exact outcome you want so I can route this correctly."
-        return "Can you clarify the exact outcome you want?"
+            response = "Please share the missing detail so I can route this correctly."
+        else:
+            response = "Can you share the one detail that is still missing?"
 
-    def _fallback_generic_response(self, user_input: str, *, intent: str = "") -> str:
+        self._record_fallback_taxonomy(
+            reason=str(fallback_reason or "clarification_due_to_missing_parameter"),
+            source="fallback_clarification",
+            action="clarify",
+            task_understood=False,
+        )
+        return response
+
+    def _fallback_generic_response(
+        self,
+        user_input: str,
+        *,
+        intent: str = "",
+        fallback_reason: str = "low_confidence_answer_requiring_retry",
+    ) -> str:
         """Return a centralized generic fallback with intent-aware overrides."""
         text = str(user_input or "").strip()
         inferred_intent = str(intent or "").strip()
 
         if text and self._is_answerability_direct_question(text):
-            return self._answerability_gate_fallback_response(text)
+            response = self._answerability_gate_fallback_response(text)
+            self._record_fallback_taxonomy(
+                reason="llm_failed_after_answer_directly",
+                source="fallback_generic",
+                action="answer_direct",
+                task_understood=True,
+            )
+            return response
 
         if text and (
             self._is_project_ideation_turn(text, inferred_intent)
             or self._is_project_ideation_request(text)
         ):
-            return self._project_ideation_guidance_response(text)
+            response = self._project_ideation_guidance_response(text)
+            self._record_fallback_taxonomy(
+                reason="clarification_due_to_goal_narrowing",
+                source="fallback_generic",
+                action="guide",
+                task_understood=True,
+            )
+            return response
 
-        return "I can help. Tell me the exact result you want."
+        self._record_fallback_taxonomy(
+            reason=str(fallback_reason or "low_confidence_answer_requiring_retry"),
+            source="fallback_generic",
+            action="retry",
+            task_understood=False,
+        )
+
+        return "I can help with that. Give me one concrete detail and I will answer directly."
+
+    def _record_fallback_taxonomy(
+        self,
+        *,
+        reason: str,
+        source: str,
+        action: str,
+        task_understood: bool,
+    ) -> None:
+        """Persist explicit fallback reason categories for telemetry/debugging."""
+        if not isinstance(getattr(self, "_internal_reasoning_state", None), dict):
+            self._internal_reasoning_state = {}
+        self._internal_reasoning_state["fallback_taxonomy"] = {
+            "reason": str(reason or "unknown_fallback_reason"),
+            "source": str(source or "runtime"),
+            "action": str(action or "retry"),
+            "task_understood": bool(task_understood),
+            "timestamp": datetime.now().isoformat(),
+        }
 
     def _clamp_final_response(
         self,
@@ -1863,14 +1933,34 @@ class ALICE:
             "context:",
             "intent:",
             "plan:",
+            "executive decision",
+            "routing owner",
+            "response plan",
+            "contract_route",
+            "score_tools",
+            "score_llm",
+            "instead of asking for clarification",
+            "this is answerable",
+            "direct explanation is feasible",
         )
-        if any(pattern in lower for pattern in leak_patterns):
+        internal_contract_regex = re.compile(
+            r"\b(?:intent|confidence|route|strategy|plan|policy|decision|routing|score|contract)\s*[:=]",
+            re.IGNORECASE,
+        )
+        if any(pattern in lower for pattern in leak_patterns) or bool(internal_contract_regex.search(text)):
+            if user_input and self._is_answerability_direct_question(user_input):
+                return self._answerability_gate_fallback_response(user_input)
             if response_type == "clarification_prompt":
                 return self._fallback_clarification_response(
                     user_input,
                     intent=inferred_intent,
+                    fallback_reason="clarification_due_to_missing_parameter",
                 )
-            return self._fallback_generic_response(user_input, intent=inferred_intent)
+            return self._fallback_generic_response(
+                user_input,
+                intent=inferred_intent,
+                fallback_reason="low_confidence_answer_requiring_retry",
+            )
 
         if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(text):
             if response_type == "clarification_prompt":
@@ -4288,7 +4378,11 @@ class ALICE:
             return False
 
         text = user_input.lower().strip()
-        if self._is_rich_conceptual_request(text) or self._is_conceptual_build_architecture_prompt(text):
+        if (
+            self._is_rich_conceptual_request(text)
+            or self._is_conceptual_build_architecture_prompt(text)
+            or self._is_project_ideation_request(text)
+        ):
             return False
 
         action_pattern = (
@@ -5180,6 +5274,11 @@ class ALICE:
         if not text:
             return False
 
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+        short_imperative = bool(
+            re.match(r"^(?:create|build|make|start)\s+(?:an?\s+)?(?:agentic\s+)?(?:ai|assistant|agent|system|project)\b", text)
+        )
+
         has_goal_opener = any(
             re.search(pattern, text)
             for pattern in (
@@ -5188,9 +5287,10 @@ class ALICE:
                 r"\blet'?s\s+(?:start|build|create|make)\b",
                 r"\bi'?m\s+starting\b",
                 r"\bstart\s+an?\b",
+                r"^(?:create|build|make)\s+an?\b",
             )
         )
-        if not has_goal_opener:
+        if not has_goal_opener and not short_imperative:
             return False
 
         has_project_noun = any(
@@ -5206,7 +5306,8 @@ class ALICE:
             )
         )
         domain = self._extract_project_ideation_domain(text)
-        return bool(has_project_noun or domain)
+        has_agentic_ai_phrase = "agentic ai" in text or ("agentic" in text and "ai" in text)
+        return bool(has_project_noun or domain or has_agentic_ai_phrase or (short_imperative and len(tokens) <= 8))
 
     def _is_project_ideation_turn(self, user_input: str, intent: str) -> bool:
         """Resolve whether current turn should use project ideation response mode."""
@@ -5714,6 +5815,8 @@ class ALICE:
         if not text:
             return False
 
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+
         has_framework_cue = any(
             cue in text
             for cue in ("framework", "frameworks", "architecture", "design pattern")
@@ -5726,6 +5829,8 @@ class ALICE:
                 "ai agent",
                 "agent autonomy",
                 "autonomy in ai",
+                "agentic",
+                "autonomy",
             )
         )
         has_build_or_research_cue = any(
@@ -5742,16 +5847,150 @@ class ALICE:
             )
         )
 
-        return bool(has_framework_cue and has_agentic_scope and has_build_or_research_cue)
+        # Short prompts like "agentic ai frameworks" should still map to engineering context.
+        short_framework_prompt = has_framework_cue and has_agentic_scope and len(tokens) <= 7
 
-    @staticmethod
-    def _practical_agentic_frameworks_answer() -> str:
-        """Return practical engineering frameworks for agentic autonomy requests."""
-        return (
-            "For building autonomous AI agents, use engineering frameworks rather than consciousness theories. "
-            "Start with orchestration frameworks like LangChain Agents, Auto-GPT style task loops, and CrewAI for multi-agent coordination. "
-            "Then apply core design patterns: ReAct (reason + act), Plan-Execute-Reflect, tool-augmented action loops, and goal-driven state machines with memory and verification. "
-            "If you want, I can rank these by production readiness for A.L.I.C.E and propose a phased adoption plan."
+        return bool(has_framework_cue and has_agentic_scope and (has_build_or_research_cue or short_framework_prompt))
+
+    def _practical_agentic_frameworks_answer(
+        self,
+        *,
+        user_input: str = "",
+        intent: str = "conversation:help",
+    ) -> str:
+        """Compose an implementation-first framework answer without a fixed full-template block."""
+        text = str(user_input or "").lower().strip()
+
+        wants_multi_agent = any(cue in text for cue in ("multi-agent", "multi agent", "crew", "coordination"))
+        wants_production = any(cue in text for cue in ("production", "deploy", "reliable", "robust"))
+        wants_research = any(cue in text for cue in ("research", "paper", "compare", "benchmark"))
+        wants_memory = any(cue in text for cue in ("memory", "state", "context"))
+
+        framework_pool = ["LangGraph", "LangChain Agents", "CrewAI", "AutoGen", "Semantic Kernel"]
+        if wants_multi_agent:
+            framework_pool = ["CrewAI", "AutoGen", "LangGraph", "LangChain Agents", "Semantic Kernel"]
+        elif wants_production:
+            framework_pool = ["LangGraph", "Semantic Kernel", "LangChain Agents", "CrewAI", "AutoGen"]
+        elif wants_research:
+            framework_pool = ["AutoGen", "LangGraph", "CrewAI", "LangChain Agents", "Semantic Kernel"]
+
+        frameworks = self._rotate_fallback_options(
+            "agentic_frameworks:framework_pool",
+            framework_pool,
+            take=3,
+        )
+        if len(frameworks) < 3:
+            frameworks = framework_pool[:3]
+
+        pattern_pool = [
+            "ReAct",
+            "Plan-Execute-Verify",
+            "memory-backed state",
+            "execution checkpoints",
+            "retry/rollback control",
+            "confidence-gated tool calls",
+            "bounded retries",
+        ]
+        if wants_memory:
+            pattern_pool = [
+                "memory-backed state",
+                "execution checkpoints",
+                "Plan-Execute-Verify",
+                "retry/rollback control",
+                "confidence-gated tool calls",
+            ]
+        elif wants_production:
+            pattern_pool = [
+                "Plan-Execute-Verify",
+                "confidence-gated tool calls",
+                "bounded retries",
+                "execution checkpoints",
+                "retry/rollback control",
+            ]
+
+        patterns = self._rotate_fallback_options(
+            "agentic_frameworks:pattern_pool",
+            pattern_pool,
+            take=4,
+        )
+        if len(patterns) < 4:
+            patterns = pattern_pool[:4]
+
+        outcomes = ["continue", "retry", "ask", "escalate"]
+        if wants_production:
+            outcomes = ["continue", "retry", "rollback", "escalate"]
+        elif wants_research:
+            outcomes = ["continue", "ablate", "measure", "escalate"]
+        outcomes_phrase = ", ".join(outcomes[:-1]) + ", or " + outcomes[-1]
+
+        opener_options = [
+            "For agentic AI, prioritize engineering frameworks over theory-first models.",
+            "For agentic AI, default to implementation-first engineering frameworks over theory-first models.",
+        ]
+        auto_gpt_options = [
+            "Use Auto-GPT style loops as a reference pattern, not as a foundation.",
+            "Treat Auto-GPT style loops as inspiration for control-flow structure, not as the core foundation.",
+        ]
+
+        opener_pick = self._rotate_fallback_options(
+            "agentic_frameworks:opener",
+            opener_options,
+            take=1,
+        )
+        autogpt_pick = self._rotate_fallback_options(
+            "agentic_frameworks:autogpt",
+            auto_gpt_options,
+            take=1,
+        )
+
+        opener = opener_pick[0] if opener_pick else opener_options[0]
+        autogpt_line = autogpt_pick[0] if autogpt_pick else auto_gpt_options[0]
+
+        framework_templates = [
+            "Start with orchestration frameworks like {frameworks} for tool routing, stateful execution, and multi-agent coordination.",
+            "A practical base is {frameworks}, because they give you reliable routing, state tracking, and agent coordination.",
+        ]
+        pattern_templates = [
+            "Then apply core patterns: {patterns}.",
+            "Layer in control patterns such as {patterns}.",
+        ]
+        loop_templates = [
+            "For {assistant_label}, begin with a bounded agent loop: interpret goal, plan next action, execute tool, verify outcome, persist state, then {outcomes}.",
+            "For {assistant_label}, keep execution bounded: read goal, plan, run tool calls, verify results, persist updates, then {outcomes}.",
+        ]
+
+        framework_t = self._rotate_fallback_options(
+            "agentic_frameworks:framework_line",
+            framework_templates,
+            take=1,
+        )
+        pattern_t = self._rotate_fallback_options(
+            "agentic_frameworks:pattern_line",
+            pattern_templates,
+            take=1,
+        )
+        loop_t = self._rotate_fallback_options(
+            "agentic_frameworks:loop_line",
+            loop_templates,
+            take=1,
+        )
+
+        assistant_label = "A.L.I.C.E" if "alice" in text else "your assistant"
+        framework_line = (framework_t[0] if framework_t else framework_templates[0]).format(
+            frameworks=self._format_compact_list(frameworks)
+        )
+        pattern_line = (pattern_t[0] if pattern_t else pattern_templates[0]).format(
+            patterns=self._format_compact_list(patterns)
+        )
+        loop_line = (loop_t[0] if loop_t else loop_templates[0]).format(
+            assistant_label=assistant_label,
+            outcomes=outcomes_phrase,
+        )
+
+        return " ".join(
+            part.strip()
+            for part in (opener, framework_line, autogpt_line, pattern_line, loop_line)
+            if part and part.strip()
         )
 
     def _learning_blueprint(self, domain: str) -> Dict[str, List[str]]:
@@ -6093,7 +6332,10 @@ class ALICE:
             return None
 
         if self._is_practical_agentic_framework_request(text):
-            return self._practical_agentic_frameworks_answer()
+            return self._practical_agentic_frameworks_answer(
+                user_input=user_input,
+                intent=intent,
+            )
 
         if self._has_explicit_action_cue(text):
             return None
@@ -6328,6 +6570,8 @@ class ALICE:
         if normalized == "thanks":
             return "Anytime."
         if normalized == "conversation:clarification_needed":
+            if self._is_project_ideation_request(user_input):
+                return self._project_ideation_guidance_response(user_input)
             if self._should_answer_first_without_clarification(user_input, normalized):
                 return None
             return self._fallback_generic_response(user_input, intent=normalized)
@@ -8007,6 +8251,8 @@ class ALICE:
             "exact outcome",
             "exact result",
             "what exact result",
+            "one concrete detail",
+            "share one concrete detail",
         )
         return any(marker in low for marker in clarification_markers)
 
@@ -8053,11 +8299,16 @@ class ALICE:
                     f"design trade-offs, and the way the system optimizes for outcomes."
                 )
 
-        return "Short answer: this is a direct question, so I will provide a concise explanation instead of asking for clarification."
+        return "Short answer: this is best handled with a concise explanation grounded in practical system behavior and trade-offs."
 
     def _answerability_gate_fallback_response(self, user_input: str) -> str:
         """Provide a concise direct fallback when answerable questions lose content after sanitization."""
         text = str(user_input or "").lower()
+        if self._is_practical_agentic_framework_request(text):
+            return self._practical_agentic_frameworks_answer(
+                user_input=user_input,
+                intent="conversation:help",
+            )
         if (
             ("difference" in text or "compare" in text)
             and "agent" in text
@@ -8119,6 +8370,11 @@ class ALICE:
 
     def _should_force_failure_recovery_answer(self, user_input: str, intent: str) -> bool:
         """Enforce direct fallback answers for understood informational goals on execution failure."""
+        if self._is_answerability_direct_question(user_input):
+            return True
+        if self._is_practical_agentic_framework_request(user_input):
+            return True
+
         if not self._is_understandable_informational_goal(user_input, intent):
             return False
 
@@ -8140,15 +8396,30 @@ class ALICE:
             "avoid_clarification": bool(task_understood),
         }
         self._internal_reasoning_state["failure_recovery_response"] = str(response or "")
+        self._record_fallback_taxonomy(
+            reason=str(reason or "execution_failure"),
+            source="llm_failure_recovery",
+            action=("answer_direct" if task_understood else "retry"),
+            task_understood=bool(task_understood),
+        )
 
     def _safe_llm_failure_response(self, *, user_input: str, intent: str, llm_response: Any) -> str:
         """Convert execution failures into resilient responses without conflating with ambiguity."""
         force_direct_recovery = self._should_force_failure_recovery_answer(user_input, intent)
+        understood_request = force_direct_recovery or self._should_answer_first_without_clarification(
+            user_input,
+            intent,
+        )
+        failure_reason = (
+            "llm_failed_after_answer_directly"
+            if understood_request
+            else "low_confidence_answer_requiring_retry"
+        )
 
         deterministic = self._deterministic_knowledge_fallback(user_input, intent)
         if deterministic:
             self._record_failure_recovery_state(
-                reason="deterministic_fallback",
+                reason=failure_reason,
                 response=deterministic,
                 task_understood=True,
             )
@@ -8157,7 +8428,7 @@ class ALICE:
         conceptual = self._native_conceptual_answer(user_input, intent)
         if conceptual and force_direct_recovery:
             self._record_failure_recovery_state(
-                reason="conceptual_fallback",
+                reason="llm_failed_after_answer_directly",
                 response=conceptual,
                 task_understood=True,
             )
@@ -8171,7 +8442,7 @@ class ALICE:
         if force_direct_recovery:
             fallback = self._compose_understood_goal_recovery(user_input, intent)
             self._record_failure_recovery_state(
-                reason="forced_direct_recovery",
+                reason="llm_failed_after_answer_directly",
                 response=fallback,
                 task_understood=True,
             )
@@ -8186,26 +8457,17 @@ class ALICE:
                 user_input=user_input,
             )
             self._record_failure_recovery_state(
-                reason="safe_passthrough",
+                reason=failure_reason,
                 response=passthrough,
-                task_understood=False,
+                task_understood=bool(understood_request),
             )
             return passthrough
 
-        scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
-        if scaffold:
-            self._record_failure_recovery_state(
-                reason="clarification_scaffold",
-                response=scaffold,
-                task_understood=False,
-            )
-            return scaffold
-
         generic = self._compose_understood_goal_recovery(user_input, intent)
         self._record_failure_recovery_state(
-            reason="generic_safe_mode",
+            reason=failure_reason,
             response=generic,
-            task_understood=False,
+            task_understood=bool(understood_request),
         )
         return generic
 
@@ -8264,9 +8526,11 @@ class ALICE:
         intent: str,
         response: str,
         fallback_action: str,
+        fallback_reason: str = "",
     ) -> str:
         """Build executive-gate fallback responses without inline hardcoded branches."""
-        normalized_intent = str(intent or "").lower().strip()
+        _normalized_intent = str(intent or "").lower().strip()
+        _normalized_reason = str(fallback_reason or "").strip().lower()
         _failure_recovery = dict(
             (getattr(self, "_internal_reasoning_state", {}) or {}).get("failure_recovery", {}) or {}
         )
@@ -8275,11 +8539,39 @@ class ALICE:
                 (getattr(self, "_internal_reasoning_state", {}) or {}).get("failure_recovery_response") or ""
             ).strip()
             if _recovered:
+                self._record_fallback_taxonomy(
+                    reason=(
+                        _normalized_reason
+                        or str(_failure_recovery.get("reason") or "llm_failed_after_answer_directly")
+                    ),
+                    source="executive_response_gate",
+                    action="answer_direct",
+                    task_understood=True,
+                )
                 return _recovered
+
+        if self._is_answerability_direct_question(user_input) and fallback_action == "clarify":
+            direct_recovery = self._compose_understood_goal_recovery(user_input, intent)
+            self._record_fallback_taxonomy(
+                reason="llm_failed_after_answer_directly",
+                source="executive_response_gate",
+                action="answer_direct",
+                task_understood=True,
+            )
+            return direct_recovery
 
         if fallback_action == "clarify":
             conceptual = self._native_conceptual_answer(user_input, intent)
             if conceptual:
+                self._record_fallback_taxonomy(
+                    reason=(
+                        _normalized_reason
+                        or "low_confidence_answer_requiring_retry"
+                    ),
+                    source="executive_response_gate",
+                    action="answer_direct",
+                    task_understood=True,
+                )
                 return conceptual
 
             clarification = self._generate_natural_response(
@@ -8293,27 +8585,73 @@ class ALICE:
                 user_input,
             )
             if clarification:
+                clarify_reason = _normalized_reason or "clarification_due_to_missing_parameter"
+                if self._is_project_ideation_turn(user_input, _normalized_intent):
+                    clarify_reason = "clarification_due_to_goal_narrowing"
+                self._record_fallback_taxonomy(
+                    reason=clarify_reason,
+                    source="executive_response_gate",
+                    action="clarify",
+                    task_understood=False,
+                )
                 return clarification
 
             scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
             if scaffold:
+                self._record_fallback_taxonomy(
+                    reason=(
+                        _normalized_reason
+                        or "clarification_due_to_missing_parameter"
+                    ),
+                    source="executive_response_gate",
+                    action="clarify",
+                    task_understood=False,
+                )
                 return scaffold
 
         scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
         if scaffold:
+            self._record_fallback_taxonomy(
+                reason=(
+                    _normalized_reason
+                    or "low_confidence_answer_requiring_retry"
+                ),
+                source="executive_response_gate",
+                action="retry",
+                task_understood=False,
+            )
             return scaffold
 
         recovered = self._fallback_from_intent(intent, None)
         if recovered:
+            self._record_fallback_taxonomy(
+                reason=(
+                    _normalized_reason
+                    or "low_confidence_answer_requiring_retry"
+                ),
+                source="executive_response_gate",
+                action="retry",
+                task_understood=False,
+            )
             return recovered
 
-        return self._clamp_final_response(
+        final = self._clamp_final_response(
             response,
             tone="professional and precise",
             response_type="operation_failure",
             route="exec_gate_fallback",
             user_input=user_input,
         )
+        self._record_fallback_taxonomy(
+            reason=(
+                _normalized_reason
+                or "low_confidence_answer_requiring_retry"
+            ),
+            source="executive_response_gate",
+            action="retry",
+            task_understood=False,
+        )
+        return final
 
     def _executive_apply_response_gate(
         self,
@@ -8352,11 +8690,15 @@ class ALICE:
             return response
 
         fallback_action = evaluation.get("fallback_action", "safe_reply")
+        fallback_reason = str(evaluation.get("fallback_reason", "") or "").strip()
+        if fallback_reason:
+            self._think(f"Executive fallback reason → {fallback_reason}")
         return self._executive_gate_fallback_response(
             user_input=user_input,
             intent=intent,
             response=response,
             fallback_action=str(fallback_action or "safe_reply"),
+            fallback_reason=fallback_reason,
         )
 
     def _run_executive_reflection(
@@ -8483,6 +8825,15 @@ class ALICE:
             "raw_response=",
             "user_input=",
             "plan:",
+            "executive decision",
+            "routing owner",
+            "response plan",
+            "contract_route",
+            "score_tools",
+            "score_llm",
+            "fallback reason",
+            "instead of asking for clarification",
+            "this is answerable",
         )
         kept: List[str] = []
         for line in value.split("\n"):
@@ -8583,6 +8934,16 @@ class ALICE:
             and self._looks_like_clarification_fallback(message)
         ):
             message = self._answerability_gate_fallback_response(user_input)
+
+        if (
+            self._looks_like_clarification_fallback(message)
+            and self._should_answer_first_without_clarification(user_input, reasoning_output.intent)
+        ):
+            if self._is_project_ideation_turn(user_input, reasoning_output.intent) or self._is_project_ideation_request(user_input):
+                self._clear_pending_conversation_slot_state("clarification_satisfied")
+                message = self._project_ideation_guidance_response(user_input)
+            else:
+                message = self._compose_understood_goal_recovery(user_input, reasoning_output.intent)
 
         return message
 
@@ -8941,6 +9302,33 @@ class ALICE:
             self._internal_reasoning_state["raw_user_input"] = user_input
             self._internal_reasoning_state["resolved_user_input"] = _resolved_input
             self._internal_reasoning_state["context_resolution_confidence"] = _resolution_confidence
+
+            # Deterministic native fast path for trivial social turns.
+            _pending_clarification_now = {}
+            try:
+                if getattr(self, 'nlp', None) and getattr(self.nlp, 'context', None):
+                    _pending_clarification_now = dict(
+                        getattr(self.nlp.context, 'pending_clarification', {}) or {}
+                    )
+            except Exception:
+                _pending_clarification_now = {}
+
+            if self._is_explicit_greeting_input(user_input) and not _pending_clarification_now:
+                _native_greeting = self._native_scaffold_response(user_input, "greeting")
+                if _native_greeting:
+                    self._think("Native social fast path → greeting")
+                    self._record_fallback_taxonomy(
+                        reason="native_fast_path_social",
+                        source="pre_nlp",
+                        action="answer_direct",
+                        task_understood=True,
+                    )
+                    self._store_interaction(user_input, _native_greeting, "greeting", {})
+                    if use_voice and self.speech:
+                        self.speech.speak(_native_greeting, blocking=False)
+                    logger.info(f"A.L.I.C.E: {_native_greeting[:100]}...")
+                    return _native_greeting
+
             nlp_start = time.time()
             nlp_result = self.nlp.process(_nlp_input)
             intent = nlp_result.intent
@@ -9142,6 +9530,17 @@ class ALICE:
                 entities=entities or {},
                 intent_confidence=float(intent_confidence or 0.0),
             )
+
+            if self._is_project_ideation_request(user_input):
+                entities = dict(entities or {})
+                entities.setdefault("goal", str(user_input or "").strip())
+                entities.setdefault("user_goal", str(user_input or "").strip())
+                entities.setdefault("objective", str(user_input or "").strip())
+                if intent == "conversation:clarification_needed":
+                    self._think("Project ideation detail detected -> clarification satisfied")
+                    intent = "learning:project_ideation"
+                    intent_confidence = max(float(intent_confidence or 0.0), 0.84)
+                self._clear_pending_conversation_slot_state("clarification_satisfied")
 
             # ── 1.4  Validation / clarification gate ─────────────────────────────
             # Now validates the *resolved* intent — follow-up corrections are
@@ -9873,8 +10272,21 @@ class ALICE:
                             return goal_res.message
                         self._think(f"Goal cancelled → continuing with intent={intent!r}")
                     if goal_res.revised:
-                        intent, entities = goal_res.intent, goal_res.entities
-                        self._think(f"Goal revised → intent={intent!r}")
+                        _revised_intent = str(goal_res.intent or intent)
+                        _revised_entities = dict(goal_res.entities or entities or {})
+                        _project_detail_satisfied = self._is_project_ideation_request(user_input)
+                        if _project_detail_satisfied and _revised_intent == "conversation:clarification_needed":
+                            self._think("Goal revise suggested clarification, but detail is now satisfied -> preserving ideation intent")
+                            intent = "learning:project_ideation"
+                            entities = {**(entities or {}), **_revised_entities}
+                            entities.setdefault("goal", str(user_input or "").strip())
+                            entities.setdefault("user_goal", str(user_input or "").strip())
+                            entities.setdefault("objective", str(user_input or "").strip())
+                            intent_confidence = max(float(intent_confidence or 0.0), 0.84)
+                            self._clear_pending_conversation_slot_state("clarification_satisfied")
+                        else:
+                            intent, entities = _revised_intent, _revised_entities
+                            self._think(f"Goal revised → intent={intent!r}")
                     elif goal_res.goal:
                         self._think(f"Goal: {goal_res.goal.description[:60]}...")
                 except Exception as e:

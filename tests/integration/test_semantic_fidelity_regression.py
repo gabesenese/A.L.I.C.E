@@ -768,3 +768,74 @@ def test_clamp_final_response_project_ideation_meta_leak_uses_guidance():
     assert "i can help with that. tell me the exact result you want." not in low
     assert "strong place to start" in low
     assert "focus first on memory, tool-use, or conversational quality" in low
+
+
+def test_contract_respond_stage_replaces_stale_clarification_scaffold_for_project_ideation() -> None:
+    alice = ALICE.__new__(ALICE)
+
+    repaired = alice._contract_respond_stage(
+        user_input="i want to create an agentic local ai agent",
+        candidate="I can help with that. Give me one concrete detail and I will answer directly.",
+        reasoning_output=SimpleNamespace(intent="conversation:clarification_needed"),
+        tool_results={},
+    )
+
+    low = repaired.lower()
+    assert "one concrete detail" not in low
+    assert "strong place to start" in low
+    assert "focus first on memory, tool-use, or conversational quality" in low
+
+
+def test_deterministic_framework_fallback_handles_short_agentic_prompt() -> None:
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._deterministic_knowledge_fallback(
+        "agentic ai frameworks",
+        "conversation:help",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "langgraph" in low
+    assert "langchain" in low
+    assert "crewai" in low
+    assert "plan-execute-verify" in low
+    assert "continue, retry, ask, or escalate" in low
+    assert "consciousness" not in low
+    assert "dennett" not in low
+    assert "iit" not in low
+
+
+def test_safe_llm_failure_recovery_records_explicit_answer_path_failure_reason() -> None:
+    alice = ALICE.__new__(ALICE)
+    alice._internal_reasoning_state = {
+        "confidence": 0.78,
+        "response_plan": {"strategy": "answer_directly"},
+    }
+
+    response = alice._safe_llm_failure_response(
+        user_input="what's the difference between an ai agent and an ai assistant?",
+        intent="conversation:help",
+        llm_response=SimpleNamespace(
+            success=False,
+            response="Primary generation route is unavailable right now.",
+            error="Primary generation route is unavailable right now.",
+        ),
+    )
+
+    low = response.lower()
+    assert "clarify" not in low
+    state = dict(getattr(alice, "_internal_reasoning_state", {}) or {})
+    recovery = dict(state.get("failure_recovery", {}) or {})
+    taxonomy = dict(state.get("fallback_taxonomy", {}) or {})
+    assert recovery.get("reason") == "llm_failed_after_answer_directly"
+    assert taxonomy.get("reason") == "llm_failed_after_answer_directly"
+
+
+def test_explicit_greeting_detector_and_native_greeting_path_for_hi_alice() -> None:
+    alice = ALICE.__new__(ALICE)
+    alice.phrasing_learner = None
+    alice.context = None
+
+    assert alice._is_explicit_greeting_input("hi alice") is True
+    assert alice._native_scaffold_response("hi alice", "greeting") is not None

@@ -972,6 +972,16 @@ class ExecutiveController:
                 store_memory=True,
             )
 
+        if (
+            self._is_answerability_direct_question(state.source_text)
+            and not has_explicit_action_cue
+        ):
+            return ExecutiveDecision(
+                action="answer_direct",
+                reason="answerability_gate_direct_question",
+                store_memory=True,
+            )
+
         normalized_intent = (state.user_intent or "").lower().strip()
         rich_conceptual = self._is_rich_conceptual_request(state.source_text)
         conceptual_build = self._is_conceptual_build_architecture_prompt(
@@ -1337,7 +1347,20 @@ class ExecutiveController:
             return False
 
         has_ask = any(
-            cue in text for cue in ("explain", "what is", "how does", "give me")
+            cue in text
+            for cue in (
+                "explain",
+                "what is",
+                "what's",
+                "how does",
+                "how do",
+                "why does",
+                "why do",
+                "difference between",
+                "compare",
+                "define",
+                "give me",
+            )
         )
         has_format = any(
             cue in text
@@ -1354,7 +1377,53 @@ class ExecutiveController:
             for t in re.findall(r"\b[a-z0-9']+\b", text)
             if t not in self.SEMANTIC_STOPWORDS
         ]
-        return bool(has_ask and has_format and len(topic_tokens) >= 2)
+        if not has_ask or len(topic_tokens) < 2:
+            return False
+        if has_format:
+            return True
+        # Self-contained definitional/comparison requests should be answer-first.
+        if "?" in text:
+            return True
+        return any(
+            cue in text
+            for cue in ("difference between", "compare", "define", "what is", "what's")
+        )
+
+    def _is_answerability_direct_question(self, text: str) -> bool:
+        low = str(text or "").strip().lower()
+        if not low:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", low)
+        if len(tokens) < 3:
+            return False
+
+        if any(tok in {"something", "anything", "stuff", "whatever", "idk"} for tok in tokens):
+            return False
+
+        if re.search(r"\b(help\s+me|do\s+this|do\s+that|build\s+me|make\s+me)\b", low):
+            return False
+
+        direct_patterns = (
+            r"^\s*what\s+is\b",
+            r"^\s*what's\b",
+            r"^\s*what\s+are\b",
+            r"^\s*what(?:'s|\s+is)?\s+the\s+difference\b",
+            r"\bdifference\s+between\b",
+            r"^\s*compare\b",
+            r"^\s*explain\b",
+            r"^\s*how\s+does\b",
+            r"^\s*how\s+do\b",
+            r"^\s*why\s+does\b",
+            r"^\s*why\s+do\b",
+            r"^\s*define\b",
+        )
+        has_direct_structure = any(re.search(pat, low) for pat in direct_patterns)
+        is_question_like = bool(
+            "?" in low
+            or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", low)
+        )
+        return bool(has_direct_structure and is_question_like)
 
     def _is_simple_native_conversation(
         self,
@@ -1913,12 +1982,25 @@ class ExecutiveController:
         """Response acceptance gate before content is sent to the user."""
         context = context or {}
         resp = (response or "").strip()
+        normalized_intent = (intent or "").lower().strip()
+        answerable_question = self._is_answerability_direct_question(user_input) and (
+            normalized_intent.startswith("conversation:")
+            or normalized_intent.startswith("learning:")
+            or normalized_intent in {"question", "study_topic"}
+        )
         if not resp:
+            fallback_action = "safe_reply" if answerable_question else "clarify"
+            fallback_reason = (
+                "llm_failed_after_answer_directly"
+                if answerable_question
+                else "clarification_due_to_missing_parameter"
+            )
             return {
                 "accepted": False,
                 "score": 0.0,
                 "reason": "empty_response",
-                "fallback_action": "clarify",
+                "fallback_action": fallback_action,
+                "fallback_reason": fallback_reason,
             }
 
         semantic_guard = self._semantic_fidelity_guard(
@@ -1927,6 +2009,12 @@ class ExecutiveController:
             response=resp,
         )
         if semantic_guard is not None:
+            if "fallback_reason" not in semantic_guard:
+                semantic_guard["fallback_reason"] = (
+                    "llm_failed_after_answer_directly"
+                    if answerable_question
+                    else "low_confidence_answer_requiring_retry"
+                )
             return semantic_guard
 
         user_tokens = set(self._tokens(user_input))
@@ -1989,6 +2077,7 @@ class ExecutiveController:
                 "score": 0.0,
                 "reason": "plan_violation_missing_steps",
                 "fallback_action": "safe_reply",
+                "fallback_reason": "low_confidence_answer_requiring_retry",
             }
 
         score = max(
@@ -2015,6 +2104,19 @@ class ExecutiveController:
         fallback_action = (
             "clarify" if (overlap < 0.2 or plan_adherence < 0.45) else "safe_reply"
         )
+        if answerable_question and fallback_action == "clarify":
+            fallback_action = "safe_reply"
+
+        fallback_reason = "low_confidence_answer_requiring_retry"
+        if fallback_action == "clarify":
+            plan_strategy = str(plan.get("strategy") or "").strip().lower()
+            if plan_strategy == "ask_guiding_question":
+                fallback_reason = "clarification_due_to_goal_narrowing"
+            else:
+                fallback_reason = "clarification_due_to_missing_parameter"
+        elif answerable_question:
+            fallback_reason = "llm_failed_after_answer_directly"
+
         return {
             "accepted": False,
             "score": score,
@@ -2022,6 +2124,7 @@ class ExecutiveController:
                 "low_alignment" if goal_alignment >= 0.35 else "goal_misalignment"
             ),
             "fallback_action": fallback_action,
+            "fallback_reason": fallback_reason,
         }
 
     def _semantic_anchor_tokens(self, text: str) -> List[str]:
@@ -2057,7 +2160,8 @@ class ExecutiveController:
                 "accepted": False,
                 "score": 0.0,
                 "reason": "semantic_noise_in_response",
-                "fallback_action": "clarify",
+                "fallback_action": "safe_reply",
+                "fallback_reason": "low_confidence_answer_requiring_retry",
             }
 
         normalized_intent = (intent or "").lower().strip()
@@ -2086,16 +2190,19 @@ class ExecutiveController:
                     "autonomy in ai",
                 )
             )
-            and any(
-                cue in user_low
-                for cue in (
-                    "build",
-                    "building",
-                    "implement",
-                    "implementation",
-                    "existing",
-                    "research",
+            and (
+                any(
+                    cue in user_low
+                    for cue in (
+                        "build",
+                        "building",
+                        "implement",
+                        "implementation",
+                        "existing",
+                        "research",
+                    )
                 )
+                or len(re.findall(r"\b[a-z0-9']+\b", user_low)) <= 7
             )
         )
         if practical_framework_prompt:
@@ -2109,6 +2216,7 @@ class ExecutiveController:
                 "philosophy",
             }
             practical_terms = {
+                "langgraph",
                 "langchain",
                 "autogpt",
                 "crewai",
@@ -2116,6 +2224,11 @@ class ExecutiveController:
                 "plan",
                 "execute",
                 "reflect",
+                "verify",
+                "checkpoint",
+                "rollback",
+                "retry",
+                "escalate",
                 "tool",
                 "memory",
                 "orchestration",
@@ -2130,7 +2243,8 @@ class ExecutiveController:
                     "accepted": False,
                     "score": 0.0,
                     "reason": "semantic_drift_theoretical_domain",
-                    "fallback_action": "clarify",
+                    "fallback_action": "safe_reply",
+                    "fallback_reason": "low_confidence_answer_requiring_retry",
                 }
 
         overlap = [tok for tok in user_anchors if tok in response_tokens]
@@ -2139,7 +2253,8 @@ class ExecutiveController:
                 "accepted": False,
                 "score": 0.0,
                 "reason": "semantic_core_missing",
-                "fallback_action": "clarify",
+                "fallback_action": "safe_reply",
+                "fallback_reason": "low_confidence_answer_requiring_retry",
             }
 
         # Guard against programming-language drift on conceptual assistant architecture questions.
@@ -2157,7 +2272,8 @@ class ExecutiveController:
                 "accepted": False,
                 "score": 0.0,
                 "reason": "semantic_drift_programming_domain",
-                "fallback_action": "clarify",
+                "fallback_action": "safe_reply",
+                "fallback_reason": "low_confidence_answer_requiring_retry",
             }
 
         return None
