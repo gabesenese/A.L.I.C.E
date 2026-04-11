@@ -234,3 +234,31 @@ def test_process_input_wrapper_agent_vs_assistant_gets_real_comparison_answer():
     assert "agent" in lowered
     assert "reactive" in lowered
     assert "proactive" in lowered
+
+
+def test_process_input_wrapper_strips_internal_contract_lines_before_response():
+    alice = ALICE.__new__(ALICE)
+    alice.response_formulator = None
+    alice._internal_reasoning_state = {}
+    alice._last_routed_intent = "conversation:general"
+    alice.last_intent = "conversation:general"
+    alice._last_intent_confidence = 0.62
+    alice._last_policy = None
+    alice._last_plugin_result = {}
+    alice.last_assistant_response = ""
+
+    alice._process_input_internal = (
+        lambda _user_input, use_voice=False: (
+            "intent=conversation:general\n"
+            "raw_response=internal\n"
+            "The practical answer is to separate planning, execution, and verification loops."
+        )
+    )
+
+    user_text = ALICE.process_input(alice, "how should i design an ai agent loop?")
+
+    lowered = user_text.lower()
+    assert "intent=" not in lowered
+    assert "raw_response=" not in lowered
+    assert "planning" in lowered
+    assert "verification" in lowered

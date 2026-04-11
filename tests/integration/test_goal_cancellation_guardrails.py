@@ -68,6 +68,45 @@ class TestGoalCancellationGuardrails:
         assert result.message == "Understood. Cancelled."
         assert engine.get_current_goal() is None
 
+    def test_unrelated_conversational_help_replaces_stale_goal(self, engine):
+        engine.set_goal(
+            ActiveGoal(
+                goal_id="goal_recipe",
+                description="give me a gourmet recipe for carbonara pasta",
+                intent="conversation:help",
+                entities={},
+            )
+        )
+
+        result = engine.resolve_goal(
+            "give me a top 10 movies coming out in 2026",
+            "conversation:help",
+            {},
+        )
+
+        assert result.goal is not None
+        assert "movies" in result.goal.description.lower()
+        assert "carbonara" not in result.goal.description.lower()
+
+    def test_related_conversational_help_keeps_goal(self, engine):
+        engine.set_goal(
+            ActiveGoal(
+                goal_id="goal_movies",
+                description="give me a top 10 movies coming out in 2026",
+                intent="conversation:help",
+                entities={},
+            )
+        )
+
+        result = engine.resolve_goal(
+            "which movies on that 2026 list are sci-fi?",
+            "conversation:help",
+            {},
+        )
+
+        assert result.goal is not None
+        assert result.goal.goal_id == "goal_movies"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

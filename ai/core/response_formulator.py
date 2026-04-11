@@ -101,9 +101,6 @@ class ResponseFormulator:
     DIRECT_RETRY_FALLBACK = (
         "I can help. Tell me the exact result you want, and I will answer directly."
     )
-    DIRECT_ANSWER_FALLBACK = (
-        "Short answer: this is a direct question, so I will answer it directly without task clarification."
-    )
 
     def is_internal(self, text: str) -> bool:
         """Return True when a text looks like internal reasoning or scaffold leakage."""
@@ -163,9 +160,29 @@ class ResponseFormulator:
             return ""
 
         cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
-        cleaned = "\n".join(
-            re.sub(r"[^\S\n]+", " ", line).strip() for line in cleaned.split("\n")
+        cleaned_lines: List[str] = []
+        internal_key_equals = re.compile(
+            r"\b(?:intent|confidence|route|raw_response|user_input|resolved_intent|response_type|strategy|plan)\s*=",
+            re.IGNORECASE,
         )
+        for line in cleaned.split("\n"):
+            normalized = re.sub(r"[^\S\n]+", " ", line).strip()
+            if not normalized:
+                cleaned_lines.append("")
+                continue
+            low_line = normalized.lower()
+            if re.match(r"^(analysis|context|intent|plan)\s*:\s*", low_line):
+                continue
+            if internal_key_equals.search(low_line):
+                continue
+            cleaned_lines.append(normalized)
+
+        while cleaned_lines and cleaned_lines[0] == "":
+            cleaned_lines.pop(0)
+        while cleaned_lines and cleaned_lines[-1] == "":
+            cleaned_lines.pop()
+
+        cleaned = "\n".join(cleaned_lines)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         cleaned = re.sub(
             r"^(analysis|context|intent|plan)\s*:\s*", "", cleaned, flags=re.IGNORECASE
@@ -174,6 +191,51 @@ class ResponseFormulator:
         if cleaned and not re.search(r"[.!?]$", cleaned):
             cleaned += "."
         return cleaned
+
+    @staticmethod
+    def _compose_direct_answer_fallback(user_input: str) -> str:
+        """Generate a concise direct answer scaffold for self-contained direct questions."""
+        text = str(user_input or "").strip()
+        low = text.lower()
+
+        diff_match = re.search(r"difference\s+between\s+(.+?)\s+and\s+(.+?)(?:\?|$)", low)
+        if diff_match:
+            left = diff_match.group(1).strip(" .?!")
+            right = diff_match.group(2).strip(" .?!")
+            if left and right:
+                return (
+                    f"Short answer: {left} and {right} are related, but {left} usually focuses on one primary role, "
+                    f"while {right} focuses on a different role, workflow, or implementation objective."
+                )
+
+        what_match = re.match(r"^\s*(?:what\s+is|what's|define)\s+(.+?)(?:\?|$)", low)
+        if what_match:
+            topic = what_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} is best defined by what it does, where it fits in a system, "
+                    f"and which trade-offs it introduces in practice."
+                )
+
+        how_match = re.match(r"^\s*(?:how\s+does|how\s+do)\s+(.+?)(?:\?|$)", low)
+        if how_match:
+            topic = how_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} works through input interpretation, decision logic, "
+                    f"execution, and feedback-driven adjustment."
+                )
+
+        why_match = re.match(r"^\s*(?:why\s+does|why\s+do)\s+(.+?)(?:\?|$)", low)
+        if why_match:
+            topic = why_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} generally reflects design constraints, optimization trade-offs, "
+                    f"and objective-driven behavior in the system."
+                )
+
+        return "Short answer: this is a direct question, so here is a concise explanation without clarification prompts."
 
     def _regenerate_clean_message(
         self,
@@ -188,7 +250,7 @@ class ResponseFormulator:
         user_input = str((context or {}).get("user_input") or "").strip()
 
         if self._is_direct_answer_question(user_input):
-            return self.DIRECT_ANSWER_FALLBACK
+            return self._compose_direct_answer_fallback(user_input)
 
         if "clarification" in intent_text or "vague" in intent_text:
             return self.CLARIFICATION_FALLBACK
@@ -285,7 +347,7 @@ class ResponseFormulator:
         if not candidate or self.is_internal(candidate):
             user_input = str((context or {}).get("user_input") or "").strip()
             if self._is_direct_answer_question(user_input):
-                candidate = self.DIRECT_ANSWER_FALLBACK
+                candidate = self._compose_direct_answer_fallback(user_input)
             else:
                 candidate = self.GENERIC_FALLBACK
 

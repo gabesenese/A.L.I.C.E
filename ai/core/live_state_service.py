@@ -57,7 +57,7 @@ class LiveStateService:
             else self.FRESHNESS_TTL_SECONDS["weather"]
         )
         age_seconds = max(
-            0.0, self._to_epoch(datetime.utcnow()) - float(freshest.captured_at or 0.0)
+            0.0, self._to_epoch(datetime.now()) - float(freshest.captured_at or 0.0)
         )
         is_stale = age_seconds > ttl if freshest.captured_at else True
         return {
@@ -96,7 +96,7 @@ class LiveStateService:
             else self.FRESHNESS_TTL_SECONDS["forecast"]
         )
         age_seconds = max(
-            0.0, self._to_epoch(datetime.utcnow()) - float(freshest.captured_at or 0.0)
+            0.0, self._to_epoch(datetime.now()) - float(freshest.captured_at or 0.0)
         )
         payload["age_seconds"] = age_seconds
         payload["is_stale"] = age_seconds > ttl if freshest.captured_at else True

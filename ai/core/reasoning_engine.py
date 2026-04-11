@@ -122,6 +122,58 @@ class ReasoningEngine:
     - Action verification (checking success and goal fulfillment)
     """
 
+    _GOAL_MATCH_STOPWORDS = {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "can",
+        "do",
+        "for",
+        "from",
+        "get",
+        "give",
+        "help",
+        "i",
+        "in",
+        "is",
+        "it",
+        "me",
+        "my",
+        "of",
+        "on",
+        "or",
+        "please",
+        "show",
+        "that",
+        "the",
+        "this",
+        "to",
+        "want",
+        "what",
+        "with",
+        "you",
+        "your",
+    }
+
+    _GENERIC_CONVERSATIONAL_INTENTS = {
+        "conversation:ack",
+        "conversation:clarification_needed",
+        "conversation:general",
+        "conversation:help",
+        "conversation:meta_question",
+        "conversation:question",
+        "farewell",
+        "greeting",
+        "status_inquiry",
+        "thanks",
+        "vague_question",
+        "vague_temporal_question",
+    }
+
     def __init__(
         self, user_name: str = "User", max_turns: int = 50, max_entities: int = 200
     ):
@@ -415,20 +467,30 @@ class ReasoningEngine:
         # 4) Check if input relates to existing goal
         current_goal = self.active_goal
         if current_goal:
-            goal_keywords = set(current_goal.description.lower().split())
-            input_keywords = set(inp.split())
+            goal_keywords = self._content_tokens(current_goal.description)
+            input_keywords = self._content_tokens(inp)
             goal_entities = set(
                 str(v).lower() for v in current_goal.entities.values() if v
             )
             input_entities = set(str(v).lower() for v in entities.values() if v)
+            same_intent = str(intent or "").strip().lower() == str(
+                current_goal.intent or ""
+            ).strip().lower()
+            allow_intent_match = same_intent and not self._is_generic_conversational_intent(
+                intent
+            )
+            goal_focus_words = [
+                tok
+                for tok in re.findall(r"[a-z0-9']+", current_goal.description.lower())
+                if tok not in self._GOAL_MATCH_STOPWORDS and len(tok) >= 4
+            ][:5]
+            focus_overlap = any(word in input_keywords for word in goal_focus_words)
 
             if (
-                intent == current_goal.intent
+                allow_intent_match
                 or len(goal_keywords & input_keywords) >= 2
                 or len(goal_entities & input_entities) > 0
-                or any(
-                    word in inp for word in current_goal.description.lower().split()[:5]
-                )
+                or focus_overlap
             ):
                 current_goal.entities = {**current_goal.entities, **entities}
                 if len(user_input) > len(current_goal.description):
@@ -514,6 +576,20 @@ class ReasoningEngine:
             return False
 
         return True
+
+    @classmethod
+    def _content_tokens(cls, text: str) -> set[str]:
+        tokens = {
+            tok
+            for tok in re.findall(r"[a-z0-9']+", str(text or "").lower())
+            if tok not in cls._GOAL_MATCH_STOPWORDS and len(tok) >= 3
+        }
+        return tokens
+
+    @classmethod
+    def _is_generic_conversational_intent(cls, intent: str) -> bool:
+        low = str(intent or "").strip().lower()
+        return low.startswith("conversation:") or low in cls._GENERIC_CONVERSATIONAL_INTENTS
 
     def get_current_goal(self) -> Optional[ActiveGoal]:
         """Get current active goal"""

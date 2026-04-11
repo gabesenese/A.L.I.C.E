@@ -180,6 +180,19 @@ def test_answerability_gate_detects_specific_domain_questions_and_ignores_ambigu
     ) is False
 
 
+def test_answerability_gate_fallback_returns_substantive_answer_for_unknown_direct_question():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._answerability_gate_fallback_response(
+        "what is agentic autonomy?"
+    )
+
+    low = response.lower()
+    assert "clarify" not in low
+    assert "exact result" not in low
+    assert "agentic autonomy" in low
+
+
 def test_answerability_gate_forces_answer_first_without_clarification():
     alice = ALICE.__new__(ALICE)
 

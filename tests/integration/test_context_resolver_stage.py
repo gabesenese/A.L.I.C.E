@@ -72,3 +72,20 @@ def test_context_resolver_does_not_clarify_temporal_deictic_this_weekend():
     assert result.needs_clarification is False
     assert "this" not in result.unresolved_pronouns
     assert result.rewritten_input == "hows the weather for this weekend?"
+
+
+def test_context_resolver_does_not_clarify_weather_it_query():
+    state = {
+        "current_topic": "",
+        "last_subject": "",
+        "last_intent": "",
+        "active_goal": "",
+        "referenced_entities": [],
+        "last_entities": {},
+    }
+    resolver = ContextResolver()
+
+    result = resolver.resolve("is it raining tomorrow?", state)
+
+    assert result.needs_clarification is False
+    assert result.rewritten_input == "is it raining tomorrow?"

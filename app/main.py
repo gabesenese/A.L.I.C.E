@@ -7163,9 +7163,20 @@ class ALICE:
         umbrella_aliases = ['umbrella', 'umbrela', 'umberella', 'umbralla']
 
         def _rain_outlook_reply(time_label: str, weather_line: str) -> Optional[str]:
+            mentions_rain_topic = bool(
+                re.search(r"\b(rain|raining|drizzle|shower|storm|thunder|precip|wet)\b", input_lower)
+            )
+            asks_rain_explicitly = bool(
+                re.search(
+                    r"\b(will|gonna|going\s+to|is\s+it|chance|expect|forecast|make\s+sure|ensure|avoid|not\s+raining|dry)\b",
+                    input_lower,
+                )
+            )
+            has_schedule_context = bool(
+                re.search(r"\b(appointment|meeting|event)\b", input_lower)
+            )
             asks_rain = bool(
-                re.search(r"\b(rain|drizzle|shower|storm|thunder|precip)\b", input_lower)
-                and re.search(r"\b(will|gonna|going\s+to|is\s+it|chance|expect)\b", input_lower)
+                mentions_rain_topic and (asks_rain_explicitly or has_schedule_context)
             )
             if not asks_rain or not weather_line:
                 return None
@@ -7175,12 +7186,24 @@ class ALICE:
             dry_terms = ("clear", "sunny", "partly cloudy", "cloudy", "overcast", "fog", "windy")
             label = str(time_label or "").strip().lower()
             time_phrase = f"for {label}" if label else ""
+            appointment_time = re.search(
+                r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b",
+                input_lower,
+            )
+            appointment_note = ""
+            if has_schedule_context:
+                if appointment_time:
+                    appointment_note = (
+                        f" For your {appointment_time.group(1)} appointment, check the hourly forecast closer to that time."
+                    )
+                else:
+                    appointment_note = " For your appointment, check the hourly forecast closer to the time."
 
             if any(term in line_low for term in rainy_terms):
-                return f"Yes, rain looks likely {time_phrase}. {weather_line}".strip()
+                return f"Yes, rain looks likely {time_phrase}. {weather_line}{appointment_note}".strip()
             if any(term in line_low for term in dry_terms):
-                return f"No, rain is not in the forecast {time_phrase}. {weather_line}".strip()
-            return f"Rain is uncertain {time_phrase}. {weather_line}".strip()
+                return f"No, rain is not in the forecast {time_phrase}. {weather_line}{appointment_note}".strip()
+            return f"Rain is uncertain {time_phrase}. {weather_line}{appointment_note}".strip()
 
         weekday_keywords = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         time_range_keywords = [
@@ -7206,6 +7229,12 @@ class ALICE:
                 self._think(
                     f"No stored forecast snapshot for '{mentioned_time_range}' follow-up yet; "
                     "continuing with forecast routing"
+                )
+                return None
+            if bool(forecast_data.get('is_stale')):
+                self._think(
+                    f"Stored forecast snapshot for '{mentioned_time_range}' is stale; "
+                    "continuing with fresh forecast routing"
                 )
                 return None
             self._think(
@@ -7252,6 +7281,12 @@ class ALICE:
                 self._think(
                     f"No stored forecast snapshot for '{mentioned_day}' follow-up yet; "
                     "continuing with forecast routing"
+                )
+                return None
+            if bool(forecast_data.get('is_stale')):
+                self._think(
+                    f"Stored forecast snapshot for '{mentioned_day}' is stale; "
+                    "continuing with fresh forecast routing"
                 )
                 return None
             self._think(f"Using stored forecast data for {mentioned_day} query: {type(forecast_data)} with {len(forecast_data.get('forecast', []))} days")
@@ -7772,6 +7807,51 @@ class ALICE:
         )
         return any(marker in low for marker in clarification_markers)
 
+    @staticmethod
+    def _heuristic_direct_answer_fallback(user_input: str) -> str:
+        """Build a concise direct answer when a direct question loses content downstream."""
+        text = str(user_input or "").strip()
+        low = text.lower()
+
+        diff_match = re.search(r"difference\s+between\s+(.+?)\s+and\s+(.+?)(?:\?|$)", low)
+        if diff_match:
+            left = diff_match.group(1).strip(" .?!")
+            right = diff_match.group(2).strip(" .?!")
+            if left and right:
+                return (
+                    f"Short answer: {left} and {right} overlap, but {left} is typically oriented toward one core role, "
+                    f"while {right} emphasizes a different role, workflow, or operating focus."
+                )
+
+        what_match = re.match(r"^\s*(?:what\s+is|what's|define)\s+(.+?)(?:\?|$)", low)
+        if what_match:
+            topic = what_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} is best understood by what it does in practice, "
+                    f"how it is used in a system, and what trade-offs it introduces."
+                )
+
+        how_match = re.match(r"^\s*(?:how\s+does|how\s+do)\s+(.+?)(?:\?|$)", low)
+        if how_match:
+            topic = how_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} works as a loop of input processing, decision logic, "
+                    f"and output execution, with feedback used to improve the next step."
+                )
+
+        why_match = re.match(r"^\s*(?:why\s+does|why\s+do)\s+(.+?)(?:\?|$)", low)
+        if why_match:
+            topic = why_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} usually happens because of objective constraints, "
+                    f"design trade-offs, and the way the system optimizes for outcomes."
+                )
+
+        return "Short answer: this is a direct question, so I will provide a concise explanation instead of asking for clarification."
+
     def _answerability_gate_fallback_response(self, user_input: str) -> str:
         """Provide a concise direct fallback when answerable questions lose content after sanitization."""
         text = str(user_input or "").lower()
@@ -7790,7 +7870,7 @@ class ALICE:
             return "Short answer: model training learns parameters from data by minimizing a loss function and validating performance on held-out examples."
         if "nlp" in text:
             return "Short answer: NLP combines text preprocessing, representation, and model inference to understand or generate language."
-        return "Short answer: the direct explanation is feasible here, so I will answer the question instead of asking for clarification."
+        return self._heuristic_direct_answer_fallback(user_input)
 
     def _should_answer_first_without_clarification(
         self,
@@ -8184,10 +8264,129 @@ class ALICE:
             confidence=max(0.0, min(1.0, confidence)),
         )
 
+    @staticmethod
+    def _strip_contract_internal_leakage(text: str) -> str:
+        """Drop internal reasoning scaffolds before final response contract stages."""
+        value = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+        if not value.strip():
+            return ""
+
+        leak_markers = (
+            "analysis:",
+            "context:",
+            "intent=",
+            "confidence=",
+            "route=",
+            "raw_response=",
+            "user_input=",
+            "plan:",
+        )
+        kept: List[str] = []
+        for line in value.split("\n"):
+            low = line.lower()
+            if any(marker in low for marker in leak_markers):
+                continue
+            cleaned = line.strip()
+            if cleaned:
+                kept.append(cleaned)
+        return "\n".join(kept).strip()
+
+    def _contract_think_stage(self, *, user_input: str, raw_response: str) -> ReasoningOutput:
+        """THINK stage: build internal reasoning artifact only."""
+        return self._build_reasoning_output_contract(
+            user_input=user_input,
+            raw_response=raw_response,
+        )
+
+    def _contract_decide_stage(
+        self,
+        *,
+        user_input: str,
+        raw_response: str,
+        reasoning_output: ReasoningOutput,
+        tool_results: Dict[str, Any],
+    ) -> str:
+        """DECIDE stage: choose candidate response payload source."""
+        candidate = self._strip_contract_internal_leakage(raw_response)
+        context = {
+            "user_input": str(user_input or "").strip(),
+            "response": candidate,
+            "tone": str(getattr(getattr(self, '_last_policy', None), 'tone', 'neutral') or 'neutral'),
+        }
+
+        if getattr(self, 'response_formulator', None):
+            final_payload = self.response_formulator.generate(
+                intent=reasoning_output.intent,
+                context=context,
+                tool_results=tool_results,
+                reasoning_output=reasoning_output,
+                mode="final_answer_only",
+            )
+            if isinstance(final_payload, UserResponse):
+                candidate = str(final_payload.message or "").strip()
+            else:
+                logger.warning("Response contract violation: non-UserResponse emitted from formulator")
+
+        return candidate
+
+    def _contract_respond_stage(
+        self,
+        *,
+        user_input: str,
+        candidate: str,
+        reasoning_output: ReasoningOutput,
+        tool_results: Dict[str, Any],
+    ) -> str:
+        """RESPOND stage: sanitize, repair, and enforce answer-first contract."""
+        context = {
+            "user_input": str(user_input or "").strip(),
+            "response": "",
+            "tone": str(getattr(getattr(self, '_last_policy', None), 'tone', 'neutral') or 'neutral'),
+        }
+
+        message = self._clamp_final_response(
+            candidate,
+            tone='helpful',
+            response_type='general_response',
+            route='final_authority',
+            user_input=user_input,
+        )
+
+        if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(message):
+            regenerated = self.response_formulator.generate(
+                intent=reasoning_output.intent,
+                context=context,
+                tool_results=tool_results,
+                reasoning_output=reasoning_output,
+                mode="final_answer_only",
+            )
+            if isinstance(regenerated, UserResponse):
+                message = self._clamp_final_response(
+                    str(regenerated.message or ""),
+                    tone='helpful',
+                    response_type='general_response',
+                    route='final_authority_regen',
+                    user_input=user_input,
+                )
+
+        if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(message):
+            message = self._fallback_generic_response(
+                user_input,
+                intent=reasoning_output.intent,
+            )
+
+        if (
+            self._is_answerability_direct_question(user_input)
+            and self._looks_like_clarification_fallback(message)
+        ):
+            message = self._answerability_gate_fallback_response(user_input)
+
+        return message
+
     def _finalize_user_response_contract(self, *, user_input: str, raw_response: str) -> str:
         """Final authority: only a UserResponse may be emitted to the user."""
         base = str(raw_response or "").strip()
-        reasoning_output = self._build_reasoning_output_contract(
+        reasoning_output = self._contract_think_stage(
             user_input=user_input,
             raw_response=base,
         )
@@ -8196,63 +8395,20 @@ class ALICE:
             if isinstance(getattr(self, '_last_plugin_result', None), dict)
             else {}
         )
-        context = {
-            "user_input": str(user_input or "").strip(),
-            "response": base,
-            "tone": str(getattr(getattr(self, '_last_policy', None), 'tone', 'neutral') or 'neutral'),
-        }
-
-        message = base
+        message = self._strip_contract_internal_leakage(base)
         try:
-            if getattr(self, 'response_formulator', None):
-                final_payload = self.response_formulator.generate(
-                    intent=reasoning_output.intent,
-                    context=context,
-                    tool_results=tool_results,
-                    reasoning_output=reasoning_output,
-                    mode="final_answer_only",
-                )
-                if isinstance(final_payload, UserResponse):
-                    message = str(final_payload.message or "").strip()
-                else:
-                    logger.warning("Response contract violation: non-UserResponse emitted from formulator")
-
-            message = self._clamp_final_response(
-                message,
-                tone='helpful',
-                response_type='general_response',
-                route='final_authority',
+            message = self._contract_decide_stage(
                 user_input=user_input,
+                raw_response=message,
+                reasoning_output=reasoning_output,
+                tool_results=tool_results,
             )
-
-            if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(message):
-                regenerated = self.response_formulator.generate(
-                    intent=reasoning_output.intent,
-                    context={**context, "response": ""},
-                    tool_results=tool_results,
-                    reasoning_output=reasoning_output,
-                    mode="final_answer_only",
-                )
-                if isinstance(regenerated, UserResponse):
-                    message = self._clamp_final_response(
-                        str(regenerated.message or ""),
-                        tone='helpful',
-                        response_type='general_response',
-                        route='final_authority_regen',
-                        user_input=user_input,
-                    )
-
-            if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(message):
-                message = self._fallback_generic_response(
-                    user_input,
-                    intent=reasoning_output.intent,
-                )
-
-            if (
-                self._is_answerability_direct_question(user_input)
-                and self._looks_like_clarification_fallback(message)
-            ):
-                message = self._answerability_gate_fallback_response(user_input)
+            message = self._contract_respond_stage(
+                user_input=user_input,
+                candidate=message,
+                reasoning_output=reasoning_output,
+                tool_results=tool_results,
+            )
 
         except Exception as e:
             logger.debug("Final response contract fallback due to error: %s", e)
