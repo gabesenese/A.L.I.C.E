@@ -20,10 +20,15 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow warnings
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
+os.environ.setdefault('HF_HUB_DISABLE_PROGRESS_BARS', '1')
+os.environ.setdefault('TRANSFORMERS_VERBOSITY', 'error')
+os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
+os.environ.setdefault('SENTENCE_TRANSFORMERS_VERBOSITY', 'error')
 
 import sys
 import logging
 import re
+import difflib
 import html
 import time
 from typing import Optional, Dict, Any, List, Tuple
@@ -97,14 +102,17 @@ from ai.core.conversational_engine import get_conversational_engine, Conversatio
 from ai.core.llm_gateway import get_llm_gateway, LLMGateway
 from ai.core.llm_policy import LLMCallType
 from ai.core.response_self_critic import get_response_self_critic
-from ai.core.executive_controller import get_executive_controller, ExecutiveDecision
+from ai.core.executive_controller import (
+    get_executive_controller,
+    ExecutiveDecision,
+    TurnExecutionOutcome,
+)
 from ai.core.reflection_engine import get_reflection_engine
 from ai.core.response_planner import get_response_planner
 from ai.core.goal_tracker import get_goal_tracker
 from ai.core.response_quality_tracker import get_response_quality_tracker
 from ai.core.cognitive_orchestrator import get_cognitive_orchestrator
 from ai.core.goal_recognizer import get_goal_recognizer
-from ai.core.turn_routing_policy import get_turn_routing_policy
 from ai.core.live_state_service import get_live_state_service
 from ai.core.execution_verifier import get_execution_verifier
 from ai.core.clarification_resolver import get_clarification_resolver
@@ -134,7 +142,11 @@ from ai.core.goal_object import goal_from_any
 from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_manager
 from ai.core.autonomy_dispatcher import TinyAutonomyDispatcher, OUTCOME_ESCALATE_AND_STOP
 from ai.learning.phrasing_learner import PhrasingLearner
-from ai.core.response_formulator import get_response_formulator
+from ai.core.response_formulator import (
+    get_response_formulator,
+    ReasoningOutput,
+    UserResponse,
+)
 from ai.lab_simulator import LabSimulator
 from ai.red_team_tester import RedTeamTester
 
@@ -219,7 +231,6 @@ class ALICE:
         self.debug = debug
         self.privacy_mode = privacy_mode
         self.llm_policy = llm_policy
-        self.user_name = user_name
         self.strict_no_llm = llm_policy == "strict"
         self.running = False
         
@@ -395,12 +406,9 @@ class ALICE:
             # 1. NLP Processor
             logger.info("Loading NLP processor...")
             self.nlp = NLPProcessor()
-            # Pre-warm the semantic classifier so the first user query has no cold-start delay
-            try:
-                self.nlp._ensure_semantic_classifier()
-                logger.info("Semantic classifier pre-warmed.")
-            except Exception:
-                pass  # non-fatal; will lazy-load on first real query
+            # Keep semantic classifier lazy to avoid startup failures/hangs from
+            # heavyweight transformer imports during boot.
+            logger.info("Semantic classifier lazy-init enabled (startup pre-warm skipped).")
             # Shared session objects from NLP stack
             self.dialogue_memory = getattr(self.nlp, 'dialogue_memory', None)
             self.fp_store = getattr(self.nlp, '_fp_store', None)
@@ -799,7 +807,6 @@ class ALICE:
             self.entity_registry = get_entity_registry(storage_path="data/entity_registry.json")
             self.turn_state_assembler = TurnStateAssembler(self.world_state_memory)
             self.goal_recognizer = get_goal_recognizer()
-            self.turn_routing_policy = get_turn_routing_policy()
             self.live_state_service = get_live_state_service()
             self.execution_verifier = get_execution_verifier()
             self.autonomy_manager = get_bounded_autonomy_manager(storage_path="data/autonomy_loops.json")
@@ -1169,7 +1176,6 @@ class ALICE:
         This is Alice's emotional intelligence - coded, not prompted.
 
         Args:
-            intent: The classified intent
             context: Conversational context
             user_input: Original user input
 
@@ -1762,6 +1768,116 @@ class ALICE:
             'timezone': timezone,
         }
 
+    def _fallback_clarification_response(
+        self,
+        user_input: str,
+        *,
+        strict: bool = False,
+        intent: str = "",
+        fallback_reason: str = "clarification_due_to_missing_parameter",
+    ) -> str:
+        """Return a centralized clarification fallback with intent-aware overrides."""
+        text = str(user_input or "").strip()
+        inferred_intent = str(intent or "").strip()
+
+        if text and self._is_answerability_direct_question(text):
+            response = self._answerability_gate_fallback_response(text)
+            self._record_fallback_taxonomy(
+                reason="llm_failed_after_answer_directly",
+                source="fallback_clarification",
+                action="answer_direct",
+                task_understood=True,
+            )
+            return response
+
+        if text and (
+            self._is_project_ideation_turn(text, inferred_intent)
+            or self._is_project_ideation_request(text)
+        ):
+            response = self._project_ideation_guidance_response(text)
+            self._record_fallback_taxonomy(
+                reason="clarification_due_to_goal_narrowing",
+                source="fallback_clarification",
+                action="guide",
+                task_understood=True,
+            )
+            return response
+
+        if strict:
+            response = "Please share the missing detail so I can route this correctly."
+        else:
+            response = "Can you share the one detail that is still missing?"
+
+        self._record_fallback_taxonomy(
+            reason=str(fallback_reason or "clarification_due_to_missing_parameter"),
+            source="fallback_clarification",
+            action="clarify",
+            task_understood=False,
+        )
+        return response
+
+    def _fallback_generic_response(
+        self,
+        user_input: str,
+        *,
+        intent: str = "",
+        fallback_reason: str = "low_confidence_answer_requiring_retry",
+    ) -> str:
+        """Return a centralized generic fallback with intent-aware overrides."""
+        text = str(user_input or "").strip()
+        inferred_intent = str(intent or "").strip()
+
+        if text and self._is_answerability_direct_question(text):
+            response = self._answerability_gate_fallback_response(text)
+            self._record_fallback_taxonomy(
+                reason="llm_failed_after_answer_directly",
+                source="fallback_generic",
+                action="answer_direct",
+                task_understood=True,
+            )
+            return response
+
+        if text and (
+            self._is_project_ideation_turn(text, inferred_intent)
+            or self._is_project_ideation_request(text)
+        ):
+            response = self._project_ideation_guidance_response(text)
+            self._record_fallback_taxonomy(
+                reason="clarification_due_to_goal_narrowing",
+                source="fallback_generic",
+                action="guide",
+                task_understood=True,
+            )
+            return response
+
+        self._record_fallback_taxonomy(
+            reason=str(fallback_reason or "low_confidence_answer_requiring_retry"),
+            source="fallback_generic",
+            action="retry",
+            task_understood=False,
+        )
+
+        return "I can help with that. Give me one concrete detail and I will answer directly."
+
+    def _record_fallback_taxonomy(
+        self,
+        *,
+        reason: str,
+        source: str,
+        action: str,
+        task_understood: bool,
+    ) -> None:
+        """Persist explicit fallback reason categories for telemetry/debugging."""
+        if not isinstance(getattr(self, "_internal_reasoning_state", None), dict):
+            self._internal_reasoning_state = {}
+        self._internal_reasoning_state["fallback_taxonomy"] = {
+            "reason": str(reason or "unknown_fallback_reason"),
+            "source": str(source or "runtime"),
+            "action": str(action or "retry"),
+            "task_understood": bool(task_understood),
+            "timestamp": datetime.now().isoformat(),
+        }
+
     def _clamp_final_response(
         self,
         response: str,
@@ -1792,12 +1908,65 @@ class ALICE:
 
         # Reject meta-assistant leakage and replace with Alice-safe fallback.
         lower = text.lower()
+        inferred_intent = str(
+            getattr(self, '_last_routed_intent', None)
+            or getattr(self, 'last_intent', None)
+            or ''
+        ).strip()
+
         if "as an ai" in lower or "language model" in lower:
-            if self._is_answerability_direct_question(user_input):
+            if response_type == "clarification_prompt":
+                return self._fallback_clarification_response(
+                    user_input,
+                    strict=True,
+                    intent=inferred_intent,
+                )
+            return self._fallback_generic_response(user_input, intent=inferred_intent)
+
+        leak_patterns = (
+            "the user wants",
+            "some possible follow-up",
+            "key points",
+            "analysis:",
+            "context:",
+            "intent:",
+            "plan:",
+            "executive decision",
+            "routing owner",
+            "response plan",
+            "contract_route",
+            "score_tools",
+            "score_llm",
+            "instead of asking for clarification",
+            "this is answerable",
+            "direct explanation is feasible",
+        )
+        internal_contract_regex = re.compile(
+            r"\b(?:intent|confidence|route|strategy|plan|policy|decision|routing|score|contract)\s*[:=]",
+            re.IGNORECASE,
+        )
+        if any(pattern in lower for pattern in leak_patterns) or bool(internal_contract_regex.search(text)):
+            if user_input and self._is_answerability_direct_question(user_input):
                 return self._answerability_gate_fallback_response(user_input)
             if response_type == "clarification_prompt":
-                return "Please clarify the exact outcome you want so I can route this correctly."
-            return "I can help with that. Tell me the exact result you want."
+                return self._fallback_clarification_response(
+                    user_input,
+                    intent=inferred_intent,
+                    fallback_reason="clarification_due_to_missing_parameter",
+                )
+            return self._fallback_generic_response(
+                user_input,
+                intent=inferred_intent,
+                fallback_reason="low_confidence_answer_requiring_retry",
+            )
+
+        if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(text):
+            if response_type == "clarification_prompt":
+                return self._fallback_clarification_response(
+                    user_input,
+                    intent=inferred_intent,
+                )
+            return self._fallback_generic_response(user_input, intent=inferred_intent)
 
         # Tone-aware trim: keep professional tones concise.
         max_chars = {
@@ -2285,7 +2454,7 @@ class ALICE:
                 return f"Do you mean {', '.join(options[:-1]) + ' or ' + options[-1] if len(options) > 1 else options[0]}?"
             if pronouns:
                 return f"What does '{pronouns[0]}' refer to in your request?"
-            return "Please clarify the exact outcome you want so I can route this correctly."
+            return self._fallback_clarification_response(_source_text, strict=True)
 
         # Open-ended types — return None to let Ollama assist Alice
         return None
@@ -2352,9 +2521,7 @@ class ALICE:
                 err = str(alice_response.get('error') or '').strip()
                 return f"Failed: {op}. {err}".strip()
             if response_type == 'clarification_prompt':
-                if self._is_answerability_direct_question(user_input):
-                    return self._answerability_gate_fallback_response(user_input)
-                return "Please clarify the exact outcome you want so I can route this safely."
+                return self._fallback_clarification_response(user_input, strict=True)
             return self._clamp_final_response(
                 str(content),
                 tone=tone,
@@ -3157,6 +3324,127 @@ class ALICE:
             f"Task verification -> accepted={report.accepted} confidence={report.confidence:.2f}"
         )
         return bool(report.accepted)
+
+    def _build_turn_execution_outcome(
+        self,
+        *,
+        contract: Any,
+        plugin_result: Optional[Dict[str, Any]],
+        action_result: Any,
+    ) -> TurnExecutionOutcome:
+        plugin_payload = dict(plugin_result or {})
+        verification = dict(plugin_payload.get("verification") or {})
+        report = dict(plugin_payload.get("verification_report") or {})
+        if not report and getattr(action_result, "verification_report", None):
+            report = dict(getattr(action_result, "verification_report", {}) or {})
+
+        issues: List[str] = []
+        for candidate in (report.get("issues") or [], verification.get("issues") or []):
+            if isinstance(candidate, list):
+                for item in candidate:
+                    text = str(item or "").strip()
+                    if text:
+                        issues.append(text)
+            else:
+                text = str(candidate or "").strip()
+                if text:
+                    issues.append(text)
+
+        recommended_next_action = str(
+            report.get("recommended_next_action")
+            or verification.get("recommended_next_action")
+            or ""
+        ).strip().lower()
+
+        verification_confidence = float(
+            verification.get("confidence")
+            or report.get("confidence")
+            or report.get("goal_confidence")
+            or 0.0
+        )
+
+        tool_success = bool(plugin_payload.get("success", False))
+        goal_advanced = bool(
+            getattr(action_result, "goal_satisfied", False)
+            or report.get("goal_satisfied", False)
+            or plugin_payload.get("goal_satisfied", False)
+        )
+        verification_passed = bool(
+            verification.get("accepted", False)
+            or report.get("accepted", False)
+        )
+
+        return self.executive_controller.build_execution_outcome(
+            contract=contract,
+            tool_success=tool_success,
+            goal_advanced=goal_advanced,
+            verification_passed=verification_passed,
+            recommended_next_action=recommended_next_action,
+            retryable=bool(plugin_payload.get("retryable", False)),
+            issues=issues,
+            verification_confidence=verification_confidence,
+            metadata={
+                "plugin": str(plugin_payload.get("plugin") or ""),
+                "action": str(plugin_payload.get("action") or ""),
+                "status": str(plugin_payload.get("status") or ""),
+            },
+        )
+
+    def _apply_post_execution_state_machine(
+        self,
+        *,
+        turn_state_machine: Any,
+        outcome: TurnExecutionOutcome,
+    ) -> Any:
+        post = self.executive_controller.run_post_execution_state_machine(
+            pre_execution=turn_state_machine,
+            outcome=outcome,
+        )
+        self._internal_reasoning_state["post_execution_state_machine"] = post.as_dict()
+        self._internal_reasoning_state["turn_contract"] = post.contract.as_dict()
+        self._internal_reasoning_state["turn_execution_outcome"] = outcome.as_dict()
+        self._last_turn_contract = post.contract.as_dict()
+        self._last_turn_execution_outcome = outcome.as_dict()
+        return post
+
+    def _build_verified_execution_response(
+        self,
+        *,
+        contract: Any,
+        outcome: TurnExecutionOutcome,
+        plugin_result: Optional[Dict[str, Any]],
+        fallback_response: str,
+    ) -> str:
+        if not outcome.verification_passed:
+            return str(fallback_response or "").strip()
+
+        payload = dict(plugin_result or {})
+        plugin_name = str(payload.get("plugin") or "tool").strip()
+        action = str(payload.get("action") or "action").strip()
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        detail = str(
+            payload.get("message")
+            or payload.get("response")
+            or data.get("summary")
+            or data.get("note_title")
+            or data.get("title")
+            or ""
+        ).strip()
+
+        summary = f"Verified execution via {plugin_name}.{action}."
+        if detail:
+            summary = f"{summary} {detail}"
+        if outcome.goal_advanced:
+            summary = f"{summary} Goal advanced."
+        if contract and getattr(contract, "next_action", ""):
+            summary = f"{summary} Next: {str(contract.next_action).strip()}"
+
+        fallback = str(fallback_response or "").strip()
+        if not fallback:
+            return summary.strip()
+        if fallback.lower().startswith(summary.lower()[:40]):
+            return fallback
+        return f"{summary.strip()}\n\n{fallback}"
 
     def _normalize_entities_for_planning(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Convert NLP entities into planner-safe primitive values."""
@@ -4088,7 +4376,11 @@ class ALICE:
             return False
 
         text = user_input.lower().strip()
-        if self._is_rich_conceptual_request(text) or self._is_conceptual_build_architecture_prompt(text):
+        if (
+            self._is_rich_conceptual_request(text)
+            or self._is_conceptual_build_architecture_prompt(text)
+            or self._is_project_ideation_request(text)
+        ):
             return False
 
         action_pattern = (
@@ -4206,6 +4498,20 @@ class ALICE:
         if not llm_input:
             return None
 
+        if self._is_technical_agent_build_request(
+            llm_input,
+            intent=intent,
+            entities=entities,
+        ):
+            direct = self._agentic_system_build_response(llm_input)
+            return self._clamp_final_response(
+                direct,
+                tone='helpful',
+                response_type='general_response',
+                route='fast_llm_lane',
+                user_input=user_input,
+            )
+
         if self._is_agent_algorithm_question(llm_input):
             direct = self._deterministic_knowledge_fallback(llm_input, intent)
             if direct:
@@ -4255,6 +4561,7 @@ class ALICE:
                 lane_prompt,
                 use_history=not _project_ideation_turn,
                 temperature=0.45,
+                mode="final_answer_only",
             )
         except Exception as e:
             logger.debug("Fast LLM lane failed: %s", e)
@@ -4512,7 +4819,7 @@ class ALICE:
         intent: str,
         response: str,
     ) -> str:
-        """Polish final publishing tone through llm_engine while keeping meaning intact."""
+        """Render the final user-facing voice through llm_engine without changing facts."""
         base = str(response or "").strip()
         if not base:
             return base
@@ -4523,20 +4830,39 @@ class ALICE:
         if len(base) < 20 or len(base) > 650:
             return base
 
-        rewrite_prompt = (
-            "Rewrite this assistant reply so it sounds natural, clear, and concise. "
-            "Keep facts unchanged. Do not add new claims.\n\n"
-            f"User: {str(user_input or '').strip()}\n"
-            f"Intent: {str(intent or '').strip()}\n"
-            f"Draft reply: {base}"
-        )
+        tone = self._select_tone(intent, None, user_input) if hasattr(self, "_select_tone") else "helpful"
+        phrase_context = {
+            "user_name": getattr(self, "user_name", "the user"),
+            "allow_user_name": bool(self._is_explicit_greeting_input(user_input)),
+        }
+
         try:
-            polished = self.llm.chat(rewrite_prompt, use_history=False, temperature=0.35)
+            polished = None
+            if hasattr(self.llm, "phrase_with_tone"):
+                polished = self.llm.phrase_with_tone(
+                    content=base,
+                    tone=tone,
+                    context=phrase_context,
+                )
+            else:
+                rewrite_prompt = (
+                    "Rewrite this assistant reply so it sounds natural, clear, and concise. "
+                    "Keep facts unchanged. Do not add new claims.\n\n"
+                    f"User: {str(user_input or '').strip()}\n"
+                    f"Intent: {str(intent or '').strip()}\n"
+                    f"Draft reply: {base}"
+                )
+                polished = self.llm.chat(
+                    rewrite_prompt,
+                    use_history=False,
+                    temperature=0.35,
+                    mode="final_answer_only",
+                )
             polished_text = str(polished or "").strip()
             if polished_text:
                 return self._clamp_final_response(
                     polished_text,
-                    tone='helpful',
+                    tone=tone,
                     response_type='general_response',
                     route='fast_llm_publish',
                     user_input=user_input,
@@ -4545,6 +4871,43 @@ class ALICE:
             logger.debug("Fast publish polish skipped: %s", e)
 
         return base
+
+    def _finalize_conversational_surface(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        response: str,
+        route: str = "llm",
+        plugin_result: Optional[Dict[str, Any]] = None,
+        apply_publish_style: bool = True,
+    ) -> str:
+        """Apply the single top-layer conversational surface before returning text."""
+        final_text = str(response or "").strip()
+        if not final_text:
+            return final_text
+
+        if apply_publish_style:
+            final_text = self._publish_with_fast_llm_style(
+                user_input=user_input,
+                intent=intent,
+                response=final_text,
+            )
+
+        final_text = self._apply_response_style_constraints(final_text)
+        final_text = self._prevent_unsolicited_summary(
+            user_input=user_input,
+            intent=intent,
+            response=final_text,
+            plugin_result=plugin_result,
+        )
+        final_text = self._executive_apply_response_gate(
+            user_input=user_input,
+            intent=intent,
+            response=final_text,
+            route=route,
+        )
+        return final_text
 
     def _is_rich_conceptual_request(self, user_input: str) -> bool:
         """Return True for conceptual architecture prompts with clear framing and constraints."""
@@ -4974,6 +5337,11 @@ class ALICE:
         if not text:
             return False
 
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+        short_imperative = bool(
+            re.match(r"^(?:create|build|make|start)\s+(?:an?\s+)?(?:agentic\s+)?(?:ai|assistant|agent|system|project)\b", text)
+        )
+
         has_goal_opener = any(
             re.search(pattern, text)
             for pattern in (
@@ -4982,9 +5350,10 @@ class ALICE:
                 r"\blet'?s\s+(?:start|build|create|make)\b",
                 r"\bi'?m\s+starting\b",
                 r"\bstart\s+an?\b",
+                r"^(?:create|build|make)\s+an?\b",
             )
         )
-        if not has_goal_opener:
+        if not has_goal_opener and not short_imperative:
             return False
 
         has_project_noun = any(
@@ -5000,7 +5369,8 @@ class ALICE:
             )
         )
         domain = self._extract_project_ideation_domain(text)
-        return bool(has_project_noun or domain)
+        has_agentic_ai_phrase = "agentic ai" in text or ("agentic" in text and "ai" in text)
+        return bool(has_project_noun or domain or has_agentic_ai_phrase or (short_imperative and len(tokens) <= 8))
 
     def _is_project_ideation_turn(self, user_input: str, intent: str) -> bool:
         """Resolve whether current turn should use project ideation response mode."""
@@ -5021,82 +5391,99 @@ class ALICE:
     def _project_ideation_narrowing_question(self, user_input: str) -> str:
         """Return one narrowing question for project ideation mode."""
         domain = self._extract_project_ideation_domain(user_input)
-        if domain == "nlp":
-            return "Do you want a beginner project, one practical for Alice, or something advanced?"
-        if domain in {"assistant", "ai"}:
-            return "Do you want to focus first on memory, tool-use, or conversational quality?"
-        if domain == "python":
-            return "Do you want a CLI prototype, a web app, or an automation workflow?"
-        return "Do you want a beginner scope, a practical build, or an advanced version?"
+        inferred_domain = domain or self._infer_learning_domain(user_input) or "architecture"
+        focuses = self._detected_learning_focuses(user_input)
+        branches = self._fallback_branch_options(inferred_domain, focuses)
+        if not branches:
+            branches = ["scope", "architecture", "verification"]
+
+        picked = self._rotate_fallback_options(
+            f"project_ideation:question:{inferred_domain}",
+            branches,
+            take=min(3, len(branches)),
+        )
+        if not picked:
+            picked = branches[:3]
+
+        branch_text = self._format_compact_list(picked)
+        prompt_templates = [
+            "Which track should we start with first: {branches}?",
+            "Pick the first focus area and I will map the implementation path: {branches}.",
+            "Where do you want to go deeper first: {branches}?",
+            "Choose one starting lane and I will turn it into concrete next steps: {branches}.",
+        ]
+        prompt_pick = self._rotate_fallback_options(
+            f"project_ideation:question_template:{inferred_domain}",
+            prompt_templates,
+            take=1,
+        )
+        prompt_template = prompt_pick[0] if prompt_pick else prompt_templates[0]
+        return prompt_template.format(branches=branch_text)
 
     def _project_ideation_guidance_response(self, user_input: str) -> str:
         """Build deterministic forward-moving ideation response when fast-lane output is too generic."""
+        if self._is_technical_agent_build_request(user_input, intent="learning:project_ideation"):
+            return self._agentic_system_build_response(user_input)
+
         domain = self._extract_project_ideation_domain(user_input)
+        inferred_domain = domain or self._infer_learning_domain(user_input) or "architecture"
         domain_label = {
             "nlp": "NLP",
             "assistant": "assistant systems",
             "machine_learning": "machine learning",
             "ai": "AI",
             "python": "Python",
-        }.get(domain, "this")
+        }.get(inferred_domain, "this")
 
-        options_map = {
-            "nlp": [
-                "a chatbot",
-                "a sentiment analyzer",
-                "an entity extractor",
-                "a summarizer",
-                "a semantic search tool",
-            ],
-            "assistant": [
-                "a task-oriented assistant",
-                "a memory-aware conversation assistant",
-                "a planner-plus-tool executor",
-                "a voice command assistant",
-                "a personal knowledge assistant",
-            ],
-            "machine_learning": [
-                "a classification pipeline",
-                "a recommendation prototype",
-                "a forecasting model",
-                "an anomaly detector",
-                "a model-evaluation dashboard",
-            ],
-            "ai": [
-                "a retrieval-augmented Q&A app",
-                "a multi-step reasoning assistant",
-                "an agent with tool-use",
-                "a summarization copilot",
-                "a domain tutor",
-            ],
-            "python": [
-                "a command-line utility",
-                "a FastAPI service",
-                "a data-processing pipeline",
-                "an automation script bundle",
-                "a testing-focused starter app",
-            ],
-        }
-        options = list(options_map.get(domain, [])) or [
-            "a focused chatbot",
-            "a practical automation tool",
-            "a domain-specific assistant",
-            "a summarization app",
-            "a search-and-retrieval helper",
-        ]
+        blueprint = self._learning_blueprint(inferred_domain) if inferred_domain else {}
+        focuses = self._detected_learning_focuses(user_input)
+        terms = self._extract_learning_terms(user_input, max_terms=8)
+
+        candidates: List[str] = []
+        for item in list(blueprint.get("project") or [])[:4]:
+            value = str(item).strip().lower()
+            if value and value not in candidates:
+                candidates.append(value)
+
+        for item in self._fallback_branch_options(inferred_domain, focuses):
+            value = str(item).strip().lower()
+            if value and value not in candidates:
+                candidates.append(value)
+
+        for term in terms:
+            value = str(term).strip().lower()
+            if len(value) >= 4 and value not in candidates:
+                candidates.append(value)
+
+        if not candidates:
+            candidates = ["core workflow", "state handling", "verification strategy"]
+
         picked = self._rotate_fallback_options(
-            f"project_ideation:{domain or 'general'}",
-            options,
-            take=min(5, len(options)),
+            f"project_ideation:{inferred_domain or 'general'}",
+            candidates,
+            take=min(4, len(candidates)),
         )
         if not picked:
-            picked = options[:5]
+            picked = candidates[:4]
 
-        options_text = self._format_compact_list(picked)
+        direction_text = self._format_compact_list(picked)
         question = self._project_ideation_narrowing_question(user_input)
+        opener_pool = [
+            f"I can map a practical {domain_label} build path from here.",
+            f"We can structure this {domain_label} build into focused tracks.",
+            f"This can move quickly if we sequence the {domain_label} work in the right order.",
+        ]
+        opener = self._rotate_fallback_options(
+            f"project_ideation:opener:{inferred_domain}",
+            opener_pool,
+            take=1,
+        )
+        intro = opener[0] if opener else opener_pool[0]
+
         return (
-            f"Good. {domain_label} is a strong place to start. "
-            f"You could build {options_text}. {question}"
+            f"{intro} "
+            f"A solid next set of tracks is {direction_text}. "
+            f"{question}"
         )
 
     def _goal_statement_alignment_response(self, user_input: str, signal: Dict[str, Any]) -> str:
@@ -5194,6 +5581,21 @@ class ALICE:
         intent_confidence: float,
     ) -> Tuple[str, Dict[str, Any], float]:
         """Promote strategic declarative turns into explicit goal-statement intent."""
+        normalized_intent = str(intent or "").lower().strip()
+        social_intents = {
+            "greeting",
+            "farewell",
+            "thanks",
+            "status_inquiry",
+            "conversation:ack",
+        }
+        if normalized_intent in social_intents:
+            return intent, entities or {}, intent_confidence
+        if self._is_wake_word_only_input(user_input):
+            return intent, entities or {}, intent_confidence
+        if self._is_explicit_greeting_input(user_input):
+            return intent, entities or {}, intent_confidence
+
         signal = self._extract_goal_statement_signal(user_input)
         project_ideation = self._is_project_ideation_request(user_input)
         if not signal and not project_ideation:
@@ -5219,7 +5621,6 @@ class ALICE:
                 enriched_entities.setdefault("domain", domain)
                 enriched_entities.setdefault("topic", domain)
 
-        normalized_intent = str(intent or "").lower().strip()
         tool_prefixes = (
             "notes:",
             "email:",
@@ -5501,6 +5902,421 @@ class ALICE:
         )
         targets_agent = any(cue in text for cue in ("ai agent", "agent", "assistant"))
         return asks_algorithms and targets_agent
+
+    def _is_technical_agent_build_request(
+        self,
+        user_input: str,
+        *,
+        intent: str = "",
+        entities: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Detect implementation-oriented requests to build an AI agent/system."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+        has_build_verb = any(
+            cue in text
+            for cue in (
+                "create",
+                "build",
+                "make",
+                "start",
+                "implement",
+                "develop",
+            )
+        )
+        has_agent_target = any(
+            cue in text
+            for cue in (
+                "ai agent",
+                "agentic ai",
+                "autonomous agent",
+                "assistant",
+                "a.l.i.c.e",
+                "alice",
+                "agent",
+            )
+        )
+
+        if not (has_build_verb and has_agent_target):
+            return False
+
+        short_imperative = bool(
+            re.match(
+                r"^(?:create|build|make|start|implement)\s+(?:an?\s+)?(?:agentic\s+)?(?:ai\s+)?(?:agent|assistant|system)\b",
+                text,
+            )
+        )
+
+        has_system_cue = any(
+            cue in text
+            for cue in (
+                "memory",
+                "state",
+                "tool",
+                "tools",
+                "loop",
+                "planner",
+                "plan-act",
+                "react",
+                "verify",
+                "orchestration",
+                "architecture",
+                "local",
+                "ollama",
+                "plugin",
+                "runtime",
+            )
+        )
+
+        ents = dict(entities or {})
+        domain = str(ents.get("project_domain") or ents.get("domain") or "").lower().strip()
+        direction = str(ents.get("project_direction") or "").lower().strip()
+        intent_text = str(intent or "").lower().strip()
+        context_signal = (
+            intent_text == "learning:project_ideation"
+            or domain in {"assistant", "ai", "architecture"}
+            or direction == "agentic_autonomy"
+        )
+
+        return bool(short_imperative or has_system_cue or context_signal)
+
+    def _agentic_system_build_response(self, user_input: str) -> str:
+        """Return an architecture-first response for practical agent build prompts."""
+        text = str(user_input or "").lower().strip()
+        assistant_label = "A.L.I.C.E" if ("alice" in text or "a.l.i.c.e" in text) else "your assistant"
+
+        framework_pool = ["LangGraph", "Semantic Kernel", "CrewAI", "AutoGen", "LangChain Agents"]
+        if "multi-agent" in text or "multi agent" in text:
+            framework_pool = ["CrewAI", "AutoGen", "LangGraph", "Semantic Kernel", "LangChain Agents"]
+
+        frameworks = self._rotate_fallback_options(
+            "agent_build_mode:framework_pool",
+            framework_pool,
+            take=3,
+        )
+        if len(frameworks) < 3:
+            frameworks = framework_pool[:3]
+
+        stack_items = [
+            "a local LLM via Ollama",
+            "a tool execution layer",
+            "memory and state tracking",
+            "a bounded control loop",
+        ]
+
+        return (
+            f"To build an AI agent, start with a bounded loop: interpret goal, plan next action, execute a tool, "
+            f"verify outcome, persist state, then continue, retry, ask, or escalate. "
+            f"For {assistant_label}, use {self._format_compact_list(stack_items)} and orchestrate with "
+            f"{self._format_compact_list(frameworks)}. "
+            "Implement one vertical slice first (one goal, one tool, one verification path), then expand to multi-step autonomy."
+        )
+
+    def _looks_generic_project_management_response(self, response: str) -> bool:
+        """Detect high-level PM advice that lacks agent-system implementation details."""
+        low = str(response or "").lower().strip()
+        if not low:
+            return False
+
+        pm_markers = (
+            "define project scope",
+            "research existing solutions",
+            "conceptualize",
+            "project plan",
+            "stakeholder",
+            "milestone",
+            "timeline",
+            "deliverable",
+            "budget",
+            "market analysis",
+        )
+        tech_markers = (
+            "ollama",
+            "tool execution",
+            "memory",
+            "state",
+            "agent loop",
+            "react",
+            "plan-execute-verify",
+            "orchestration",
+            "verification",
+            "langgraph",
+            "semantic kernel",
+            "crewai",
+            "autogen",
+        )
+
+        pm_hits = sum(1 for marker in pm_markers if marker in low)
+        tech_hits = sum(1 for marker in tech_markers if marker in low)
+        listy_pm = bool(re.search(r"\b(?:1\.|2\.|3\.)\s*(?:define|research|concept|plan)\b", low))
+        return bool((pm_hits >= 2 and tech_hits <= 1) or (listy_pm and tech_hits == 0))
+
+    def _is_agent_transformation_friction_report(self, user_input: str, intent: str = "") -> bool:
+        """Detect when user reports difficulty turning an assistant into an agent."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        if len(text.split()) < 7:
+            return False
+
+        has_target = any(cue in text for cue in ("assistant", "agent", "ai"))
+        has_transform = any(
+            cue in text
+            for cue in (
+                "turn",
+                "transform",
+                "upgrade",
+                "move from",
+                "from assistant",
+                "into an agent",
+                "to an agent",
+            )
+        )
+        has_friction = any(
+            cue in text
+            for cue in (
+                "hard",
+                "difficult",
+                "struggling",
+                "struggle",
+                "stuck",
+                "not working",
+                "keeps failing",
+                "problem",
+            )
+        )
+
+        conversational = str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")
+        return bool(has_target and has_transform and has_friction and conversational)
+
+    def _agent_transformation_diagnostic_response(self, user_input: str) -> str:
+        """Return concrete, execution-oriented guidance for assistant-to-agent migration pain."""
+        text = str(user_input or "").lower().strip()
+        label = "A.L.I.C.E" if ("alice" in text or "a.l.i.c.e" in text) else "your assistant"
+
+        bottleneck_pool = [
+            "routing ambiguity between conversational and tool intents",
+            "state drift between memory, planner, and execution layers",
+            "missing verification after tool execution",
+            "unbounded retries without rollback checkpoints",
+        ]
+        checkpoint_pool = [
+            "one goal schema with explicit success criteria",
+            "one bounded agent loop (plan -> act -> verify -> persist)",
+            "one verifier that returns accepted/retry/escalate",
+            "one recovery policy for retry and rollback",
+        ]
+
+        bottlenecks = self._rotate_fallback_options(
+            "agent_transform:diagnose:bottlenecks",
+            bottleneck_pool,
+            take=3,
+        )
+        if not bottlenecks:
+            bottlenecks = bottleneck_pool[:3]
+
+        checkpoints = self._rotate_fallback_options(
+            "agent_transform:diagnose:checkpoints",
+            checkpoint_pool,
+            take=3,
+        )
+        if not checkpoints:
+            checkpoints = checkpoint_pool[:3]
+
+        return (
+            f"That is a common transition point. The jump from assistant to agent gets hard when {label} lacks "
+            f"{self._format_compact_list(bottlenecks)}. "
+            f"Start by hardening {self._format_compact_list(checkpoints)}. "
+            "If you want, I can map this into a concrete 7-day migration plan against your current architecture."
+        )
+
+    def _is_practical_agentic_framework_request(self, user_input: str) -> bool:
+        """Detect build-oriented framework queries for autonomous AI agents."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+
+        has_framework_cue = any(
+            cue in text
+            for cue in ("framework", "frameworks", "architecture", "design pattern")
+        )
+        has_agentic_scope = any(
+            cue in text
+            for cue in (
+                "agentic autonomy",
+                "autonomous agent",
+                "ai agent",
+                "agent autonomy",
+                "autonomy in ai",
+                "agentic",
+                "autonomy",
+            )
+        )
+        has_build_or_research_cue = any(
+            cue in text
+            for cue in (
+                "build",
+                "building",
+                "implement",
+                "implementation",
+                "existing",
+                "research",
+                "practical",
+                "production",
+            )
+        )
+
+        # Short prompts like "agentic ai frameworks" should still map to engineering context.
+        short_framework_prompt = has_framework_cue and has_agentic_scope and len(tokens) <= 7
+
+        return bool(has_framework_cue and has_agentic_scope and (has_build_or_research_cue or short_framework_prompt))
+
+    def _practical_agentic_frameworks_answer(
+        self,
+        *,
+        user_input: str = "",
+        intent: str = "conversation:help",
+    ) -> str:
+        """Compose an implementation-first framework answer without a fixed full-template block."""
+        text = str(user_input or "").lower().strip()
+
+        wants_multi_agent = any(cue in text for cue in ("multi-agent", "multi agent", "crew", "coordination"))
+        wants_production = any(cue in text for cue in ("production", "deploy", "reliable", "robust"))
+        wants_research = any(cue in text for cue in ("research", "paper", "compare", "benchmark"))
+        wants_memory = any(cue in text for cue in ("memory", "state", "context"))
+
+        framework_pool = ["LangGraph", "LangChain Agents", "CrewAI", "AutoGen", "Semantic Kernel"]
+        if wants_multi_agent:
+            framework_pool = ["CrewAI", "AutoGen", "LangGraph", "LangChain Agents", "Semantic Kernel"]
+        elif wants_production:
+            framework_pool = ["LangGraph", "Semantic Kernel", "LangChain Agents", "CrewAI", "AutoGen"]
+        elif wants_research:
+            framework_pool = ["AutoGen", "LangGraph", "CrewAI", "LangChain Agents", "Semantic Kernel"]
+
+        frameworks = self._rotate_fallback_options(
+            "agentic_frameworks:framework_pool",
+            framework_pool,
+            take=3,
+        )
+        if len(frameworks) < 3:
+            frameworks = framework_pool[:3]
+
+        pattern_pool = [
+            "ReAct",
+            "Plan-Execute-Verify",
+            "memory-backed state",
+            "execution checkpoints",
+            "retry/rollback control",
+            "confidence-gated tool calls",
+            "bounded retries",
+        ]
+        if wants_memory:
+            pattern_pool = [
+                "memory-backed state",
+                "execution checkpoints",
+                "Plan-Execute-Verify",
+                "retry/rollback control",
+                "confidence-gated tool calls",
+            ]
+        elif wants_production:
+            pattern_pool = [
+                "Plan-Execute-Verify",
+                "confidence-gated tool calls",
+                "bounded retries",
+                "execution checkpoints",
+                "retry/rollback control",
+            ]
+
+        patterns = self._rotate_fallback_options(
+            "agentic_frameworks:pattern_pool",
+            pattern_pool,
+            take=4,
+        )
+        if len(patterns) < 4:
+            patterns = pattern_pool[:4]
+
+        outcomes = ["continue", "retry", "ask", "escalate"]
+        if wants_production:
+            outcomes = ["continue", "retry", "rollback", "escalate"]
+        elif wants_research:
+            outcomes = ["continue", "ablate", "measure", "escalate"]
+        outcomes_phrase = ", ".join(outcomes[:-1]) + ", or " + outcomes[-1]
+
+        opener_options = [
+            "For agentic AI, prioritize engineering frameworks over theory-first models.",
+            "For agentic AI, default to implementation-first engineering frameworks over theory-first models.",
+        ]
+        auto_gpt_options = [
+            "Use Auto-GPT style loops as a reference pattern, not as a foundation.",
+            "Treat Auto-GPT style loops as inspiration for control-flow structure, not as the core foundation.",
+        ]
+
+        opener_pick = self._rotate_fallback_options(
+            "agentic_frameworks:opener",
+            opener_options,
+            take=1,
+        )
+        autogpt_pick = self._rotate_fallback_options(
+            "agentic_frameworks:autogpt",
+            auto_gpt_options,
+            take=1,
+        )
+
+        opener = opener_pick[0] if opener_pick else opener_options[0]
+        autogpt_line = autogpt_pick[0] if autogpt_pick else auto_gpt_options[0]
+
+        framework_templates = [
+            "Start with orchestration frameworks like {frameworks} for tool routing, stateful execution, and multi-agent coordination.",
+            "A practical base is {frameworks}, because they give you reliable routing, state tracking, and agent coordination.",
+        ]
+        pattern_templates = [
+            "Then apply core patterns: {patterns}.",
+            "Layer in control patterns such as {patterns}.",
+        ]
+        loop_templates = [
+            "For {assistant_label}, begin with a bounded agent loop: interpret goal, plan next action, execute tool, verify outcome, persist state, then {outcomes}.",
+            "For {assistant_label}, keep execution bounded: read goal, plan, run tool calls, verify results, persist updates, then {outcomes}.",
+        ]
+
+        framework_t = self._rotate_fallback_options(
+            "agentic_frameworks:framework_line",
+            framework_templates,
+            take=1,
+        )
+        pattern_t = self._rotate_fallback_options(
+            "agentic_frameworks:pattern_line",
+            pattern_templates,
+            take=1,
+        )
+        loop_t = self._rotate_fallback_options(
+            "agentic_frameworks:loop_line",
+            loop_templates,
+            take=1,
+        )
+
+        assistant_label = "A.L.I.C.E" if "alice" in text else "your assistant"
+        framework_line = (framework_t[0] if framework_t else framework_templates[0]).format(
+            frameworks=self._format_compact_list(frameworks)
+        )
+        pattern_line = (pattern_t[0] if pattern_t else pattern_templates[0]).format(
+            patterns=self._format_compact_list(patterns)
+        )
+        loop_line = (loop_t[0] if loop_t else loop_templates[0]).format(
+            assistant_label=assistant_label,
+            outcomes=outcomes_phrase,
+        )
+
+        return " ".join(
+            part.strip()
+            for part in (opener, framework_line, autogpt_line, pattern_line, loop_line)
+            if part and part.strip()
+        )
 
     def _learning_blueprint(self, domain: str) -> Dict[str, List[str]]:
         blueprints: Dict[str, Dict[str, List[str]]] = {
@@ -5837,7 +6653,25 @@ class ALICE:
     def _deterministic_knowledge_fallback(self, user_input: str, intent: str) -> Optional[str]:
         """Build non-LLM first-pass answers from inferred domain structure rather than fixed canned replies."""
         text = str(user_input or "").lower().strip()
-        if not text or self._has_explicit_action_cue(text):
+        if not text:
+            return None
+
+        if self._is_agent_transformation_friction_report(user_input, intent=intent):
+            return self._agent_transformation_diagnostic_response(user_input)
+
+        if self._is_practical_agentic_framework_request(text):
+            return self._practical_agentic_frameworks_answer(
+                user_input=user_input,
+                intent=intent,
+            )
+
+        if self._is_technical_agent_build_request(
+            user_input,
+            intent=intent,
+        ):
+            return self._agentic_system_build_response(user_input)
+
+        if self._has_explicit_action_cue(text):
             return None
 
         if self._is_rich_conceptual_request(text):
@@ -5985,6 +6819,59 @@ class ALICE:
             "conversation:goal_statement",
         }
 
+    def _dynamic_short_greeting(
+        self,
+        *,
+        user_input: str,
+        user_name: str = "",
+        time_context: str = "",
+        allow_repeat: bool = False,
+    ) -> Optional[str]:
+        """Generate a short native greeting without invoking the LLM."""
+        previous = str(getattr(self, '_last_dynamic_greeting', '') or '').strip().lower()
+
+        resolved_time = str(time_context or '').strip().lower()
+        if not resolved_time:
+            hour = datetime.now().hour
+            if 5 <= hour < 12:
+                resolved_time = 'morning'
+            elif 12 <= hour < 17:
+                resolved_time = 'afternoon'
+            elif 17 <= hour < 22:
+                resolved_time = 'evening'
+            else:
+                resolved_time = 'late night'
+
+        name = str(user_name or '').strip()
+        name_fragment = f" {name}" if name else ''
+
+        base = [
+            f"Hi{name_fragment}. What would you like to work on?",
+            f"Hey{name_fragment}. What can I help you with right now?",
+            f"Hello{name_fragment}. What are we tackling today?",
+            f"Hey{name_fragment}. What should we start with?",
+            f"Hi{name_fragment}. What do you want to focus on first?",
+        ]
+
+        if resolved_time in {'morning', 'afternoon', 'evening', 'late night'}:
+            base.append(f"Good {resolved_time}{name_fragment}. What can I help with?")
+
+        idx = int(getattr(self, '_dynamic_greeting_index', 0) or 0)
+        total = max(1, len(base))
+        for step in range(total):
+            candidate = str(base[(idx + step) % total]).strip()
+            if allow_repeat or candidate.lower() != previous:
+                self._dynamic_greeting_index = (idx + step + 1) % total
+                self._last_dynamic_greeting = candidate
+                return candidate
+
+        # If all candidates are exhausted and repeats are not allowed,
+        # fall back to the next rotated candidate.
+        candidate = str(base[idx % total]).strip()
+        self._dynamic_greeting_index = (idx + 1) % total
+        self._last_dynamic_greeting = candidate
+        return candidate
+
     def _native_scaffold_response(self, user_input: str, intent: str) -> Optional[str]:
         """Return native short scaffolding replies for low-complexity conversational turns."""
         normalized = str(intent or "").lower().strip()
@@ -5994,7 +6881,17 @@ class ALICE:
             if re.fullmatch(r"(?:bye|goodbye|see you)\??", text):
                 return self._get_farewell()
             if re.fullmatch(r"(?:hi|hello|hey|yo)[!.?]*", text):
-                return "Hey. What would you like to work on?"
+                dynamic = self._dynamic_short_greeting(
+                    user_input=user_input,
+                    user_name=(
+                        getattr(getattr(self, 'context', None), 'user_prefs', None).name
+                        if getattr(getattr(self, 'context', None), 'user_prefs', None)
+                        else ""
+                    ),
+                )
+                if dynamic:
+                    return dynamic
+                return None
             if re.search(r"\bhow\s+(?:are\s+you|is\s+it\s+going)\b", text):
                 return "I am doing well and ready to help. What are you working on?"
             if re.fullmatch(r"(?:thanks|thank you|thx)[!.?]*", text):
@@ -6007,9 +6904,11 @@ class ALICE:
         if normalized == "thanks":
             return "Anytime."
         if normalized == "conversation:clarification_needed":
+            if self._is_project_ideation_request(user_input):
+                return self._project_ideation_guidance_response(user_input)
             if self._should_answer_first_without_clarification(user_input, normalized):
                 return None
-            return "I can help. What exact result do you want?"
+            return self._fallback_generic_response(user_input, intent=normalized)
         if normalized == "conversation:goal_statement":
             signal = self._extract_goal_statement_signal(user_input)
             return self._goal_statement_alignment_response(user_input, signal)
@@ -6028,7 +6927,12 @@ class ALICE:
             )
             if learned:
                 return learned
-            greeting = self._get_greeting()
+            greeting = self._dynamic_short_greeting(
+                user_input=user_input,
+                user_name=user_name,
+            )
+            if not greeting:
+                greeting = self._get_greeting()
             return greeting or None
         return None
 
@@ -6428,6 +7332,14 @@ class ALICE:
         if not tokens:
             return False
 
+        def _is_likely_name_token(token: str) -> bool:
+            if token in polite_words:
+                return True
+            # Keep greeting detection typo-tolerant for "alice" variants such as "alioce".
+            if token.startswith("ali") and len(token) <= 7:
+                return difflib.SequenceMatcher(None, token, "alice").ratio() >= 0.72
+            return False
+
         greeting_words = {
             "hi",
             "hey",
@@ -6472,7 +7384,7 @@ class ALICE:
         if not has_greeting:
             return False
 
-        return all(token in greeting_words or token in polite_words for token in tokens)
+        return all(token in greeting_words or _is_likely_name_token(token) for token in tokens)
 
     def _learned_greeting_response(
         self,
@@ -6490,7 +7402,10 @@ class ALICE:
                             self.conversational_engine.learned_greetings
                         )
                         if picked:
-                            return picked
+                            candidate = str(picked).strip()
+                            if candidate and candidate.lower() != str(getattr(self, '_last_dynamic_greeting', '') or '').strip().lower():
+                                self._last_dynamic_greeting = candidate
+                                return candidate
         except Exception:
             pass
 
@@ -6506,7 +7421,12 @@ class ALICE:
             }
             try:
                 if self.phrasing_learner.can_phrase_myself(greeting_thought, 'friendly'):
-                    return self.phrasing_learner.phrase_myself(greeting_thought, 'friendly')
+                    phrased = self.phrasing_learner.phrase_myself(greeting_thought, 'friendly')
+                    if phrased:
+                        candidate = str(phrased).strip()
+                        if candidate and candidate.lower() != str(getattr(self, '_last_dynamic_greeting', '') or '').strip().lower():
+                            self._last_dynamic_greeting = candidate
+                            return candidate
             except Exception:
                 pass
 
@@ -7032,9 +7952,20 @@ class ALICE:
         umbrella_aliases = ['umbrella', 'umbrela', 'umberella', 'umbralla']
 
         def _rain_outlook_reply(time_label: str, weather_line: str) -> Optional[str]:
+            mentions_rain_topic = bool(
+                re.search(r"\b(rain|raining|drizzle|shower|storm|thunder|precip|wet)\b", input_lower)
+            )
+            asks_rain_explicitly = bool(
+                re.search(
+                    r"\b(will|gonna|going\s+to|is\s+it|chance|expect|forecast|make\s+sure|ensure|avoid|not\s+raining|dry)\b",
+                    input_lower,
+                )
+            )
+            has_schedule_context = bool(
+                re.search(r"\b(appointment|meeting|event)\b", input_lower)
+            )
             asks_rain = bool(
-                re.search(r"\b(rain|drizzle|shower|storm|thunder|precip)\b", input_lower)
-                and re.search(r"\b(will|gonna|going\s+to|is\s+it|chance|expect)\b", input_lower)
+                mentions_rain_topic and (asks_rain_explicitly or has_schedule_context)
             )
             if not asks_rain or not weather_line:
                 return None
@@ -7044,12 +7975,24 @@ class ALICE:
             dry_terms = ("clear", "sunny", "partly cloudy", "cloudy", "overcast", "fog", "windy")
             label = str(time_label or "").strip().lower()
             time_phrase = f"for {label}" if label else ""
+            appointment_time = re.search(
+                r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b",
+                input_lower,
+            )
+            appointment_note = ""
+            if has_schedule_context:
+                if appointment_time:
+                    appointment_note = (
+                        f" For your {appointment_time.group(1)} appointment, check the hourly forecast closer to that time."
+                    )
+                else:
+                    appointment_note = " For your appointment, check the hourly forecast closer to the time."
 
             if any(term in line_low for term in rainy_terms):
-                return f"Yes, rain looks likely {time_phrase}. {weather_line}".strip()
+                return f"Yes, rain looks likely {time_phrase}. {weather_line}{appointment_note}".strip()
             if any(term in line_low for term in dry_terms):
-                return f"No, rain is not in the forecast {time_phrase}. {weather_line}".strip()
-            return f"Rain is uncertain {time_phrase}. {weather_line}".strip()
+                return f"No, rain is not in the forecast {time_phrase}. {weather_line}{appointment_note}".strip()
+            return f"Rain is uncertain {time_phrase}. {weather_line}{appointment_note}".strip()
 
         weekday_keywords = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         time_range_keywords = [
@@ -7075,6 +8018,12 @@ class ALICE:
                 self._think(
                     f"No stored forecast snapshot for '{mentioned_time_range}' follow-up yet; "
                     "continuing with forecast routing"
+                )
+                return None
+            if bool(forecast_data.get('is_stale')):
+                self._think(
+                    f"Stored forecast snapshot for '{mentioned_time_range}' is stale; "
+                    "continuing with fresh forecast routing"
                 )
                 return None
             self._think(
@@ -7121,6 +8070,12 @@ class ALICE:
                 self._think(
                     f"No stored forecast snapshot for '{mentioned_day}' follow-up yet; "
                     "continuing with forecast routing"
+                )
+                return None
+            if bool(forecast_data.get('is_stale')):
+                self._think(
+                    f"Stored forecast snapshot for '{mentioned_day}' is stale; "
+                    "continuing with fresh forecast routing"
                 )
                 return None
             self._think(f"Using stored forecast data for {mentioned_day} query: {type(forecast_data)} with {len(forecast_data.get('forecast', []))} days")
@@ -7582,38 +8537,136 @@ class ALICE:
         return any(cue in text for cue in informational_cues)
 
     def _is_answerability_direct_question(self, user_input: str) -> bool:
-        """Detect specific answerable domain questions that should bypass clarification."""
+        """Detect self-contained direct questions that should bypass clarification."""
         text = str(user_input or "").lower().strip()
         if not text:
             return False
 
+        if self._has_explicit_action_cue(text):
+            return False
+
         tokens = set(re.findall(r"\b[a-z0-9']+\b", text))
-        question_terms = {"what", "which", "how", "why"}
-        domain_terms = {"optimizer", "optimizers", "nlp", "model", "models", "training"}
-        ambiguity_terms = {"something", "anything", "stuff", "idk"}
+        if len(tokens) < 3:
+            return False
 
-        has_question_term = bool(tokens & question_terms)
-        is_question = ("?" in text) or bool(re.match(r"^\s*(what|which|how|why)\b", text))
-        has_domain_content = bool(tokens & domain_terms)
-        has_ambiguity_markers = bool(tokens & ambiguity_terms)
+        ambiguity_terms = {
+            "something",
+            "anything",
+            "stuff",
+            "idk",
+            "whatever",
+            "somehow",
+        }
+        if tokens & ambiguity_terms:
+            return False
 
-        return bool(
-            has_question_term
-            and is_question
-            and has_domain_content
-            and not has_ambiguity_markers
+        if re.search(r"\b(help\s+me|do\s+this|do\s+that|build\s+me|make\s+me)\b", text):
+            return False
+
+        direct_question_patterns = (
+            r"^\s*what\s+is\b",
+            r"^\s*what's\b",
+            r"^\s*what\s+are\b",
+            r"^\s*what(?:'s|\s+is)?\s+the\s+difference\b",
+            r"\bdifference\s+between\b",
+            r"^\s*compare\b",
+            r"^\s*explain\b",
+            r"^\s*how\s+does\b",
+            r"^\s*how\s+do\b",
+            r"^\s*why\s+does\b",
+            r"^\s*why\s+do\b",
+            r"^\s*define\b",
         )
+
+        has_direct_structure = any(re.search(pat, text) for pat in direct_question_patterns)
+        is_question_like = bool("?" in text or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", text))
+        return bool(has_direct_structure and is_question_like)
+
+    @staticmethod
+    def _looks_like_clarification_fallback(text: str) -> bool:
+        """Detect clarification-style fallback wording in a response payload."""
+        low = str(text or "").lower().strip()
+        if not low:
+            return False
+        clarification_markers = (
+            "clarify",
+            "exact outcome",
+            "exact result",
+            "what exact result",
+            "one concrete detail",
+            "share one concrete detail",
+        )
+        return any(marker in low for marker in clarification_markers)
+
+    @staticmethod
+    def _heuristic_direct_answer_fallback(user_input: str) -> str:
+        """Build a concise direct answer when a direct question loses content downstream."""
+        text = str(user_input or "").strip()
+        low = text.lower()
+
+        diff_match = re.search(r"difference\s+between\s+(.+?)\s+and\s+(.+?)(?:\?|$)", low)
+        if diff_match:
+            left = diff_match.group(1).strip(" .?!")
+            right = diff_match.group(2).strip(" .?!")
+            if left and right:
+                return (
+                    f"Short answer: {left} and {right} overlap, but {left} is typically oriented toward one core role, "
+                    f"while {right} emphasizes a different role, workflow, or operating focus."
+                )
+
+        what_match = re.match(r"^\s*(?:what\s+is|what's|define)\s+(.+?)(?:\?|$)", low)
+        if what_match:
+            topic = what_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} is best understood by what it does in practice, "
+                    f"how it is used in a system, and what trade-offs it introduces."
+                )
+
+        how_match = re.match(r"^\s*(?:how\s+does|how\s+do)\s+(.+?)(?:\?|$)", low)
+        if how_match:
+            topic = how_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} works as a loop of input processing, decision logic, "
+                    f"and output execution, with feedback used to improve the next step."
+                )
+
+        why_match = re.match(r"^\s*(?:why\s+does|why\s+do)\s+(.+?)(?:\?|$)", low)
+        if why_match:
+            topic = why_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} usually happens because of objective constraints, "
+                    f"design trade-offs, and the way the system optimizes for outcomes."
+                )
+
+        return "Short answer: this is best handled with a concise explanation grounded in practical system behavior and trade-offs."
 
     def _answerability_gate_fallback_response(self, user_input: str) -> str:
         """Provide a concise direct fallback when answerable questions lose content after sanitization."""
         text = str(user_input or "").lower()
+        if self._is_practical_agentic_framework_request(text):
+            return self._practical_agentic_frameworks_answer(
+                user_input=user_input,
+                intent="conversation:help",
+            )
+        if (
+            ("difference" in text or "compare" in text)
+            and "agent" in text
+            and ("assistant" in text or "assistance" in text)
+        ):
+            return (
+                "Short answer: an AI assistant is mostly reactive, helping when prompted, while an AI agent is proactive, "
+                "able to plan steps, use tools, and execute tasks toward a goal with less hand-holding."
+            )
         if "optimizer" in text:
             return "Short answer: an optimizer updates model weights to reduce loss during training, usually with gradient-based steps like SGD or Adam."
         if "training" in text or "model" in text:
             return "Short answer: model training learns parameters from data by minimizing a loss function and validating performance on held-out examples."
         if "nlp" in text:
             return "Short answer: NLP combines text preprocessing, representation, and model inference to understand or generate language."
-        return "Short answer: the direct explanation is feasible here, so I will answer the question instead of asking for clarification."
+        return self._heuristic_direct_answer_fallback(user_input)
 
     def _should_answer_first_without_clarification(
         self,
@@ -7659,6 +8712,11 @@ class ALICE:
 
     def _should_force_failure_recovery_answer(self, user_input: str, intent: str) -> bool:
         """Enforce direct fallback answers for understood informational goals on execution failure."""
+        if self._is_answerability_direct_question(user_input):
+            return True
+        if self._is_practical_agentic_framework_request(user_input):
+            return True
+
         if not self._is_understandable_informational_goal(user_input, intent):
             return False
 
@@ -7680,15 +8738,30 @@ class ALICE:
             "avoid_clarification": bool(task_understood),
         }
         self._internal_reasoning_state["failure_recovery_response"] = str(response or "")
+        self._record_fallback_taxonomy(
+            reason=str(reason or "execution_failure"),
+            source="llm_failure_recovery",
+            action=("answer_direct" if task_understood else "retry"),
+            task_understood=bool(task_understood),
+        )
 
     def _safe_llm_failure_response(self, *, user_input: str, intent: str, llm_response: Any) -> str:
         """Convert execution failures into resilient responses without conflating with ambiguity."""
         force_direct_recovery = self._should_force_failure_recovery_answer(user_input, intent)
+        understood_request = force_direct_recovery or self._should_answer_first_without_clarification(
+            user_input,
+            intent,
+        )
+        failure_reason = (
+            "llm_failed_after_answer_directly"
+            if understood_request
+            else "low_confidence_answer_requiring_retry"
+        )
 
         deterministic = self._deterministic_knowledge_fallback(user_input, intent)
         if deterministic:
             self._record_failure_recovery_state(
-                reason="deterministic_fallback",
+                reason=failure_reason,
                 response=deterministic,
                 task_understood=True,
             )
@@ -7697,7 +8770,7 @@ class ALICE:
         conceptual = self._native_conceptual_answer(user_input, intent)
         if conceptual and force_direct_recovery:
             self._record_failure_recovery_state(
-                reason="conceptual_fallback",
+                reason="llm_failed_after_answer_directly",
                 response=conceptual,
                 task_understood=True,
             )
@@ -7711,7 +8784,7 @@ class ALICE:
         if force_direct_recovery:
             fallback = self._compose_understood_goal_recovery(user_input, intent)
             self._record_failure_recovery_state(
-                reason="forced_direct_recovery",
+                reason="llm_failed_after_answer_directly",
                 response=fallback,
                 task_understood=True,
             )
@@ -7726,28 +8799,42 @@ class ALICE:
                 user_input=user_input,
             )
             self._record_failure_recovery_state(
-                reason="safe_passthrough",
+                reason=failure_reason,
                 response=passthrough,
-                task_understood=False,
+                task_understood=bool(understood_request),
             )
             return passthrough
 
-        scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
-        if scaffold:
-            self._record_failure_recovery_state(
-                reason="clarification_scaffold",
-                response=scaffold,
-                task_understood=False,
-            )
-            return scaffold
-
         generic = self._compose_understood_goal_recovery(user_input, intent)
         self._record_failure_recovery_state(
-            reason="generic_safe_mode",
+            reason=failure_reason,
             response=generic,
-            task_understood=False,
+            task_understood=bool(understood_request),
         )
         return generic
+
+    def _resolve_turn_success_and_route(
+        self,
+        *,
+        default_route: str,
+        plugin_result: Optional[Dict[str, Any]],
+        llm_attempted: bool,
+        llm_generation_success: Optional[bool],
+        llm_fallback_applied: bool,
+    ) -> Tuple[str, bool, bool]:
+        """Resolve final route/success truthfully for analytics and execution accounting."""
+        if isinstance(plugin_result, dict):
+            return "plugin", bool(plugin_result.get("success", False)), False
+
+        if llm_attempted:
+            generation_ok = bool(llm_generation_success)
+            recovered = bool((not generation_ok) and llm_fallback_applied)
+            return ("llm_fallback" if recovered else "llm", bool(generation_ok or recovered), recovered)
+
+        fallback_route = str(default_route or "").strip().lower()
+        if not fallback_route or fallback_route == "unknown":
+            fallback_route = "llm"
+        return fallback_route, bool(llm_generation_success), False
 
     def _apply_confidence_cascade(self, intent: str, confidence: float, nlp_result, user_input: str = "") -> dict:
         """
@@ -7804,9 +8891,11 @@ class ALICE:
         intent: str,
         response: str,
         fallback_action: str,
+        fallback_reason: str = "",
     ) -> str:
         """Build executive-gate fallback responses without inline hardcoded branches."""
-        normalized_intent = str(intent or "").lower().strip()
+        _normalized_intent = str(intent or "").lower().strip()
+        _normalized_reason = str(fallback_reason or "").strip().lower()
         _failure_recovery = dict(
             (getattr(self, "_internal_reasoning_state", {}) or {}).get("failure_recovery", {}) or {}
         )
@@ -7815,11 +8904,39 @@ class ALICE:
                 (getattr(self, "_internal_reasoning_state", {}) or {}).get("failure_recovery_response") or ""
             ).strip()
             if _recovered:
+                self._record_fallback_taxonomy(
+                    reason=(
+                        _normalized_reason
+                        or str(_failure_recovery.get("reason") or "llm_failed_after_answer_directly")
+                    ),
+                    source="executive_response_gate",
+                    action="answer_direct",
+                    task_understood=True,
+                )
                 return _recovered
+
+        if self._is_answerability_direct_question(user_input) and fallback_action == "clarify":
+            direct_recovery = self._compose_understood_goal_recovery(user_input, intent)
+            self._record_fallback_taxonomy(
+                reason="llm_failed_after_answer_directly",
+                source="executive_response_gate",
+                action="answer_direct",
+                task_understood=True,
+            )
+            return direct_recovery
 
         if fallback_action == "clarify":
             conceptual = self._native_conceptual_answer(user_input, intent)
             if conceptual:
+                self._record_fallback_taxonomy(
+                    reason=(
+                        _normalized_reason
+                        or "low_confidence_answer_requiring_retry"
+                    ),
+                    source="executive_response_gate",
+                    action="answer_direct",
+                    task_understood=True,
+                )
                 return conceptual
 
             clarification = self._generate_natural_response(
@@ -7833,27 +8950,73 @@ class ALICE:
                 user_input,
             )
             if clarification:
+                clarify_reason = _normalized_reason or "clarification_due_to_missing_parameter"
+                if self._is_project_ideation_turn(user_input, _normalized_intent):
+                    clarify_reason = "clarification_due_to_goal_narrowing"
+                self._record_fallback_taxonomy(
+                    reason=clarify_reason,
+                    source="executive_response_gate",
+                    action="clarify",
+                    task_understood=False,
+                )
                 return clarification
 
             scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
             if scaffold:
+                self._record_fallback_taxonomy(
+                    reason=(
+                        _normalized_reason
+                        or "clarification_due_to_missing_parameter"
+                    ),
+                    source="executive_response_gate",
+                    action="clarify",
+                    task_understood=False,
+                )
                 return scaffold
 
         scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
         if scaffold:
+            self._record_fallback_taxonomy(
+                reason=(
+                    _normalized_reason
+                    or "low_confidence_answer_requiring_retry"
+                ),
+                source="executive_response_gate",
+                action="retry",
+                task_understood=False,
+            )
             return scaffold
 
         recovered = self._fallback_from_intent(intent, None)
         if recovered:
+            self._record_fallback_taxonomy(
+                reason=(
+                    _normalized_reason
+                    or "low_confidence_answer_requiring_retry"
+                ),
+                source="executive_response_gate",
+                action="retry",
+                task_understood=False,
+            )
             return recovered
 
-        return self._clamp_final_response(
+        final = self._clamp_final_response(
             response,
             tone="professional and precise",
             response_type="operation_failure",
             route="exec_gate_fallback",
             user_input=user_input,
         )
+        self._record_fallback_taxonomy(
+            reason=(
+                _normalized_reason
+                or "low_confidence_answer_requiring_retry"
+            ),
+            source="executive_response_gate",
+            action="retry",
+            task_understood=False,
+        )
+        return final
 
     def _executive_apply_response_gate(
         self,
@@ -7892,11 +9055,15 @@ class ALICE:
             return response
 
         fallback_action = evaluation.get("fallback_action", "safe_reply")
+        fallback_reason = str(evaluation.get("fallback_reason", "") or "").strip()
+        if fallback_reason:
+            self._think(f"Executive fallback reason → {fallback_reason}")
         return self._executive_gate_fallback_response(
             user_input=user_input,
             intent=intent,
             response=response,
             fallback_action=str(fallback_action or "safe_reply"),
+            fallback_reason=fallback_reason,
         )
 
     def _run_executive_reflection(
@@ -7964,7 +9131,238 @@ class ALICE:
         except Exception as e:
             logger.debug(f"[ExecutiveReflection] {e}")
 
+    def _build_reasoning_output_contract(
+        self,
+        *,
+        user_input: str,
+        raw_response: str,
+    ) -> ReasoningOutput:
+        """Build internal reasoning artifact for final response formulation."""
+        state = dict(getattr(self, '_internal_reasoning_state', {}) or {})
+        response_plan = dict(state.get('response_plan', {}) or {})
+        routing_decision = dict(state.get('routing_decision', {}) or {})
+        intent = str(
+            state.get('intent')
+            or state.get('resolved_intent')
+            or getattr(self, '_last_routed_intent', None)
+            or getattr(self, 'last_intent', None)
+            or "conversation:general"
+        ).strip()
+        confidence = float(
+            state.get('confidence')
+            or state.get('intent_confidence')
+            or getattr(self, '_last_intent_confidence', 0.0)
+            or 0.0
+        )
+        summary_parts = [
+            f"intent={intent}",
+            f"confidence={confidence:.2f}",
+            f"route={str(state.get('routing_owner') or routing_decision.get('reason') or 'unknown')}",
+            f"user_input={str(user_input or '').strip()[:120]}",
+            f"raw_response={str(raw_response or '').strip()[:180]}",
+        ]
+        plan = [
+            str(response_plan.get('strategy') or '').strip(),
+            str(response_plan.get('response_type') or '').strip(),
+            str(routing_decision.get('reason') or '').strip(),
+        ]
+        plan = [step for step in plan if step]
+        return ReasoningOutput(
+            internal_summary=" | ".join(summary_parts),
+            intent=intent,
+            plan=plan,
+            confidence=max(0.0, min(1.0, confidence)),
+        )
+
+    @staticmethod
+    def _strip_contract_internal_leakage(text: str) -> str:
+        """Drop internal reasoning scaffolds before final response contract stages."""
+        value = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+        if not value.strip():
+            return ""
+
+        leak_markers = (
+            "analysis:",
+            "context:",
+            "intent=",
+            "confidence=",
+            "route=",
+            "raw_response=",
+            "user_input=",
+            "plan:",
+            "executive decision",
+            "routing owner",
+            "response plan",
+            "contract_route",
+            "score_tools",
+            "score_llm",
+            "fallback reason",
+            "instead of asking for clarification",
+            "this is answerable",
+        )
+        kept: List[str] = []
+        for line in value.split("\n"):
+            low = line.lower()
+            if any(marker in low for marker in leak_markers):
+                continue
+            cleaned = line.strip()
+            if cleaned:
+                kept.append(cleaned)
+        return "\n".join(kept).strip()
+
+    def _contract_think_stage(self, *, user_input: str, raw_response: str) -> ReasoningOutput:
+        """THINK stage: build internal reasoning artifact only."""
+        return self._build_reasoning_output_contract(
+            user_input=user_input,
+            raw_response=raw_response,
+        )
+
+    def _contract_decide_stage(
+        self,
+        *,
+        user_input: str,
+        raw_response: str,
+        reasoning_output: ReasoningOutput,
+        tool_results: Dict[str, Any],
+    ) -> str:
+        """DECIDE stage: choose candidate response payload source."""
+        candidate = self._strip_contract_internal_leakage(raw_response)
+        context = {
+            "user_input": str(user_input or "").strip(),
+            "response": candidate,
+            "tone": str(getattr(getattr(self, '_last_policy', None), 'tone', 'neutral') or 'neutral'),
+        }
+
+        if getattr(self, 'response_formulator', None):
+            final_payload = self.response_formulator.generate(
+                intent=reasoning_output.intent,
+                context=context,
+                tool_results=tool_results,
+                reasoning_output=reasoning_output,
+                mode="final_answer_only",
+            )
+            if isinstance(final_payload, UserResponse):
+                candidate = str(final_payload.message or "").strip()
+            else:
+                logger.warning("Response contract violation: non-UserResponse emitted from formulator")
+
+        return candidate
+
+    def _contract_respond_stage(
+        self,
+        *,
+        user_input: str,
+        candidate: str,
+        reasoning_output: ReasoningOutput,
+        tool_results: Dict[str, Any],
+    ) -> str:
+        """RESPOND stage: sanitize, repair, and enforce answer-first contract."""
+        context = {
+            "user_input": str(user_input or "").strip(),
+            "response": "",
+            "tone": str(getattr(getattr(self, '_last_policy', None), 'tone', 'neutral') or 'neutral'),
+        }
+
+        message = self._clamp_final_response(
+            candidate,
+            tone='helpful',
+            response_type='general_response',
+            route='final_authority',
+            user_input=user_input,
+        )
+
+        if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(message):
+            regenerated = self.response_formulator.generate(
+                intent=reasoning_output.intent,
+                context=context,
+                tool_results=tool_results,
+                reasoning_output=reasoning_output,
+                mode="final_answer_only",
+            )
+            if isinstance(regenerated, UserResponse):
+                message = self._clamp_final_response(
+                    str(regenerated.message or ""),
+                    tone='helpful',
+                    response_type='general_response',
+                    route='final_authority_regen',
+                    user_input=user_input,
+                )
+
+        if getattr(self, 'response_formulator', None) and self.response_formulator.is_internal(message):
+            message = self._fallback_generic_response(
+                user_input,
+                intent=reasoning_output.intent,
+            )
+
+        if (
+            self._is_answerability_direct_question(user_input)
+            and self._looks_like_clarification_fallback(message)
+        ):
+            message = self._answerability_gate_fallback_response(user_input)
+
+        if (
+            self._looks_like_clarification_fallback(message)
+            and self._should_answer_first_without_clarification(user_input, reasoning_output.intent)
+        ):
+            if self._is_project_ideation_turn(user_input, reasoning_output.intent) or self._is_project_ideation_request(user_input):
+                self._clear_pending_conversation_slot_state("clarification_satisfied")
+                message = self._project_ideation_guidance_response(user_input)
+            else:
+                message = self._compose_understood_goal_recovery(user_input, reasoning_output.intent)
+
+        if self._is_technical_agent_build_request(
+            user_input,
+            intent=reasoning_output.intent,
+        ) and self._looks_generic_project_management_response(message):
+            self._think("Contract guard -> replaced generic PM advice with agent-build architecture response")
+            message = self._agentic_system_build_response(user_input)
+
+        return message
+
+    def _finalize_user_response_contract(self, *, user_input: str, raw_response: str) -> str:
+        """Final authority: only a UserResponse may be emitted to the user."""
+        base = str(raw_response or "").strip()
+        reasoning_output = self._contract_think_stage(
+            user_input=user_input,
+            raw_response=base,
+        )
+        tool_results = (
+            dict(getattr(self, '_last_plugin_result', {}) or {})
+            if isinstance(getattr(self, '_last_plugin_result', None), dict)
+            else {}
+        )
+        message = self._strip_contract_internal_leakage(base)
+        try:
+            message = self._contract_decide_stage(
+                user_input=user_input,
+                raw_response=message,
+                reasoning_output=reasoning_output,
+                tool_results=tool_results,
+            )
+            message = self._contract_respond_stage(
+                user_input=user_input,
+                candidate=message,
+                reasoning_output=reasoning_output,
+                tool_results=tool_results,
+            )
+
+        except Exception as e:
+            logger.debug("Final response contract fallback due to error: %s", e)
+            message = base
+
+        message = str(message or "").strip() or "I need one more detail to help."
+        self.last_assistant_response = message
+        return message
+
     def process_input(self, user_input: str, use_voice: bool = False) -> str:
+        """Public entrypoint with strict thought-vs-output contract enforcement."""
+        raw_response = self._process_input_internal(user_input, use_voice=use_voice)
+        return self._finalize_user_response_contract(
+            user_input=user_input,
+            raw_response=raw_response,
+        )
+
+    def _process_input_internal(self, user_input: str, use_voice: bool = False) -> str:
         """
         Process user input through the complete pipeline
         
@@ -7980,6 +9378,9 @@ class ALICE:
             start_time = time.time()
             route_taken = 'unknown'
             success = False
+            llm_request_attempted = False
+            llm_generation_success: Optional[bool] = None
+            llm_failure_recovery_applied = False
             self._exec_should_store_memory = True
             self._internal_reasoning_state = {}
             self._last_exec_gate_eval = {}
@@ -8276,6 +9677,33 @@ class ALICE:
             self._internal_reasoning_state["raw_user_input"] = user_input
             self._internal_reasoning_state["resolved_user_input"] = _resolved_input
             self._internal_reasoning_state["context_resolution_confidence"] = _resolution_confidence
+
+            # Deterministic native fast path for trivial social turns.
+            _pending_clarification_now = {}
+            try:
+                if getattr(self, 'nlp', None) and getattr(self.nlp, 'context', None):
+                    _pending_clarification_now = dict(
+                        getattr(self.nlp.context, 'pending_clarification', {}) or {}
+                    )
+            except Exception:
+                _pending_clarification_now = {}
+
+            if self._is_explicit_greeting_input(user_input) and not _pending_clarification_now:
+                _native_greeting = self._native_scaffold_response(user_input, "greeting")
+                if _native_greeting:
+                    self._think("Native social fast path → greeting")
+                    self._record_fallback_taxonomy(
+                        reason="native_fast_path_social",
+                        source="pre_nlp",
+                        action="answer_direct",
+                        task_understood=True,
+                    )
+                    self._store_interaction(user_input, _native_greeting, "greeting", {})
+                    if use_voice and self.speech:
+                        self.speech.speak(_native_greeting, blocking=False)
+                    logger.info(f"A.L.I.C.E: {_native_greeting[:100]}...")
+                    return _native_greeting
+
             nlp_start = time.time()
             nlp_result = self.nlp.process(_nlp_input)
             intent = nlp_result.intent
@@ -8477,6 +9905,17 @@ class ALICE:
                 entities=entities or {},
                 intent_confidence=float(intent_confidence or 0.0),
             )
+
+            if self._is_project_ideation_request(user_input):
+                entities = dict(entities or {})
+                entities.setdefault("goal", str(user_input or "").strip())
+                entities.setdefault("user_goal", str(user_input or "").strip())
+                entities.setdefault("objective", str(user_input or "").strip())
+                if intent == "conversation:clarification_needed":
+                    self._think("Project ideation detail detected -> clarification satisfied")
+                    intent = "learning:project_ideation"
+                    intent_confidence = max(float(intent_confidence or 0.0), 0.84)
+                self._clear_pending_conversation_slot_state("clarification_satisfied")
 
             # ── 1.4  Validation / clarification gate ─────────────────────────────
             # Now validates the *resolved* intent — follow-up corrections are
@@ -8867,16 +10306,22 @@ class ALICE:
                             logger.info(f"A.L.I.C.E: {response[:100]}...")
                             return response
                     else:
-                        self._think("Conversational engine → no learned pattern, will use LLM")
+                        self._think("Conversational engine → no learned pattern, using native greeting/fallback path")
 
                 # If this is a true greeting utterance, respond directly via gateway
                 explicit_greeting_input = self._is_explicit_greeting_input(user_input)
-                if intent == "greeting" and not explicit_greeting_input:
+                high_confidence_greeting_lock = (
+                    intent == "greeting"
+                    and float(intent_confidence or 0.0) >= 0.82
+                )
+                if intent == "greeting" and not explicit_greeting_input and not high_confidence_greeting_lock:
                     self._think("Intent labeled greeting, but input is not explicit greeting → continue normal routing")
                     intent = "conversation:general"
                     intent_confidence = min(intent_confidence, 0.55)
+                elif intent == "greeting" and high_confidence_greeting_lock and not explicit_greeting_input:
+                    self._think("High-confidence greeting intent locked despite imperfect greeting spelling")
 
-                if intent == "greeting" and explicit_greeting_input:
+                if intent == "greeting" and (explicit_greeting_input or high_confidence_greeting_lock):
                     # Check conversational engine first for learned greetings
                     if hasattr(self, 'conversational_engine') and self.conversational_engine:
                         conv_context = ConversationalContext(
@@ -8907,6 +10352,27 @@ class ALICE:
                             self.speech.speak(native_greeting, blocking=False)
                         logger.info(f"A.L.I.C.E: {native_greeting[:100]}...")
                         return native_greeting
+
+                    final_greeting = self._dynamic_short_greeting(
+                        user_input=user_input,
+                        user_name=(
+                            getattr(getattr(self, 'context', None), 'user_prefs', None).name
+                            if getattr(getattr(self, 'context', None), 'user_prefs', None)
+                            else ""
+                        ),
+                        allow_repeat=True,
+                    )
+                    if final_greeting:
+                        self._cache_put(user_input, intent, final_greeting)
+                        self._store_interaction(user_input, final_greeting, intent, entities)
+                        if use_voice and self.speech:
+                            self.speech.speak(final_greeting, blocking=False)
+                        logger.info(f"A.L.I.C.E: {final_greeting[:100]}...")
+                        return final_greeting
+
+                    # Greeting turns should remain conversational and not route to tools.
+                    intent = "conversation:general"
+                    intent_confidence = min(float(intent_confidence or 0.5), 0.62)
 
             # Store for active learning
             self.last_user_input = user_input
@@ -9187,8 +10653,21 @@ class ALICE:
                             return goal_res.message
                         self._think(f"Goal cancelled → continuing with intent={intent!r}")
                     if goal_res.revised:
-                        intent, entities = goal_res.intent, goal_res.entities
-                        self._think(f"Goal revised → intent={intent!r}")
+                        _revised_intent = str(goal_res.intent or intent)
+                        _revised_entities = dict(goal_res.entities or entities or {})
+                        _project_detail_satisfied = self._is_project_ideation_request(user_input)
+                        if _project_detail_satisfied and _revised_intent == "conversation:clarification_needed":
+                            self._think("Goal revise suggested clarification, but detail is now satisfied -> preserving ideation intent")
+                            intent = "learning:project_ideation"
+                            entities = {**(entities or {}), **_revised_entities}
+                            entities.setdefault("goal", str(user_input or "").strip())
+                            entities.setdefault("user_goal", str(user_input or "").strip())
+                            entities.setdefault("objective", str(user_input or "").strip())
+                            intent_confidence = max(float(intent_confidence or 0.0), 0.84)
+                            self._clear_pending_conversation_slot_state("clarification_satisfied")
+                        else:
+                            intent, entities = _revised_intent, _revised_entities
+                            self._think(f"Goal revised → intent={intent!r}")
                     elif goal_res.goal:
                         self._think(f"Goal: {goal_res.goal.description[:60]}...")
                 except Exception as e:
@@ -9322,59 +10801,6 @@ class ALICE:
                 # Only show suggestions on non-urgent intents
                 return proactive_suggestion
             
-            _fast_goal_stack = self._authoritative_goal_stack(
-                goal_res,
-                preferred_goal=_goal_followup_goal_object,
-            )
-            _fast_lane_enabled = self._should_use_fast_llm_lane(
-                user_input=user_input,
-                user_input_processed=user_input_processed,
-                intent=intent,
-                intent_confidence=float(intent_confidence or 0.0),
-                entities=entities or {},
-                has_active_goal=bool(_fast_goal_stack),
-                pending_action=getattr(self, 'pending_action', None),
-                plugin_scores=getattr(nlp_result, 'plugin_scores', {}) if nlp_result else {},
-            )
-            if _fast_lane_enabled:
-                self._think("Fast conversational lane → llm_engine default path")
-                _fast_response = self._run_fast_llm_lane(
-                    user_input=user_input,
-                    user_input_processed=user_input_processed,
-                    intent=intent,
-                    entities=entities or {},
-                    goal_res=goal_res,
-                )
-                if _fast_response:
-                    if not isinstance(getattr(self, '_internal_reasoning_state', None), dict):
-                        self._internal_reasoning_state = {}
-                    self._internal_reasoning_state.update(
-                        {
-                            "execution_mode": "conversational_intelligence",
-                            "execution_mode_reason": "fast_llm_lane_early",
-                            "routing_owner": "fast_llm_lane",
-                            "routing_decision": {
-                                "should_try_plugins": False,
-                                "force_skip_plugins": True,
-                                "force_try_plugins": False,
-                                "reason": "fast_llm_lane_early",
-                            },
-                        }
-                    )
-                    self._store_interaction(user_input, _fast_response, intent, entities)
-                    self.last_assistant_response = _fast_response
-                    self._run_executive_reflection(
-                        user_input=user_input,
-                        intent=intent,
-                        response=_fast_response,
-                        route="llm",
-                        prior_confidence=float(intent_confidence or 0.0),
-                    )
-                    if use_voice and self.speech:
-                        self.speech.speak(_fast_response, blocking=False)
-                    logger.info(f"A.L.I.C.E (fast-lane): {_fast_response[:100]}...")
-                    return _fast_response
-
             # Try planner/executor for structured tasks first
             intent, entities = self._promote_learning_goal_intent(
                 user_input_processed, intent, entities
@@ -10195,17 +11621,11 @@ class ALICE:
                 except Exception:
                     _pre_response_plan = None
 
-            if _execution_mode == "conversational_intelligence":
-                _pre_route_guard = {
-                    "block": False,
-                    "reason": "conversational_fast_lane_bypass",
-                }
-            else:
-                _pre_route_guard = self.executive_controller.should_preempt_for_plausibility(
-                    _executive_state,
-                    has_explicit_action_cue=_has_action_cue,
-                    intent_candidates=intent_candidates,
-                )
+            _pre_route_guard = self.executive_controller.should_preempt_for_plausibility(
+                _executive_state,
+                has_explicit_action_cue=_has_action_cue,
+                intent_candidates=intent_candidates,
+            )
 
             _followup_same_domain = False
             if isinstance(_followup_meta, dict) and _followup_meta.get('was_followup'):
@@ -10224,6 +11644,20 @@ class ALICE:
                 )
 
             if _pre_route_guard.get("block"):
+                _pre_block_decision = ExecutiveDecision(
+                    action="ask_clarification",
+                    reason=str(_pre_route_guard.get("reason") or "pre_route_block"),
+                    store_memory=False,
+                    clarification_question=str(_pre_route_guard.get("question") or "").strip(),
+                )
+                _pre_block_state_machine = self.executive_controller.run_turn_state_machine(
+                    state=_executive_state,
+                    decision=_pre_block_decision,
+                    has_explicit_action_cue=bool(_has_action_cue),
+                    has_active_goal=bool(_authoritative_goal_stack),
+                    pre_route_blocked=True,
+                    tool_vetoed=False,
+                )
                 self._internal_reasoning_state = {
                     **_executive_state.as_dict(),
                     "raw_user_input": user_input,
@@ -10243,6 +11677,8 @@ class ALICE:
                     "world_state_pre_route": dict(_world_state_before_route or {}),
                     "execution_mode": _execution_mode,
                     "execution_mode_reason": _execution_mode_reason,
+                    "turn_state_machine": _pre_block_state_machine.as_dict(),
+                    "turn_contract": _pre_block_state_machine.contract.as_dict(),
                 }
                 if _turn_reasoning_plan is not None:
                     self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
@@ -10287,21 +11723,13 @@ class ALICE:
                 self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
             if _pre_response_plan is not None:
                 self._internal_reasoning_state["response_plan"] = _pre_response_plan.as_dict()
-            if _execution_mode == "conversational_intelligence":
-                _executive_decision = ExecutiveDecision(
-                    action="use_llm",
-                    reason=f"conversational_fast_lane:{_execution_mode_reason}",
-                    store_memory=True,
-                    clarification_question="",
-                )
-            else:
-                _executive_decision = self.executive_controller.decide(
-                    _executive_state,
-                    is_pure_conversation=bool(is_pure_conversation),
-                    has_explicit_action_cue=_has_action_cue,
-                    has_active_goal=bool(_authoritative_goal_stack),
-                    force_plugins_for_notes=bool(force_plugins_for_notes),
-                )
+            _executive_decision = self.executive_controller.decide(
+                _executive_state,
+                is_pure_conversation=bool(is_pure_conversation),
+                has_explicit_action_cue=_has_action_cue,
+                has_active_goal=bool(_authoritative_goal_stack),
+                force_plugins_for_notes=bool(force_plugins_for_notes),
+            )
             _learning_decision = self.executive_controller.decide_learning(
                 relevance=max(_decision_scores.get("llm", 0.0), _decision_scores.get("tools", 0.0), _decision_scores.get("search", 0.0)),
                 confidence=float(intent_confidence or 0.0),
@@ -10310,6 +11738,16 @@ class ALICE:
             )
             self._internal_reasoning_state["learning_decision"] = _learning_decision
             self._exec_should_store_memory = _learning_decision in ("store", "temporary") and bool(_executive_decision.store_memory)
+            _turn_state_machine = self.executive_controller.run_turn_state_machine(
+                state=_executive_state,
+                decision=_executive_decision,
+                has_explicit_action_cue=bool(_has_action_cue),
+                has_active_goal=bool(_authoritative_goal_stack),
+                pre_route_blocked=False,
+                tool_vetoed=False,
+            )
+            self._internal_reasoning_state["turn_state_machine"] = _turn_state_machine.as_dict()
+            self._internal_reasoning_state["turn_contract"] = _turn_state_machine.contract.as_dict()
 
             # Response planning: decide structure before LLM is called
             if getattr(self, 'response_planner', None):
@@ -10325,7 +11763,7 @@ class ALICE:
                         f"Response plan → type={_resp_plan.response_type}, "
                         f"strategy={_resp_plan.strategy}"
                     )
-                    if _resp_plan.strategy == "ask_guiding_question":
+                    if _resp_plan.strategy == "ask_guiding_question" and _turn_state_machine.chosen_route != "tool":
                         return self.response_planner.guiding_question(_resp_plan, user_input)
                 except Exception as _rp_err:
                     logger.debug(f"[ResponsePlanner] {_rp_err}")
@@ -10422,63 +11860,46 @@ class ALICE:
             if _executive_decision.action == "ignore":
                 return "I need a bit more context to act on that."
 
-            if _execution_mode == "conversational_intelligence":
-                _tool_veto = {
-                    "veto": False,
-                    "reason": "conversational_fast_lane_bypass",
-                }
-            else:
-                _tool_veto = self.executive_controller.should_veto_tool_execution(
-                    user_input=user_input,
-                    intent=intent,
-                    confidence=float(intent_confidence or 0.0),
-                    intent_plausibility=float(intent_plausibility or 0.0),
-                    intent_candidates=intent_candidates,
-                )
+            _tool_veto = self.executive_controller.should_veto_tool_execution(
+                user_input=user_input,
+                intent=intent,
+                confidence=float(intent_confidence or 0.0),
+                intent_plausibility=float(intent_plausibility or 0.0),
+                intent_candidates=intent_candidates,
+            )
             self._internal_reasoning_state["tool_veto"] = _tool_veto
             if _tool_veto.get("veto"):
+                _turn_state_machine = self.executive_controller.run_turn_state_machine(
+                    state=_executive_state,
+                    decision=_executive_decision,
+                    has_explicit_action_cue=bool(_has_action_cue),
+                    has_active_goal=bool(_authoritative_goal_stack),
+                    pre_route_blocked=False,
+                    tool_vetoed=True,
+                )
+                self._internal_reasoning_state["turn_state_machine"] = _turn_state_machine.as_dict()
+                self._internal_reasoning_state["turn_contract"] = _turn_state_machine.contract.as_dict()
                 self._think(f"Executive veto → {_tool_veto.get('reason', 'unknown')}")
                 return _tool_veto.get("question") or (
                     "I need a little clarification before I trigger a tool."
                 )
 
-            if _execution_mode == "conversational_intelligence":
-                _should_try_plugins = False
-                _routing_owner = "conversational_fast_lane"
-                _routing_reason = f"skip_plugins:{_execution_mode_reason}"
-                self._internal_reasoning_state["routing_owner"] = _routing_owner
-                self._internal_reasoning_state["routing_decision"] = {
-                    "should_try_plugins": False,
-                    "force_skip_plugins": True,
-                    "force_try_plugins": False,
-                    "reason": _routing_reason,
-                }
-            else:
-                _turn_policy = getattr(self, 'turn_routing_policy', None) or get_turn_routing_policy()
-                _routing_decision = _turn_policy.decide(
-                    executive_action=_executive_decision.action,
-                    runtime_allow_tools=bool(_runtime_controls.get("allow_tools", True)),
-                    runtime_preference=str(_runtime_controls.get("routing_preference") or "balanced"),
-                    is_short_followup=bool(_is_short_followup),
-                    is_pure_conversation=bool(is_pure_conversation),
-                    force_plugins_for_notes=bool(force_plugins_for_notes),
-                )
-                _should_try_plugins = bool(_routing_decision.should_try_plugins)
-                _routing_owner = _routing_decision.owner
-                _routing_reason = _routing_decision.reason
-                self._internal_reasoning_state["routing_owner"] = _routing_owner
-                self._internal_reasoning_state["routing_decision"] = {
-                    "should_try_plugins": _routing_decision.should_try_plugins,
-                    "force_skip_plugins": _routing_decision.force_skip_plugins,
-                    "force_try_plugins": _routing_decision.force_try_plugins,
-                    "reason": _routing_decision.reason,
-                }
+            _should_try_plugins = bool(_turn_state_machine.should_try_plugins)
+            _routing_owner = "executive_turn_state_machine"
+            _routing_reason = f"contract_route:{_turn_state_machine.chosen_route}"
+            self._internal_reasoning_state["routing_owner"] = _routing_owner
+            self._internal_reasoning_state["routing_decision"] = {
+                "should_try_plugins": bool(_should_try_plugins),
+                "force_skip_plugins": not bool(_should_try_plugins),
+                "force_try_plugins": bool(_should_try_plugins),
+                "reason": _routing_reason,
+            }
             self._think(
                 f"Routing owner={_routing_owner} decision={_routing_reason} "
                 f"plugins={_should_try_plugins}"
             )
 
-            if getattr(self, 'roadmap_stack', None) and _execution_mode != "conversational_intelligence":
+            if getattr(self, 'roadmap_stack', None):
                 _route_choice = "tool" if _should_try_plugins else "clarify"
                 _route_ok, _route_reason = self.roadmap_stack.route_contracts.validate(
                     route=_route_choice,
@@ -10488,10 +11909,32 @@ class ALICE:
                     self._think(f"Route-contract guard switched to clarify path: {_route_reason}")
                     _should_try_plugins = False
 
+            _turn_state_machine = self.executive_controller.run_turn_state_machine(
+                state=_executive_state,
+                decision=_executive_decision,
+                has_explicit_action_cue=bool(_has_action_cue),
+                has_active_goal=bool(_authoritative_goal_stack),
+                pre_route_blocked=False,
+                tool_vetoed=not bool(_should_try_plugins) and _executive_decision.action == "use_plugin",
+            )
+            if _should_try_plugins:
+                _turn_state_machine = self.executive_controller.run_turn_state_machine(
+                    state=_executive_state,
+                    decision=ExecutiveDecision(
+                        action="use_plugin",
+                        reason="contract_enforced_tool_route",
+                        store_memory=_executive_decision.store_memory,
+                    ),
+                    has_explicit_action_cue=bool(_has_action_cue),
+                    has_active_goal=bool(_authoritative_goal_stack),
+                    pre_route_blocked=False,
+                    tool_vetoed=False,
+                )
+            self._internal_reasoning_state["turn_state_machine"] = _turn_state_machine.as_dict()
+            self._internal_reasoning_state["turn_contract"] = _turn_state_machine.contract.as_dict()
+
             if not _should_try_plugins:
-                if _execution_mode == "conversational_intelligence":
-                    self._think("Conversational fast lane → LLM-first response path")
-                elif is_pure_conversation:
+                if is_pure_conversation:
                     self._think("Pure conversation → skipping plugins, using LLM")
                 else:
                     self._think("Short follow-up (no command words, no goal) → skipping plugins, using LLM")
@@ -10636,6 +12079,17 @@ class ALICE:
                 else:
                     _risk_level = 'medium'
 
+                _contract_success_criteria = []
+                if _turn_state_machine and _turn_state_machine.contract:
+                    _contract_success_criteria = list(
+                        _turn_state_machine.contract.success_criteria or []
+                    )
+                _expected_outcome = (
+                    "; ".join(_contract_success_criteria)
+                    if _contract_success_criteria
+                    else (active_goal.description if active_goal else f"Complete {_action_name} successfully")
+                )
+
                 action_request = ActionRequest(
                     goal=(active_goal.description if active_goal else user_input),
                     plugin=_plugin_name,
@@ -10651,7 +12105,8 @@ class ALICE:
                     confidence=float(intent_confidence or 0.0),
                     # RBAC confirmation is already enforced above; do not re-block here.
                     requires_confirmation=False,
-                    expected_outcome=(active_goal.description if active_goal else f"Complete {_action_name} successfully"),
+                    expected_outcome=_expected_outcome,
+                    success_criteria=_contract_success_criteria,
                     target_spec={
                         "target": (entities or {}).get("target")
                         or (entities or {}).get("path")
@@ -10722,6 +12177,7 @@ class ALICE:
                             confidence=float(intent_confidence or 0.0),
                             requires_confirmation=False,
                             expected_outcome=f"Complete {_reroute_action} successfully",
+                            success_criteria=_contract_success_criteria,
                             target_spec={
                                 "target": (entities or {}).get("target")
                                 or (entities or {}).get("location")
@@ -10861,11 +12317,22 @@ class ALICE:
                 if not plugin_result and intent_confidence < 0.6:
                     self._think("Low confidence + no plugin match → using LLM with context")
             
+            _turn_execution_outcome = None
+            _post_execution = None
             if plugin_result:
                 # Plugin handled the request, regardless of success/failure
                 plugin_name = plugin_result.get('plugin', 'Unknown')
                 success = plugin_result.get('success', False)
-                _tool_verified = bool((plugin_result.get('verification') or {}).get('accepted', False))
+                _turn_execution_outcome = self._build_turn_execution_outcome(
+                    contract=_turn_state_machine.contract,
+                    plugin_result=plugin_result,
+                    action_result=action_result,
+                )
+                _post_execution = self._apply_post_execution_state_machine(
+                    turn_state_machine=_turn_state_machine,
+                    outcome=_turn_execution_outcome,
+                )
+                _tool_verified = bool(_turn_execution_outcome.verification_passed)
                 self._think(f"Plugin → {plugin_name} success={success}")
 
                 # Foundation 3 execution contract: do not mutate memory/state or
@@ -10877,6 +12344,22 @@ class ALICE:
                         or plugin_result.get('response')
                         or "I could not verify that tool output was reliable. Please clarify or try again."
                     )
+                    _contract_verification = self.execution_verifier.verify_task_result(
+                        intent=intent,
+                        result=response,
+                        all_results=(plugin_result.get('data') if isinstance(plugin_result, dict) else {}),
+                        success_criteria=(
+                            _post_execution.contract.success_criteria
+                            if _post_execution and _post_execution.contract
+                            else []
+                        ),
+                        outcome=(
+                            _turn_execution_outcome.as_dict()
+                            if _turn_execution_outcome is not None
+                            else {}
+                        ),
+                    )
+                    self._internal_reasoning_state['task_verification'] = _contract_verification.to_dict()
                     response = self._executive_apply_response_gate(
                         user_input=user_input,
                         intent=intent,
@@ -11081,6 +12564,81 @@ class ALICE:
                     response=response,
                     plugin_result=plugin_result if isinstance(plugin_result, dict) else None,
                 )
+
+                _contract_verification = self.execution_verifier.verify_task_result(
+                    intent=intent,
+                    result=response,
+                    all_results=(plugin_result.get('data') if isinstance(plugin_result, dict) else {}),
+                    success_criteria=(
+                        _post_execution.contract.success_criteria
+                        if _post_execution and _post_execution.contract
+                        else []
+                    ),
+                    outcome=(
+                        _turn_execution_outcome.as_dict()
+                        if _turn_execution_outcome is not None
+                        else {}
+                    ),
+                )
+                self._internal_reasoning_state['task_verification'] = _contract_verification.to_dict()
+
+                if _turn_execution_outcome is not None:
+                    _turn_execution_outcome.verification_passed = bool(
+                        _turn_execution_outcome.verification_passed
+                        and _contract_verification.accepted
+                    )
+                    if _contract_verification.issues:
+                        _turn_execution_outcome.issues = list(
+                            dict.fromkeys(
+                                list(_turn_execution_outcome.issues or [])
+                                + list(_contract_verification.issues or [])
+                            )
+                        )
+                    if (
+                        not _turn_execution_outcome.verification_passed
+                        and bool(plugin_result.get('retryable', False))
+                    ):
+                        _turn_execution_outcome.needs_retry = True
+                    if (
+                        not _turn_execution_outcome.verification_passed
+                        and not _turn_execution_outcome.needs_retry
+                    ):
+                        _turn_execution_outcome.needs_escalation = True
+                    _post_execution = self._apply_post_execution_state_machine(
+                        turn_state_machine=_turn_state_machine,
+                        outcome=_turn_execution_outcome,
+                    )
+
+                if _post_execution and _post_execution.contract and _turn_execution_outcome is not None:
+                    response = self._build_verified_execution_response(
+                        contract=_post_execution.contract,
+                        outcome=_turn_execution_outcome,
+                        plugin_result=plugin_result,
+                        fallback_response=response,
+                    )
+
+                if _turn_execution_outcome is not None and not _turn_execution_outcome.verification_passed:
+                    self._think(
+                        "Contract criteria not satisfied -> "
+                        f"post_phase={(_post_execution.phase if _post_execution else 'unknown')}"
+                    )
+                    response = self._executive_apply_response_gate(
+                        user_input=user_input,
+                        intent=intent,
+                        response=response,
+                        route="plugin",
+                    )
+                    self._store_interaction(user_input, response, intent, entities)
+                    self._run_executive_reflection(
+                        user_input=user_input,
+                        intent=intent,
+                        response=response,
+                        route="tools",
+                        prior_confidence=float(intent_confidence or 0.0),
+                    )
+                    if use_voice and self.speech:
+                        self.speech.speak(response, blocking=False)
+                    return response
                 
                 # Track incomplete tasks for proactive follow-up
                 if getattr(self, 'proactive_assistant', None) and not success:
@@ -11321,13 +12879,28 @@ class ALICE:
                     ),
                     user_input=user_input
                 )
-
+                response = self._finalize_conversational_surface(
+                    user_input=user_input,
+                    intent=intent,
+                    response=response,
+                    route="llm",
+                    plugin_result=None,
+                    apply_publish_style=True,
+                )
                 return response
 
             # Handle relationship queries before LLM generation
             if self.relationship_tracker:
                 relationship_response = self._handle_relationship_query(user_input, intent, entities)
                 if relationship_response:
+                    relationship_response = self._finalize_conversational_surface(
+                        user_input=user_input,
+                        intent=intent,
+                        response=relationship_response,
+                        route="llm",
+                        plugin_result=None,
+                        apply_publish_style=True,
+                    )
                     return relationship_response
             
             # 3. Alice checks her learned patterns first — only use Ollama if she can't answer
@@ -11347,6 +12920,14 @@ class ALICE:
                             _learned_response = self.response_optimizer.optimize(
                                 _learned_response, intent, {"entities": entities}
                             )
+                        _learned_response = self._finalize_conversational_surface(
+                            user_input=user_input,
+                            intent=intent,
+                            response=_learned_response,
+                            route="llm",
+                            plugin_result=None,
+                            apply_publish_style=True,
+                        )
                         if use_voice and self.speech:
                             self.speech.speak(_learned_response, blocking=False)
                         return _learned_response
@@ -11390,6 +12971,7 @@ class ALICE:
             
             try:
                 # Track LLM execution timing
+                llm_request_attempted = True
                 llm_start = time.time()
                 llm_response = self.llm_gateway.request(
                     prompt=llm_input,
@@ -11420,6 +13002,7 @@ class ALICE:
                     duration_ms=round(llm_duration * 1000, 2),
                     tokens=getattr(llm_response, 'token_count', 0)
                 )
+                llm_generation_success = bool(llm_response.success and llm_response.response)
                 
                 if llm_response.success and llm_response.response:
                     response = self._clamp_final_response(
@@ -11477,13 +13060,21 @@ class ALICE:
                         intent=intent,
                         llm_response=llm_response,
                     )
+                    llm_failure_recovery_applied = bool(
+                        ((getattr(self, '_internal_reasoning_state', {}) or {}).get('failure_recovery') or {})
+                    )
             
             except Exception as e:
                 logger.error(f"LLM call failed: {e}")
+                llm_request_attempted = True
+                llm_generation_success = False
                 response = self._safe_llm_failure_response(
                     user_input=user_input,
                     intent=intent,
                     llm_response={"error": str(e)},
+                )
+                llm_failure_recovery_applied = bool(
+                    ((getattr(self, '_internal_reasoning_state', {}) or {}).get('failure_recovery') or {})
                 )
             
             # Optimize response for clarity and user preference
@@ -11496,19 +13087,13 @@ class ALICE:
                         "goal": goal_res.goal.description if (goal_res and goal_res.goal) else None,
                     },
                 )
-            response = self._apply_response_style_constraints(response)
-            response = self._prevent_unsolicited_summary(
-                user_input=user_input,
-                intent=intent,
-                response=response,
-                plugin_result=plugin_result if 'plugin_result' in locals() and isinstance(plugin_result, dict) else None,
-            )
-
-            response = self._executive_apply_response_gate(
+            response = self._finalize_conversational_surface(
                 user_input=user_input,
                 intent=intent,
                 response=response,
                 route="llm",
+                plugin_result=(plugin_result if 'plugin_result' in locals() and isinstance(plugin_result, dict) else None),
+                apply_publish_style=True,
             )
             
             # NOTE: Don't cache LLM responses - we want fresh answers each time for variety
@@ -11665,16 +13250,47 @@ class ALICE:
             if use_voice and self.speech:
                 self.speech.speak(response, blocking=False)
 
+            _plugin_result_payload = (
+                plugin_result
+                if 'plugin_result' in locals() and isinstance(plugin_result, dict)
+                else None
+            )
+            route_taken, interaction_success, recovered_via_fallback = self._resolve_turn_success_and_route(
+                default_route=route_taken,
+                plugin_result=_plugin_result_payload,
+                llm_attempted=bool(llm_request_attempted),
+                llm_generation_success=llm_generation_success,
+                llm_fallback_applied=bool(llm_failure_recovery_applied),
+            )
+            self._internal_reasoning_state['turn_completion'] = {
+                'route': route_taken,
+                'success': bool(interaction_success),
+                'llm_generation_success': bool(llm_generation_success) if llm_generation_success is not None else None,
+                'fallback_recovery_applied': bool(recovered_via_fallback),
+            }
+
             # Log successful interaction to real-time learning
             if hasattr(self, 'realtime_logger'):
-                self.realtime_logger.log_success(
-                    event_type='successful_response',
-                    user_input=user_input,
-                    alice_response=response,
-                    intent=intent,
-                    route=route_taken,
-                    confidence=float(intent_confidence if 'intent_confidence' in locals() else 0.0)
-                )
+                if interaction_success:
+                    self.realtime_logger.log_success(
+                        event_type='successful_response',
+                        user_input=user_input,
+                        alice_response=response,
+                        intent=intent,
+                        route=route_taken,
+                        confidence=float(intent_confidence if 'intent_confidence' in locals() else 0.0)
+                    )
+                else:
+                    self.realtime_logger.log_error(
+                        error_type='execution_incomplete',
+                        user_input=user_input,
+                        expected='completed_response',
+                        actual='unresolved_failure',
+                        intent=intent,
+                        entities=entities if 'entities' in locals() else {},
+                        context={'route': route_taken},
+                        severity='medium',
+                    )
 
             # Queue async evaluation (non-blocking - user gets response immediately)
             if hasattr(self, 'async_evaluator') and self.async_evaluator:
@@ -11682,7 +13298,7 @@ class ALICE:
                 eval_plugin_result = plugin_result if 'plugin_result' in locals() and plugin_result else {
                     'action': intent if 'intent' in locals() else 'unknown',
                     'data': entities if 'entities' in locals() else {},
-                    'success': True
+                    'success': bool(interaction_success)
                 }
 
                 # Queue for async evaluation (happens in background after response returned)
@@ -11709,12 +13325,10 @@ class ALICE:
                     plugin_name = None
                     if 'plugin_result' in locals() and isinstance(plugin_result, dict):
                         plugin_name = plugin_result.get('plugin')
-                    llm_used = 'ollama_phrased_response' in locals() or 'llm_response' in locals()
+                    llm_used = bool(llm_request_attempted or 'ollama_phrased_response' in locals() or 'llm_response' in locals())
                     cached = intent in cacheable_intents and self._cache_get(user_input, intent) is not None
-                    interaction_success = True
                     extra_metadata = None
                     if 'plugin_result' in locals() and isinstance(plugin_result, dict):
-                        interaction_success = bool(plugin_result.get('success', True))
                         pdata = plugin_result.get('data', {}) if isinstance(plugin_result.get('data', {}), dict) else {}
                         diagnostics = pdata.get('diagnostics', {}) if isinstance(pdata.get('diagnostics', {}), dict) else {}
                         extra_metadata = {
@@ -11793,20 +13407,29 @@ class ALICE:
             
             # Track final request metrics
             duration = time.time() - start_time
-            route_taken = 'plugin' if 'plugin_result' in locals() and plugin_result else 'llm'
             self.metrics.track_request(
                 intent=intent or 'unknown',
-                success=True,
+                success=bool(interaction_success),
                 duration=duration,
                 route=route_taken
             )
-            self.structured_logger.info(
-                "Request completed successfully",
-                intent=intent,
-                route=route_taken,
-                duration_ms=round(duration * 1000, 2),
-                response_length=len(response)
-            )
+            if interaction_success:
+                self.structured_logger.info(
+                    "Request completed with fallback recovery" if recovered_via_fallback else "Request completed successfully",
+                    intent=intent,
+                    route=route_taken,
+                    duration_ms=round(duration * 1000, 2),
+                    response_length=len(response),
+                    recovered_via_fallback=bool(recovered_via_fallback),
+                )
+            else:
+                self.structured_logger.warning(
+                    "Request completed with unresolved failure",
+                    intent=intent,
+                    route=route_taken,
+                    duration_ms=round(duration * 1000, 2),
+                    response_length=len(response),
+                )
 
             logger.info(f"A.L.I.C.E: {response[:100]}...")
             
@@ -12512,6 +14135,8 @@ class ALICE:
             
             # Store in episodic memory with enhanced metadata (unless privacy mode)
             if not self.privacy_mode and getattr(self, '_exec_should_store_memory', True):
+                _turn_contract = dict((getattr(self, '_internal_reasoning_state', {}) or {}).get('turn_contract', {}) or {})
+                _turn_outcome = dict((getattr(self, '_internal_reasoning_state', {}) or {}).get('turn_execution_outcome', {}) or {})
                 self.memory.store_memory(
                     content=f"User: {user_input} | Assistant: {response}",
                     memory_type="episodic",
@@ -12520,7 +14145,11 @@ class ALICE:
                         "entities": entities,
                         "topics": self.conversation_topics[-3:],
                         "has_email_context": bool(self.last_email_list),
-                        "pending_action": self.pending_action
+                        "pending_action": self.pending_action,
+                        "turn_contract_goal": str(_turn_contract.get('goal') or ''),
+                        "turn_contract_route": str(_turn_contract.get('chosen_route') or ''),
+                        "turn_contract_next_action": str(_turn_contract.get('next_action') or ''),
+                        "turn_execution_outcome": _turn_outcome,
                     },
                     importance=0.6,
                     tags=["conversation", intent]
@@ -13239,7 +14868,11 @@ class ALICE:
                     self.conversational_engine.learned_greetings
                 ) if hasattr(self.conversational_engine, '_unique_candidates') else self.conversational_engine.learned_greetings
                 if hasattr(self.conversational_engine, '_pick_non_repeating') and len(greeting_options) >= 2:
-                    return self.conversational_engine._pick_non_repeating(greeting_options)
+                    picked = self.conversational_engine._pick_non_repeating(greeting_options)
+                    candidate = str(picked).strip()
+                    if candidate and candidate.lower() != str(getattr(self, '_last_dynamic_greeting', '') or '').strip().lower():
+                        self._last_dynamic_greeting = candidate
+                        return candidate
 
         learned = self._learned_greeting_response(
             user_input="greeting",
@@ -13249,55 +14882,16 @@ class ALICE:
         )
         if learned:
             return learned
-        
-        # Fallback to Gateway for natural greeting generation
-        prompt = f"""Generate a brief, natural greeting for the user who just started the session.
-Context:
-- User's name: {name}
-- Time of day: {time_context}
-- This is the opening greeting
 
-Generate only the greeting (1 sentence), no other text. Be friendly and offer to help."""
-        
-        try:
-            llm_response = self.llm_gateway.request(
-                prompt=prompt,
-                call_type=LLMCallType.CHITCHAT,
-                use_history=False,
-                user_input="greeting"
-            )
-            if llm_response.success and llm_response.response:
-                greeting = self._clamp_final_response(
-                    llm_response.response.strip().strip('"').strip("'"),
-                    tone='casual and friendly',
-                    response_type='greeting',
-                    route='greeting',
-                    user_input='greeting',
-                )
-                if self.phrasing_learner:
-                    self.phrasing_learner.record_phrasing(
-                        alice_thought={
-                            'type': 'greeting',
-                            'data': {
-                                'user_input': 'greeting',
-                                'user_name': name,
-                                'asked_how': False,
-                                'time_context': time_context,
-                            },
-                        },
-                        ollama_phrasing=greeting,
-                        context={
-                            'tone': 'friendly',
-                            'intent': 'greeting',
-                            'user_input': 'greeting',
-                            'time_context': time_context,
-                        },
-                    )
-                return greeting
-        except Exception:
-            pass
+        dynamic = self._dynamic_short_greeting(
+            user_input="greeting",
+            user_name=name,
+            time_context=time_context,
+            allow_repeat=True,
+        )
+        if dynamic:
+            return dynamic
 
-        # No hardcoded greeting fallback: if no LLM and no learned greeting yet, stay silent.
         return ""
     
     def _get_farewell(self) -> str:

@@ -29,6 +29,7 @@ class ActionRequest:
     risk_level: str = "medium"
     retry_budget: int = 1
     rollback_policy: str = "none"
+    success_criteria: list[str] = field(default_factory=list)
     plan_steps: list[str] = field(default_factory=list)
     goal_ref: Any = None
 
@@ -60,6 +61,7 @@ class ActionResult:
             "status": self.status,
             "plugin": self.plugin,
             "action": self.action,
+            "goal_satisfied": bool(self.goal_satisfied),
             "data": self.data if isinstance(self.data, dict) else {},
             "message": message,
             "response": message,
@@ -241,6 +243,7 @@ class UnifiedActionEngine:
                     "intent_confidence": request.confidence,
                     "action_engine": "unified",
                     "expected_outcome": request.expected_outcome,
+                    "success_criteria": list(request.success_criteria or []),
                     "target_spec": request.target_spec,
                     "risk_level": request.risk_level,
                     "rollback_policy": request.rollback_policy,
@@ -513,7 +516,9 @@ class UnifiedActionEngine:
         ):
             return False
 
-        return bool(low_confidence or missing_target or not self._has_explicit_approval(request))
+        return bool(
+            low_confidence or missing_target or not self._has_explicit_approval(request)
+        )
 
     def _has_explicit_approval(self, request: ActionRequest) -> bool:
         params = request.params or {}

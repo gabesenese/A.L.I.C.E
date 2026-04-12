@@ -222,7 +222,45 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
         if re.search(r"^\s*\d+\.\s+", value):
             return value
 
-        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", value) if s.strip()]
+        normalized = re.sub(r"\s+", " ", value).strip()
+
+        # Structured one-line outputs often contain repeated section labels.
+        # Reflow those into readable paragraph blocks before fallback sentence spacing.
+        section_labels = (
+            "Project Concept",
+            "Objective",
+            "Project Direction",
+            "Direction",
+            "Domain",
+            "Key Features",
+            "Features",
+            "Next Steps",
+            "Deliverables",
+            "Summary",
+            "Goals",
+            "Goal",
+            "Scope",
+            "Timeline",
+            "Risks",
+            "Approach",
+        )
+        heading_pattern = re.compile(
+            r"\b(" + "|".join(re.escape(label) for label in section_labels) + r"):"
+        )
+        heading_matches = list(heading_pattern.finditer(normalized))
+        if len(heading_matches) >= 2:
+            structured = normalized
+            structured = heading_pattern.sub(r"\n\n\1:", structured).strip()
+            structured = re.sub(r"\n{3,}", "\n\n", structured)
+
+            # If headings are followed by inline numbered lists, put each item on its own line.
+            structured = re.sub(r"\s+(?=\d+\.\s+)", "\n", structured)
+            structured = re.sub(r"\n{3,}", "\n\n", structured).strip()
+
+            if "\n" in structured:
+                return structured
+
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", normalized) if s.strip()]
         if len(sentences) < 2:
             return value
 
@@ -232,7 +270,7 @@ System ready. Type [{self.colors['accent']}]/help[/{self.colors['accent']}] for 
             if len(lead_tokens) <= 2:
                 sentences = [f"{sentences[0]} {sentences[1]}".strip(), *sentences[2:]]
 
-        if len(value) < 120:
+        if len(normalized) < 120:
             return value
 
         return "\n\n".join(sentences)

@@ -210,20 +210,27 @@ class SyntheticCorpusGenerator:
 
         corpus = []
         response_templates = {
-            "greeting": "Hello! How can I help you today?",
-            "weather": "Let me check the weather for you.",
-            "email": "I'll check your email.",
-            "notes": "I'll save that for you.",
-            "calendar": "Let me check your calendar.",
-            "help": "I can help with weather, emails, notes, calendar, and more.",
-            "farewell": "Goodbye! See you later.",
+            "greeting": [
+                "Hello! How can I help you today?",
+                "Hey there. What would you like to work on?",
+                "Hi. What can I help you with right now?",
+                "Hello. What are we tackling today?",
+                "Hey. What do you want to do first?",
+            ],
+            "weather": ["Let me check the weather for you."],
+            "email": ["I'll check your email."],
+            "notes": ["I'll save that for you."],
+            "calendar": ["Let me check your calendar."],
+            "help": ["I can help with weather, emails, notes, calendar, and more."],
+            "farewell": ["Goodbye! See you later."],
         }
 
         for intent, inputs in templates.items():
-            response = response_templates.get(intent, "How can I help?")
+            response_options = response_templates.get(intent, ["How can I help?"])
             for base_input in inputs:
-                variants = self.generate_variants(base_input, num_variants=3)
+                variants = self.generate_variants(base_input, count=3)
                 for variant in variants:
+                    response = random.choice(response_options)
                     pair = {
                         "user_input": variant,
                         "intent": intent,

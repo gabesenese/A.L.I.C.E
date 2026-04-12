@@ -14,10 +14,11 @@ Philosophy:
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Pattern
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,23 @@ class ResponseTemplate:
     example_data: Dict[str, Any]  # Example data structure
     example_phrasings: List[str]  # Multiple ways to phrase it
     formulation_rules: List[str]  # Rules for generating response
+
+
+@dataclass
+class ReasoningOutput:
+    """Internal reasoning artifact that must never be sent directly to users."""
+
+    internal_summary: str
+    intent: str
+    plan: List[str]
+    confidence: float
+
+
+@dataclass
+class UserResponse:
+    """Final user-facing response contract."""
+
+    message: str
 
 
 class ResponseFormulator:
@@ -60,6 +78,288 @@ class ResponseFormulator:
         # Track what Alice can formulate independently
         self.independent_actions = set()
         self._load_independence_data()
+
+    INTERNAL_LEAK_PATTERNS: List[str] = [
+        "the user wants",
+        "some possible follow-up",
+        "key points",
+        "analysis:",
+        "context:",
+        "internal reasoning",
+        "reasoning output",
+        "intent:",
+        "executive decision",
+        "routing owner",
+        "response plan",
+        "contract_route",
+        "score_tools",
+        "score_llm",
+        "instead of asking for clarification",
+        "this is answerable",
+        "direct explanation is feasible",
+    ]
+    INTERNAL_LEAK_REGEX: List[Pattern[str]] = [
+        re.compile(
+            r"\b(?:intent|confidence|route|user_input|raw_response|resolved_intent|response_type|strategy|plan|score|policy|contract|decision|routing)\s*=",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:analysis|context|executive|response\s+gate)\s*[=:]", re.IGNORECASE
+        ),
+    ]
+    CLARIFICATION_FALLBACK = (
+        "Please share one missing detail so I can answer precisely."
+    )
+    GENERIC_FALLBACK = "I can help with that."
+    DIRECT_RETRY_FALLBACK = "I can answer directly once you share one concrete detail."
+
+    def is_internal(self, text: str) -> bool:
+        """Return True when a text looks like internal reasoning or scaffold leakage."""
+        low = str(text or "").lower()
+        if not low.strip():
+            return False
+        if any(pattern in low for pattern in self.INTERNAL_LEAK_PATTERNS):
+            return True
+        return any(pattern.search(low) for pattern in self.INTERNAL_LEAK_REGEX)
+
+    @staticmethod
+    def _is_direct_answer_question(user_input: str) -> bool:
+        """Detect definitional/comparative/explanatory self-contained questions."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        tokens = set(re.findall(r"\b[a-z0-9']+\b", text))
+        if len(tokens) < 3:
+            return False
+
+        if re.search(r"\b(help\s+me|build\s+me|make\s+me|do\s+this|do\s+that)\b", text):
+            return False
+
+        ambiguity_terms = {
+            "something",
+            "anything",
+            "stuff",
+            "idk",
+            "whatever",
+        }
+        if tokens & ambiguity_terms:
+            return False
+
+        direct_patterns = (
+            r"^\s*what\s+is\b",
+            r"^\s*what's\b",
+            r"^\s*what\s+are\b",
+            r"^\s*what(?:'s|\s+is)?\s+the\s+difference\b",
+            r"\bdifference\s+between\b",
+            r"^\s*compare\b",
+            r"^\s*explain\b",
+            r"^\s*how\s+does\b",
+            r"^\s*how\s+do\b",
+            r"^\s*why\s+does\b",
+            r"^\s*why\s+do\b",
+            r"^\s*define\b",
+        )
+
+        has_direct_structure = any(re.search(pat, text) for pat in direct_patterns)
+        is_question_like = bool(
+            "?" in text
+            or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", text)
+        )
+        return bool(has_direct_structure and is_question_like)
+
+    def _sanitize_user_message(self, text: str) -> str:
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return ""
+
+        cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+        cleaned_lines: List[str] = []
+        internal_key_equals = re.compile(
+            r"\b(?:intent|confidence|route|raw_response|user_input|resolved_intent|response_type|strategy|plan|score|policy|contract|decision|routing)\s*=",
+            re.IGNORECASE,
+        )
+        for line in cleaned.split("\n"):
+            normalized = re.sub(r"[^\S\n]+", " ", line).strip()
+            if not normalized:
+                cleaned_lines.append("")
+                continue
+            low_line = normalized.lower()
+            if re.match(
+                r"^(analysis|context|intent|plan|executive|routing|decision|policy)\s*:\s*",
+                low_line,
+            ):
+                continue
+            if internal_key_equals.search(low_line):
+                continue
+            cleaned_lines.append(normalized)
+
+        while cleaned_lines and cleaned_lines[0] == "":
+            cleaned_lines.pop(0)
+        while cleaned_lines and cleaned_lines[-1] == "":
+            cleaned_lines.pop()
+
+        cleaned = "\n".join(cleaned_lines)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        cleaned = re.sub(
+            r"^(analysis|context|intent|plan|executive|routing|decision|policy)\s*:\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = cleaned.strip(' \t\n\r-:;,."')
+        if cleaned and not re.search(r"[.!?]$", cleaned):
+            cleaned += "."
+        return cleaned
+
+    @staticmethod
+    def _compose_direct_answer_fallback(user_input: str) -> str:
+        """Generate a concise direct answer scaffold for self-contained direct questions."""
+        text = str(user_input or "").strip()
+        low = text.lower()
+
+        diff_match = re.search(
+            r"difference\s+between\s+(.+?)\s+and\s+(.+?)(?:\?|$)", low
+        )
+        if diff_match:
+            left = diff_match.group(1).strip(" .?!")
+            right = diff_match.group(2).strip(" .?!")
+            if left and right:
+                return (
+                    f"Short answer: {left} and {right} are related, but {left} usually focuses on one primary role, "
+                    f"while {right} focuses on a different role, workflow, or implementation objective."
+                )
+
+        what_match = re.match(r"^\s*(?:what\s+is|what's|define)\s+(.+?)(?:\?|$)", low)
+        if what_match:
+            topic = what_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} is best defined by what it does, where it fits in a system, "
+                    f"and which trade-offs it introduces in practice."
+                )
+
+        how_match = re.match(r"^\s*(?:how\s+does|how\s+do)\s+(.+?)(?:\?|$)", low)
+        if how_match:
+            topic = how_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} works through input interpretation, decision logic, "
+                    f"execution, and feedback-driven adjustment."
+                )
+
+        why_match = re.match(r"^\s*(?:why\s+does|why\s+do)\s+(.+?)(?:\?|$)", low)
+        if why_match:
+            topic = why_match.group(1).strip(" .?!")
+            if topic:
+                return (
+                    f"Short answer: {topic} generally reflects design constraints, optimization trade-offs, "
+                    f"and objective-driven behavior in the system."
+                )
+
+        return "Short answer: this can be answered directly with a concise explanation and practical context."
+
+    def _regenerate_clean_message(
+        self,
+        *,
+        intent: str,
+        context: Optional[Dict[str, Any]],
+        tool_results: Optional[Dict[str, Any]],
+        reasoning_output: Optional[ReasoningOutput],
+    ) -> str:
+        """Deterministic fallback when candidate output leaks internal text."""
+        intent_text = str(intent or "").lower().strip()
+        user_input = str((context or {}).get("user_input") or "").strip()
+
+        if self._is_direct_answer_question(user_input):
+            return self._compose_direct_answer_fallback(user_input)
+
+        if tool_results and isinstance(tool_results, dict):
+            msg = str(
+                tool_results.get("response") or tool_results.get("message") or ""
+            ).strip()
+            if msg and not self.is_internal(msg):
+                return msg
+
+            data = (
+                tool_results.get("data")
+                if isinstance(tool_results.get("data"), dict)
+                else {}
+            )
+            plugin = str(tool_results.get("plugin") or "").strip()
+            action = str(tool_results.get("action") or "").strip()
+            if plugin or action:
+                return f"Done. {plugin} {action} completed.".strip()
+            if data:
+                return "Done. I processed that request."
+
+        if "clarification" in intent_text or "vague" in intent_text:
+            return self.CLARIFICATION_FALLBACK
+
+        if user_input:
+            return self.DIRECT_RETRY_FALLBACK
+
+        return self.GENERIC_FALLBACK
+
+    def _enforce_response_tone(self, message: str) -> str:
+        """Keep final responses clean, direct, and practical."""
+        text = self._sanitize_user_message(message)
+        if not text:
+            return ""
+
+        text = re.sub(
+            r"^(sure|of course|absolutely|definitely|no problem|happy to help)[:,.!]?\s+",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = "\n".join(
+            re.sub(r"[^\S\n]+", " ", line).strip() for line in text.split("\n")
+        )
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text
+
+    def generate(
+        self,
+        intent: str,
+        context: Optional[Dict[str, Any]],
+        tool_results: Optional[Dict[str, Any]],
+        reasoning_output: Optional[ReasoningOutput],
+        mode: str = "final_answer_only",
+    ) -> UserResponse:
+        """Final authority layer: always produce a user-safe UserResponse."""
+        _ = mode  # Reserved for future policy branching.
+
+        candidate = ""
+
+        if tool_results and isinstance(tool_results, dict):
+            candidate = str(
+                tool_results.get("response") or tool_results.get("message") or ""
+            ).strip()
+
+        if not candidate:
+            candidate = str((context or {}).get("response") or "").strip()
+
+        candidate = self._sanitize_user_message(candidate)
+        if not candidate or self.is_internal(candidate):
+            candidate = self._regenerate_clean_message(
+                intent=intent,
+                context=context,
+                tool_results=tool_results,
+                reasoning_output=reasoning_output,
+            )
+            candidate = self._sanitize_user_message(candidate)
+
+        if not candidate or self.is_internal(candidate):
+            user_input = str((context or {}).get("user_input") or "").strip()
+            if self._is_direct_answer_question(user_input):
+                candidate = self._compose_direct_answer_fallback(user_input)
+            else:
+                candidate = self.GENERIC_FALLBACK
+
+        candidate = self._enforce_response_tone(candidate)
+
+        return UserResponse(message=candidate)
 
     def _load_templates(self) -> None:
         """Load response templates from storage"""

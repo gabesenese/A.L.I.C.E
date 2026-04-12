@@ -8,8 +8,57 @@ decision signal for routing behavior. It is intentionally not chain-of-thought.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 import re
 from typing import Any, Dict, List
+
+
+class TaskType(str, Enum):
+    CONVERSATION = "conversation"
+    DIRECT_TOOL_ACTION = "direct tool action"
+    MULTI_STEP_TASK = "multi-step task"
+    AUTONOMOUS_FOLLOW_THROUGH = "autonomous follow-through"
+    CLARIFICATION_REQUIRED = "clarification-required"
+    BLOCKED_ESCALATED = "blocked/escalated"
+
+
+class RouteChoice(str, Enum):
+    TOOL = "tool"
+    LLM = "llm"
+    CLARIFY = "clarify"
+    BLOCKED = "blocked"
+
+
+class TerminalAction(str, Enum):
+    PROCEED = "proceed"
+    CLARIFY = "clarify"
+    BLOCKED = "blocked"
+
+
+class NextActionType(str, Enum):
+    RESPOND = "respond"
+    EXECUTE_TOOL = "execute_tool"
+    CONTINUE_GOAL = "continue_goal"
+    ASK_CLARIFICATION = "ask_clarification"
+    RETRY_TOOL = "retry_tool"
+    REPLAN = "replan"
+    ESCALATE = "escalate"
+
+
+class NextActionOwner(str, Enum):
+    EXECUTIVE = "executive"
+    ACTION_ENGINE = "action_engine"
+    VERIFIER = "verifier"
+    RESPONSE = "response_layer"
+
+
+class PostExecutionPhase(str, Enum):
+    EXECUTED = "executed"
+    VERIFIED = "verified"
+    RETRY = "retry"
+    REPLANNED = "replanned"
+    COMPLETED = "completed"
+    ESCALATED = "escalated"
 
 
 @dataclass
@@ -68,6 +117,140 @@ class ExecutiveDecision:
     reason: str
     store_memory: bool = True
     clarification_question: str = ""
+
+
+@dataclass
+class TurnContinuation:
+    """Machine-usable continuation payload derived from next_action."""
+
+    action_type: str = NextActionType.RESPOND.value
+    payload: Dict[str, Any] = field(default_factory=dict)
+    retry_target: str = ""
+    blocking_reason: str = ""
+    owner: str = NextActionOwner.EXECUTIVE.value
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "action_type": str(self.action_type or NextActionType.RESPOND.value),
+            "payload": dict(self.payload or {}),
+            "retry_target": str(self.retry_target or ""),
+            "blocking_reason": str(self.blocking_reason or ""),
+            "owner": str(self.owner or NextActionOwner.EXECUTIVE.value),
+        }
+
+
+@dataclass
+class TurnExecutionContract:
+    """Canonical per-turn executive contract shared across runtime layers."""
+
+    task_type: str
+    goal: str
+    constraints: List[str] = field(default_factory=list)
+    chosen_route: str = ""
+    success_criteria: List[str] = field(default_factory=list)
+    next_action: str = ""
+    continuation: TurnContinuation = field(default_factory=TurnContinuation)
+
+    def as_dict(self) -> Dict[str, Any]:
+        continuation = self.continuation.as_dict() if self.continuation else {}
+        return {
+            "task_type": str(self.task_type or TaskType.CONVERSATION.value),
+            "goal": str(self.goal or ""),
+            "constraints": [
+                str(x) for x in list(self.constraints or []) if str(x).strip()
+            ],
+            "chosen_route": str(self.chosen_route or RouteChoice.LLM.value),
+            "success_criteria": [
+                str(x) for x in list(self.success_criteria or []) if str(x).strip()
+            ],
+            "next_action": str(self.next_action or ""),
+            "next_action_type": str(
+                continuation.get("action_type") or NextActionType.RESPOND.value
+            ),
+            "continuation_payload": dict(continuation.get("payload") or {}),
+            "retry_target": str(continuation.get("retry_target") or ""),
+            "blocking_reason": str(continuation.get("blocking_reason") or ""),
+            "next_action_owner": str(
+                continuation.get("owner") or NextActionOwner.EXECUTIVE.value
+            ),
+            "continuation": continuation,
+        }
+
+
+@dataclass
+class TurnStateMachineResult:
+    """Single executive state-machine output for one turn."""
+
+    state: str
+    chosen_route: str
+    should_try_plugins: bool
+    terminal_action: str
+    contract: TurnExecutionContract
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "state": str(self.state or TaskType.CONVERSATION.value),
+            "chosen_route": str(self.chosen_route or RouteChoice.LLM.value),
+            "should_try_plugins": bool(self.should_try_plugins),
+            "terminal_action": str(
+                self.terminal_action or TerminalAction.PROCEED.value
+            ),
+            "contract": self.contract.as_dict() if self.contract else {},
+        }
+
+
+@dataclass
+class TurnExecutionOutcome:
+    """Post-execution outcome separates tool success from goal progress."""
+
+    tool_success: bool
+    goal_advanced: bool
+    verification_passed: bool
+    needs_retry: bool
+    needs_escalation: bool
+    recommended_next_action: str = ""
+    verification_confidence: float = 0.0
+    issues: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "tool_success": bool(self.tool_success),
+            "goal_advanced": bool(self.goal_advanced),
+            "verification_passed": bool(self.verification_passed),
+            "needs_retry": bool(self.needs_retry),
+            "needs_escalation": bool(self.needs_escalation),
+            "recommended_next_action": str(self.recommended_next_action or ""),
+            "verification_confidence": max(
+                0.0, min(1.0, float(self.verification_confidence or 0.0))
+            ),
+            "issues": [str(x) for x in list(self.issues or []) if str(x).strip()],
+            "metadata": dict(self.metadata or {}),
+        }
+
+
+@dataclass
+class PostExecutionStateMachineResult:
+    """Post-execution state machine output for execute/verify/retry loops."""
+
+    phase: str
+    terminal_action: str
+    should_retry: bool
+    should_replan: bool
+    contract: TurnExecutionContract
+    outcome: TurnExecutionOutcome
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "phase": str(self.phase or PostExecutionPhase.EXECUTED.value),
+            "terminal_action": str(
+                self.terminal_action or TerminalAction.PROCEED.value
+            ),
+            "should_retry": bool(self.should_retry),
+            "should_replan": bool(self.should_replan),
+            "contract": self.contract.as_dict() if self.contract else {},
+            "outcome": self.outcome.as_dict() if self.outcome else {},
+        }
 
 
 class ExecutiveController:
@@ -323,6 +506,378 @@ class ExecutiveController:
             plan=plan,
         )
 
+    def build_turn_contract(
+        self,
+        *,
+        state: ReasoningState,
+        decision: ExecutiveDecision,
+        should_try_plugins: bool,
+        has_explicit_action_cue: bool,
+        has_active_goal: bool,
+        pre_route_blocked: bool = False,
+        tool_vetoed: bool = False,
+    ) -> TurnExecutionContract:
+        """Build the single canonical per-turn contract object."""
+
+        if pre_route_blocked or decision.action == "ask_clarification":
+            task_type = TaskType.CLARIFICATION_REQUIRED.value
+            chosen_route = RouteChoice.CLARIFY.value
+        elif tool_vetoed or decision.action in {"defer", "ignore"}:
+            task_type = TaskType.BLOCKED_ESCALATED.value
+            chosen_route = RouteChoice.BLOCKED.value
+        elif should_try_plugins and has_active_goal and not has_explicit_action_cue:
+            task_type = TaskType.AUTONOMOUS_FOLLOW_THROUGH.value
+            chosen_route = RouteChoice.TOOL.value
+        elif should_try_plugins and has_explicit_action_cue and not has_active_goal:
+            task_type = TaskType.DIRECT_TOOL_ACTION.value
+            chosen_route = RouteChoice.TOOL.value
+        elif should_try_plugins:
+            task_type = TaskType.MULTI_STEP_TASK.value
+            chosen_route = RouteChoice.TOOL.value
+        elif has_active_goal:
+            task_type = TaskType.MULTI_STEP_TASK.value
+            chosen_route = RouteChoice.LLM.value
+        else:
+            task_type = TaskType.CONVERSATION.value
+            chosen_route = RouteChoice.LLM.value
+
+        goal = str(state.user_goal or state.topic or state.source_text).strip()[:200]
+        constraints: List[str] = [
+            str(x).strip() for x in list(state.goal_blockers or []) if str(x).strip()
+        ]
+        if state.route_bias and state.route_bias != "balanced":
+            constraints.append(f"route_bias:{state.route_bias}")
+        if int(state.tool_budget or 1) <= 0:
+            constraints.append("tool_budget:0")
+        if state.pending_followup_slot:
+            constraints.append("pending_followup_slot")
+
+        if task_type == TaskType.CLARIFICATION_REQUIRED.value:
+            success_criteria = [
+                "missing detail captured",
+                "next route can be decided confidently",
+            ]
+            next_action = (
+                decision.clarification_question.strip()
+                or "ask one targeted clarifying question"
+            )
+        elif task_type == TaskType.BLOCKED_ESCALATED.value:
+            success_criteria = [
+                "blocker identified",
+                "escalation path selected",
+            ]
+            next_action = (
+                str(state.goal_next_action or "").strip()
+                or "request operator/user intervention"
+            )
+        elif task_type == TaskType.DIRECT_TOOL_ACTION.value:
+            success_criteria = [
+                "tool call succeeds",
+                "result returned to user clearly",
+            ]
+            next_action = (
+                str(state.goal_next_action or "").strip()
+                or "execute requested tool and verify outcome"
+            )
+        elif task_type == TaskType.AUTONOMOUS_FOLLOW_THROUGH.value:
+            success_criteria = [
+                "active goal advances",
+                "state updated for continuity",
+            ]
+            next_action = (
+                str(state.goal_next_action or "").strip()
+                or "continue the active goal without extra prompting"
+            )
+        elif task_type == TaskType.MULTI_STEP_TASK.value:
+            success_criteria = [
+                "step outcome validated",
+                "next step remains actionable",
+            ]
+            next_action = (
+                str(state.goal_next_action or "").strip()
+                or "continue planned execution and verify progress"
+            )
+        else:
+            success_criteria = [
+                "answer is directly relevant",
+                "response remains concise and actionable",
+            ]
+            next_action = "respond directly and wait for user follow-up"
+
+        continuation = self._build_continuation(
+            task_type=task_type,
+            decision=decision,
+            next_action=next_action,
+            chosen_route=chosen_route,
+            tool_vetoed=tool_vetoed,
+        )
+
+        return TurnExecutionContract(
+            task_type=task_type,
+            goal=goal,
+            constraints=constraints,
+            chosen_route=chosen_route,
+            success_criteria=success_criteria,
+            next_action=next_action,
+            continuation=continuation,
+        )
+
+    def run_turn_state_machine(
+        self,
+        *,
+        state: ReasoningState,
+        decision: ExecutiveDecision,
+        has_explicit_action_cue: bool,
+        has_active_goal: bool,
+        pre_route_blocked: bool = False,
+        tool_vetoed: bool = False,
+    ) -> TurnStateMachineResult:
+        """Single-owner state machine for per-turn runtime control."""
+
+        if pre_route_blocked:
+            chosen_route = RouteChoice.CLARIFY.value
+            should_try_plugins = False
+            terminal_action = TerminalAction.CLARIFY.value
+        elif tool_vetoed or decision.action in {"defer", "ignore"}:
+            chosen_route = RouteChoice.BLOCKED.value
+            should_try_plugins = False
+            terminal_action = TerminalAction.BLOCKED.value
+        elif decision.action == "ask_clarification":
+            chosen_route = RouteChoice.CLARIFY.value
+            should_try_plugins = False
+            terminal_action = TerminalAction.CLARIFY.value
+        elif decision.action == "use_plugin":
+            chosen_route = RouteChoice.TOOL.value
+            should_try_plugins = True
+            terminal_action = TerminalAction.PROCEED.value
+        elif decision.action in {"use_llm", "answer_direct"}:
+            chosen_route = RouteChoice.LLM.value
+            should_try_plugins = False
+            terminal_action = TerminalAction.PROCEED.value
+        else:
+            # Unknown actions are treated as blocked for safety.
+            chosen_route = RouteChoice.BLOCKED.value
+            should_try_plugins = False
+            terminal_action = TerminalAction.BLOCKED.value
+
+        contract = self.build_turn_contract(
+            state=state,
+            decision=decision,
+            should_try_plugins=should_try_plugins,
+            has_explicit_action_cue=has_explicit_action_cue,
+            has_active_goal=has_active_goal,
+            pre_route_blocked=pre_route_blocked,
+            tool_vetoed=tool_vetoed,
+        )
+
+        return TurnStateMachineResult(
+            state=contract.task_type,
+            chosen_route=chosen_route,
+            should_try_plugins=should_try_plugins,
+            terminal_action=terminal_action,
+            contract=contract,
+        )
+
+    def build_execution_outcome(
+        self,
+        *,
+        contract: TurnExecutionContract,
+        tool_success: bool,
+        goal_advanced: bool,
+        verification_passed: bool,
+        recommended_next_action: str = "",
+        retryable: bool = False,
+        issues: List[str] | None = None,
+        verification_confidence: float = 0.0,
+        metadata: Dict[str, Any] | None = None,
+    ) -> TurnExecutionOutcome:
+        """Create explicit execution outcome fields for downstream control."""
+
+        next_action = str(recommended_next_action or "").strip().lower()
+        needs_retry = bool(next_action in {"retry", "clarify_then_continue"})
+        if not needs_retry and retryable and not verification_passed:
+            needs_retry = True
+
+        needs_escalation = bool(next_action in {"escalate", "escalate_and_stop"})
+        if (
+            not needs_escalation
+            and not needs_retry
+            and contract.chosen_route == RouteChoice.TOOL.value
+            and not verification_passed
+        ):
+            needs_escalation = True
+
+        return TurnExecutionOutcome(
+            tool_success=bool(tool_success),
+            goal_advanced=bool(goal_advanced),
+            verification_passed=bool(verification_passed),
+            needs_retry=bool(needs_retry),
+            needs_escalation=bool(needs_escalation),
+            recommended_next_action=next_action,
+            verification_confidence=max(
+                0.0, min(1.0, float(verification_confidence or 0.0))
+            ),
+            issues=[str(x) for x in list(issues or []) if str(x).strip()],
+            metadata=dict(metadata or {}),
+        )
+
+    def run_post_execution_state_machine(
+        self,
+        *,
+        pre_execution: TurnStateMachineResult,
+        outcome: TurnExecutionOutcome,
+    ) -> PostExecutionStateMachineResult:
+        """Transition from route selection to execution outcome lifecycle."""
+
+        phase = PostExecutionPhase.EXECUTED.value
+        terminal_action = TerminalAction.PROCEED.value
+        should_retry = False
+        should_replan = False
+        contract = pre_execution.contract
+
+        if outcome.needs_escalation:
+            phase = PostExecutionPhase.ESCALATED.value
+            terminal_action = TerminalAction.BLOCKED.value
+            contract = self._contract_with_continuation(
+                contract,
+                action_type=NextActionType.ESCALATE.value,
+                owner=NextActionOwner.EXECUTIVE.value,
+                blocking_reason=(
+                    ", ".join(outcome.issues)
+                    if outcome.issues
+                    else "verification_failure"
+                ),
+                next_action="request escalation or operator intervention",
+            )
+        elif outcome.needs_retry:
+            phase = PostExecutionPhase.RETRY.value
+            should_retry = True
+            contract = self._contract_with_continuation(
+                contract,
+                action_type=NextActionType.RETRY_TOOL.value,
+                owner=NextActionOwner.ACTION_ENGINE.value,
+                retry_target=str(outcome.metadata.get("plugin") or ""),
+                next_action="retry the failed execution step",
+            )
+        elif outcome.verification_passed:
+            phase = PostExecutionPhase.VERIFIED.value
+            if (
+                pre_execution.chosen_route == RouteChoice.TOOL.value
+                and outcome.goal_advanced
+            ):
+                phase = PostExecutionPhase.COMPLETED.value
+                contract = self._contract_with_continuation(
+                    contract,
+                    action_type=NextActionType.CONTINUE_GOAL.value,
+                    owner=NextActionOwner.EXECUTIVE.value,
+                    next_action="goal advanced; continue with the next planned step",
+                )
+            elif (
+                pre_execution.chosen_route == RouteChoice.TOOL.value
+                and not outcome.goal_advanced
+            ):
+                phase = PostExecutionPhase.REPLANNED.value
+                should_replan = True
+                contract = self._contract_with_continuation(
+                    contract,
+                    action_type=NextActionType.REPLAN.value,
+                    owner=NextActionOwner.EXECUTIVE.value,
+                    next_action="replan because tool succeeded without advancing the goal",
+                )
+            else:
+                contract = self._contract_with_continuation(
+                    contract,
+                    action_type=NextActionType.RESPOND.value,
+                    owner=NextActionOwner.RESPONSE.value,
+                    next_action="summarize the verified outcome to the user",
+                )
+        else:
+            phase = PostExecutionPhase.REPLANNED.value
+            should_replan = True
+            contract = self._contract_with_continuation(
+                contract,
+                action_type=NextActionType.REPLAN.value,
+                owner=NextActionOwner.EXECUTIVE.value,
+                blocking_reason=(
+                    ", ".join(outcome.issues)
+                    if outcome.issues
+                    else "unverified_outcome"
+                ),
+                next_action="replan due to unverified execution",
+            )
+
+        return PostExecutionStateMachineResult(
+            phase=phase,
+            terminal_action=terminal_action,
+            should_retry=bool(should_retry),
+            should_replan=bool(should_replan),
+            contract=contract,
+            outcome=outcome,
+        )
+
+    def _build_continuation(
+        self,
+        *,
+        task_type: str,
+        decision: ExecutiveDecision,
+        next_action: str,
+        chosen_route: str,
+        tool_vetoed: bool,
+    ) -> TurnContinuation:
+        if task_type == TaskType.CLARIFICATION_REQUIRED.value:
+            return TurnContinuation(
+                action_type=NextActionType.ASK_CLARIFICATION.value,
+                payload={"question": str(decision.clarification_question or "")},
+                owner=NextActionOwner.EXECUTIVE.value,
+            )
+        if task_type == TaskType.BLOCKED_ESCALATED.value:
+            return TurnContinuation(
+                action_type=NextActionType.ESCALATE.value,
+                blocking_reason=("tool_vetoed" if tool_vetoed else "policy_block"),
+                owner=NextActionOwner.EXECUTIVE.value,
+            )
+        if chosen_route == RouteChoice.TOOL.value:
+            return TurnContinuation(
+                action_type=NextActionType.EXECUTE_TOOL.value,
+                payload={"task_type": task_type},
+                owner=NextActionOwner.ACTION_ENGINE.value,
+            )
+        return TurnContinuation(
+            action_type=NextActionType.RESPOND.value,
+            payload={"task_type": task_type},
+            owner=NextActionOwner.RESPONSE.value,
+        )
+
+    def _contract_with_continuation(
+        self,
+        contract: TurnExecutionContract,
+        *,
+        action_type: str,
+        owner: str,
+        next_action: str,
+        retry_target: str = "",
+        blocking_reason: str = "",
+    ) -> TurnExecutionContract:
+        continuation = TurnContinuation(
+            action_type=action_type,
+            payload={
+                "task_type": contract.task_type,
+                "chosen_route": contract.chosen_route,
+            },
+            retry_target=retry_target,
+            blocking_reason=blocking_reason,
+            owner=owner,
+        )
+        return TurnExecutionContract(
+            task_type=contract.task_type,
+            goal=contract.goal,
+            constraints=list(contract.constraints or []),
+            chosen_route=contract.chosen_route,
+            success_criteria=list(contract.success_criteria or []),
+            next_action=next_action,
+            continuation=continuation,
+        )
+
     def should_preempt_for_plausibility(
         self,
         state: ReasoningState,
@@ -417,6 +972,16 @@ class ExecutiveController:
                 store_memory=True,
             )
 
+        if (
+            self._is_answerability_direct_question(state.source_text)
+            and not has_explicit_action_cue
+        ):
+            return ExecutiveDecision(
+                action="answer_direct",
+                reason="answerability_gate_direct_question",
+                store_memory=True,
+            )
+
         normalized_intent = (state.user_intent or "").lower().strip()
         rich_conceptual = self._is_rich_conceptual_request(state.source_text)
         conceptual_build = self._is_conceptual_build_architecture_prompt(
@@ -437,10 +1002,34 @@ class ExecutiveController:
                 store_memory=True,
             )
 
+        if (
+            normalized_intent
+            in {
+                "conversation:help",
+                "conversation:question",
+                "conversation:general",
+            }
+            and self._is_short_framework_overview_prompt(state.source_text)
+            and not has_explicit_action_cue
+            and not has_active_goal
+        ):
+            return ExecutiveDecision(
+                action="use_llm",
+                reason="short_framework_overview",
+                store_memory=True,
+            )
+
         if normalized_intent == "conversation:goal_statement":
             return ExecutiveDecision(
                 action="answer_direct",
                 reason="goal_statement_alignment",
+                store_memory=True,
+            )
+
+        if normalized_intent == "greeting":
+            return ExecutiveDecision(
+                action="answer_direct",
+                reason="greeting_native_priority",
                 store_memory=True,
             )
 
@@ -567,7 +1156,9 @@ class ExecutiveController:
         if not has_task:
             return False
 
-        has_build_verb = bool(re.search(r"\b(create|created|build|built|make|made)\b", low))
+        has_build_verb = bool(
+            re.search(r"\b(create|created|build|built|make|made)\b", low)
+        )
 
         has_constraint = any(
             cue in low
@@ -650,6 +1241,50 @@ class ExecutiveController:
         )
         return has_build and has_subject and has_question_frame
 
+    def _is_short_framework_overview_prompt(self, text: str) -> bool:
+        """Detect short conceptual framework prompts that should stay on conversational LLM path."""
+        low = str(text or "").strip().lower()
+        if not low:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", low)
+        if len(tokens) < 2 or len(tokens) > 7:
+            return False
+
+        action_cues = {
+            "create",
+            "build",
+            "implement",
+            "delete",
+            "remove",
+            "run",
+            "open",
+            "save",
+            "search",
+            "list",
+            "set",
+            "update",
+            "install",
+        }
+        if any(tok in action_cues for tok in tokens):
+            return False
+
+        framework_cues = {
+            "agentic",
+            "agent",
+            "agents",
+            "ai",
+            "framework",
+            "frameworks",
+            "orchestration",
+            "autonomous",
+            "autonomy",
+            "llm",
+            "rag",
+            "architecture",
+        }
+        return bool(framework_cues.intersection(tokens))
+
     def _is_pending_followup_slot_answer(
         self,
         *,
@@ -712,7 +1347,20 @@ class ExecutiveController:
             return False
 
         has_ask = any(
-            cue in text for cue in ("explain", "what is", "how does", "give me")
+            cue in text
+            for cue in (
+                "explain",
+                "what is",
+                "what's",
+                "how does",
+                "how do",
+                "why does",
+                "why do",
+                "difference between",
+                "compare",
+                "define",
+                "give me",
+            )
         )
         has_format = any(
             cue in text
@@ -729,7 +1377,56 @@ class ExecutiveController:
             for t in re.findall(r"\b[a-z0-9']+\b", text)
             if t not in self.SEMANTIC_STOPWORDS
         ]
-        return bool(has_ask and has_format and len(topic_tokens) >= 2)
+        if not has_ask or len(topic_tokens) < 2:
+            return False
+        if has_format:
+            return True
+        # Self-contained definitional/comparison requests should be answer-first.
+        if "?" in text:
+            return True
+        return any(
+            cue in text
+            for cue in ("difference between", "compare", "define", "what is", "what's")
+        )
+
+    def _is_answerability_direct_question(self, text: str) -> bool:
+        low = str(text or "").strip().lower()
+        if not low:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", low)
+        if len(tokens) < 3:
+            return False
+
+        if any(
+            tok in {"something", "anything", "stuff", "whatever", "idk"}
+            for tok in tokens
+        ):
+            return False
+
+        if re.search(r"\b(help\s+me|do\s+this|do\s+that|build\s+me|make\s+me)\b", low):
+            return False
+
+        direct_patterns = (
+            r"^\s*what\s+is\b",
+            r"^\s*what's\b",
+            r"^\s*what\s+are\b",
+            r"^\s*what(?:'s|\s+is)?\s+the\s+difference\b",
+            r"\bdifference\s+between\b",
+            r"^\s*compare\b",
+            r"^\s*explain\b",
+            r"^\s*how\s+does\b",
+            r"^\s*how\s+do\b",
+            r"^\s*why\s+does\b",
+            r"^\s*why\s+do\b",
+            r"^\s*define\b",
+        )
+        has_direct_structure = any(re.search(pat, low) for pat in direct_patterns)
+        is_question_like = bool(
+            "?" in low
+            or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", low)
+        )
+        return bool(has_direct_structure and is_question_like)
 
     def _is_simple_native_conversation(
         self,
@@ -781,7 +1478,9 @@ class ExecutiveController:
         # Only allow help/clarification intents through deterministic native path
         # when the actual utterance is genuinely short/simple.
         if normalized_intent == "conversation:clarification_needed":
-            return bool(self.SIMPLE_NATIVE_RE.match(text)) and (not self._is_rich_conceptual_request(text))
+            return bool(self.SIMPLE_NATIVE_RE.match(text)) and (
+                not self._is_rich_conceptual_request(text)
+            )
 
         if normalized_intent == "conversation:help":
             return False
@@ -1286,12 +1985,25 @@ class ExecutiveController:
         """Response acceptance gate before content is sent to the user."""
         context = context or {}
         resp = (response or "").strip()
+        normalized_intent = (intent or "").lower().strip()
+        answerable_question = self._is_answerability_direct_question(user_input) and (
+            normalized_intent.startswith("conversation:")
+            or normalized_intent.startswith("learning:")
+            or normalized_intent in {"question", "study_topic"}
+        )
         if not resp:
+            fallback_action = "safe_reply" if answerable_question else "clarify"
+            fallback_reason = (
+                "llm_failed_after_answer_directly"
+                if answerable_question
+                else "clarification_due_to_missing_parameter"
+            )
             return {
                 "accepted": False,
                 "score": 0.0,
                 "reason": "empty_response",
-                "fallback_action": "clarify",
+                "fallback_action": fallback_action,
+                "fallback_reason": fallback_reason,
             }
 
         semantic_guard = self._semantic_fidelity_guard(
@@ -1300,6 +2012,12 @@ class ExecutiveController:
             response=resp,
         )
         if semantic_guard is not None:
+            if "fallback_reason" not in semantic_guard:
+                semantic_guard["fallback_reason"] = (
+                    "llm_failed_after_answer_directly"
+                    if answerable_question
+                    else "low_confidence_answer_requiring_retry"
+                )
             return semantic_guard
 
         user_tokens = set(self._tokens(user_input))
@@ -1362,6 +2080,7 @@ class ExecutiveController:
                 "score": 0.0,
                 "reason": "plan_violation_missing_steps",
                 "fallback_action": "safe_reply",
+                "fallback_reason": "low_confidence_answer_requiring_retry",
             }
 
         score = max(
@@ -1388,6 +2107,19 @@ class ExecutiveController:
         fallback_action = (
             "clarify" if (overlap < 0.2 or plan_adherence < 0.45) else "safe_reply"
         )
+        if answerable_question and fallback_action == "clarify":
+            fallback_action = "safe_reply"
+
+        fallback_reason = "low_confidence_answer_requiring_retry"
+        if fallback_action == "clarify":
+            plan_strategy = str(plan.get("strategy") or "").strip().lower()
+            if plan_strategy == "ask_guiding_question":
+                fallback_reason = "clarification_due_to_goal_narrowing"
+            else:
+                fallback_reason = "clarification_due_to_missing_parameter"
+        elif answerable_question:
+            fallback_reason = "llm_failed_after_answer_directly"
+
         return {
             "accepted": False,
             "score": score,
@@ -1395,6 +2127,7 @@ class ExecutiveController:
                 "low_alignment" if goal_alignment >= 0.35 else "goal_misalignment"
             ),
             "fallback_action": fallback_action,
+            "fallback_reason": fallback_reason,
         }
 
     def _semantic_anchor_tokens(self, text: str) -> List[str]:
@@ -1430,7 +2163,8 @@ class ExecutiveController:
                 "accepted": False,
                 "score": 0.0,
                 "reason": "semantic_noise_in_response",
-                "fallback_action": "clarify",
+                "fallback_action": "safe_reply",
+                "fallback_reason": "low_confidence_answer_requiring_retry",
             }
 
         normalized_intent = (intent or "").lower().strip()
@@ -1446,13 +2180,84 @@ class ExecutiveController:
             return None
 
         response_tokens = set(self._tokens(response))
+
+        user_low = (user_input or "").lower()
+        practical_framework_prompt = (
+            any(cue in user_low for cue in ("framework", "frameworks", "architecture"))
+            and any(
+                cue in user_low
+                for cue in (
+                    "agentic autonomy",
+                    "autonomous agent",
+                    "ai agent",
+                    "autonomy in ai",
+                )
+            )
+            and (
+                any(
+                    cue in user_low
+                    for cue in (
+                        "build",
+                        "building",
+                        "implement",
+                        "implementation",
+                        "existing",
+                        "research",
+                    )
+                )
+                or len(re.findall(r"\b[a-z0-9']+\b", user_low)) <= 7
+            )
+        )
+        if practical_framework_prompt:
+            theoretical_terms = {
+                "dennett",
+                "intentional",
+                "tononi",
+                "iit",
+                "consciousness",
+                "cognitive",
+                "philosophy",
+            }
+            practical_terms = {
+                "langgraph",
+                "langchain",
+                "autogpt",
+                "crewai",
+                "react",
+                "plan",
+                "execute",
+                "reflect",
+                "verify",
+                "checkpoint",
+                "rollback",
+                "retry",
+                "escalate",
+                "tool",
+                "memory",
+                "orchestration",
+                "state machine",
+                "act-r",
+                "soar",
+            }
+            has_theoretical_bias = bool(theoretical_terms.intersection(response_tokens))
+            has_practical_signal = bool(practical_terms.intersection(response_tokens))
+            if has_theoretical_bias and not has_practical_signal:
+                return {
+                    "accepted": False,
+                    "score": 0.0,
+                    "reason": "semantic_drift_theoretical_domain",
+                    "fallback_action": "safe_reply",
+                    "fallback_reason": "low_confidence_answer_requiring_retry",
+                }
+
         overlap = [tok for tok in user_anchors if tok in response_tokens]
         if not overlap:
             return {
                 "accepted": False,
                 "score": 0.0,
                 "reason": "semantic_core_missing",
-                "fallback_action": "clarify",
+                "fallback_action": "safe_reply",
+                "fallback_reason": "low_confidence_answer_requiring_retry",
             }
 
         # Guard against programming-language drift on conceptual assistant architecture questions.
@@ -1470,7 +2275,8 @@ class ExecutiveController:
                 "accepted": False,
                 "score": 0.0,
                 "reason": "semantic_drift_programming_domain",
-                "fallback_action": "clarify",
+                "fallback_action": "safe_reply",
+                "fallback_reason": "low_confidence_answer_requiring_retry",
             }
 
         return None

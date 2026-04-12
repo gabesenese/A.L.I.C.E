@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+import re
 from typing import Any, Dict, List
 
 
@@ -11,6 +12,7 @@ class ExecutionVerification:
     accepted: bool
     confidence: float
     issues: List[str]
+    criteria_results: Dict[str, bool] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -25,11 +27,15 @@ class ExecutionVerifier:
         intent: str,
         result: Any,
         all_results: Dict[str, Any] | Dict[int, Any] | None,
+        success_criteria: List[str] | None = None,
+        outcome: Dict[str, Any] | None = None,
     ) -> ExecutionVerification:
         issues: List[str] = []
+        criteria_results: Dict[str, bool] = {}
         normalized_intent = str(intent or "").lower().strip()
         result_text = str(result or "").strip()
         steps = all_results if isinstance(all_results, dict) else {}
+        outcome_payload = dict(outcome or {})
 
         if not result_text:
             issues.append("empty_result")
@@ -45,6 +51,37 @@ class ExecutionVerifier:
         if normalized_intent.startswith("conversation:") and len(result_text) < 12:
             issues.append("conversation_result_too_short")
 
+        tool_success = bool(outcome_payload.get("tool_success", True))
+        goal_advanced = bool(outcome_payload.get("goal_advanced", True))
+        verification_passed = bool(outcome_payload.get("verification_passed", True))
+
+        for raw_criterion in list(success_criteria or []):
+            criterion = str(raw_criterion or "").strip()
+            if not criterion:
+                continue
+            criterion_lower = criterion.lower()
+            met = True
+
+            if "tool call succeeds" in criterion_lower:
+                met = tool_success
+            elif (
+                "active goal advances" in criterion_lower
+                or "step outcome validated" in criterion_lower
+                or "goal advances" in criterion_lower
+            ):
+                met = goal_advanced
+            elif "result returned to user clearly" in criterion_lower:
+                met = len(result_text) >= 12
+            elif "missing detail captured" in criterion_lower:
+                met = verification_passed
+
+            criteria_results[criterion] = bool(met)
+            if not met:
+                issues.append(
+                    "success_criterion_not_met:"
+                    + re.sub(r"\s+", "_", criterion_lower)[:64]
+                )
+
         confidence = 1.0 - (0.25 * len(issues))
         confidence = max(0.0, min(1.0, confidence))
         accepted = len(issues) == 0
@@ -53,6 +90,7 @@ class ExecutionVerifier:
             accepted=accepted,
             confidence=confidence,
             issues=issues,
+            criteria_results=criteria_results,
         )
 
 
