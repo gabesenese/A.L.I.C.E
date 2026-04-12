@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import math
-from collections import OrderedDict, defaultdict, deque
+from collections import OrderedDict, defaultdict, deque, Counter
 from pathlib import Path
 import threading
 
@@ -143,6 +143,7 @@ from ai.core.perception import Perception, PerceptionResult
 from ai.core.followup_resolver import FollowUpResolver, FollowUpResult
 from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
 from ai.core.goal_recognizer import get_goal_recognizer
+from ai.core.foundation_layers import FoundationLayers
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,33 @@ _NEGATION_WORDS: frozenset = frozenset({
     "can't", "cant", "stop", "isn't", "isnt", "aren't", "arent",
     "didn't", "didnt", "wouldn't", "wouldnt", "shouldn't", "shouldnt",
 })
+
+_TOKEN_PATTERN = re.compile(r'"[^"]+"|#\w+|\d+(?:st|nd|rd|th)?|[A-Za-z]+|[^\w\s]')
+_ORDINAL_TOKEN_RE = re.compile(r"\d+(?:st|nd|rd|th)")
+_ALPHA_TOKEN_RE = re.compile(r"[A-Za-z]+")
+
+_NOTE_TERMS: frozenset = frozenset({"note", "notes", "list", "lists", "todo", "task", "tasks"})
+_EMAIL_TERMS: frozenset = frozenset({"email", "emails", "mail", "inbox", "sender", "subject"})
+_CALENDAR_TERMS: frozenset = frozenset({"calendar", "event", "events", "meeting", "schedule"})
+_WEATHER_TERMS: frozenset = frozenset({
+    "weather", "forecast", "temperature", "rain", "snow", "sunny", "cloudy", "overcast",
+    "wind", "windy", "storm", "humidity", "humid", "outside", "precipitation",
+    "precip", "drizzle", "thunder", "thunderstorm",
+})
+_WEATHER_FORECAST_TERMS: frozenset = frozenset({
+    "tomorrow", "tonight", "week", "weekend", "forecast", "monday", "tuesday",
+    "wednesday", "thursday", "friday", "saturday", "sunday", "chance", "expect", "later",
+})
+_WEATHER_EVENT_TERMS: frozenset = frozenset({"snow", "rain", "storm", "drizzle", "thunder"})
+_WEATHER_FUTURE_TERMS: frozenset = frozenset({"will", "gonna", "going", "chance", "expect", "is"})
+_SYSTEM_TERMS: frozenset = frozenset({"system", "cpu", "memory", "disk", "battery", "status"})
+_NON_WEATHER_TARGET_TERMS: frozenset = frozenset({
+    "note", "notes", "memo", "email", "emails", "mail", "calendar", "event", "events", "meeting",
+})
+_WAKE_WORD_PREFIX_RE = re.compile(
+    r"^\s*(?:hey|ok|okay)?\s*(?:assistant|alice)\b[\s,:\-]*",
+    re.IGNORECASE,
+)
 
 
 def _has_negation_before(text_lower: str, keyword: str, window_chars: int = 40) -> bool:
@@ -1241,6 +1269,7 @@ class NLPProcessor:
                 conversation_category_gate_threshold=self.CONVERSATION_CATEGORY_GATE_THRESHOLD,
             )
         )
+        self.foundation_layers = FoundationLayers(budget_ms=120.0)
 
         # Tier foundations: explicit short-horizon memory + implicit intent + dialogue state machine
         if INTELLIGENCE_FOUNDATIONS_AVAILABLE:
@@ -2165,8 +2194,8 @@ class NLPProcessor:
             return False
 
         subject_cues = {
-            "jarvis",
-            "tony stark",
+            "assistant",
+            "fictional inventor",
             "assistant",
             "ai",
             "technology",
@@ -2217,7 +2246,7 @@ class NLPProcessor:
             for cue in (
                 "ai",
                 "assistant",
-                "jarvis",
+                "assistant",
                 "system",
                 "architecture",
             )
@@ -2437,6 +2466,7 @@ class NLPProcessor:
         """Normalize user input before lexical tokenization."""
         normalized = (text or "").strip()
         normalized = re.sub(r"\s+", " ", normalized)
+        normalized = _WAKE_WORD_PREFIX_RE.sub("", normalized, count=1).strip()
 
         contractions = {
             "what's": "what is",
@@ -2479,9 +2509,6 @@ class NLPProcessor:
     def _lexical_tokenize(self, segments: List[TokenSegment]) -> List[RichToken]:
         """Lexical layer: tokenize segments into rich tokens with type/role/span metadata."""
         tokens: List[RichToken] = []
-        token_pattern = re.compile(
-            r'"[^"]+"|#\w+|\d+(?:st|nd|rd|th)?|[A-Za-z]+|[^\w\s]'
-        )
 
         action_words = self.command_vocabulary.get("verbs", set())
         object_words = self.command_vocabulary.get("objects", set())
@@ -2501,7 +2528,7 @@ class NLPProcessor:
         meta_words = self.command_vocabulary.get("meta", set())
 
         for segment in segments:
-            for match in token_pattern.finditer(segment.text):
+            for match in _TOKEN_PATTERN.finditer(segment.text):
                 raw = match.group(0)
                 norm = raw.lower()
                 start = segment.start_pos + match.start()
@@ -2513,13 +2540,13 @@ class NLPProcessor:
                 elif raw.startswith("#"):
                     kind = "hashtag"
                     role = "modifier"
-                elif re.fullmatch(r"\d+(?:st|nd|rd|th)", norm):
+                elif _ORDINAL_TOKEN_RE.fullmatch(norm):
                     kind = "ordinal"
                     role = "reference"
                 elif raw.isdigit():
                     kind = "number"
                     role = "value"
-                elif re.fullmatch(r"[A-Za-z]+", raw):
+                elif _ALPHA_TOKEN_RE.fullmatch(raw):
                     kind = "word"
                     if norm in action_words:
                         role = "action"
@@ -2675,62 +2702,21 @@ class NLPProcessor:
         }
 
         normalized = [token.normalized for token in tokens]
+        token_counts = Counter(normalized)
+        normalized_set = set(token_counts.keys())
         bigrams = {
             f"{normalized[i]} {normalized[i + 1]}" for i in range(len(normalized) - 1)
         }
-        note_terms = {"note", "notes", "list", "lists", "todo", "task", "tasks"}
-        email_terms = {"email", "emails", "mail", "inbox", "sender", "subject"}
-        cal_terms = {"calendar", "event", "events", "meeting", "schedule"}
-        weather_terms = {
-            "weather",
-            "forecast",
-            "temperature",
-            "rain",
-            "snow",
-            "sunny",
-            "cloudy",
-            "overcast",
-            "wind",
-            "windy",
-            "storm",
-            "humidity",
-            "humid",
-            "outside",
-            "precipitation",
-            "precip",
-            "drizzle",
-            "thunder",
-            "thunderstorm",
-        }
-        weather_forecast_terms = {
-            "tomorrow",
-            "tonight",
-            "week",
-            "weekend",
-            "forecast",
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday",
-            "saturday",
-            "sunday",
-            "chance",
-            "expect",
-            "later",
-        }
-        system_terms = {"system", "cpu", "memory", "disk", "battery", "status"}
-
-        scores["notes"] += sum(1.2 for word in normalized if word in note_terms)
-        scores["email"] += sum(1.2 for word in normalized if word in email_terms)
-        scores["calendar"] += sum(1.2 for word in normalized if word in cal_terms)
-        scores["weather"] += sum(1.35 for word in normalized if word in weather_terms)
-        scores["system"] += sum(1.2 for word in normalized if word in system_terms)
-        if any(word in normalized for word in weather_forecast_terms):
+        scores["notes"] += 1.2 * sum(token_counts[word] for word in _NOTE_TERMS)
+        scores["email"] += 1.2 * sum(token_counts[word] for word in _EMAIL_TERMS)
+        scores["calendar"] += 1.2 * sum(token_counts[word] for word in _CALENDAR_TERMS)
+        scores["weather"] += 1.35 * sum(token_counts[word] for word in _WEATHER_TERMS)
+        scores["system"] += 1.2 * sum(token_counts[word] for word in _SYSTEM_TERMS)
+        if _WEATHER_FORECAST_TERMS & normalized_set:
             scores["weather"] += 0.8
         if (
-            any(word in normalized for word in {"snow", "rain", "storm", "drizzle", "thunder"})
-            and any(word in normalized for word in {"will", "gonna", "going", "chance", "expect", "is"})
+            _WEATHER_EVENT_TERMS & normalized_set
+            and _WEATHER_FUTURE_TERMS & normalized_set
         ):
             scores["weather"] += 0.9
 
@@ -2793,22 +2779,8 @@ class NLPProcessor:
             scores[preferred] += 0.45
 
         # Strong weather language should outrank weak lexical collisions in notes/email/calendar.
-        weather_signal_strength = sum(1 for word in normalized if word in weather_terms)
-        has_explicit_non_weather_target = bool(
-            set(normalized)
-            & {
-                "note",
-                "notes",
-                "memo",
-                "email",
-                "emails",
-                "mail",
-                "calendar",
-                "event",
-                "events",
-                "meeting",
-            }
-        )
+        weather_signal_strength = sum(token_counts[word] for word in _WEATHER_TERMS)
+        has_explicit_non_weather_target = bool(normalized_set & _NON_WEATHER_TARGET_TERMS)
         if weather_signal_strength >= 1 and not has_explicit_non_weather_target:
             scores["notes"] *= 0.35
             scores["email"] *= 0.45
@@ -2947,6 +2919,7 @@ class NLPProcessor:
         8. Extract keywords
         9. Update conversation context
         """
+        turn_budget = self.foundation_layers.new_budget()
 
         # Step 1: Coreference resolution
         if use_context:
@@ -3000,6 +2973,7 @@ class NLPProcessor:
 
         # Step 2: Clean + normalize for tokenizer layers
         clean_text = self._clean_text(resolved_text)
+        clean_text = self.foundation_layers.normalize_input(clean_text)
         normalized_text = self._normalize_for_tokenizer(clean_text)
         contextual_text = normalized_text
         if self.conversation_memory is not None:
@@ -3139,15 +3113,29 @@ class NLPProcessor:
                     trace={"source": "retrieval_first"},
                 )
             else:
-                semantic_intent = self._detect_intent_semantic(
-                    contextual_text,
-                    parsed_command=parsed_command,
-                    plugin_scores=plugin_scores,
-                    return_structured=False,
-                )
                 weighted_candidates = self._build_weighted_parse(
                     parsed_command, plugin_scores, normalized_text
                 )
+                shallow_confidence = max(plugin_scores.values()) if plugin_scores else 0.0
+                run_deep_stage = self.foundation_layers.should_run_deep_stage(
+                    turn_budget, shallow_confidence=shallow_confidence
+                )
+                if parsed_command.sentence_type == "question":
+                    run_deep_stage = True
+                parsed_command.modifiers["staged_inference"] = {
+                    "deep_stage_enabled": run_deep_stage,
+                    "elapsed_ms": round(turn_budget.elapsed_ms(), 3),
+                    "shallow_confidence": round(float(shallow_confidence), 3),
+                }
+                if run_deep_stage:
+                    semantic_intent = self._detect_intent_semantic(
+                        contextual_text,
+                        parsed_command=parsed_command,
+                        plugin_scores=plugin_scores,
+                        return_structured=False,
+                    )
+                else:
+                    semantic_intent = None
 
                 if self.implicit_intent_detector is not None:
                     _implicit_matches = self.implicit_intent_detector.detect(
@@ -3204,6 +3192,22 @@ class NLPProcessor:
             normalized_text=normalized_text,
             intent=intent,
         )
+
+        clarification_state = self.foundation_layers.clarification_policy(
+            plugin_scores=plugin_scores,
+            confidence=float(intent_confidence or 0.0),
+        )
+        parsed_command.modifiers["clarification_policy"] = clarification_state
+
+        authorization = self.foundation_layers.authorization_policy(
+            intent=intent,
+            text=normalized_text,
+        )
+        parsed_command.modifiers["authorization"] = authorization
+        if not authorization.get("allowed", True):
+            intent = "conversation:clarification_needed"
+            intent_confidence = min(float(intent_confidence or 0.0), 0.45)
+            parsed_command.modifiers["tool_execution_disabled"] = True
 
         # Fingerprint prior: if we have a cached high-confidence parse, use it as a boost
         if (
@@ -3711,6 +3715,17 @@ class NLPProcessor:
             # Feature disabled for A/B testing
             pass
 
+        # Final authorization check after all route/frame overrides
+        authorization = self.foundation_layers.authorization_policy(
+            intent=intent,
+            text=normalized_text,
+        )
+        parsed_command.modifiers["authorization"] = authorization
+        if not authorization.get("allowed", True):
+            intent = "conversation:clarification_needed"
+            intent_confidence = min(float(intent_confidence or 0.0), 0.45)
+            parsed_command.modifiers["tool_execution_disabled"] = True
+
         # Step 5: Sentiment analysis
         if self.sentiment_analyzer is not None:
             sentiment = self.sentiment_analyzer.polarity_scores(normalized_text)
@@ -3763,6 +3778,30 @@ class NLPProcessor:
         ):
             # Feature disabled for A/B testing
             pass
+
+        plan_snapshot = self.foundation_layers.update_plan_memory(
+            intent=intent,
+            parsed_command=parsed_command.__dict__,
+            text=normalized_text,
+        )
+        parsed_command.modifiers["plan_memory"] = plan_snapshot
+        self.foundation_layers.apply_grounding(
+            parsed_command.__dict__,
+            world_state={
+                "location": (self.context.last_entities or {}).get("location"),
+                "timezone": "UTC",
+            },
+        )
+        eval_snapshot = self.foundation_layers.record_turn(
+            confidence=float(intent_confidence or 0.0),
+            clarification=bool(clarification_state.get("needs_clarification")),
+            safety_blocked=not authorization.get("allowed", True),
+        )
+        parsed_command.modifiers["evaluation_harness"] = eval_snapshot
+        parsed_command.modifiers["latency_budget"] = {
+            "elapsed_ms": round(turn_budget.elapsed_ms(), 3),
+            "remaining_ms": round(turn_budget.remaining_ms(), 3),
+        }
 
         # Build result
         result = ProcessedQuery(

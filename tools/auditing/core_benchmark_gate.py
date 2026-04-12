@@ -298,6 +298,37 @@ def score_benchmark(benchmark_path: Path) -> Dict[str, Any]:
     return scorecard
 
 
+def build_kpi_snapshot(scorecard: Dict[str, Any]) -> Dict[str, Any]:
+    """P2 benchmark KPI bundle for dashboards/automation."""
+    objective = scorecard.get("objective") or {}
+    summary = scorecard.get("summary") or {}
+    latency = scorecard.get("latency_ms") or {
+        "p95": summary.get("p95_latency_ms", 0.0)
+    }
+    per_domain = scorecard.get("per_domain") or {}
+    useful_response_rate = float(
+        objective.get("useful_response_rate", scorecard.get("useful_response_rate", 0.0))
+    )
+    clarification_rate = 1.0 - useful_response_rate
+    critical = {
+        domain: (per_domain.get(domain) or {}).get("pass_rate", 0.0)
+        for domain in CRITICAL_DOMAINS
+    }
+    return {
+        "generated_at": scorecard.get("generated_at"),
+        "objective_score": float(
+            objective.get("objective_score", scorecard.get("objective_score", 0.0))
+        ),
+        "intent_accuracy": float(
+            objective.get("intent_accuracy", scorecard.get("intent_accuracy", 0.0))
+        ),
+        "useful_response_rate": useful_response_rate,
+        "clarification_rate_proxy": max(0.0, min(1.0, clarification_rate)),
+        "latency_p95_ms": float(latency.get("p95", 0.0)),
+        "critical_domain_pass_rates": critical,
+    }
+
+
 def _load_scorecard(path: Path) -> Dict[str, Any]:
     if not path.exists():
         raise ValueError(f"Scorecard file not found: {path}")

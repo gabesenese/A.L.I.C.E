@@ -395,6 +395,56 @@ class CognitiveOrchestrator:
             goal.last_updated = time.time()
             return True
 
+    def ingest_action_outcome(
+        self,
+        *,
+        goal_id: str,
+        action_label: str,
+        success: bool,
+    ) -> Dict[str, Any]:
+        """Link execution outcomes into long-horizon goal progress (P1)."""
+        with self._lock:
+            goal = self._project_goals.get(goal_id)
+            if goal is None:
+                return {"updated": False, "reason": "goal_not_found"}
+
+            if not success:
+                goal.state = GOAL_BLOCKED
+                goal.metadata["last_blocker"] = str(action_label or "unknown_action")
+                goal.metadata["stagnation_turns"] = int(
+                    goal.metadata.get("stagnation_turns", 0)
+                ) + 1
+                goal.last_updated = time.time()
+                return {"updated": True, "state": goal.state, "progress": goal.progress}
+
+            label = str(action_label or "").strip().lower()
+            matched = ""
+            for milestone in goal.milestones:
+                if milestone in goal.completed_milestones:
+                    continue
+                if label and label in milestone.lower():
+                    matched = milestone
+                    break
+
+            if matched:
+                goal.completed_milestones.append(matched)
+            elif goal.milestones:
+                remaining = [m for m in goal.milestones if m not in goal.completed_milestones]
+                if remaining:
+                    goal.completed_milestones.append(remaining[0])
+
+            total = max(1, len(goal.milestones))
+            goal.progress = min(1.0, len(goal.completed_milestones) / total)
+            goal.state = GOAL_COMPLETED if goal.progress >= 1.0 else GOAL_PROGRESSING
+            goal.metadata["stagnation_turns"] = 0
+            goal.last_updated = time.time()
+            return {
+                "updated": True,
+                "state": goal.state,
+                "progress": round(goal.progress, 3),
+                "completed_milestones": list(goal.completed_milestones),
+            }
+
     # ------------------------------------------------------------------
     # Meta-cognitive self-improvement
     # ------------------------------------------------------------------
