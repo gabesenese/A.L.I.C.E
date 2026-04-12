@@ -103,13 +103,15 @@ class ResponseFormulator:
             r"\b(?:intent|confidence|route|user_input|raw_response|resolved_intent|response_type|strategy|plan|score|policy|contract|decision|routing)\s*=",
             re.IGNORECASE,
         ),
-        re.compile(r"\b(?:analysis|context|executive|response\s+gate)\s*[=:]", re.IGNORECASE),
+        re.compile(
+            r"\b(?:analysis|context|executive|response\s+gate)\s*[=:]", re.IGNORECASE
+        ),
     ]
-    CLARIFICATION_FALLBACK = "Please share one missing detail so I can answer precisely."
-    GENERIC_FALLBACK = "I can help with that."
-    DIRECT_RETRY_FALLBACK = (
-        "I can answer directly once you share one concrete detail."
+    CLARIFICATION_FALLBACK = (
+        "Please share one missing detail so I can answer precisely."
     )
+    GENERIC_FALLBACK = "I can help with that."
+    DIRECT_RETRY_FALLBACK = "I can answer directly once you share one concrete detail."
 
     def is_internal(self, text: str) -> bool:
         """Return True when a text looks like internal reasoning or scaffold leakage."""
@@ -183,7 +185,10 @@ class ResponseFormulator:
                 cleaned_lines.append("")
                 continue
             low_line = normalized.lower()
-            if re.match(r"^(analysis|context|intent|plan|executive|routing|decision|policy)\s*:\s*", low_line):
+            if re.match(
+                r"^(analysis|context|intent|plan|executive|routing|decision|policy)\s*:\s*",
+                low_line,
+            ):
                 continue
             if internal_key_equals.search(low_line):
                 continue
@@ -197,7 +202,10 @@ class ResponseFormulator:
         cleaned = "\n".join(cleaned_lines)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         cleaned = re.sub(
-            r"^(analysis|context|intent|plan|executive|routing|decision|policy)\s*:\s*", "", cleaned, flags=re.IGNORECASE
+            r"^(analysis|context|intent|plan|executive|routing|decision|policy)\s*:\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
         )
         cleaned = cleaned.strip(' \t\n\r-:;,."')
         if cleaned and not re.search(r"[.!?]$", cleaned):
@@ -293,7 +301,7 @@ class ResponseFormulator:
 
         return self.GENERIC_FALLBACK
 
-    def _enforce_jarvis_tone(self, message: str) -> str:
+    def _enforce_response_tone(self, message: str) -> str:
         """Keep final responses clean, direct, and practical."""
         text = self._sanitize_user_message(message)
         if not text:
@@ -349,7 +357,7 @@ class ResponseFormulator:
             else:
                 candidate = self.GENERIC_FALLBACK
 
-        candidate = self._enforce_jarvis_tone(candidate)
+        candidate = self._enforce_response_tone(candidate)
 
         return UserResponse(message=candidate)
 

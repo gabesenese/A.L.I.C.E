@@ -839,3 +839,50 @@ def test_explicit_greeting_detector_and_native_greeting_path_for_hi_alice() -> N
 
     assert alice._is_explicit_greeting_input("hi alice") is True
     assert alice._native_scaffold_response("hi alice", "greeting") is not None
+
+
+def test_explicit_greeting_detector_accepts_minor_name_typo() -> None:
+    alice = ALICE.__new__(ALICE)
+
+    assert alice._is_explicit_greeting_input("hi alioce") is True
+
+
+def test_goal_statement_promotion_skips_social_greeting_turns() -> None:
+    alice = ALICE.__new__(ALICE)
+
+    intent, entities, confidence = alice._promote_goal_statement_intent(
+        user_input="hi alioce",
+        intent="greeting",
+        entities={},
+        intent_confidence=0.89,
+    )
+
+    assert intent == "greeting"
+    assert entities == {}
+    assert confidence == 0.89
+
+
+def test_turn_outcome_resolution_requires_explicit_fallback_for_failed_llm() -> None:
+    alice = ALICE.__new__(ALICE)
+
+    route, success, recovered = alice._resolve_turn_success_and_route(
+        default_route="unknown",
+        plugin_result=None,
+        llm_attempted=True,
+        llm_generation_success=False,
+        llm_fallback_applied=False,
+    )
+    assert route == "llm"
+    assert success is False
+    assert recovered is False
+
+    route, success, recovered = alice._resolve_turn_success_and_route(
+        default_route="unknown",
+        plugin_result=None,
+        llm_attempted=True,
+        llm_generation_success=False,
+        llm_fallback_applied=True,
+    )
+    assert route == "llm_fallback"
+    assert success is True
+    assert recovered is True

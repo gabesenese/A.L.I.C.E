@@ -1398,7 +1398,10 @@ class ExecutiveController:
         if len(tokens) < 3:
             return False
 
-        if any(tok in {"something", "anything", "stuff", "whatever", "idk"} for tok in tokens):
+        if any(
+            tok in {"something", "anything", "stuff", "whatever", "idk"}
+            for tok in tokens
+        ):
             return False
 
         if re.search(r"\b(help\s+me|do\s+this|do\s+that|build\s+me|make\s+me)\b", low):

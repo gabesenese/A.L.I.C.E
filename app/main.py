@@ -28,6 +28,7 @@ os.environ.setdefault('SENTENCE_TRANSFORMERS_VERBOSITY', 'error')
 import sys
 import logging
 import re
+import difflib
 import html
 import time
 from typing import Optional, Dict, Any, List, Tuple
@@ -405,12 +406,9 @@ class ALICE:
             # 1. NLP Processor
             logger.info("Loading NLP processor...")
             self.nlp = NLPProcessor()
-            # Pre-warm the semantic classifier so the first user query has no cold-start delay
-            try:
-                self.nlp._ensure_semantic_classifier()
-                logger.info("Semantic classifier pre-warmed.")
-            except Exception:
-                pass  # non-fatal; will lazy-load on first real query
+            # Keep semantic classifier lazy to avoid startup failures/hangs from
+            # heavyweight transformer imports during boot.
+            logger.info("Semantic classifier lazy-init enabled (startup pre-warm skipped).")
             # Shared session objects from NLP stack
             self.dialogue_memory = getattr(self.nlp, 'dialogue_memory', None)
             self.fp_store = getattr(self.nlp, '_fp_store', None)
@@ -4500,6 +4498,20 @@ class ALICE:
         if not llm_input:
             return None
 
+        if self._is_technical_agent_build_request(
+            llm_input,
+            intent=intent,
+            entities=entities,
+        ):
+            direct = self._agentic_system_build_response(llm_input)
+            return self._clamp_final_response(
+                direct,
+                tone='helpful',
+                response_type='general_response',
+                route='fast_llm_lane',
+                user_input=user_input,
+            )
+
         if self._is_agent_algorithm_question(llm_input):
             direct = self._deterministic_knowledge_fallback(llm_input, intent)
             if direct:
@@ -4807,7 +4819,7 @@ class ALICE:
         intent: str,
         response: str,
     ) -> str:
-        """Polish final publishing tone through llm_engine while keeping meaning intact."""
+        """Render the final user-facing voice through llm_engine without changing facts."""
         base = str(response or "").strip()
         if not base:
             return base
@@ -4818,25 +4830,39 @@ class ALICE:
         if len(base) < 20 or len(base) > 650:
             return base
 
-        rewrite_prompt = (
-            "Rewrite this assistant reply so it sounds natural, clear, and concise. "
-            "Keep facts unchanged. Do not add new claims.\n\n"
-            f"User: {str(user_input or '').strip()}\n"
-            f"Intent: {str(intent or '').strip()}\n"
-            f"Draft reply: {base}"
-        )
+        tone = self._select_tone(intent, None, user_input) if hasattr(self, "_select_tone") else "helpful"
+        phrase_context = {
+            "user_name": getattr(self, "user_name", "the user"),
+            "allow_user_name": bool(self._is_explicit_greeting_input(user_input)),
+        }
+
         try:
-            polished = self.llm.chat(
-                rewrite_prompt,
-                use_history=False,
-                temperature=0.35,
-                mode="final_answer_only",
-            )
+            polished = None
+            if hasattr(self.llm, "phrase_with_tone"):
+                polished = self.llm.phrase_with_tone(
+                    content=base,
+                    tone=tone,
+                    context=phrase_context,
+                )
+            else:
+                rewrite_prompt = (
+                    "Rewrite this assistant reply so it sounds natural, clear, and concise. "
+                    "Keep facts unchanged. Do not add new claims.\n\n"
+                    f"User: {str(user_input or '').strip()}\n"
+                    f"Intent: {str(intent or '').strip()}\n"
+                    f"Draft reply: {base}"
+                )
+                polished = self.llm.chat(
+                    rewrite_prompt,
+                    use_history=False,
+                    temperature=0.35,
+                    mode="final_answer_only",
+                )
             polished_text = str(polished or "").strip()
             if polished_text:
                 return self._clamp_final_response(
                     polished_text,
-                    tone='helpful',
+                    tone=tone,
                     response_type='general_response',
                     route='fast_llm_publish',
                     user_input=user_input,
@@ -5328,82 +5354,99 @@ class ALICE:
     def _project_ideation_narrowing_question(self, user_input: str) -> str:
         """Return one narrowing question for project ideation mode."""
         domain = self._extract_project_ideation_domain(user_input)
-        if domain == "nlp":
-            return "Do you want a beginner project, one practical for Alice, or something advanced?"
-        if domain in {"assistant", "ai"}:
-            return "Do you want to focus first on memory, tool-use, or conversational quality?"
-        if domain == "python":
-            return "Do you want a CLI prototype, a web app, or an automation workflow?"
-        return "Do you want a beginner scope, a practical build, or an advanced version?"
+        inferred_domain = domain or self._infer_learning_domain(user_input) or "architecture"
+        focuses = self._detected_learning_focuses(user_input)
+        branches = self._fallback_branch_options(inferred_domain, focuses)
+        if not branches:
+            branches = ["scope", "architecture", "verification"]
+
+        picked = self._rotate_fallback_options(
+            f"project_ideation:question:{inferred_domain}",
+            branches,
+            take=min(3, len(branches)),
+        )
+        if not picked:
+            picked = branches[:3]
+
+        branch_text = self._format_compact_list(picked)
+        prompt_templates = [
+            "Which track should we start with first: {branches}?",
+            "Pick the first focus area and I will map the implementation path: {branches}.",
+            "Where do you want to go deeper first: {branches}?",
+            "Choose one starting lane and I will turn it into concrete next steps: {branches}.",
+        ]
+        prompt_pick = self._rotate_fallback_options(
+            f"project_ideation:question_template:{inferred_domain}",
+            prompt_templates,
+            take=1,
+        )
+        prompt_template = prompt_pick[0] if prompt_pick else prompt_templates[0]
+        return prompt_template.format(branches=branch_text)
 
     def _project_ideation_guidance_response(self, user_input: str) -> str:
         """Build deterministic forward-moving ideation response when fast-lane output is too generic."""
+        if self._is_technical_agent_build_request(user_input, intent="learning:project_ideation"):
+            return self._agentic_system_build_response(user_input)
+
         domain = self._extract_project_ideation_domain(user_input)
+        inferred_domain = domain or self._infer_learning_domain(user_input) or "architecture"
         domain_label = {
             "nlp": "NLP",
             "assistant": "assistant systems",
             "machine_learning": "machine learning",
             "ai": "AI",
             "python": "Python",
-        }.get(domain, "this")
+        }.get(inferred_domain, "this")
 
-        options_map = {
-            "nlp": [
-                "a chatbot",
-                "a sentiment analyzer",
-                "an entity extractor",
-                "a summarizer",
-                "a semantic search tool",
-            ],
-            "assistant": [
-                "a task-oriented assistant",
-                "a memory-aware conversation assistant",
-                "a planner-plus-tool executor",
-                "a voice command assistant",
-                "a personal knowledge assistant",
-            ],
-            "machine_learning": [
-                "a classification pipeline",
-                "a recommendation prototype",
-                "a forecasting model",
-                "an anomaly detector",
-                "a model-evaluation dashboard",
-            ],
-            "ai": [
-                "a retrieval-augmented Q&A app",
-                "a multi-step reasoning assistant",
-                "an agent with tool-use",
-                "a summarization copilot",
-                "a domain tutor",
-            ],
-            "python": [
-                "a command-line utility",
-                "a FastAPI service",
-                "a data-processing pipeline",
-                "an automation script bundle",
-                "a testing-focused starter app",
-            ],
-        }
-        options = list(options_map.get(domain, [])) or [
-            "a focused chatbot",
-            "a practical automation tool",
-            "a domain-specific assistant",
-            "a summarization app",
-            "a search-and-retrieval helper",
-        ]
+        blueprint = self._learning_blueprint(inferred_domain) if inferred_domain else {}
+        focuses = self._detected_learning_focuses(user_input)
+        terms = self._extract_learning_terms(user_input, max_terms=8)
+
+        candidates: List[str] = []
+        for item in list(blueprint.get("project") or [])[:4]:
+            value = str(item).strip().lower()
+            if value and value not in candidates:
+                candidates.append(value)
+
+        for item in self._fallback_branch_options(inferred_domain, focuses):
+            value = str(item).strip().lower()
+            if value and value not in candidates:
+                candidates.append(value)
+
+        for term in terms:
+            value = str(term).strip().lower()
+            if len(value) >= 4 and value not in candidates:
+                candidates.append(value)
+
+        if not candidates:
+            candidates = ["core workflow", "state handling", "verification strategy"]
+
         picked = self._rotate_fallback_options(
-            f"project_ideation:{domain or 'general'}",
-            options,
-            take=min(5, len(options)),
+            f"project_ideation:{inferred_domain or 'general'}",
+            candidates,
+            take=min(4, len(candidates)),
         )
         if not picked:
-            picked = options[:5]
+            picked = candidates[:4]
 
-        options_text = self._format_compact_list(picked)
+        direction_text = self._format_compact_list(picked)
         question = self._project_ideation_narrowing_question(user_input)
+        opener_pool = [
+            f"I can map a practical {domain_label} build path from here.",
+            f"We can structure this {domain_label} build into focused tracks.",
+            f"This can move quickly if we sequence the {domain_label} work in the right order.",
+        ]
+        opener = self._rotate_fallback_options(
+            f"project_ideation:opener:{inferred_domain}",
+            opener_pool,
+            take=1,
+        )
+        intro = opener[0] if opener else opener_pool[0]
+
         return (
-            f"Good. {domain_label} is a strong place to start. "
-            f"You could build {options_text}. {question}"
+            f"{intro} "
+            f"A solid next set of tracks is {direction_text}. "
+            f"{question}"
         )
 
     def _goal_statement_alignment_response(self, user_input: str, signal: Dict[str, Any]) -> str:
@@ -5501,6 +5544,21 @@ class ALICE:
         intent_confidence: float,
     ) -> Tuple[str, Dict[str, Any], float]:
         """Promote strategic declarative turns into explicit goal-statement intent."""
+        normalized_intent = str(intent or "").lower().strip()
+        social_intents = {
+            "greeting",
+            "farewell",
+            "thanks",
+            "status_inquiry",
+            "conversation:ack",
+        }
+        if normalized_intent in social_intents:
+            return intent, entities or {}, intent_confidence
+        if self._is_wake_word_only_input(user_input):
+            return intent, entities or {}, intent_confidence
+        if self._is_explicit_greeting_input(user_input):
+            return intent, entities or {}, intent_confidence
+
         signal = self._extract_goal_statement_signal(user_input)
         project_ideation = self._is_project_ideation_request(user_input)
         if not signal and not project_ideation:
@@ -5526,7 +5584,6 @@ class ALICE:
                 enriched_entities.setdefault("domain", domain)
                 enriched_entities.setdefault("topic", domain)
 
-        normalized_intent = str(intent or "").lower().strip()
         tool_prefixes = (
             "notes:",
             "email:",
@@ -5808,6 +5865,237 @@ class ALICE:
         )
         targets_agent = any(cue in text for cue in ("ai agent", "agent", "assistant"))
         return asks_algorithms and targets_agent
+
+    def _is_technical_agent_build_request(
+        self,
+        user_input: str,
+        *,
+        intent: str = "",
+        entities: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Detect implementation-oriented requests to build an AI agent/system."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+        has_build_verb = any(
+            cue in text
+            for cue in (
+                "create",
+                "build",
+                "make",
+                "start",
+                "implement",
+                "develop",
+            )
+        )
+        has_agent_target = any(
+            cue in text
+            for cue in (
+                "ai agent",
+                "agentic ai",
+                "autonomous agent",
+                "assistant",
+                "a.l.i.c.e",
+                "alice",
+                "agent",
+            )
+        )
+
+        if not (has_build_verb and has_agent_target):
+            return False
+
+        short_imperative = bool(
+            re.match(
+                r"^(?:create|build|make|start|implement)\s+(?:an?\s+)?(?:agentic\s+)?(?:ai\s+)?(?:agent|assistant|system)\b",
+                text,
+            )
+        )
+
+        has_system_cue = any(
+            cue in text
+            for cue in (
+                "memory",
+                "state",
+                "tool",
+                "tools",
+                "loop",
+                "planner",
+                "plan-act",
+                "react",
+                "verify",
+                "orchestration",
+                "architecture",
+                "local",
+                "ollama",
+                "plugin",
+                "runtime",
+            )
+        )
+
+        ents = dict(entities or {})
+        domain = str(ents.get("project_domain") or ents.get("domain") or "").lower().strip()
+        direction = str(ents.get("project_direction") or "").lower().strip()
+        intent_text = str(intent or "").lower().strip()
+        context_signal = (
+            intent_text == "learning:project_ideation"
+            or domain in {"assistant", "ai", "architecture"}
+            or direction == "agentic_autonomy"
+        )
+
+        return bool(short_imperative or has_system_cue or context_signal)
+
+    def _agentic_system_build_response(self, user_input: str) -> str:
+        """Return an architecture-first response for practical agent build prompts."""
+        text = str(user_input or "").lower().strip()
+        assistant_label = "A.L.I.C.E" if ("alice" in text or "a.l.i.c.e" in text) else "your assistant"
+
+        framework_pool = ["LangGraph", "Semantic Kernel", "CrewAI", "AutoGen", "LangChain Agents"]
+        if "multi-agent" in text or "multi agent" in text:
+            framework_pool = ["CrewAI", "AutoGen", "LangGraph", "Semantic Kernel", "LangChain Agents"]
+
+        frameworks = self._rotate_fallback_options(
+            "agent_build_mode:framework_pool",
+            framework_pool,
+            take=3,
+        )
+        if len(frameworks) < 3:
+            frameworks = framework_pool[:3]
+
+        stack_items = [
+            "a local LLM via Ollama",
+            "a tool execution layer",
+            "memory and state tracking",
+            "a bounded control loop",
+        ]
+
+        return (
+            f"To build an AI agent, start with a bounded loop: interpret goal, plan next action, execute a tool, "
+            f"verify outcome, persist state, then continue, retry, ask, or escalate. "
+            f"For {assistant_label}, use {self._format_compact_list(stack_items)} and orchestrate with "
+            f"{self._format_compact_list(frameworks)}. "
+            "Implement one vertical slice first (one goal, one tool, one verification path), then expand to multi-step autonomy."
+        )
+
+    def _looks_generic_project_management_response(self, response: str) -> bool:
+        """Detect high-level PM advice that lacks agent-system implementation details."""
+        low = str(response or "").lower().strip()
+        if not low:
+            return False
+
+        pm_markers = (
+            "define project scope",
+            "research existing solutions",
+            "conceptualize",
+            "project plan",
+            "stakeholder",
+            "milestone",
+            "timeline",
+            "deliverable",
+            "budget",
+            "market analysis",
+        )
+        tech_markers = (
+            "ollama",
+            "tool execution",
+            "memory",
+            "state",
+            "agent loop",
+            "react",
+            "plan-execute-verify",
+            "orchestration",
+            "verification",
+            "langgraph",
+            "semantic kernel",
+            "crewai",
+            "autogen",
+        )
+
+        pm_hits = sum(1 for marker in pm_markers if marker in low)
+        tech_hits = sum(1 for marker in tech_markers if marker in low)
+        listy_pm = bool(re.search(r"\b(?:1\.|2\.|3\.)\s*(?:define|research|concept|plan)\b", low))
+        return bool((pm_hits >= 2 and tech_hits <= 1) or (listy_pm and tech_hits == 0))
+
+    def _is_agent_transformation_friction_report(self, user_input: str, intent: str = "") -> bool:
+        """Detect when user reports difficulty turning an assistant into an agent."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        if len(text.split()) < 7:
+            return False
+
+        has_target = any(cue in text for cue in ("assistant", "agent", "ai"))
+        has_transform = any(
+            cue in text
+            for cue in (
+                "turn",
+                "transform",
+                "upgrade",
+                "move from",
+                "from assistant",
+                "into an agent",
+                "to an agent",
+            )
+        )
+        has_friction = any(
+            cue in text
+            for cue in (
+                "hard",
+                "difficult",
+                "struggling",
+                "struggle",
+                "stuck",
+                "not working",
+                "keeps failing",
+                "problem",
+            )
+        )
+
+        conversational = str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")
+        return bool(has_target and has_transform and has_friction and conversational)
+
+    def _agent_transformation_diagnostic_response(self, user_input: str) -> str:
+        """Return concrete, execution-oriented guidance for assistant-to-agent migration pain."""
+        text = str(user_input or "").lower().strip()
+        label = "A.L.I.C.E" if ("alice" in text or "a.l.i.c.e" in text) else "your assistant"
+
+        bottleneck_pool = [
+            "routing ambiguity between conversational and tool intents",
+            "state drift between memory, planner, and execution layers",
+            "missing verification after tool execution",
+            "unbounded retries without rollback checkpoints",
+        ]
+        checkpoint_pool = [
+            "one goal schema with explicit success criteria",
+            "one bounded agent loop (plan -> act -> verify -> persist)",
+            "one verifier that returns accepted/retry/escalate",
+            "one recovery policy for retry and rollback",
+        ]
+
+        bottlenecks = self._rotate_fallback_options(
+            "agent_transform:diagnose:bottlenecks",
+            bottleneck_pool,
+            take=3,
+        )
+        if not bottlenecks:
+            bottlenecks = bottleneck_pool[:3]
+
+        checkpoints = self._rotate_fallback_options(
+            "agent_transform:diagnose:checkpoints",
+            checkpoint_pool,
+            take=3,
+        )
+        if not checkpoints:
+            checkpoints = checkpoint_pool[:3]
+
+        return (
+            f"That is a common transition point. The jump from assistant to agent gets hard when {label} lacks "
+            f"{self._format_compact_list(bottlenecks)}. "
+            f"Start by hardening {self._format_compact_list(checkpoints)}. "
+            "If you want, I can map this into a concrete 7-day migration plan against your current architecture."
+        )
 
     def _is_practical_agentic_framework_request(self, user_input: str) -> bool:
         """Detect build-oriented framework queries for autonomous AI agents."""
@@ -6331,11 +6619,20 @@ class ALICE:
         if not text:
             return None
 
+        if self._is_agent_transformation_friction_report(user_input, intent=intent):
+            return self._agent_transformation_diagnostic_response(user_input)
+
         if self._is_practical_agentic_framework_request(text):
             return self._practical_agentic_frameworks_answer(
                 user_input=user_input,
                 intent=intent,
             )
+
+        if self._is_technical_agent_build_request(
+            user_input,
+            intent=intent,
+        ):
+            return self._agentic_system_build_response(user_input)
 
         if self._has_explicit_action_cue(text):
             return None
@@ -6998,6 +7295,14 @@ class ALICE:
         if not tokens:
             return False
 
+        def _is_likely_name_token(token: str) -> bool:
+            if token in polite_words:
+                return True
+            # Keep greeting detection typo-tolerant for "alice" variants such as "alioce".
+            if token.startswith("ali") and len(token) <= 7:
+                return difflib.SequenceMatcher(None, token, "alice").ratio() >= 0.72
+            return False
+
         greeting_words = {
             "hi",
             "hey",
@@ -7042,7 +7347,7 @@ class ALICE:
         if not has_greeting:
             return False
 
-        return all(token in greeting_words or token in polite_words for token in tokens)
+        return all(token in greeting_words or _is_likely_name_token(token) for token in tokens)
 
     def _learned_greeting_response(
         self,
@@ -8471,6 +8776,29 @@ class ALICE:
         )
         return generic
 
+    def _resolve_turn_success_and_route(
+        self,
+        *,
+        default_route: str,
+        plugin_result: Optional[Dict[str, Any]],
+        llm_attempted: bool,
+        llm_generation_success: Optional[bool],
+        llm_fallback_applied: bool,
+    ) -> Tuple[str, bool, bool]:
+        """Resolve final route/success truthfully for analytics and execution accounting."""
+        if isinstance(plugin_result, dict):
+            return "plugin", bool(plugin_result.get("success", False)), False
+
+        if llm_attempted:
+            generation_ok = bool(llm_generation_success)
+            recovered = bool((not generation_ok) and llm_fallback_applied)
+            return ("llm_fallback" if recovered else "llm", bool(generation_ok or recovered), recovered)
+
+        fallback_route = str(default_route or "").strip().lower()
+        if not fallback_route or fallback_route == "unknown":
+            fallback_route = "llm"
+        return fallback_route, bool(llm_generation_success), False
+
     def _apply_confidence_cascade(self, intent: str, confidence: float, nlp_result, user_input: str = "") -> dict:
         """
         Confidence cascade policy:
@@ -8945,6 +9273,13 @@ class ALICE:
             else:
                 message = self._compose_understood_goal_recovery(user_input, reasoning_output.intent)
 
+        if self._is_technical_agent_build_request(
+            user_input,
+            intent=reasoning_output.intent,
+        ) and self._looks_generic_project_management_response(message):
+            self._think("Contract guard -> replaced generic PM advice with agent-build architecture response")
+            message = self._agentic_system_build_response(user_input)
+
         return message
 
     def _finalize_user_response_contract(self, *, user_input: str, raw_response: str) -> str:
@@ -9006,6 +9341,9 @@ class ALICE:
             start_time = time.time()
             route_taken = 'unknown'
             success = False
+            llm_request_attempted = False
+            llm_generation_success: Optional[bool] = None
+            llm_failure_recovery_applied = False
             self._exec_should_store_memory = True
             self._internal_reasoning_state = {}
             self._last_exec_gate_eval = {}
@@ -9935,12 +10273,18 @@ class ALICE:
 
                 # If this is a true greeting utterance, respond directly via gateway
                 explicit_greeting_input = self._is_explicit_greeting_input(user_input)
-                if intent == "greeting" and not explicit_greeting_input:
+                high_confidence_greeting_lock = (
+                    intent == "greeting"
+                    and float(intent_confidence or 0.0) >= 0.82
+                )
+                if intent == "greeting" and not explicit_greeting_input and not high_confidence_greeting_lock:
                     self._think("Intent labeled greeting, but input is not explicit greeting → continue normal routing")
                     intent = "conversation:general"
                     intent_confidence = min(intent_confidence, 0.55)
+                elif intent == "greeting" and high_confidence_greeting_lock and not explicit_greeting_input:
+                    self._think("High-confidence greeting intent locked despite imperfect greeting spelling")
 
-                if intent == "greeting" and explicit_greeting_input:
+                if intent == "greeting" and (explicit_greeting_input or high_confidence_greeting_lock):
                     # Check conversational engine first for learned greetings
                     if hasattr(self, 'conversational_engine') and self.conversational_engine:
                         conv_context = ConversationalContext(
@@ -12505,6 +12849,24 @@ class ALICE:
             if self.relationship_tracker:
                 relationship_response = self._handle_relationship_query(user_input, intent, entities)
                 if relationship_response:
+                    relationship_response = self._publish_with_fast_llm_style(
+                        user_input=user_input,
+                        intent=intent,
+                        response=relationship_response,
+                    )
+                    relationship_response = self._apply_response_style_constraints(relationship_response)
+                    relationship_response = self._prevent_unsolicited_summary(
+                        user_input=user_input,
+                        intent=intent,
+                        response=relationship_response,
+                        plugin_result=None,
+                    )
+                    relationship_response = self._executive_apply_response_gate(
+                        user_input=user_input,
+                        intent=intent,
+                        response=relationship_response,
+                        route="llm",
+                    )
                     return relationship_response
             
             # 3. Alice checks her learned patterns first — only use Ollama if she can't answer
@@ -12524,6 +12886,24 @@ class ALICE:
                             _learned_response = self.response_optimizer.optimize(
                                 _learned_response, intent, {"entities": entities}
                             )
+                        _learned_response = self._publish_with_fast_llm_style(
+                            user_input=user_input,
+                            intent=intent,
+                            response=_learned_response,
+                        )
+                        _learned_response = self._apply_response_style_constraints(_learned_response)
+                        _learned_response = self._prevent_unsolicited_summary(
+                            user_input=user_input,
+                            intent=intent,
+                            response=_learned_response,
+                            plugin_result=None,
+                        )
+                        _learned_response = self._executive_apply_response_gate(
+                            user_input=user_input,
+                            intent=intent,
+                            response=_learned_response,
+                            route="llm",
+                        )
                         if use_voice and self.speech:
                             self.speech.speak(_learned_response, blocking=False)
                         return _learned_response
@@ -12567,6 +12947,7 @@ class ALICE:
             
             try:
                 # Track LLM execution timing
+                llm_request_attempted = True
                 llm_start = time.time()
                 llm_response = self.llm_gateway.request(
                     prompt=llm_input,
@@ -12597,6 +12978,7 @@ class ALICE:
                     duration_ms=round(llm_duration * 1000, 2),
                     tokens=getattr(llm_response, 'token_count', 0)
                 )
+                llm_generation_success = bool(llm_response.success and llm_response.response)
                 
                 if llm_response.success and llm_response.response:
                     response = self._clamp_final_response(
@@ -12654,13 +13036,21 @@ class ALICE:
                         intent=intent,
                         llm_response=llm_response,
                     )
+                    llm_failure_recovery_applied = bool(
+                        ((getattr(self, '_internal_reasoning_state', {}) or {}).get('failure_recovery') or {})
+                    )
             
             except Exception as e:
                 logger.error(f"LLM call failed: {e}")
+                llm_request_attempted = True
+                llm_generation_success = False
                 response = self._safe_llm_failure_response(
                     user_input=user_input,
                     intent=intent,
                     llm_response={"error": str(e)},
+                )
+                llm_failure_recovery_applied = bool(
+                    ((getattr(self, '_internal_reasoning_state', {}) or {}).get('failure_recovery') or {})
                 )
             
             # Optimize response for clarity and user preference
@@ -12673,6 +13063,11 @@ class ALICE:
                         "goal": goal_res.goal.description if (goal_res and goal_res.goal) else None,
                     },
                 )
+            response = self._publish_with_fast_llm_style(
+                user_input=user_input,
+                intent=intent,
+                response=response,
+            )
             response = self._apply_response_style_constraints(response)
             response = self._prevent_unsolicited_summary(
                 user_input=user_input,
@@ -12842,16 +13237,47 @@ class ALICE:
             if use_voice and self.speech:
                 self.speech.speak(response, blocking=False)
 
+            _plugin_result_payload = (
+                plugin_result
+                if 'plugin_result' in locals() and isinstance(plugin_result, dict)
+                else None
+            )
+            route_taken, interaction_success, recovered_via_fallback = self._resolve_turn_success_and_route(
+                default_route=route_taken,
+                plugin_result=_plugin_result_payload,
+                llm_attempted=bool(llm_request_attempted),
+                llm_generation_success=llm_generation_success,
+                llm_fallback_applied=bool(llm_failure_recovery_applied),
+            )
+            self._internal_reasoning_state['turn_completion'] = {
+                'route': route_taken,
+                'success': bool(interaction_success),
+                'llm_generation_success': bool(llm_generation_success) if llm_generation_success is not None else None,
+                'fallback_recovery_applied': bool(recovered_via_fallback),
+            }
+
             # Log successful interaction to real-time learning
             if hasattr(self, 'realtime_logger'):
-                self.realtime_logger.log_success(
-                    event_type='successful_response',
-                    user_input=user_input,
-                    alice_response=response,
-                    intent=intent,
-                    route=route_taken,
-                    confidence=float(intent_confidence if 'intent_confidence' in locals() else 0.0)
-                )
+                if interaction_success:
+                    self.realtime_logger.log_success(
+                        event_type='successful_response',
+                        user_input=user_input,
+                        alice_response=response,
+                        intent=intent,
+                        route=route_taken,
+                        confidence=float(intent_confidence if 'intent_confidence' in locals() else 0.0)
+                    )
+                else:
+                    self.realtime_logger.log_error(
+                        error_type='execution_incomplete',
+                        user_input=user_input,
+                        expected='completed_response',
+                        actual='unresolved_failure',
+                        intent=intent,
+                        entities=entities if 'entities' in locals() else {},
+                        context={'route': route_taken},
+                        severity='medium',
+                    )
 
             # Queue async evaluation (non-blocking - user gets response immediately)
             if hasattr(self, 'async_evaluator') and self.async_evaluator:
@@ -12859,7 +13285,7 @@ class ALICE:
                 eval_plugin_result = plugin_result if 'plugin_result' in locals() and plugin_result else {
                     'action': intent if 'intent' in locals() else 'unknown',
                     'data': entities if 'entities' in locals() else {},
-                    'success': True
+                    'success': bool(interaction_success)
                 }
 
                 # Queue for async evaluation (happens in background after response returned)
@@ -12886,12 +13312,10 @@ class ALICE:
                     plugin_name = None
                     if 'plugin_result' in locals() and isinstance(plugin_result, dict):
                         plugin_name = plugin_result.get('plugin')
-                    llm_used = 'ollama_phrased_response' in locals() or 'llm_response' in locals()
+                    llm_used = bool(llm_request_attempted or 'ollama_phrased_response' in locals() or 'llm_response' in locals())
                     cached = intent in cacheable_intents and self._cache_get(user_input, intent) is not None
-                    interaction_success = True
                     extra_metadata = None
                     if 'plugin_result' in locals() and isinstance(plugin_result, dict):
-                        interaction_success = bool(plugin_result.get('success', True))
                         pdata = plugin_result.get('data', {}) if isinstance(plugin_result.get('data', {}), dict) else {}
                         diagnostics = pdata.get('diagnostics', {}) if isinstance(pdata.get('diagnostics', {}), dict) else {}
                         extra_metadata = {
@@ -12970,20 +13394,29 @@ class ALICE:
             
             # Track final request metrics
             duration = time.time() - start_time
-            route_taken = 'plugin' if 'plugin_result' in locals() and plugin_result else 'llm'
             self.metrics.track_request(
                 intent=intent or 'unknown',
-                success=True,
+                success=bool(interaction_success),
                 duration=duration,
                 route=route_taken
             )
-            self.structured_logger.info(
-                "Request completed successfully",
-                intent=intent,
-                route=route_taken,
-                duration_ms=round(duration * 1000, 2),
-                response_length=len(response)
-            )
+            if interaction_success:
+                self.structured_logger.info(
+                    "Request completed with fallback recovery" if recovered_via_fallback else "Request completed successfully",
+                    intent=intent,
+                    route=route_taken,
+                    duration_ms=round(duration * 1000, 2),
+                    response_length=len(response),
+                    recovered_via_fallback=bool(recovered_via_fallback),
+                )
+            else:
+                self.structured_logger.warning(
+                    "Request completed with unresolved failure",
+                    intent=intent,
+                    route=route_taken,
+                    duration_ms=round(duration * 1000, 2),
+                    response_length=len(response),
+                )
 
             logger.info(f"A.L.I.C.E: {response[:100]}...")
             

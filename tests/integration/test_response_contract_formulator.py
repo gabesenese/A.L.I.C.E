@@ -165,9 +165,9 @@ def test_process_input_wrapper_blocks_internal_output_leakage():
     alice.last_assistant_response = ""
 
     # Internal pipeline leaks meta text; wrapper must sanitize before returning.
-    alice._process_input_internal = lambda _user_input, use_voice=False: "analysis: the user wants jarvis architecture"
+    alice._process_input_internal = lambda _user_input, use_voice=False: "analysis: the user wants agent architecture"
 
-    user_text = ALICE.process_input(alice, "I want to build a Jarvis-like AI")
+    user_text = ALICE.process_input(alice, "I want to build an agent-like AI")
 
     lowered = user_text.lower()
     assert "analysis:" not in lowered

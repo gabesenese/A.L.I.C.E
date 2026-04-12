@@ -4,15 +4,15 @@ from ui.rich_terminal import RichTerminalUI
 def test_long_plain_response_gets_sentence_spacing_for_terminal_readability():
     ui = RichTerminalUI(user_name="Tester")
     text = (
-        "Good. AI is a strong place to start. You could build a retrieval-augmented Q&A app, "
-        "a multi-step reasoning assistant, an agent with tool-use, a summarization copilot, "
-        "and a domain tutor. Do you want to focus first on memory, tool-use, or conversational quality?"
+        "I can map a practical AI build path from here. "
+        "A solid next set of tracks is intent routing, state handling, and verification strategy. "
+        "Which direction should we prioritize first: architecture, tooling, or testing?"
     )
 
     out = ui._format_assistant_terminal_text(text)
 
     assert "\n\n" in out
-    assert out.startswith("Good. AI is a strong place to start.")
+    assert out.startswith("I can map a practical AI build path from here.")
 
 
 def test_short_plain_response_keeps_single_line_format():
