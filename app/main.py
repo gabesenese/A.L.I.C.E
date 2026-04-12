@@ -4872,6 +4872,43 @@ class ALICE:
 
         return base
 
+    def _finalize_conversational_surface(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        response: str,
+        route: str = "llm",
+        plugin_result: Optional[Dict[str, Any]] = None,
+        apply_publish_style: bool = True,
+    ) -> str:
+        """Apply the single top-layer conversational surface before returning text."""
+        final_text = str(response or "").strip()
+        if not final_text:
+            return final_text
+
+        if apply_publish_style:
+            final_text = self._publish_with_fast_llm_style(
+                user_input=user_input,
+                intent=intent,
+                response=final_text,
+            )
+
+        final_text = self._apply_response_style_constraints(final_text)
+        final_text = self._prevent_unsolicited_summary(
+            user_input=user_input,
+            intent=intent,
+            response=final_text,
+            plugin_result=plugin_result,
+        )
+        final_text = self._executive_apply_response_gate(
+            user_input=user_input,
+            intent=intent,
+            response=final_text,
+            route=route,
+        )
+        return final_text
+
     def _is_rich_conceptual_request(self, user_input: str) -> bool:
         """Return True for conceptual architecture prompts with clear framing and constraints."""
         text = str(user_input or "").lower().strip()
@@ -12842,30 +12879,27 @@ class ALICE:
                     ),
                     user_input=user_input
                 )
-
+                response = self._finalize_conversational_surface(
+                    user_input=user_input,
+                    intent=intent,
+                    response=response,
+                    route="llm",
+                    plugin_result=None,
+                    apply_publish_style=True,
+                )
                 return response
 
             # Handle relationship queries before LLM generation
             if self.relationship_tracker:
                 relationship_response = self._handle_relationship_query(user_input, intent, entities)
                 if relationship_response:
-                    relationship_response = self._publish_with_fast_llm_style(
-                        user_input=user_input,
-                        intent=intent,
-                        response=relationship_response,
-                    )
-                    relationship_response = self._apply_response_style_constraints(relationship_response)
-                    relationship_response = self._prevent_unsolicited_summary(
-                        user_input=user_input,
-                        intent=intent,
-                        response=relationship_response,
-                        plugin_result=None,
-                    )
-                    relationship_response = self._executive_apply_response_gate(
+                    relationship_response = self._finalize_conversational_surface(
                         user_input=user_input,
                         intent=intent,
                         response=relationship_response,
                         route="llm",
+                        plugin_result=None,
+                        apply_publish_style=True,
                     )
                     return relationship_response
             
@@ -12886,23 +12920,13 @@ class ALICE:
                             _learned_response = self.response_optimizer.optimize(
                                 _learned_response, intent, {"entities": entities}
                             )
-                        _learned_response = self._publish_with_fast_llm_style(
-                            user_input=user_input,
-                            intent=intent,
-                            response=_learned_response,
-                        )
-                        _learned_response = self._apply_response_style_constraints(_learned_response)
-                        _learned_response = self._prevent_unsolicited_summary(
-                            user_input=user_input,
-                            intent=intent,
-                            response=_learned_response,
-                            plugin_result=None,
-                        )
-                        _learned_response = self._executive_apply_response_gate(
+                        _learned_response = self._finalize_conversational_surface(
                             user_input=user_input,
                             intent=intent,
                             response=_learned_response,
                             route="llm",
+                            plugin_result=None,
+                            apply_publish_style=True,
                         )
                         if use_voice and self.speech:
                             self.speech.speak(_learned_response, blocking=False)
@@ -13063,24 +13087,13 @@ class ALICE:
                         "goal": goal_res.goal.description if (goal_res and goal_res.goal) else None,
                     },
                 )
-            response = self._publish_with_fast_llm_style(
-                user_input=user_input,
-                intent=intent,
-                response=response,
-            )
-            response = self._apply_response_style_constraints(response)
-            response = self._prevent_unsolicited_summary(
-                user_input=user_input,
-                intent=intent,
-                response=response,
-                plugin_result=plugin_result if 'plugin_result' in locals() and isinstance(plugin_result, dict) else None,
-            )
-
-            response = self._executive_apply_response_gate(
+            response = self._finalize_conversational_surface(
                 user_input=user_input,
                 intent=intent,
                 response=response,
                 route="llm",
+                plugin_result=(plugin_result if 'plugin_result' in locals() and isinstance(plugin_result, dict) else None),
+                apply_publish_style=True,
             )
             
             # NOTE: Don't cache LLM responses - we want fresh answers each time for variety
