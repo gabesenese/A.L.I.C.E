@@ -9,9 +9,9 @@ sys.path.insert(0, str(project_root))
 from ai.core.nlp_processor import NLPProcessor, ParsedCommand
 
 
-EXACT_LOG_PROMPT = "let's imagine how jarvis would be created with today's technology no fiction"
-EXACT_TONY_PROMPT = "let's imagine how tony stark would have created Jarvis with todays technology, no fiction"
-EXACT_CREATE_PROMPT = "how can i create an ai just like jarvis but with todays technology"
+EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
+EXACT_TONY_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
+EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
 
 
 class TestLayeredTokenizer:

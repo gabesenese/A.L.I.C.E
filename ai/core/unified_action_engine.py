@@ -286,6 +286,11 @@ class UnifiedActionEngine:
                 retry_budget=request.retry_budget,
                 partial_success=bool(goal_report.get("partial_success", False)),
             )
+            recommendation = self._recommend_recovery_plan(
+                request=request,
+                result_dict=result_dict,
+                attempt_idx=attempt_idx,
+            )
 
             last_result = ActionResult(
                 success=success,
@@ -311,6 +316,12 @@ class UnifiedActionEngine:
                 recovery_path=recovery_path,
                 retry_count=attempt_idx,
             )
+            if recommendation:
+                last_result.state_updates["recovery_recommendation"] = recommendation
+                if not last_result.recovery_path:
+                    last_result.recovery_path = str(
+                        recommendation.get("next_step") or "clarify_then_continue"
+                    )
 
             self._record_journal(
                 "attempt",
@@ -443,6 +454,31 @@ class UnifiedActionEngine:
         request.plan_steps = list(request.plan_steps or [])
         return request
 
+    def _recommend_recovery_plan(
+        self,
+        *,
+        request: ActionRequest,
+        result_dict: Dict[str, Any],
+        attempt_idx: int,
+    ) -> Dict[str, Any]:
+        """P0 recovery planner: deterministic next-step guidance for failed actions."""
+        if bool(result_dict.get("success", False)):
+            return {}
+        if attempt_idx < int(request.retry_budget or 0):
+            return {
+                "next_step": "retry_with_adjusted_params",
+                "reason": "retry_budget_remaining",
+            }
+        if not (request.target_spec or {}).get("target"):
+            return {
+                "next_step": "request_target_clarification",
+                "reason": "missing_target_spec",
+            }
+        return {
+            "next_step": "try_alternative_action",
+            "reason": "retry_exhausted_with_target_present",
+        }
+
     def _request_goal_id(self, request: ActionRequest) -> str:
         if request.goal_ref is None:
             return ""
@@ -452,16 +488,32 @@ class UnifiedActionEngine:
             return ""
 
     def _policy_requires_clarification(self, request: ActionRequest) -> bool:
-        if request.risk_level not in {"high", "critical"}:
+        high_risk = request.risk_level in {"high", "critical"}
+        low_confidence = float(request.confidence or 0.0) < 0.70
+        missing_target = not bool((request.target_spec or {}).get("target"))
+        destructive_action = str(request.action or "").lower() in {
+            "delete",
+            "remove",
+            "shutdown",
+            "reboot",
+            "format",
+        }
+
+        if not (high_risk or destructive_action):
             return False
 
-        if request.confidence >= 0.8 and self._has_explicit_approval(request):
+        if request.confidence >= 0.85 and self._has_explicit_approval(request):
             return False
 
-        # Allow read-only actions with medium confidence.
-        if request.action in {"read", "list", "search"} and request.confidence >= 0.6:
+        # Read-only flows can proceed if confidence is acceptable and target is clear.
+        if (
+            request.action in {"read", "list", "search"}
+            and request.confidence >= 0.6
+            and not missing_target
+        ):
             return False
-        return True
+
+        return bool(low_confidence or missing_target or not self._has_explicit_approval(request))
 
     def _has_explicit_approval(self, request: ActionRequest) -> bool:
         params = request.params or {}

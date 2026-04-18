@@ -587,8 +587,8 @@ class ExecutiveController:
         has_subject = any(
             cue in low
             for cue in (
-                "jarvis",
-                "tony stark",
+                "assistant",
+                "fictional inventor",
                 "assistant",
                 "technology",
                 "system",
@@ -637,7 +637,7 @@ class ExecutiveController:
             for cue in (
                 "ai",
                 "assistant",
-                "jarvis",
+                "assistant",
                 "system",
                 "architecture",
             )
