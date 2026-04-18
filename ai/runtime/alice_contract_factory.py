@@ -40,6 +40,45 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         "bypass security",
     }
 
+    def _surface_text(
+        text: str,
+        *,
+        user_input: str,
+        intent: str,
+        route: str = "contract_pipeline",
+    ) -> str:
+        base = str(text or "").strip()
+        if not base:
+            base = "Please share one concrete detail so I can continue."
+        if hasattr(alice, "_finalize_conversational_surface"):
+            try:
+                return str(
+                    alice._finalize_conversational_surface(
+                        user_input=user_input,
+                        intent=intent,
+                        response=base,
+                        route=route,
+                        plugin_result=None,
+                        apply_publish_style=True,
+                    )
+                ).strip()
+            except Exception:
+                return base
+        if hasattr(alice, "_clamp_final_response"):
+            try:
+                return str(
+                    alice._clamp_final_response(
+                        base,
+                        tone="helpful",
+                        response_type="general_response",
+                        route=route,
+                        user_input=user_input,
+                    )
+                ).strip()
+            except Exception:
+                return base
+        return base
+
     def _route(req: RouterRequest) -> RouterDecision:
         if req.user_input.startswith("/"):
             return RouterDecision(
@@ -269,17 +308,34 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
     def _generate(req: ResponseRequest) -> ResponseOutput:
         if req.decision.decision_band == "refuse" or req.decision.route == "refuse":
+            refusal_text = _surface_text(
+                "I can't safely perform that request. Share a narrower safe action and I will continue.",
+                user_input=req.user_input,
+                intent=req.decision.intent,
+                route="contract_policy_refusal",
+            )
             return ResponseOutput(
-                text="I can't safely perform that request. Please provide a narrower, clearly safe action.",
+                text=refusal_text,
                 confidence=1.0,
                 requires_follow_up=True,
-                follow_up_question="What safe and specific action do you want?",
+                follow_up_question=_surface_text(
+                    "What safe and specific action do you want?",
+                    user_input=req.user_input,
+                    intent=req.decision.intent,
+                    route="contract_policy_refusal",
+                ),
                 metadata={"type": "policy_refusal"},
             )
 
         if req.decision.intent == "system:command":
+            command_text = _surface_text(
+                "Commands are handled by the interface. Use /help to see available commands.",
+                user_input=req.user_input,
+                intent=req.decision.intent,
+                route="contract_command_dispatch",
+            )
             return ResponseOutput(
-                text="Commands are handled by the interface. Use /help to see available commands.",
+                text=command_text,
                 confidence=1.0,
                 metadata={"type": "command_dispatch"},
             )
@@ -290,17 +346,33 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             payload = alice._build_location_payload()
             text = alice._alice_direct_phrase("location_report", payload)
             return ResponseOutput(
-                text=str(text or "I could not resolve your location."),
+                text=_surface_text(
+                    str(text or "I could not resolve your location."),
+                    user_input=req.user_input,
+                    intent=req.decision.intent,
+                    route="contract_location",
+                ),
                 confidence=0.99,
                 metadata={"type": "deterministic_location"},
             )
 
         if req.decision.needs_clarification:
+            clarify_text = _surface_text(
+                "Share the exact outcome you want so I can route this correctly.",
+                user_input=req.user_input,
+                intent=req.decision.intent,
+                route="contract_clarification",
+            )
             return ResponseOutput(
-                text="Can you clarify the exact outcome you want so I can route this correctly?",
+                text=clarify_text,
                 confidence=0.6,
                 requires_follow_up=True,
-                follow_up_question="What exact result do you want?",
+                follow_up_question=_surface_text(
+                    "What exact result do you want?",
+                    user_input=req.user_input,
+                    intent=req.decision.intent,
+                    route="contract_clarification",
+                ),
                 metadata={"type": "clarification"},
             )
 
@@ -346,10 +418,20 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         return ResponseOutput(
-            text="I couldn't complete that request reliably. Please rephrase the desired outcome.",
+            text=_surface_text(
+                "I could not complete that request reliably. Rephrase the desired outcome and I will retry.",
+                user_input=req.user_input,
+                intent=req.decision.intent,
+                route="contract_fallback",
+            ),
             confidence=0.2,
             requires_follow_up=True,
-            follow_up_question="Can you rephrase with the exact action you want?",
+            follow_up_question=_surface_text(
+                "Can you rephrase with the exact action you want?",
+                user_input=req.user_input,
+                intent=req.decision.intent,
+                route="contract_fallback",
+            ),
             metadata={"type": "fallback"},
         )
 

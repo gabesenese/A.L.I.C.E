@@ -112,6 +112,104 @@ class ResponseFormulator:
     )
     GENERIC_FALLBACK = "I can help with that."
     DIRECT_RETRY_FALLBACK = "I can answer directly once you share one concrete detail."
+    AGENTIC_MODE_FALLBACK = (
+        "Understood. I will run this as an agentic turn: lock the goal, propose a"
+        " short action plan, execute the first safe step, and report status with"
+        " next decisions."
+    )
+
+    def _dynamic_phrase(self, seed: str, *, tone: str = "helpful") -> str:
+        """Render text through llm_engine phrasing when available, with safe local fallback."""
+        base = str(seed or "").strip()
+        if not base:
+            base = "Please share one concrete detail so I can continue."
+
+        llm = getattr(getattr(self, "llm_gateway", None), "llm", None)
+        if llm is None:
+            return self._enforce_response_tone(base)
+
+        try:
+            phrased = None
+            if hasattr(llm, "phrase_with_tone"):
+                phrased = llm.phrase_with_tone(
+                    content=base,
+                    tone=tone,
+                    context={"allow_user_name": False},
+                )
+            elif hasattr(llm, "chat"):
+                phrased = llm.chat(
+                    (
+                        "Rewrite this assistant reply so it sounds natural, clear, and concise. "
+                        "Keep meaning unchanged and avoid adding claims.\n\n"
+                        f"Draft reply: {base}"
+                    ),
+                    use_history=False,
+                    mode="final_answer_only",
+                )
+
+            candidate = str(phrased or "").strip()
+            if candidate:
+                return self._enforce_response_tone(candidate)
+        except Exception:
+            pass
+
+        return self._enforce_response_tone(base)
+
+    @staticmethod
+    def _is_agentic_behavior_request(user_input: str) -> bool:
+        """Detect requests to switch from chat mode to agentic execution behavior."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        has_agentic_cue = any(
+            cue in text
+            for cue in (
+                "agentic",
+                "autonomous",
+                "proactive",
+                "take initiative",
+                "stop acting like",
+                "chatbot",
+                "ai chat",
+                "not just chat",
+                "less chat",
+            )
+        )
+        if not has_agentic_cue:
+            return False
+
+        has_behavior_target = any(
+            cue in text
+            for cue in (
+                "you",
+                "your",
+                "she",
+                "alice",
+                "assistant",
+                "her",
+                "act",
+                "acting",
+                "behavior",
+                "mode",
+            )
+        )
+        return has_behavior_target
+
+    @staticmethod
+    def _looks_like_chatty_clarification(text: str) -> bool:
+        """Detect verbose generic clarification scaffolds that sound like chat boilerplate."""
+        low = str(text or "").lower().strip()
+        if not low:
+            return False
+        markers = (
+            "i'd love to get a better understanding",
+            "clear and accurate answer",
+            "could you please share more details",
+            "share more details about your question",
+            "better understanding of what you're looking for",
+        )
+        return any(marker in low for marker in markers)
 
     def is_internal(self, text: str) -> bool:
         """Return True when a text looks like internal reasoning or scaffold leakage."""
@@ -271,6 +369,9 @@ class ResponseFormulator:
         intent_text = str(intent or "").lower().strip()
         user_input = str((context or {}).get("user_input") or "").strip()
 
+        if self._is_agentic_behavior_request(user_input):
+            return self.AGENTIC_MODE_FALLBACK
+
         if self._is_direct_answer_question(user_input):
             return self._compose_direct_answer_fallback(user_input)
 
@@ -289,17 +390,23 @@ class ResponseFormulator:
             plugin = str(tool_results.get("plugin") or "").strip()
             action = str(tool_results.get("action") or "").strip()
             if plugin or action:
-                return f"Done. {plugin} {action} completed.".strip()
+                return self._dynamic_phrase(
+                    f"Done. {plugin} {action} completed.".strip(),
+                    tone="helpful",
+                )
             if data:
-                return "Done. I processed that request."
+                return self._dynamic_phrase(
+                    "Done. I processed that request.",
+                    tone="helpful",
+                )
 
         if "clarification" in intent_text or "vague" in intent_text:
             return self.CLARIFICATION_FALLBACK
 
         if user_input:
-            return self.DIRECT_RETRY_FALLBACK
+            return self._dynamic_phrase(self.DIRECT_RETRY_FALLBACK, tone="helpful")
 
-        return self.GENERIC_FALLBACK
+        return self._dynamic_phrase(self.GENERIC_FALLBACK, tone="helpful")
 
     def _enforce_response_tone(self, message: str) -> str:
         """Keep final responses clean, direct, and practical."""
@@ -329,6 +436,8 @@ class ResponseFormulator:
     ) -> UserResponse:
         """Final authority layer: always produce a user-safe UserResponse."""
         _ = mode  # Reserved for future policy branching.
+        intent_text = str(intent or "").lower().strip()
+        user_input = str((context or {}).get("user_input") or "").strip()
 
         candidate = ""
 
@@ -350,14 +459,29 @@ class ResponseFormulator:
             )
             candidate = self._sanitize_user_message(candidate)
 
+        if self._looks_like_chatty_clarification(candidate):
+            candidate = self.CLARIFICATION_FALLBACK
+
         if not candidate or self.is_internal(candidate):
-            user_input = str((context or {}).get("user_input") or "").strip()
             if self._is_direct_answer_question(user_input):
                 candidate = self._compose_direct_answer_fallback(user_input)
+            elif self._is_agentic_behavior_request(user_input):
+                candidate = self.AGENTIC_MODE_FALLBACK
             else:
-                candidate = self.GENERIC_FALLBACK
+                candidate = self._dynamic_phrase(self.GENERIC_FALLBACK, tone="helpful")
 
-        candidate = self._enforce_response_tone(candidate)
+        skip_rephrase = bool(
+            self._is_agentic_behavior_request(user_input)
+            or self._looks_like_chatty_clarification(candidate)
+            or candidate == self.CLARIFICATION_FALLBACK
+            or "clarification" in intent_text
+            or "vague" in intent_text
+        )
+
+        if skip_rephrase:
+            candidate = self._enforce_response_tone(candidate)
+        else:
+            candidate = self._dynamic_phrase(candidate, tone="helpful")
 
         return UserResponse(message=candidate)
 
@@ -468,7 +592,10 @@ class ResponseFormulator:
     def _formulate_basic(self, action: str, data: Dict[str, Any], success: bool) -> str:
         """Basic fallback formulation without LLM"""
         if not success:
-            return "I wasn't able to complete that action."
+            return self._dynamic_phrase(
+                "I wasn't able to complete that action.",
+                tone="professional and supportive",
+            )
 
         # Extract a human-readable subject from data
         subject = (
@@ -483,32 +610,48 @@ class ResponseFormulator:
         # Simple templates based on action type
         if "create" in action or "add" in action:
             if subject:
-                return f"Created '{subject}' successfully."
-            return "Created successfully."
+                return self._dynamic_phrase(
+                    f"Created '{subject}' successfully.",
+                    tone="helpful",
+                )
+            return self._dynamic_phrase("Created successfully.", tone="helpful")
         elif "delete" in action or "remove" in action:
             count = data.get("count", 1)
             if subject:
-                return f"Removed '{subject}'."
-            return f"Removed {count} item{'s' if count != 1 else ''}."
+                return self._dynamic_phrase(f"Removed '{subject}'.", tone="helpful")
+            return self._dynamic_phrase(
+                f"Removed {count} item{'s' if count != 1 else ''}.",
+                tone="helpful",
+            )
         elif "search" in action or "find" in action:
             count = data.get("count", 0)
             if subject:
-                return (
-                    f"Found {count} result{'s' if count != 1 else ''} for '{subject}'."
+                return self._dynamic_phrase(
+                    f"Found {count} result{'s' if count != 1 else ''} for '{subject}'.",
+                    tone="helpful",
                 )
-            return f"Found {count} result{'s' if count != 1 else ''}."
+            return self._dynamic_phrase(
+                f"Found {count} result{'s' if count != 1 else ''}.",
+                tone="helpful",
+            )
         elif "update" in action or "edit" in action:
             if subject:
-                return f"Updated '{subject}' successfully."
-            return "Updated successfully."
+                return self._dynamic_phrase(
+                    f"Updated '{subject}' successfully.",
+                    tone="helpful",
+                )
+            return self._dynamic_phrase("Updated successfully.", tone="helpful")
         elif "remind" in action:
             if subject:
-                return f"Reminder set: '{subject}'."
-            return "Reminder set."
+                return self._dynamic_phrase(
+                    f"Reminder set: '{subject}'.",
+                    tone="helpful",
+                )
+            return self._dynamic_phrase("Reminder set.", tone="helpful")
         else:
             if subject:
-                return f"Done: '{subject}'."
-            return "Done."
+                return self._dynamic_phrase(f"Done: '{subject}'.", tone="helpful")
+            return self._dynamic_phrase("Done.", tone="helpful")
 
     def _learn_formulation(
         self, action: str, data: Dict[str, Any], response: str, tone: str

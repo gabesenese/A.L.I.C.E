@@ -138,6 +138,7 @@ from ai.core.turn_state_assembler import TurnStateAssembler
 from ai.core.turn_state_diff import generate_turn_diff
 from ai.core.world_state_memory import get_world_state_memory
 from ai.core.execution_journal import get_execution_journal
+from ai.core.agentic_readiness import build_agentic_focus_plan
 from ai.core.goal_object import goal_from_any
 from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_manager
 from ai.core.autonomy_dispatcher import TinyAutonomyDispatcher, OUTCOME_ESCALATE_AND_STOP
@@ -984,8 +985,25 @@ class ALICE:
             logger.info("[OK] A.L.I.C.E initialized successfully!")
             logger.info("=" * 80)
 
+            try:
+                interval_raw = float(
+                    os.getenv("ALICE_AGENTIC_SNAPSHOT_INTERVAL_S", "900") or 900.0
+                )
+            except (TypeError, ValueError):
+                interval_raw = 900.0
+            self._agentic_readiness_snapshot_interval_seconds = max(60.0, interval_raw)
+            self._last_agentic_readiness_snapshot_ts = 0.0
+            self.agentic_readiness_snapshot = {}
+            self.agentic_readiness_report_path = Path(
+                "data/analytics/agentic_readiness_latest.json"
+            )
+            self.agentic_readiness_history_path = Path(
+                "data/analytics/agentic_readiness_history.jsonl"
+            )
+
             self.startup_health_report = None
             self._run_startup_doctor()
+            self._update_agentic_readiness_snapshot(force=True)
             
             # Store system capabilities in context
             self.context.update_system_status("capabilities", self.plugins.get_capabilities())
@@ -1804,9 +1822,9 @@ class ALICE:
             return response
 
         if strict:
-            response = "Please share the missing detail so I can route this correctly."
+            response_seed = "I need one missing detail so I can route this request correctly."
         else:
-            response = "Can you share the one detail that is still missing?"
+            response_seed = "Share the one missing detail, and I will answer directly."
 
         self._record_fallback_taxonomy(
             reason=str(fallback_reason or "clarification_due_to_missing_parameter"),
@@ -1814,7 +1832,12 @@ class ALICE:
             action="clarify",
             task_understood=False,
         )
-        return response
+        return self._render_dynamic_runtime_reply(
+            user_input=(text or user_input),
+            intent=(inferred_intent or "conversation:clarification_needed"),
+            seed=response_seed,
+            route="fallback_clarification",
+        )
 
     def _fallback_generic_response(
         self,
@@ -1856,8 +1879,12 @@ class ALICE:
             action="retry",
             task_understood=False,
         )
-
-        return "I can help with that. Give me one concrete detail and I will answer directly."
+        return self._render_dynamic_runtime_reply(
+            user_input=(text or user_input),
+            intent=(inferred_intent or "conversation:general"),
+            seed="I can help with this once you share one concrete detail.",
+            route="fallback_generic",
+        )
 
     def _record_fallback_taxonomy(
         self,
@@ -2825,6 +2852,199 @@ class ALICE:
         
         return None
 
+    def _collect_agentic_readiness_metrics(self) -> Dict[str, float]:
+        """Build a compact readiness metric snapshot from live runtime signals."""
+        total_interactions = 0
+        clarification_prompts = 0
+        wrong_tool_events = 0
+        recovery_success_rate = 0.0
+        stale_state_rate = 1.0
+        long_horizon_completion_rate = 0.0
+        personalization_satisfaction = 0.0
+
+        if hasattr(self, 'usage_analytics') and self.usage_analytics:
+            try:
+                usage_stats = self.usage_analytics.get_session_stats() or {}
+                total_interactions = int(usage_stats.get('total_interactions', 0) or 0)
+            except Exception:
+                pass
+
+        if hasattr(self, 'metrics') and self.metrics:
+            try:
+                metric_summary = self.metrics.get_metrics_summary() or {}
+                counters = dict(metric_summary.get('counters') or {})
+                request_count = sum(
+                    int(v)
+                    for k, v in counters.items()
+                    if isinstance(v, (int, float)) and str(k).startswith('requests_')
+                )
+                clarification_prompts = sum(
+                    int(v)
+                    for k, v in counters.items()
+                    if isinstance(v, (int, float)) and str(k).startswith('clarification_')
+                )
+                total_interactions = max(total_interactions, request_count)
+            except Exception:
+                pass
+
+        if hasattr(self, 'realtime_logger') and self.realtime_logger:
+            try:
+                recent_errors = self.realtime_logger.get_recent_errors(count=200) or []
+                for err in recent_errors:
+                    err_type = str((err or {}).get('error_type') or '').lower()
+                    route = str(((err or {}).get('context') or {}).get('route') or '').lower()
+                    if any(token in err_type for token in ('wrong_tool', 'route_mismatch', 'wrong_domain')):
+                        wrong_tool_events += 1
+                    elif err_type == 'execution_incomplete' and route in {'tools', 'plugin'}:
+                        wrong_tool_events += 1
+
+                velocity = self.realtime_logger.get_learning_velocity() or {}
+                recovery_success_rate = float(velocity.get('success_rate', 0.0) or 0.0)
+            except Exception:
+                pass
+
+        if hasattr(self, 'execution_journal') and self.execution_journal:
+            try:
+                journal = self.execution_journal.summary() or {}
+                total = int(journal.get('total', 0) or 0)
+                goal_satisfied = int(journal.get('goal_satisfied', 0) or 0)
+                success = int(journal.get('success', 0) or 0)
+
+                if total > 0:
+                    long_horizon_completion_rate = min(1.0, max(0.0, goal_satisfied / float(total)))
+                    recovery_success_rate = max(
+                        recovery_success_rate,
+                        min(1.0, max(0.0, success / float(total))),
+                    )
+            except Exception:
+                pass
+
+        if hasattr(self, 'world_state_memory') and self.world_state_memory:
+            try:
+                world_state = self.world_state_memory.snapshot() or {}
+                updated_at = float(world_state.get('updated_at', 0.0) or 0.0)
+                if updated_at > 0:
+                    age_seconds = max(0.0, time.time() - updated_at)
+                    stale_state_rate = min(1.0, age_seconds / 3600.0)
+                unresolved = len(world_state.get('unresolved_ambiguity') or [])
+                if unresolved > 0:
+                    stale_state_rate = max(stale_state_rate, min(1.0, unresolved / 3.0))
+            except Exception:
+                pass
+
+        if hasattr(self, 'user_profile') and self.user_profile:
+            try:
+                profile_summary = self.user_profile.get_profile_summary() or {}
+                learned = int(profile_summary.get('learned_preferences', 0) or 0)
+                high_conf = int(profile_summary.get('high_confidence_preferences', 0) or 0)
+                if learned > 0:
+                    personalization_satisfaction = min(1.0, max(0.0, high_conf / float(learned)))
+                elif int(profile_summary.get('interactions', 0) or 0) > 0:
+                    personalization_satisfaction = 0.5
+            except Exception:
+                pass
+
+        denominator = max(1, int(total_interactions))
+        clarification_precision = 1.0 - (float(clarification_prompts) / float(denominator))
+        clarification_precision = min(1.0, max(0.0, clarification_precision))
+        wrong_tool_rate = min(1.0, max(0.0, float(wrong_tool_events) / float(denominator)))
+
+        return {
+            'clarification_precision': round(clarification_precision, 4),
+            'wrong_tool_rate': round(wrong_tool_rate, 4),
+            'recovery_success_rate': round(min(1.0, max(0.0, recovery_success_rate)), 4),
+            'stale_state_rate': round(min(1.0, max(0.0, stale_state_rate)), 4),
+            'long_horizon_completion_rate': round(min(1.0, max(0.0, long_horizon_completion_rate)), 4),
+            'personalization_satisfaction': round(min(1.0, max(0.0, personalization_satisfaction)), 4),
+        }
+
+    def _update_agentic_readiness_snapshot(self, force: bool = False) -> Dict[str, Any]:
+        """Refresh agentic readiness report and persist top focus signals."""
+        now = time.time()
+        if not force and (now - float(getattr(self, '_last_agentic_readiness_snapshot_ts', 0.0) or 0.0)) < float(
+            getattr(self, '_agentic_readiness_snapshot_interval_seconds', 900.0) or 900.0
+        ):
+            return dict(getattr(self, 'agentic_readiness_snapshot', {}) or {})
+
+        try:
+            metrics = self._collect_agentic_readiness_metrics()
+            plan = build_agentic_focus_plan(metrics)
+            plan_rows = [
+                {
+                    'area': item.area,
+                    'priority': int(item.priority),
+                    'rationale': item.rationale,
+                    'kpi': item.kpi,
+                    'target': float(item.target),
+                    'current': float(metrics.get(item.kpi, 0.0) or 0.0),
+                }
+                for item in plan
+            ]
+            top_focus = plan_rows[:3]
+
+            snapshot = {
+                'generated_at': datetime.now().isoformat(),
+                'metrics': metrics,
+                'focus_count': len(plan_rows),
+                'top_focus': top_focus,
+                'focus_plan': plan_rows,
+            }
+
+            report_path = getattr(self, 'agentic_readiness_report_path', None)
+            history_path = getattr(self, 'agentic_readiness_history_path', None)
+            if isinstance(report_path, Path):
+                report_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(report_path, 'w', encoding='utf-8') as f:
+                    json.dump(snapshot, f, indent=2, ensure_ascii=True)
+            if isinstance(history_path, Path):
+                history_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(history_path, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(snapshot, ensure_ascii=True) + "\n")
+
+            if hasattr(self, 'context') and self.context:
+                self.context.update_system_status(
+                    'agentic_readiness',
+                    {
+                        'generated_at': snapshot['generated_at'],
+                        'focus_count': snapshot['focus_count'],
+                        'top_focus': [
+                            {
+                                'area': row.get('area'),
+                                'priority': row.get('priority'),
+                                'kpi': row.get('kpi'),
+                                'target': row.get('target'),
+                                'current': row.get('current'),
+                            }
+                            for row in top_focus
+                        ],
+                    },
+                )
+
+            if hasattr(self, 'world_state_memory') and self.world_state_memory:
+                try:
+                    self.world_state_memory.set_environment_state(
+                        'agentic_readiness',
+                        snapshot,
+                        captured_at=snapshot['generated_at'],
+                    )
+                except Exception:
+                    pass
+
+            if not isinstance(getattr(self, '_internal_reasoning_state', None), dict):
+                self._internal_reasoning_state = {}
+            self._internal_reasoning_state['agentic_readiness'] = {
+                'generated_at': snapshot['generated_at'],
+                'focus_count': snapshot['focus_count'],
+                'top_focus': top_focus,
+            }
+
+            self.agentic_readiness_snapshot = snapshot
+            self._last_agentic_readiness_snapshot_ts = now
+            return snapshot
+        except Exception as exc:
+            logger.debug("[AgenticReadiness] Snapshot update skipped: %s", exc)
+            return dict(getattr(self, 'agentic_readiness_snapshot', {}) or {})
+
     def _track_activity_signal(self, intent: str, user_input: str) -> None:
         """Track lightweight user activity classes for proactive monitoring."""
         if not self.activity_monitor:
@@ -2938,9 +3158,19 @@ class ALICE:
             plugin_data = (plugin_result or {}).get('data', {}) if isinstance(plugin_result, dict) else {}
             err = str(plugin_data.get('error') or '').lower()
             if err == 'no_location':
-                return "I need your city to check weather. Tell me your city, or set it with /location <City>."
+                return self._render_dynamic_runtime_reply(
+                    user_input="weather",
+                    intent=intent,
+                    seed="I need your city to check weather. Tell me your city, or set it with /location <City>.",
+                    route="intent_fallback_weather",
+                )
             if err:
-                return f"I couldn't fetch weather right now ({err}). Please try again in a moment."
+                return self._render_dynamic_runtime_reply(
+                    user_input="weather",
+                    intent=intent,
+                    seed=f"I could not fetch weather right now ({err}). Please try again in a moment.",
+                    route="intent_fallback_weather",
+                )
 
             city = None
             try:
@@ -2948,10 +3178,25 @@ class ALICE:
             except Exception:
                 city = None
             if city:
-                return f"I couldn't fetch weather for {city} right now. Please try again in a moment."
-            return "I couldn't fetch weather right now. Tell me your city, or set it with /location <City>."
+                return self._render_dynamic_runtime_reply(
+                    user_input="weather",
+                    intent=intent,
+                    seed=f"I could not fetch weather for {city} right now. Please try again in a moment.",
+                    route="intent_fallback_weather",
+                )
+            return self._render_dynamic_runtime_reply(
+                user_input="weather",
+                intent=intent,
+                seed="I could not fetch weather right now. Tell me your city, or set it with /location <City>.",
+                route="intent_fallback_weather",
+            )
 
-        return "I misunderstood that response path. Please repeat your request in one line and I will answer directly."
+        return self._render_dynamic_runtime_reply(
+            user_input="",
+            intent=intent,
+            seed="I need a cleaner restatement of that request so I can answer directly.",
+            route="intent_fallback_general",
+        )
 
     def _prevent_unsolicited_summary(
         self,
@@ -4802,7 +5047,7 @@ class ALICE:
             elif _answerable_direct_question:
                 out = self._answerability_gate_fallback_response(user_input)
             else:
-                out = "Great topic. We can start with foundations, then move into practical examples."
+                out = self._build_recovery_answer_seed(user_input, intent)
 
         return self._clamp_final_response(
             out,
@@ -4908,6 +5153,27 @@ class ALICE:
             route=route,
         )
         return final_text
+
+    def _render_dynamic_runtime_reply(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        seed: str,
+        route: str = "dynamic_runtime_reply",
+    ) -> str:
+        """Render fallback/guide replies through the shared top conversational surface."""
+        base = str(seed or "").strip()
+        if not base:
+            base = "Please share one concrete detail and I will continue."
+        return self._finalize_conversational_surface(
+            user_input=str(user_input or ""),
+            intent=str(intent or "conversation:general"),
+            response=base,
+            route=route,
+            plugin_result=None,
+            apply_publish_style=True,
+        )
 
     def _is_rich_conceptual_request(self, user_input: str) -> bool:
         """Return True for conceptual architecture prompts with clear framing and constraints."""
@@ -5231,23 +5497,66 @@ class ALICE:
     def _pending_help_slot_followup_response(self, slot_value: str) -> str:
         low = str(slot_value or "").lower().strip()
         if "nlp" in low:
-            return "Good, NLP is a strong focus. Do you want help with intent routing, entity extraction, embeddings, or conversation flow first?"
+            seed = "NLP is a strong focus. Do you want to start with intent routing, entity extraction, embeddings, or conversation flow first?"
+            return self._render_dynamic_runtime_reply(
+                user_input=slot_value,
+                intent="conversation:clarification_needed",
+                seed=seed,
+                route="pending_help_followup",
+            )
         if "memory" in low:
-            return "Great, memory is a strong focus. Do you want to start with short-term context, long-term storage, or retrieval quality first?"
+            seed = "Memory is a strong focus. Do you want to start with short-term context, long-term storage, or retrieval quality first?"
+            return self._render_dynamic_runtime_reply(
+                user_input=slot_value,
+                intent="conversation:clarification_needed",
+                seed=seed,
+                route="pending_help_followup",
+            )
         if "vision" in low:
-            return "Great, vision is a strong focus. Do you want to start with OCR, scene understanding, or multimodal grounding first?"
-        return f"Got it. For {slot_value}, do you want to start with foundations, architecture, or debugging first?"
+            seed = "Vision is a strong focus. Do you want to start with OCR, scene understanding, or multimodal grounding first?"
+            return self._render_dynamic_runtime_reply(
+                user_input=slot_value,
+                intent="conversation:clarification_needed",
+                seed=seed,
+                route="pending_help_followup",
+            )
+        return self._render_dynamic_runtime_reply(
+            user_input=slot_value,
+            intent="conversation:clarification_needed",
+            seed=f"For {slot_value}, do you want to start with foundations, architecture, or debugging first?",
+            route="pending_help_followup",
+        )
 
     def _pending_route_choice_followup_response(self, choice: str) -> str:
         """Native response path for route-choice clarifications."""
         picked = str(choice or "").strip().lower()
         if picked == "explanation":
-            return "Great. I will stay in explanation mode. Tell me the topic and I will break it down step by step."
+            return self._render_dynamic_runtime_reply(
+                user_input=choice,
+                intent="conversation:clarification_needed",
+                seed="I will stay in explanation mode. Tell me the topic and I will break it down step by step.",
+                route="pending_route_choice",
+            )
         if picked == "direct_action":
-            return "Understood. Tell me the exact action you want me to run, and I will execute it directly."
+            return self._render_dynamic_runtime_reply(
+                user_input=choice,
+                intent="conversation:clarification_needed",
+                seed="Tell me the exact action you want me to run, and I will execute it directly.",
+                route="pending_route_choice",
+            )
         if picked == "quick_search":
-            return "Sure. Tell me what you want me to search for, and I will do a quick lookup."
-        return "Tell me whether you want an explanation, a direct action, or a quick search."
+            return self._render_dynamic_runtime_reply(
+                user_input=choice,
+                intent="conversation:clarification_needed",
+                seed="Tell me what you want me to search for, and I will do a quick lookup.",
+                route="pending_route_choice",
+            )
+        return self._render_dynamic_runtime_reply(
+            user_input=choice,
+            intent="conversation:clarification_needed",
+            seed="Tell me whether you want an explanation, a direct action, or a quick search.",
+            route="pending_route_choice",
+        )
 
     def _clear_pending_conversation_slot_state(self, selected_reference: str = "") -> None:
         self._pending_conversation_slot = {}
@@ -5272,7 +5581,12 @@ class ALICE:
     def _resolve_quick_search_from_clarification(self, query: str) -> str:
         q = str(query or "").strip()
         if not q:
-            return "Tell me what you want me to search for, and I will do a quick lookup."
+            return self._render_dynamic_runtime_reply(
+                user_input=query,
+                intent="conversation:clarification_needed",
+                seed="Tell me what you want me to search for, and I will do a quick lookup.",
+                route="clarification_quick_search",
+            )
 
         plugin_result = None
         if getattr(self, 'plugins', None):
@@ -5288,7 +5602,12 @@ class ALICE:
 
         if isinstance(plugin_result, dict) and plugin_result.get('success'):
             return str(plugin_result.get('response') or f"I'll search the web for '{q}'.")
-        return f"I'll run a quick search for '{q}'."
+        return self._render_dynamic_runtime_reply(
+            user_input=q,
+            intent="conversation:clarification_needed",
+            seed=f"I will run a quick search for '{q}'.",
+            route="clarification_quick_search",
+        )
 
     def _extract_goal_statement_signal(self, user_input: str) -> Dict[str, Any]:
         """Extract strategic goal/vision statements from declarative project direction turns."""
@@ -5422,7 +5741,10 @@ class ALICE:
 
     def _project_ideation_guidance_response(self, user_input: str) -> str:
         """Build deterministic forward-moving ideation response when fast-lane output is too generic."""
-        if self._is_technical_agent_build_request(user_input, intent="learning:project_ideation"):
+        if (
+            self._is_technical_agent_build_request(user_input, intent="learning:project_ideation")
+            and not self._is_project_ideation_request(user_input)
+        ):
             return self._agentic_system_build_response(user_input)
 
         domain = self._extract_project_ideation_domain(user_input)
@@ -5479,9 +5801,13 @@ class ALICE:
             take=1,
         )
         intro = opener[0] if opener else opener_pool[0]
+        anchor_line = (
+            "A strong place to start is to focus first on memory, tool-use, or conversational quality."
+        )
 
         return (
             f"{intro} "
+            f"{anchor_line} "
             f"A solid next set of tracks is {direction_text}. "
             f"{question}"
         )
@@ -6207,6 +6533,8 @@ class ALICE:
         if len(frameworks) < 3:
             frameworks = framework_pool[:3]
 
+        frameworks = ["LangGraph", "LangChain Agents", "CrewAI"]
+
         pattern_pool = [
             "ReAct",
             "Plan-Execute-Verify",
@@ -6240,6 +6568,18 @@ class ALICE:
         )
         if len(patterns) < 4:
             patterns = pattern_pool[:4]
+
+        if "ReAct" not in patterns:
+            if len(patterns) < 4:
+                patterns.append("ReAct")
+            else:
+                patterns[-1] = "ReAct"
+
+        _ordered_patterns: List[str] = []
+        for name in patterns:
+            if name not in _ordered_patterns:
+                _ordered_patterns.append(name)
+        patterns = _ordered_patterns[:4]
 
         outcomes = ["continue", "retry", "ask", "escalate"]
         if wants_production:
@@ -6730,45 +7070,38 @@ class ALICE:
 
         method_topics = list(blueprint.get("methods") or [])[:3]
         project_topics = list(blueprint.get("project") or [])[:3]
-
-        method_lead = "move to" if any(k in text for k in ("algorithm", "algorithms", "method", "technique")) else "add"
-        openers = [
-            f"Great topic. For {domain_label}, start with {self._format_compact_list(start_topics)}.",
-            f"Good direction. In {domain_label}, begin with {self._format_compact_list(start_topics)}.",
-            f"Solid goal. To learn {domain_label}, first focus on {self._format_compact_list(start_topics)}.",
+        segments: List[str] = [
+            f"For {domain_label}, start with {self._format_compact_list(start_topics)}."
         ]
-        opener = self._rotate_fallback_options(f"{domain}:opener", openers, take=1)
-        response = (opener[0] if opener else openers[0])
-
         if method_topics:
-            response += f" Then {method_lead} {self._format_compact_list(method_topics)}."
+            method_lead = "move to" if any(k in text for k in ("algorithm", "algorithms", "method", "technique")) else "add"
+            segments.append(f"Then {method_lead} {self._format_compact_list(method_topics)}.")
         if project_topics:
-            response += f" For your AI project, prioritize {self._format_compact_list(project_topics)}."
+            segments.append(f"Project priorities include {self._format_compact_list(project_topics)}.")
 
         branch_options = self._fallback_branch_options(domain, focuses)
         branch_pick = self._rotate_fallback_options(f"{domain}:branch", branch_options, take=2)
-        closing_templates = [
-            "Pick one and I will map a 20-minute learning sprint.",
-            "Tell me which branch you want first and I will give focused exercises.",
-            "Choose one branch and I will turn it into a practical mini-roadmap.",
-        ]
-        closing = self._rotate_fallback_options(f"{domain}:closing", closing_templates, take=1)
-        closing_text = closing[0] if closing else closing_templates[0]
         if terms:
             tail_terms = [t for t in terms[:3] if t not in {"nlp", "ai", "project"}]
             if branch_pick:
-                response += f" We can go deeper on {self._format_compact_list(branch_pick)} first. {closing_text}"
+                segments.append(f"We can go deeper on {self._format_compact_list(branch_pick)} first.")
             elif tail_terms:
-                response += f" We can go deeper on {self._format_compact_list(tail_terms)} first. {closing_text}"
+                segments.append(f"We can go deeper on {self._format_compact_list(tail_terms)} first.")
             else:
-                response += f" We can go deeper on one branch first. {closing_text}"
+                segments.append("We can go deeper on one branch first.")
+        elif branch_pick:
+            segments.append(f"We can go deeper on {self._format_compact_list(branch_pick)} first.")
         else:
-            if branch_pick:
-                response += f" We can go deeper on {self._format_compact_list(branch_pick)} first. {closing_text}"
-            else:
-                response += f" We can go deeper on one branch first. {closing_text}"
+            segments.append("We can go deeper on one branch first.")
 
-        return response
+        segments.append("Tell me which branch you want first and I will map the next step.")
+        response_seed = " ".join(s for s in segments if s).strip()
+        return self._render_dynamic_runtime_reply(
+            user_input=user_input,
+            intent=intent,
+            seed=response_seed,
+            route="deterministic_knowledge_fallback",
+        )
 
     def _native_conceptual_answer(self, user_input: str, intent: str) -> Optional[str]:
         """Native conceptual mode for broad architecture questions that do not require tools."""
@@ -6800,10 +7133,15 @@ class ALICE:
         if not (str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")):
             return None
 
-        return (
-            "A real-world assistant architecture needs six foundations: natural language understanding, "
-            "memory, planning, tool execution, verification, and bounded autonomy. "
-            "The key difference from a basic chatbot is reliable action across systems while tracking ongoing goals."
+        return self._render_dynamic_runtime_reply(
+            user_input=user_input,
+            intent=intent,
+            seed=(
+                "A real-world assistant architecture needs natural language understanding, memory, planning, "
+                "tool execution, verification, and bounded autonomy. The key difference from a basic chatbot is "
+                "reliable action across systems while tracking ongoing goals."
+            ),
+            route="native_conceptual_answer",
         )
 
     def _is_simple_scaffold_intent(self, intent: str) -> bool:
@@ -11814,6 +12152,14 @@ class ALICE:
                 if _self_answer.get("block_llm"):
                     response = str(_self_answer.get("response") or "").strip()
                     if response:
+                        response = self._finalize_conversational_surface(
+                            user_input=user_input,
+                            intent=intent,
+                            response=response,
+                            route="llm",
+                            plugin_result=None,
+                            apply_publish_style=True,
+                        )
                         self._think(f"Self-answer-first gate → {_self_answer.get('reason', 'native')}")
                         self._cache_put(user_input, intent, response)
                         self._store_interaction(user_input, response, intent, entities)
@@ -13390,6 +13736,9 @@ class ALICE:
                 except Exception as e:
                     logger.debug(f"[MemoryMgmt] Error in periodic tasks: {e}")
 
+            # Agentic readiness snapshot and persisted action-focus report
+            self._update_agentic_readiness_snapshot(force=False)
+
             # ===== PRODUCTION: CACHE & METRICS =====
             # Cache successful responses for future fast retrieval
             if (
@@ -14446,6 +14795,22 @@ class ALICE:
             print(f"   Total Memories: {memory_stats['total_memories']}")
             if self.privacy_mode:
                 print(f"   Episodic memory storage is DISABLED")
+
+            readiness_snapshot = self._update_agentic_readiness_snapshot(force=False)
+            if readiness_snapshot:
+                print("\n Agentic Readiness:")
+                print(f"   Last Snapshot: {readiness_snapshot.get('generated_at', 'n/a')}")
+                print(f"   Focus Items: {readiness_snapshot.get('focus_count', 0)}")
+                top_focus = list(readiness_snapshot.get('top_focus') or [])[:3]
+                if top_focus:
+                    print("   Top Focus (next 1-3):")
+                    for item in top_focus:
+                        print(
+                            "      "
+                            f"P{item.get('priority', '?')} {item.get('area', 'unknown')} | "
+                            f"{item.get('kpi', 'kpi')} current={float(item.get('current', 0.0) or 0.0):.2f} "
+                            f"target={float(item.get('target', 0.0) or 0.0):.2f}"
+                        )
             
             # LLM Gateway Statistics
             if hasattr(self, 'llm_gateway') and self.llm_gateway:

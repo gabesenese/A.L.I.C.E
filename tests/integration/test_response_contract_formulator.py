@@ -153,6 +153,62 @@ def test_response_formulator_direct_question_bypasses_clarification_fallback():
     assert "short answer" in low
 
 
+def test_response_formulator_agentic_mode_request_bypasses_clarification_chat():
+    formulator = ResponseFormulator()
+    reasoning = ReasoningOutput(
+        internal_summary="analysis: unclear request",
+        intent="conversation:clarification_needed",
+        plan=["clarify"],
+        confidence=0.49,
+    )
+
+    final_response = formulator.generate(
+        intent="conversation:clarification_needed",
+        context={
+            "user_input": "she is still acting like an ai chat, we need her to be more agentic",
+            "response": "",
+        },
+        tool_results={},
+        reasoning_output=reasoning,
+        mode="final_answer_only",
+    )
+
+    low = final_response.message.lower()
+    assert "clarify" not in low
+    assert "share more details" not in low
+    assert "agentic" in low
+    assert "plan" in low
+
+
+def test_response_formulator_collapses_chatty_clarification_template():
+    formulator = ResponseFormulator()
+    reasoning = ReasoningOutput(
+        internal_summary="analysis: low confidence clarification",
+        intent="conversation:clarification_needed",
+        plan=["clarify"],
+        confidence=0.44,
+    )
+
+    final_response = formulator.generate(
+        intent="conversation:clarification_needed",
+        context={
+            "user_input": "help",
+            "response": (
+                "I'd love to get a better understanding of what you're looking for so I can give you "
+                "a clear and accurate answer. Could you please share more details about your question?"
+            ),
+        },
+        tool_results={},
+        reasoning_output=reasoning,
+        mode="final_answer_only",
+    )
+
+    assert (
+        final_response.message
+        == "Please share one missing detail so I can answer precisely."
+    )
+
+
 def test_process_input_wrapper_blocks_internal_output_leakage():
     alice = ALICE.__new__(ALICE)
     alice.response_formulator = ResponseFormulator()
