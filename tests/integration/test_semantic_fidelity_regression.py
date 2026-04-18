@@ -14,6 +14,7 @@ EXACT_PROMPT = (
 EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
 EXACT_TONY_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
 EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
+EXACT_FRAMEWORKS_PROMPT = "research existing frameworks for agentic autonomy in ai"
 
 
 @dataclass
@@ -179,6 +180,19 @@ def test_answerability_gate_detects_specific_domain_questions_and_ignores_ambigu
     ) is False
 
 
+def test_answerability_gate_fallback_returns_substantive_answer_for_unknown_direct_question():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._answerability_gate_fallback_response(
+        "what is agentic autonomy?"
+    )
+
+    low = response.lower()
+    assert "clarify" not in low
+    assert "exact result" not in low
+    assert "agentic autonomy" in low
+
+
 def test_answerability_gate_forces_answer_first_without_clarification():
     alice = ALICE.__new__(ALICE)
 
@@ -232,6 +246,41 @@ def test_deterministic_knowledge_fallback_handles_ai_agent_algorithm_question():
     assert "transformer" in low
     assert "retrieval" in low
     assert "verification" in low
+
+
+def test_deterministic_knowledge_fallback_handles_practical_agentic_framework_request():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._deterministic_knowledge_fallback(
+        EXACT_FRAMEWORKS_PROMPT,
+        "conversation:general",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "langchain" in low
+    assert "crewai" in low
+    assert "react" in low
+    assert "dennett" not in low
+    assert "integrated information theory" not in low
+
+
+def test_semantic_fidelity_guard_rejects_theoretical_drift_for_practical_framework_prompt():
+    controller = ExecutiveController()
+    bad = (
+        "A useful autonomy framework is Dennett's Intentional Stance and Tononi's IIT theory of consciousness."
+    )
+
+    evaluation = controller.evaluate_response(
+        user_input=EXACT_FRAMEWORKS_PROMPT,
+        intent="conversation:general",
+        response=bad,
+        route="llm",
+        context={},
+    )
+
+    assert evaluation["accepted"] is False
+    assert evaluation["reason"] == "semantic_drift_theoretical_domain"
 
 
 def test_agent_algorithm_question_detector_matches_user_style_query():
@@ -701,3 +750,139 @@ def test_clamp_final_response_fast_lane_enforces_shorter_cap():
     )
 
     assert len(clamped) <= 700
+
+
+def test_clamp_final_response_project_ideation_meta_leak_uses_guidance():
+    alice = ALICE.__new__(ALICE)
+
+    leaked = "analysis: project_ideation context: user wants an ai agent plan: ask for exact result"
+    clamped = alice._clamp_final_response(
+        leaked,
+        tone="helpful",
+        response_type="general_response",
+        route="generation",
+        user_input="let's create an ai project, an ai agent",
+    )
+
+    low = clamped.lower()
+    assert "i can help with that. tell me the exact result you want." not in low
+    assert "strong place to start" in low
+    assert "focus first on memory, tool-use, or conversational quality" in low
+
+
+def test_contract_respond_stage_replaces_stale_clarification_scaffold_for_project_ideation() -> None:
+    alice = ALICE.__new__(ALICE)
+
+    repaired = alice._contract_respond_stage(
+        user_input="i want to create an agentic local ai agent",
+        candidate="I can help with that. Give me one concrete detail and I will answer directly.",
+        reasoning_output=SimpleNamespace(intent="conversation:clarification_needed"),
+        tool_results={},
+    )
+
+    low = repaired.lower()
+    assert "one concrete detail" not in low
+    assert "strong place to start" in low
+    assert "focus first on memory, tool-use, or conversational quality" in low
+
+
+def test_deterministic_framework_fallback_handles_short_agentic_prompt() -> None:
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._deterministic_knowledge_fallback(
+        "agentic ai frameworks",
+        "conversation:help",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "langgraph" in low
+    assert "langchain" in low
+    assert "crewai" in low
+    assert "plan-execute-verify" in low
+    assert "continue, retry, ask, or escalate" in low
+    assert "consciousness" not in low
+    assert "dennett" not in low
+    assert "iit" not in low
+
+
+def test_safe_llm_failure_recovery_records_explicit_answer_path_failure_reason() -> None:
+    alice = ALICE.__new__(ALICE)
+    alice._internal_reasoning_state = {
+        "confidence": 0.78,
+        "response_plan": {"strategy": "answer_directly"},
+    }
+
+    response = alice._safe_llm_failure_response(
+        user_input="what's the difference between an ai agent and an ai assistant?",
+        intent="conversation:help",
+        llm_response=SimpleNamespace(
+            success=False,
+            response="Primary generation route is unavailable right now.",
+            error="Primary generation route is unavailable right now.",
+        ),
+    )
+
+    low = response.lower()
+    assert "clarify" not in low
+    state = dict(getattr(alice, "_internal_reasoning_state", {}) or {})
+    recovery = dict(state.get("failure_recovery", {}) or {})
+    taxonomy = dict(state.get("fallback_taxonomy", {}) or {})
+    assert recovery.get("reason") == "llm_failed_after_answer_directly"
+    assert taxonomy.get("reason") == "llm_failed_after_answer_directly"
+
+
+def test_explicit_greeting_detector_and_native_greeting_path_for_hi_alice() -> None:
+    alice = ALICE.__new__(ALICE)
+    alice.phrasing_learner = None
+    alice.context = None
+
+    assert alice._is_explicit_greeting_input("hi alice") is True
+    assert alice._native_scaffold_response("hi alice", "greeting") is not None
+
+
+def test_explicit_greeting_detector_accepts_minor_name_typo() -> None:
+    alice = ALICE.__new__(ALICE)
+
+    assert alice._is_explicit_greeting_input("hi alioce") is True
+
+
+def test_goal_statement_promotion_skips_social_greeting_turns() -> None:
+    alice = ALICE.__new__(ALICE)
+
+    intent, entities, confidence = alice._promote_goal_statement_intent(
+        user_input="hi alioce",
+        intent="greeting",
+        entities={},
+        intent_confidence=0.89,
+    )
+
+    assert intent == "greeting"
+    assert entities == {}
+    assert confidence == 0.89
+
+
+def test_turn_outcome_resolution_requires_explicit_fallback_for_failed_llm() -> None:
+    alice = ALICE.__new__(ALICE)
+
+    route, success, recovered = alice._resolve_turn_success_and_route(
+        default_route="unknown",
+        plugin_result=None,
+        llm_attempted=True,
+        llm_generation_success=False,
+        llm_fallback_applied=False,
+    )
+    assert route == "llm"
+    assert success is False
+    assert recovered is False
+
+    route, success, recovered = alice._resolve_turn_success_and_route(
+        default_route="unknown",
+        plugin_result=None,
+        llm_attempted=True,
+        llm_generation_success=False,
+        llm_fallback_applied=True,
+    )
+    assert route == "llm_fallback"
+    assert success is True
+    assert recovered is True
