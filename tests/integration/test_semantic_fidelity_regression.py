@@ -371,6 +371,34 @@ def test_compose_understood_goal_recovery_avoids_fixed_fallback_message():
     assert "nlp" in low
 
 
+def test_goal_statement_fallback_preserves_agentic_learning_guidance():
+    alice = ALICE.__new__(ALICE)
+    alice.adaptive_response_style = None
+
+    response = alice._fallback_from_intent(
+        "conversation:goal_statement",
+        None,
+        user_input="i want to learn more about agentic ai",
+    )
+
+    low = str(response or "").lower()
+    assert "cleaner restatement" not in low
+    assert "better understand your question" not in low
+    assert "could you please specify" not in low
+    assert any(
+        token in low
+        for token in (
+            "agentic",
+            "agent",
+            "planning",
+            "tool",
+            "framework",
+            "loop",
+            "ai",
+        )
+    )
+
+
 def test_self_answer_first_gate_uses_structured_teaching_mode_for_teach_prompts():
     alice = ALICE.__new__(ALICE)
 
@@ -386,6 +414,28 @@ def test_self_answer_first_gate_uses_structured_teaching_mode_for_teach_prompts(
     assert gate.get("reason") == "structured_teaching_mode"
     response = str(gate.get("response") or "")
     assert "Learning outline" in response
+
+
+def test_self_answer_first_gate_uses_structured_teaching_for_learn_more_agentic_prompt():
+    alice = ALICE.__new__(ALICE)
+
+    gate = alice._self_answer_first_gate(
+        user_input="i want to learn more about agentic ai",
+        intent="conversation:goal_statement",
+        entities={
+            "goal": "learn more about agentic ai",
+            "user_goal": "learn more about agentic ai",
+        },
+        has_active_goal=False,
+        has_explicit_action_cue=False,
+    )
+
+    assert gate.get("block_llm") is True
+    assert gate.get("reason") == "structured_teaching_mode"
+    response = str(gate.get("response") or "").lower()
+    assert "learning outline" in response
+    assert "clarify" not in response
+    assert "agentic" in response or "assistant architecture" in response
 
 
 def test_native_scaffold_handles_simple_conversation_openers_without_llm():

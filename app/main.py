@@ -138,6 +138,7 @@ from ai.core.turn_state_assembler import TurnStateAssembler
 from ai.core.turn_state_diff import generate_turn_diff
 from ai.core.world_state_memory import get_world_state_memory
 from ai.core.execution_journal import get_execution_journal
+from ai.core.agentic_loop import AgenticLoop
 from ai.core.agentic_readiness import build_agentic_focus_plan
 from ai.core.goal_object import goal_from_any
 from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_manager
@@ -507,6 +508,15 @@ class ALICE:
             self._exec_should_store_memory = True
             self._last_exec_gate_eval = {}
             self._last_goal_tracker_topic = ""
+            self.agentic_loop = AgenticLoop(
+                perceive_fn=self._agentic_loop_perceive,
+                reason_fn=self._agentic_loop_reason,
+                goal_fn=self._agentic_loop_goal,
+                decide_fn=self._agentic_loop_decide,
+                execute_fn=self._agentic_loop_execute,
+                learn_fn=self._agentic_loop_learn,
+            )
+            self._last_agentic_cycle_report: Dict[str, Any] = {}
             self.error_recovery = get_error_recovery()
             self.context_cache = get_context_cache()
             self.context_selector = get_context_selector()
@@ -2852,6 +2862,367 @@ class ALICE:
         
         return None
 
+    def _agentic_loop_perceive(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize turn payload into explicit observable state for the agentic loop."""
+        data = dict(payload or {})
+        entities = data.get("entities") if isinstance(data.get("entities"), dict) else {}
+        text = str(data.get("user_input") or "").strip()
+        return {
+            "text": text,
+            "phase": str(data.get("phase") or "post_route").strip(),
+            "intent": str(data.get("intent") or "").strip(),
+            "route": str(data.get("route") or "unknown").strip(),
+            "confidence": float(data.get("confidence", 0.0) or 0.0),
+            "success": bool(data.get("success", False)),
+            "response_length": len(str(data.get("response") or "")),
+            "entity_keys": sorted(str(k) for k in entities.keys())[:8],
+            "goal": str(data.get("goal") or "").strip(),
+            "plugin": str(data.get("plugin") or "").strip(),
+            "has_action_cue": bool(data.get("has_action_cue", False)),
+            "has_active_goal": bool(data.get("has_active_goal", False)),
+            "execution_mode": str(data.get("execution_mode") or "").strip(),
+            "force_plugins_for_notes": bool(data.get("force_plugins_for_notes", False)),
+            "pending_action": str(data.get("pending_action") or "").strip(),
+            "should_answer_first": bool(data.get("should_answer_first", False)),
+        }
+
+    def _agentic_loop_reason(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Summarize reasoning strategy from explicit turn state and executive plan context."""
+        perceived = dict((state or {}).get("perceived") or {})
+        strategy = str(
+            ((getattr(self, "_internal_reasoning_state", {}) or {}).get("response_plan", {}) or {}).get("strategy")
+            or "respond_directly"
+        ).strip()
+        summary = (
+            f"intent={perceived.get('intent', 'unknown')} | "
+            f"route={perceived.get('route', 'unknown')} | "
+            f"strategy={strategy}"
+        )
+        return {
+            "summary": summary,
+            "strategy": strategy,
+        }
+
+    def _agentic_loop_goal(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Derive explicit short-horizon goal label for the current turn."""
+        perceived = dict((state or {}).get("perceived") or {})
+        explicit_goal = str(perceived.get("goal") or "").strip()
+        if explicit_goal:
+            goal = explicit_goal
+        else:
+            state_goal = str(
+                (getattr(self, "_internal_reasoning_state", {}) or {}).get("user_goal")
+                or (getattr(self, "_internal_reasoning_state", {}) or {}).get("conversation_goal")
+                or "resolve_user_request"
+            ).strip()
+            goal = state_goal or "resolve_user_request"
+        return {"goal": goal}
+
+    def _agentic_loop_decide(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Choose deterministic next action category for cycle reporting."""
+        perceived = dict((state or {}).get("perceived") or {})
+        phase = str(perceived.get("phase") or "post_route").strip().lower()
+
+        if phase == "pre_route":
+            intent = str(perceived.get("intent") or "").strip().lower()
+            confidence = float(perceived.get("confidence", 0.0) or 0.0)
+            has_action_cue = bool(perceived.get("has_action_cue", False))
+            has_active_goal = bool(perceived.get("has_active_goal", False))
+            execution_mode = str(perceived.get("execution_mode") or "").strip().lower()
+            force_plugins_for_notes = bool(perceived.get("force_plugins_for_notes", False))
+            pending_action = str(perceived.get("pending_action") or "").strip()
+            should_answer_first = bool(perceived.get("should_answer_first", False))
+
+            tool_domains = (
+                "notes:",
+                "email:",
+                "calendar:",
+                "file_operations:",
+                "memory:",
+                "reminder:",
+                "system:",
+                "weather:",
+                "time:",
+            )
+
+            if pending_action or force_plugins_for_notes or has_action_cue:
+                return {
+                    "action": "use_plugin",
+                    "route": "tool",
+                    "confidence": confidence,
+                    "reason": "agentic_tool_priority",
+                }
+
+            if intent == "conversation:clarification_needed" and not should_answer_first:
+                return {
+                    "action": "ask_clarification",
+                    "route": "clarify",
+                    "confidence": confidence,
+                    "reason": "agentic_low_specificity",
+                    "question": "Can you clarify the outcome you want so I can route this correctly?",
+                }
+
+            if any(intent.startswith(prefix) for prefix in tool_domains):
+                return {
+                    "action": "use_plugin",
+                    "route": "tool",
+                    "confidence": confidence,
+                    "reason": "agentic_tool_domain",
+                }
+
+            if confidence < 0.30 and not should_answer_first and not has_active_goal:
+                return {
+                    "action": "ask_clarification",
+                    "route": "clarify",
+                    "confidence": confidence,
+                    "reason": "agentic_confidence_clarify",
+                    "question": "I need one clarifying detail before I execute this request.",
+                }
+
+            if execution_mode == "conversational_intelligence" or should_answer_first:
+                return {
+                    "action": "use_llm",
+                    "route": "llm",
+                    "confidence": confidence,
+                    "reason": "agentic_conversational_lane",
+                }
+
+            if has_active_goal:
+                return {
+                    "action": "use_plugin",
+                    "route": "tool",
+                    "confidence": confidence,
+                    "reason": "agentic_goal_continuity",
+                }
+
+            return {
+                "action": "use_llm",
+                "route": "llm",
+                "confidence": confidence,
+                "reason": "agentic_default_direct",
+            }
+
+        route = str(perceived.get("route") or "unknown").strip()
+        success = bool(perceived.get("success", False))
+
+        if not success:
+            action = "recover"
+        elif route in {"plugin", "tools", "tool"}:
+            action = "verify_tool_outcome"
+        else:
+            action = "respond"
+
+        return {
+            "action": action,
+            "route": route,
+            "confidence": float(perceived.get("confidence", 0.0) or 0.0),
+        }
+
+    @staticmethod
+    def _agentic_loop_execute(decision: Dict[str, Any]) -> Dict[str, Any]:
+        """Produce a lightweight execution status for deterministic cycle bookkeeping."""
+        action = str((decision or {}).get("action") or "noop").strip()
+        if action in {"ask_clarification", "clarify"}:
+            status = "clarify"
+        elif action in {"use_plugin", "verify_tool_outcome"}:
+            status = "verify"
+        elif action == "recover":
+            status = "needs_recovery"
+        else:
+            status = "ok"
+        return {"status": status, "action": action}
+
+    @staticmethod
+    def _agentic_loop_learn(feedback: Dict[str, Any]) -> Dict[str, Any]:
+        """Emit adaptation signal from execution feedback without side effects."""
+        execution = dict((feedback or {}).get("execution") or {})
+        status = str(execution.get("status") or "unknown").strip()
+        adapted = status in {"needs_recovery", "verify"}
+        return {
+            "adapted": adapted,
+            "signal": status,
+        }
+
+    def _run_agentic_control_cycle(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        entities: Dict[str, Any],
+        response: str,
+        route: str,
+        success: bool,
+        confidence: float,
+        plugin_result: Optional[Dict[str, Any]] = None,
+        goal: str = "",
+    ) -> Dict[str, Any]:
+        """Run one explicit agentic loop cycle and persist diagnostics into turn state."""
+        loop = getattr(self, "agentic_loop", None)
+        if loop is None:
+            return {}
+
+        payload = {
+            "user_input": str(user_input or "").strip(),
+            "intent": str(intent or "").strip(),
+            "entities": dict(entities or {}),
+            "response": str(response or "").strip(),
+            "route": str(route or "unknown").strip(),
+            "success": bool(success),
+            "confidence": float(confidence or 0.0),
+            "goal": str(goal or "").strip(),
+            "plugin": str((plugin_result or {}).get("plugin") or "").strip(),
+        }
+
+        try:
+            cycle = loop.run_cycle(payload)
+            memory = loop.snapshot()
+            cycle_data = {
+                "started_at": str(getattr(cycle, "started_at", "") or ""),
+                "perceived": dict(getattr(cycle, "perceived", {}) or {}),
+                "reasoning": dict(getattr(cycle, "reasoning", {}) or {}),
+                "goals": dict(getattr(cycle, "goals", {}) or {}),
+                "decision": dict(getattr(cycle, "decision", {}) or {}),
+                "execution": dict(getattr(cycle, "execution", {}) or {}),
+                "learning": dict(getattr(cycle, "learning", {}) or {}),
+            }
+
+            report = {
+                "cycle": cycle_data,
+                "memory": dict(memory or {}),
+            }
+            self._last_agentic_cycle_report = report
+
+            if not isinstance(getattr(self, "_internal_reasoning_state", None), dict):
+                self._internal_reasoning_state = {}
+            self._internal_reasoning_state["agentic_loop"] = report
+
+            if getattr(self, "context", None):
+                try:
+                    self.context.update_system_status(
+                        "agentic_loop",
+                        {
+                            "started_at": cycle_data.get("started_at"),
+                            "last_goal": str((memory or {}).get("last_goal") or ""),
+                            "last_action": str((memory or {}).get("last_action") or ""),
+                            "cycles": int((memory or {}).get("cycles", 0) or 0),
+                            "last_execution_status": str(
+                                (cycle_data.get("execution") or {}).get("status") or ""
+                            ),
+                        },
+                    )
+                except Exception:
+                    pass
+
+            return report
+        except Exception as exc:
+            logger.debug("[AgenticLoop] Cycle update skipped: %s", exc)
+            return {}
+
+    def _agentic_primary_authority_decision(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        entities: Dict[str, Any],
+        intent_confidence: float,
+        has_action_cue: bool,
+        has_active_goal: bool,
+        execution_mode: str,
+        force_plugins_for_notes: bool,
+        pending_action: Optional[str],
+    ) -> Dict[str, Any]:
+        """Use the agentic loop as primary authority for pre-route turn execution choice."""
+        default_action = "use_plugin" if str(execution_mode or "").strip() == "operator" else "use_llm"
+        default_route = "tool" if default_action == "use_plugin" else "llm"
+
+        loop = getattr(self, "agentic_loop", None)
+        if loop is None:
+            return {
+                "action": default_action,
+                "route": default_route,
+                "reason": "agentic_loop_unavailable",
+                "question": "",
+            }
+
+        should_answer_first = bool(
+            self._should_answer_first_without_clarification(
+                user_input,
+                intent,
+                has_explicit_action_cue=bool(has_action_cue),
+            )
+        )
+
+        payload = {
+            "phase": "pre_route",
+            "user_input": str(user_input or "").strip(),
+            "intent": str(intent or "").strip(),
+            "entities": dict(entities or {}),
+            "response": "",
+            "route": str(execution_mode or "unknown").strip(),
+            "success": True,
+            "confidence": float(intent_confidence or 0.0),
+            "goal": str(
+                (getattr(self, "_internal_reasoning_state", {}) or {}).get("user_goal")
+                or ""
+            ).strip(),
+            "plugin": "",
+            "has_action_cue": bool(has_action_cue),
+            "has_active_goal": bool(has_active_goal),
+            "execution_mode": str(execution_mode or "").strip(),
+            "force_plugins_for_notes": bool(force_plugins_for_notes),
+            "pending_action": str(pending_action or "").strip(),
+            "should_answer_first": bool(should_answer_first),
+        }
+
+        try:
+            cycle = loop.run_cycle(payload)
+            decision = dict(getattr(cycle, "decision", {}) or {})
+        except Exception as exc:
+            logger.debug("[AgenticLoop] Primary authority decision fallback: %s", exc)
+            decision = {}
+
+        action = str(decision.get("action") or default_action).strip().lower()
+        route = str(decision.get("route") or default_route).strip().lower()
+        reason = str(decision.get("reason") or "agentic_primary_default").strip()
+        question = str(decision.get("question") or "").strip()
+
+        if action not in {"use_plugin", "use_llm", "ask_clarification"}:
+            action = default_action
+        if route not in {"tool", "llm", "clarify"}:
+            route = default_route
+
+        if should_answer_first and action == "ask_clarification":
+            action = "use_llm"
+            route = "llm"
+            reason = "agentic_answer_first_override"
+            question = ""
+
+        authority = {
+            "action": action,
+            "route": route,
+            "reason": reason,
+            "question": question,
+        }
+
+        if not isinstance(getattr(self, "_internal_reasoning_state", None), dict):
+            self._internal_reasoning_state = {}
+        self._internal_reasoning_state["agentic_primary_authority"] = dict(authority)
+
+        if getattr(self, "context", None):
+            try:
+                self.context.update_system_status(
+                    "agentic_primary_authority",
+                    {
+                        "action": action,
+                        "route": route,
+                        "reason": reason,
+                    },
+                )
+            except Exception:
+                pass
+
+        return authority
+
     def _collect_agentic_readiness_metrics(self) -> Dict[str, float]:
         """Build a compact readiness metric snapshot from live runtime signals."""
         total_interactions = 0
@@ -3150,9 +3521,35 @@ class ALICE:
         )
         return any(cue in response_l for cue in summary_response_cues)
 
-    def _fallback_from_intent(self, intent: str, plugin_result: Optional[Dict[str, Any]]) -> str:
+    def _fallback_from_intent(
+        self,
+        intent: str,
+        plugin_result: Optional[Dict[str, Any]],
+        user_input: str = "",
+    ) -> str:
         """Return a safe intent-specific fallback when response drift is detected."""
         intent_l = (intent or '').lower()
+        text = str(user_input or '').strip()
+
+        # Preserve understood learning/goal turns instead of collapsing to generic restatement.
+        if text:
+            if str(intent or '').lower().strip() == 'conversation:goal_statement':
+                recovered = self._compose_understood_goal_recovery(text, intent)
+                if recovered:
+                    return recovered
+
+            if self._is_understandable_informational_goal(text, intent):
+                recovered = self._compose_understood_goal_recovery(text, intent)
+                if recovered:
+                    return recovered
+
+            if (
+                self._is_project_ideation_turn(text, intent)
+                or self._is_project_ideation_request(text)
+            ):
+                guidance = self._project_ideation_guidance_response(text)
+                if guidance:
+                    return guidance
 
         if intent_l.startswith('weather'):
             plugin_data = (plugin_result or {}).get('data', {}) if isinstance(plugin_result, dict) else {}
@@ -3192,7 +3589,7 @@ class ALICE:
             )
 
         return self._render_dynamic_runtime_reply(
-            user_input="",
+            user_input=text,
             intent=intent,
             seed="I need a cleaner restatement of that request so I can answer directly.",
             route="intent_fallback_general",
@@ -3211,7 +3608,7 @@ class ALICE:
             return response
 
         self._think("Response drift detected: unsolicited summary suppressed")
-        return self._fallback_from_intent(intent, plugin_result)
+        return self._fallback_from_intent(intent, plugin_result, user_input=user_input)
 
     def _handle_advanced_reasoning_queries(self, user_input: str) -> Optional[str]:
         """Handle advanced reasoning prompts directly for transparency and speed."""
@@ -6793,6 +7190,10 @@ class ALICE:
             "teach me",
             "explain",
             "help me understand",
+            "learn more",
+            "learn more about",
+            "i want to learn",
+            "i want to learn more",
             "overview of",
             "walk me through",
             "step by step",
@@ -9325,7 +9726,7 @@ class ALICE:
             )
             return scaffold
 
-        recovered = self._fallback_from_intent(intent, None)
+        recovered = self._fallback_from_intent(intent, None, user_input=user_input)
         if recovered:
             self._record_fallback_taxonomy(
                 reason=(
@@ -11964,6 +12365,17 @@ class ALICE:
                 has_explicit_action_cue=_has_action_cue,
                 intent_candidates=intent_candidates,
             )
+            _agentic_authority = self._agentic_primary_authority_decision(
+                user_input=user_input,
+                intent=intent,
+                entities=(entities if isinstance(entities, dict) else {}),
+                intent_confidence=float(intent_confidence or 0.0),
+                has_action_cue=bool(_has_action_cue),
+                has_active_goal=bool(_authoritative_goal_stack),
+                execution_mode=str(_execution_mode or ""),
+                force_plugins_for_notes=bool(force_plugins_for_notes),
+                pending_action=getattr(self, 'pending_action', None),
+            )
 
             _followup_same_domain = False
             if isinstance(_followup_meta, dict) and _followup_meta.get('was_followup'):
@@ -11980,6 +12392,13 @@ class ALICE:
                 self._think(
                     "Pre-route plausibility bypassed (same-domain follow-up continuity)"
                 )
+
+            if _pre_route_guard.get("block") and str((_agentic_authority or {}).get("action") or "").strip().lower() in {"use_llm", "use_plugin"}:
+                _pre_route_guard = {
+                    "block": False,
+                    "reason": "agentic_primary_authority_bypass",
+                }
+                self._think("Pre-route plausibility bypassed (agentic primary authority)")
 
             if _pre_route_guard.get("block"):
                 _pre_block_decision = ExecutiveDecision(
@@ -12015,6 +12434,7 @@ class ALICE:
                     "world_state_pre_route": dict(_world_state_before_route or {}),
                     "execution_mode": _execution_mode,
                     "execution_mode_reason": _execution_mode_reason,
+                    "agentic_primary_authority": dict(_agentic_authority or {}),
                     "turn_state_machine": _pre_block_state_machine.as_dict(),
                     "turn_contract": _pre_block_state_machine.contract.as_dict(),
                 }
@@ -12056,6 +12476,7 @@ class ALICE:
                 "world_state_pre_route": dict(_world_state_before_route or {}),
                 "execution_mode": _execution_mode,
                 "execution_mode_reason": _execution_mode_reason,
+                "agentic_primary_authority": dict(_agentic_authority or {}),
             }
             if _turn_reasoning_plan is not None:
                 self._internal_reasoning_state["reasoning_planner"] = _turn_reasoning_plan.as_dict()
@@ -12068,6 +12489,26 @@ class ALICE:
                 has_active_goal=bool(_authoritative_goal_stack),
                 force_plugins_for_notes=bool(force_plugins_for_notes),
             )
+
+            _agentic_action = str((_agentic_authority or {}).get("action") or "").strip().lower()
+            _agentic_reason = str((_agentic_authority or {}).get("reason") or "agentic_primary").strip()
+            if _agentic_action in {"use_plugin", "use_llm", "ask_clarification"}:
+                _clarify_question = str((_agentic_authority or {}).get("question") or "").strip()
+                _executive_decision = ExecutiveDecision(
+                    action=("use_plugin" if _agentic_action == "use_plugin" else ("ask_clarification" if _agentic_action == "ask_clarification" else "use_llm")),
+                    reason=f"agentic_primary:{_agentic_reason}",
+                    store_memory=bool(getattr(_executive_decision, 'store_memory', True)),
+                    clarification_question=(
+                        _clarify_question
+                        or getattr(_executive_decision, 'clarification_question', '')
+                        or "Can you clarify what outcome you want so I can route this correctly?"
+                    ),
+                )
+                self._think(
+                    f"Agentic primary authority → {_executive_decision.action} "
+                    f"({_executive_decision.reason})"
+                )
+
             _learning_decision = self.executive_controller.decide_learning(
                 relevance=max(_decision_scores.get("llm", 0.0), _decision_scores.get("tools", 0.0), _decision_scores.get("search", 0.0)),
                 confidence=float(intent_confidence or 0.0),
@@ -12231,8 +12672,11 @@ class ALICE:
                 )
 
             _should_try_plugins = bool(_turn_state_machine.should_try_plugins)
-            _routing_owner = "executive_turn_state_machine"
-            _routing_reason = f"contract_route:{_turn_state_machine.chosen_route}"
+            _routing_owner = "agentic_loop_primary"
+            _routing_reason = (
+                f"contract_route:{_turn_state_machine.chosen_route}|"
+                f"{str((_agentic_authority or {}).get('reason') or 'agentic_primary') }"
+            )
             self._internal_reasoning_state["routing_owner"] = _routing_owner
             self._internal_reasoning_state["routing_decision"] = {
                 "should_try_plugins": bool(_should_try_plugins),
@@ -13615,6 +14059,26 @@ class ALICE:
                 'fallback_recovery_applied': bool(recovered_via_fallback),
             }
 
+            self._run_agentic_control_cycle(
+                user_input=user_input,
+                intent=intent,
+                entities=(entities if isinstance(entities, dict) else {}),
+                response=response,
+                route=route_taken,
+                success=bool(interaction_success),
+                confidence=float(intent_confidence if 'intent_confidence' in locals() else 0.0),
+                plugin_result=(
+                    plugin_result
+                    if 'plugin_result' in locals() and isinstance(plugin_result, dict)
+                    else None
+                ),
+                goal=str(
+                    getattr(getattr(goal_res, 'goal', None), 'description', '')
+                    if 'goal_res' in locals()
+                    else ''
+                ),
+            )
+
             # Log successful interaction to real-time learning
             if hasattr(self, 'realtime_logger'):
                 if interaction_success:
@@ -14811,6 +15275,20 @@ class ALICE:
                             f"{item.get('kpi', 'kpi')} current={float(item.get('current', 0.0) or 0.0):.2f} "
                             f"target={float(item.get('target', 0.0) or 0.0):.2f}"
                         )
+
+            agentic_loop_report = dict(getattr(self, '_last_agentic_cycle_report', {}) or {})
+            if agentic_loop_report:
+                loop_cycle = dict(agentic_loop_report.get('cycle') or {})
+                loop_memory = dict(agentic_loop_report.get('memory') or {})
+                print("\n Agentic Loop:")
+                print(f"   Last Cycle: {loop_cycle.get('started_at', 'n/a')}")
+                print(f"   Cycles Run: {int(loop_memory.get('cycles', 0) or 0)}")
+                print(f"   Last Goal: {loop_memory.get('last_goal', '') or 'n/a'}")
+                print(f"   Last Action: {loop_memory.get('last_action', '') or 'n/a'}")
+                print(
+                    "   Last Execution Status: "
+                    f"{(loop_cycle.get('execution') or {}).get('status', 'n/a')}"
+                )
             
             # LLM Gateway Statistics
             if hasattr(self, 'llm_gateway') and self.llm_gateway:
