@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from ai.core.autonomy_dispatcher import (
     OUTCOME_ACT_AUTOMATICALLY,
@@ -8,6 +9,7 @@ from ai.core.autonomy_dispatcher import (
 )
 from ai.core.bounded_autonomy_manager import AutonomyLoop, BoundedAutonomyManager
 from ai.core.unified_action_engine import ActionRequest, UnifiedActionEngine
+from ai.planning.autonomous_execution_loop import AutonomousExecutionLoop
 
 
 class _StubPluginManager:
@@ -337,6 +339,117 @@ def test_goal_verification_retry_trigger_continues_automatically():
     assert decision.outcome == OUTCOME_ACT_AUTOMATICALLY
     assert decision.pause_autonomy is False
     assert decision.next_goal_action == "retry"
+
+
+class _LoopGoalSystemStub:
+    def __init__(self, step):
+        self.step = step
+        self.goal = SimpleNamespace(
+            goal_id="goal-1",
+            title="Goal One",
+            priority=SimpleNamespace(value=1),
+        )
+        self.execute_next_step_calls = []
+        self.completed_calls = []
+        self.failed_calls = []
+
+    def get_active_goals(self):
+        return [self.goal]
+
+    def execute_next_step(self, goal_id):
+        self.execute_next_step_calls.append(goal_id)
+        return self.step
+
+    def complete_current_step(self, goal_id, result=None):
+        self.completed_calls.append((goal_id, result))
+
+    def fail_current_step(self, goal_id, error):
+        self.failed_calls.append((goal_id, error))
+        return True
+
+
+class _LoopAgentStub:
+    def __init__(self, result):
+        self.result = dict(result)
+        self.calls = []
+
+    def execute_step(self, step, context):
+        self.calls.append((dict(step), context))
+        return dict(self.result)
+
+
+def test_autonomous_execution_loop_uses_execute_next_step_and_completes_success():
+    step = SimpleNamespace(
+        step_id="step-1",
+        step_type="research",
+        description="Research architecture options",
+        dependencies=[],
+    )
+    goal_system = _LoopGoalSystemStub(step=step)
+    agent = _LoopAgentStub(result={"success": True, "output": "done"})
+    loop = AutonomousExecutionLoop(autonomous_agent=agent, goal_system=goal_system)
+
+    loop._execute_iteration()
+
+    assert goal_system.execute_next_step_calls == ["goal-1"]
+    assert goal_system.completed_calls == [("goal-1", "done")]
+    assert goal_system.failed_calls == []
+    assert loop.execution_count == 1
+    assert agent.calls
+    assert agent.calls[0][0].get("type") == "research"
+
+
+def test_autonomous_execution_loop_records_failure_via_fail_current_step():
+    step = SimpleNamespace(
+        step_id="step-2",
+        description="Run test suite",
+        dependencies=[],
+    )
+    goal_system = _LoopGoalSystemStub(step=step)
+    agent = _LoopAgentStub(result={"success": False, "error": "tool timeout"})
+    loop = AutonomousExecutionLoop(autonomous_agent=agent, goal_system=goal_system)
+
+    loop._execute_iteration()
+
+    assert goal_system.execute_next_step_calls == ["goal-1"]
+    assert goal_system.completed_calls == []
+    assert goal_system.failed_calls == [("goal-1", "tool timeout")]
+    assert loop.error_count == 1
+    assert agent.calls
+    assert agent.calls[0][0].get("type") == "test"
+
+
+def test_autonomous_execution_loop_quiet_hours_handles_overnight_and_daytime(monkeypatch):
+    import ai.planning.autonomous_execution_loop as loop_module
+
+    class _FakeDatetime:
+        current_hour = 0
+
+        @classmethod
+        def now(cls):
+            return SimpleNamespace(hour=cls.current_hour)
+
+    monkeypatch.setattr(loop_module, "datetime", _FakeDatetime)
+
+    loop = AutonomousExecutionLoop(autonomous_agent=None, goal_system=None)
+
+    # Overnight quiet window: 23:00 -> 07:00
+    loop.quiet_start_hour = 23
+    loop.quiet_end_hour = 7
+    _FakeDatetime.current_hour = 23
+    assert loop._is_quiet_hours() is True
+    _FakeDatetime.current_hour = 6
+    assert loop._is_quiet_hours() is True
+    _FakeDatetime.current_hour = 12
+    assert loop._is_quiet_hours() is False
+
+    # Daytime quiet window: 10:00 -> 16:00
+    loop.quiet_start_hour = 10
+    loop.quiet_end_hour = 16
+    _FakeDatetime.current_hour = 12
+    assert loop._is_quiet_hours() is True
+    _FakeDatetime.current_hour = 18
+    assert loop._is_quiet_hours() is False
 
 
 def test_partial_side_effect_with_rollback_policy_reports_outcome():

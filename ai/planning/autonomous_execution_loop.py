@@ -8,8 +8,8 @@ Works in background, reports progress, handles errors autonomously.
 import time
 import threading
 import logging
-from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
+from typing import Dict, Any, Optional
+from datetime import datetime
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -132,8 +132,21 @@ class AutonomousExecutionLoop:
 
         # Find highest priority goal with executable steps
         for goal in sorted(active_goals, key=lambda g: g.priority.value):
-            # Get next executable step
-            next_step = goal.get_next_step()
+            goal_id = str(getattr(goal, "goal_id", "") or "").strip()
+            if not goal_id:
+                continue
+
+            # Acquire next step through goal-system API so current_step state is tracked.
+            next_step = None
+            if hasattr(self.goal_system, "execute_next_step"):
+                try:
+                    next_step = self.goal_system.execute_next_step(goal_id)
+                except Exception as e:
+                    logger.error(f"Failed to fetch next step for goal {goal_id}: {e}")
+                    self.error_count += 1
+                    continue
+            elif hasattr(goal, "get_next_step"):
+                next_step = goal.get_next_step()
 
             if next_step:
                 logger.info(f"Executing step for goal: {goal.title}")
@@ -146,7 +159,7 @@ class AutonomousExecutionLoop:
                 # Execute the step
                 result = self.autonomous_agent.execute_step(
                     {
-                        "type": "implement",  # Determine from step metadata
+                        "type": self._resolve_step_type(next_step),
                         "description": next_step.description,
                         "dependencies": next_step.dependencies,
                     },
@@ -155,18 +168,47 @@ class AutonomousExecutionLoop:
 
                 # Update goal based on result
                 if result.get("success"):
-                    self.goal_system.complete_current_step(
-                        goal.goal_id, result=result.get("output")
-                    )
+                    if hasattr(self.goal_system, "complete_current_step"):
+                        self.goal_system.complete_current_step(
+                            goal_id, result=result.get("output")
+                        )
                     self.execution_count += 1
                     self.last_execution = time.time()
 
                     logger.info(f"Step completed: {next_step.description}")
                 else:
                     # Step failed - mark as failed and move on
-                    self.goal_system.fail_step(
-                        next_step.step_id, error=result.get("error", "Unknown error")
-                    )
+                    error_message = str(result.get("error", "Unknown error") or "Unknown error")
+                    failed_recorded = False
+
+                    if hasattr(self.goal_system, "fail_current_step"):
+                        try:
+                            failed_recorded = bool(
+                                self.goal_system.fail_current_step(
+                                    goal_id,
+                                    error=error_message,
+                                )
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to mark current step failed for goal {goal_id}: {e}")
+
+                    if not failed_recorded and hasattr(self.goal_system, "fail_step"):
+                        step_id = str(getattr(next_step, "step_id", "") or "").strip()
+                        if step_id:
+                            try:
+                                self.goal_system.fail_step(step_id, error=error_message)
+                                failed_recorded = True
+                            except Exception as e:
+                                logger.error(f"Fallback fail_step failed for goal {goal_id}: {e}")
+
+                    if not failed_recorded and hasattr(goal, "fail_step"):
+                        step_id = str(getattr(next_step, "step_id", "") or "").strip()
+                        if step_id:
+                            try:
+                                goal.fail_step(step_id, error_message)
+                            except Exception:
+                                pass
+
                     self.error_count += 1
 
                     logger.warning(f"Step failed: {result.get('error')}")
@@ -177,16 +219,40 @@ class AutonomousExecutionLoop:
     def _is_quiet_hours(self) -> bool:
         """Check if current time is during quiet hours"""
         current_hour = datetime.now().hour
+        start = int(self.quiet_start_hour)
+        end = int(self.quiet_end_hour)
 
-        if self.quiet_start_hour < self.quiet_end_hour:
-            # Normal case (e.g., 23 < 7 wraps around midnight)
-            return (
-                current_hour >= self.quiet_start_hour
-                or current_hour < self.quiet_end_hour
-            )
-        else:
-            # Day time quiet hours (e.g., 10 < 16)
-            return self.quiet_start_hour <= current_hour < self.quiet_end_hour
+        if start == end:
+            return False
+        if start > end:
+            # Overnight quiet hours (e.g., 23:00 -> 07:00)
+            return current_hour >= start or current_hour < end
+        # Daytime quiet hours (e.g., 10:00 -> 16:00)
+        return start <= current_hour < end
+
+    @staticmethod
+    def _resolve_step_type(step: Any) -> str:
+        """Resolve autonomous step type from explicit metadata or description hints."""
+        allowed = {"research", "analyze", "implement", "test", "verify", "report"}
+
+        explicit = str(
+            getattr(step, "step_type", "")
+            or getattr(step, "type", "")
+            or ""
+        ).strip().lower()
+        if explicit in allowed:
+            return explicit
+
+        description = str(getattr(step, "description", "") or "").strip().lower()
+        if any(token in description for token in ("research", "investigate", "explore", "gather")):
+            return "research"
+        if any(token in description for token in ("analy", "inspect", "review")):
+            return "analyze"
+        if any(token in description for token in ("test", "verify", "validate", "check")):
+            return "test"
+        if any(token in description for token in ("report", "summar", "notify", "communicat")):
+            return "report"
+        return "implement"
 
     def get_stats(self) -> Dict[str, Any]:
         """Get execution loop statistics"""
