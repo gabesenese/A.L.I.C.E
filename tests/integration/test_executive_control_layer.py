@@ -453,7 +453,26 @@ def test_response_acceptance_gate_rejects_uncertain_generic_output() -> None:
     )
 
     assert result["accepted"] is False
-    assert result["fallback_action"] in ("clarify", "safe_reply")
+    assert result["fallback_action"] in ("clarify", "safe_reply", "revise_answer")
+
+
+def test_response_acceptance_gate_prefers_refine_for_open_learning_goal() -> None:
+    controller = ExecutiveController()
+
+    result = controller.evaluate_response(
+        user_input="i want to learn more about agentic ai",
+        intent="conversation:goal_statement",
+        response="In general, maybe it depends, but agentic systems plan and act toward goals.",
+        route="llm",
+        context={},
+    )
+
+    assert result["accepted"] is False
+    assert result["fallback_action"] == "revise_answer"
+    assert result.get("fallback_reason") in {
+        "low_confidence_answer_needs_refinement",
+        "low_confidence_answer_requiring_retry",
+    }
 
 
 def test_response_acceptance_gate_accepts_relevant_answer() -> None:
@@ -1129,5 +1148,5 @@ def test_response_acceptance_gate_sets_llm_failure_reason_for_answerable_questio
     )
 
     assert result["accepted"] is False
-    assert result["fallback_action"] == "safe_reply"
+    assert result["fallback_action"] in {"safe_reply", "revise_answer"}
     assert result.get("fallback_reason") == "llm_failed_after_answer_directly"

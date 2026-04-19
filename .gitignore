@@ -320,3 +320,7 @@ test_results.txt
 data/frames/README.yaml
 memory/curated_patterns.json
 data/training/audit_feedback.jsonl
+pyproject.toml
+ai/roadmap/assistant_foundation_next_steps.md
+ai/roadmap/assistant_foundation_next_steps.md
+.github/workflows/benchmark-gate.yml

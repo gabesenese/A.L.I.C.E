@@ -41,25 +41,25 @@ A sophisticated AI assistant with advanced memory systems, natural language unde
 pip install -r requirements.txt
 
 # Run A.L.I.C.E
-python -m app.alice
+python app/main.py
 ```
 
 ## Usage
 
 ### Production Mode
 ```bash
-python -m app.alice                    # Start with Rich UI
-python -m app.alice --voice            # Enable voice interaction
-python -m app.alice --model llama3.3:70b  # Use different LLM model
-python -m app.alice --privacy-mode     # Disable memory storage
+python app/main.py                    # Start interactive mode
+python app/main.py --voice            # Enable voice interaction
+python app/main.py --model llama3.3:70b  # Use different LLM model
+python app/main.py --privacy-mode     # Disable memory storage
 ```
 
 ### Development Mode
 ```bash
-python -m app.dev                      # Auto-reload on code changes
-python -m app.dev --voice              # Dev mode with voice
-python -m app.dev --no-watch           # Disable auto-reload
-python -m app.dev --no-thinking        # Hide debug output
+python app/dev.py                      # Auto-reload on code changes
+python app/dev.py --voice              # Dev mode with voice
+python app/dev.py --no-watch           # Disable auto-reload
+python app/dev.py --no-thinking        # Hide debug output
 ```
 
 ### LLM Policy Modes
@@ -68,7 +68,7 @@ python -m app.dev --no-thinking        # Hide debug output
 - `strict`: No LLM at all, patterns and tools only
 
 ```bash
-python -m app.alice --llm-policy minimal
+python app/main.py --llm-policy minimal
 ```
 
 ## Commands

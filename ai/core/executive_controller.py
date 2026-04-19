@@ -1389,6 +1389,81 @@ class ExecutiveController:
             for cue in ("difference between", "compare", "define", "what is", "what's")
         )
 
+    def _is_open_ended_learning_goal(self, text: str, intent: str) -> bool:
+        """Detect exploratory learning prompts that should be refined, not hard-rejected."""
+        low = str(text or "").strip().lower()
+        if not low:
+            return False
+
+        normalized_intent = str(intent or "").strip().lower()
+        if not (
+            normalized_intent.startswith("conversation:")
+            or normalized_intent.startswith("learning:")
+            or normalized_intent in {"question", "study_topic"}
+        ):
+            return False
+
+        if self._is_answerability_direct_question(low):
+            return False
+
+        tokens = re.findall(r"\b[a-z0-9']+\b", low)
+        if len(tokens) < 4:
+            return False
+
+        explicit_action_verbs = {
+            "create",
+            "build",
+            "delete",
+            "remove",
+            "open",
+            "run",
+            "execute",
+            "set",
+            "update",
+            "install",
+            "write",
+            "save",
+            "send",
+            "search",
+            "list",
+            "edit",
+        }
+        if any(tok in explicit_action_verbs for tok in tokens):
+            return False
+
+        exploratory_cues = (
+            "learn more",
+            "learn about",
+            "i want to learn",
+            "tell me about",
+            "overview",
+            "basics",
+            "introduction",
+            "understand",
+        )
+        if not any(cue in low for cue in exploratory_cues):
+            return False
+
+        topic_tokens = [
+            tok
+            for tok in tokens
+            if tok not in self.SEMANTIC_STOPWORDS
+            and tok
+            not in {
+                "learn",
+                "learning",
+                "more",
+                "about",
+                "want",
+                "tell",
+                "overview",
+                "basics",
+                "introduction",
+                "understand",
+            }
+        ]
+        return len(topic_tokens) >= 1
+
     def _is_answerability_direct_question(self, text: str) -> bool:
         low = str(text or "").strip().lower()
         if not low:
@@ -1991,8 +2066,16 @@ class ExecutiveController:
             or normalized_intent.startswith("learning:")
             or normalized_intent in {"question", "study_topic"}
         )
+        open_learning_goal = self._is_open_ended_learning_goal(
+            user_input,
+            normalized_intent,
+        )
         if not resp:
-            fallback_action = "safe_reply" if answerable_question else "clarify"
+            fallback_action = (
+                "safe_reply"
+                if (answerable_question or open_learning_goal)
+                else "clarify"
+            )
             fallback_reason = (
                 "llm_failed_after_answer_directly"
                 if answerable_question
@@ -2075,12 +2158,22 @@ class ExecutiveController:
             "step" in resp.lower()
         )
         if _needs_steps and not _has_steps:
+            _fallback_action = (
+                "revise_answer"
+                if (answerable_question or open_learning_goal)
+                else "safe_reply"
+            )
+            _fallback_reason = (
+                "llm_failed_after_answer_directly"
+                if answerable_question
+                else "low_confidence_answer_needs_refinement"
+            )
             return {
                 "accepted": False,
                 "score": 0.0,
                 "reason": "plan_violation_missing_steps",
-                "fallback_action": "safe_reply",
-                "fallback_reason": "low_confidence_answer_requiring_retry",
+                "fallback_action": _fallback_action,
+                "fallback_reason": _fallback_reason,
             }
 
         score = max(
@@ -2091,6 +2184,8 @@ class ExecutiveController:
             ),
         )
         threshold = 0.52 if route == "llm" else 0.48
+        if route == "llm" and open_learning_goal:
+            threshold = 0.46
 
         if score >= threshold:
             return {
@@ -2107,8 +2202,8 @@ class ExecutiveController:
         fallback_action = (
             "clarify" if (overlap < 0.2 or plan_adherence < 0.45) else "safe_reply"
         )
-        if answerable_question and fallback_action == "clarify":
-            fallback_action = "safe_reply"
+        if answerable_question or open_learning_goal:
+            fallback_action = "revise_answer"
 
         fallback_reason = "low_confidence_answer_requiring_retry"
         if fallback_action == "clarify":
@@ -2119,6 +2214,8 @@ class ExecutiveController:
                 fallback_reason = "clarification_due_to_missing_parameter"
         elif answerable_question:
             fallback_reason = "llm_failed_after_answer_directly"
+        elif open_learning_goal:
+            fallback_reason = "low_confidence_answer_needs_refinement"
 
         return {
             "accepted": False,

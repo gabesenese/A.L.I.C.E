@@ -79,10 +79,9 @@ def _stage_by_name(result, name):
 
 def _assert_decision_band_is_consistent(result, expected_band):
     assert result.metadata["decision_band"] == expected_band
-    interpretation = _stage_by_name(result, "interpretation")
-    planning = _stage_by_name(result, "planning")
-    assert interpretation["details"]["decision_band"] == expected_band
-    assert planning["details"]["plan"]["decision_band"] == expected_band
+    route_stage = _stage_by_name(result, "route")
+    assert route_stage["details"]["decision_band"] == expected_band
+    assert route_stage["details"]["plan"]["decision_band"] == expected_band
 
 
 def test_contract_pipeline_handles_tool_route():
@@ -101,13 +100,10 @@ def test_contract_pipeline_handles_tool_route():
     stage_names = [s["name"] for s in result.metadata["stages"]]
     assert stage_names == [
         "input",
-        "interpretation",
-        "context_resolution",
-        "planning",
-        "tool_execution",
-        "response_generation",
-        "verification",
-        "response",
+        "route",
+        "execute",
+        "verify",
+        "respond",
         "state_update",
     ]
     assert result.metadata["state"]["current_task"] == "weather:current"
@@ -125,7 +121,7 @@ def test_contract_pipeline_handles_llm_route():
     assert result.metadata["route"] == "llm"
     _assert_decision_band_is_consistent(result, "execute")
     assert result.metadata["verification"]["reason"] == "verified"
-    tool_stage = _stage_by_name(result, "tool_execution")
+    tool_stage = _stage_by_name(result, "execute")
     assert tool_stage["status"] == "skipped"
     assert result.metadata["state"]["current_task"] == "conversation:general"
 

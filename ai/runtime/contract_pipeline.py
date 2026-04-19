@@ -7,14 +7,8 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
-from ai.contracts import (
-    MemoryRequest,
-    ResponseRequest,
-    RouterRequest,
-    RuntimeBoundaries,
-    ToolInvocation,
-    VerifierRequest,
-)
+from ai.contracts import RuntimeBoundaries
+from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
 
 
@@ -35,6 +29,7 @@ class ContractPipeline:
     ):
         self.boundaries = boundaries
         self.user_state_model = user_state_model or UserStateModel()
+        self.orchestrator = TurnOrchestrator(boundaries)
 
     @staticmethod
     def _stage(
@@ -66,71 +61,39 @@ class ContractPipeline:
 
         stages.append(self._stage("input", "ok", {"length": len(user_input)}))
 
-        decision = self.boundaries.routing.route(
-            RouterRequest(user_input=user_input, turn_number=turn_number)
+        route_phase = self.orchestrator.route_phase(
+            user_input=user_input,
+            user_id=user_id,
+            turn_number=turn_number,
         )
+        decision = route_phase.decision
+        resolved_input = route_phase.resolved_input
+        memory = route_phase.memory
+        plan = dict(route_phase.plan or {})
+
         stages.append(
             self._stage(
-                "interpretation",
+                "route",
                 "ok",
                 {
                     "intent": decision.intent,
                     "confidence": decision.confidence,
                     "route": decision.route,
                     "decision_band": decision.decision_band,
-                },
-            )
-        )
-
-        resolved_input = str(
-            (decision.metadata or {}).get("resolved_input") or user_input
-        )
-
-        memory = self.boundaries.memory.recall(
-            MemoryRequest(query=resolved_input, user_id=user_id, max_items=8)
-        )
-        stages.append(
-            self._stage(
-                "context_resolution",
-                "ok",
-                {
                     "memory_count": len(memory.items),
                     "memory_confidence": memory.confidence,
+                    "resolved_input": resolved_input,
+                    "plan": plan,
                 },
             )
         )
 
-        plan = {
-            "route": decision.route,
-            "intent": decision.intent,
-            "decision_band": decision.decision_band,
-            "needs_clarification": decision.needs_clarification,
-            "step_count": 1 if decision.route in {"llm", "clarify"} else 2,
-        }
-        stages.append(self._stage("planning", "ok", {"plan": plan}))
-
-        tool_result = None
-        if decision.route in {"tool", "plugin"}:
-            tool_name = (
-                decision.intent.split(":", 1)[0]
-                if ":" in decision.intent
-                else decision.intent
-            )
-            tool_result = self.boundaries.tools.execute(
-                ToolInvocation(
-                    tool_name=tool_name,
-                    action=decision.intent,
-                    params={
-                        "intent": decision.intent,
-                        "query": resolved_input,
-                        "entities": {},
-                        "context": {"memory_count": len(memory.items)},
-                    },
-                )
-            )
+        execute_phase = self.orchestrator.execute_phase(route_phase=route_phase)
+        tool_result = execute_phase.tool_result
+        if execute_phase.executed and tool_result is not None:
             stages.append(
                 self._stage(
-                    "tool_execution",
+                    "execute",
                     "ok" if tool_result.success else "failed",
                     {
                         "tool": tool_result.tool_name,
@@ -138,56 +101,28 @@ class ContractPipeline:
                         "error": tool_result.error,
                         "confidence": tool_result.confidence,
                         "schema_validation": str(
-                            tool_result.diagnostics.get("stage") or "ok"
+                            (tool_result.diagnostics or {}).get("stage") or "ok"
                         ),
                     },
                 )
             )
         else:
-            stages.append(
-                self._stage("tool_execution", "skipped", {"route": decision.route})
-            )
+            stages.append(self._stage("execute", "skipped", {"route": decision.route}))
 
-        response = self.boundaries.response.generate(
-            ResponseRequest(
-                user_input=user_input,
-                decision=decision,
-                memory=memory,
-                tool_result=tool_result,
-                metadata={"resolved_input": resolved_input},
-            )
+        verify_phase = self.orchestrator.verify_phase(
+            user_input=user_input,
+            route_phase=route_phase,
+            execute_phase=execute_phase,
+            trace_id=trace_id,
         )
-        stages.append(
-            self._stage(
-                "response_generation",
-                "ok" if response.text.strip() else "failed",
-                {
-                    "confidence": response.confidence,
-                    "requires_follow_up": response.requires_follow_up,
-                },
-            )
-        )
+        verification = verify_phase.verification
 
-        verification = None
-        if self.boundaries.verifier is not None:
-            verification = self.boundaries.verifier.verify(
-                VerifierRequest(
-                    user_input=user_input,
-                    decision=decision,
-                    memory=memory,
-                    proposed_response=response,
-                    tool_result=tool_result,
-                    metadata={"trace_id": trace_id},
-                )
-            )
         if verification is None:
-            stages.append(
-                self._stage("verification", "skipped", {"reason": "no_verifier"})
-            )
+            stages.append(self._stage("verify", "skipped", {"reason": "no_verifier"}))
         else:
             stages.append(
                 self._stage(
-                    "verification",
+                    "verify",
                     "ok" if verification.accepted else "failed",
                     {
                         "reason": verification.reason,
@@ -196,37 +131,23 @@ class ContractPipeline:
                     },
                 )
             )
-            if not verification.accepted:
-                response_text = (
-                    "I could not verify that result safely. "
-                    "Please rephrase the request or provide more detail."
-                )
-                stages.append(
-                    self._stage("response", "ok", {"fallback": "verification_guard"})
-                )
-                return PipelineResult(
-                    handled=True,
-                    response_text=response_text,
-                    metadata={
-                        "trace_id": trace_id,
-                        "route": decision.route,
-                        "intent": decision.intent,
-                        "decision_band": decision.decision_band,
-                        "confidence": decision.confidence,
-                        "plan": plan,
-                        "verification": {
-                            "accepted": verification.accepted,
-                            "reason": verification.reason,
-                            "confidence": verification.confidence,
-                            "diagnostics": dict(verification.diagnostics),
-                        },
-                        "stages": stages,
-                    },
-                )
+
+        respond_phase = self.orchestrator.respond_phase(verify_phase=verify_phase)
+        response_text = str(respond_phase.response_text or "").strip()
+        stages.append(
+            self._stage(
+                "respond",
+                "ok" if response_text else "failed",
+                {
+                    "requires_follow_up": respond_phase.requires_follow_up,
+                    **dict(respond_phase.metadata or {}),
+                },
+            )
+        )
 
         self.boundaries.memory.store(
             {
-                "content": f"user={user_input}\nassistant={response.text}",
+                "content": f"user={user_input}\nassistant={response_text}",
                 "intent": decision.intent,
                 "route": decision.route,
                 "confidence": decision.confidence,
@@ -234,7 +155,6 @@ class ContractPipeline:
                 "resolved_input": resolved_input,
             }
         )
-        stages.append(self._stage("response", "ok", {"stored": True}))
 
         state = self.user_state_model.update_turn(
             user_id=user_id,
@@ -245,7 +165,7 @@ class ContractPipeline:
             ),
             active_goals=list((decision.metadata or {}).get("active_goals", []) or []),
             last_tool_used=(tool_result.tool_name if tool_result else ""),
-            last_result_produced=response.text[:240],
+            last_result_produced=response_text[:240],
             world_state_snapshot={
                 "trace_id": trace_id,
                 "route": decision.route,
@@ -266,15 +186,15 @@ class ContractPipeline:
         )
 
         return PipelineResult(
-            handled=bool(response.text.strip()),
-            response_text=response.text,
+            handled=bool(response_text),
+            response_text=response_text,
             metadata={
                 "trace_id": trace_id,
                 "route": decision.route,
                 "intent": decision.intent,
                 "decision_band": decision.decision_band,
                 "confidence": decision.confidence,
-                "requires_follow_up": response.requires_follow_up,
+                "requires_follow_up": respond_phase.requires_follow_up,
                 "plan": plan,
                 "resolved_input": resolved_input,
                 "verification": {

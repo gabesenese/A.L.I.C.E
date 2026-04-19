@@ -8,8 +8,11 @@ for reference and historical reasons. This is the first step in
 reducing A.L.I.C.E. from 69 → 15 core modules.
 
 Usage:
-  python scripts/deprecate_modules.py --dry-run  (see what would be moved)
-  python scripts/deprecate_modules.py --confirm  (actually move them)
+    python scripts/deprecate_modules.py --acknowledge-quarantine --dry-run
+    python scripts/deprecate_modules.py --acknowledge-quarantine --confirm
+
+This script is quarantined by default because historical module maps are stale.
+Only use it after regenerating module usage evidence from the current runtime.
 """
 
 import os
@@ -250,6 +253,12 @@ if __name__ == '__main__':
     print("\n" + "=" * 70)
     print("A.L.I.C.E. MODULE DEPRECATION")
     print("=" * 70)
+
+    if '--acknowledge-quarantine' not in sys.argv:
+        print("\n[BLOCKED] This script is quarantined because module maps are stale.")
+        print("[BLOCKED] Regenerate live usage evidence before moving modules.")
+        print("[BLOCKED] To proceed intentionally, rerun with --acknowledge-quarantine.")
+        sys.exit(2)
     
     dry_run = '--confirm' not in sys.argv
     
