@@ -211,6 +211,20 @@ def test_answerability_gate_fallback_returns_substantive_answer_for_unknown_dire
     assert "agentic autonomy" in low
 
 
+def test_answerability_gate_fallback_handles_existing_framework_inventory_prompt():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._answerability_gate_fallback_response(
+        "explain to me each existing framework"
+    )
+
+    low = response.lower()
+    assert "runtime contract pipeline" in low
+    assert "executive decision framework" in low
+    assert "bounded autonomy framework" in low
+    assert "best handled with a concise explanation" not in low
+
+
 def test_answerability_gate_forces_answer_first_without_clarification():
     alice = ALICE.__new__(ALICE)
 
@@ -315,6 +329,21 @@ def test_deterministic_knowledge_fallback_handles_practical_agentic_framework_re
     assert "react" in low
     assert "dennett" not in low
     assert "integrated information theory" not in low
+
+
+def test_deterministic_knowledge_fallback_handles_existing_framework_inventory_prompt():
+    alice = ALICE.__new__(ALICE)
+
+    response = alice._deterministic_knowledge_fallback(
+        "explain to me each existing framework",
+        "conversation:question",
+    )
+
+    assert response is not None
+    low = response.lower()
+    assert "runtime contract pipeline" in low
+    assert "memory framework" in low
+    assert "policy and verification framework" in low
 
 
 def test_semantic_fidelity_guard_rejects_theoretical_drift_for_practical_framework_prompt():

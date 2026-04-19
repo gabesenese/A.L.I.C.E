@@ -6673,7 +6673,20 @@ class ALICE:
             "ml": ["machine learning", "classification", "regression", "model training", "feature", "algorithm", "algorithms", "optimizer"],
             "python": ["python", "function", "class", "module", "package", "typing"],
             "git": ["git", "commit", "branch", "merge", "rebase", "pull", "push"],
-            "architecture": ["architecture", "system design", "orchestration", "service", "pipeline", "agent", "ai agent", "assistant"],
+            "architecture": [
+                "architecture",
+                "framework",
+                "frameworks",
+                "system design",
+                "orchestration",
+                "service",
+                "pipeline",
+                "contract pipeline",
+                "runtime contract",
+                "agent",
+                "ai agent",
+                "assistant",
+            ],
         }
 
         scored: List[Tuple[str, int]] = []
@@ -6971,6 +6984,76 @@ class ALICE:
         short_framework_prompt = has_framework_cue and has_agentic_scope and len(tokens) <= 7
 
         return bool(has_framework_cue and has_agentic_scope and (has_build_or_research_cue or short_framework_prompt))
+
+    def _is_existing_framework_inventory_request(self, user_input: str) -> bool:
+        """Detect prompts that ask for an inventory-style explanation of existing system frameworks."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        # Keep agentic-autonomy framework prompts on the dedicated practical path.
+        if self._is_practical_agentic_framework_request(text):
+            return False
+
+        has_framework = "framework" in text or "frameworks" in text
+        if not has_framework:
+            return False
+
+        inventory_cues = (
+            "each existing",
+            "all existing",
+            "existing framework",
+            "existing frameworks",
+            "every framework",
+            "what frameworks",
+            "which frameworks",
+            "list frameworks",
+        )
+        if any(cue in text for cue in inventory_cues):
+            return True
+
+        has_explain = any(
+            cue in text for cue in ("explain", "walk me through", "break down", "describe")
+        )
+        has_scope_hint = any(
+            cue in text
+            for cue in (
+                "alice",
+                "a.l.i.c.e",
+                "this system",
+                "your system",
+                "this project",
+                "codebase",
+            )
+        )
+        tokens = re.findall(r"\b[a-z0-9']+\b", text)
+        short_prompt = len(tokens) <= 10
+        return bool(has_explain and (has_scope_hint or short_prompt))
+
+    def _existing_framework_inventory_answer(
+        self,
+        *,
+        user_input: str = "",
+        intent: str = "conversation:question",
+    ) -> str:
+        """Return a direct inventory of A.L.I.C.E runtime frameworks for architecture questions."""
+        seed = (
+            "A.L.I.C.E currently runs on these core frameworks: "
+            "1) Runtime contract pipeline (route -> execute -> verify -> respond). "
+            "2) Executive decision framework for route/action selection. "
+            "3) NLP understanding framework for intent, entities, and ambiguity handling. "
+            "4) Tool/plugin execution framework for notes, email, calendar, files, and other actions. "
+            "5) Memory framework for episodic recall, semantic context, and world-state tracking. "
+            "6) Persistent goal and planning framework for multi-step progress over time. "
+            "7) Bounded autonomy framework for safe automated loops with escalation controls. "
+            "8) Policy and verification framework for confidence gating and safety checks."
+        )
+        return self._render_dynamic_runtime_reply(
+            user_input=user_input,
+            intent=intent,
+            seed=seed,
+            route="framework_inventory_answer",
+        )
 
     def _practical_agentic_frameworks_answer(
         self,
@@ -7494,6 +7577,12 @@ class ALICE:
 
         if self._is_agent_transformation_friction_report(user_input, intent=intent):
             return self._agent_transformation_diagnostic_response(user_input)
+
+        if self._is_existing_framework_inventory_request(user_input):
+            return self._existing_framework_inventory_answer(
+                user_input=user_input,
+                intent=intent,
+            )
 
         if self._is_practical_agentic_framework_request(text):
             return self._practical_agentic_frameworks_answer(
@@ -9442,11 +9531,16 @@ class ALICE:
         )
         return any(marker in low for marker in clarification_markers)
 
-    @staticmethod
-    def _heuristic_direct_answer_fallback(user_input: str) -> str:
+    def _heuristic_direct_answer_fallback(self, user_input: str) -> str:
         """Build a concise direct answer when a direct question loses content downstream."""
         text = str(user_input or "").strip()
         low = text.lower()
+
+        if self._is_existing_framework_inventory_request(user_input):
+            return self._existing_framework_inventory_answer(
+                user_input=user_input,
+                intent="conversation:question",
+            )
 
         diff_match = re.search(r"difference\s+between\s+(.+?)\s+and\s+(.+?)(?:\?|$)", low)
         if diff_match:
@@ -9485,11 +9579,29 @@ class ALICE:
                     f"design trade-offs, and the way the system optimizes for outcomes."
                 )
 
-        return "Short answer: this is best handled with a concise explanation grounded in practical system behavior and trade-offs."
+        explain_match = re.match(r"^\s*explain(?:\s+to\s+me)?\s+(.+?)(?:\?|$)", low)
+        if explain_match:
+            topic = explain_match.group(1).strip(" .?!")
+            topic = re.sub(r"^(?:to\s+me\s+)?", "", topic).strip()
+            if topic:
+                return (
+                    f"Direct explanation: {topic} is best broken into purpose, core components, "
+                    f"execution flow, and trade-offs in real operation."
+                )
+
+        return (
+            "Direct explanation: break the topic into what it is for, how it works internally, "
+            "how it is used in practice, and the trade-offs it introduces."
+        )
 
     def _answerability_gate_fallback_response(self, user_input: str) -> str:
         """Provide a concise direct fallback when answerable questions lose content after sanitization."""
         text = str(user_input or "").lower()
+        if self._is_existing_framework_inventory_request(text):
+            return self._existing_framework_inventory_answer(
+                user_input=user_input,
+                intent="conversation:question",
+            )
         if self._is_practical_agentic_framework_request(text):
             return self._practical_agentic_frameworks_answer(
                 user_input=user_input,
