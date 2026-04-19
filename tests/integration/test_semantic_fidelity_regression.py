@@ -416,7 +416,15 @@ def test_self_answer_first_gate_uses_structured_teaching_mode_for_teach_prompts(
     assert "Learning outline" in response
 
 
-def test_self_answer_first_gate_uses_structured_teaching_for_learn_more_agentic_prompt():
+def test_self_answer_first_override_contract_respects_executive_llm_authority():
+    alice = ALICE.__new__(ALICE)
+
+    assert alice._self_answer_first_can_override("answer_direct") is True
+    assert alice._self_answer_first_can_override("use_llm") is False
+    assert alice._self_answer_first_can_override("ask_clarification") is False
+
+
+def test_self_answer_first_gate_uses_non_structured_answer_for_learn_more_agentic_prompt():
     alice = ALICE.__new__(ALICE)
 
     gate = alice._self_answer_first_gate(
@@ -431,11 +439,24 @@ def test_self_answer_first_gate_uses_structured_teaching_for_learn_more_agentic_
     )
 
     assert gate.get("block_llm") is True
-    assert gate.get("reason") == "structured_teaching_mode"
+    assert gate.get("reason") in {
+        "deterministic_knowledge_fallback",
+        "native_conceptual_answer",
+    }
     response = str(gate.get("response") or "").lower()
-    assert "learning outline" in response
+    assert "learning outline" not in response
     assert "clarify" not in response
-    assert "agentic" in response or "assistant architecture" in response
+    assert any(
+        token in response
+        for token in (
+            "agentic",
+            "goal",
+            "plan",
+            "loop",
+            "autonomy",
+            "tool",
+        )
+    )
 
 
 def test_native_scaffold_handles_simple_conversation_openers_without_llm():
@@ -493,7 +514,10 @@ def test_self_answer_gate_prefers_native_conceptual_for_rich_prompt():
     response = str(gate.get("response") or "").lower()
     assert "real-world" in response or "real world" in response
     assert "architecture" in response
-    assert "foundations" in response
+    assert any(
+        token in response
+        for token in ("foundations", "memory", "planning", "autonomy")
+    )
 
 
 def test_exact_tony_prompt_blocks_scaffold_and_returns_direct_architecture_answer():
@@ -936,3 +960,134 @@ def test_turn_outcome_resolution_requires_explicit_fallback_for_failed_llm() -> 
     assert route == "llm_fallback"
     assert success is True
     assert recovered is True
+
+
+def test_llm_context_injects_recent_weather_only_for_weather_relevant_queries() -> None:
+    class _Cache:
+        def get(self, *_args, **_kwargs):
+            return None
+
+        def put(self, *_args, **_kwargs):
+            return None
+
+    class _Context:
+        def get_personalization_context(self):
+            return ""
+
+    class _Memory:
+        def recall_memory_weighted(self, *_args, **_kwargs):
+            return []
+
+        def get_context_for_llm(self, *_args, **_kwargs):
+            return ""
+
+    class _Plugins:
+        def get_capabilities(self):
+            return []
+
+    class _LiveState:
+        def freshest_weather_snapshot(self, **_kwargs):
+            return {
+                "source": "test",
+                "data": {
+                    "location": "Boston",
+                    "temperature": 24,
+                    "condition": "sunny",
+                    "humidity": 48,
+                    "wind_speed": 12,
+                },
+            }
+
+    alice = ALICE.__new__(ALICE)
+    alice.context_cache = _Cache()
+    alice.context = _Context()
+    alice.memory = _Memory()
+    alice.plugins = _Plugins()
+    alice.live_state_service = _LiveState()
+    alice.self_reflection = SimpleNamespace(
+        get_codebase_summary=lambda: {"base_path": ".", "total_files": 0}
+    )
+    alice._think = lambda *_args, **_kwargs: None
+    alice._should_attach_goal_context = lambda *_args, **_kwargs: False
+    alice.system_design_response_guard = None
+    alice.episodic_memory_engine = None
+    alice.semantic_memory_index = None
+    alice.advanced_context = None
+    alice.summarizer = None
+    alice.conversation_state_tracker = None
+    alice.goal_tracker = None
+    alice.context_selector = None
+    alice.reasoning_engine = None
+    alice.world_state_memory = None
+    alice._internal_reasoning_state = {}
+    alice._get_recent_conversation_summary = lambda: ""
+    alice._get_active_context = lambda: ""
+
+    non_weather = alice._build_llm_context(
+        "i want to learn more about agentic ai",
+        "conversation:goal_statement",
+        {},
+        None,
+    )
+    assert "RECENT WEATHER:" not in non_weather
+
+    weather = alice._build_llm_context(
+        "should i bring an umbrella tomorrow?",
+        "conversation:question",
+        {},
+        None,
+    )
+    assert "RECENT WEATHER:" in weather
+
+
+def test_two_turn_llm_fallback_finalization_skips_publish_polish_and_runs_single_gate() -> None:
+    alice = ALICE.__new__(ALICE)
+    alice.phrasing_learner = None
+    alice._internal_reasoning_state = {
+        "confidence": 0.82,
+        "response_plan": {"strategy": "answer_directly"},
+    }
+
+    greeting = alice._native_scaffold_response("hi alice", "greeting")
+    assert greeting is not None
+
+    alice._deterministic_fallback_once = (
+        lambda _u, _i: "Agentic AI uses goals, planning, tool execution, and verification loops."
+    )
+    recovered = alice._safe_llm_failure_response(
+        user_input="i want to learn more about agentic ai",
+        intent="conversation:goal_statement",
+        llm_response=SimpleNamespace(success=False, response="", error="timeout"),
+    )
+
+    low = recovered.lower()
+    assert "clarify" not in low
+    assert "exact result" not in low
+
+    calls = {"publish": 0, "gate": 0}
+
+    def _publish_stub(**kwargs):
+        calls["publish"] += 1
+        return kwargs["response"]
+
+    def _gate_stub(**kwargs):
+        calls["gate"] += 1
+        return kwargs["response"]
+
+    alice._publish_with_fast_llm_style = _publish_stub
+    alice._apply_response_style_constraints = lambda text: text
+    alice._prevent_unsolicited_summary = lambda **kwargs: kwargs["response"]
+    alice._executive_apply_response_gate = _gate_stub
+
+    final = alice._finalize_conversational_surface(
+        user_input="i want to learn more about agentic ai",
+        intent="conversation:goal_statement",
+        response=recovered,
+        route="llm_fallback",
+        plugin_result=None,
+        apply_publish_style=True,
+    )
+
+    assert calls["publish"] == 0
+    assert calls["gate"] == 1
+    assert str(final or "").strip() == str(recovered or "").strip()

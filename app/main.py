@@ -149,8 +149,6 @@ from ai.core.response_formulator import (
     ReasoningOutput,
     UserResponse,
 )
-from ai.lab_simulator import LabSimulator
-from ai.red_team_tester import RedTeamTester
 
 # Continuous learning system
 from ai.learning.realtime_logger import get_realtime_logger
@@ -161,11 +159,6 @@ from ai.learning.response_quality_checker import get_quality_checker
 from ai.training.ollama_evaluator import get_ollama_evaluator
 from ai.training.autolearn import get_autolearn
 from ai.training.async_evaluation import get_async_evaluator
-
-# Advanced learning, testing, and telemetry
-from ai.learning.pattern_miner import PatternMiner
-from ai.training.synthetic_corpus_generator import SyntheticCorpusGenerator
-from ai.memory.multimodal_context import MultimodalContext
 
 # Analytics and memory management
 from ai.analytics.memory_growth_monitor import get_memory_growth_monitor
@@ -183,13 +176,14 @@ from ai.infrastructure.database_pool import get_connection_pool, initialize_data
 from ai.infrastructure.runtime_flags import is_enabled
 from ai.runtime.alice_contract_factory import build_runtime_boundaries
 from ai.runtime.contract_pipeline import ContractPipeline
+from ai.runtime.fallback_policy import RuntimeFallbackPolicy
+from ai.runtime.response_authority import ResponseAuthorityContract
 from ai.reasoning.routing_decision_logger import RoutingDecisionLogger, RoutingDecisionType
 
 # ===== 10 TIER IMPROVEMENTS (LAZY IMPORT UNDER QUARANTINE FLAGS) =====
 
 # Foundation Systems - Response Variance, Personality Evolution, Context Graph
 from ai.foundation_integration import FoundationIntegration
-from tools.auditing.startup_doctor import StartupDoctor
 
 # NLP perception & policy layer
 from ai.core.nlp_processor import Perception
@@ -747,6 +741,12 @@ class ALICE:
             )
             logger.info("[OK] LLM Gateway active - all calls now policy-gated")
 
+            # 4.1.0 Runtime fallback + response authority contracts
+            self.runtime_fallback_policy = RuntimeFallbackPolicy()
+            self.response_authority_contract = ResponseAuthorityContract(
+                self.runtime_fallback_policy
+            )
+
             # 4.1.0 Contract Runtime Boundaries and Pipeline
             try:
                 self.runtime_boundaries = build_runtime_boundaries(self)
@@ -882,29 +882,12 @@ class ALICE:
             
             # 9. Advanced learning, testing, and telemetry systems
             logger.info("Initializing advanced learning systems...")
-            try:
-                # Pattern miner for learning from logged interactions
-                self.pattern_miner = PatternMiner()
-                logger.info("[OK] Pattern miner ready - will detect learnable patterns")
-                
-                # Synthetic corpus generator for pre-training
-                self.synthetic_corpus_gen = SyntheticCorpusGenerator()
-                logger.info("[OK] Synthetic corpus generator ready")
-                
-                # Multimodal context for system-aware interactions
-                self.multimodal_context = MultimodalContext()
-                logger.info("[OK] Multimodal context capture enabled")
-                
-                # Lab simulator for stress testing
-                self.lab_simulator = LabSimulator()
-                logger.info("[OK] Lab simulator ready for scenario generation")
-                
-                # Red team tester for security validation
-                self.red_team_tester = RedTeamTester()
-                logger.info("[OK] Red team tester ready")
-                
-            except Exception as e:
-                logger.warning(f"[WARNING] Advanced learning systems initialization partial: {e}")
+            self.pattern_miner = None
+            self.synthetic_corpus_gen = None
+            self.multimodal_context = None
+            self.lab_simulator = None
+            self.red_team_tester = None
+            logger.info("[OK] Advanced learning systems configured for lazy loading")
             
             # 9.5. Event-driven architecture
             logger.info("Initializing event-driven systems...")
@@ -1036,6 +1019,8 @@ class ALICE:
 
         profile = os.getenv("ALICE_STARTUP_PROFILE", "fast").strip().lower() or "fast"
         try:
+            from tools.auditing.startup_doctor import StartupDoctor
+
             doctor = StartupDoctor(root_dir=PROJECT_ROOT)
             report = doctor.run(profile=profile)
             self.startup_health_report = report
@@ -3490,9 +3475,10 @@ class ALICE:
         if not response:
             return response
         prefs = dict((getattr(self, '_internal_reasoning_state', {}) or {}).get('response_preferences', {}) or {})
-        if self.adaptive_response_style:
+        style_engine = getattr(self, 'adaptive_response_style', None)
+        if style_engine:
             try:
-                return self.adaptive_response_style.apply_constraints(response, prefs)
+                return style_engine.apply_constraints(response, prefs)
             except Exception:
                 return response
         return response
@@ -4327,6 +4313,54 @@ class ALICE:
                 return None
             time.sleep(0.05)
         return None
+
+    def _is_weather_context_relevant_query(self, user_input: str, intent: str = "") -> bool:
+        """Return True when recent weather context is relevant to the current query."""
+        _intent = str(intent or "").lower().strip()
+        if _intent.startswith("weather:"):
+            return True
+
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        weather_terms = [
+            "weather",
+            "forecast",
+            "temperature",
+            "outside",
+            "rain",
+            "raining",
+            "drizzle",
+            "snow",
+            "storm",
+            "thunder",
+            "umbrella",
+            "jacket",
+            "coat",
+            "hoodie",
+            "wind",
+            "humidity",
+            "tomorrow",
+            "tonight",
+            "weekend",
+            "this week",
+            "next week",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ]
+        for term in weather_terms:
+            if " " in term:
+                if term in text:
+                    return True
+            elif re.search(r"\b" + re.escape(term) + r"\b", text):
+                return True
+        return False
     
     def _build_llm_context(self, user_input: str, intent: str = "", entities: Dict = None, goal_res = None) -> str:
         """Build enhanced context for LLM with smart caching and adaptive selection"""
@@ -4373,24 +4407,25 @@ class ALICE:
             self._think("Self-reflection context added")
         
         # 0.7. Recent plugin data (e.g., weather from last query)
-        _live_state = getattr(self, 'live_state_service', None) or get_live_state_service()
-        weather_snapshot = _live_state.freshest_weather_snapshot(
-            reasoning_engine=getattr(self, 'reasoning_engine', None),
-            world_state_memory=getattr(self, 'world_state_memory', None),
-        )
-        if weather_snapshot and isinstance(weather_snapshot.get('data'), dict):
-            wd = weather_snapshot.get('data', {})
-            weather_context = (
-                f"RECENT WEATHER: In {wd.get('location', 'your area')}, "
-                f"it's {wd.get('temperature')}°C with {wd.get('condition')}. "
+        if self._is_weather_context_relevant_query(user_input, intent):
+            _live_state = getattr(self, 'live_state_service', None) or get_live_state_service()
+            weather_snapshot = _live_state.freshest_weather_snapshot(
+                reasoning_engine=getattr(self, 'reasoning_engine', None),
+                world_state_memory=getattr(self, 'world_state_memory', None),
             )
-            weather_context += f"Humidity: {wd.get('humidity')}%, Wind: {wd.get('wind_speed')} km/h. "
-            weather_context += "Use this when answering questions about going outside, clothing, or weather-related decisions."
-            context_parts.append(weather_context)
-            context_types.append("recent_weather")
-            self._think(
-                f"Recent weather data included in context (source={weather_snapshot.get('source', 'unknown')})"
-            )
+            if weather_snapshot and isinstance(weather_snapshot.get('data'), dict):
+                wd = weather_snapshot.get('data', {})
+                weather_context = (
+                    f"RECENT WEATHER: In {wd.get('location', 'your area')}, "
+                    f"it's {wd.get('temperature')}°C with {wd.get('condition')}. "
+                )
+                weather_context += f"Humidity: {wd.get('humidity')}%, Wind: {wd.get('wind_speed')} km/h. "
+                weather_context += "Use this when answering questions about going outside, clothing, or weather-related decisions."
+                context_parts.append(weather_context)
+                context_types.append("recent_weather")
+                self._think(
+                    f"Recent weather data included in context (source={weather_snapshot.get('source', 'unknown')})"
+                )
         
         # 1. Personalization
         personalization = self.context.get_personalization_context()
@@ -5155,7 +5190,7 @@ class ALICE:
             )
 
         if self._is_agent_algorithm_question(llm_input):
-            direct = self._deterministic_knowledge_fallback(llm_input, intent)
+            direct = self._deterministic_fallback_once(llm_input, intent)
             if direct:
                 return self._clamp_final_response(
                     direct,
@@ -5431,14 +5466,14 @@ class ALICE:
             out = ""
 
         if out and self._looks_abrupt_fast_lane_ending(out):
-            repaired = self._deterministic_knowledge_fallback(user_input, intent)
+            repaired = self._deterministic_fallback_once(user_input, intent)
             if repaired:
                 out = repaired
             else:
                 out = out.rstrip(" ,:;-") + "."
 
         if not out:
-            fallback = self._deterministic_knowledge_fallback(user_input, intent)
+            fallback = self._deterministic_fallback_once(user_input, intent)
             if fallback:
                 out = fallback
             elif _answerable_direct_question:
@@ -5514,6 +5549,19 @@ class ALICE:
 
         return base
 
+    def _should_apply_publish_style(self, *, route: str) -> bool:
+        """Decide whether final publish-style polishing is allowed for this route."""
+        route_name = str(route or "").strip().lower()
+        if route_name in {"llm_fallback", "deterministic_knowledge_fallback"}:
+            return False
+
+        state = dict(getattr(self, "_internal_reasoning_state", {}) or {})
+        if bool(state.get("failure_recovery")):
+            return False
+        if bool(state.get("deterministic_fallback_applied")):
+            return False
+        return True
+
     def _finalize_conversational_surface(
         self,
         *,
@@ -5529,7 +5577,7 @@ class ALICE:
         if not final_text:
             return final_text
 
-        if apply_publish_style:
+        if apply_publish_style and self._should_apply_publish_style(route=route):
             final_text = self._publish_with_fast_llm_style(
                 user_input=user_input,
                 intent=intent,
@@ -5563,6 +5611,19 @@ class ALICE:
         base = str(seed or "").strip()
         if not base:
             base = "Please share one concrete detail and I will continue."
+
+        # Failure-recovery responses are finalized at the top-level llm_fallback
+        # route to avoid duplicate authority gate passes.
+        _state = dict(getattr(self, '_internal_reasoning_state', {}) or {})
+        if bool(_state.get('llm_failure_recovery_active')):
+            return self._clamp_final_response(
+                base,
+                tone="helpful",
+                response_type="general_response",
+                route=route,
+                user_input=str(user_input or ""),
+            )
+
         return self._finalize_conversational_surface(
             user_input=str(user_input or ""),
             intent=str(intent or "conversation:general"),
@@ -7188,15 +7249,15 @@ class ALICE:
 
         teaching_cues = (
             "teach me",
-            "explain",
-            "help me understand",
-            "learn more",
-            "learn more about",
-            "i want to learn",
-            "i want to learn more",
-            "overview of",
             "walk me through",
             "step by step",
+            "break it down",
+            "structured breakdown",
+            "learning outline",
+            "study plan",
+            "guided learning",
+            "curriculum",
+            "roadmap",
         )
         return any(cue in text for cue in teaching_cues)
 
@@ -7375,7 +7436,7 @@ class ALICE:
             return structured
 
         domain = self._infer_learning_domain(user_input)
-        composed = self._deterministic_knowledge_fallback(user_input, intent)
+        composed = self._deterministic_fallback_once(user_input, intent)
         if composed:
             return composed
         seed = self._build_recovery_answer_seed(user_input, intent)
@@ -7390,6 +7451,29 @@ class ALICE:
             None,
             user_input,
         )
+
+    def _deterministic_fallback_once(self, user_input: str, intent: str) -> Optional[str]:
+        """Generate deterministic fallback text once per turn for a given intent/input."""
+        policy = getattr(self, 'runtime_fallback_policy', None)
+        result: Optional[str] = None
+        if policy is None:
+            result = self._deterministic_knowledge_fallback(user_input, intent)
+            if result and isinstance(getattr(self, '_internal_reasoning_state', None), dict):
+                self._internal_reasoning_state['deterministic_fallback_applied'] = True
+            return result
+
+        try:
+            result = policy.deterministic_once(
+                user_input=user_input,
+                intent=intent,
+                builder=lambda: self._deterministic_knowledge_fallback(user_input, intent),
+            )
+        except Exception:
+            result = self._deterministic_knowledge_fallback(user_input, intent)
+
+        if result and isinstance(getattr(self, '_internal_reasoning_state', None), dict):
+            self._internal_reasoning_state['deterministic_fallback_applied'] = True
+        return result
 
     def _deterministic_knowledge_fallback(self, user_input: str, intent: str) -> Optional[str]:
         """Build non-LLM first-pass answers from inferred domain structure rather than fixed canned replies."""
@@ -7511,7 +7595,7 @@ class ALICE:
         if self._has_explicit_action_cue(text) and not rich_conceptual:
             return None
 
-        deterministic = self._deterministic_knowledge_fallback(user_input, intent)
+        deterministic = self._deterministic_fallback_once(user_input, intent)
         if deterministic:
             return deterministic
 
@@ -7675,6 +7759,11 @@ class ALICE:
             return greeting or None
         return None
 
+    @staticmethod
+    def _self_answer_first_can_override(executive_action: str) -> bool:
+        """Only direct-answer executive decisions may short-circuit LLM generation."""
+        return str(executive_action or "").strip().lower() == "answer_direct"
+
     def _self_answer_first_gate(
         self,
         *,
@@ -7693,7 +7782,7 @@ class ALICE:
                 "response": structured_teaching,
             }
 
-        deterministic = self._deterministic_knowledge_fallback(user_input, intent)
+        deterministic = self._deterministic_fallback_once(user_input, intent)
         if deterministic:
             return {
                 "block_llm": True,
@@ -9486,71 +9575,78 @@ class ALICE:
 
     def _safe_llm_failure_response(self, *, user_input: str, intent: str, llm_response: Any) -> str:
         """Convert execution failures into resilient responses without conflating with ambiguity."""
-        force_direct_recovery = self._should_force_failure_recovery_answer(user_input, intent)
-        understood_request = force_direct_recovery or self._should_answer_first_without_clarification(
-            user_input,
-            intent,
-        )
-        failure_reason = (
-            "llm_failed_after_answer_directly"
-            if understood_request
-            else "low_confidence_answer_requiring_retry"
-        )
+        if not isinstance(getattr(self, "_internal_reasoning_state", None), dict):
+            self._internal_reasoning_state = {}
+        self._internal_reasoning_state['llm_failure_recovery_active'] = True
 
-        deterministic = self._deterministic_knowledge_fallback(user_input, intent)
-        if deterministic:
+        try:
+            force_direct_recovery = self._should_force_failure_recovery_answer(user_input, intent)
+            understood_request = force_direct_recovery or self._should_answer_first_without_clarification(
+                user_input,
+                intent,
+            )
+            failure_reason = (
+                "llm_failed_after_answer_directly"
+                if understood_request
+                else "low_confidence_answer_requiring_retry"
+            )
+
+            deterministic = self._deterministic_fallback_once(user_input, intent)
+            if deterministic:
+                self._record_failure_recovery_state(
+                    reason=failure_reason,
+                    response=deterministic,
+                    task_understood=True,
+                )
+                return deterministic
+
+            conceptual = self._native_conceptual_answer(user_input, intent)
+            if conceptual and force_direct_recovery:
+                self._record_failure_recovery_state(
+                    reason="llm_failed_after_answer_directly",
+                    response=conceptual,
+                    task_understood=True,
+                )
+                return conceptual
+
+            if isinstance(llm_response, dict):
+                raw = str(llm_response.get("response") or llm_response.get("error") or "").strip()
+            else:
+                raw = str(getattr(llm_response, "response", "") or getattr(llm_response, "error", "") or "").strip()
+
+            if force_direct_recovery:
+                fallback = self._compose_understood_goal_recovery(user_input, intent)
+                self._record_failure_recovery_state(
+                    reason="llm_failed_after_answer_directly",
+                    response=fallback,
+                    task_understood=True,
+                )
+                return fallback
+
+            if raw and not self._is_internal_infra_leakage(raw):
+                passthrough = self._clamp_final_response(
+                    raw,
+                    tone="professional and precise",
+                    response_type="operation_failure",
+                    route="llm_failure_passthrough",
+                    user_input=user_input,
+                )
+                self._record_failure_recovery_state(
+                    reason=failure_reason,
+                    response=passthrough,
+                    task_understood=bool(understood_request),
+                )
+                return passthrough
+
+            generic = self._compose_understood_goal_recovery(user_input, intent)
             self._record_failure_recovery_state(
                 reason=failure_reason,
-                response=deterministic,
-                task_understood=True,
-            )
-            return deterministic
-
-        conceptual = self._native_conceptual_answer(user_input, intent)
-        if conceptual and force_direct_recovery:
-            self._record_failure_recovery_state(
-                reason="llm_failed_after_answer_directly",
-                response=conceptual,
-                task_understood=True,
-            )
-            return conceptual
-
-        if isinstance(llm_response, dict):
-            raw = str(llm_response.get("response") or llm_response.get("error") or "").strip()
-        else:
-            raw = str(getattr(llm_response, "response", "") or getattr(llm_response, "error", "") or "").strip()
-
-        if force_direct_recovery:
-            fallback = self._compose_understood_goal_recovery(user_input, intent)
-            self._record_failure_recovery_state(
-                reason="llm_failed_after_answer_directly",
-                response=fallback,
-                task_understood=True,
-            )
-            return fallback
-
-        if raw and not self._is_internal_infra_leakage(raw):
-            passthrough = self._clamp_final_response(
-                raw,
-                tone="professional and precise",
-                response_type="operation_failure",
-                route="llm_failure_passthrough",
-                user_input=user_input,
-            )
-            self._record_failure_recovery_state(
-                reason=failure_reason,
-                response=passthrough,
+                response=generic,
                 task_understood=bool(understood_request),
             )
-            return passthrough
-
-        generic = self._compose_understood_goal_recovery(user_input, intent)
-        self._record_failure_recovery_state(
-            reason=failure_reason,
-            response=generic,
-            task_understood=bool(understood_request),
-        )
-        return generic
+            return generic
+        finally:
+            self._internal_reasoning_state.pop('llm_failure_recovery_active', None)
 
     def _resolve_turn_success_and_route(
         self,
@@ -9623,6 +9719,45 @@ class ALICE:
             "question": f"Did you mean: {' or '.join(options)}?",
         }
 
+    def _refine_low_confidence_gate_answer(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        response: str,
+    ) -> Optional[str]:
+        """Refine a low-confidence answer before any template fallback is considered."""
+        base = str(response or "").strip()
+        if not base:
+            return None
+
+        refined = self._strip_fast_lane_meta_leakage(base)
+        refined = re.sub(r"\s*\n+\s*", " ", refined).strip()
+        refined = re.sub(r"\s+", " ", refined).strip()
+        if not refined:
+            return None
+        if self._is_internal_infra_leakage(refined):
+            return None
+        if self._looks_like_clarification_fallback(refined):
+            return None
+
+        if (
+            self._is_understandable_informational_goal(user_input, intent)
+            and len(re.findall(r"\b[a-z0-9']+\b", refined.lower())) < 8
+        ):
+            return None
+
+        if refined and not re.search(r"[.!?]$", refined):
+            refined = refined.rstrip(" ,:;-") + "."
+
+        return self._clamp_final_response(
+            refined,
+            tone="professional and precise",
+            response_type="knowledge_answer",
+            route="exec_gate_refine",
+            user_input=user_input,
+        )
+
     def _executive_gate_fallback_response(
         self,
         *,
@@ -9653,6 +9788,56 @@ class ALICE:
                     task_understood=True,
                 )
                 return _recovered
+
+        _gate_reason = str(
+            (getattr(self, "_last_exec_gate_eval", {}) or {}).get("reason") or ""
+        ).strip().lower()
+        _hard_reject_reasons = {
+            "semantic_noise_in_response",
+            "semantic_core_missing",
+            "semantic_drift_theoretical_domain",
+            "semantic_drift_programming_domain",
+            "off_topic_technical_drift",
+            "missing_critical_terms",
+            "low_anchor_overlap",
+        }
+
+        if (
+            str(response or "").strip()
+            and str(fallback_action or "").strip().lower() in {"safe_reply", "revise_answer", "clarify"}
+            and self._should_answer_first_without_clarification(user_input, intent)
+            and _gate_reason not in _hard_reject_reasons
+        ):
+            refined = self._refine_low_confidence_gate_answer(
+                user_input=user_input,
+                intent=intent,
+                response=response,
+            )
+            if refined:
+                self._record_fallback_taxonomy(
+                    reason=(
+                        _normalized_reason
+                        or "low_confidence_answer_needs_refinement"
+                    ),
+                    source="executive_response_gate",
+                    action="answer_refined",
+                    task_understood=True,
+                )
+                return refined
+
+        if fallback_action == "revise_answer":
+            direct_recovery = self._compose_understood_goal_recovery(user_input, intent)
+            if direct_recovery:
+                self._record_fallback_taxonomy(
+                    reason=(
+                        _normalized_reason
+                        or "low_confidence_answer_needs_refinement"
+                    ),
+                    source="executive_response_gate",
+                    action="answer_direct",
+                    task_understood=True,
+                )
+                return direct_recovery
 
         if self._is_answerability_direct_question(user_input) and fallback_action == "clarify":
             direct_recovery = self._compose_understood_goal_recovery(user_input, intent)
@@ -9712,6 +9897,20 @@ class ALICE:
                     task_understood=False,
                 )
                 return scaffold
+
+        if self._should_answer_first_without_clarification(user_input, intent):
+            direct_recovery = self._compose_understood_goal_recovery(user_input, intent)
+            if direct_recovery:
+                self._record_fallback_taxonomy(
+                    reason=(
+                        _normalized_reason
+                        or "low_confidence_answer_requiring_retry"
+                    ),
+                    source="executive_response_gate",
+                    action="answer_direct",
+                    task_understood=True,
+                )
+                return direct_recovery
 
         scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
         if scaffold:
@@ -9789,6 +9988,47 @@ class ALICE:
             f"Executive response gate ({route}) → score={score:.2f} "
             f"accepted={evaluation.get('accepted', False)}"
         )
+
+        _route_name = str(route or "").strip().lower()
+        _authority = getattr(self, 'response_authority_contract', None)
+        if _route_name in {"llm", "llm_fallback"} and _authority is not None:
+            try:
+                outcome = _authority.resolve_llm_turn(
+                    accepted=bool(evaluation.get("accepted", False)),
+                    response=response,
+                    refine_fn=lambda candidate: self._refine_low_confidence_gate_answer(
+                        user_input=user_input,
+                        intent=intent,
+                        response=candidate,
+                    ),
+                    deterministic_fn=lambda: self._deterministic_fallback_once(
+                        user_input,
+                        intent,
+                    ),
+                )
+            except Exception as e:
+                logger.debug("Response authority contract fallback due to error: %s", e)
+                outcome = None
+
+            if outcome is not None:
+                if outcome.action == "publish" and outcome.text:
+                    return outcome.text
+                if outcome.action == "refine" and outcome.text:
+                    self._record_fallback_taxonomy(
+                        reason=str(outcome.reason or "llm_rejected_refined"),
+                        source="executive_response_gate",
+                        action="answer_refined",
+                        task_understood=True,
+                    )
+                    return outcome.text
+                if outcome.action == "deterministic_fallback" and outcome.text:
+                    self._record_fallback_taxonomy(
+                        reason=str(outcome.reason or "llm_rejected_deterministic_fallback"),
+                        source="executive_response_gate",
+                        action="answer_direct",
+                        task_understood=True,
+                    )
+                    return outcome.text
 
         if evaluation.get("accepted", False):
             return response
@@ -10101,6 +10341,26 @@ class ALICE:
             raw_response=raw_response,
         )
 
+    def _start_turn_runtime_contracts(self, user_input: str) -> None:
+        """Reset per-turn runtime policy caches before orchestration begins."""
+        turn_number = int(getattr(self, '_turn_count', 0) or 0)
+        turn_key = f"{turn_number}:{str(user_input or '').strip().lower()[:160]}"
+
+        policy = getattr(self, 'runtime_fallback_policy', None)
+        if policy is not None:
+            try:
+                policy.start_turn(turn_key=turn_key)
+                return
+            except Exception:
+                pass
+
+        authority = getattr(self, 'response_authority_contract', None)
+        if authority is not None:
+            try:
+                authority.start_turn(turn_key=turn_key)
+            except Exception:
+                pass
+
     def _process_input_internal(self, user_input: str, use_voice: bool = False) -> str:
         """
         Process user input through the complete pipeline
@@ -10123,6 +10383,7 @@ class ALICE:
             self._exec_should_store_memory = True
             self._internal_reasoning_state = {}
             self._last_exec_gate_eval = {}
+            self._start_turn_runtime_contracts(user_input)
             if getattr(self, 'world_state_memory', None):
                 try:
                     self._turn_state_pre_snapshot = self.world_state_memory.snapshot()
@@ -12583,31 +12844,34 @@ class ALICE:
                     pass
 
             if _executive_decision.action in ("use_llm", "answer_direct"):
-                _self_answer = self._self_answer_first_gate(
-                    user_input=user_input,
-                    intent=intent,
-                    entities=entities or {},
-                    has_active_goal=bool(_authoritative_goal_stack),
-                    has_explicit_action_cue=_has_action_cue,
-                )
-                if _self_answer.get("block_llm"):
-                    response = str(_self_answer.get("response") or "").strip()
-                    if response:
-                        response = self._finalize_conversational_surface(
-                            user_input=user_input,
-                            intent=intent,
-                            response=response,
-                            route="llm",
-                            plugin_result=None,
-                            apply_publish_style=True,
-                        )
-                        self._think(f"Self-answer-first gate → {_self_answer.get('reason', 'native')}")
-                        self._cache_put(user_input, intent, response)
-                        self._store_interaction(user_input, response, intent, entities)
-                        if use_voice and self.speech:
-                            self.speech.speak(response, blocking=False)
-                        logger.info(f"A.L.I.C.E: {response[:100]}...")
-                        return response
+                if self._self_answer_first_can_override(_executive_decision.action):
+                    _self_answer = self._self_answer_first_gate(
+                        user_input=user_input,
+                        intent=intent,
+                        entities=entities or {},
+                        has_active_goal=bool(_authoritative_goal_stack),
+                        has_explicit_action_cue=_has_action_cue,
+                    )
+                    if _self_answer.get("block_llm"):
+                        response = str(_self_answer.get("response") or "").strip()
+                        if response:
+                            response = self._finalize_conversational_surface(
+                                user_input=user_input,
+                                intent=intent,
+                                response=response,
+                                route="native_self_answer",
+                                plugin_result=None,
+                                apply_publish_style=True,
+                            )
+                            self._think(f"Self-answer-first gate → {_self_answer.get('reason', 'native')}")
+                            self._cache_put(user_input, intent, response)
+                            self._store_interaction(user_input, response, intent, entities)
+                            if use_voice and self.speech:
+                                self.speech.speak(response, blocking=False)
+                            logger.info(f"A.L.I.C.E: {response[:100]}...")
+                            return response
+                else:
+                    self._think("Self-answer-first gate bypassed → llm_authority_lock")
 
             if _executive_decision.action == "ask_clarification":
                 if self._should_answer_first_without_clarification(
@@ -13877,13 +14141,14 @@ class ALICE:
                         "goal": goal_res.goal.description if (goal_res and goal_res.goal) else None,
                     },
                 )
+            _surface_route = "llm_fallback" if llm_failure_recovery_applied else "llm"
             response = self._finalize_conversational_surface(
                 user_input=user_input,
                 intent=intent,
                 response=response,
-                route="llm",
+                route=_surface_route,
                 plugin_result=(plugin_result if 'plugin_result' in locals() and isinstance(plugin_result, dict) else None),
-                apply_publish_style=True,
+                apply_publish_style=not llm_failure_recovery_applied,
             )
             
             # NOTE: Don't cache LLM responses - we want fresh answers each time for variety
@@ -13923,7 +14188,7 @@ class ALICE:
                 user_input=user_input,
                 intent=intent,
                 response=response,
-                route="llm",
+                route=_surface_route,
                 prior_confidence=float(intent_confidence if 'intent_confidence' in locals() else 0.0),
             )
             
@@ -15580,7 +15845,7 @@ class ALICE:
         
         elif cmd == '/patterns':
             # Show proposed patterns awaiting approval
-            if not hasattr(self, 'pattern_miner'):
+            if not getattr(self, 'pattern_miner', None):
                 try:
                     from ai.learning.pattern_miner import PatternMiner
                     self.pattern_miner = PatternMiner()
@@ -15630,7 +15895,7 @@ class ALICE:
             
             pattern_id = parts[2].strip()
             
-            if not hasattr(self, 'pattern_miner'):
+            if not getattr(self, 'pattern_miner', None):
                 from ai.learning.pattern_miner import PatternMiner
                 self.pattern_miner = PatternMiner()
             
@@ -15648,7 +15913,7 @@ class ALICE:
             
             pattern_id = parts[2].strip()
             
-            if not hasattr(self, 'pattern_miner'):
+            if not getattr(self, 'pattern_miner', None):
                 from ai.learning.pattern_miner import PatternMiner
                 self.pattern_miner = PatternMiner()
             
