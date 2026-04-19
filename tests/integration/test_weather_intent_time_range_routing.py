@@ -63,6 +63,45 @@ def test_weather_current_with_bare_time_range_phrase_promotes_to_forecast():
     assert confidence >= 0.9
 
 
+def test_weather_coat_week_prompt_promotes_general_to_forecast():
+    alice = ALICE.__new__(ALICE)
+    alice._think = lambda *_args, **_kwargs: None
+
+    intent, confidence = ALICE._normalize_weather_intent_for_time_range(
+        alice,
+        user_input="should i wear a coat this week?",
+        intent="conversation:general",
+        intent_confidence=0.71,
+    )
+
+    assert intent == "weather:forecast"
+    assert confidence >= 0.9
+
+
+def test_weather_clothing_time_range_detector_matches_coat_week_prompt():
+    alice = ALICE.__new__(ALICE)
+
+    assert (
+        ALICE._is_weather_clothing_time_range_request(
+            alice,
+            "should i wear a coat this week?",
+        )
+        is True
+    )
+
+
+def test_weather_clothing_time_range_detector_ignores_non_weather_week_question():
+    alice = ALICE.__new__(ALICE)
+
+    assert (
+        ALICE._is_weather_clothing_time_range_request(
+            alice,
+            "should i review my notes this week?",
+        )
+        is False
+    )
+
+
 def test_non_weather_tomorrow_does_not_promote_clarification_intent():
     alice = ALICE.__new__(ALICE)
     alice._think = lambda *_args, **_kwargs: None

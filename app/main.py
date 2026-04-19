@@ -8514,10 +8514,13 @@ class ALICE:
             # Scope must indicate ALICE's internal/source code.
             has_self_scope = bool(
                 re.search(
-                    r"\b(?:your|internal|own|source)\b.*\b(?:code|codebase|source\s+code)\b",
+                    r"\b(?:your|internal|own|source|local)\b.*\b(?:code|codebase|source\s+code|repo|repository)\b",
                     normalized,
                 )
-                or re.search(r"\b(?:internal|own)\s+code\b", normalized)
+                or re.search(
+                    r"\b(?:internal|own|local)\s+(?:code|codebase|repo|repository)\b",
+                    normalized,
+                )
             )
 
             if not has_self_scope:
@@ -8526,7 +8529,7 @@ class ALICE:
             # Capability/visibility verbs and question framing.
             has_capability_verb = bool(
                 re.search(
-                    r"\b(?:see|access|read|inspect|view|open)\b",
+                    r"\b(?:see|access|read|inspect|view|open|check|verify)\b",
                     normalized,
                 )
             )
@@ -9370,6 +9373,59 @@ class ALICE:
         return any(marker in text for marker in advisory_markers) or bool(
             re.search(r"\b(?:wear|bring)\b", text)
         )
+
+    def _is_code_access_or_listing_request(self, user_input: str) -> bool:
+        """Detect codebase access/listing requests that should route through grounded handlers."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        text = text.replace("acess", "access")
+        text = re.sub(r"\s+", " ", text)
+
+        has_py_target = bool(re.search(r"\b[a-z0-9_./\\-]+\.py\b", text))
+        code_scope_phrases = (
+            "your code",
+            "your codebase",
+            "internal code",
+            "own code",
+            "source code",
+            "local code",
+            "codebase",
+            "repository",
+            "repo",
+            "project files",
+            "source files",
+        )
+        has_scope = has_py_target or any(phrase in text for phrase in code_scope_phrases)
+        if not has_scope:
+            return False
+
+        has_action = bool(
+            re.search(
+                r"\b(?:check|inspect|access|read|view|show|list|search|find|analy[sz]e|summari[sz]e|open|look)\b",
+                text,
+            )
+        )
+        has_question_or_command = bool(
+            re.search(r"\b(?:can|could|would|do|are)\s+you\b", text)
+            or text.endswith("?")
+            or text.startswith(
+                (
+                    "show",
+                    "list",
+                    "read",
+                    "find",
+                    "search",
+                    "summarize",
+                    "analyze",
+                    "check",
+                    "inspect",
+                )
+            )
+        )
+
+        return bool(has_action and has_question_or_command)
 
     def _has_strong_weather_signal(self, user_input: str) -> bool:
         text = str(user_input or "").lower()
@@ -10780,14 +10836,18 @@ class ALICE:
             logger.info(f"User: {user_input}")
             is_location_query = self._is_location_query(user_input)
             bypass_canonical_weather = self._is_weather_clothing_time_range_request(user_input)
+            bypass_canonical_code = self._is_code_access_or_listing_request(user_input)
             if bypass_canonical_weather:
                 self._think(
                     "Canonical pipeline bypassed for weather clothing/time-range query"
                 )
+            if bypass_canonical_code:
+                self._think("Canonical pipeline bypassed for code access/listing query")
 
             # Canonical path first when enabled: avoid side-path bypasses.
             if (
                 not bypass_canonical_weather
+                and not bypass_canonical_code
                 and is_enabled("contract_pipeline")
                 and getattr(self, 'contract_pipeline', None)
             ):

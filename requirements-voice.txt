@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# Voice IO and audio handling
+SpeechRecognition>=3.8.1
+pyttsx3>=2.90
+pyaudio>=0.2.11
+pydub>=0.25.1

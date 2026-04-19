@@ -102,6 +102,7 @@ def test_code_access_phrase_are_you_able_to_see_routes_to_capability_answer():
         "would you be able to view your internal code?",
         "do you access your internal code?",
         "can you acess your internal code?",
+        "can you check your local code?",
     ],
 )
 def test_code_access_capability_detection_generalizes_without_phrase_list(prompt):
