@@ -176,8 +176,26 @@ def test_answerability_gate_detects_specific_domain_questions_and_ignores_ambigu
         "how does optimizer training work in nlp models?"
     ) is True
     assert alice._is_answerability_direct_question(
+        "i want to know the difference between the agentic ai and generative ai"
+    ) is True
+    assert alice._is_answerability_direct_question(
         "how does optimizer stuff work?"
     ) is False
+
+
+def test_goal_statement_promotion_demotes_direct_difference_prompt_to_question_intent():
+    alice = ALICE.__new__(ALICE)
+
+    intent, entities, confidence = alice._promote_goal_statement_intent(
+        user_input="i want to know the difference between the agentic ai and generative ai",
+        intent="conversation:goal_statement",
+        entities={"goal": "difference between agentic ai and generative ai"},
+        intent_confidence=0.84,
+    )
+
+    assert intent == "conversation:question"
+    assert entities.get("goal") == "difference between agentic ai and generative ai"
+    assert confidence >= 0.84
 
 
 def test_answerability_gate_fallback_returns_substantive_answer_for_unknown_direct_question():
@@ -246,6 +264,40 @@ def test_deterministic_knowledge_fallback_handles_ai_agent_algorithm_question():
     assert "transformer" in low
     assert "retrieval" in low
     assert "verification" in low
+
+
+def test_executive_controller_marks_difference_prompt_as_answerable_direct_question():
+    controller = ExecutiveController()
+
+    assert controller._is_answerability_direct_question(
+        "i want to know the difference between the agentic ai and generative ai"
+    ) is True
+
+
+def test_safe_llm_failure_recovery_prefers_llm_retry_before_deterministic_fallback():
+    alice = ALICE.__new__(ALICE)
+    alice._internal_reasoning_state = {
+        "confidence": 0.84,
+        "response_plan": {"strategy": "answer_directly"},
+    }
+
+    calls = {"deterministic": 0}
+    alice._retry_llm_answer_after_failure = lambda **_kwargs: "Retry answer from ollama."
+
+    def _deterministic(*_args, **_kwargs):
+        calls["deterministic"] += 1
+        return "Deterministic fallback"
+
+    alice._deterministic_fallback_once = _deterministic
+
+    response = alice._safe_llm_failure_response(
+        user_input="i want to know the difference between the agentic ai and generative ai",
+        intent="conversation:goal_statement",
+        llm_response=SimpleNamespace(success=False, response="", error="timeout"),
+    )
+
+    assert response == "Retry answer from ollama."
+    assert calls["deterministic"] == 0
 
 
 def test_deterministic_knowledge_fallback_handles_practical_agentic_framework_request():

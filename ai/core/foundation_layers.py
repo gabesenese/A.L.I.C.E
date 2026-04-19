@@ -42,6 +42,32 @@ class FoundationLayers:
         self._clarification_margin_threshold = 0.35
         self._deep_stage_skip_threshold = 0.95
 
+        try:
+            from ai.optimization.runtime_thresholds import get_thresholds
+
+            thresholds = get_thresholds()
+            self._clarification_conf_threshold = float(
+                thresholds.get(
+                    "foundation_clarification_confidence",
+                    self._clarification_conf_threshold,
+                )
+            )
+            self._clarification_margin_threshold = float(
+                thresholds.get(
+                    "foundation_clarification_margin",
+                    self._clarification_margin_threshold,
+                )
+            )
+            self._deep_stage_skip_threshold = float(
+                thresholds.get(
+                    "foundation_deep_stage_skip_threshold",
+                    self._deep_stage_skip_threshold,
+                )
+            )
+        except Exception:
+            # Keep constructor dependency-light; fallback defaults are already set.
+            pass
+
     # 1) ASR-aware normalization (text-first variant; safe for non-voice input too).
     def normalize_input(self, text: str) -> str:
         normalized = str(text or "")

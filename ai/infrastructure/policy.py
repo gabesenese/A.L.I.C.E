@@ -25,8 +25,8 @@ def get_policy_decision(
     has_goal: bool,
     goal_json: Optional[GoalJSON] = None,
     plugin_available: bool = False,
-    tool_path_threshold: float = 0.7,
-    ask_threshold: float = 0.5,
+    tool_path_threshold: Optional[float] = None,
+    ask_threshold: Optional[float] = None,
 ) -> PolicyDecision:
     """
     Decide whether to execute (tool/plugin path) or ask for clarification.
@@ -42,6 +42,18 @@ def get_policy_decision(
     Returns:
         PolicyDecision(execute=True) or PolicyDecision(execute=False, clarification_question="...").
     """
+    if tool_path_threshold is None or ask_threshold is None:
+        try:
+            from ai.optimization.runtime_thresholds import get_thresholds
+
+            thresholds = get_thresholds()
+        except Exception:
+            thresholds = {}
+        if tool_path_threshold is None:
+            tool_path_threshold = float(thresholds.get("tool_path_confidence", 0.7))
+        if ask_threshold is None:
+            ask_threshold = float(thresholds.get("ask_threshold", 0.5))
+
     # LLM explicitly said "ask" and gave a question
     if goal_json and goal_json.action == "ask" and goal_json.clarification_question:
         logger.info("[Policy] Goal JSON says ask → returning clarification")

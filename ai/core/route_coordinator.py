@@ -4,6 +4,7 @@ Keeps intent decision policy out of NLPProcessor orchestration flow.
 """
 
 from dataclasses import dataclass
+import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ai.core.goal_recognizer import get_goal_recognizer
@@ -26,8 +27,93 @@ class RouteCoordinator:
     """Coordinates intent stabilization, gating, and final fallback policy."""
 
     def __init__(self, config: Optional[RouteCoordinatorConfig] = None) -> None:
-        self.config = config or RouteCoordinatorConfig()
+        if config is None:
+            defaults = RouteCoordinatorConfig()
+            try:
+                from ai.optimization.runtime_thresholds import get_thresholds
+
+                thresholds = get_thresholds()
+                config = RouteCoordinatorConfig(
+                    unknown_fallback_conf_hard=float(
+                        thresholds.get(
+                            "unknown_fallback_conf_hard",
+                            defaults.unknown_fallback_conf_hard,
+                        )
+                    ),
+                    unknown_fallback_conf_soft=float(
+                        thresholds.get(
+                            "unknown_fallback_conf_soft",
+                            defaults.unknown_fallback_conf_soft,
+                        )
+                    ),
+                    unknown_fallback_plaus_soft=float(
+                        thresholds.get(
+                            "unknown_fallback_plaus_soft",
+                            defaults.unknown_fallback_plaus_soft,
+                        )
+                    ),
+                    unknown_fallback_plaus_hard=float(
+                        thresholds.get(
+                            "unknown_fallback_plaus_hard",
+                            defaults.unknown_fallback_plaus_hard,
+                        )
+                    ),
+                    route_uncertainty_threshold=float(
+                        thresholds.get(
+                            "route_uncertainty_threshold",
+                            defaults.route_uncertainty_threshold,
+                        )
+                    ),
+                    clarification_intent_confidence_threshold=float(
+                        thresholds.get(
+                            "clarification_intent_confidence_threshold",
+                            defaults.clarification_intent_confidence_threshold,
+                        )
+                    ),
+                    clarification_confidence_min=float(
+                        thresholds.get(
+                            "clarification_confidence_min",
+                            defaults.clarification_confidence_min,
+                        )
+                    ),
+                    clarification_confidence_max=float(
+                        thresholds.get(
+                            "clarification_confidence_max",
+                            defaults.clarification_confidence_max,
+                        )
+                    ),
+                    conversation_category_gate_threshold=float(
+                        thresholds.get(
+                            "conversation_category_gate_threshold",
+                            defaults.conversation_category_gate_threshold,
+                        )
+                    ),
+                )
+            except Exception:
+                config = defaults
+
+        self.config = config
         self.goal_recognizer = get_goal_recognizer()
+
+    @staticmethod
+    def _is_direct_informational_query(text: str) -> bool:
+        low = str(text or "").strip().lower()
+        if not low:
+            return False
+        has_intro = bool(
+            re.search(
+                r"\b(?:i\s+(?:want|need|would\s+like)\s+to\s+know|tell\s+me)\b",
+                low,
+            )
+        )
+        has_cue = bool(
+            "?" in low
+            or re.search(
+                r"\b(?:what|how|why|difference\s+between|compare|comparison|define|explain)\b",
+                low,
+            )
+        )
+        return bool(has_intro and has_cue)
 
     def apply_initial_routing_policy(
         self,
@@ -48,21 +134,32 @@ class RouteCoordinator:
         normalized_text: str,
     ) -> Tuple[str, float]:
         modifiers = parsed_command.modifiers
+        normalized_intent = str(intent or "").lower().strip()
+        direct_info_query = self._is_direct_informational_query(normalized_text)
 
-        if str(intent or "").lower().strip() != "conversation:goal_statement":
-            _goal_signal = self.goal_recognizer.detect(normalized_text)
-            if _goal_signal is not None:
-                intent = "conversation:goal_statement"
-                intent_confidence = max(
-                    float(intent_confidence or 0.0),
-                    float(_goal_signal.confidence or 0.84),
-                )
-                modifiers["goal_statement_signal"] = {
-                    "goal": _goal_signal.goal,
-                    "project_direction": _goal_signal.project_direction,
-                    "markers": list(_goal_signal.markers or []),
-                    "source": "route_coordinator",
-                }
+        if normalized_intent == "conversation:goal_statement" and direct_info_query:
+            intent = "conversation:question"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.84)
+            modifiers["goal_statement_demoted"] = "direct_informational_query"
+            normalized_intent = intent
+
+        if normalized_intent != "conversation:goal_statement":
+            if direct_info_query:
+                modifiers["goal_statement_suppressed"] = "direct_informational_query"
+            else:
+                _goal_signal = self.goal_recognizer.detect(normalized_text)
+                if _goal_signal is not None:
+                    intent = "conversation:goal_statement"
+                    intent_confidence = max(
+                        float(intent_confidence or 0.0),
+                        float(_goal_signal.confidence or 0.84),
+                    )
+                    modifiers["goal_statement_signal"] = {
+                        "goal": _goal_signal.goal,
+                        "project_direction": _goal_signal.project_direction,
+                        "markers": list(_goal_signal.markers or []),
+                        "source": "route_coordinator",
+                    }
 
         uncertainty = (
             build_uncertainty_prompt(route, parsed_command, plugin_scores)

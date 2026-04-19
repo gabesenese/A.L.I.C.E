@@ -79,9 +79,30 @@ class GoalRecognizer:
         re.IGNORECASE,
     )
 
+    _INFORMATIONAL_INTRO_RE = re.compile(
+        r"\b(?:i\s+(?:want|need|would\s+like)\s+to\s+know|tell\s+me)\b",
+        re.IGNORECASE,
+    )
+    _INFORMATIONAL_CUE_RE = re.compile(
+        r"\b(?:what|how|why|difference\s+between|compare|comparison|define|explain)\b",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _is_direct_informational_request(cls, text: str) -> bool:
+        low = str(text or "").strip().lower()
+        if not low:
+            return False
+        has_intro = bool(cls._INFORMATIONAL_INTRO_RE.search(low))
+        has_cue = bool(cls._INFORMATIONAL_CUE_RE.search(low) or "?" in low)
+        return bool(has_intro and has_cue)
+
     def detect(self, text: str) -> Optional[GoalSignal]:
         raw = str(text or "").strip()
         if not raw:
+            return None
+
+        if self._is_direct_informational_request(raw):
             return None
 
         low = raw.lower()

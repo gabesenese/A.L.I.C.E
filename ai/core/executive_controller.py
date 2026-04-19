@@ -1500,6 +1500,8 @@ class ExecutiveController:
         is_question_like = bool(
             "?" in low
             or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", low)
+            or re.search(r"\bi\s+(?:want|need|would\s+like)\s+to\s+know\b", low)
+            or re.search(r"\btell\s+me\b", low)
         )
         return bool(has_direct_structure and is_question_like)
 

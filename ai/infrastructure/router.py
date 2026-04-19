@@ -305,6 +305,24 @@ class RequestRouter:
 
     def __init__(self):
         """Initialize router"""
+        try:
+            from ai.optimization.runtime_thresholds import get_thresholds
+
+            thresholds = get_thresholds()
+            self.MIN_TOOL_CONFIDENCE = float(
+                thresholds.get("tool_path_confidence", self.MIN_TOOL_CONFIDENCE)
+            )
+            self.MIN_CONV_CONFIDENCE = float(
+                thresholds.get("conversation_min_confidence", self.MIN_CONV_CONFIDENCE)
+            )
+            self.CLARIFICATION_THRESHOLD = float(
+                thresholds.get(
+                    "router_clarification_threshold", self.CLARIFICATION_THRESHOLD
+                )
+            )
+        except Exception as e:
+            logger.debug(f"Runtime thresholds unavailable for router: {e}")
+
         self.routing_stats = {
             "self_reflection": 0,
             "conversational": 0,

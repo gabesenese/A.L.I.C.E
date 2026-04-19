@@ -739,6 +739,11 @@ class ALICE:
                 llm_engine=self.llm,
                 learning_engine=self.learning_engine
             )
+            if getattr(self, 'nlp', None) and hasattr(self.nlp, 'attach_llm_gateway'):
+                try:
+                    self.nlp.attach_llm_gateway(self.llm_gateway)
+                except Exception as e:
+                    logger.debug(f"[NLP] Failed to attach LLM gateway for intent fallback: {e}")
             logger.info("[OK] LLM Gateway active - all calls now policy-gated")
 
             # 4.1.0 Runtime fallback + response authority contracts
@@ -6379,6 +6384,12 @@ class ALICE:
             return intent, entities or {}, intent_confidence
         if self._is_explicit_greeting_input(user_input):
             return intent, entities or {}, intent_confidence
+        if (
+            normalized_intent == "conversation:goal_statement"
+            and self._is_answerability_direct_question(user_input)
+        ):
+            self._think("Direct informational question detected -> conversation:question")
+            return "conversation:question", dict(entities or {}), max(float(intent_confidence or 0.0), 0.84)
 
         signal = self._extract_goal_statement_signal(user_input)
         project_ideation = self._is_project_ideation_request(user_input)
@@ -9407,7 +9418,12 @@ class ALICE:
         )
 
         has_direct_structure = any(re.search(pat, text) for pat in direct_question_patterns)
-        is_question_like = bool("?" in text or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", text))
+        is_question_like = bool(
+            "?" in text
+            or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", text)
+            or re.search(r"\bi\s+(?:want|need|would\s+like)\s+to\s+know\b", text)
+            or re.search(r"\btell\s+me\b", text)
+        )
         return bool(has_direct_structure and is_question_like)
 
     @staticmethod
@@ -9573,6 +9589,60 @@ class ALICE:
             task_understood=bool(task_understood),
         )
 
+    def _retry_llm_answer_after_failure(self, *, user_input: str, intent: str) -> Optional[str]:
+        """Attempt one clean LLM retry before deterministic fallback recovery."""
+        prompt = (
+            "Answer the user's request directly and clearly in 2-5 concise sentences. "
+            "Do not ask for clarification if the request is understandable. "
+            "Do not mention system internals or routing.\n\n"
+            f"User request: {str(user_input or '').strip()}"
+        )
+
+        try:
+            if getattr(self, 'llm_gateway', None):
+                retry = self.llm_gateway.request(
+                    prompt=prompt,
+                    call_type=LLMCallType.GENERATION,
+                    use_history=False,
+                    user_input=user_input,
+                    context={
+                        'intent': intent,
+                        'failure_recovery_retry': True,
+                    },
+                )
+                if retry.success and retry.response:
+                    return self._clamp_final_response(
+                        str(retry.response).strip(),
+                        tone='helpful',
+                        response_type='general_response',
+                        route='llm_retry_recovery',
+                        user_input=user_input,
+                    )
+        except Exception:
+            pass
+
+        try:
+            if getattr(self, 'llm', None) and hasattr(self.llm, 'chat'):
+                retry_text = self.llm.chat(
+                    prompt,
+                    use_history=False,
+                    temperature=0.3,
+                    mode='final_answer_only',
+                )
+                retry_text = str(retry_text or '').strip()
+                if retry_text:
+                    return self._clamp_final_response(
+                        retry_text,
+                        tone='helpful',
+                        response_type='general_response',
+                        route='llm_retry_recovery',
+                        user_input=user_input,
+                    )
+        except Exception:
+            pass
+
+        return None
+
     def _safe_llm_failure_response(self, *, user_input: str, intent: str, llm_response: Any) -> str:
         """Convert execution failures into resilient responses without conflating with ambiguity."""
         if not isinstance(getattr(self, "_internal_reasoning_state", None), dict):
@@ -9590,6 +9660,18 @@ class ALICE:
                 if understood_request
                 else "low_confidence_answer_requiring_retry"
             )
+
+            llm_retry = self._retry_llm_answer_after_failure(
+                user_input=user_input,
+                intent=intent,
+            )
+            if llm_retry:
+                self._record_failure_recovery_state(
+                    reason="llm_retry_after_generation_failure",
+                    response=llm_retry,
+                    task_understood=True,
+                )
+                return llm_retry
 
             deterministic = self._deterministic_fallback_once(user_input, intent)
             if deterministic:
@@ -9679,15 +9761,42 @@ class ALICE:
           >= 0.45 → ask for clarification
           <  0.45 → surface top-2 interpretations
         """
-        if confidence >= 0.85:
+        execute_direct_threshold = 0.85
+        execute_low_conf_threshold = 0.65
+        clarify_threshold = 0.45
+
+        try:
+            from ai.optimization.runtime_thresholds import get_thresholds
+
+            runtime_thresholds = get_thresholds()
+            execute_direct_threshold = float(
+                runtime_thresholds.get(
+                    "confidence_execute_direct", execute_direct_threshold
+                )
+            )
+            execute_low_conf_threshold = float(
+                runtime_thresholds.get(
+                    "confidence_execute_low", execute_low_conf_threshold
+                )
+            )
+            clarify_threshold = float(
+                runtime_thresholds.get("confidence_clarify", clarify_threshold)
+            )
+        except Exception:
+            pass
+
+        execute_direct_threshold = max(execute_direct_threshold, execute_low_conf_threshold)
+        execute_low_conf_threshold = max(execute_low_conf_threshold, clarify_threshold)
+
+        if confidence >= execute_direct_threshold:
             return {"action": "execute", "confidence": confidence}
-        if confidence >= 0.65:
+        if confidence >= execute_low_conf_threshold:
             return {
                 "action": "execute_low_conf",
                 "confidence": confidence,
                 "marker": "I'm not 100% sure, but I'll try—",
             }
-        if confidence >= 0.45:
+        if confidence >= clarify_threshold:
             if self._should_answer_first_without_clarification(user_input, intent):
                 return {
                     "action": "execute_low_conf",
@@ -9699,7 +9808,7 @@ class ALICE:
                 "confidence": confidence,
                 "question": "Could you clarify what you'd like me to do?",
             }
-        # < 0.45: surface top-2 candidates
+        # < clarify threshold: surface top-2 candidates
         if self._should_answer_first_without_clarification(user_input, intent):
             return {
                 "action": "execute_low_conf",
