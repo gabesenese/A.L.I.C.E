@@ -229,6 +229,7 @@ class ALICE:
         self.llm_policy = llm_policy
         self.strict_no_llm = llm_policy == "strict"
         self.running = False
+        self.user_name = str(user_name or "User").strip() or "User"
         
         # ===== PRODUCTION INFRASTRUCTURE INITIALIZATION =====
         logger.info("=" * 80)
@@ -397,7 +398,7 @@ class ALICE:
         # Initialize components
         try:
             # Set up logging context for this session
-            self.structured_logger.set_context(user=user_name, session_id=f"{time.time()}")
+            self.structured_logger.set_context(user=self.user_name, session_id=f"{time.time()}")
             
             # 1. NLP Processor
             logger.info("Loading NLP processor...")
@@ -474,13 +475,13 @@ class ALICE:
             # 1.5. Unified Context Engine (combines context_manager + advanced_context_handler)
             logger.info("Loading unified context engine...")
             self.context = get_context_engine()
-            self.context.user_prefs.name = user_name
+            self.context.user_prefs.name = self.user_name
             # Backward compatibility: older code paths reference advanced_context
             self.advanced_context = self.context
             
             # 2. Reasoning Engine (combines world_state + reference_resolver + goal_resolver + verifier)
             logger.info("Loading reasoning engine...")
-            self.reasoning_engine = get_reasoning_engine(user_name)
+            self.reasoning_engine = get_reasoning_engine(self.user_name)
             self.response_self_critic = get_response_self_critic()
             self.executive_controller = get_executive_controller()
             self.reflection_engine = get_reflection_engine()
@@ -1717,6 +1718,21 @@ class ALICE:
 
         return reasoning_chain
 
+    def _resolve_runtime_user_name(self) -> str:
+        """Resolve user identity safely even when legacy attrs are missing."""
+        direct_name = str(getattr(self, "user_name", "") or "").strip()
+        if direct_name:
+            return direct_name
+
+        context_prefs = getattr(getattr(self, "context", None), "user_prefs", None)
+        context_name = str(getattr(context_prefs, "name", "") or "").strip()
+        if context_name:
+            self.user_name = context_name
+            return context_name
+
+        self.user_name = "User"
+        return self.user_name
+
     def _identify_capability_from_input(self, user_input: str) -> Optional[str]:
         """
         Identify which capability the user is asking about.
@@ -2226,6 +2242,9 @@ class ALICE:
             item = str(alice_response.get('clothing_item', 'jacket') or 'jacket').lower().strip()
             rainy = alice_response.get('rainy')
             force_yes_no = bool(alice_response.get('force_yes_no'))
+            is_forecast = bool(alice_response.get('is_forecast'))
+            temp_range = str(alice_response.get('temp_range', '') or '').strip()
+            user_question = str(alice_response.get('user_question', '') or '').lower()
 
             # Normalize frequent condition typos from upstream providers.
             _cond_fixups = {
@@ -2259,6 +2278,25 @@ class ALICE:
                 except (TypeError, ValueError):
                     temp_val = None
 
+            scope_label = ""
+            if "this week" in user_question or "week" in user_question:
+                scope_label = "this week"
+            elif "weekend" in user_question:
+                scope_label = "this weekend"
+            elif "tomorrow" in user_question:
+                scope_label = "tomorrow"
+            elif is_forecast:
+                scope_label = "the forecast period"
+
+            def _forecast_reason() -> str:
+                if temp_range:
+                    return f"temperatures are around {temp_range}"
+                if temp_val is not None:
+                    return f"temperatures are around {_format_temp(temp_val)}°C"
+                if condition:
+                    return f"conditions look {condition}"
+                return "conditions look cool"
+
             def _recommendation() -> tuple[bool, str]:
                 if item == 'umbrella':
                     return bool(rainy), (
@@ -2286,6 +2324,30 @@ class ALICE:
             should_bring, reason = _recommendation()
             place = f" in {location}" if location else ""
             item_text = _item_phrase(item)
+
+            if scope_label:
+                forecast_reason = _forecast_reason()
+                if item == 'umbrella':
+                    umbrella_reason = (
+                        "rain is in the forecast"
+                        if bool(rainy)
+                        else forecast_reason
+                    )
+                    if force_yes_no:
+                        if bool(rainy):
+                            return f"Yes, bring {item_text} for {scope_label} because {umbrella_reason}{place}."
+                        return f"No, you likely do not need {item_text} for {scope_label} because {umbrella_reason}{place}."
+                    if bool(rainy):
+                        return f"Bring {item_text} for {scope_label}; {umbrella_reason}{place}."
+                    return f"You likely do not need {item_text} for {scope_label}; {umbrella_reason}{place}."
+
+                if force_yes_no:
+                    if should_bring:
+                        return f"Yes, bring {item_text} for {scope_label} because {forecast_reason}{place}."
+                    return f"No, you likely do not need {item_text} for {scope_label} because {forecast_reason}{place}."
+                if should_bring:
+                    return f"Bring {item_text} for {scope_label}; {forecast_reason}{place}."
+                return f"You likely do not need {item_text} for {scope_label}; {forecast_reason}{place}."
 
             if force_yes_no:
                 if should_bring:
@@ -9179,16 +9241,29 @@ class ALICE:
             return intent, float(intent_confidence or 0.0)
 
         text = (user_input or "").lower()
-        has_weather_scope = any(
-            token in text
-            for token in (
-                "weather",
-                "forecast",
-                "temperature",
-                "rain",
-                "snow",
-                "outside",
-            )
+        weather_scope_tokens = (
+            "weather",
+            "forecast",
+            "temperature",
+            "rain",
+            "snow",
+            "outside",
+        )
+        weather_clothing_tokens = (
+            "coat",
+            "jacket",
+            "umbrella",
+            "scarf",
+            "gloves",
+            "boots",
+            "sweater",
+            "hoodie",
+            "layer",
+            "layers",
+        )
+        has_weather_scope = any(token in text for token in weather_scope_tokens) or any(
+            re.search(r"\b" + re.escape(token) + r"\b", text)
+            for token in weather_clothing_tokens
         )
         # If intent is already weather:current, treat explicit time-range as
         # sufficient signal even without repeating the word "weather".
@@ -9227,6 +9302,75 @@ class ALICE:
 
         return intent, float(intent_confidence or 0.0)
 
+    def _is_weather_clothing_time_range_request(self, user_input: str) -> bool:
+        """Detect weather clothing advice asks that should avoid canonical conversational fallback."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        time_range_cues = (
+            "this week",
+            "next week",
+            "weekend",
+            "this weekend",
+            "rest of the week",
+            "rest of week",
+            "tomorrow",
+            "tonight",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        )
+        if not any(cue in text for cue in time_range_cues):
+            return False
+
+        weather_tokens = (
+            "weather",
+            "forecast",
+            "temperature",
+            "outside",
+            "rain",
+            "snow",
+            "cold",
+            "warm",
+            "wind",
+        )
+        clothing_tokens = (
+            "wear",
+            "bring",
+            "coat",
+            "jacket",
+            "umbrella",
+            "scarf",
+            "gloves",
+            "boots",
+            "sweater",
+            "hoodie",
+            "layer",
+            "layers",
+        )
+        has_scope = any(
+            re.search(r"\b" + re.escape(token) + r"\b", text)
+            for token in (weather_tokens + clothing_tokens)
+        )
+        if not has_scope:
+            return False
+
+        advisory_markers = (
+            "should i",
+            "do i need",
+            "would i need",
+            "what should i wear",
+            "what to wear",
+        )
+        return any(marker in text for marker in advisory_markers) or bool(
+            re.search(r"\b(?:wear|bring)\b", text)
+        )
+
     def _has_strong_weather_signal(self, user_input: str) -> bool:
         text = str(user_input or "").lower()
         if not text:
@@ -9252,6 +9396,14 @@ class ALICE:
             "freezing",
             "precipitation",
             "precip",
+            "coat",
+            "jacket",
+            "umbrella",
+            "scarf",
+            "gloves",
+            "boots",
+            "sweater",
+            "hoodie",
         )
         return any(re.search(r"\b" + re.escape(term) + r"\b", text) for term in weather_terms)
 
@@ -10604,6 +10756,7 @@ class ALICE:
             self._exec_should_store_memory = True
             self._internal_reasoning_state = {}
             self._last_exec_gate_eval = {}
+            runtime_user_name = self._resolve_runtime_user_name()
             self._start_turn_runtime_contracts(user_input)
             if getattr(self, 'world_state_memory', None):
                 try:
@@ -10626,13 +10779,22 @@ class ALICE:
             self.structured_logger.info("Processing input", input_length=len(user_input))
             logger.info(f"User: {user_input}")
             is_location_query = self._is_location_query(user_input)
+            bypass_canonical_weather = self._is_weather_clothing_time_range_request(user_input)
+            if bypass_canonical_weather:
+                self._think(
+                    "Canonical pipeline bypassed for weather clothing/time-range query"
+                )
 
             # Canonical path first when enabled: avoid side-path bypasses.
-            if is_enabled("contract_pipeline") and getattr(self, 'contract_pipeline', None):
+            if (
+                not bypass_canonical_weather
+                and is_enabled("contract_pipeline")
+                and getattr(self, 'contract_pipeline', None)
+            ):
                 try:
                     _pipeline_result = self.contract_pipeline.run_turn(
                         user_input=user_input,
-                        user_id=str(self.user_name),
+                        user_id=runtime_user_name,
                         turn_number=int(getattr(self, '_turn_count', 0) or 0),
                     )
                     if _pipeline_result and _pipeline_result.handled and _pipeline_result.response_text:
@@ -10690,7 +10852,7 @@ class ALICE:
                         user_input=user_input[:500],  # Truncate for memory
                         internal_state={
                             'timestamp': datetime.utcnow().isoformat(),
-                            'user': self.user_name
+                            'user': runtime_user_name
                         }
                     )
                 except Exception as e:
@@ -10736,7 +10898,7 @@ class ALICE:
                     if last_input and last_response:
                         # Current user input serves as implicit feedback
                         self.foundations.learn_from_feedback(
-                            user_id=self.user_name,
+                            user_id=runtime_user_name,
                             user_input=last_input,
                             alice_response=last_response,
                             user_reaction=user_input
@@ -13675,7 +13837,7 @@ class ALICE:
                     try:
                         self._think(f"Foundation systems active (mode={self.foundation_mode}) → generating context-aware response")
                         foundation_result = self.foundations.process_interaction(
-                            user_id=self.user_name,
+                            user_id=runtime_user_name,
                             user_input=user_input,
                             intent=intent,
                             entities=entities or {},
@@ -13695,7 +13857,7 @@ class ALICE:
                     try:
                         self._think("Foundation parallel mode → running both systems for comparison")
                         foundation_result = self.foundations.process_interaction(
-                            user_id=self.user_name,
+                            user_id=runtime_user_name,
                             user_input=user_input,
                             intent=intent,
                             entities=entities or {},

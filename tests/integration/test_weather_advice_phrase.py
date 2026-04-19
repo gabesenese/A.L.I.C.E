@@ -54,6 +54,26 @@ def test_weather_advice_unknown_condition_does_not_surface_unknown_text():
     assert "conditions look cool" in out.lower()
 
 
+def test_weather_advice_forecast_scope_mentions_this_week():
+    alice = _alice_stub()
+    out = alice._alice_direct_phrase(
+        "weather_advice",
+        {
+            "temperature": -6,
+            "temp_range": "-6°C to 8°C",
+            "condition": "cloudy",
+            "location": "Kitchener",
+            "clothing_item": "coat",
+            "force_yes_no": True,
+            "is_forecast": True,
+            "user_question": "should i wear a coat this week?",
+        },
+    )
+    assert "this week" in out.lower()
+    assert "today" not in out.lower()
+    assert out.startswith("Yes,")
+
+
 def test_weather_forecast_weekend_unknown_condition_uses_friendly_label():
     alice = _alice_stub()
     out = alice._alice_direct_phrase(
