@@ -87,7 +87,7 @@ def run_nightly_training():
         logger.info("\n[PHASE 1-3] Running Automated Training Pipeline")
         logger.info("-" * 80)
         
-        from scripts.automated_training import AutomatedTrainingPipeline
+        from scripts.automation.automated_training import AutomatedTrainingPipeline
         
         pipeline = AutomatedTrainingPipeline()
         pipeline_results = pipeline.run_full_pipeline(scenario_results)

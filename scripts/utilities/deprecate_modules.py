@@ -8,8 +8,8 @@ for reference and historical reasons. This is the first step in
 reducing A.L.I.C.E. from 69 → 15 core modules.
 
 Usage:
-    python scripts/deprecate_modules.py --acknowledge-quarantine --dry-run
-    python scripts/deprecate_modules.py --acknowledge-quarantine --confirm
+    python scripts/utilities/deprecate_modules.py --acknowledge-quarantine --legacy-layout --dry-run
+    python scripts/utilities/deprecate_modules.py --acknowledge-quarantine --legacy-layout --confirm
 
 This script is quarantined by default because historical module maps are stale.
 Only use it after regenerating module usage evidence from the current runtime.
@@ -258,6 +258,12 @@ if __name__ == '__main__':
         print("\n[BLOCKED] This script is quarantined because module maps are stale.")
         print("[BLOCKED] Regenerate live usage evidence before moving modules.")
         print("[BLOCKED] To proceed intentionally, rerun with --acknowledge-quarantine.")
+        sys.exit(2)
+
+    if '--legacy-layout' not in sys.argv:
+        print("\n[BLOCKED] This script targets the legacy flat ai/*.py module layout.")
+        print("[BLOCKED] Current repository layout is namespaced (ai/core, ai/learning, etc.).")
+        print("[BLOCKED] If you still need this path, rerun with --legacy-layout.")
         sys.exit(2)
     
     dry_run = '--confirm' not in sys.argv

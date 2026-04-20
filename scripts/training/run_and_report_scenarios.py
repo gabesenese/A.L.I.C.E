@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 # Run scenarios
-project_root = Path(__file__).resolve().parent.parent
+project_root = Path(__file__).resolve().parents[2]
 result = subprocess.run(
     [sys.executable, "-m", "scenarios.sim.run_scenarios", "--policy", "minimal"],
     capture_output=True,

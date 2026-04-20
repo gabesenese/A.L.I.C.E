@@ -8,7 +8,8 @@ import os
 import json
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 def test_audit_components():
     """Test individual audit components"""
@@ -50,7 +51,7 @@ def test_audit_components():
     # Test 3: Scorer
     print("\n[3/5] Testing scorer...")
     try:
-        from ai.ollama_scorer import create_scorer
+        from ai.training.ollama_scorer import create_scorer
         
         scorer = create_scorer()
         print(f"[OK] Scorer initialized")
@@ -62,7 +63,7 @@ def test_audit_components():
     # Test 4: Feedback injector
     print("\n[4/5] Testing feedback injector...")
     try:
-        from ai.ollama_feedback_injector import create_injector
+        from ai.training.ollama_feedback_injector import create_injector
         
         injector = create_injector()
         print(f"[OK] Feedback injector initialized")
@@ -74,7 +75,7 @@ def test_audit_components():
     # Test 5: Metric tracker
     print("\n[5/5] Testing metric tracker...")
     try:
-        from ai.metric_tracker import create_tracker
+        from ai.optimization.metric_tracker import create_tracker
         
         tracker = create_tracker()
         print(f"[OK] Metric tracker initialized")

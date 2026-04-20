@@ -9,6 +9,7 @@ import threading
 from typing import Callable, Dict, List, Any
 from datetime import datetime, time
 from pathlib import Path
+from ai.ollama_teaching_spec import TEACHING_VECTORS
 
 logger = logging.getLogger(__name__)
 
@@ -220,13 +221,13 @@ class AutomatedAuditRunner:
         }
         
         # Record pre-training scores
-        domains = list(self.teacher.teacher.TEACHING_VECTORS.keys())
+        domains = list(TEACHING_VECTORS.keys())
         
         for domain in domains:
             logger.info(f"\nProcessing domain: {domain}")
             
             # Generate test queries
-            vectors = [v for v in self.teacher.teacher.TEACHING_VECTORS[domain]]
+            vectors = list(TEACHING_VECTORS.get(domain, []))
             
             domain_scores = {'tests': 0, 'avg_score': 0}
             domain_audit_scores = []

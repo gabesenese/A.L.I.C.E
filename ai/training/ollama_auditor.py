@@ -134,7 +134,7 @@ Output JSON: {{"score": <1-5>, "reasoning": "<explanation>"}}
 """
 
         try:
-            response_text = self.llm.query(prompt, max_tokens=200)
+            response_text = self.llm.generate(prompt, max_tokens=200)
 
             # Parse JSON
             import re

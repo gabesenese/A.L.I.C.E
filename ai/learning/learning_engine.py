@@ -1156,7 +1156,11 @@ class PatternPromotionEngine:
 
         if not training_data:
             logger.info("[PatternPromotion] No training data found")
-            return {"promoted": 0, "staged_for_review": 0}
+            return {
+                "promoted": 0,
+                "staged_for_review": 0,
+                "total_clusters_found": 0,
+            }
 
         # Cluster by intent
         clusters = self._cluster_by_intent(training_data)

@@ -5,10 +5,12 @@ Call this daily or weekly, e.g. via cron or Task Scheduler.
 
 import sys
 import os
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from ai.teacher_loop import TeacherLoop
+from ai.training.teacher_loop import TeacherLoop
 
 if __name__ == "__main__":
     print("=" * 60)
@@ -26,10 +28,10 @@ if __name__ == "__main__":
     if suggestions:
         print("\n[SUGGESTIONS] Pattern Suggestions:")
         for i, suggestion in enumerate(suggestions, 1):
-            print(f"\n{i}. Pattern: '{suggestion.normalized_input}'")
+            print(f"\n{i}. Pattern: '{suggestion.user_input_pattern}'")
             print(f"   Frequency: {suggestion.frequency} times")
-            print(f"   Consistency: {suggestion.consistency:.1%}")
-            print(f"   Response: '{suggestion.response[:80]}...'")
+            print(f"   Confidence: {suggestion.confidence:.1%}")
+            print(f"   Response: '{suggestion.common_response[:80]}...'")
 
     # Auto-learn high-confidence patterns
     print("\n[AUTO-LEARN] Auto-learning high-confidence patterns...")

@@ -4,9 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+from ai.core.execution_verifier import ExecutionVerifier, get_execution_verifier
+from ai.core.executive_controller import (
+    ExecutiveController,
+    ExecutiveDecision,
+    TurnExecutionOutcome,
+    TurnStateMachineResult,
+)
 from ai.contracts import RuntimeBoundaries, VerifierResult
 from ai.runtime.companion_runtime import CompanionRuntimeLoop
 from ai.runtime.turn_orchestrator import TurnOrchestrator
@@ -28,11 +35,235 @@ class ContractPipeline:
         boundaries: RuntimeBoundaries,
         user_state_model: Optional[UserStateModel] = None,
         companion_runtime: Optional[CompanionRuntimeLoop] = None,
+        executive_controller: Optional[ExecutiveController] = None,
+        execution_verifier: Optional[ExecutionVerifier] = None,
     ):
         self.boundaries = boundaries
         self.user_state_model = user_state_model or UserStateModel()
         self.companion_runtime = companion_runtime or CompanionRuntimeLoop()
+        self.executive_controller = executive_controller or ExecutiveController()
+        self.execution_verifier = execution_verifier or get_execution_verifier()
         self.orchestrator = TurnOrchestrator(boundaries)
+
+    @staticmethod
+    def _is_tool_route(route: str) -> bool:
+        return str(route or "").strip().lower() in {"tool", "plugin"}
+
+    @staticmethod
+    def _merge_issue_lists(*issue_lists: List[str]) -> List[str]:
+        seen = set()
+        merged: List[str] = []
+        for bucket in issue_lists:
+            for raw in list(bucket or []):
+                issue = str(raw or "").strip()
+                if not issue:
+                    continue
+                key = issue.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(issue)
+        return merged
+
+    @staticmethod
+    def _verification_to_dict(verification: Optional[VerifierResult]) -> Dict[str, Any]:
+        if verification is None:
+            return {
+                "accepted": True,
+                "reason": "not_configured",
+                "confidence": 1.0,
+                "diagnostics": {},
+            }
+        return {
+            "accepted": bool(verification.accepted),
+            "reason": str(verification.reason or "verified"),
+            "confidence": float(verification.confidence or 0.0),
+            "diagnostics": dict(verification.diagnostics or {}),
+        }
+
+    def _build_pre_execution_state_machine(
+        self,
+        *,
+        user_input: str,
+        decision: Any,
+        action_discipline: Dict[str, Any],
+    ) -> TurnStateMachineResult:
+        metadata = dict(getattr(decision, "metadata", {}) or {})
+        state = self.executive_controller.build_state(
+            user_input=user_input,
+            intent=str(getattr(decision, "intent", "") or "unknown"),
+            confidence=float(getattr(decision, "confidence", 0.0) or 0.0),
+            entities={
+                "topic": str(getattr(decision, "intent", "") or "").split(":", 1)[0],
+                "_intent_plausibility": float(
+                    max(0.0, min(1.0, float(getattr(decision, "confidence", 0.0) or 0.0)))
+                ),
+            },
+            conversation_state={
+                "active_goals": list(metadata.get("active_goals", []) or []),
+            },
+        )
+
+        route = str(getattr(decision, "route", "") or "").strip().lower()
+        approval_required = bool(action_discipline.get("approval_required"))
+
+        if approval_required or route == "clarify":
+            executive_decision = ExecutiveDecision(
+                action="ask_clarification",
+                reason="approval_required" if approval_required else "route_clarify",
+                store_memory=False,
+                clarification_question="What exact outcome should I target next?",
+            )
+        elif route == "refuse":
+            executive_decision = ExecutiveDecision(
+                action="defer",
+                reason="route_refuse",
+                store_memory=False,
+            )
+        elif self._is_tool_route(route):
+            executive_decision = ExecutiveDecision(
+                action="use_plugin",
+                reason="route_tool",
+                store_memory=True,
+            )
+        else:
+            executive_decision = ExecutiveDecision(
+                action="use_llm",
+                reason="route_llm",
+                store_memory=True,
+            )
+
+        return self.executive_controller.run_turn_state_machine(
+            state=state,
+            decision=executive_decision,
+            has_explicit_action_cue=self._is_tool_route(route) and not approval_required,
+            has_active_goal=bool(metadata.get("active_goals")),
+            pre_route_blocked=approval_required or route == "clarify",
+            tool_vetoed=route == "refuse",
+        )
+
+    def _build_turn_execution_outcome(
+        self,
+        *,
+        turn_state_machine: TurnStateMachineResult,
+        decision: Any,
+        tool_result: Any,
+        verification: Optional[VerifierResult],
+        response_text: str,
+        action_discipline: Dict[str, Any],
+    ) -> Tuple[TurnExecutionOutcome, Dict[str, Any]]:
+        route = str(getattr(decision, "route", "") or "").strip().lower()
+        route_is_tool = self._is_tool_route(route)
+        approval_required = bool(action_discipline.get("approval_required"))
+        tool_success = bool(route_is_tool and tool_result is not None and tool_result.success)
+
+        verification_payload = self._verification_to_dict(verification)
+        verification_accepted = bool(verification_payload["accepted"])
+
+        goal_advanced = bool(
+            verification_accepted
+            and (
+                tool_success
+                if route_is_tool
+                else bool(str(response_text or "").strip())
+            )
+        )
+        if approval_required:
+            goal_advanced = False
+
+        retryable = False
+        if route_is_tool and tool_result is not None and not tool_result.success:
+            retryable = bool(
+                not action_discipline.get("retried")
+                and self.companion_runtime.policy_engine.is_transient_tool_error(tool_result)
+            )
+
+        execution_report = self.execution_verifier.verify_task_result(
+            intent=str(getattr(decision, "intent", "") or ""),
+            result=response_text,
+            all_results={
+                "route": route,
+                "tool": str(getattr(tool_result, "tool_name", "") or ""),
+                "tool_error": str(getattr(tool_result, "error", "") or ""),
+            },
+            success_criteria=list(turn_state_machine.contract.success_criteria or []),
+            outcome={
+                "tool_success": tool_success,
+                "goal_advanced": goal_advanced,
+                "verification_passed": verification_accepted,
+            },
+        )
+
+        verification_passed = bool(verification_accepted and execution_report.accepted)
+        combined_issues = self._merge_issue_lists(
+            execution_report.issues,
+            [] if verification_accepted else [str(verification_payload.get("reason") or "verification_failed")],
+        )
+
+        if approval_required:
+            recommended_next_action = "respond"
+        elif route_is_tool and not verification_passed:
+            recommended_next_action = "retry" if retryable else "escalate"
+        elif not verification_passed:
+            recommended_next_action = "replan"
+        elif route_is_tool and goal_advanced:
+            recommended_next_action = "continue"
+        else:
+            recommended_next_action = "respond"
+
+        verification_confidence = min(
+            float(verification_payload.get("confidence") or 1.0),
+            float(execution_report.confidence or 0.0),
+        )
+
+        outcome = self.executive_controller.build_execution_outcome(
+            contract=turn_state_machine.contract,
+            tool_success=tool_success,
+            goal_advanced=goal_advanced,
+            verification_passed=verification_passed,
+            recommended_next_action=recommended_next_action,
+            retryable=retryable,
+            issues=combined_issues,
+            verification_confidence=verification_confidence,
+            metadata={
+                "plugin": str(getattr(tool_result, "tool_name", "") or ""),
+                "action": str(getattr(tool_result, "action", "") or ""),
+                "status": (
+                    "skipped"
+                    if (not route_is_tool or tool_result is None)
+                    else ("ok" if tool_success else "failed")
+                ),
+                "route": route,
+            },
+        )
+
+        return outcome, execution_report.to_dict()
+
+    @staticmethod
+    def _with_verified_execution_suffix(
+        response_text: str,
+        *,
+        tool_result: Any,
+        outcome: TurnExecutionOutcome,
+        action_discipline: Dict[str, Any],
+    ) -> str:
+        text = str(response_text or "").strip()
+        if not text:
+            return ""
+        if not outcome.verification_passed:
+            return text
+        if not (tool_result and getattr(tool_result, "success", False)):
+            return text
+        if bool(action_discipline.get("approval_required")):
+            return text
+
+        suffix = (
+            f"Verified execution via {str(getattr(tool_result, 'tool_name', '') or 'tool')}"
+            f".{str(getattr(tool_result, 'action', '') or 'action')}."
+        )
+        if suffix.lower() in text.lower():
+            return text
+        return f"{text}\n\n{suffix}"
 
     @staticmethod
     def _merge_unique(base_items: list[str], new_items: list[str]) -> list[str]:
@@ -127,6 +358,8 @@ class ContractPipeline:
             route_phase=route_phase,
             policy=policy,
         )
+        action_discipline = dict(action_discipline or {})
+        action_discipline["policy_decision"] = policy.decision_type
         tool_result = execute_phase.tool_result
 
         if bool(action_discipline.get("approval_required")):
@@ -250,12 +483,57 @@ class ContractPipeline:
             )
             respond_metadata["follow_up_question"] = follow_up_question
 
+        turn_state_machine = self._build_pre_execution_state_machine(
+            user_input=user_input,
+            decision=decision,
+            action_discipline=action_discipline,
+        )
+        turn_execution_outcome, task_verification = self._build_turn_execution_outcome(
+            turn_state_machine=turn_state_machine,
+            decision=decision,
+            tool_result=tool_result,
+            verification=verification,
+            response_text=response_text,
+            action_discipline=action_discipline,
+        )
+        post_execution_state_machine = self.executive_controller.run_post_execution_state_machine(
+            pre_execution=turn_state_machine,
+            outcome=turn_execution_outcome,
+        )
+
+        if not turn_execution_outcome.verification_passed:
+            response_text = (
+                "I could not verify that result safely. "
+                "Please rephrase the request or provide more detail."
+            )
+            respond_requires_follow_up = True
+            respond_metadata = {
+                **dict(respond_metadata or {}),
+                "fallback": "execution_verifier_guard",
+            }
+            follow_up_question = str(
+                respond_metadata.get("follow_up_question")
+                or follow_up_question
+                or self.companion_runtime.default_follow_up_question(policy=policy)
+            ).strip()
+            if follow_up_question:
+                respond_metadata["follow_up_question"] = follow_up_question
+        else:
+            response_text = self._with_verified_execution_suffix(
+                response_text,
+                tool_result=tool_result,
+                outcome=turn_execution_outcome,
+                action_discipline=action_discipline,
+            )
+
         stages.append(
             self._stage(
                 "respond",
                 "ok" if response_text else "failed",
                 {
                     "requires_follow_up": respond_requires_follow_up,
+                    "verification_passed": turn_execution_outcome.verification_passed,
+                    "post_execution_phase": post_execution_state_machine.phase,
                     **dict(respond_metadata or {}),
                 },
             )
@@ -282,6 +560,10 @@ class ContractPipeline:
                 "trace_id": trace_id,
                 "resolved_input": resolved_input,
                 "memory_domains": memory_domains,
+                "turn_contract": post_execution_state_machine.contract.as_dict(),
+                "turn_execution_outcome": turn_execution_outcome.as_dict(),
+                "post_execution_state_machine": post_execution_state_machine.as_dict(),
+                "task_verification": dict(task_verification or {}),
             }
         )
 
@@ -304,8 +586,10 @@ class ContractPipeline:
                 "trace_id": trace_id,
                 "route": decision.route,
                 "intent": decision.intent,
-                "verified": bool(verification.accepted if verification else True),
+                "verified": bool(turn_execution_outcome.verification_passed),
                 "policy_decision": policy.decision_type,
+                "post_execution_phase": post_execution_state_machine.phase,
+                "recommended_next_action": turn_execution_outcome.recommended_next_action,
             },
         )
         stages.append(
@@ -344,6 +628,10 @@ class ContractPipeline:
                         dict(verification.diagnostics) if verification else {}
                     ),
                 },
+                "turn_contract": post_execution_state_machine.contract.as_dict(),
+                "turn_execution_outcome": turn_execution_outcome.as_dict(),
+                "post_execution_state_machine": post_execution_state_machine.as_dict(),
+                "task_verification": dict(task_verification or {}),
                 "companion": {
                     "policy_decision": policy.decision_type,
                     "policy_reason": policy.reason,

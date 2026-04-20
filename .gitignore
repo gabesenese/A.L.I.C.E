@@ -59,6 +59,8 @@ config/cred/*.pickle
 # Keep curated fixtures and source-controlled samples out of this list.
 data/cache/
 data/autonomous_sessions/
+data/qa/learning_data_qa_*.json
+data/qa/quarantine/
 data/realtime_learning/*.jsonl
 data/analytics/*.jsonl
 data/training/*.jsonl
@@ -67,6 +69,10 @@ data/context_state.pkl
 data/advanced_context_state.pkl
 data/memory/vectors.pkl
 memory/*.json
+app/data/*.backup.*.json
+app/data/*.backup.*.jsonl
+data/*.backup.*.json
+data/*.backup.*.jsonl
 
 # Temporary workspace artifacts
 tmpclaude*

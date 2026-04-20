@@ -11,10 +11,10 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from ai.learning_engine import (
+from ai.learning.learning_engine import (
     get_learning_engine,
     get_auto_correction_engine,
     get_pattern_promotion_engine
@@ -97,11 +97,23 @@ def test_auto_corrections():
     if corrections_file.exists():
         with open(corrections_file, 'r') as f:
             corrections = json.load(f)
+        if isinstance(corrections, dict):
+            corrections = list(corrections.values())
         print(f"\nCorrections stored: {len(corrections)} total in memory/corrections.json")
         if corrections:
-            recent = corrections[-1]
+            recent = next(
+                (item for item in reversed(corrections) if isinstance(item, dict)),
+                {},
+            )
+            recent_input = (
+                recent.get("user_input")
+                or recent.get("input_text")
+                or recent.get("input")
+                or recent.get("query")
+                or "<missing>"
+            )
             print(f"  Latest correction:")
-            print(f"    Input: '{recent['user_input']}'")
+            print(f"    Input: '{recent_input}'")
             print(f"    Expected: {recent.get('expected_intent', 'N/A')}")
             print(f"    Actual: {recent.get('actual_intent', 'N/A')}")
     
@@ -144,7 +156,7 @@ def test_pattern_promotion():
     print(f"\nPromotion results:")
     print(f"  Patterns auto-promoted: {results['promoted']}")
     print(f"  Patterns staged for review: {results['staged_for_review']}")
-    print(f"  Total clusters found: {results['total_clusters_found']}")
+    print(f"  Total clusters found: {results.get('total_clusters_found', 0)}")
     
     # Check if patterns were created
     patterns_file = PROJECT_ROOT / "memory" / "learning_patterns.json"

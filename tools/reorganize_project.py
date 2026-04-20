@@ -2,14 +2,19 @@
 Project Structure Reorganization
 =================================
 Advanced engineering folder structure - clean, modular, scalable.
+
+This script is intentionally quarantined because the map can drift as the
+repository evolves. Always validate live usage and path existence before
+executing file moves.
 """
 
+import argparse
 import os
 import shutil
 from pathlib import Path
 
 # Current root
-ROOT = Path("c:/Users/Gabriel/Desktop/dev/A.L.I.C.E")
+ROOT = Path(__file__).resolve().parents[1]
 
 # New structure
 REORGANIZATION = {
@@ -140,36 +145,36 @@ REORGANIZATION = {
     ],
 
     "tools/monitoring/": [
-        "reports/monitor_training.py",
-        "scripts/monitor_audit_progress.py",
-        "scripts/monitor_live.py",
+        "tools/monitoring/monitor_training.py",
+        "tools/monitoring/monitor_audit_progress.py",
+        "tools/monitoring/monitor_live.py",
     ],
 
     # Scripts - automation
     "scripts/automation/": [
-        "scripts/automated_training.py",
-        "scripts/nightly_training.py",
-        "scripts/nightly_training_autonomous.py",
-        "scripts/start_automation.py",
-        "ai/nightly_audit_scheduler.py",
+        "scripts/automation/automated_training.py",
+        "scripts/automation/nightly_training.py",
+        "scripts/automation/nightly_training_autonomous.py",
+        "scripts/automation/start_automation.py",
+        "scripts/automation/nightly_audit_scheduler.py",
     ],
 
     "scripts/training/": [
-        "scripts/run_learning_cycle.py",
-        "scripts/run_scenarios_and_train.py",
-        "scripts/simple_learning.py",
-        "scripts/run_and_report_scenarios.py",
+        "scripts/training/run_learning_cycle.py",
+        "scripts/training/run_scenarios_and_train.py",
+        "scripts/training/simple_learning.py",
+        "scripts/training/run_and_report_scenarios.py",
     ],
 
     "scripts/testing/": [
-        "scripts/test_audit_components.py",
-        "scripts/test_audit_pipeline.py",
-        "scripts/test_automation.py",
+        "scripts/testing/test_audit_components.py",
+        "scripts/testing/test_audit_pipeline.py",
+        "scripts/testing/test_automation.py",
     ],
 
     "scripts/utilities/": [
-        "scripts/count_scenarios.py",
-        "scripts/deprecate_modules.py",
+        "scripts/utilities/count_scenarios.py",
+        "scripts/utilities/deprecate_modules.py",
         "ai/promote_patterns.py",
     ],
 
@@ -236,13 +241,56 @@ def print_reorganization_plan():
     print()
 
 
-def execute_reorganization(dry_run=True):
+def _collect_mapped_sources():
+    """Collect all mapped source paths from the reorganization table."""
+    sources = []
+    for new_location, files in REORGANIZATION.items():
+        if new_location.startswith("_"):
+            continue
+        for file_path in files:
+            sources.append(ROOT / file_path)
+    return sources
+
+
+def _map_health(min_existing_ratio: float = 0.60):
+    """Return (is_healthy, stats) for mapped source path existence."""
+    sources = _collect_mapped_sources()
+    existing = [p for p in sources if p.exists()]
+    missing = [p for p in sources if not p.exists()]
+    total = len(sources)
+    ratio = (len(existing) / total) if total else 0.0
+    return ratio >= min_existing_ratio, {
+        "total": total,
+        "existing": len(existing),
+        "missing": len(missing),
+        "existing_ratio": ratio,
+    }
+
+
+def execute_reorganization(dry_run=True, min_existing_ratio: float = 0.60):
     """Execute the reorganization"""
+
+    healthy, stats = _map_health(min_existing_ratio=min_existing_ratio)
+
+    print("\n[MAP HEALTH]")
+    print(
+        f"  mapped={stats['total']} existing={stats['existing']} "
+        f"missing={stats['missing']} ratio={stats['existing_ratio']:.1%}"
+    )
 
     if dry_run:
         print("\n[DRY RUN MODE - No files will be moved]\n")
         print_reorganization_plan()
-        return
+        return True
+
+    if not healthy:
+        print("\n[BLOCKED] Reorganization map appears stale for current repository state.")
+        print(
+            f"[BLOCKED] Existing ratio {stats['existing_ratio']:.1%} is below "
+            f"required {min_existing_ratio:.1%}."
+        )
+        print("[BLOCKED] Refresh the map first, then rerun intentionally.")
+        return False
 
     print("EXECUTING REORGANIZATION...")
     print()
@@ -268,6 +316,14 @@ def execute_reorganization(dry_run=True):
             src = ROOT / file_path
             dst = ROOT / new_location / Path(file_path).name
 
+            # When map and destination already align, treat as no-op.
+            try:
+                if src.resolve() == dst.resolve():
+                    print(f"Already in place: {file_path}")
+                    continue
+            except FileNotFoundError:
+                pass
+
             if src.exists():
                 shutil.move(str(src), str(dst))
                 print(f"Moved: {file_path} -> {new_location}")
@@ -277,15 +333,42 @@ def execute_reorganization(dry_run=True):
 
     print()
     print(f"Reorganization complete! Moved {moved} files.")
+    return True
 
 
 if __name__ == "__main__":
-    import sys
+    parser = argparse.ArgumentParser(description="Quarantined project reorganization tool")
+    parser.add_argument("--execute", action="store_true", help="Actually move files")
+    parser.add_argument(
+        "--acknowledge-quarantine",
+        action="store_true",
+        help="Required safety acknowledgement for this stale-map tool",
+    )
+    parser.add_argument(
+        "--min-existing-ratio",
+        type=float,
+        default=0.60,
+        help="Minimum mapped-source existence ratio required for execution",
+    )
+    args = parser.parse_args()
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--execute":
-        execute_reorganization(dry_run=False)
-    else:
-        execute_reorganization(dry_run=True)
+    if not args.acknowledge_quarantine:
+        print("\n[BLOCKED] This script is quarantined because path maps can drift.")
+        print("[BLOCKED] Rerun with --acknowledge-quarantine to inspect or execute.")
+        print("[BLOCKED] Example dry run:")
+        print("  python tools/reorganize_project.py --acknowledge-quarantine")
+        print("[BLOCKED] Example execute:")
+        print("  python tools/reorganize_project.py --acknowledge-quarantine --execute")
+        raise SystemExit(2)
+
+    ok = execute_reorganization(
+        dry_run=not args.execute,
+        min_existing_ratio=args.min_existing_ratio,
+    )
+
+    if not args.execute:
         print()
-        print("To execute reorganization, run:")
-        print("  python tools/reorganize_project.py --execute")
+        print("To execute reorganization intentionally, run:")
+        print("  python tools/reorganize_project.py --acknowledge-quarantine --execute")
+
+    raise SystemExit(0 if ok else 1)

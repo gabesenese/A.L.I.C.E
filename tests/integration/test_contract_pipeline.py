@@ -62,6 +62,15 @@ class _FakePlugins:
                 "confidence": 0.88,
             }
 
+        if "weather fail hard" in query_text:
+            return {
+                "success": False,
+                "response": "",
+                "plugin": "WeatherPlugin",
+                "confidence": 0.2,
+                "error": "invalid api key",
+            }
+
         if "weather nested" in str(query or "").lower():
             return {
                 "success": True,
@@ -475,3 +484,64 @@ def test_contract_pipeline_refuse_band_enforces_policy_response():
     assert "can't safely" in result.response_text.lower()
     assert result.metadata["verification"]["accepted"] is True
     assert result.metadata["verification"]["reason"] == "refused_by_policy"
+
+
+def test_contract_pipeline_emits_post_execution_contract_and_outcome_metadata():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=40)
+
+    assert result.handled is True
+    assert "verified execution via weatherplugin.weather:current" in result.response_text.lower()
+    contract = result.metadata["turn_contract"]
+    outcome = result.metadata["turn_execution_outcome"]
+    post = result.metadata["post_execution_state_machine"]
+    task_verification = result.metadata["task_verification"]
+
+    assert contract["chosen_route"] == "tool"
+    assert outcome["tool_success"] is True
+    assert outcome["verification_passed"] is True
+    assert post["phase"] in {"completed", "verified"}
+    assert task_verification["accepted"] is True
+
+
+def test_contract_pipeline_persists_execution_artifacts_in_memory_context():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=41)
+
+    assert alice.memory._stored
+    context = dict(alice.memory._stored[-1]["context"] or {})
+
+    assert context["trace_id"] == result.metadata["trace_id"]
+    assert context["turn_contract"]["chosen_route"] == "tool"
+    assert context["turn_execution_outcome"]["verification_passed"] is True
+    assert context["post_execution_state_machine"]["phase"] in {"completed", "verified"}
+    assert context["task_verification"]["accepted"] is True
+
+
+def test_contract_pipeline_escalates_hard_tool_failures_in_post_execution_state_machine():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(user_input="weather fail hard", user_id="u1", turn_number=42)
+
+    assert result.handled is True
+    assert result.metadata["route"] == "tool"
+    assert result.metadata["verification"]["reason"] == "tool_failed"
+    assert "could not verify that result safely" in result.response_text.lower()
+
+    outcome = result.metadata["turn_execution_outcome"]
+    post = result.metadata["post_execution_state_machine"]
+    task_verification = result.metadata["task_verification"]
+
+    assert outcome["tool_success"] is False
+    assert outcome["verification_passed"] is False
+    assert outcome["needs_escalation"] is True
+    assert post["phase"] == "escalated"
+    assert task_verification["accepted"] is False
