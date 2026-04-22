@@ -735,6 +735,23 @@ def test_execution_mode_uses_operator_for_explicit_action_turn():
     assert reason == "explicit_action_cue"
 
 
+def test_execution_mode_locks_meta_question_to_conversational_lane_even_with_action_verbs():
+    alice = ALICE.__new__(ALICE)
+
+    mode, reason = alice._select_execution_mode(
+        user_input="you are an ai how do you read a book or listen to calming music?",
+        intent="conversation:meta_question",
+        intent_confidence=0.92,
+        has_active_goal=False,
+        has_explicit_action_cue=True,
+        force_plugins_for_notes=False,
+        pending_action=None,
+    )
+
+    assert mode == "conversational_intelligence"
+    assert reason == "meta_question_conversation_lock"
+
+
 def test_conversational_fast_lane_detector_allows_brainstorming_without_tools():
     alice = ALICE.__new__(ALICE)
 
@@ -814,6 +831,17 @@ def test_action_cue_detector_ignores_conceptual_build_prompt():
     assert (
         alice._has_explicit_action_cue(
             "how can i create an ai like assistant with todays technology and no fiction"
+        )
+        is False
+    )
+
+
+def test_action_cue_detector_ignores_meta_identity_question_with_human_activity_verbs():
+    alice = ALICE.__new__(ALICE)
+
+    assert (
+        alice._has_explicit_action_cue(
+            "you are an ai how do you read a book or listen to calming music"
         )
         is False
     )
@@ -923,6 +951,24 @@ def test_clamp_final_response_project_ideation_meta_leak_uses_guidance():
     assert "i can help with that. tell me the exact result you want." not in low
     assert "strong place to start" in low
     assert "focus first on memory, tool-use, or conversational quality" in low
+
+
+def test_clamp_final_response_rewrites_anthropomorphic_routine_claims():
+    alice = ALICE.__new__(ALICE)
+
+    leaked = "When I unwind, I usually like to read a book or listen to calming music."
+    clamped = alice._clamp_final_response(
+        leaked,
+        tone="helpful",
+        response_type="general_response",
+        route="llm",
+        user_input="just got home from work and im beat",
+    )
+
+    low = clamped.lower()
+    assert "when i unwind" not in low
+    assert "i usually like to" not in low
+    assert "a practical option is to" in low
 
 
 def test_contract_respond_stage_replaces_stale_clarification_scaffold_for_project_ideation() -> None:

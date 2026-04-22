@@ -1921,6 +1921,75 @@ class ALICE:
             "timestamp": datetime.now().isoformat(),
         }
 
+    @staticmethod
+    def _contains_anthropomorphic_routine_claim(text: str) -> bool:
+        """Detect human-routine claims that should not be presented as assistant self-experience."""
+        low = str(text or "").lower().strip()
+        if not low:
+            return False
+
+        direct_phrases = (
+            "when i unwind",
+            "i usually like to read a book",
+            "i usually like to listen to",
+            "after work i",
+            "i got home from work",
+            "i took a nap",
+            "i'm beat",
+            "i am beat",
+        )
+        if any(phrase in low for phrase in direct_phrases):
+            return True
+
+        routine_pattern = re.compile(
+            r"\bi (?:usually\s+)?(?:like|love|enjoy|prefer)\s+to\s+"
+            r"(?:read(?:ing)?\s+(?:a\s+)?book|listen(?:ing)?\s+to\s+(?:music|songs?)|"
+            r"take(?:\s+a)?\s+nap|sleep|eat|drink|go\s+for\s+a\s+walk|watch\s+(?:tv|movies?))\b"
+        )
+        return bool(routine_pattern.search(low))
+
+    @classmethod
+    def _rewrite_anthropomorphic_routine_claims(cls, text: str) -> str:
+        """Rewrite anthropomorphic first-person routine claims without hardcoded fallback replies."""
+        raw = str(text or "").strip()
+        if not raw:
+            return ""
+
+        rewritten_parts: List[str] = []
+        for part in re.split(r"(?<=[.!?])\s+|\n+", raw):
+            sentence = str(part or "").strip()
+            if not sentence:
+                continue
+
+            if cls._contains_anthropomorphic_routine_claim(sentence):
+                sentence = re.sub(r"\bwhen\s+i\s+unwind,?\s*", "", sentence, flags=re.IGNORECASE)
+                sentence = re.sub(
+                    r"\bi\s+usually\s+like\s+to\b",
+                    "A practical option is to",
+                    sentence,
+                    flags=re.IGNORECASE,
+                )
+                sentence = re.sub(
+                    r"\bi\s+(?:like|love|enjoy|prefer)\s+to\b",
+                    "A practical option is to",
+                    sentence,
+                    flags=re.IGNORECASE,
+                )
+                sentence = re.sub(
+                    r"\bi\s+(?:got\s+home\s+from\s+work|took\s+a\s+nap|am\s+beat|['\"]m\s+beat)\b",
+                    "",
+                    sentence,
+                    flags=re.IGNORECASE,
+                )
+                sentence = re.sub(r"\s{2,}", " ", sentence).strip(" ,;:-")
+                if sentence and not re.search(r"[.!?]$", sentence):
+                    sentence = sentence + "."
+
+            if sentence:
+                rewritten_parts.append(sentence)
+
+        return " ".join(rewritten_parts).strip()
+
     def _clamp_final_response(
         self,
         response: str,
@@ -1965,6 +2034,12 @@ class ALICE:
                     intent=inferred_intent,
                 )
             return self._fallback_generic_response(user_input, intent=inferred_intent)
+
+        if self._contains_anthropomorphic_routine_claim(text):
+            rewritten = self._rewrite_anthropomorphic_routine_claims(text)
+            if rewritten:
+                text = rewritten
+                lower = text.lower()
 
         leak_patterns = (
             "the user wants",
@@ -5066,6 +5141,9 @@ class ALICE:
         if self._is_rich_conceptual_request(user_input) or self._is_conceptual_build_architecture_prompt(user_input):
             return "conversational_intelligence", "rich_conceptual_fast_lane"
 
+        if str(intent or "").lower().strip() == "conversation:meta_question":
+            return "conversational_intelligence", "meta_question_conversation_lock"
+
         if has_explicit_action_cue:
             return "operator", "explicit_action_cue"
 
@@ -5125,6 +5203,9 @@ class ALICE:
             or self._is_conceptual_build_architecture_prompt(text)
             or self._is_project_ideation_request(text)
         ):
+            return False
+
+        if self._is_meta_identity_question(user_input):
             return False
 
         action_pattern = (
@@ -9520,6 +9601,67 @@ class ALICE:
             return "weather:forecast"
         return "weather:current"
 
+    def _is_meta_identity_question(self, user_input: str) -> bool:
+        """Detect AI-identity or self-referential meta questions that must stay conversational."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        identity_phrases = (
+            "who are you",
+            "what are you",
+            "who made you",
+            "who created you",
+            "who built you",
+            "who developed you",
+            "who programmed you",
+            "tell me about yourself",
+            "you are an ai",
+            "are you an ai",
+            "are you a robot",
+            "are you human",
+            "are you being sarcastic",
+            "are you sarcastic",
+        )
+        if any(phrase in text for phrase in identity_phrases):
+            return True
+
+        human_capability_patterns = (
+            r"\bhow\s+do\s+you\s+read\s+(?:a\s+)?book\b",
+            r"\bhow\s+do\s+you\s+listen\s+to\s+(?:music|songs?)\b",
+            r"\bhow\s+do\s+you\s+(?:sleep|eat|dream|unwind|relax|get\s+tired)\b",
+            r"\bdo\s+you\s+(?:sleep|eat|dream|get\s+tired|feel\s+tired)\b",
+        )
+        return any(re.search(pattern, text) for pattern in human_capability_patterns)
+
+    def _apply_meta_question_override(
+        self,
+        *,
+        user_input: str,
+        intent: str,
+        intent_confidence: float,
+    ) -> Tuple[str, float, Dict[str, Any]]:
+        """Promote AI-identity/self-referential meta questions to conversational meta intent."""
+        current_intent = str(intent or "conversation:general").strip()
+        current_confidence = float(intent_confidence or 0.0)
+
+        if not self._is_meta_identity_question(user_input):
+            return current_intent, current_confidence, {
+                "applied": False,
+                "reason": "no_meta_identity_signal",
+            }
+
+        target_intent = "conversation:meta_question"
+        target_confidence = max(current_confidence, 0.92)
+        applied = current_intent != target_intent or target_confidence > current_confidence
+
+        return target_intent, target_confidence, {
+            "applied": applied,
+            "reason": "meta_question_identity_override",
+            "from_intent": current_intent,
+            "to_intent": target_intent,
+        }
+
     def _apply_weather_domain_override(
         self,
         *,
@@ -11607,6 +11749,24 @@ class ALICE:
                 intent = "conversation:general"
                 intent_confidence = 0.9
 
+            # 0.544 META-QUESTION GUARD: AI-identity/self-referential prompts
+            # must remain conversational and never be tool-routed.
+            intent, intent_confidence, _meta_override_early = self._apply_meta_question_override(
+                user_input=user_input,
+                intent=intent,
+                intent_confidence=float(intent_confidence or 0.0),
+            )
+            if _meta_override_early.get("applied"):
+                self._think(
+                    "Meta-question override (early) "
+                    f"{_meta_override_early.get('from_intent')} -> {intent}"
+                )
+                entities = dict(entities or {})
+                entities.setdefault(
+                    "domain_override",
+                    _meta_override_early.get("reason", "meta_question_identity_override"),
+                )
+
             # 0.545 ISSUE-REPORT GUARD: long reflective debugging statements
             # (about intents/routing/recommendations) should not be tool-routed.
             if self._is_issue_report_input(user_input):
@@ -12878,6 +13038,22 @@ class ALICE:
                 elif active_goal and intent_confidence < 0.7 and intent_plausibility < 0.60:
                     self._think("Low plausibility detected → not reusing goal intent")
 
+            intent, intent_confidence, _meta_override_late = self._apply_meta_question_override(
+                user_input=user_input,
+                intent=intent,
+                intent_confidence=float(intent_confidence or 0.0),
+            )
+            if _meta_override_late.get("applied"):
+                self._think(
+                    "Meta-question override (late) "
+                    f"{_meta_override_late.get('from_intent')} -> {intent}"
+                )
+                entities = dict(entities or {})
+                entities.setdefault(
+                    "domain_override",
+                    _meta_override_late.get("reason", "meta_question_identity_override"),
+                )
+
             intent, intent_confidence, _weather_override_late = self._apply_weather_domain_override(
                 user_input=user_input,
                 intent=intent,
@@ -13379,6 +13555,10 @@ class ALICE:
                 )
 
             _should_try_plugins = bool(_turn_state_machine.should_try_plugins)
+            if str(intent or "").lower().strip() == "conversation:meta_question" and _should_try_plugins:
+                self._think("Meta-question conversation lock → skipping plugin route")
+                _should_try_plugins = False
+
             _routing_owner = "agentic_loop_primary"
             _routing_reason = (
                 f"contract_route:{_turn_state_machine.chosen_route}|"

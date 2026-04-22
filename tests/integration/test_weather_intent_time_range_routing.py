@@ -153,3 +153,33 @@ def test_weather_domain_override_does_not_fire_for_explicit_note_request():
     assert meta.get("applied") is False
     assert intent == "notes:read"
     assert confidence == 0.90
+
+
+def test_meta_question_override_promotes_notes_mislabel_to_meta_question():
+    alice = ALICE.__new__(ALICE)
+
+    intent, confidence, meta = ALICE._apply_meta_question_override(
+        alice,
+        user_input="you are an ai how do you read a book or listen to calming music? are you being sarcastic?",
+        intent="notes:read",
+        intent_confidence=0.0,
+    )
+
+    assert meta.get("applied") is True
+    assert intent == "conversation:meta_question"
+    assert confidence >= 0.92
+
+
+def test_meta_question_override_does_not_fire_for_explicit_note_read():
+    alice = ALICE.__new__(ALICE)
+
+    intent, confidence, meta = ALICE._apply_meta_question_override(
+        alice,
+        user_input="read my notes from today",
+        intent="notes:read",
+        intent_confidence=0.93,
+    )
+
+    assert meta.get("applied") is False
+    assert intent == "notes:read"
+    assert confidence == 0.93
