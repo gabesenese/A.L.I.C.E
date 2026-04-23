@@ -74,6 +74,19 @@ app/data/*.backup.*.jsonl
 data/*.backup.*.json
 data/*.backup.*.jsonl
 
+# Runtime state snapshots (local-only churn)
+app/data/analytics/agentic_readiness_*.json
+app/data/analytics/agentic_readiness_*.jsonl
+app/data/autolearn/cycle_history.jsonl
+app/data/realtime_learning/continuous_stats.json
+app/data/realtime_learning/learning_cycles.jsonl
+app/data/world_state.json
+data/analytics/agentic_readiness_latest.json
+data/autolearn/cycle_history.jsonl
+data/realtime_learning/continuous_stats.json
+data/world_state.json
+data/qa/startup_health_summary.json
+
 # Temporary workspace artifacts
 tmpclaude*
 NUL
