@@ -83,10 +83,14 @@ app/data/realtime_learning/learning_cycles.jsonl
 app/data/world_state.json
 data/analytics/agentic_readiness_latest.json
 data/autolearn/cycle_history.jsonl
+data/action_journal.jsonl
+data/entities.json
 data/realtime_learning/continuous_stats.json
+data/relationships.json
 data/world_state.json
 data/qa/startup_health_summary.json
 
 # Temporary workspace artifacts
 tmpclaude*
 NUL
+data/world_state.json
