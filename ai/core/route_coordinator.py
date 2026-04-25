@@ -26,6 +26,50 @@ class RouteCoordinatorConfig:
 class RouteCoordinator:
     """Coordinates intent stabilization, gating, and final fallback policy."""
 
+    _contextual_reaction_gratitude_terms = (
+        "thanks",
+        "thank you",
+        "appreciate it",
+        "good to know",
+        "letting me know",
+    )
+    _contextual_reaction_state_terms = (
+        "cold",
+        "sick",
+        "flu",
+        "fever",
+        "headache",
+        "under the weather",
+        "not feeling well",
+        "tired",
+        "exhausted",
+        "bipolar weather",
+        "weather has been",
+        "got a cold",
+    )
+    _contextual_reaction_request_terms = (
+        "can you",
+        "could you",
+        "please",
+        "what's",
+        "what is",
+        "how",
+        "when",
+        "where",
+        "show",
+        "tell me",
+        "check",
+        "forecast",
+        "temperature",
+        "temp",
+        "rain",
+        "snow",
+        "humidity",
+        "wind",
+        "chance",
+        "should i",
+    )
+
     def __init__(self, config: Optional[RouteCoordinatorConfig] = None) -> None:
         if config is None:
             defaults = RouteCoordinatorConfig()
@@ -253,8 +297,39 @@ class RouteCoordinator:
         intent_confidence: float,
         intent_category: str,
         parsed_command: Any,
+        normalized_text: str = "",
+        previous_intent: str = "",
     ) -> Tuple[str, float]:
         modifiers = parsed_command.modifiers
+        prior_intent = str(previous_intent or "").strip().lower()
+        lower_text = str(normalized_text or "").strip().lower()
+
+        contextual_reaction = self._is_contextual_reaction_followup(
+            text=lower_text,
+            previous_intent=prior_intent,
+        )
+        current_intent_is_tool = (":" in str(intent or "")) and not str(intent).startswith(
+            "conversation:"
+        )
+        if contextual_reaction and current_intent_is_tool:
+            modifiers["tool_execution_disabled"] = True
+            modifiers["contextual_reaction_gate"] = {
+                "reason": "gratitude_plus_personal_state_no_new_request",
+                "previous_intent": prior_intent,
+                "original_intent": str(intent or ""),
+                "original_confidence": float(intent_confidence or 0.0),
+            }
+            routing_trace = dict(modifiers.get("routing_trace") or {})
+            routing_trace.update(
+                {
+                    "contextual_reaction_gate": True,
+                    "reason": "gratitude_plus_personal_state_no_new_request",
+                    "previous_intent": prior_intent,
+                }
+            )
+            modifiers["routing_trace"] = routing_trace
+            return "conversation:personal_reaction", max(float(intent_confidence or 0.0), 0.82)
+
         if (
             intent_category == "conversation"
             and not intent.startswith("conversation:")
@@ -285,6 +360,23 @@ class RouteCoordinator:
             modifiers["tool_execution_disabled"] = True
 
         return intent, intent_confidence
+
+    def _is_contextual_reaction_followup(self, *, text: str, previous_intent: str) -> bool:
+        if not str(previous_intent or "").startswith("weather:"):
+            return False
+
+        utterance = str(text or "").strip().lower()
+        if not utterance:
+            return False
+
+        has_personal_state = any(
+            marker in utterance for marker in self._contextual_reaction_state_terms
+        )
+        has_direct_request = "?" in utterance or any(
+            marker in utterance for marker in self._contextual_reaction_request_terms
+        )
+
+        return has_personal_state and not has_direct_request
 
     def ensure_metadata(
         self,

@@ -3392,6 +3392,8 @@ class NLPProcessor:
             intent_confidence=float(intent_confidence or 0.0),
             intent_category=intent_category,
             parsed_command=parsed_command,
+            normalized_text=normalized_text,
+            previous_intent=str(self.context.last_intent or ""),
         )
 
         self.route_coordinator.ensure_metadata(

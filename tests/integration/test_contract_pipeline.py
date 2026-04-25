@@ -353,6 +353,70 @@ def test_contract_pipeline_routes_weather_lexical_request_to_tool_even_when_nlp_
     assert result.metadata["verification"]["accepted"] is True
 
 
+def test_weather_followup_personal_reaction_does_not_call_weather_tool():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    first = pipeline.run_turn(
+        user_input="will it rain tomorrow?",
+        user_id="u1",
+        turn_number=14,
+    )
+    assert first.metadata["route"] == "tool"
+    assert first.metadata["intent"] == "weather:forecast"
+
+    second = pipeline.run_turn(
+        user_input="thanks for letting me know. weather has been bipolar and i got a cold.",
+        user_id="u1",
+        turn_number=15,
+    )
+
+    assert second.handled is True
+    assert second.metadata["route"] == "conversation"
+    assert second.metadata["intent"] == "conversation:personal_reaction"
+    assert second.metadata["companion"]["policy_reason"] == "contextual_reaction_after_tool_result"
+
+    route_veto = dict(second.metadata["plan"].get("route_veto") or {})
+    assert route_veto.get("applied") is True
+    assert route_veto.get("reason") == "gratitude_plus_personal_state_no_new_request"
+    assert route_veto.get("previous_intent") == "weather:forecast"
+    assert route_veto.get("tool_execution_disabled") is True
+
+    execute_stage = _stage_by_name(second, "execute")
+    assert execute_stage["status"] == "skipped"
+    assert "llm:" in second.response_text.lower()
+
+
+def test_weather_followup_personal_reaction_without_gratitude_does_not_call_weather_tool():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    first = pipeline.run_turn(
+        user_input="will it rain tomorrow?",
+        user_id="u1",
+        turn_number=16,
+    )
+    assert first.metadata["route"] == "tool"
+    assert first.metadata["intent"] == "weather:forecast"
+
+    second = pipeline.run_turn(
+        user_input="i got a cold from all this weather change, hopefully it will get better soon or stay consistent",
+        user_id="u1",
+        turn_number=17,
+    )
+
+    assert second.handled is True
+    assert second.metadata["route"] == "conversation"
+    assert second.metadata["intent"] == "conversation:personal_reaction"
+    assert second.metadata["companion"]["policy_reason"] == "contextual_reaction_after_tool_result"
+
+    execute_stage = _stage_by_name(second, "execute")
+    assert execute_stage["status"] == "skipped"
+    assert "llm:" in second.response_text.lower()
+
+
 def test_contract_pipeline_routes_proactive_agent_design_statement_to_llm_execute():
     alice = _FakeAlice()
     boundaries = build_runtime_boundaries(alice)

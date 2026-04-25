@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -48,6 +48,86 @@ class ContractPipeline:
     @staticmethod
     def _is_tool_route(route: str) -> bool:
         return str(route or "").strip().lower() in {"tool", "plugin"}
+
+    def _apply_contextual_reaction_pre_tool_veto(
+        self,
+        *,
+        user_input: str,
+        route_phase: Any,
+        policy: Any,
+        companion_state: Any,
+    ) -> Tuple[Any, Any, Dict[str, Any]]:
+        decision = route_phase.decision
+        if not self._is_tool_route(getattr(decision, "route", "")):
+            return route_phase, policy, {"applied": False}
+
+        previous_intent = str(getattr(companion_state, "last_intent", "") or "")
+        should_veto = self.companion_runtime.policy_engine.is_contextual_reaction(
+            user_input=user_input,
+            previous_intent=previous_intent,
+        )
+        if not should_veto:
+            return route_phase, policy, {"applied": False}
+
+        reason = "gratitude_plus_personal_state_no_new_request"
+        metadata = dict(getattr(decision, "metadata", {}) or {})
+        metadata.update(
+            {
+                "route_veto": {
+                    "applied": True,
+                    "reason": reason,
+                    "previous_intent": previous_intent,
+                    "original_route": str(getattr(decision, "route", "") or ""),
+                    "original_intent": str(getattr(decision, "intent", "") or ""),
+                    "tool_execution_disabled": True,
+                }
+            }
+        )
+
+        demoted_decision = replace(
+            decision,
+            route="conversation",
+            intent="conversation:personal_reaction",
+            confidence=max(float(getattr(decision, "confidence", 0.0) or 0.0), 0.82),
+            decision_band="execute",
+            needs_clarification=False,
+            metadata=metadata,
+        )
+
+        demoted_plan = dict(route_phase.plan or {})
+        demoted_plan.update(
+            {
+                "route": "conversation",
+                "intent": "conversation:personal_reaction",
+                "decision_band": "execute",
+                "needs_clarification": False,
+                "step_count": 1,
+                "tool_execution_disabled": True,
+                "route_veto_reason": reason,
+                "previous_intent": previous_intent,
+            }
+        )
+
+        demoted_route_phase = replace(
+            route_phase,
+            decision=demoted_decision,
+            plan=demoted_plan,
+        )
+        demoted_policy = replace(
+            policy,
+            decision_type="respond",
+            reason="contextual_reaction_after_tool_result",
+            retry_budget=0,
+            requires_approval=False,
+            approval_reason="",
+        )
+
+        return demoted_route_phase, demoted_policy, {
+            "applied": True,
+            "reason": reason,
+            "previous_intent": previous_intent,
+            "tool_execution_disabled": True,
+        }
 
     @staticmethod
     def _merge_issue_lists(*issue_lists: List[str]) -> List[str]:
@@ -332,6 +412,18 @@ class ContractPipeline:
             route_decision=decision,
             companion_state=companion_state,
         )
+        route_phase, policy, route_veto = self._apply_contextual_reaction_pre_tool_veto(
+            user_input=user_input,
+            route_phase=route_phase,
+            policy=policy,
+            companion_state=companion_state,
+        )
+        decision = route_phase.decision
+        resolved_input = route_phase.resolved_input
+        memory = route_phase.memory
+        plan = dict(route_phase.plan or {})
+        if bool(route_veto.get("applied")):
+            plan["route_veto"] = dict(route_veto)
         plan["policy_decision"] = policy.decision_type
 
         stages.append(
@@ -348,6 +440,7 @@ class ContractPipeline:
                     "resolved_input": resolved_input,
                     "policy_decision": policy.decision_type,
                     "policy_reason": policy.reason,
+                    "tool_execution_disabled": bool(route_veto.get("tool_execution_disabled")),
                     "plan": plan,
                 },
             )
@@ -548,6 +641,7 @@ class ContractPipeline:
             verification=verification,
             requires_follow_up=respond_requires_follow_up,
             follow_up_question=follow_up_question,
+            tool_result=tool_result,
             action_discipline=action_discipline,
         )
 
@@ -637,6 +731,10 @@ class ContractPipeline:
                     "policy_reason": policy.reason,
                     "identity_model": dict(memory_domains.get("identity", {}) or {}),
                     "memory_domains": memory_domains,
+                    "last_tool_result": dict(companion_state.last_tool_result or {}),
+                    "last_user_state_signals": list(
+                        companion_state.last_user_state_signals or []
+                    ),
                     "action_discipline": {
                         "retry_count": int(action_discipline.get("attempt_count") or 0),
                         "retried": bool(action_discipline.get("retried")),

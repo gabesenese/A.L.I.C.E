@@ -60,6 +60,8 @@ class CompanionState:
     last_intent: str = ""
     last_route: str = ""
     last_response_excerpt: str = ""
+    last_tool_result: Dict[str, Any] = field(default_factory=dict)
+    last_user_state_signals: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -94,6 +96,49 @@ class CompanionPolicyEngine:
         "429",
         "retry",
     )
+    _contextual_reaction_gratitude_terms = (
+        "thanks",
+        "thank you",
+        "appreciate it",
+        "good to know",
+        "letting me know",
+    )
+    _contextual_reaction_state_terms = (
+        "cold",
+        "sick",
+        "flu",
+        "fever",
+        "headache",
+        "under the weather",
+        "not feeling well",
+        "tired",
+        "exhausted",
+        "bipolar weather",
+        "weather has been",
+        "got a cold",
+    )
+    _contextual_reaction_request_terms = (
+        "can you",
+        "could you",
+        "please",
+        "what's",
+        "what is",
+        "how",
+        "when",
+        "where",
+        "show",
+        "tell me",
+        "check",
+        "forecast",
+        "temperature",
+        "temp",
+        "rain",
+        "snow",
+        "humidity",
+        "wind",
+        "chance",
+        "should i",
+    )
 
     def decide(
         self,
@@ -113,6 +158,16 @@ class CompanionPolicyEngine:
             )
 
         if route in {"tool", "plugin"}:
+            if self.is_contextual_reaction(
+                user_input=user_input,
+                previous_intent=companion_state.last_intent,
+            ):
+                return PolicyDecision(
+                    decision_type="respond",
+                    reason="contextual_reaction_after_tool_result",
+                    retry_budget=0,
+                )
+
             requires_approval, approval_reason = self.requires_approval(
                 user_input=user_input,
                 intent=route_decision.intent,
@@ -154,6 +209,22 @@ class CompanionPolicyEngine:
         error_text = f"{tool_result.error} {(tool_result.diagnostics or {}).get('error', '')}".lower()
         return any(marker in error_text for marker in self._transient_error_terms)
 
+    def is_contextual_reaction(self, *, user_input: str, previous_intent: str) -> bool:
+        prior_intent = str(previous_intent or "").strip().lower()
+        if not prior_intent.startswith("weather:"):
+            return False
+
+        text = str(user_input or "").strip().lower()
+        if not text:
+            return False
+
+        has_personal_state = any(marker in text for marker in self._contextual_reaction_state_terms)
+        has_direct_request = "?" in text or any(
+            marker in text for marker in self._contextual_reaction_request_terms
+        )
+
+        return has_personal_state and not has_direct_request
+
 
 class CompanionRuntimeLoop:
     """Central runtime loop that keeps companion state coherent every turn."""
@@ -161,6 +232,12 @@ class CompanionRuntimeLoop:
     _project_pattern = re.compile(
         r"\b(project|feature|milestone|roadmap|repo|repository|build|test suite|automation)\b",
         re.IGNORECASE,
+    )
+    _user_state_signal_patterns = (
+        ("cold", re.compile(r"\b(cold|chilly|freezing)\b", re.IGNORECASE)),
+        ("sick", re.compile(r"\b(sick|ill|under the weather|not feeling well|flu|fever)\b", re.IGNORECASE)),
+        ("tired", re.compile(r"\b(tired|exhausted|drained|burned out)\b", re.IGNORECASE)),
+        ("stressed", re.compile(r"\b(stressed|anxious|overwhelmed|panic)\b", re.IGNORECASE)),
     )
 
     def __init__(self, policy_engine: CompanionPolicyEngine | None = None) -> None:
@@ -330,11 +407,15 @@ class CompanionRuntimeLoop:
         verification: VerifierResult | None,
         requires_follow_up: bool,
         follow_up_question: str,
+        tool_result: ToolResult | None,
         action_discipline: Dict[str, Any],
     ) -> Dict[str, Any]:
         companion_state.last_intent = str(route_decision.intent or "")
         companion_state.last_route = str(route_decision.route or "")
         companion_state.last_response_excerpt = str(response_text or "").strip()[:280]
+        companion_state.last_user_state_signals = self._extract_user_state_signals(user_input)
+        if tool_result is not None:
+            companion_state.last_tool_result = self._summarize_tool_result(tool_result)
 
         if verification and verification.accepted:
             companion_state.identity_model.continuity_score = min(
@@ -420,6 +501,29 @@ class CompanionRuntimeLoop:
             confidence=float(tool_result.confidence or 0.0),
             diagnostics=diagnostics,
         )
+
+    def _extract_user_state_signals(self, user_input: str) -> List[str]:
+        text = str(user_input or "").strip()
+        if not text:
+            return []
+
+        detected: List[str] = []
+        for label, pattern in self._user_state_signal_patterns:
+            if pattern.search(text):
+                detected.append(label)
+
+        return _dedupe_keep_order(detected, limit=8)
+
+    def _summarize_tool_result(self, tool_result: ToolResult) -> Dict[str, Any]:
+        data = dict(tool_result.data or {})
+        return {
+            "tool_name": str(tool_result.tool_name or ""),
+            "action": str(tool_result.action or ""),
+            "success": bool(tool_result.success),
+            "confidence": float(tool_result.confidence or 0.0),
+            "error": str(tool_result.error or ""),
+            "response_excerpt": str(data.get("response") or "").strip()[:180],
+        }
 
     def _extract_project_hints(self, user_input: str) -> List[str]:
         text = str(user_input or "").strip()
