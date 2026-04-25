@@ -12,7 +12,7 @@ EXACT_PROMPT = (
 )
 
 EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
-EXACT_TONY_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
+EXACT_FICTIONAL_INVENTOR_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
 EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
 EXACT_FRAMEWORKS_PROMPT = "research existing frameworks for agentic autonomy in ai"
 
@@ -601,17 +601,17 @@ def test_self_answer_gate_prefers_native_conceptual_for_rich_prompt():
     )
 
 
-def test_exact_tony_prompt_blocks_scaffold_and_returns_direct_architecture_answer():
+def test_exact_fictional_inventor_prompt_blocks_scaffold_and_returns_direct_architecture_answer():
     alice = ALICE.__new__(ALICE)
 
     scaffold = alice._native_scaffold_response(
-        EXACT_TONY_PROMPT,
+        EXACT_FICTIONAL_INVENTOR_PROMPT,
         "conversation:clarification_needed",
     )
     assert scaffold is None
 
     gate = alice._self_answer_first_gate(
-        user_input=EXACT_TONY_PROMPT,
+        user_input=EXACT_FICTIONAL_INVENTOR_PROMPT,
         intent="conversation:clarification_needed",
         entities={},
         has_active_goal=False,

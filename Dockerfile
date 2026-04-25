@@ -38,9 +38,9 @@ RUN useradd -m -u 1000 alice && \
 
 USER alice
 
-# Health check
+# Health check the CLI process. ALICE does not expose an HTTP server by default.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
+    CMD python -c "from pathlib import Path; cmd = Path('/proc/1/cmdline').read_bytes(); raise SystemExit(0 if (b'app/main.py' in cmd or b'app.main' in cmd) else 1)"
 
 # Expose ports
 # 8000: Main API
@@ -48,4 +48,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 EXPOSE 8000 9090
 
 # Run application
-CMD ["python", "-m", "app.main"]
+CMD ["python", "app/main.py"]

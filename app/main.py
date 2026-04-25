@@ -140,6 +140,7 @@ from ai.core.world_state_memory import get_world_state_memory
 from ai.core.execution_journal import get_execution_journal
 from ai.core.agentic_loop import AgenticLoop
 from ai.core.agentic_readiness import build_agentic_focus_plan
+from ai.runtime.companion_daemon import CompanionDaemon, CompanionDaemonConfig
 from ai.core.goal_object import goal_from_any
 from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_manager
 from ai.core.autonomy_dispatcher import TinyAutonomyDispatcher, OUTCOME_ESCALATE_AND_STOP
@@ -957,6 +958,7 @@ class ALICE:
             self.proactive_assistant.set_notification_callback(self._handle_observer_notification)
             self.proactive_assistant.start()
             logger.info("[OK] Proactive assistant monitoring")
+            self._init_companion_daemon()
 
             # 10. Analytics and Memory Management
             logger.info("Initializing analytics and memory management...")
@@ -1015,6 +1017,57 @@ class ALICE:
         except Exception as e:
             logger.error(f"[ERROR] Initialization failed: {e}")
             raise
+
+    def _init_companion_daemon(self) -> None:
+        """Start the safe desktop companion background loop."""
+        try:
+            from ai.introspection.system_state_api import SystemStateAPI
+
+            system_state_api = getattr(self, "system_state_api", None)
+            if system_state_api is None:
+                system_state_api = SystemStateAPI(self)
+                self.system_state_api = system_state_api
+            elif hasattr(system_state_api, "set_alice_reference"):
+                system_state_api.set_alice_reference(self)
+
+            try:
+                interval_seconds = float(
+                    os.getenv("ALICE_COMPANION_INTERVAL_S", "60") or 60.0
+                )
+            except (TypeError, ValueError):
+                interval_seconds = 60.0
+            interval_seconds = max(15.0, interval_seconds)
+            start_paused = (
+                os.getenv("ALICE_COMPANION_PAUSED", "0").strip().lower()
+                in {"1", "true", "yes", "on"}
+            )
+
+            def notify(message: str, priority: str = "normal") -> None:
+                priority_name = str(getattr(priority, "name", priority) or "normal").upper()
+                event_priority = getattr(EventPriority, priority_name, EventPriority.NORMAL)
+                self._handle_observer_notification(message, event_priority)
+
+            self.companion_daemon = CompanionDaemon(
+                state_api=system_state_api,
+                world_state_memory=getattr(self, "world_state_memory", None),
+                execution_journal=getattr(self, "execution_journal", None),
+                goal_system=getattr(self, "goal_system", None),
+                proactive_assistant=getattr(self, "proactive_assistant", None),
+                notify_callback=notify,
+                config=CompanionDaemonConfig(
+                    interval_seconds=interval_seconds,
+                    start_paused=start_paused,
+                ),
+            )
+            self.companion_daemon.start()
+            logger.info(
+                "[OK] Companion daemon %s - interval %.0fs",
+                "paused" if start_paused else "active",
+                interval_seconds,
+            )
+        except Exception as exc:
+            self.companion_daemon = None
+            logger.warning("[WARNING] Companion daemon unavailable: %s", exc)
 
     def _run_startup_doctor(self) -> None:
         """Run profile-based startup diagnostics and persist a health summary."""
@@ -16091,6 +16144,10 @@ class ALICE:
             print("   /autonomous status - Show autonomous mode status")
             print("   /goals             - List all active and completed goals")
             print("   /operator-status   - Show action engine, world state, autonomy, and execution metrics")
+            print("   /companion status  - Show desktop companion daemon status")
+            print("   /companion pause   - Pause companion check-ins")
+            print("   /companion resume  - Resume companion check-ins")
+            print("   /companion tick    - Run one safe companion cycle now")
             print()
             print("Debug Commands:")
             print("   /correct [type]    - Correct A.L.I.C.E's last response")
@@ -16571,6 +16628,9 @@ class ALICE:
 
         elif cmd == '/operator-status':
             self._handle_operator_status_command()
+
+        elif cmd == '/companion' or cmd.startswith('/companion '):
+            self._handle_companion_command(command)
 
         else:
             print(f"\n[ERROR] Unknown command: {command}")
@@ -17232,6 +17292,106 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             if loop.name not in existing:
                 self.autonomy_manager.register_loop(loop)
 
+    def _handle_companion_command(self, command: str):
+        """Handle desktop companion daemon commands."""
+        daemon = getattr(self, "companion_daemon", None)
+        if daemon is None:
+            print("\n[ERROR] Companion daemon not available")
+            return
+
+        parts = command.strip().split()
+        subcommand = parts[1].lower() if len(parts) > 1 else "status"
+
+        if subcommand == "status":
+            self._print_companion_status()
+            return
+
+        if subcommand == "pause":
+            daemon.pause(reason="manual_command")
+            print("\n[OK] Companion daemon paused")
+            return
+
+        if subcommand in {"resume", "start"}:
+            if not daemon.is_running:
+                daemon.start()
+            daemon.resume()
+            print("\n[OK] Companion daemon resumed")
+            return
+
+        if subcommand == "stop":
+            daemon.stop()
+            print("\n[OK] Companion daemon stopped")
+            return
+
+        if subcommand == "tick":
+            decisions = daemon.run_once(reason="manual_command")
+            print("\n Companion Tick:")
+            if decisions:
+                for decision in decisions[:5]:
+                    print(
+                        f"   - {decision.decision_type}: "
+                        f"{decision.message or decision.reason}"
+                    )
+            else:
+                print("   - noop: No companion action needed")
+            return
+
+        print(f"\n[ERROR] Unknown companion subcommand: {subcommand}")
+        print("   Usage: /companion [status|pause|resume|tick|stop]")
+
+    def _print_companion_status(self):
+        daemon = getattr(self, "companion_daemon", None)
+        if daemon is None:
+            print("\n[ERROR] Companion daemon not available")
+            return
+
+        status = daemon.status()
+        last_tick = status.get("last_tick_at")
+        if last_tick:
+            try:
+                last_tick_label = datetime.fromtimestamp(float(last_tick)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+            except Exception:
+                last_tick_label = str(last_tick)
+        else:
+            last_tick_label = "never"
+
+        print("\n Desktop Companion Status:")
+        print("=" * 70)
+        print(f"   Running: {'Yes' if status.get('running') else 'No'}")
+        print(f"   Paused: {'Yes' if status.get('paused') else 'No'}")
+        print(f"   Interval: {float(status.get('interval_seconds') or 0.0):.0f}s")
+        print(f"   Ticks: {int(status.get('tick_count') or 0)}")
+        print(f"   Last Tick: {last_tick_label}")
+        print(f"   Active Goals Observed: {int(status.get('active_goal_count') or 0)}")
+        print(
+            "   Pending Reminders Observed: "
+            f"{int(status.get('pending_reminder_count') or 0)}"
+        )
+        if status.get("last_error"):
+            print(f"   Last Error: {status.get('last_error')}")
+
+        last_decisions = list(status.get("last_decisions") or [])
+        if last_decisions:
+            print("\n   Last Decisions:")
+            for decision in last_decisions[:5]:
+                message = str(
+                    decision.get("message") or decision.get("reason") or "n/a"
+                )
+                emitted = (decision.get("metadata") or {}).get("emitted")
+                emitted_label = ""
+                if emitted is True:
+                    emitted_label = " [emitted]"
+                elif emitted is False:
+                    emitted_label = " [cooldown]"
+                print(
+                    "      "
+                    f"{decision.get('decision_type', 'noop')}: "
+                    f"{message}{emitted_label}"
+                )
+        print("=" * 70)
+
     def _handle_operator_status_command(self):
         """Show execution-first operator core status."""
         print("\n Operator Core Status:")
@@ -17701,6 +17861,10 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if self.pattern_learner:
             self.pattern_learner._save_patterns()
             logger.info("[OK] Patterns saved")
+
+        if getattr(self, 'companion_daemon', None):
+            self.companion_daemon.stop()
+            logger.info("[OK] Companion daemon stopped")
         
         if getattr(self, 'proactive_assistant', None):
             self.proactive_assistant.stop()

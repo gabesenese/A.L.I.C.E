@@ -10,7 +10,7 @@ from ai.core.nlp_processor import NLPProcessor, ParsedCommand, RouteDecision
 
 
 EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
-EXACT_TONY_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
+EXACT_FICTIONAL_INVENTOR_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
 EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
 
 
@@ -384,8 +384,8 @@ class TestLayeredTokenizer:
         assert modifiers.get("pending_slot_followup") is None
         assert modifiers.get("unknown_intent_fallback") is False
 
-    def test_exact_tony_prompt_routes_without_clarification_or_unknown_fallback(self):
-        result = self.nlp.process(EXACT_TONY_PROMPT)
+    def test_exact_fictional_inventor_prompt_routes_without_clarification_or_unknown_fallback(self):
+        result = self.nlp.process(EXACT_FICTIONAL_INVENTOR_PROMPT)
         modifiers = result.parsed_command.get("modifiers", {})
 
         assert result.intent != "conversation:clarification_needed"

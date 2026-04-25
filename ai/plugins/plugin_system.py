@@ -174,8 +174,8 @@ class PluginManager:
                     plugin_map = {
                         "notes": "Notes Plugin",
                         "email": "GmailPlugin",  # Will fallback to email intent handler in main.py
-                        "calendar": "Calendar Plugin",
-                        "document": "Document Plugin",
+                        "calendar": "CalendarPlugin",
+                        "document": "DocumentPlugin",
                         "weather": "WeatherPlugin",
                         "time": "TimePlugin",
                     }

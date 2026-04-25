@@ -9,6 +9,12 @@ from .companion_runtime import (
     CompanionPolicyEngine,
     PolicyDecision,
 )
+from .companion_daemon import (
+    CompanionDaemon,
+    CompanionDaemonConfig,
+    CompanionDaemonDecision,
+    CompanionObservation,
+)
 from .fallback_policy import RuntimeFallbackPolicy, FallbackDecision
 from .response_authority import ResponseAuthorityContract, ResponseAuthorityOutcome
 from .turn_orchestrator import TurnOrchestrator
@@ -22,6 +28,10 @@ __all__ = [
     "IdentityModel",
     "CompanionPolicyEngine",
     "PolicyDecision",
+    "CompanionDaemon",
+    "CompanionDaemonConfig",
+    "CompanionDaemonDecision",
+    "CompanionObservation",
     "RuntimeFallbackPolicy",
     "FallbackDecision",
     "ResponseAuthorityContract",
