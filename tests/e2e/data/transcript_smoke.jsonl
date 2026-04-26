@@ -1,0 +1,4 @@
+{"turn": 1, "role": "user", "text": "hello alice", "timestamp": "2026-04-01T10:00:00Z"}
+{"turn": 1, "role": "assistant", "text": "Hi! How can I help today?", "intent": "conversation:greeting", "confidence": 0.93, "timestamp": "2026-04-01T10:00:01Z"}
+{"turn": 2, "role": "user", "text": "what is happening in the world right now?", "timestamp": "2026-04-01T10:00:10Z"}
+{"turn": 2, "role": "assistant", "text": "I can summarize current events if I fetch live sources.", "intent": "conversation:clarification_needed", "confidence": 0.78, "timestamp": "2026-04-01T10:00:11Z"}

@@ -10,7 +10,7 @@ from ai.core.nlp_processor import NLPProcessor, ParsedCommand, RouteDecision
 
 
 EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
-EXACT_FICTIONAL_INVENTOR_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
+EXACT_TONY_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
 EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
 
 

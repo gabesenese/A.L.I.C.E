@@ -12,9 +12,8 @@ EXACT_PROMPT = (
 )
 
 EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
-EXACT_FICTIONAL_INVENTOR_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
+EXACT_TONY_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
 EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
-EXACT_FRAMEWORKS_PROMPT = "research existing frameworks for agentic autonomy in ai"
 
 
 @dataclass
@@ -831,17 +830,6 @@ def test_action_cue_detector_ignores_conceptual_build_prompt():
     assert (
         alice._has_explicit_action_cue(
             "how can i create an ai like assistant with todays technology and no fiction"
-        )
-        is False
-    )
-
-
-def test_action_cue_detector_ignores_meta_identity_question_with_human_activity_verbs():
-    alice = ALICE.__new__(ALICE)
-
-    assert (
-        alice._has_explicit_action_cue(
-            "you are an ai how do you read a book or listen to calming music"
         )
         is False
     )

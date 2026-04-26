@@ -516,9 +516,7 @@ class UnifiedActionEngine:
         ):
             return False
 
-        return bool(
-            low_confidence or missing_target or not self._has_explicit_approval(request)
-        )
+        return bool(low_confidence or missing_target or not self._has_explicit_approval(request))
 
     def _has_explicit_approval(self, request: ActionRequest) -> bool:
         params = request.params or {}

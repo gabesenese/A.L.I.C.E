@@ -23,7 +23,6 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import math
-import asyncio
 from collections import OrderedDict, defaultdict, deque, Counter
 from pathlib import Path
 import threading
@@ -155,7 +154,6 @@ from ai.core.followup_resolver import FollowUpResolver, FollowUpResult
 from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
 from ai.core.goal_recognizer import get_goal_recognizer
 from ai.core.foundation_layers import FoundationLayers
-from ai.plugins.registry import PluginRegistry, discover_plugins
 
 logger = logging.getLogger(__name__)
 

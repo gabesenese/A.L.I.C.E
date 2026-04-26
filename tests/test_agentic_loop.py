@@ -1,35 +1,48 @@
-from ai.core.agentic_loop import AgenticLoop
+from types import SimpleNamespace
+
+from ai.core.agentic_loop import AgentCycleInput, AgenticLoop
 
 
-def test_agentic_loop_runs_all_stages_and_updates_memory():
-    loop = AgenticLoop(
-        perceive_fn=lambda payload: {"observation": payload.get("text", "")},
-        reason_fn=lambda state: {"summary": f"seen:{state['perceived'].get('observation')}"},
-        goal_fn=lambda state: {"goal": "answer_user"},
-        decide_fn=lambda state: {"action": "respond", "confidence": 0.9},
-        execute_fn=lambda decision: {"status": "ok", "action": decision.get("action")},
-        learn_fn=lambda feedback: {"adapted": feedback["execution"].get("status") == "ok"},
+class _ActionEngineStub:
+    def __init__(self, success: bool = True):
+        self.success = success
+
+    def execute(self, request):
+        return SimpleNamespace(
+            status="success" if self.success else "failed",
+            success=self.success,
+            goal_satisfied=self.success,
+            recovery_path="retry" if not self.success else "done",
+            state_updates={"request_plugin": request.plugin},
+        )
+
+
+def test_agentic_loop_executes_when_goal_and_intent_are_present():
+    loop = AgenticLoop(action_engine=_ActionEngineStub(success=True))
+    result = loop.run_cycle(
+        AgentCycleInput(
+            user_input="check weather in Austin",
+            intent="weather:current",
+            confidence=0.88,
+            entities={"target": "Austin"},
+            long_horizon_goal="Keep weather awareness current",
+        )
     )
-
-    report = loop.run_cycle({"text": "hello"})
-    memory = loop.snapshot()
-
-    assert report.perceived["observation"] == "hello"
-    assert report.reasoning["summary"].startswith("seen:")
-    assert report.goals["goal"] == "answer_user"
-    assert report.decision["action"] == "respond"
-    assert report.execution["status"] == "ok"
-    assert report.learning["adapted"] is True
-    assert memory["last_goal"] == "answer_user"
-    assert memory["last_action"] == "respond"
-    assert memory["cycles"] == 1
+    assert result.execution["success"] is True
+    assert result.decision["plugin"] == "weather"
+    assert result.orchestration["next_milestone"] == "execute_primary_action"
 
 
-def test_agentic_loop_defaults_are_safe_when_callbacks_missing():
-    loop = AgenticLoop()
-    report = loop.run_cycle({"text": "status"})
-
-    assert report.reasoning["summary"] == "no_reasoner"
-    assert report.goals["goal"] == "maintain_stability"
-    assert report.decision["action"] == "noop"
-    assert report.execution["status"] == "skipped"
+def test_agentic_loop_skips_execution_without_goal():
+    loop = AgenticLoop(action_engine=_ActionEngineStub(success=True))
+    result = loop.run_cycle(
+        AgentCycleInput(
+            user_input="",
+            intent="weather:current",
+            confidence=0.4,
+            entities={},
+            long_horizon_goal="",
+        )
+    )
+    assert result.execution["status"] == "skipped"
+    assert result.decision["should_execute"] is False

@@ -1,86 +1,178 @@
-"""Core agentic control loop for perception → reasoning → goals → decision → execution → learning."""
+"""Core autonomous-perception-reasoning-execution loop for A.L.I.C.E."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+from ai.core.foundation_layers import FoundationLayers
+from ai.core.live_state_service import LiveStateService, get_live_state_service
+from ai.core.unified_action_engine import ActionRequest, UnifiedActionEngine
 
 
 @dataclass
-class AgenticCycleReport:
-    perceived: Dict[str, Any] = field(default_factory=dict)
-    reasoning: Dict[str, Any] = field(default_factory=dict)
-    goals: Dict[str, Any] = field(default_factory=dict)
-    decision: Dict[str, Any] = field(default_factory=dict)
-    execution: Dict[str, Any] = field(default_factory=dict)
-    learning: Dict[str, Any] = field(default_factory=dict)
-    started_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+class AgentCycleInput:
+    user_input: str
+    intent: str
+    confidence: float
+    entities: Dict[str, Any] = field(default_factory=dict)
+    long_horizon_goal: str = ""
+    world_state: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class AgentCycleResult:
+    perception: Dict[str, Any]
+    reasoning: Dict[str, Any]
+    goal_plan: Dict[str, Any]
+    decision: Dict[str, Any]
+    execution: Dict[str, Any]
+    learning: Dict[str, Any]
+    orchestration: Dict[str, Any]
 
 
 class AgenticLoop:
     """
-    Lightweight loop coordinator.
-
-    This does not replace existing orchestration layers; it standardizes
-    a deterministic cycle with explicit stage outputs for monitoring.
+    Implements the canonical agentic flow:
+    perception -> reasoning -> goal setting -> decision -> execution -> learning -> orchestration.
     """
 
     def __init__(
         self,
         *,
-        perceive_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-        reason_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-        goal_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-        decide_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-        execute_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-        learn_fn: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        foundation_layers: Optional[FoundationLayers] = None,
+        live_state: Optional[LiveStateService] = None,
+        action_engine: Optional[UnifiedActionEngine] = None,
     ) -> None:
-        self.perceive_fn = perceive_fn or (lambda payload: dict(payload))
-        self.reason_fn = reason_fn or (lambda state: {"summary": "no_reasoner"})
-        self.goal_fn = goal_fn or (lambda state: {"goal": "maintain_stability"})
-        self.decide_fn = decide_fn or (lambda state: {"action": "noop"})
-        self.execute_fn = execute_fn or (lambda decision: {"status": "skipped"})
-        self.learn_fn = learn_fn or (lambda feedback: {"adapted": False})
-        self._memory: Dict[str, Any] = {"last_goal": "", "last_action": "", "cycles": 0}
+        self.foundation_layers = foundation_layers or FoundationLayers()
+        self.live_state = live_state or get_live_state_service()
+        self.action_engine = action_engine or UnifiedActionEngine()
 
-    def run_cycle(self, payload: Dict[str, Any]) -> AgenticCycleReport:
-        report = AgenticCycleReport()
-        report.perceived = dict(self.perceive_fn(payload) or {})
+    def run_cycle(self, payload: AgentCycleInput) -> AgentCycleResult:
+        perception = self._perception(payload)
+        reasoning = self._reasoning(payload, perception)
+        goal_plan = self._goal_setting(payload, reasoning)
+        decision = self._decision(payload, goal_plan)
+        execution = self._execution(payload, decision)
+        learning = self._learning(payload, execution)
+        orchestration = self._orchestration(payload, goal_plan, execution)
+        return AgentCycleResult(
+            perception=perception,
+            reasoning=reasoning,
+            goal_plan=goal_plan,
+            decision=decision,
+            execution=execution,
+            learning=learning,
+            orchestration=orchestration,
+        )
 
-        reason_input = {"perceived": report.perceived, "memory": dict(self._memory)}
-        report.reasoning = dict(self.reason_fn(reason_input) or {})
-
-        goal_input = {
-            "perceived": report.perceived,
-            "reasoning": report.reasoning,
-            "memory": dict(self._memory),
+    def _perception(self, payload: AgentCycleInput) -> Dict[str, Any]:
+        world = dict(payload.world_state or {})
+        return {
+            "intent": payload.intent,
+            "confidence": float(payload.confidence or 0.0),
+            "entities": dict(payload.entities or {}),
+            "world": world,
         }
-        report.goals = dict(self.goal_fn(goal_input) or {})
 
-        decision_input = {
-            "goals": report.goals,
-            "reasoning": report.reasoning,
-            "perceived": report.perceived,
-            "memory": dict(self._memory),
+    def _reasoning(self, payload: AgentCycleInput, perception: Dict[str, Any]) -> Dict[str, Any]:
+        policy = self.foundation_layers.clarification_policy(
+            plugin_scores={payload.intent.split(":", 1)[0]: max(0.0, payload.confidence)},
+            confidence=float(payload.confidence or 0.0),
+        )
+        return {
+            "needs_clarification": bool(policy.get("needs_clarification")),
+            "clarification_prompt": policy.get("prompt", ""),
+            "risk_level": self._infer_risk(payload.intent, payload.entities),
         }
-        report.decision = dict(self.decide_fn(decision_input) or {})
 
-        report.execution = dict(self.execute_fn(report.decision) or {})
-
-        learning_input = {
-            "decision": report.decision,
-            "execution": report.execution,
-            "goals": report.goals,
+    def _goal_setting(self, payload: AgentCycleInput, reasoning: Dict[str, Any]) -> Dict[str, Any]:
+        goal = str(payload.long_horizon_goal or payload.user_input or "").strip()
+        milestones = []
+        if goal:
+            milestones = [
+                "confirm_scope",
+                "execute_primary_action",
+                "verify_outcome",
+            ]
+        return {
+            "goal": goal,
+            "milestones": milestones,
+            "autonomy_mode": "supervised" if reasoning["needs_clarification"] else "autonomous",
         }
-        report.learning = dict(self.learn_fn(learning_input) or {})
 
-        self._memory["last_goal"] = str(report.goals.get("goal") or "")
-        self._memory["last_action"] = str(report.decision.get("action") or "")
-        self._memory["cycles"] = int(self._memory.get("cycles", 0)) + 1
-        self._memory["last_updated"] = datetime.utcnow().isoformat()
+    def _decision(self, payload: AgentCycleInput, goal_plan: Dict[str, Any]) -> Dict[str, Any]:
+        plugin, action = self._plugin_action_from_intent(payload.intent)
+        return {
+            "plugin": plugin,
+            "action": action,
+            "should_execute": bool(plugin and action and goal_plan.get("goal")),
+        }
 
-        return report
+    def _execution(self, payload: AgentCycleInput, decision: Dict[str, Any]) -> Dict[str, Any]:
+        if not decision.get("should_execute"):
+            return {"status": "skipped", "reason": "insufficient_goal_or_decision"}
 
-    def snapshot(self) -> Dict[str, Any]:
-        return dict(self._memory)
+        request = ActionRequest(
+            goal=payload.long_horizon_goal or payload.user_input,
+            plugin=decision["plugin"],
+            action=decision["action"],
+            params=dict(payload.entities or {}),
+            source_intent=payload.intent,
+            confidence=float(payload.confidence or 0.0),
+            risk_level=self._infer_risk(payload.intent, payload.entities),
+            target_spec={"target": (payload.entities or {}).get("target")},
+            retry_budget=1,
+        )
+        result = self.action_engine.execute(request)
+        return {
+            "status": result.status,
+            "success": bool(result.success),
+            "goal_satisfied": bool(result.goal_satisfied),
+            "recovery_path": result.recovery_path,
+            "state_updates": dict(result.state_updates or {}),
+        }
+
+    def _learning(self, payload: AgentCycleInput, execution: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "feedback_signal": "positive" if execution.get("success") else "negative",
+            "adjustment_hint": (
+                "lower_clarification_threshold"
+                if execution.get("status") == "policy_blocked"
+                else "none"
+            ),
+        }
+
+    def _orchestration(
+        self,
+        payload: AgentCycleInput,
+        goal_plan: Dict[str, Any],
+        execution: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        milestones = list(goal_plan.get("milestones") or [])
+        next_milestone = None
+        if milestones:
+            next_milestone = milestones[1] if execution.get("success") and len(milestones) > 1 else milestones[0]
+        return {
+            "goal": goal_plan.get("goal", ""),
+            "next_milestone": next_milestone,
+            "execution_status": execution.get("status"),
+        }
+
+    @staticmethod
+    def _plugin_action_from_intent(intent: str) -> tuple[str, str]:
+        raw = str(intent or "")
+        if ":" not in raw:
+            return "", ""
+        plugin, action = raw.split(":", 1)
+        return plugin.strip().lower(), action.strip().lower()
+
+    @staticmethod
+    def _infer_risk(intent: str, entities: Dict[str, Any]) -> str:
+        action = str(intent or "").split(":", 1)[-1].lower()
+        destructive = {"delete", "remove", "shutdown", "reboot", "format"}
+        if action in destructive:
+            return "high"
+        if entities and entities.get("target") in (None, "", "unknown"):
+            return "medium"
+        return "low"

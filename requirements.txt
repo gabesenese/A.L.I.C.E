@@ -12,18 +12,18 @@ requests>=2.31.0
 psutil>=5.8.0
 rich>=13.0.0
 python-json-logger>=2.0.0
-fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
-pydantic>=2.7.0
-pydantic-settings>=2.2.1
-httpx>=0.27.0
-structlog>=24.2.0
-chromadb>=0.5.0
-opentelemetry-sdk>=1.25.0
-opentelemetry-exporter-otlp>=1.25.0
+structlog>=24.0.0
 
-# Optional bundles (install only what you use)
-#   pip install -r requirements-dev.txt
-#   pip install -r requirements-voice.txt
-#   pip install -r requirements-integrations.txt
-#   pip install -r requirements-ops.txt
+# Health checks and monitoring
+healthcheck>=1.3.0
+
+# API rate limiting
+slowapi>=0.1.8
+
+# Circuit breaker pattern
+pybreaker>=0.8.0
+
+# Note: For voice features, you may need to install system dependencies:
+# Windows: PyAudio wheels available
+# Linux: sudo apt-get install portaudio19-dev python3-pyaudio
+# macOS: brew install portaudio

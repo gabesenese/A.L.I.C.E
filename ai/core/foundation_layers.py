@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+
 _FILLER_RE = re.compile(r"\b(?:um+|uh+|er+|ah+|like)\b", re.IGNORECASE)
 _HEDGE_RE = re.compile(r"\b(?:kind of|sort of|i guess|maybe)\b", re.IGNORECASE)
 
@@ -42,32 +43,6 @@ class FoundationLayers:
         self._clarification_margin_threshold = 0.35
         self._deep_stage_skip_threshold = 0.95
 
-        try:
-            from ai.optimization.runtime_thresholds import get_thresholds
-
-            thresholds = get_thresholds()
-            self._clarification_conf_threshold = float(
-                thresholds.get(
-                    "foundation_clarification_confidence",
-                    self._clarification_conf_threshold,
-                )
-            )
-            self._clarification_margin_threshold = float(
-                thresholds.get(
-                    "foundation_clarification_margin",
-                    self._clarification_margin_threshold,
-                )
-            )
-            self._deep_stage_skip_threshold = float(
-                thresholds.get(
-                    "foundation_deep_stage_skip_threshold",
-                    self._deep_stage_skip_threshold,
-                )
-            )
-        except Exception:
-            # Keep constructor dependency-light; fallback defaults are already set.
-            pass
-
     # 1) ASR-aware normalization (text-first variant; safe for non-voice input too).
     def normalize_input(self, text: str) -> str:
         normalized = str(text or "")
@@ -77,14 +52,9 @@ class FoundationLayers:
         return normalized
 
     # 2) Multi-turn plan memory.
-    def update_plan_memory(
-        self, *, intent: str, parsed_command: Dict[str, Any], text: str
-    ) -> Dict[str, Any]:
+    def update_plan_memory(self, *, intent: str, parsed_command: Dict[str, Any], text: str) -> Dict[str, Any]:
         self._plan.turns_seen += 1
-        if (
-            parsed_command.get("object_type")
-            and parsed_command.get("object_type") != "unknown"
-        ):
+        if parsed_command.get("object_type") and parsed_command.get("object_type") != "unknown":
             self._plan.domain = str(parsed_command.get("object_type"))
         if parsed_command.get("title_hint"):
             self._plan.goal = str(parsed_command.get("title_hint"))
@@ -100,11 +70,7 @@ class FoundationLayers:
         }
 
     # 3) Grounded world-state integration (extensible, no hard dependency).
-    def apply_grounding(
-        self,
-        parsed_command: Dict[str, Any],
-        world_state: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+    def apply_grounding(self, parsed_command: Dict[str, Any], world_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         state = dict(world_state or {})
         hints = {}
         if "location" in state:
@@ -161,9 +127,7 @@ class FoundationLayers:
             },
         }
 
-    def response_style_hint(
-        self, profile: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, str]:
+    def response_style_hint(self, profile: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
         prefs = dict(profile or {})
         return {
             "brevity": str(prefs.get("response_brevity") or "balanced"),
@@ -198,9 +162,7 @@ class FoundationLayers:
         }
 
     # 5) Evaluation harness (online turn metrics).
-    def record_turn(
-        self, *, confidence: float, clarification: bool, safety_blocked: bool
-    ) -> Dict[str, Any]:
+    def record_turn(self, *, confidence: float, clarification: bool, safety_blocked: bool) -> Dict[str, Any]:
         self._metrics["turns"] += 1
         if clarification:
             self._metrics["clarifications"] += 1
@@ -217,9 +179,7 @@ class FoundationLayers:
     def new_budget(self) -> TurnBudget:
         return TurnBudget(budget_ms=self._budget_ms)
 
-    def should_run_deep_stage(
-        self, budget: TurnBudget, *, shallow_confidence: float
-    ) -> bool:
+    def should_run_deep_stage(self, budget: TurnBudget, *, shallow_confidence: float) -> bool:
         if shallow_confidence >= self._deep_stage_skip_threshold:
             return False
         return budget.remaining_ms() > 20.0
@@ -227,16 +187,9 @@ class FoundationLayers:
     # 7) Safety / authorization gate.
     def authorization_policy(self, *, intent: str, text: str) -> Dict[str, Any]:
         low = (text or "").lower()
-        high_risk_intents = {
-            "system:shutdown",
-            "system:reboot",
-            "email:delete",
-            "notes:delete",
-        }
+        high_risk_intents = {"system:shutdown", "system:reboot", "email:delete", "notes:delete"}
         high_risk_language = {"delete all", "wipe", "format", "shutdown", "reboot"}
-        blocked = intent in high_risk_intents or any(
-            cue in low for cue in high_risk_language
-        )
+        blocked = intent in high_risk_intents or any(cue in low for cue in high_risk_language)
         return {
             "allowed": not blocked,
             "requires_confirmation": blocked,
