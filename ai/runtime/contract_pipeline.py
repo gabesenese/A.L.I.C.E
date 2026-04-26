@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -15,6 +17,7 @@ from ai.core.executive_controller import (
     TurnStateMachineResult,
 )
 from ai.contracts import RuntimeBoundaries, VerifierResult
+from ai.infrastructure.telemetry import tracer, turn_counter, turn_latency
 from ai.runtime.companion_runtime import CompanionRuntimeLoop
 from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
@@ -371,10 +374,11 @@ class ContractPipeline:
             "details": dict(details or {}),
         }
 
-    def run_turn(
+    async def _run_turn_async(
         self, user_input: str, user_id: str, turn_number: int = 0
     ) -> PipelineResult:
         trace_id = str(uuid4())
+        started = time.perf_counter()
         stages = []
         if not user_input.strip():
             stages.append(self._stage("input", "failed", {"reason": "empty_input"}))
@@ -645,20 +649,21 @@ class ContractPipeline:
             action_discipline=action_discipline,
         )
 
-        self.boundaries.memory.store(
-            {
-                "content": f"user={user_input}\nassistant={response_text}",
-                "intent": decision.intent,
-                "route": decision.route,
-                "confidence": decision.confidence,
-                "trace_id": trace_id,
-                "resolved_input": resolved_input,
-                "memory_domains": memory_domains,
-                "turn_contract": post_execution_state_machine.contract.as_dict(),
-                "turn_execution_outcome": turn_execution_outcome.as_dict(),
-                "post_execution_state_machine": post_execution_state_machine.as_dict(),
-                "task_verification": dict(task_verification or {}),
-            }
+        memory_payload = {
+            "content": f"user={user_input}\nassistant={response_text}",
+            "intent": decision.intent,
+            "route": decision.route,
+            "confidence": decision.confidence,
+            "trace_id": trace_id,
+            "resolved_input": resolved_input,
+            "memory_domains": memory_domains,
+            "turn_contract": post_execution_state_machine.contract.as_dict(),
+            "turn_execution_outcome": turn_execution_outcome.as_dict(),
+            "post_execution_state_machine": post_execution_state_machine.as_dict(),
+            "task_verification": dict(task_verification or {}),
+        }
+        memory_task = asyncio.create_task(
+            asyncio.to_thread(self.boundaries.memory.store, memory_payload)
         )
 
         merged_active_goals = self._merge_unique(
@@ -702,6 +707,14 @@ class ContractPipeline:
             )
         )
 
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        with tracer.start_as_current_span("contract_pipeline.run_turn"):
+            turn_counter.add(1)
+            turn_latency.record(elapsed_ms)
+
+        metrics_task = asyncio.create_task(asyncio.sleep(0))
+        await asyncio.gather(memory_task, metrics_task)
+
         return PipelineResult(
             handled=bool(response_text),
             response_text=response_text,
@@ -712,6 +725,7 @@ class ContractPipeline:
                 "decision_band": decision.decision_band,
                 "confidence": decision.confidence,
                 "requires_follow_up": respond_requires_follow_up,
+                "tools_used": [tool_result.tool_name] if tool_result else [],
                 "plan": plan,
                 "resolved_input": resolved_input,
                 "verification": {
@@ -754,6 +768,43 @@ class ContractPipeline:
                     "last_tool_used": state.last_tool_used,
                     "last_result_produced": state.last_result_produced,
                 },
+                "latency_ms": elapsed_ms,
                 "stages": stages,
             },
+        )
+
+    def run_turn(
+        self,
+        user_input: str,
+        user_id: str,
+        turn_number: int = 0,
+    ) -> PipelineResult | "asyncio.Future[PipelineResult]":
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self._run_turn_async(
+                    user_input=user_input,
+                    user_id=user_id,
+                    turn_number=turn_number,
+                )
+            )
+        return self._run_turn_async(
+            user_input=user_input,
+            user_id=user_id,
+            turn_number=turn_number,
+        )
+
+    def run_turn_sync(
+        self,
+        user_input: str,
+        user_id: str,
+        turn_number: int = 0,
+    ) -> PipelineResult:
+        return asyncio.run(
+            self._run_turn_async(
+                user_input=user_input,
+                user_id=user_id,
+                turn_number=turn_number,
+            )
         )

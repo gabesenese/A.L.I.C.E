@@ -23,6 +23,7 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import math
+import asyncio
 from collections import OrderedDict, defaultdict, deque, Counter
 from pathlib import Path
 import threading
@@ -154,6 +155,7 @@ from ai.core.followup_resolver import FollowUpResolver, FollowUpResult
 from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
 from ai.core.goal_recognizer import get_goal_recognizer
 from ai.core.foundation_layers import FoundationLayers
+from ai.plugins.registry import PluginRegistry, discover_plugins
 
 logger = logging.getLogger(__name__)
 
@@ -1203,7 +1205,7 @@ class NLPProcessor:
     CLARIFICATION_CONFIDENCE_MAX = 0.62
     CONVERSATION_CATEGORY_GATE_THRESHOLD = 0.88
 
-    def __new__(cls):
+    def __new__(cls, *args: Any, **kwargs: Any):
         """Singleton pattern for performance"""
         if cls._instance is None:
             with cls._lock:
@@ -1211,8 +1213,10 @@ class NLPProcessor:
                     cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, plugin_registry: Optional[PluginRegistry] = None):
         if hasattr(self, "_initialized"):
+            if plugin_registry is not None:
+                self.plugin_registry = plugin_registry
             return
 
         self._initialized = True
@@ -1266,6 +1270,13 @@ class NLPProcessor:
         self.context = ConversationContext()
         self.followup_resolver = FollowUpResolver()
         self.goal_recognizer = get_goal_recognizer()
+        if plugin_registry is not None:
+            self.plugin_registry = plugin_registry
+        else:
+            try:
+                self.plugin_registry = discover_plugins()
+            except Exception:
+                self.plugin_registry = PluginRegistry()
 
         try:
             from ai.optimization.runtime_thresholds import get_thresholds
@@ -2327,7 +2338,7 @@ class NLPProcessor:
                 has_tool_cue = True
         if plugin_scores:
             best_plugin, best_score = max(plugin_scores.items(), key=lambda item: float(item[1]))
-            tool_plugins = {
+            tool_plugins = set(self.plugin_registry.all_actions.keys()) | {
                 "notes",
                 "email",
                 "calendar",
@@ -3006,7 +3017,29 @@ class NLPProcessor:
             for key in ("notes", "email", "calendar", "weather", "system"):
                 scores[key] *= 1.05
 
+        dynamic_scores = self.plugin_registry.score_all(
+            text=" ".join(normalized),
+            tokens=normalized,
+        )
+        for plugin_name, plugin_score in dynamic_scores.items():
+            scores[plugin_name] = float(scores.get(plugin_name, 0.0) + plugin_score)
+
         return scores
+
+    async def aprocess(self, text: str, use_context: bool = True) -> ProcessedQuery:
+        return await asyncio.to_thread(self.process, text, use_context)
+
+    async def aclassify(self, text: str, use_context: bool = True) -> str:
+        result = await self.aprocess(text=text, use_context=use_context)
+        return str(result.intent)
+
+    async def aextract_slots(
+        self,
+        text: str,
+        intent: str,
+        entities: Dict[str, List[Entity]],
+    ) -> Dict[str, Slot]:
+        return await asyncio.to_thread(self.slot_filler.extract_slots, text, intent, entities)
 
     def debug_tokenizer(self, text: str) -> Dict[str, Any]:
         """Development HUD for tokenizer introspection."""

@@ -4,8 +4,14 @@ import atexit
 import logging
 
 import pytest
+import pytest_asyncio
+from fastapi.testclient import TestClient
 
 from ai.plugins.notes_plugin import NotesManager, NotesPlugin
+from ai.runtime.contract_pipeline import ContractPipeline
+
+from app.main import app
+from app.api.dependencies import get_pipeline
 
 
 def pytest_configure(config):
@@ -35,3 +41,16 @@ def plugin(tmp_path):
     notes_plugin._action_token_weights = {}
     notes_plugin._note_selection_weights = {}
     return notes_plugin
+
+
+@pytest_asyncio.fixture
+async def pipeline() -> ContractPipeline:
+    return app.state.container.pipeline
+
+
+@pytest_asyncio.fixture
+async def client(pipeline: ContractPipeline):
+    app.dependency_overrides[get_pipeline] = lambda: pipeline
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()

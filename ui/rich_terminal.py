@@ -27,7 +27,7 @@ class RichTerminalUI:
         self.console = Console()
         self.user_name = user_name
         self.conversation_history = []
-        self.used_greetings = set()  # Track used greetings to avoid repeats
+        self.used_greetings = set()  # Track used greeting signatures to avoid repeats
 
         # Futuristic tech color scheme - sleek and modern
         self.colors = {
@@ -42,45 +42,102 @@ class RichTerminalUI:
             'dim_border': 'grey35',           # Subtle dark borders
         }
 
-        # Time-based greeting variations (won't repeat in same session)
-        self.greetings = {
-            'early_morning': [  # 5-7am
-                ("Rise and shine", "Early bird catches the worm!"),
-                ("Good morning", "You're up bright and early!"),
-                ("Morning", "Starting the day fresh?"),
-                ("Hey there", "Ready to tackle the day?"),
-            ],
-            'morning': [  # 7-12pm
-                ("Good morning", "Hope you're having a great start!"),
-                ("Morning", "Ready for a productive day?"),
-                ("Hi", "Beautiful morning, isn't it?"),
-                ("Hey", "Coffee kicked in yet?"),
-            ],
-            'afternoon': [  # 12-5pm
-                ("Good afternoon", "How's your day going?"),
-                ("Hey", "Getting through the afternoon?"),
-                ("Hi there", "Halfway through the day!"),
-                ("Afternoon", "Hope you had a good lunch!"),
-            ],
-            'evening': [  # 5-9pm
-                ("Good evening", "Winding down for the day?"),
-                ("Evening", "How was your day?"),
-                ("Hey", "Time to relax?"),
-                ("Hi", "Almost time to unwind!"),
-            ],
-            'night': [  # 9pm-12am
-                ("Good evening", "Working late tonight?"),
-                ("Hey there", "Burning the midnight oil?"),
-                ("Evening", "Night owl, are we?"),
-                ("Hi", "Still going strong?"),
-            ],
-            'late_night': [  # 12am-5am
-                ("Well hello", "Quite the late night session!"),
-                ("Hey", "Can't sleep either?"),
-                ("Hi there", "Pulling an all-nighter?"),
-                ("Hello", "The quiet hours are the best, aren't they?"),
-            ]
+        # Time-based greeting components. We combine these dynamically to avoid
+        # limited repeated lines while keeping greeting tone time-aware.
+        self.greeting_bank = {
+            'early_morning': {
+                "openers": [
+                    "Good early morning, {name}.",
+                    "Morning, {name}.",
+                    "You are up early, {name}.",
+                    "Hello, {name}.",
+                ],
+                "context": [
+                    "This is a clean window to plan the day before noise kicks in.",
+                    "Great time to lock one priority and execute it fully.",
+                    "Quiet start like this is ideal for focused setup work.",
+                    "If we align now, the rest of the day gets easier.",
+                ],
+            },
+            'morning': {
+                "openers": [
+                    "Good morning, {name}.",
+                    "Morning, {name}.",
+                    "Hello, {name}.",
+                    "Hi, {name}.",
+                ],
+                "context": [
+                    "Let's set the top outcomes for today.",
+                    "Good time to pick one high-impact task and move it forward.",
+                    "We can map the day into clear steps before execution starts.",
+                    "If you share your top priority, I can structure the first sprint.",
+                ],
+            },
+            'afternoon': {
+                "openers": [
+                    "Good afternoon, {name}.",
+                    "Afternoon, {name}.",
+                    "Hey, {name}.",
+                    "Hi, {name}.",
+                ],
+                "context": [
+                    "Perfect checkpoint to re-prioritize and close the critical path.",
+                    "We can recover momentum fast with one concrete next action.",
+                    "This is a good slot to clear blockers and finish strong.",
+                    "If context has shifted, we can replan in one pass.",
+                ],
+            },
+            'evening': {
+                "openers": [
+                    "Good evening, {name}.",
+                    "Evening, {name}.",
+                    "Hello, {name}.",
+                    "Hi, {name}.",
+                ],
+                "context": [
+                    "Ideal time to wrap open loops and prepare tomorrow's handoff.",
+                    "We can turn today's progress into a clean next-step plan.",
+                    "If you're winding down, I can summarize and stage tomorrow's priorities.",
+                    "A short review now can save time tomorrow morning.",
+                ],
+            },
+            'night': {
+                "openers": [
+                    "Good evening, {name}.",
+                    "Late session, {name}.",
+                    "Still in motion, {name}.",
+                    "Hello, {name}.",
+                ],
+                "context": [
+                    "Let's keep this focused and move one thing to done.",
+                    "Night sessions work best with tight scope and clear output.",
+                    "I can keep this lean: one target, one plan, one execution pass.",
+                    "If energy is low, we can prioritize only what matters now.",
+                ],
+            },
+            'late_night': {
+                "openers": [
+                    "Late night, {name}.",
+                    "Still online, {name}.",
+                    "Hello, {name}.",
+                    "Quiet hours, {name}.",
+                ],
+                "context": [
+                    "Let's keep it minimal and high-value.",
+                    "I can help you finish one important task and park the rest.",
+                    "Best move now is a narrow objective with no distraction.",
+                    "If you want, we can prepare a precise restart plan for tomorrow.",
+                ],
+            },
         }
+        self.agentic_prompts = [
+            "What outcome should we drive first?",
+            "Share one priority and I'll turn it into the next actions.",
+            "Want a quick status sweep and a concrete plan?",
+            "Give me the target and I'll map the shortest path.",
+            "Point me at the blocker and I'll propose the next move.",
+            "If you name the goal, I'll stage execution steps now.",
+        ]
         
     def clear(self):
         """Clear the console"""
@@ -103,23 +160,35 @@ class RichTerminalUI:
             return 'late_night'
 
     def _get_greeting(self):
-        """Get a non-repeating greeting based on time of day"""
+        """Get a non-repeating, time-aware greeting with agentic intent."""
         period = self._get_time_period()
-        available_greetings = self.greetings[period]
+        bank = self.greeting_bank.get(period, self.greeting_bank["afternoon"])
+        combos = [
+            (opener, context, prompt)
+            for opener in bank["openers"]
+            for context in bank["context"]
+            for prompt in self.agentic_prompts
+        ]
 
-        # Filter out used greetings
-        unused = [g for g in available_greetings if g not in self.used_greetings]
+        unused = []
+        for opener, context, prompt in combos:
+            signature = (period, opener, context, prompt)
+            if signature not in self.used_greetings:
+                unused.append((opener, context, prompt, signature))
 
-        # If all used, reset and start over
         if not unused:
-            self.used_greetings.clear()
-            unused = available_greetings
+            self.used_greetings = {
+                sig for sig in self.used_greetings if sig[0] != period
+            }
+            for opener, context, prompt in combos:
+                signature = (period, opener, context, prompt)
+                unused.append((opener, context, prompt, signature))
 
-        # Pick a random unused greeting
-        greeting = random.choice(unused)
-        self.used_greetings.add(greeting)
+        opener, context, prompt, signature = random.choice(unused)
+        self.used_greetings.add(signature)
 
-        return greeting
+        opener_text = opener.format(name=self.user_name)
+        return f"{opener_text} {context} {prompt}"
 
     def show_welcome(self):
         """Display welcome banner"""
@@ -154,8 +223,7 @@ class RichTerminalUI:
         self.console.print()
 
         # Get dynamic greeting
-        greeting, follow_up = self._get_greeting()
-        greeting_text = f"{greeting}, {self.user_name}! {follow_up}"
+        greeting_text = self._get_greeting()
         self.console.print(greeting_text, style=self.colors['assistant'], justify="center")
         self.console.print()
 

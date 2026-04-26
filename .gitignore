@@ -77,6 +77,7 @@ data/*.backup.*.jsonl
 # Runtime state snapshots (local-only churn)
 app/data/analytics/agentic_readiness_*.json
 app/data/analytics/agentic_readiness_*.jsonl
+app/data/action_journal.jsonl
 app/data/autolearn/cycle_history.jsonl
 app/data/realtime_learning/continuous_stats.json
 app/data/realtime_learning/learning_cycles.jsonl
@@ -94,3 +95,15 @@ data/qa/startup_health_summary.json
 tmpclaude*
 NUL
 data/world_state.json
+app/config/rag_indexer_config.json
+app/data/autonomy_loops.json
+app/data/feature_flags.json
+app/data/memory_pruning_config.json
+app/data/analytics/memory_monitor_config.json
+app/data/samples/intent_examples.json
+config/rag_indexer_config.json
+data/autonomy_loops.json
+data/feature_flags.json
+.gitignore
+data/analytics/memory_monitor_config.json
+.gitignore

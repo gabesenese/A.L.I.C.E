@@ -222,6 +222,30 @@ def test_contract_pipeline_handles_llm_route():
     assert result.metadata["state"]["current_task"] == "conversation:general"
 
 
+def test_contract_pipeline_defers_current_world_summary_without_live_sources():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="what is happening in the world right now?",
+        user_id="u1",
+        turn_number=23,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] == "freshness:current_events"
+    _assert_decision_band_is_consistent(result, "execute")
+    assert result.metadata["requires_follow_up"] is True
+    assert result.metadata["verification"]["accepted"] is True
+    response = result.response_text.lower()
+    assert "live sources" in response
+    assert "model memory" in response
+    assert "llm:" not in response
+    assert "pandemic" not in response
+
+
 def test_contract_pipeline_emits_companion_memory_domains_metadata():
     alice = _FakeAlice()
     boundaries = build_runtime_boundaries(alice)

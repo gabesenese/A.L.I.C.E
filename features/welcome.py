@@ -8,6 +8,142 @@ import datetime
 import time
 import random
 
+_GREETING_COMPONENTS = {
+    "early_morning": {
+        "openers": [
+            "Good early morning, {name}.",
+            "Morning, {name}.",
+            "You are up early, {name}.",
+            "Hello, {name}.",
+        ],
+        "context": [
+            "Quiet hours are ideal for focused planning.",
+            "This is a strong window to align priorities before the day gets noisy.",
+            "Early momentum now usually compounds through the day.",
+            "If we set direction now, execution gets simpler later.",
+        ],
+        "agentic_prompt": [
+            "Share one objective and I will map the first two actions.",
+            "Tell me the top priority and I will stage an execution plan.",
+            "Give me the target and I will outline the shortest path.",
+            "Point me to the blocker and I will propose the next move.",
+        ],
+    },
+    "morning": {
+        "openers": [
+            "Good morning, {name}.",
+            "Morning, {name}.",
+            "Hello, {name}.",
+            "Hi, {name}.",
+        ],
+        "context": [
+            "Good time to lock in outcomes for today.",
+            "We can start with one high-impact task and build momentum.",
+            "A quick plan now can prevent context switching later.",
+            "Morning planning is the easiest way to protect deep work blocks.",
+        ],
+        "agentic_prompt": [
+            "Name the first goal and I will break it into concrete steps.",
+            "Share the critical task and I will prep the execution sequence.",
+            "Tell me what matters most and I will frame the next actions.",
+            "If you give me the objective, I will structure a practical sprint.",
+        ],
+    },
+    "afternoon": {
+        "openers": [
+            "Good afternoon, {name}.",
+            "Afternoon, {name}.",
+            "Hello, {name}.",
+            "Hi, {name}.",
+        ],
+        "context": [
+            "This is a good checkpoint to re-prioritize.",
+            "We can recover momentum quickly with one clear decision.",
+            "A focused reset now can still close the day strong.",
+            "This slot is ideal for clearing blockers on the critical path.",
+        ],
+        "agentic_prompt": [
+            "Share the current blocker and I will suggest the next move.",
+            "Tell me the top outcome and I will map the fastest route.",
+            "Give me your status and I will produce a practical plan.",
+            "Name one target and I will stage immediate next actions.",
+        ],
+    },
+    "evening": {
+        "openers": [
+            "Good evening, {name}.",
+            "Evening, {name}.",
+            "Hello, {name}.",
+            "Hi, {name}.",
+        ],
+        "context": [
+            "This is a good time to close open loops.",
+            "A short review now can make tomorrow cleaner.",
+            "We can convert today's progress into a clear handoff.",
+            "Evening work is strongest when the scope is explicit.",
+        ],
+        "agentic_prompt": [
+            "Share what remains and I will prioritize finishing order.",
+            "Tell me what is pending and I will build a closeout plan.",
+            "Give me your target and I will map a clean wrap-up path.",
+            "Name tomorrow's priority and I will prepare the first steps now.",
+        ],
+    },
+    "night": {
+        "openers": [
+            "Late session, {name}.",
+            "Good evening, {name}.",
+            "Still in motion, {name}.",
+            "Hello, {name}.",
+        ],
+        "context": [
+            "Night sessions work best with tight scope.",
+            "Let's keep this lean and outcome-focused.",
+            "A single clear objective is the best move at this hour.",
+            "We can reduce noise and execute one important task.",
+        ],
+        "agentic_prompt": [
+            "Point to one objective and I will define the exact next step.",
+            "Share the target and I will keep the plan concise.",
+            "Tell me what needs to be done tonight and I will structure it.",
+            "Give me the priority and I will run a focused action sequence.",
+        ],
+    },
+    "late_night": {
+        "openers": [
+            "Late night, {name}.",
+            "Quiet hours, {name}.",
+            "Still online, {name}.",
+            "Hello, {name}.",
+        ],
+        "context": [
+            "Best approach now is minimal scope and high value.",
+            "We should optimize for one decisive outcome.",
+            "Late-hour progress is strongest when complexity stays low.",
+            "Let's execute only what matters now and park the rest.",
+        ],
+        "agentic_prompt": [
+            "Name one must-do item and I will drive a focused plan.",
+            "Share the immediate priority and I will outline the quickest route.",
+            "Tell me what cannot wait and I will structure the next actions.",
+            "Give me the critical task and I will keep execution tight.",
+        ],
+    },
+}
+
+_TIME_ALIASES = {
+    "earlymorning": "early_morning",
+    "early_morning": "early_morning",
+    "morning": "morning",
+    "afternoon": "afternoon",
+    "evening": "evening",
+    "night": "night",
+    "latenight": "late_night",
+    "late_night": "late_night",
+}
+
+_USED_GREETING_SIGNATURES = {period: set() for period in _GREETING_COMPONENTS}
+
 
 def get_terminal_width():
     """Get terminal width safely"""
@@ -50,44 +186,56 @@ def welcome_message(name="User", show_ascii=True):
     print(border)
 
 
+def _resolve_time_of_day(time_of_day=None):
+    """Resolve period key with optional explicit override."""
+    if time_of_day:
+        raw = str(time_of_day).strip().lower().replace(" ", "_")
+        normalized = _TIME_ALIASES.get(raw, raw)
+        if normalized in _GREETING_COMPONENTS:
+            return normalized
+
+    hour = datetime.datetime.now().hour
+    if 5 <= hour < 7:
+        return "early_morning"
+    if 7 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 17:
+        return "afternoon"
+    if 17 <= hour < 21:
+        return "evening"
+    if 21 <= hour < 24:
+        return "night"
+    return "late_night"
+
+
 def get_greeting(name="User", time_of_day=None):
-    """Get contextual greeting based on time of day"""
-    if time_of_day is None:
-        hour = datetime.datetime.now().hour
-        if 5 <= hour < 12:
-            time_of_day = "morning"
-        elif 12 <= hour < 17:
-            time_of_day = "afternoon"
-        elif 17 <= hour < 21:
-            time_of_day = "evening"
-        else:
-            time_of_day = "night"
-    
-    # Greeting templates
-    greetings = {
-        "morning": [
-            f"Good morning, {name}! Ready to start the day?",
-            f"Good morning, {name}! I hope you slept well.",
-            f"Rise and shine, {name}! What can I help you with today?",
-        ],
-        "afternoon": [
-            f"Good afternoon, {name}! How's your day going?",
-            f"Good afternoon, {name}! What can I assist you with?",
-            f"Hello, {name}! Productive afternoon so far?",
-        ],
-        "evening": [
-            f"Good evening, {name}! How was your day?",
-            f"Good evening, {name}! Ready to wind down?",
-            f"Evening, {name}! What can I help you with tonight?",
-        ],
-        "night": [
-            f"Good evening, {name}! Burning the midnight oil?",
-            f"Hello, {name}! Working late tonight?",
-            f"Good evening, {name}! Hope you're doing well.",
-        ]
-    }
-    
-    return random.choice(greetings.get(time_of_day, greetings["afternoon"]))
+    """Build a time-aware, non-repeating greeting with agentic intent."""
+    period = _resolve_time_of_day(time_of_day)
+    default_parts = _GREETING_COMPONENTS.get("afternoon")
+    if default_parts is None and _GREETING_COMPONENTS:
+        default_parts = next(iter(_GREETING_COMPONENTS.values()))
+    parts = _GREETING_COMPONENTS.get(period, default_parts)
+    if not parts:
+        return f"Hello, {name}."
+    used = _USED_GREETING_SIGNATURES.setdefault(period, set())
+
+    combos = [
+        (opener, context, prompt)
+        for opener in parts["openers"]
+        for context in parts["context"]
+        for prompt in parts["agentic_prompt"]
+    ]
+
+    available = [combo for combo in combos if combo not in used]
+    if not available:
+        used.clear()
+        available = combos
+
+    opener, context, prompt = random.choice(available)
+    used.add((opener, context, prompt))
+
+    opener_text = opener.format(name=name)
+    return f"{opener_text} {context} {prompt}"
 
 
 def display_startup_info():

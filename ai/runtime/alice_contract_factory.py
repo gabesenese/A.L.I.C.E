@@ -269,6 +269,144 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         )
         return any(term in text for term in framing_terms)
 
+    def _looks_like_current_events_request(user_input: str) -> bool:
+        detector = getattr(alice, "_is_freshness_sensitive_current_events_request", None)
+        if callable(detector):
+            try:
+                return bool(detector(user_input))
+            except Exception:
+                pass
+
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        local_live_domains = (
+            "weather",
+            "forecast",
+            "temperature",
+            "calendar",
+            "schedule",
+            "email",
+            "inbox",
+            "reminder",
+            "time",
+            "date",
+            "location",
+            "where am i",
+        )
+        if any(term in text for term in local_live_domains):
+            return False
+        if "today's technology" in text or "todays technology" in text:
+            return False
+
+        freshness_markers = (
+            "current",
+            "right now",
+            "now",
+            "latest",
+            "recent",
+            "today",
+            "this week",
+            "these days",
+            "at the moment",
+            "happening",
+            "going on",
+        )
+        world_markers = (
+            "world",
+            "global",
+            "news",
+            "current events",
+            "economy",
+            "markets",
+            "market",
+            "geopolitics",
+            "politics",
+            "war",
+            "conflict",
+            "inflation",
+            "interest rates",
+            "central banks",
+            "crypto",
+            "cryptocurrency",
+            "supply chains",
+        )
+        broad_situation = bool(
+            re.search(
+                r"\b(?:what(?:'s|\s+is)|tell\s+me|update\s+me|brief\s+me)\b.*"
+                r"\b(?:happening|going\s+on|situation|state\s+of)\b.*"
+                r"\b(?:world|global|news|economy|markets?|geopolitics|politics)\b",
+                text,
+            )
+        )
+        return bool(
+            (
+                any(marker in text for marker in freshness_markers)
+                and any(marker in text for marker in world_markers)
+            )
+            or broad_situation
+        )
+
+    def _freshness_required_payload(user_input: str) -> Dict[str, Any]:
+        builder = getattr(alice, "_freshness_required_payload", None)
+        if callable(builder):
+            try:
+                payload = builder(user_input)
+                if isinstance(payload, dict) and payload:
+                    return dict(payload)
+            except Exception:
+                pass
+        return {
+            "domain": "current events",
+            "source_requirement": "live sources",
+            "blocked_source": "model memory",
+            "search_dimensions": ["topic", "region", "market"],
+            "user_input": str(user_input or "").strip(),
+        }
+
+    def _formulate_freshness_guard_response(user_input: str) -> str:
+        responder = getattr(alice, "_formulate_freshness_guard_response", None)
+        if callable(responder):
+            try:
+                response = str(responder(user_input) or "").strip()
+                if response:
+                    return response
+            except Exception:
+                pass
+
+        from ai.core.response_formulator import (
+            ReasoningOutput,
+            ResponseFormulator,
+            UserResponse,
+        )
+
+        payload = _freshness_required_payload(user_input)
+        formulator = getattr(alice, "response_formulator", None) or ResponseFormulator()
+        final_payload = formulator.generate(
+            intent="freshness:current_events",
+            context={
+                "user_input": str(user_input or "").strip(),
+                "freshness_payload": payload,
+                "response": "",
+            },
+            tool_results={
+                "plugin": "FreshnessGuard",
+                "action": "freshness_required",
+                "data": payload,
+            },
+            reasoning_output=ReasoningOutput(
+                internal_summary="freshness boundary enforced for current-events request",
+                intent="freshness:current_events",
+                plan=["require live-source grounding before factual claims"],
+                confidence=0.98,
+            ),
+            mode="final_answer_only",
+        )
+        if isinstance(final_payload, UserResponse):
+            return str(final_payload.message or "").strip()
+        return str(final_payload or "").strip()
+
     def _verify_codebase_claims(response_text: str) -> Dict[str, Any]:
         text = str(response_text or "")
         low = text.lower()
@@ -496,7 +634,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         response=base,
                         route=route,
                         plugin_result=None,
-                        apply_publish_style=True,
+                        apply_publish_style=(route != "contract_freshness_guard"),
                     )
                 ).strip()
             except Exception:
@@ -558,6 +696,19 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 decision_band="execute",
                 metadata={
                     "reason": "weather_request_detected",
+                    "resolved_input": req.user_input,
+                },
+            )
+
+        if _looks_like_current_events_request(req.user_input):
+            return RouterDecision(
+                route="local",
+                intent="freshness:current_events",
+                confidence=0.98,
+                decision_band="execute",
+                metadata={
+                    "reason": "freshness_sensitive_current_events",
+                    "requires_live_sources": True,
                     "resolved_input": req.user_input,
                 },
             )
@@ -868,6 +1019,35 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     route="contract_code_request",
                 ),
                 metadata={"type": "code_request_fallback"},
+            )
+
+        if req.decision.intent == "freshness:current_events":
+            payload = _freshness_required_payload(req.user_input)
+            follow_up_question = _surface_text(
+                _formulate_freshness_guard_response(
+                    f"{req.user_input}\nrequested_focus=follow_up_slot"
+                ),
+                user_input=req.user_input,
+                intent=req.decision.intent,
+                route="contract_freshness_guard",
+            )
+            text = _surface_text(
+                _formulate_freshness_guard_response(req.user_input),
+                user_input=req.user_input,
+                intent=req.decision.intent,
+                route="contract_freshness_guard",
+            )
+            return ResponseOutput(
+                text=text,
+                confidence=0.99,
+                requires_follow_up=True,
+                follow_up_question=follow_up_question,
+                metadata={
+                    "type": "freshness_guard",
+                    "requires_live_sources": True,
+                    "freshness_payload": payload,
+                    "follow_up_question": follow_up_question,
+                },
             )
 
         if req.decision.needs_clarification:

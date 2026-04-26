@@ -8,6 +8,8 @@ import requests
 import json
 import logging
 import re
+import asyncio
+from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any, Generator
 from datetime import datetime
 import sys
@@ -42,6 +44,25 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    role: str
+    content: str
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    name: str
+    arguments: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ChatResponse:
+    content: str
+    tool_calls: List[ToolCall] = field(default_factory=list)
+    raw: Dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================================
@@ -578,6 +599,52 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         except Exception as e:
             logger.error(f"Error in stream chat: {e}")
             yield "\n\nI encountered an error. Please try again."
+
+    async def achat(
+        self,
+        messages: List[ChatMessage],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        stream: bool = False,
+    ) -> ChatResponse:
+        _ = tools
+        if stream:
+            chunks = []
+            prompt = messages[-1].content if messages else ""
+            for chunk in await asyncio.to_thread(lambda: list(self.stream_chat(prompt))):
+                chunks.append(chunk)
+            return ChatResponse(content="".join(chunks))
+
+        prompt = messages[-1].content if messages else ""
+        content = await asyncio.to_thread(self.chat, prompt)
+        return ChatResponse(content=content)
+
+    async def astream_chat(
+        self,
+        messages: List[ChatMessage],
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> Generator[str, None, None]:
+        _ = tools
+        prompt = messages[-1].content if messages else ""
+        for chunk in self.stream_chat(prompt):
+            yield chunk
+
+    async def embed(self, text: str) -> List[float]:
+        try:
+            response = await asyncio.to_thread(
+                requests.post,
+                f"{self.config.base_url}/api/embeddings",
+                json={
+                    "model": "nomic-embed-text",
+                    "prompt": text,
+                },
+                timeout=self.config.timeout,
+            )
+            if response.status_code == 200:
+                payload = response.json()
+                return list(payload.get("embedding") or [])
+        except Exception:
+            return []
+        return []
 
     def generate(
         self,

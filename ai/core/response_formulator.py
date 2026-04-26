@@ -369,6 +369,12 @@ class ResponseFormulator:
         intent_text = str(intent or "").lower().strip()
         user_input = str((context or {}).get("user_input") or "").strip()
 
+        if intent_text == "freshness:current_events":
+            return self._compose_freshness_guard_response(
+                context=context,
+                tool_results=tool_results,
+            )
+
         if self._is_agentic_behavior_request(user_input):
             return self.AGENTIC_MODE_FALLBACK
 
@@ -484,6 +490,62 @@ class ResponseFormulator:
             candidate = self._dynamic_phrase(candidate, tone="helpful")
 
         return UserResponse(message=candidate)
+
+    def _compose_freshness_guard_response(
+        self,
+        *,
+        context: Optional[Dict[str, Any]],
+        tool_results: Optional[Dict[str, Any]],
+    ) -> str:
+        """Formulate a freshness-boundary response from structured policy data."""
+        context = dict(context or {})
+        payload = dict(context.get("freshness_payload") or {})
+        if tool_results and isinstance(tool_results, dict):
+            data = tool_results.get("data")
+            if isinstance(data, dict):
+                payload.update(data)
+
+        user_input = str(context.get("user_input") or "").strip()
+        domain = str(payload.get("domain") or "current events").strip()
+        source_requirement = str(payload.get("source_requirement") or "live sources").strip()
+        blocked_source = str(payload.get("blocked_source") or "model memory").strip()
+        search_dimensions = [
+            str(item).strip()
+            for item in list(payload.get("search_dimensions") or [])
+            if str(item).strip()
+        ]
+        if not search_dimensions:
+            search_dimensions = ["topic", "region", "market"]
+
+        dimensions = ", ".join(search_dimensions[:-1])
+        if len(search_dimensions) > 1:
+            dimensions = f"{dimensions}, or {search_dimensions[-1]}" if dimensions else search_dimensions[-1]
+        else:
+            dimensions = search_dimensions[0]
+
+        frame = {
+            "response_frame": "freshness_boundary",
+            "scope": domain,
+            "required_evidence": source_requirement,
+            "blocked_evidence": blocked_source,
+            "needed_input": dimensions,
+            "next_capability": str(payload.get("next_capability") or "search").strip(),
+        }
+
+        seed = self._format_response_frame(frame)
+        return self._dynamic_phrase(seed, tone="careful and concise")
+
+    @staticmethod
+    def _format_response_frame(frame: Dict[str, Any]) -> str:
+        """Render a neutral fallback frame when learned phrasing is unavailable."""
+        frame_type = str(frame.get("response_frame") or "response").replace("_", " ").strip()
+        rows = [frame_type.title()]
+        for key, value in frame.items():
+            if key == "response_frame":
+                continue
+            label = key.replace("_", " ").strip().title()
+            rows.append(f"{label}: {value}")
+        return "\n".join(rows)
 
     def _load_templates(self) -> None:
         """Load response templates from storage"""
