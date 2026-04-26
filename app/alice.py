@@ -57,7 +57,8 @@ def start_alice_rich(voice_enabled=False, llm_model="llama3.1:8b", user_name="Ga
             llm_model=llm_model,
             user_name=user_name,
             debug=debug,
-            privacy_mode=privacy_mode
+            privacy_mode=privacy_mode,
+            llm_policy=llm_policy,
         )
         if not debug:
             sys.stdout = old_stdout

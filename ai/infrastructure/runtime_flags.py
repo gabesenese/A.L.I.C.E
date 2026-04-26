@@ -11,7 +11,6 @@ import os
 from typing import Set
 
 QUARANTINED_SUBSYSTEMS: Set[str] = {
-    "contract_pipeline",
     "session_summarizer",
     "capability_constraints",
     "result_quality_scorer",

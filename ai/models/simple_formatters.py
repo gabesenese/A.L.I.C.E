@@ -296,9 +296,9 @@ class WeatherFormatter(SimpleFormatter):
                     day_name = date_str
 
         if day_name and high is not None and low is not None:
-            return f"{location} on {day_name}: {condition}, low {int(low)}°C, high {int(high)}°C"
+            return f"{day_name} in {location}: {condition}, low {int(low)}°C, high {int(high)}°C"
         if day_name:
-            return f"{location} on {day_name}: {condition}"
+            return f"{day_name} in {location}: {condition}"
         return f"{location}: {condition}"
 
     @staticmethod

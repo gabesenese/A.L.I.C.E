@@ -77,7 +77,7 @@ Example: ["query1", "query2", ...]
 """
 
         try:
-            response = self.llm.query(prompt, max_tokens=500)
+            response = self.llm.generate(prompt, max_tokens=500)
 
             # Parse JSON response
             # Try to extract JSON array from response

@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Dict, List, Any
 from dataclasses import dataclass
-from ai.ollama_auditor import AuditScore
+from ai.training.ollama_auditor import AuditScore
 
 logger = logging.getLogger(__name__)
 

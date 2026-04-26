@@ -48,6 +48,7 @@ class GoalStep:
 
     step_id: str
     description: str
+    step_type: str = "implement"
     status: str = "pending"
     dependencies: List[str] = field(default_factory=list)
     result: Optional[str] = None
@@ -347,7 +348,21 @@ class PersistentGoalSystem:
             goal.updated_at = time.time()
             self._save_goals()
 
-    def plan_goal(self, goal_id: str, steps: List[str]) -> bool:
+    @staticmethod
+    def _infer_step_type_from_description(description: str) -> str:
+        """Infer step type from plain-text plans when explicit metadata is absent."""
+        low = str(description or "").strip().lower()
+        if any(token in low for token in ("research", "investigate", "explore", "gather")):
+            return "research"
+        if any(token in low for token in ("analy", "inspect", "review")):
+            return "analyze"
+        if any(token in low for token in ("test", "validate", "verify")):
+            return "test"
+        if any(token in low for token in ("report", "summar", "communicat")):
+            return "report"
+        return "implement"
+
+    def plan_goal(self, goal_id: str, steps: List[Any]) -> bool:
         """
         Add execution steps to a goal.
 
@@ -364,10 +379,49 @@ class PersistentGoalSystem:
 
         goal.status = GoalStatus.PLANNING
 
+        step_alias_map: Dict[str, str] = {}
         for i, step_desc in enumerate(steps):
-            # Create dependencies based on sequential order
-            dependencies = [goal.steps[i - 1].step_id] if i > 0 else []
-            goal.add_step(step_desc, dependencies)
+            description = ""
+            step_type = "implement"
+            raw_dependencies: List[str] = []
+
+            if isinstance(step_desc, dict):
+                description = str(
+                    step_desc.get("description")
+                    or step_desc.get("text")
+                    or f"Step {i + 1}"
+                ).strip()
+                step_type = str(
+                    step_desc.get("type")
+                    or self._infer_step_type_from_description(description)
+                    or "implement"
+                ).strip().lower()
+                raw_dependencies = [
+                    str(dep).strip().lower()
+                    for dep in list(step_desc.get("dependencies") or [])
+                    if str(dep).strip()
+                ]
+            else:
+                description = str(step_desc or f"Step {i + 1}").strip()
+                step_type = self._infer_step_type_from_description(description)
+
+            dependencies: List[str] = []
+            if raw_dependencies:
+                for dep in raw_dependencies:
+                    mapped = step_alias_map.get(dep)
+                    if mapped:
+                        dependencies.append(mapped)
+                    elif dep in step_alias_map.values():
+                        dependencies.append(dep)
+
+            # Default to sequential dependency if no explicit mapping exists.
+            if not dependencies and i > 0:
+                dependencies = [goal.steps[i - 1].step_id]
+
+            step = goal.add_step(description, dependencies)
+            step.step_type = step_type if step_type else "implement"
+            step_alias_map[str(i)] = step.step_id
+            step_alias_map[f"step_{i}"] = step.step_id
 
         goal.status = GoalStatus.IN_PROGRESS
         goal.updated_at = time.time()
@@ -407,12 +461,30 @@ class PersistentGoalSystem:
             return
 
         goal.complete_step(goal.current_step, result)
+        goal.current_step = None
 
         # Check if goal is complete
         if all(s.status == "completed" for s in goal.steps):
             self.update_goal_status(goal_id, GoalStatus.COMPLETED)
+        elif goal.status in {GoalStatus.CREATED, GoalStatus.PLANNING, GoalStatus.BLOCKED, GoalStatus.PAUSED}:
+            goal.status = GoalStatus.IN_PROGRESS
+            goal.updated_at = time.time()
 
         self._save_goals()
+
+    def fail_current_step(self, goal_id: str, error: str) -> bool:
+        """Mark current in-progress step as failed and block the goal for review."""
+        goal = self.get_goal(goal_id)
+        if not goal or not goal.current_step:
+            return False
+
+        goal.fail_step(goal.current_step, error)
+        goal.current_step = None
+        goal.status = GoalStatus.BLOCKED
+        goal.updated_at = time.time()
+
+        self._save_goals()
+        return True
 
     def get_goal_summary(self, goal_id: str) -> Dict[str, Any]:
         """Get a summary of goal progress"""

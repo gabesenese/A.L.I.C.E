@@ -8,6 +8,8 @@ import requests
 import json
 import logging
 import re
+import asyncio
+from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any, Generator
 from datetime import datetime
 import sys
@@ -16,6 +18,7 @@ import subprocess
 import time
 import os
 from pathlib import Path
+
 
 def _configure_stdio_utf8() -> None:
     """Configure stdio encoding for direct interactive runs without import side effects."""
@@ -33,6 +36,7 @@ def _configure_stdio_utf8() -> None:
         logger = logging.getLogger(__name__)
         logger.debug("Skipping stdio utf-8 reconfiguration: %s", e)
 
+
 # Set up logging
 logging.basicConfig(
     encoding="utf-8",
@@ -40,6 +44,25 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    role: str
+    content: str
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    name: str
+    arguments: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ChatResponse:
+    content: str
+    tool_calls: List[ToolCall] = field(default_factory=list)
+    raw: Dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================================
@@ -307,7 +330,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                 )
 
                 if not model_names:
-                    logger.error("No local models available. Run: ollama pull llama3.1:8b")
+                    logger.error(
+                        "No local models available. Run: ollama pull llama3.1:8b"
+                    )
                     return False
 
                 self._ensure_active_model_available(model_names)
@@ -350,7 +375,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
 
         base = active_model.split(":", 1)[0].lower()
         same_family = [m for m in model_names if m.lower().startswith(f"{base}:")]
-        fallback = same_family[0] if same_family else self._pick_fallback_model(model_names)
+        fallback = (
+            same_family[0] if same_family else self._pick_fallback_model(model_names)
+        )
         if not fallback:
             return
 
@@ -361,7 +388,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         )
         self.config._fine_tuned_model = None
         self.config.model = fallback
-        logger.info("Run this later to restore preferred model: ollama pull %s", active_model)
+        logger.info(
+            "Run this later to restore preferred model: ollama pull %s", active_model
+        )
 
     def _resolve_temperature(self, temperature: Optional[float]) -> float:
         """Resolve a per-call temperature override with safe fallback."""
@@ -381,6 +410,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         user_input: str,
         use_history: bool = True,
         temperature: Optional[float] = None,
+        mode: Optional[str] = None,
     ) -> str:
         """
         Send message to LLM with GPU acceleration
@@ -389,6 +419,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             user_input: User's message
             use_history: Include conversation history for context
             temperature: Optional per-call temperature override
+            mode: Optional output mode (e.g. "final_answer_only")
 
         Returns:
             Assistant's response
@@ -399,6 +430,18 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
 
             # Build message history
             messages = [{"role": "system", "content": self.system_prompt}]
+
+            if str(mode or "").strip().lower() == "final_answer_only":
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "Output mode is final_answer_only. "
+                            "Return only the final user-facing answer. "
+                            "Do not output analysis, key points, plans, context labels, or internal reasoning."
+                        ),
+                    }
+                )
 
             if use_history:
                 messages.extend(self.conversation_history[-self.config.max_history :])
@@ -431,7 +474,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                 ).strip()
                 if not assistant_message:
                     logger.warning("LLM returned an empty chat response")
-                    return "I received an empty response from the model. Please try again."
+                    return (
+                        "I received an empty response from the model. Please try again."
+                    )
 
                 # Store in conversation history
                 self.conversation_history.append(
@@ -457,7 +502,10 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             logger.error("[A.L.I.C.E.] Connection lost - attempting auto-restart...")
             if self._ensure_ollama_running():
                 return self.chat(
-                    user_input, use_history, temperature=temperature
+                    user_input,
+                    use_history,
+                    temperature=temperature,
+                    mode=mode,
                 )  # Retry once
             raise Exception("Service temporarily unavailable - Ollama not running")
         except Exception as e:
@@ -520,7 +568,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                     try:
                         chunk = json.loads(line)
                         if "error" in chunk:
-                            err = str(chunk.get("error") or "Unknown stream error").strip()
+                            err = str(
+                                chunk.get("error") or "Unknown stream error"
+                            ).strip()
                             logger.error("Streaming chunk error: %s", err)
                             yield f"\n\n[ERROR] {err}"
                             return
@@ -550,12 +600,59 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             logger.error(f"Error in stream chat: {e}")
             yield "\n\nI encountered an error. Please try again."
 
+    async def achat(
+        self,
+        messages: List[ChatMessage],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        stream: bool = False,
+    ) -> ChatResponse:
+        _ = tools
+        if stream:
+            chunks = []
+            prompt = messages[-1].content if messages else ""
+            for chunk in await asyncio.to_thread(lambda: list(self.stream_chat(prompt))):
+                chunks.append(chunk)
+            return ChatResponse(content="".join(chunks))
+
+        prompt = messages[-1].content if messages else ""
+        content = await asyncio.to_thread(self.chat, prompt)
+        return ChatResponse(content=content)
+
+    async def astream_chat(
+        self,
+        messages: List[ChatMessage],
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> Generator[str, None, None]:
+        _ = tools
+        prompt = messages[-1].content if messages else ""
+        for chunk in self.stream_chat(prompt):
+            yield chunk
+
+    async def embed(self, text: str) -> List[float]:
+        try:
+            response = await asyncio.to_thread(
+                requests.post,
+                f"{self.config.base_url}/api/embeddings",
+                json={
+                    "model": "nomic-embed-text",
+                    "prompt": text,
+                },
+                timeout=self.config.timeout,
+            )
+            if response.status_code == 200:
+                payload = response.json()
+                return list(payload.get("embedding") or [])
+        except Exception:
+            return []
+        return []
+
     def generate(
         self,
         prompt: str,
         max_tokens: Optional[int] = None,
         context: Optional[Dict[str, Any]] = None,
         temperature: Optional[float] = None,
+        mode: Optional[str] = None,
         **kwargs: Any,
     ) -> str:
         """Compatibility API for planner paths that expect generate()."""
@@ -566,6 +663,14 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             except Exception:
                 context_blob = str(context)
             prompt_text = f"Context:\n{context_blob}\n\nPrompt:\n{prompt_text}"
+
+        if str(mode or "").strip().lower() == "final_answer_only":
+            prompt_text = (
+                "Output mode: final_answer_only. "
+                "Return only the final answer for the user. "
+                "Do not include analysis, plans, key points, or context headings.\n\n"
+                + prompt_text
+            )
 
         if kwargs:
             logger.debug(
@@ -607,7 +712,12 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         except Exception as e:
             logger.warning(f"generate() fallback to chat() due to: {e}")
 
-        return self.chat(prompt_text, use_history=False, temperature=temperature)
+        return self.chat(
+            prompt_text,
+            use_history=False,
+            temperature=temperature,
+            mode=mode,
+        )
 
     def query_knowledge(self, question: str) -> str:
         """

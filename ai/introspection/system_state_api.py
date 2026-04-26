@@ -46,12 +46,18 @@ class SystemStateAPI:
             and self.alice.router is not None,
             "reasoning_engine": (
                 "active"
-                if hasattr(self.alice, "reasoning") and self.alice.reasoning
+                if (
+                    getattr(self.alice, "reasoning_engine", None)
+                    or getattr(self.alice, "reasoning", None)
+                )
                 else "inactive"
             ),
             "learning_engine": (
                 "active"
-                if hasattr(self.alice, "learning") and self.alice.learning
+                if (
+                    getattr(self.alice, "learning_engine", None)
+                    or getattr(self.alice, "learning", None)
+                )
                 else "inactive"
             ),
         }
@@ -103,17 +109,47 @@ class SystemStateAPI:
 
         # Try multiple goal sources
         if hasattr(self.alice, "goal_system") and self.alice.goal_system:
+            if hasattr(self.alice.goal_system, "get_active_goals"):
+                try:
+                    goals = self.alice.goal_system.get_active_goals()
+                    return [self._format_goal(goal) for goal in list(goals or [])[:5]]
+                except Exception:
+                    pass
             if hasattr(self.alice.goal_system, "active_goals"):
-                return self.alice.goal_system.active_goals[:5]
+                return [
+                    self._format_goal(goal)
+                    for goal in list(self.alice.goal_system.active_goals or [])[:5]
+                ]
 
-        if (
-            hasattr(self.alice, "_session_summarizer")
-            and self.alice._session_summarizer
-        ):
-            if hasattr(self.alice._session_summarizer, "active_goals"):
-                return self.alice._session_summarizer.active_goals[:5]
+        summarizer = getattr(
+            self.alice,
+            "session_summarizer",
+            getattr(self.alice, "_session_summarizer", None),
+        )
+        if summarizer and hasattr(summarizer, "active_goals"):
+            return [
+                self._format_goal(goal)
+                for goal in list(summarizer.active_goals or [])[:5]
+            ]
 
         return []
+
+    @staticmethod
+    def _format_goal(goal: Any) -> str:
+        """Normalize goal objects or raw strings into compact status labels."""
+        if isinstance(goal, str):
+            return goal
+
+        title = str(
+            getattr(goal, "title", "")
+            or getattr(goal, "description", "")
+            or getattr(goal, "goal_id", "")
+            or goal
+        ).strip()
+        status = str(getattr(goal, "status", "") or "").strip()
+        if status and hasattr(getattr(goal, "status", None), "value"):
+            status = str(goal.status.value)
+        return f"{title} ({status})" if title and status else title
 
     def get_active_tasks(self) -> List[Dict[str, Any]]:
         """Get list of currently executing/queued tasks."""
@@ -147,16 +183,19 @@ class SystemStateAPI:
 
         plugins = self.alice.plugins
 
+        registered = getattr(
+            plugins,
+            "plugins",
+            getattr(plugins, "registered_plugins", {}),
+        )
+        registered = registered if isinstance(registered, dict) else {}
+
         state = {
-            "plugins_loaded": hasattr(plugins, "registered_plugins"),
-            "plugin_count": 0,
-            "available_plugins": [],
+            "plugins_loaded": bool(registered),
+            "plugin_count": len(registered),
+            "available_plugins": list(registered.keys())[:10],
             "failed_plugins": [],
         }
-
-        if hasattr(plugins, "registered_plugins"):
-            state["plugin_count"] = len(plugins.registered_plugins)
-            state["available_plugins"] = list(plugins.registered_plugins.keys())[:10]
 
         if hasattr(plugins, "failed_plugins"):
             state["failed_plugins"] = plugins.failed_plugins[:5]

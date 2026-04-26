@@ -14,6 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+
 def _to_json_safe(value: Any) -> Any:
     """Convert arbitrary runtime objects to JSON-serializable structures."""
     if value is None or isinstance(value, (str, int, float, bool)):

@@ -6,7 +6,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from ai.core.nlp_processor import NLPProcessor, ParsedCommand
+from ai.core.nlp_processor import NLPProcessor, ParsedCommand, RouteDecision
 
 
 EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
@@ -19,6 +19,9 @@ class TestLayeredTokenizer:
         self.nlp = NLPProcessor()
         self.nlp.reset_context()
         self.nlp.set_tokenizer_profile("default")
+        # NLPProcessor is a singleton; clear injected test doubles between tests.
+        self.nlp.llm_gateway = None
+        self.nlp.llm_intent_classifier = None
 
     def test_surface_segments_meta_and_utterance(self):
         debug = self.nlp.debug_tokenizer("/debug tokens; read the test note")
@@ -105,6 +108,18 @@ class TestLayeredTokenizer:
         assert result.intent == "conversation:goal_statement"
         assert result.intent_confidence >= 0.8
 
+    def test_goal_statement_detector_does_not_capture_direct_informational_difference_prompt(self):
+        result = self.nlp.process(
+            "i want to know the difference between the agentic ai and generative ai"
+        )
+        modifiers = result.parsed_command.get("modifiers", {})
+
+        assert result.intent != "conversation:goal_statement"
+        assert (
+            modifiers.get("goal_statement_suppressed") == "direct_informational_query"
+            or modifiers.get("goal_statement_demoted") == "direct_informational_query"
+        )
+
     def test_answerability_gate_routes_specific_domain_question_to_learning_explanation_request(self):
         result = self.nlp.process("how does optimizer training work in nlp models?")
         modifiers = result.parsed_command.get("modifiers", {})
@@ -117,6 +132,65 @@ class TestLayeredTokenizer:
         result = self.nlp.process("how does optimizer stuff work?")
 
         assert result.intent != "learning:explanation_request"
+
+    def test_llm_intent_fallback_adopts_stronger_hybrid_candidate(self):
+        class _StubLLMIntentClassifier:
+            def classify_hybrid(self, query, semantic_confidence, semantic_intent, context=None):
+                return "notes:create", 0.87, "llm_cot"
+
+        route = RouteDecision(
+            intent="conversation:general",
+            confidence=0.41,
+            plugin="conversation",
+            action="general",
+            trace={"calibration": {"margin": 0.03}},
+        )
+
+        self.nlp.llm_gateway = object()
+        self.nlp.llm_intent_classifier = _StubLLMIntentClassifier()
+
+        updated = self.nlp._maybe_apply_llm_intent_fallback(
+            normalized_text="create a note called roadmap",
+            route=route,
+            weighted_candidates=[("conversation:general", 0.41)],
+            parsed_command=ParsedCommand(action="unknown"),
+        )
+
+        assert updated.intent == "notes:create"
+        assert updated.confidence >= 0.85
+        assert (updated.trace.get("llm_intent_fallback") or {}).get("applied") is True
+
+    def test_llm_intent_fallback_skips_when_route_confidence_is_already_stable(self):
+        class _StubLLMIntentClassifier:
+            def __init__(self):
+                self.called = False
+
+            def classify_hybrid(self, query, semantic_confidence, semantic_intent, context=None):
+                self.called = True
+                return "email:compose", 0.9, "llm_cot"
+
+        stub = _StubLLMIntentClassifier()
+        route = RouteDecision(
+            intent="notes:list",
+            confidence=0.84,
+            plugin="notes",
+            action="list",
+            trace={"calibration": {"margin": 0.25}},
+        )
+
+        self.nlp.llm_gateway = object()
+        self.nlp.llm_intent_classifier = stub
+
+        updated = self.nlp._maybe_apply_llm_intent_fallback(
+            normalized_text="show my notes",
+            route=route,
+            weighted_candidates=[("notes:list", 0.84)],
+            parsed_command=ParsedCommand(action="list"),
+        )
+
+        assert updated.intent == "notes:list"
+        assert updated.confidence == 0.84
+        assert stub.called is False
 
     def test_weather_plausibility_requires_entity_or_forecast_signals(self):
         score, issues = self.nlp._validate_intent_plausibility(
@@ -310,8 +384,8 @@ class TestLayeredTokenizer:
         assert modifiers.get("pending_slot_followup") is None
         assert modifiers.get("unknown_intent_fallback") is False
 
-    def test_exact_tony_prompt_routes_without_clarification_or_unknown_fallback(self):
-        result = self.nlp.process(EXACT_TONY_PROMPT)
+    def test_exact_fictional_inventor_prompt_routes_without_clarification_or_unknown_fallback(self):
+        result = self.nlp.process(EXACT_FICTIONAL_INVENTOR_PROMPT)
         modifiers = result.parsed_command.get("modifiers", {})
 
         assert result.intent != "conversation:clarification_needed"

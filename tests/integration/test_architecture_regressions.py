@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 
+from ai.core.executive_controller import ExecutiveController
 from ai.core.execution_verifier import get_execution_verifier
 from ai.core.goal_recognizer import get_goal_recognizer
 from ai.core.live_state_service import get_live_state_service
-from ai.core.turn_routing_policy import get_turn_routing_policy
 
 
 class _Entity:
@@ -51,19 +51,35 @@ def test_goal_recognizer_rejects_immediate_tool_command():
     assert signal is None
 
 
-def test_turn_routing_policy_has_single_owner_decision():
-    policy = get_turn_routing_policy()
-    decision = policy.decide(
-        executive_action="use_plugin",
-        runtime_allow_tools=True,
-        runtime_preference="tool_first",
-        is_short_followup=True,
+def test_executive_state_machine_is_single_route_authority_for_tool_turns():
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.90,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
         is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
         force_plugins_for_notes=False,
     )
 
-    assert decision.owner == "executive_turn_routing_policy"
-    assert decision.should_try_plugins is True
+    state_machine = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+
+    assert state_machine.chosen_route == "tool"
+    assert state_machine.should_try_plugins is True
+    assert state_machine.contract.chosen_route == "tool"
 
 
 def test_live_state_service_prefers_freshest_world_snapshot():
@@ -111,3 +127,112 @@ def test_execution_verifier_rejects_empty_planned_result():
 
     assert report.accepted is False
     assert "empty_result" in report.issues
+
+
+def test_execution_verifier_rejects_when_contract_success_criteria_fail():
+    verifier = get_execution_verifier()
+    report = verifier.verify_task_result(
+        intent="notes:delete",
+        result="Done.",
+        all_results={"status": "failed"},
+        success_criteria=[
+            "tool call succeeds",
+            "result returned to user clearly",
+        ],
+        outcome={
+            "tool_success": False,
+            "goal_advanced": False,
+            "verification_passed": False,
+        },
+    )
+
+    assert report.accepted is False
+    assert any(issue.startswith("success_criterion_not_met:") for issue in report.issues)
+
+
+def test_execution_loop_replans_when_tool_verified_but_goal_not_advanced():
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="continue my task",
+        intent="notes:update",
+        confidence=0.83,
+        entities={},
+        conversation_state={"active_goal_stack": [{"goal_id": "g1", "title": "organize notes"}]},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=False,
+        has_active_goal=True,
+        force_plugins_for_notes=False,
+    )
+    pre = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=False,
+        has_active_goal=True,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+    outcome = controller.build_execution_outcome(
+        contract=pre.contract,
+        tool_success=True,
+        goal_advanced=False,
+        verification_passed=True,
+        recommended_next_action="",
+        retryable=False,
+        issues=[],
+        metadata={"plugin": "notes"},
+    )
+    post = controller.run_post_execution_state_machine(
+        pre_execution=pre,
+        outcome=outcome,
+    )
+
+    assert post.phase == "replanned"
+    assert post.should_replan is True
+    assert post.contract.as_dict()["next_action_type"] == "replan"
+
+
+def test_escalated_post_execution_remains_blocked_not_llm_fallback():
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete everything",
+        intent="notes:delete",
+        confidence=0.86,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+    pre = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+    outcome = controller.build_execution_outcome(
+        contract=pre.contract,
+        tool_success=False,
+        goal_advanced=False,
+        verification_passed=False,
+        recommended_next_action="escalate",
+        retryable=False,
+        issues=["policy_block"],
+        metadata={"plugin": "notes"},
+    )
+    post = controller.run_post_execution_state_machine(
+        pre_execution=pre,
+        outcome=outcome,
+    )
+
+    assert post.phase == "escalated"
+    assert post.terminal_action == "blocked"
+    assert post.contract.as_dict()["next_action_type"] == "escalate"

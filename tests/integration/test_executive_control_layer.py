@@ -65,6 +65,339 @@ def test_executive_requests_clarification_when_ambiguous() -> None:
         assert decision.clarification_question
 
 
+def test_turn_contract_conversation_shape_is_canonical() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="how are you?",
+        intent="status_inquiry",
+        confidence=0.95,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    contract = controller.build_turn_contract(
+        state=state,
+        decision=decision,
+        should_try_plugins=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+    )
+    payload = contract.as_dict()
+
+    assert payload["task_type"] == "conversation"
+    assert payload["chosen_route"] == "llm"
+    assert payload["next_action_type"] == "respond"
+    assert payload["next_action_owner"] == "response_layer"
+    assert set(payload.keys()) == {
+        "task_type",
+        "goal",
+        "constraints",
+        "chosen_route",
+        "success_criteria",
+        "next_action",
+        "next_action_type",
+        "continuation_payload",
+        "retry_target",
+        "blocking_reason",
+        "next_action_owner",
+        "continuation",
+    }
+
+
+def test_turn_contract_direct_tool_action_shape() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.88,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    contract = controller.build_turn_contract(
+        state=state,
+        decision=decision,
+        should_try_plugins=True,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+    )
+
+    assert contract.task_type == "direct tool action"
+    assert contract.chosen_route == "tool"
+    assert any("tool" in x.lower() for x in contract.success_criteria)
+
+
+def test_turn_contract_clarification_required_shape() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="that one",
+        intent="conversation:general",
+        confidence=0.20,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    contract = controller.build_turn_contract(
+        state=state,
+        decision=decision,
+        should_try_plugins=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+    )
+
+    assert contract.task_type in {"clarification-required", "blocked/escalated"}
+    if contract.task_type == "clarification-required":
+        assert contract.chosen_route == "clarify"
+
+
+def test_turn_state_machine_produces_tool_route_for_plugin_decision() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.86,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    sm = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+
+    assert sm.chosen_route == "tool"
+    assert sm.should_try_plugins is True
+    assert sm.terminal_action == "proceed"
+
+
+def test_turn_state_machine_returns_clarify_terminal_for_pre_route_block() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="that one",
+        intent="conversation:general",
+        confidence=0.12,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    sm = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        pre_route_blocked=True,
+        tool_vetoed=False,
+    )
+
+    assert sm.chosen_route == "clarify"
+    assert sm.should_try_plugins is False
+    assert sm.terminal_action == "clarify"
+
+
+def test_post_execution_state_machine_marks_retry_for_retryable_failure() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.82,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+    pre = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+    outcome = controller.build_execution_outcome(
+        contract=pre.contract,
+        tool_success=False,
+        goal_advanced=False,
+        verification_passed=False,
+        recommended_next_action="retry",
+        retryable=True,
+        issues=["tool_timeout"],
+        metadata={"plugin": "notes"},
+    )
+
+    post = controller.run_post_execution_state_machine(
+        pre_execution=pre,
+        outcome=outcome,
+    )
+
+    assert post.phase == "retry"
+    assert post.should_retry is True
+    assert post.contract.as_dict()["next_action_type"] == "retry_tool"
+
+
+def test_post_execution_state_machine_marks_completed_after_verified_goal_advance() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.90,
+        entities={},
+        conversation_state={"conversation_goal": "organize notes"},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=True,
+        force_plugins_for_notes=False,
+    )
+    pre = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=True,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+    outcome = controller.build_execution_outcome(
+        contract=pre.contract,
+        tool_success=True,
+        goal_advanced=True,
+        verification_passed=True,
+        recommended_next_action="continue",
+        retryable=False,
+        issues=[],
+        metadata={"plugin": "notes"},
+    )
+
+    post = controller.run_post_execution_state_machine(
+        pre_execution=pre,
+        outcome=outcome,
+    )
+
+    assert post.phase == "completed"
+    assert post.should_retry is False
+    assert post.should_replan is False
+    assert post.contract.as_dict()["next_action_type"] == "continue_goal"
+
+
+def test_post_execution_state_machine_escalates_unverified_non_retryable_tool_turn() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="delete note groceries",
+        intent="notes:delete",
+        confidence=0.88,
+        entities={},
+        conversation_state={},
+    )
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+    pre = controller.run_turn_state_machine(
+        state=state,
+        decision=decision,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        pre_route_blocked=False,
+        tool_vetoed=False,
+    )
+    outcome = controller.build_execution_outcome(
+        contract=pre.contract,
+        tool_success=False,
+        goal_advanced=False,
+        verification_passed=False,
+        recommended_next_action="",
+        retryable=False,
+        issues=["verification_failed"],
+        metadata={"plugin": "notes"},
+    )
+
+    post = controller.run_post_execution_state_machine(
+        pre_execution=pre,
+        outcome=outcome,
+    )
+
+    assert post.phase == "escalated"
+    assert post.contract.as_dict()["next_action_type"] == "escalate"
+
+
+def test_executive_keeps_greeting_on_native_conversational_path() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="hi alice",
+        intent="greeting",
+        confidence=0.90,
+        entities={},
+        conversation_state={
+            "active_goal_stack": [
+                {
+                    "goal_id": "goal::stale",
+                    "title": "old unfinished task",
+                    "status": "active",
+                }
+            ]
+        },
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=True,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "answer_direct"
+    assert decision.reason == "greeting_native_priority"
+
+
 def test_reasoning_state_prompt_is_structured_not_cot() -> None:
     controller = ExecutiveController()
     state = controller.build_state(
@@ -120,7 +453,26 @@ def test_response_acceptance_gate_rejects_uncertain_generic_output() -> None:
     )
 
     assert result["accepted"] is False
-    assert result["fallback_action"] in ("clarify", "safe_reply")
+    assert result["fallback_action"] in ("clarify", "safe_reply", "revise_answer")
+
+
+def test_response_acceptance_gate_prefers_refine_for_open_learning_goal() -> None:
+    controller = ExecutiveController()
+
+    result = controller.evaluate_response(
+        user_input="i want to learn more about agentic ai",
+        intent="conversation:goal_statement",
+        response="In general, maybe it depends, but agentic systems plan and act toward goals.",
+        route="llm",
+        context={},
+    )
+
+    assert result["accepted"] is False
+    assert result["fallback_action"] == "revise_answer"
+    assert result.get("fallback_reason") in {
+        "low_confidence_answer_needs_refinement",
+        "low_confidence_answer_requiring_retry",
+    }
 
 
 def test_response_acceptance_gate_accepts_relevant_answer() -> None:
@@ -714,3 +1066,87 @@ def test_rich_conceptual_build_prompt_with_clarification_bias_still_uses_fresh_r
 
     assert decision.action == "use_llm"
     assert decision.reason == "conceptual_build_question"
+
+
+def test_short_framework_overview_prompt_routes_to_llm_without_plugin_attempt() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="agentic ai frameworks",
+        intent="conversation:help",
+        confidence=0.70,
+        entities={"_intent_plausibility": 0.60},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "use_llm"
+    assert decision.reason == "short_framework_overview"
+
+
+def test_short_framework_prompt_with_explicit_action_cue_does_not_force_llm() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="search agentic ai frameworks",
+        intent="conversation:help",
+        confidence=0.72,
+        entities={"_intent_plausibility": 0.73},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=False,
+        has_explicit_action_cue=True,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.reason != "short_framework_overview"
+
+
+def test_answerability_direct_question_routes_to_answer_direct() -> None:
+    controller = ExecutiveController()
+    state = controller.build_state(
+        user_input="what's the difference between an ai agent and an ai assistant?",
+        intent="conversation:help",
+        confidence=0.52,
+        entities={"_intent_plausibility": 0.61},
+        conversation_state={},
+    )
+
+    decision = controller.decide(
+        state,
+        is_pure_conversation=True,
+        has_explicit_action_cue=False,
+        has_active_goal=False,
+        force_plugins_for_notes=False,
+    )
+
+    assert decision.action == "answer_direct"
+    assert decision.reason in {
+        "answerability_gate_direct_question",
+        "clear_informational_request",
+    }
+
+
+def test_response_acceptance_gate_sets_llm_failure_reason_for_answerable_question() -> None:
+    controller = ExecutiveController()
+
+    result = controller.evaluate_response(
+        user_input="what is nlp?",
+        intent="conversation:question",
+        response="Maybe. I am not sure.",
+        route="llm",
+        context={},
+    )
+
+    assert result["accepted"] is False
+    assert result["fallback_action"] in {"safe_reply", "revise_answer"}
+    assert result.get("fallback_reason") == "llm_failed_after_answer_directly"

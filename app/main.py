@@ -1,35 +1,9 @@
-"""   
-A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity
-Main Orchestrator - Intelligent Personal Assistant
+import uvicorn
 
-Integrates all components:
-- Advanced NLP with intent detection
-- LLM engine (Ollama with Llama 3.3 70B)
-- Context management and personalization
-- Memory system with RAG
-- Plugin system for extensibility
-- Voice interaction (speech-to-text, text-to-speech)
-- Task execution and automation
-"""
+from app.bootstrap import create_app
 
-# Suppress warnings before importing other modules
-import os
-import json
-import warnings
-warnings.filterwarnings('ignore', category=FutureWarning)
-warnings.filterwarnings('ignore', category=UserWarning)
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow warnings
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
+app = create_app()
 
-import sys
-import logging
-import re
-import html
-import time
-from typing import Optional, Dict, Any, List, Tuple
-from datetime import datetime
-from pathlib import Path
-from collections import defaultdict
 
 from ai.planning.goal_from_llm import get_goal_from_llm, GoalJSON
 from ai.infrastructure.policy import get_policy_decision, PolicyDecision
@@ -14466,6 +14440,8 @@ def main():
         print(f"\n[ERROR] Error: {e}")
         sys.exit(1)
 
+        return ALICE
+    raise AttributeError(name)
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

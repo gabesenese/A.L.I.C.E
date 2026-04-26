@@ -202,6 +202,11 @@ class LLMGateway:
         # Step 3: Route to appropriate LLM method based on call type
         try:
             logger.info(f"[LLMGateway] [CALL] LLM call ({call_type.value})")
+            output_mode = (
+                str((context or {}).get("output_mode") or "final_answer_only")
+                .strip()
+                .lower()
+            )
 
             if (
                 self._should_use_multi_router(call_type)
@@ -359,11 +364,16 @@ class LLMGateway:
                     user_input=user_input,
                     use_history=use_history,
                     context=context,
+                    output_mode=output_mode,
                 )
 
             else:
                 # Legacy call types - use old chat() method
-                response = self.llm.chat(prompt, use_history=use_history)
+                response = self.llm.chat(
+                    prompt,
+                    use_history=use_history,
+                    mode=output_mode,
+                )
 
             # Record successful call
             self.policy.record_call(call_type, user_input, response)
@@ -620,6 +630,7 @@ Be conversational and helpful. Do not mention the tool name or technical details
         user_input: str,
         use_history: bool,
         context: Optional[Dict[str, Any]],
+        output_mode: str = "final_answer_only",
     ) -> str:
         """Attempt structured assist paths before broad generation."""
         ctx = dict(context or {})
@@ -655,7 +666,11 @@ Be conversational and helpful. Do not mention the tool name or technical details
             pass
 
         # 4) Last resort: broad generation.
-        return self.llm.chat(prompt, use_history=use_history)
+        return self.llm.chat(
+            prompt,
+            use_history=use_history,
+            mode=output_mode,
+        )
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get advanced gateway statistics with detailed routing breakdown"""

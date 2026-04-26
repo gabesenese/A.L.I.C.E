@@ -81,6 +81,16 @@ except ImportError:
         "[WARN] Semantic intent classifier not available. Using fallback patterns."
     )
 
+try:
+    from ai.core.llm_intent_classifier import get_llm_intent_classifier
+
+    LLM_INTENT_CLASSIFIER_AVAILABLE = True
+except ImportError:
+    LLM_INTENT_CLASSIFIER_AVAILABLE = False
+    logging.warning(
+        "[WARN] LLM intent classifier not available. Semantic-only routing will be used."
+    )
+
 # Entity normalizer (P0 Improvement)
 try:
     from ai.core.entity_normalizer import get_normalizer as _get_entity_normalizer
@@ -1193,7 +1203,7 @@ class NLPProcessor:
     CLARIFICATION_CONFIDENCE_MAX = 0.62
     CONVERSATION_CATEGORY_GATE_THRESHOLD = 0.88
 
-    def __new__(cls):
+    def __new__(cls, *args: Any, **kwargs: Any):
         """Singleton pattern for performance"""
         if cls._instance is None:
             with cls._lock:
@@ -1201,8 +1211,10 @@ class NLPProcessor:
                     cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, plugin_registry: Optional[PluginRegistry] = None):
         if hasattr(self, "_initialized"):
+            if plugin_registry is not None:
+                self.plugin_registry = plugin_registry
             return
 
         self._initialized = True
@@ -1256,6 +1268,68 @@ class NLPProcessor:
         self.context = ConversationContext()
         self.followup_resolver = FollowUpResolver()
         self.goal_recognizer = get_goal_recognizer()
+        if plugin_registry is not None:
+            self.plugin_registry = plugin_registry
+        else:
+            try:
+                self.plugin_registry = discover_plugins()
+            except Exception:
+                self.plugin_registry = PluginRegistry()
+
+        try:
+            from ai.optimization.runtime_thresholds import get_thresholds
+
+            thresholds = get_thresholds()
+            self.UNKNOWN_FALLBACK_CONF_HARD = float(
+                thresholds.get(
+                    "unknown_fallback_conf_hard", self.UNKNOWN_FALLBACK_CONF_HARD
+                )
+            )
+            self.UNKNOWN_FALLBACK_CONF_SOFT = float(
+                thresholds.get(
+                    "unknown_fallback_conf_soft", self.UNKNOWN_FALLBACK_CONF_SOFT
+                )
+            )
+            self.UNKNOWN_FALLBACK_PLAUS_SOFT = float(
+                thresholds.get(
+                    "unknown_fallback_plaus_soft", self.UNKNOWN_FALLBACK_PLAUS_SOFT
+                )
+            )
+            self.UNKNOWN_FALLBACK_PLAUS_HARD = float(
+                thresholds.get(
+                    "unknown_fallback_plaus_hard", self.UNKNOWN_FALLBACK_PLAUS_HARD
+                )
+            )
+            self.ROUTE_UNCERTAINTY_THRESHOLD = float(
+                thresholds.get(
+                    "route_uncertainty_threshold", self.ROUTE_UNCERTAINTY_THRESHOLD
+                )
+            )
+            self.CLARIFICATION_INTENT_CONFIDENCE_THRESHOLD = float(
+                thresholds.get(
+                    "clarification_intent_confidence_threshold",
+                    self.CLARIFICATION_INTENT_CONFIDENCE_THRESHOLD,
+                )
+            )
+            self.CLARIFICATION_CONFIDENCE_MIN = float(
+                thresholds.get(
+                    "clarification_confidence_min", self.CLARIFICATION_CONFIDENCE_MIN
+                )
+            )
+            self.CLARIFICATION_CONFIDENCE_MAX = float(
+                thresholds.get(
+                    "clarification_confidence_max", self.CLARIFICATION_CONFIDENCE_MAX
+                )
+            )
+            self.CONVERSATION_CATEGORY_GATE_THRESHOLD = float(
+                thresholds.get(
+                    "conversation_category_gate_threshold",
+                    self.CONVERSATION_CATEGORY_GATE_THRESHOLD,
+                )
+            )
+        except Exception as e:
+            logger.debug(f"Runtime thresholds unavailable for NLP processor: {e}")
+
         self.route_coordinator = RouteCoordinator(
             RouteCoordinatorConfig(
                 unknown_fallback_conf_hard=self.UNKNOWN_FALLBACK_CONF_HARD,
@@ -1284,6 +1358,8 @@ class NLPProcessor:
         # Semantic intent classifier
         self.semantic_classifier = None
         self._semantic_classifier_init_attempted = False
+        self.llm_gateway = None
+        self.llm_intent_classifier = None
 
         # Load learned corrections into pattern matching
         self.learned_corrections = self._load_learned_corrections()
@@ -1427,6 +1503,146 @@ class NLPProcessor:
         except Exception as e:
             logger.warning(f"[WARN] Failed to load semantic classifier: {e}")
             return None
+
+    def attach_llm_gateway(self, llm_gateway: Any) -> None:
+        """Attach LLM gateway for optional low-confidence intent arbitration."""
+        self.llm_gateway = llm_gateway
+        if self.llm_intent_classifier is not None:
+            try:
+                self.llm_intent_classifier.llm_gateway = llm_gateway
+            except Exception:
+                pass
+
+    def _ensure_llm_intent_classifier(self):
+        """Lazily initialize LLM intent classifier when an LLM gateway is available."""
+        if self.llm_intent_classifier is not None:
+            return self.llm_intent_classifier
+        if not LLM_INTENT_CLASSIFIER_AVAILABLE:
+            return None
+        if self.llm_gateway is None:
+            return None
+        try:
+            self.llm_intent_classifier = get_llm_intent_classifier(self.llm_gateway)
+            return self.llm_intent_classifier
+        except Exception as e:
+            logger.debug(f"[NLP] Could not initialize LLM intent classifier: {e}")
+            return None
+
+    def _recent_context_for_llm_intent(self, limit: int = 3) -> List[str]:
+        """Collect compact recent user-turn context for hybrid intent arbitration."""
+        if self.conversation_memory is None:
+            return []
+        try:
+            turns = self.conversation_memory.recent(limit=limit)
+            return [str(turn.user_input or "").strip() for turn in turns if str(turn.user_input or "").strip()]
+        except Exception:
+            return []
+
+    def _normalize_hybrid_intent(self, intent_name: str) -> str:
+        """Normalize hybrid classifier output into runtime intent label format."""
+        intent = str(intent_name or "").strip().lower()
+        if not intent:
+            return ""
+        if ":" in intent:
+            return intent
+
+        if intent in self._intent_action_defaults:
+            return f"{intent}:{self._intent_action_defaults[intent]}"
+
+        aliases = {
+            "question": "conversation:question",
+            "conversation": "conversation:general",
+            "meta_question": "conversation:meta_question",
+            "clarification_needed": "conversation:clarification_needed",
+            "status_inquiry": "status_inquiry",
+            "thanks": "thanks",
+            "greeting": "greeting",
+        }
+        return aliases.get(intent, "")
+
+    def _maybe_apply_llm_intent_fallback(
+        self,
+        *,
+        normalized_text: str,
+        route: RouteDecision,
+        weighted_candidates: List[Tuple[str, float]],
+        parsed_command: ParsedCommand,
+    ) -> RouteDecision:
+        """Use LLM hybrid intent arbitration for low-confidence/ambiguous routes."""
+        llm_classifier = self._ensure_llm_intent_classifier()
+        if llm_classifier is None:
+            return route
+
+        trace = dict(getattr(route, "trace", {}) or {})
+        calibration = dict(trace.get("calibration", {}) or {})
+        margin = float(calibration.get("margin", 1.0) or 1.0)
+        route_conf = float(route.confidence or 0.0)
+        low_confidence = route_conf < 0.68
+        ambiguous_margin = margin < 0.08
+
+        if not (low_confidence or ambiguous_margin):
+            return route
+
+        # Keep explicit high-impact commands deterministic when confidence is already acceptable.
+        explicit_action = str(getattr(parsed_command, "action", "") or "").strip().lower()
+        if explicit_action in {"delete", "remove", "update", "append", "send", "compose"} and route_conf >= 0.60:
+            return route
+
+        llm_context = self._recent_context_for_llm_intent(limit=3)
+        try:
+            llm_intent_raw, llm_confidence, llm_source = llm_classifier.classify_hybrid(
+                query=normalized_text,
+                semantic_confidence=route_conf,
+                semantic_intent=route.intent,
+                context=llm_context,
+            )
+        except Exception as e:
+            logger.debug(f"[NLP] LLM intent fallback failed: {e}")
+            return route
+
+        llm_intent = self._normalize_hybrid_intent(str(llm_intent_raw or ""))
+        llm_confidence = float(llm_confidence or 0.0)
+        if not llm_intent:
+            return route
+
+        adopt_llm = bool(llm_confidence >= max(route_conf + 0.05, 0.45))
+        if not adopt_llm:
+            return route
+
+        # If the route already points to a concrete non-conversation action, keep it.
+        if (
+            route.intent.startswith(("notes:", "email:", "calendar:", "file_operations:", "memory:", "reminder:", "system:", "weather:", "time:"))
+            and llm_intent.startswith("conversation:")
+            and route_conf >= 0.62
+        ):
+            return route
+
+        if ":" in llm_intent:
+            plugin, action = llm_intent.split(":", 1)
+        else:
+            plugin, action = "conversation", "general"
+
+        trace.update(
+            {
+                "llm_intent_fallback": {
+                    "applied": True,
+                    "previous_intent": route.intent,
+                    "previous_confidence": route_conf,
+                    "candidate_intent": llm_intent,
+                    "candidate_confidence": llm_confidence,
+                    "source": str(llm_source or "llm_hybrid"),
+                    "weighted_candidates": weighted_candidates[:3],
+                }
+            }
+        )
+
+        return RouteDecision(
+            intent=llm_intent,
+            confidence=max(0.2, min(0.97, llm_confidence)),
+            plugin=plugin,
+            action=action,
+            trace=trace,
+        )
 
     def set_tokenizer_profile(self, profile: str) -> None:
         """Set tokenizer behavior profile: strict, default, llm-assisted."""
@@ -2120,7 +2336,7 @@ class NLPProcessor:
                 has_tool_cue = True
         if plugin_scores:
             best_plugin, best_score = max(plugin_scores.items(), key=lambda item: float(item[1]))
-            tool_plugins = {
+            tool_plugins = set(self.plugin_registry.all_actions.keys()) | {
                 "notes",
                 "email",
                 "calendar",
@@ -2799,7 +3015,29 @@ class NLPProcessor:
             for key in ("notes", "email", "calendar", "weather", "system"):
                 scores[key] *= 1.05
 
+        dynamic_scores = self.plugin_registry.score_all(
+            text=" ".join(normalized),
+            tokens=normalized,
+        )
+        for plugin_name, plugin_score in dynamic_scores.items():
+            scores[plugin_name] = float(scores.get(plugin_name, 0.0) + plugin_score)
+
         return scores
+
+    async def aprocess(self, text: str, use_context: bool = True) -> ProcessedQuery:
+        return await asyncio.to_thread(self.process, text, use_context)
+
+    async def aclassify(self, text: str, use_context: bool = True) -> str:
+        result = await self.aprocess(text=text, use_context=use_context)
+        return str(result.intent)
+
+    async def aextract_slots(
+        self,
+        text: str,
+        intent: str,
+        entities: Dict[str, List[Entity]],
+    ) -> Dict[str, Slot]:
+        return await asyncio.to_thread(self.slot_filler.extract_slots, text, intent, entities)
 
     def debug_tokenizer(self, text: str) -> Dict[str, Any]:
         """Development HUD for tokenizer introspection."""
@@ -3156,6 +3394,12 @@ class NLPProcessor:
                 route = self._calibrate_route_decision(
                     weighted_candidates, plugin_scores, semantic_intent, parsed_command
                 )
+                route = self._maybe_apply_llm_intent_fallback(
+                    normalized_text=normalized_text,
+                    route=route,
+                    weighted_candidates=weighted_candidates,
+                    parsed_command=parsed_command,
+                )
                 intent = route.intent
                 intent_confidence = route.confidence
 
@@ -3179,6 +3423,8 @@ class NLPProcessor:
             intent_confidence=float(intent_confidence or 0.0),
             intent_category=intent_category,
             parsed_command=parsed_command,
+            normalized_text=normalized_text,
+            previous_intent=str(self.context.last_intent or ""),
         )
 
         self.route_coordinator.ensure_metadata(

@@ -63,6 +63,45 @@ def test_weather_current_with_bare_time_range_phrase_promotes_to_forecast():
     assert confidence >= 0.9
 
 
+def test_weather_coat_week_prompt_promotes_general_to_forecast():
+    alice = ALICE.__new__(ALICE)
+    alice._think = lambda *_args, **_kwargs: None
+
+    intent, confidence = ALICE._normalize_weather_intent_for_time_range(
+        alice,
+        user_input="should i wear a coat this week?",
+        intent="conversation:general",
+        intent_confidence=0.71,
+    )
+
+    assert intent == "weather:forecast"
+    assert confidence >= 0.9
+
+
+def test_weather_clothing_time_range_detector_matches_coat_week_prompt():
+    alice = ALICE.__new__(ALICE)
+
+    assert (
+        ALICE._is_weather_clothing_time_range_request(
+            alice,
+            "should i wear a coat this week?",
+        )
+        is True
+    )
+
+
+def test_weather_clothing_time_range_detector_ignores_non_weather_week_question():
+    alice = ALICE.__new__(ALICE)
+
+    assert (
+        ALICE._is_weather_clothing_time_range_request(
+            alice,
+            "should i review my notes this week?",
+        )
+        is False
+    )
+
+
 def test_non_weather_tomorrow_does_not_promote_clarification_intent():
     alice = ALICE.__new__(ALICE)
     alice._think = lambda *_args, **_kwargs: None
@@ -114,3 +153,33 @@ def test_weather_domain_override_does_not_fire_for_explicit_note_request():
     assert meta.get("applied") is False
     assert intent == "notes:read"
     assert confidence == 0.90
+
+
+def test_meta_question_override_promotes_notes_mislabel_to_meta_question():
+    alice = ALICE.__new__(ALICE)
+
+    intent, confidence, meta = ALICE._apply_meta_question_override(
+        alice,
+        user_input="you are an ai how do you read a book or listen to calming music? are you being sarcastic?",
+        intent="notes:read",
+        intent_confidence=0.0,
+    )
+
+    assert meta.get("applied") is True
+    assert intent == "conversation:meta_question"
+    assert confidence >= 0.92
+
+
+def test_meta_question_override_does_not_fire_for_explicit_note_read():
+    alice = ALICE.__new__(ALICE)
+
+    intent, confidence, meta = ALICE._apply_meta_question_override(
+        alice,
+        user_input="read my notes from today",
+        intent="notes:read",
+        intent_confidence=0.93,
+    )
+
+    assert meta.get("applied") is False
+    assert intent == "notes:read"
+    assert confidence == 0.93

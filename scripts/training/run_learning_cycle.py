@@ -13,12 +13,11 @@ This script:
 4. Scorer extracts training signals
 5. System improves
 
-Run with: python scripts/run_learning_cycle.py
+Run with: python scripts/training/run_learning_cycle.py
 """
 
 import sys
 import os
-import json
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -96,7 +95,7 @@ def run_learning_cycle():
         
         # Step 3: Process queries and grade responses
         print("\n[3/5] Processing queries and grading responses...")
-        from ai.ollama_auditor_spec import OllamaAuditor
+        from ai.training.ollama_auditor import OllamaAuditor
         
         auditor = OllamaAuditor(llm=llm)
         results = []
@@ -106,24 +105,25 @@ def run_learning_cycle():
                 print(f"\n  [{i}/{len(test_queries)}] Query: {query[:50]}...")
                 
                 # Alice processes the query
-                response = alice.process_query(query)
+                response = alice.process_input(query)
                 print(f"       Response: {response[:60]}...")
                 
                 # Auditor grades it
-                audit_result = auditor.audit(
+                audit_result = auditor.audit_response(
+                    domain=domain,
                     query=query,
                     response=response,
-                    domain=domain
                 )
                 
-                print(f"       Audit Score: {audit_result.get('overall_score', 0):.1f}/5.0")
+                print(f"       Audit Score: {audit_result.overall_score:.1f}/5.0")
                 
                 results.append({
                     "query": query,
                     "domain": domain,
                     "response": response,
-                    "audit": audit_result,
-                    "timestamp": datetime.now().isoformat()
+                    "audit_score": audit_result.overall_score,
+                    "audit_obj": audit_result,
+                    "timestamp": datetime.now().isoformat(),
                 })
                 
             except Exception as e:
@@ -138,39 +138,31 @@ def run_learning_cycle():
         signals = []
         
         for result in results:
-            score = result.get("audit", {}).get("overall_score", 0)
-            
-            if score >= 4.5:
-                signal_type = "positive"
-            elif score >= 3.5:
-                signal_type = "improvement"
-            else:
-                signal_type = "negative"
-            
-            signals.append({
-                "query": result["query"],
-                "domain": result["domain"],
-                "score": score,
-                "signal_type": signal_type,
-                "timestamp": datetime.now().isoformat()
-            })
-            
-            print(f"  {result['domain']}: {signal_type} (score: {score:.1f})")
+            audit_obj = result.get("audit_obj")
+            if not audit_obj:
+                continue
+
+            generated = scorer.score_audit(
+                audit_obj,
+                result["domain"],
+                skill="general",
+            )
+            signals.extend(generated)
+
+            for signal in generated:
+                print(
+                    f"  {result['domain']}: {signal.signal_type} "
+                    f"(score: {result['audit_score']:.1f})"
+                )
         
         # Step 5: Store feedback for training
         print("\n[5/5] Storing feedback for learning...")
-        from ai.training.ollama_feedback_injector import OllamaFeedbackInjector
+        from ai.training.ollama_feedback_injector import create_injector
         
-        injector = OllamaFeedbackInjector()
-        
-        feedback_file = Path("data/training/audit_feedback.jsonl")
-        feedback_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(feedback_file, "a") as f:
-            for signal in signals:
-                f.write(json.dumps(signal) + "\n")
-        
-        print(f"  Stored {len(signals)} feedback signals")
+        injector = create_injector()
+        injected_count = injector.inject_signals(signals)
+
+        print(f"  Stored {injected_count} feedback signals")
         print(f"  File: data/training/audit_feedback.jsonl")
         
         # Summary
@@ -178,16 +170,18 @@ def run_learning_cycle():
         print("LEARNING CYCLE COMPLETE")
         print("="*70)
         
-        positive = len([s for s in signals if s["signal_type"] == "positive"])
-        improvement = len([s for s in signals if s["signal_type"] == "improvement"])
-        negative = len([s for s in signals if s["signal_type"] == "negative"])
+        positive = len([s for s in signals if s.signal_type == "positive"])
+        improvement = len([s for s in signals if s.signal_type == "improvement"])
+        negative = len([s for s in signals if s.signal_type == "negative"])
         
         print(f"\nResults:")
         print(f"  Positive signals:     {positive}")
         print(f"   Improvement needed:   {improvement}")
         print(f"  Negative signals:     {negative}")
         
-        avg_score = sum(s["score"] for s in signals) / len(signals) if signals else 0
+        avg_score = (
+            sum(r["audit_score"] for r in results) / len(results) if results else 0
+        )
         print(f"\n  Average Score: {avg_score:.2f}/5.0")
         
         if positive + improvement > negative:
@@ -197,7 +191,7 @@ def run_learning_cycle():
         
         print("\nNext steps:")
         print("  1. Review feedback: cat data/training/audit_feedback.jsonl")
-        print("  2. Run again: python scripts/run_learning_cycle.py")
+        print("  2. Run again: python scripts/training/run_learning_cycle.py")
         print("  3. Monitor: python scripts/monitor_live.py")
         
         return True

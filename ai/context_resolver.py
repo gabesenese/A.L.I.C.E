@@ -83,6 +83,7 @@ class ContextResolver:
         needs_clarification = self.ambiguity_detector.should_clarify(
             unresolved_pronouns=result.unresolved_pronouns,
             token_count=token_count,
+            user_input=user_input,
         )
 
         rewritten_input = result.rewritten_input or user_input

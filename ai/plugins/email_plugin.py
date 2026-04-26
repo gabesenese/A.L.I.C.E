@@ -7,12 +7,22 @@ import os
 import logging
 import pickle
 from typing import Dict, List, Optional
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
 from email.mime.text import MIMEText
 import base64
+
+try:
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from googleapiclient.discovery import build
+
+    GMAIL_AVAILABLE = True
+except ImportError:
+    Request = None
+    Credentials = None
+    InstalledAppFlow = None
+    build = None
+    GMAIL_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +45,13 @@ class GmailPlugin:
 
     def _authenticate(self):
         """Authenticate with Gmail API using OAuth2"""
+        if not GMAIL_AVAILABLE:
+            logger.warning(
+                "[WARNING] Gmail dependencies not available. "
+                "Install requirements-integrations.txt to enable Gmail."
+            )
+            return
+
         token_path = "config/cred/gmail_token.pickle"
         creds_path = "config/cred/gmail_credentials.json"
 

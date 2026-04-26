@@ -1,9 +1,9 @@
 [tool.pytest.ini_options]
-testpaths = ["tests/integration"]
+testpaths = ["tests/unit", "tests/integration", "tests/e2e"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-norecursedirs = ["tests/deprecated", "*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}"]
+norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}"]
 filterwarnings = [
     "ignore::DeprecationWarning:torchao.*",
 ]

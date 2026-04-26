@@ -8,7 +8,8 @@ import os
 import logging
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -29,14 +30,14 @@ def main():
     print("\n[1/2] Initializing components...")
     try:
         from app.alice import ALICE
-        from ai.llm_engine import LocalLLMEngine, LLMConfig
-        from ai.ollama_teacher import create_teacher
-        from ai.ollama_auditor import create_auditor
-        from ai.ollama_scorer import create_scorer
-        from ai.ollama_feedback_injector import create_injector
-        from ai.metric_tracker import create_tracker
-        from ai.nightly_audit_scheduler import create_scheduler
-        from ai.audit_config_optimizer import create_optimizer
+        from ai.core.llm_engine import LocalLLMEngine, LLMConfig
+        from ai.training.ollama_teacher import create_teacher
+        from ai.training.ollama_auditor import create_auditor
+        from ai.training.ollama_scorer import create_scorer
+        from ai.training.ollama_feedback_injector import create_injector
+        from ai.optimization.metric_tracker import create_tracker
+        from scripts.automation.nightly_audit_scheduler import create_scheduler
+        from ai.optimization.audit_config_optimizer import create_optimizer
         
         alice = ALICE(debug=False)
         llm = LocalLLMEngine(config=LLMConfig(model="llama3.1:8b"))

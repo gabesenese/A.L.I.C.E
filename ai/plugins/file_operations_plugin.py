@@ -71,7 +71,7 @@ class FileOperationsPlugin(PluginInterface):
             "find files",
         ]
         # Safety: Only allow operations in safe directories
-        self.safe_base_dir = os.getcwd()
+        self.safe_base_dir = os.path.abspath(os.getcwd())
 
     def initialize(self) -> bool:
         """Initialize the plugin"""
@@ -148,11 +148,11 @@ class FileOperationsPlugin(PluginInterface):
     def _is_safe_path(self, filepath: str) -> bool:
         """Check if path is safe (within allowed directories)"""
         try:
-            # Resolve to absolute path
-            abs_path = os.path.abspath(filepath)
-            # Check if it's within safe base directory
-            return abs_path.startswith(self.safe_base_dir)
-        except (OSError, ValueError) as e:
+            base_path = Path(self.safe_base_dir).resolve()
+            target_path = Path(filepath).resolve()
+            target_path.relative_to(base_path)
+            return True
+        except (OSError, RuntimeError, ValueError) as e:
             logger.warning(f"Path validation failed for '{filepath}': {e}")
             return False
 

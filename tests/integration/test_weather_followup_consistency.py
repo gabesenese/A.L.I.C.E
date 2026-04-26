@@ -140,3 +140,67 @@ def test_rain_tomorrow_question_returns_yes_no_outlook_phrase():
     assert low.startswith("yes")
     assert "tomorrow" in low
     assert "drizzle" in low or "rain" in low
+
+
+def test_tomorrow_appointment_rain_concern_triggers_outlook_reply():
+    now = datetime.now()
+    tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    fresh_forecast = WorldEntity(
+        id="weather_forecast",
+        kind=EntityKind.TOPIC,
+        label="Forecast weather",
+        created_at=now,
+        data={
+            "forecast": [
+                {
+                    "date": tomorrow,
+                    "low": 1,
+                    "high": 12,
+                    "condition": "overcast",
+                }
+            ],
+            "location": "Kitchener",
+            "message_code": "weather:forecast",
+        },
+    )
+
+    alice = _make_alice_stub({"weather_forecast": fresh_forecast})
+
+    result = alice._handle_weather_followup(
+        "hows the weather for tomorrow i have an appointment at 5:30 pm tomorrow and need to make sure its not raining",
+        "weather:forecast",
+    )
+
+    assert isinstance(result, str)
+    low = result.lower()
+    assert low.startswith("no")
+    assert "tomorrow" in low
+    assert "appointment" in low
+
+
+def test_time_range_followup_ignores_stale_stored_forecast_snapshot():
+    class _StaleLiveStateStub:
+        def latest_weather_forecast(self, **_kwargs):
+            return {
+                "forecast": [
+                    {
+                        "date": datetime.now().strftime("%Y-%m-%d"),
+                        "low": 1,
+                        "high": 12,
+                        "condition": "overcast",
+                    }
+                ],
+                "location": "Kitchener",
+                "is_stale": True,
+            }
+
+    alice = _make_alice_stub({})
+    alice.live_state_service = _StaleLiveStateStub()
+
+    result = alice._handle_weather_followup(
+        "is it raining tomorrow?", "weather:forecast"
+    )
+
+    # Stale snapshot should be ignored so normal weather routing can fetch fresh data.
+    assert result is None

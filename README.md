@@ -1,113 +1,116 @@
 # A.L.I.C.E
 
-**Advanced Linguistic Intelligence Computer Entity**
+Advanced Linguistic Intelligence Companion Entity.
 
-A sophisticated AI assistant with advanced memory systems, natural language understanding, and extensible plugin architecture.
+This repository is organized around a central turn loop and contract pipeline.
+The current goal is companion-quality behavior: coherent state, disciplined actions,
+and continuity across turns.
 
-## Features
+## Current Runtime Model
 
-- **Advanced Memory Systems**
-  - Episodic memory for conversation history
-  - Semantic memory for facts and knowledge
-  - Entity tracking and relationship mapping
+The canonical runtime path is in the contract pipeline:
 
-- **Natural Language Understanding**
-  - Intent classification with NLP
-  - Entity extraction
-  - Context-aware responses
-  - Smart routing between pattern matching and LLM
+1. Route
+2. Execute (if needed)
+3. Verify
+4. Respond
+5. State update
 
-- **Plugin Architecture**
-  - Weather forecasting
-  - Web search
-  - File operations
-  - Calculator
-  - Time/date queries
-  - Extensible plugin system
+The companion loop (central brain) keeps per-turn state and policy decisions centralized:
 
-- **Voice Interaction** (Optional)
-  - Speech-to-text input
-  - Text-to-speech output
+```python
+def process_turn(user_input):
+    perception = perceive(user_input)
+    state = update_companion_state(perception)
+    decision = policy_engine.decide(state)
+    ...
+```
 
-- **Self-Learning**
-  - Feedback system
-  - Training data generation
-  - Continuous improvement
+## Quick Start
 
-## Installation
+Use a virtual environment, then install the lean default dependencies:
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Run A.L.I.C.E
-python -m app.alice
 ```
 
-## Usage
-
-### Production Mode
-```bash
-python -m app.alice                    # Start with Rich UI
-python -m app.alice --voice            # Enable voice interaction
-python -m app.alice --model llama3.3:70b  # Use different LLM model
-python -m app.alice --privacy-mode     # Disable memory storage
-```
-
-### Development Mode
-```bash
-python -m app.dev                      # Auto-reload on code changes
-python -m app.dev --voice              # Dev mode with voice
-python -m app.dev --no-watch           # Disable auto-reload
-python -m app.dev --no-thinking        # Hide debug output
-```
-
-### LLM Policy Modes
-- `default`: Balanced approach (pattern matching + LLM when needed)
-- `minimal`: Patterns only, no LLM for chitchat/simple queries
-- `strict`: No LLM at all, patterns and tools only
+Run the main CLI runtime:
 
 ```bash
-python -m app.alice --llm-policy minimal
+python app/main.py
 ```
 
-## Commands
+Run the user-facing UI wrapper:
 
-- `/help` - Show available commands
-- `/memory` - Show memory statistics
-- `/plugins` - List available plugins
-- `/clear` - Clear conversation history
-- `/voice` - Toggle voice mode
-- `/location` - Set your location
-- `/correct` - Correct last response
-- `/feedback` - Rate last response
-
-## Project Structure
-
-```
-A.L.I.C.E/
-├── app/              # Main application entry points
-├── ai/               # AI/NLP components
-├── features/         # Core features and tools
-├── plugins/          # Extensible plugin system
-├── ui/               # User interface components
-├── speech/           # Voice interaction
-├── self_learning/    # Learning and improvement
-└── data/             # Runtime data and memories
+```bash
+python app/alice.py
 ```
 
-## Configuration
+Dev mode with auto-reload:
 
-Location settings, user preferences, and API keys are stored in `data/context/`.
+```bash
+python app/dev.py
+```
+
+Windows helper:
+
+```bash
+dev.bat
+```
+
+## Optional Dependency Bundles
+
+Install only what you need:
+
+```bash
+pip install -r requirements-dev.txt
+pip install -r requirements-voice.txt
+pip install -r requirements-integrations.txt
+pip install -r requirements-ops.txt
+```
+
+## Tests
+
+Canonical integration tests:
+
+```bash
+python -m pytest -q tests/integration/test_contract_pipeline.py
+```
+
+Broader integration/e2e suites:
+
+```bash
+python -m pytest -q tests/integration tests/e2e
+```
+
+Small startup smoke test:
+
+```bash
+python test_init.py
+```
+
+## Docker
+
+Default compose path is intentionally minimal (alice service).
+Optional profiles:
+
+1. `llm` for local Ollama service
+2. `ops` for Redis cache service
+
+Examples:
+
+```bash
+docker compose up --build
+docker compose --profile llm up --build
+docker compose --profile ops up --build
+```
+
+## Repository Notes
+
+1. Experimental and low-frequency scripts are archived under `archive/2026-04/`.
+2. Core runtime is under `app/` and `ai/runtime/`.
+3. Keep default-path changes focused on policy/state/verification quality.
 
 ## License
 
-Private project - All rights reserved
-
-## Author
-
-Gabriel
-
----
-
-*Built with advanced AI technology for natural and intelligent interactions*
+Private project. All rights reserved.

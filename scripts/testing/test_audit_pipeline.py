@@ -5,11 +5,13 @@ Verifies full pipeline works before setting up automation
 
 import sys
 import os
+import json
 import logging
 from pathlib import Path
 
 # Setup paths
-sys.path.insert(0, str(Path(__file__).parent.parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Suppress warnings
 import warnings
@@ -18,6 +20,94 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
+
+
+def run_test_pipeline(
+    alice,
+    llm,
+    domains=None,
+    skills_per_domain: int = 1,
+    queries_per_skill: int = 2,
+):
+    """Run a compact end-to-end audit pipeline against selected domains."""
+    from ai.ollama_teaching_spec import TEACHING_VECTORS
+    from ai.training.ollama_teacher import create_teacher
+    from ai.training.ollama_auditor import create_auditor
+    from ai.training.ollama_scorer import create_scorer
+    from ai.training.ollama_feedback_injector import create_injector
+    from ai.optimization.metric_tracker import create_tracker
+
+    teacher = create_teacher(llm)
+    auditor = create_auditor(llm)
+    scorer = create_scorer()
+    injector = create_injector()
+    tracker = create_tracker()
+
+    if not domains:
+        domains = list(TEACHING_VECTORS.keys())
+
+    results = {
+        'status': 'complete',
+        'domains_tested': 0,
+        'total_queries': 0,
+        'total_audits': 0,
+        'total_signals': 0,
+        'domain_results': {},
+        'errors': [],
+    }
+
+    for domain in domains:
+        vectors = TEACHING_VECTORS.get(domain, [])[:skills_per_domain]
+        if not vectors:
+            continue
+
+        domain_results = {
+            'skills_tested': 0,
+            'queries': 0,
+            'audits': 0,
+            'signals': 0,
+            'avg_score': 0.0,
+        }
+        domain_scores = []
+
+        for vector in vectors:
+            try:
+                queries = teacher.generate_test_queries(
+                    domain,
+                    vector.skill,
+                    count=queries_per_skill,
+                )
+                domain_results['skills_tested'] += 1
+                domain_results['queries'] += len(queries)
+                results['total_queries'] += len(queries)
+
+                for query in queries:
+                    response = alice.process_input(query)
+                    audit_score = auditor.audit_response(domain, query, response)
+                    signals = scorer.score_audit(audit_score, domain, vector.skill)
+                    injector.inject_signals(signals)
+
+                    domain_scores.append(audit_score.overall_score)
+                    domain_results['audits'] += 1
+                    domain_results['signals'] += len(signals)
+                    results['total_audits'] += 1
+                    results['total_signals'] += len(signals)
+            except Exception as e:
+                results['errors'].append(f"{domain}/{vector.skill}: {e}")
+
+        if domain_scores:
+            domain_results['avg_score'] = sum(domain_scores) / len(domain_scores)
+            tracker.record_pre_training_score(domain, domain_results['avg_score'], {})
+
+        results['domain_results'][domain] = domain_results
+        results['domains_tested'] += 1
+
+    results_file = PROJECT_ROOT / "data" / "training" / "test_results.json"
+    results_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(results_file, 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=2, default=str)
+
+    return results
 
 
 def main():
@@ -35,7 +125,7 @@ def main():
         os.environ['ALICE_DISABLE_SEMANTIC_CLASSIFIER'] = '1'
         
         from app.alice import ALICE
-        from ai.llm_engine import LocalLLMEngine, LLMConfig
+        from ai.core.llm_engine import LocalLLMEngine, LLMConfig
         
         alice = ALICE(debug=False)
         llm = LocalLLMEngine(config=LLMConfig(model="llama3.1:8b"))
@@ -49,9 +139,7 @@ def main():
     print("\n[2/3] Running end-to-end audit cycle...")
     print("     (Testing weather and email domains)")
     try:
-        from ai.test_audit_cycle import test_full_audit_pipeline
-        
-        results = test_full_audit_pipeline(
+        results = run_test_pipeline(
             alice,
             llm,
             domains=['weather', 'email'],
@@ -78,8 +166,6 @@ def main():
     # Step 3: Show results
     print("\n[3/3] Analyzing results...")
     try:
-        import json
-        
         results_file = Path("data/training/test_results.json")
         if results_file.exists():
             with open(results_file) as f:
@@ -115,7 +201,7 @@ def main():
     print("\nNEXT STEPS:")
     print("  1. Review results in: data/training/test_results.json")
     print("  2. Check domain feedback in: data/training/*_feedback.json")
-    print("  3. If satisfied, run: python scripts/start_automation.py")
+    print("  3. If satisfied, run: python scripts/automation/start_automation.py")
     print("\n")
     
     return True
