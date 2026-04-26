@@ -523,29 +523,24 @@ class ResponseFormulator:
         else:
             dimensions = search_dimensions[0]
 
-        frame = {
-            "response_frame": "freshness_boundary",
-            "scope": domain,
-            "required_evidence": source_requirement,
-            "blocked_evidence": blocked_source,
-            "needed_input": dimensions,
-            "next_capability": str(payload.get("next_capability") or "search").strip(),
-        }
-
-        seed = self._format_response_frame(frame)
+        variants = [
+            (
+                f"{domain.capitalize()} is freshness-sensitive, so I need {source_requirement} "
+                f"before making factual claims. I should not rely on {blocked_source}; give me a {dimensions} "
+                "and I can work from fresh results."
+            ),
+            (
+                f"For {domain}, I need {source_requirement} first. I will avoid {blocked_source} for this; "
+                f"send a {dimensions} to search and I can ground the answer."
+            ),
+            (
+                f"This needs {source_requirement} because {domain} changes quickly. I will not summarize it "
+                f"from {blocked_source}; narrow it by {dimensions} and I can fetch current context."
+            ),
+        ]
+        index_basis = sum(ord(ch) for ch in user_input.lower()) if user_input else len(domain)
+        seed = variants[index_basis % len(variants)]
         return self._dynamic_phrase(seed, tone="careful and concise")
-
-    @staticmethod
-    def _format_response_frame(frame: Dict[str, Any]) -> str:
-        """Render a neutral fallback frame when learned phrasing is unavailable."""
-        frame_type = str(frame.get("response_frame") or "response").replace("_", " ").strip()
-        rows = [frame_type.title()]
-        for key, value in frame.items():
-            if key == "response_frame":
-                continue
-            label = key.replace("_", " ").strip().title()
-            rows.append(f"{label}: {value}")
-        return "\n".join(rows)
 
     def _load_templates(self) -> None:
         """Load response templates from storage"""
