@@ -4593,8 +4593,8 @@ class ALICE:
         has_subject = any(
             cue in text
             for cue in (
-                "jarvis",
-                "tony stark",
+                "assistant",
+                "fictional inventor",
                 "assistant",
                 "technology",
                 "system",
@@ -4643,7 +4643,7 @@ class ALICE:
             for cue in (
                 "ai",
                 "assistant",
-                "jarvis",
+                "assistant",
                 "system",
                 "architecture",
             )
@@ -4952,7 +4952,7 @@ class ALICE:
 
         domain_markers = {
             "nlp": ["nlp", "natural language", "intent", "entity", "embedding", "token"],
-            "assistant": ["assistant", "jarvis", "copilot", "agent"],
+            "assistant": ["assistant", "assistant", "copilot", "agent"],
             "machine_learning": ["machine learning", "ml", "classification", "regression"],
             "ai": ["ai", "artificial intelligence", "llm", "rag"],
             "python": ["python", "fastapi", "flask", "django"],
@@ -5642,6 +5642,33 @@ class ALICE:
             "step by step",
         )
         return any(cue in text for cue in teaching_cues)
+
+    def _is_freshness_sensitive_current_events_request(self, user_input: str) -> bool:
+        """Detect prompts that require up-to-date external sources."""
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+
+        freshness_cues = (
+            "right now",
+            "latest",
+            "currently",
+            "breaking",
+            "today",
+            "this hour",
+            "now",
+        )
+        world_subjects = (
+            "world",
+            "news",
+            "events",
+            "headlines",
+            "situation",
+        )
+        return bool(
+            any(cue in text for cue in freshness_cues)
+            and any(subject in text for subject in world_subjects)
+        )
 
     def _structured_teaching_mode_response(self, user_input: str, intent: str) -> Optional[str]:
         if not self._is_structured_teaching_request(user_input, intent):

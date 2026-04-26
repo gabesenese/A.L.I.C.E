@@ -82,6 +82,7 @@ alembic>=1.10.0  # Database migrations
 
 # Structured logging (optional - JSON output)
 python-json-logger>=2.0.0
+structlog>=24.0.0
 
 # Health checks and monitoring
 healthcheck>=1.3.0
