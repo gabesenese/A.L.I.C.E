@@ -27,7 +27,9 @@ class PluginRegistry:
         return self._plugins.get(name)
 
     def score_all(self, text: str, tokens: list[str]) -> dict[str, float]:
-        return {name: plugin.score(text, tokens) for name, plugin in self._plugins.items()}
+        return {
+            name: plugin.score(text, tokens) for name, plugin in self._plugins.items()
+        }
 
     @property
     def all_actions(self) -> dict[str, set[str]]:

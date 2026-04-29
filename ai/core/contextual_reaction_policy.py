@@ -93,14 +93,18 @@ def analyze_weather_personal_reaction(
     has_question_mark = "?" in text
     direct_request_detected = bool(has_question_mark or matched_request_terms)
 
-    prior_intent_weather = str(previous_intent or "").strip().lower().startswith("weather:")
+    prior_intent_weather = (
+        str(previous_intent or "").strip().lower().startswith("weather:")
+    )
 
     tool_payload = dict(last_tool_result or {})
     tool_name = str(tool_payload.get("tool_name") or "").strip().lower()
     action = str(tool_payload.get("action") or "").strip().lower()
     success = bool(tool_payload.get("success"))
 
-    weather_tool = bool(tool_name.startswith("weather") or action.startswith("weather:"))
+    weather_tool = bool(
+        tool_name.startswith("weather") or action.startswith("weather:")
+    )
     turn_is_recent = True
 
     current_turn = int(current_turn_number or 0)

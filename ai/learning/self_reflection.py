@@ -124,9 +124,7 @@ class SelfReflectionSystem:
 
         # Smart caching
         # key -> (analysis, cached_at, file_signature)
-        self._analysis_cache: (
-            "OrderedDict[str, Tuple[Dict[str, Any], datetime, Tuple[int, int]]]"
-        ) = OrderedDict()
+        self._analysis_cache: "OrderedDict[str, Tuple[Dict[str, Any], datetime, Tuple[int, int]]]" = OrderedDict()
         self._cache_ttl = timedelta(hours=1)
         self._cache_max_entries = 512
         self._cache_lock = threading.RLock()

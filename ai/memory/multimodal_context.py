@@ -7,7 +7,7 @@ import json
 import os
 import platform
 import psutil
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from datetime import datetime
 
 
@@ -32,7 +32,6 @@ class MultimodalContext:
     def _get_windows_windows(self) -> List[Dict[str, Any]]:
         """Get active windows on Windows."""
         try:
-            import ctypes
             import win32gui
             import win32process
 

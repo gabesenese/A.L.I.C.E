@@ -8,7 +8,7 @@ and learn patterns about what sequences of tool calls typically succeed.
 import json
 import os
 import re
-from typing import Dict, List, Any, Optional, Set, Tuple
+from typing import Dict, List, Any, Optional, Tuple
 from enum import Enum
 from datetime import datetime
 from dataclasses import dataclass, asdict, field
@@ -168,9 +168,9 @@ class GoalTracker:
         self.history_file = history_file
         self.active_goals: Dict[str, GoalRecord] = {}
         self.goal_counter = 0
-        self.tool_sequence_stats: Dict[Tuple[Tuple[str, str], ...], Dict[str, Any]] = (
-            {}
-        )  # Sequence → success rate
+        self.tool_sequence_stats: Dict[
+            Tuple[Tuple[str, str], ...], Dict[str, Any]
+        ] = {}  # Sequence → success rate
         self.intent_sequence_stats: Dict[
             str, Dict[Tuple[Tuple[str, str], ...], Dict[str, Any]]
         ] = {}

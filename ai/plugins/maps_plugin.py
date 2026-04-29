@@ -6,7 +6,7 @@ Uses OpenStreetMap (free, no API key needed)
 
 import logging
 import requests
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class MapsPlugin:
                 context = {}
 
             # Get user location
-            user_location = context.get("location")
+            context.get("location")
             user_city = context.get("city")
 
             if not user_city:

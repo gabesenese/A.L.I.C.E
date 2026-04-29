@@ -10,9 +10,8 @@ import logging
 import re
 import pickle
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime
 from dataclasses import dataclass, asdict, field
-from enum import Enum
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -736,9 +735,9 @@ class ContextEngine:
         """Mark a task as completed"""
         if 0 <= task_index < len(self.conv_state.pending_tasks):
             self.conv_state.pending_tasks[task_index]["completed"] = True
-            self.conv_state.pending_tasks[task_index][
-                "completed_at"
-            ] = datetime.now().isoformat()
+            self.conv_state.pending_tasks[task_index]["completed_at"] = (
+                datetime.now().isoformat()
+            )
             logger.info(
                 f"[OK] Task completed: {self.conv_state.pending_tasks[task_index]['task']}"
             )
@@ -885,7 +884,7 @@ if __name__ == "__main__":
         )
 
         summary = ctx.get_context_summary()
-        print(f"\nContext Summary:")
+        print("\nContext Summary:")
         for key, value in summary.items():
             print(f"   {key}: {value}")
 

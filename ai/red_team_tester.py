@@ -6,7 +6,7 @@ Tests security, finds edge cases, logs failures as high-priority training data.
 import json
 import os
 import re
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from datetime import datetime
 import uuid
 
@@ -263,7 +263,7 @@ class RedTeamTester:
 
         for i in range(iterations):
             try:
-                response = handler_func(f"iteration {i}")
+                handler_func(f"iteration {i}")
             except:
                 pass
 

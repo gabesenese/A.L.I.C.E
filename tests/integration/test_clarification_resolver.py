@@ -22,7 +22,12 @@ def test_topic_branch_reply_reconstructs_parent_goal_with_branch_focus():
             "slot_type": "topic_branch",
             "parent_request": "help me with my ai project, i need to know some nlp algorithms",
             "parent_intent": "conversation:question",
-            "allowed_values": ["intent_routing", "entity_extraction", "embeddings", "conversation_flow"],
+            "allowed_values": [
+                "intent_routing",
+                "entity_extraction",
+                "embeddings",
+                "conversation_flow",
+            ],
         },
     )
 

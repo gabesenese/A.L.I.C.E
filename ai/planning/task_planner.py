@@ -375,7 +375,6 @@ class TaskPlanner:
         Checks: circular dependencies, invalid actions, etc.
         """
         # Check for circular dependencies
-        visited = set()
 
         def has_cycle(step_id: int, path: set) -> bool:
             if step_id in path:

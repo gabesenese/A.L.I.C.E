@@ -8,9 +8,8 @@ wraps TemporalParser and normalises its output into TemporalResult objects.
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from ai.core.nlp_processor import (
     TemporalResult,
@@ -21,6 +20,7 @@ from ai.core.nlp_processor import (
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+
 def _make_parser(raw: Optional[Dict[str, Any]]) -> MagicMock:
     """Return a mock TemporalParser whose parse_temporal_expression() returns *raw*."""
     parser = MagicMock()
@@ -29,6 +29,7 @@ def _make_parser(raw: Optional[Dict[str, Any]]) -> MagicMock:
 
 
 # ── TemporalResult tests ──────────────────────────────────────────────────────
+
 
 class TestTemporalResult:
     def test_as_dict_contains_required_keys(self):
@@ -67,8 +68,8 @@ class TestTemporalResult:
 
 # ── TemporalUnderstanding.parse() tests ──────────────────────────────────────
 
-class TestTemporalUnderstandingParse:
 
+class TestTemporalUnderstandingParse:
     def test_returns_none_when_parser_returns_none(self):
         tu = TemporalUnderstanding(_make_parser(None))
         assert tu.parse("no date here") is None
@@ -116,6 +117,7 @@ class TestTemporalUnderstandingParse:
 
 # ── _infer_grain() tests ──────────────────────────────────────────────────────
 
+
 class TestInferGrain:
     """Test the grain inference logic via parse() outputs."""
 
@@ -136,15 +138,21 @@ class TestInferGrain:
         assert result.grain == "hour"
 
     def test_date_and_time_gives_minute(self):
-        result = self._tu({"date": "2025-04-01", "time": "09:30", "raw_text": "April 1st at 09:30"})
+        result = self._tu(
+            {"date": "2025-04-01", "time": "09:30", "raw_text": "April 1st at 09:30"}
+        )
         assert result.grain == "minute"
 
     def test_end_date_with_week_cue_gives_week(self):
-        result = self._tu({"date": "2025-04-07", "end_date": "2025-04-13", "raw_text": "this week"})
+        result = self._tu(
+            {"date": "2025-04-07", "end_date": "2025-04-13", "raw_text": "this week"}
+        )
         assert result.grain == "week"
 
     def test_end_date_without_week_cue_gives_day(self):
-        result = self._tu({"date": "2025-04-07", "end_date": "2025-04-13", "raw_text": "this period"})
+        result = self._tu(
+            {"date": "2025-04-07", "end_date": "2025-04-13", "raw_text": "this period"}
+        )
         assert result.grain == "day"
 
     def test_month_cue_gives_month(self):
@@ -167,6 +175,7 @@ class TestInferGrain:
 
 
 # ── factory helper ────────────────────────────────────────────────────────────
+
 
 class TestGetTemporalUnderstanding:
     def test_returns_temporal_understanding_instance(self):

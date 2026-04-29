@@ -10,7 +10,7 @@ Extends the basic pattern miner with:
 import json
 import os
 import re
-from typing import Dict, List, Any, Optional, Set, Tuple
+from typing import Dict, List, Any
 from collections import defaultdict, Counter
 from datetime import datetime
 import math

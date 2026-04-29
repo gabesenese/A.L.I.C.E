@@ -15,16 +15,28 @@ class _FakeNlp:
     def process(self, text):
         lower = text.lower()
         if "always running and checking" in lower and "surroundings" in lower:
-            return _NlpResult(intent="conversation:clarification_needed", intent_confidence=0.55, keywords=[])
+            return _NlpResult(
+                intent="conversation:clarification_needed",
+                intent_confidence=0.55,
+                keywords=[],
+            )
         if "maybe" in lower:
-            return _NlpResult(intent="weather:current", intent_confidence=0.65, keywords=["weather"])
+            return _NlpResult(
+                intent="weather:current", intent_confidence=0.65, keywords=["weather"]
+            )
         if "unclear" in lower:
-            return _NlpResult(intent="conversation:general", intent_confidence=0.4, keywords=[])
+            return _NlpResult(
+                intent="conversation:general", intent_confidence=0.4, keywords=[]
+            )
         if "danger" in lower:
             return _NlpResult(intent="unknown", intent_confidence=0.2, keywords=[])
         if "weather" in text.lower():
-            return _NlpResult(intent="weather:current", intent_confidence=0.92, keywords=["weather"])
-        return _NlpResult(intent="conversation:general", intent_confidence=0.8, keywords=[])
+            return _NlpResult(
+                intent="weather:current", intent_confidence=0.92, keywords=["weather"]
+            )
+        return _NlpResult(
+            intent="conversation:general", intent_confidence=0.8, keywords=[]
+        )
 
 
 class _FakeMemory:
@@ -35,7 +47,9 @@ class _FakeMemory:
         return [{"content": f"mem:{query}", "score": 0.7}][:top_k]
 
     def store_memory(self, content, memory_type="episodic", context=None):
-        self._stored.append({"content": content, "memory_type": memory_type, "context": context or {}})
+        self._stored.append(
+            {"content": content, "memory_type": memory_type, "context": context or {}}
+        )
 
 
 class _FakePlugins:
@@ -86,7 +100,12 @@ class _FakePlugins:
                 },
             }
         if intent.startswith("weather"):
-            return {"success": True, "response": "It is sunny.", "plugin": "WeatherPlugin", "confidence": 0.9}
+            return {
+                "success": True,
+                "response": "It is sunny.",
+                "plugin": "WeatherPlugin",
+                "confidence": 0.9,
+            }
         return None
 
 
@@ -169,7 +188,9 @@ def test_contract_pipeline_handles_tool_route():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=1)
+    result = pipeline.run_turn(
+        user_input="weather in boston", user_id="u1", turn_number=1
+    )
 
     assert result.handled is True
     assert "sunny" in result.response_text.lower()
@@ -194,7 +215,9 @@ def test_contract_pipeline_formats_weather_nested_tool_payload_without_llm_fallb
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(user_input="weather nested", user_id="u1", turn_number=12)
+    result = pipeline.run_turn(
+        user_input="weather nested", user_id="u1", turn_number=12
+    )
 
     assert result.handled is True
     assert result.metadata["route"] == "tool"
@@ -399,7 +422,10 @@ def test_weather_followup_personal_reaction_does_not_call_weather_tool():
     assert second.handled is True
     assert second.metadata["route"] == "conversation"
     assert second.metadata["intent"] == "conversation:personal_reaction"
-    assert second.metadata["companion"]["policy_reason"] == "contextual_reaction_after_tool_result"
+    assert (
+        second.metadata["companion"]["policy_reason"]
+        == "contextual_reaction_after_tool_result"
+    )
 
     route_veto = dict(second.metadata["plan"].get("route_veto") or {})
     assert route_veto.get("applied") is True
@@ -434,7 +460,10 @@ def test_weather_followup_personal_reaction_without_gratitude_does_not_call_weat
     assert second.handled is True
     assert second.metadata["route"] == "conversation"
     assert second.metadata["intent"] == "conversation:personal_reaction"
-    assert second.metadata["companion"]["policy_reason"] == "contextual_reaction_after_tool_result"
+    assert (
+        second.metadata["companion"]["policy_reason"]
+        == "contextual_reaction_after_tool_result"
+    )
 
     execute_stage = _stage_by_name(second, "execute")
     assert execute_stage["status"] == "skipped"
@@ -507,7 +536,9 @@ def test_contract_pipeline_handles_location_deterministically():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(user_input="what is my location?", user_id="u1", turn_number=3)
+    result = pipeline.run_turn(
+        user_input="what is my location?", user_id="u1", turn_number=3
+    )
 
     assert result.handled is True
     assert "Kitchener" in result.response_text
@@ -533,7 +564,9 @@ def test_contract_pipeline_verify_band_requires_tool_evidence():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(user_input="maybe weather in boston", user_id="u1", turn_number=5)
+    result = pipeline.run_turn(
+        user_input="maybe weather in boston", user_id="u1", turn_number=5
+    )
 
     assert result.handled is True
     assert result.metadata["route"] == "tool"
@@ -546,7 +579,9 @@ def test_contract_pipeline_clarify_band_returns_follow_up():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(user_input="this is unclear", user_id="u1", turn_number=6)
+    result = pipeline.run_turn(
+        user_input="this is unclear", user_id="u1", turn_number=6
+    )
 
     assert result.handled is True
     assert result.metadata["route"] == "clarify"
@@ -579,10 +614,15 @@ def test_contract_pipeline_emits_post_execution_contract_and_outcome_metadata():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=40)
+    result = pipeline.run_turn(
+        user_input="weather in boston", user_id="u1", turn_number=40
+    )
 
     assert result.handled is True
-    assert "verified execution via weatherplugin.weather:current" in result.response_text.lower()
+    assert (
+        "verified execution via weatherplugin.weather:current"
+        in result.response_text.lower()
+    )
     contract = result.metadata["turn_contract"]
     outcome = result.metadata["turn_execution_outcome"]
     post = result.metadata["post_execution_state_machine"]
@@ -600,7 +640,9 @@ def test_contract_pipeline_persists_execution_artifacts_in_memory_context():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=41)
+    result = pipeline.run_turn(
+        user_input="weather in boston", user_id="u1", turn_number=41
+    )
 
     assert alice.memory._stored
     context = dict(alice.memory._stored[-1]["context"] or {})
@@ -617,7 +659,9 @@ def test_contract_pipeline_escalates_hard_tool_failures_in_post_execution_state_
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(user_input="weather fail hard", user_id="u1", turn_number=42)
+    result = pipeline.run_turn(
+        user_input="weather fail hard", user_id="u1", turn_number=42
+    )
 
     assert result.handled is True
     assert result.metadata["route"] == "tool"

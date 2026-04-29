@@ -18,10 +18,9 @@ Date: January 2026
 import json
 import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Any
 from dataclasses import dataclass, asdict
 from collections import defaultdict, Counter
-import re
 from enum import Enum
 
 
@@ -115,9 +114,9 @@ class ActiveLearningManager:
         self.feedback_entries: List[FeedbackEntry] = []
 
         # Pattern versioning
-        self.pattern_versions: Dict[str, List[Dict]] = (
-            {}
-        )  # pattern_id -> list of versions
+        self.pattern_versions: Dict[
+            str, List[Dict]
+        ] = {}  # pattern_id -> list of versions
 
         # Shadow mode: log corrections but don't apply
         self.shadow_mode = shadow_mode
@@ -261,7 +260,7 @@ class ActiveLearningManager:
             if total_imported > 0:
                 self._save_data()
 
-        except Exception as e:
+        except Exception:
             pass  # Silently fail on import issues
 
     def _save_data(self):

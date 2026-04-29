@@ -6,9 +6,8 @@ Uses Redis for high-performance caching with intelligent invalidation strategies
 import json
 import hashlib
 import logging
-from typing import Any, Optional, Callable, Union
+from typing import Any, Optional, Callable
 from functools import wraps
-from datetime import datetime, timedelta
 import pickle
 import time
 
@@ -50,7 +49,7 @@ class CircuitBreaker:
                 self.state = "half_open"
                 logger.info("[CircuitBreaker] Attempting recovery (half-open)")
             else:
-                raise Exception(f"Circuit breaker OPEN - service unavailable")
+                raise Exception("Circuit breaker OPEN - service unavailable")
 
         try:
             result = func(*args, **kwargs)
@@ -59,7 +58,7 @@ class CircuitBreaker:
                 self.failure_count = 0
                 logger.info("[CircuitBreaker] Recovery successful (closed)")
             return result
-        except Exception as e:
+        except Exception:
             self.failure_count += 1
             self.last_failure_time = time.time()
 

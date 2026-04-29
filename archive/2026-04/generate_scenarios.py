@@ -18,7 +18,7 @@ if not error_file.exists():
 
 scenarios = []
 
-with open(error_file, 'r') as f:
+with open(error_file, "r") as f:
     errors = [json.loads(line) for line in f]
 
 print(f"Found {len(errors)} errors to learn from\n")
@@ -28,8 +28,12 @@ for error in errors:
     category = error.get("category", "unknown")
     query = error.get("query", "")
     response = error.get("response", "")
-    error_type = "uncertain_response" if "unfortunately" in response.lower() or "not sure" in response.lower() else "wrong_context"
-    
+    error_type = (
+        "uncertain_response"
+        if "unfortunately" in response.lower() or "not sure" in response.lower()
+        else "wrong_context"
+    )
+
     # Create a corrected scenario
     if "Notes: List" in category:
         corrected_response = "Here are your notes:\n• meeting tomorrow\n• Important task\n• Follow up with team"
@@ -40,7 +44,7 @@ for error in errors:
     else:
         corrected_response = response
         correction_intent = "Standard response"
-    
+
     scenario = {
         "error_category": category,
         "user_input": query,
@@ -50,11 +54,11 @@ for error in errors:
         "correction_intent": correction_intent,
         "context": "Learned from comprehensive test",
         "success": False,
-        "should_learn": True
+        "should_learn": True,
     }
-    
+
     scenarios.append(scenario)
-    
+
     # Print details
     print(f" {category}")
     print(f"   Query: {query}")
@@ -65,23 +69,23 @@ for error in errors:
 # Save scenarios
 if scenarios:
     print(f"\n Saving {len(scenarios)} correction scenarios...\n")
-    
+
     scenario_file.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(scenario_file, 'w') as f:
+
+    with open(scenario_file, "w") as f:
         for scenario in scenarios:
-            f.write(json.dumps(scenario) + '\n')
-    
+            f.write(json.dumps(scenario) + "\n")
+
     print(f"Saved to {scenario_file}\n")
-    
+
     # Also add to error log for scenario generator
     error_log = Path("data/training/auto_generated.jsonl")
     error_log.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(error_log, 'a') as f:
+
+    with open(error_log, "a") as f:
         for error in errors:
-            f.write(json.dumps(error) + '\n')
-    
+            f.write(json.dumps(error) + "\n")
+
     print(f"Added to error log: {error_log}\n")
 
 print("Learning scenarios ready for next training cycle!")

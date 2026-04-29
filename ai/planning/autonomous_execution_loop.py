@@ -178,7 +178,9 @@ class AutonomousExecutionLoop:
                     logger.info(f"Step completed: {next_step.description}")
                 else:
                     # Step failed - mark as failed and move on
-                    error_message = str(result.get("error", "Unknown error") or "Unknown error")
+                    error_message = str(
+                        result.get("error", "Unknown error") or "Unknown error"
+                    )
                     failed_recorded = False
 
                     if hasattr(self.goal_system, "fail_current_step"):
@@ -190,7 +192,9 @@ class AutonomousExecutionLoop:
                                 )
                             )
                         except Exception as e:
-                            logger.error(f"Failed to mark current step failed for goal {goal_id}: {e}")
+                            logger.error(
+                                f"Failed to mark current step failed for goal {goal_id}: {e}"
+                            )
 
                     if not failed_recorded and hasattr(self.goal_system, "fail_step"):
                         step_id = str(getattr(next_step, "step_id", "") or "").strip()
@@ -199,7 +203,9 @@ class AutonomousExecutionLoop:
                                 self.goal_system.fail_step(step_id, error=error_message)
                                 failed_recorded = True
                             except Exception as e:
-                                logger.error(f"Fallback fail_step failed for goal {goal_id}: {e}")
+                                logger.error(
+                                    f"Fallback fail_step failed for goal {goal_id}: {e}"
+                                )
 
                     if not failed_recorded and hasattr(goal, "fail_step"):
                         step_id = str(getattr(next_step, "step_id", "") or "").strip()
@@ -235,22 +241,30 @@ class AutonomousExecutionLoop:
         """Resolve autonomous step type from explicit metadata or description hints."""
         allowed = {"research", "analyze", "implement", "test", "verify", "report"}
 
-        explicit = str(
-            getattr(step, "step_type", "")
-            or getattr(step, "type", "")
-            or ""
-        ).strip().lower()
+        explicit = (
+            str(getattr(step, "step_type", "") or getattr(step, "type", "") or "")
+            .strip()
+            .lower()
+        )
         if explicit in allowed:
             return explicit
 
         description = str(getattr(step, "description", "") or "").strip().lower()
-        if any(token in description for token in ("research", "investigate", "explore", "gather")):
+        if any(
+            token in description
+            for token in ("research", "investigate", "explore", "gather")
+        ):
             return "research"
         if any(token in description for token in ("analy", "inspect", "review")):
             return "analyze"
-        if any(token in description for token in ("test", "verify", "validate", "check")):
+        if any(
+            token in description for token in ("test", "verify", "validate", "check")
+        ):
             return "test"
-        if any(token in description for token in ("report", "summar", "notify", "communicat")):
+        if any(
+            token in description
+            for token in ("report", "summar", "notify", "communicat")
+        ):
             return "report"
         return "implement"
 

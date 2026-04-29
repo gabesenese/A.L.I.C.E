@@ -12,17 +12,16 @@ should be about inheriting prior context.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 
-import pytest
 
 from ai.core.interaction_policy import InteractionPolicy, PolicySettings
 from ai.core.nlp_processor import Perception, PerceptionResult, FollowUpResolver
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_query(
     intent: str = "conversation:general",
@@ -53,6 +52,7 @@ def _sentiment(compound: float = 0.0) -> Dict[str, Any]:
 
 # ── InteractionPolicy tests ───────────────────────────────────────────────────
 
+
 class TestInteractionPolicy:
     policy = InteractionPolicy()
 
@@ -74,7 +74,7 @@ class TestInteractionPolicy:
     def test_high_urgency_overrides_neutral_mood(self):
         """urgency='high' should behave identically to mood='urgent'."""
         by_urgency = self.policy.derive("neutral", _sentiment(0.0), "high")
-        by_mood    = self.policy.derive("urgent",  _sentiment(0.0), "high")
+        by_mood = self.policy.derive("urgent", _sentiment(0.0), "high")
         assert by_urgency.skip_clarification == by_mood.skip_clarification
         assert by_urgency.tone == by_mood.tone
 
@@ -127,6 +127,7 @@ class TestInteractionPolicy:
 
 # ── Perception tests ──────────────────────────────────────────────────────────
 
+
 class TestPerception:
     perception = Perception()
 
@@ -135,7 +136,13 @@ class TestPerception:
         result = self.perception.build(q, last_intent=None, conversation_topics=[])
         assert result.ambiguity < 0.2
         assert result.needs_clarification is False
-        assert result.inferred_mood in ("neutral", "positive", "negative", "frustrated", "urgent")
+        assert result.inferred_mood in (
+            "neutral",
+            "positive",
+            "negative",
+            "frustrated",
+            "urgent",
+        )
 
     def test_frustrated_mood_detected(self):
         q = _make_query(
@@ -166,7 +173,11 @@ class TestPerception:
 
     def test_weather_followup_domain_detected(self):
         """Umbrella keyword should trigger weather follow-up domain detection."""
-        q = _make_query(intent="conversation:general", confidence=0.5, text="should I bring an umbrella")
+        q = _make_query(
+            intent="conversation:general",
+            confidence=0.5,
+            text="should I bring an umbrella",
+        )
         result = self.perception.build(
             q,
             last_intent="weather:current",
@@ -201,6 +212,7 @@ class TestPerception:
 
 
 # ── FollowUpResolver tests ────────────────────────────────────────────────────
+
 
 class TestFollowUpResolver:
     resolver = FollowUpResolver()
@@ -416,7 +428,7 @@ class TestFollowUpResolver:
         """After a notes turn, generic pronoun 'what is in it?' must not route to weather."""
         r = self._resolve(
             "what is in it?",
-            nlp_intent="weather:current",   # NLP misfired as weather
+            nlp_intent="weather:current",  # NLP misfired as weather
             nlp_confidence=0.55,
             last_intent="notes:list",
             topics=["notes:list"],

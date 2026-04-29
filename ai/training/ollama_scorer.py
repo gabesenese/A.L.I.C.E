@@ -3,7 +3,6 @@ Ollama Scorer - Aggregates audit results into training signals
 Converts dimension scores into actionable training feedback
 """
 
-import json
 import logging
 from typing import Dict, List, Any
 from dataclasses import dataclass
@@ -58,7 +57,7 @@ class OllamaScorer:
                     signal_type="positive",
                     strength=overall / 5.0,
                     focus_dimension="all",
-                    feedback=f"Excellent response. Maintain this quality.",
+                    feedback="Excellent response. Maintain this quality.",
                 )
             )
 

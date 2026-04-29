@@ -308,9 +308,9 @@ class RouteCoordinator:
             text=lower_text,
             previous_intent=prior_intent,
         )
-        current_intent_is_tool = (":" in str(intent or "")) and not str(intent).startswith(
-            "conversation:"
-        )
+        current_intent_is_tool = (":" in str(intent or "")) and not str(
+            intent
+        ).startswith("conversation:")
         if contextual_reaction and current_intent_is_tool:
             modifiers["tool_execution_disabled"] = True
             modifiers["contextual_reaction_gate"] = {
@@ -328,7 +328,9 @@ class RouteCoordinator:
                 }
             )
             modifiers["routing_trace"] = routing_trace
-            return "conversation:personal_reaction", max(float(intent_confidence or 0.0), 0.82)
+            return "conversation:personal_reaction", max(
+                float(intent_confidence or 0.0), 0.82
+            )
 
         if (
             intent_category == "conversation"
@@ -361,7 +363,9 @@ class RouteCoordinator:
 
         return intent, intent_confidence
 
-    def _is_contextual_reaction_followup(self, *, text: str, previous_intent: str) -> bool:
+    def _is_contextual_reaction_followup(
+        self, *, text: str, previous_intent: str
+    ) -> bool:
         if not str(previous_intent or "").startswith("weather:"):
             return False
 

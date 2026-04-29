@@ -6,7 +6,7 @@ Makes A.L.I.C.E's responses more natural and helpful.
 
 import logging
 import re
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class ResponseOptimizer:
         optimized = optimized.strip()
 
         # Ensure response ends properly (skip for multi-line/structured responses)
-        if optimized and not optimized[-1] in ".!?" and "\n" not in optimized:
+        if optimized and optimized[-1] not in ".!?" and "\n" not in optimized:
             if "?" in optimized:
                 pass  # Question, keep as is
             elif len(optimized.split()) > 10:

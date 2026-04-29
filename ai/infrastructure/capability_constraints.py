@@ -242,7 +242,7 @@ class CapabilityConstraintsLedger:
         if cap.is_available():
             return True, "Capability available"
 
-        return True, f"Capability available but requires approval"
+        return True, "Capability available but requires approval"
 
     def validate_capability_disclaimer(
         self, disclaimed_capability: str
@@ -258,7 +258,7 @@ class CapabilityConstraintsLedger:
             return False, f"Unknown capability: {disclaimed_capability}"
 
         if not cap.is_available():
-            return True, f"Capability is correctly not available"
+            return True, "Capability is correctly not available"
 
         return (
             False,

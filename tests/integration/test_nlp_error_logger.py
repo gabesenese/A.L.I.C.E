@@ -25,6 +25,7 @@ from ai.learning.learning_engine import NLPErrorLogger, get_nlp_error_logger
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture()
 def log_file(tmp_path: Path) -> Path:
     return tmp_path / "nlp_errors.jsonl"
@@ -38,10 +39,15 @@ def logger(log_file: Path) -> NLPErrorLogger:
 def _read_entries(log_file: Path) -> list[dict]:
     if not log_file.exists():
         return []
-    return [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line)
+        for line in log_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 # ── log_intent_override ───────────────────────────────────────────────────────
+
 
 class TestLogIntentOverride:
     def test_writes_one_entry(self, logger: NLPErrorLogger, log_file: Path):
@@ -87,23 +93,36 @@ class TestLogIntentOverride:
         assert len(str(entry["original_confidence"]).replace("0.", "")) <= 4
         assert len(str(entry["corrected_confidence"]).replace("0.", "")) <= 4
 
-    def test_domain_extracted_from_colon_split(self, logger: NLPErrorLogger, log_file: Path):
+    def test_domain_extracted_from_colon_split(
+        self, logger: NLPErrorLogger, log_file: Path
+    ):
         logger.log_intent_override(
-            user_input="x", original_intent="weather:current", corrected_intent="y",
-            original_confidence=0.5, corrected_confidence=0.8, reason="r",
+            user_input="x",
+            original_intent="weather:current",
+            corrected_intent="y",
+            original_confidence=0.5,
+            corrected_confidence=0.8,
+            reason="r",
         )
         assert _read_entries(log_file)[0]["domain"] == "weather"
 
-    def test_session_id_included_when_provided(self, logger: NLPErrorLogger, log_file: Path):
+    def test_session_id_included_when_provided(
+        self, logger: NLPErrorLogger, log_file: Path
+    ):
         logger.log_intent_override(
-            user_input="x", original_intent="a:b", corrected_intent="c:d",
-            original_confidence=0.5, corrected_confidence=0.8, reason="r",
+            user_input="x",
+            original_intent="a:b",
+            corrected_intent="c:d",
+            original_confidence=0.5,
+            corrected_confidence=0.8,
+            reason="r",
             session_id="sess-42",
         )
         assert _read_entries(log_file)[0]["session_id"] == "sess-42"
 
 
 # ── log_followup_resolved ──────────────────────────────────────────────────────
+
 
 class TestLogFollowupResolved:
     def test_writes_one_entry(self, logger: NLPErrorLogger, log_file: Path):
@@ -138,8 +157,12 @@ class TestLogFollowupResolved:
 
     def test_nlp_confidence_is_rounded(self, logger: NLPErrorLogger, log_file: Path):
         logger.log_followup_resolved(
-            user_input="x", nlp_intent="a", resolved_intent="b",
-            nlp_confidence=0.123456, domain="d", reason="r",
+            user_input="x",
+            nlp_intent="a",
+            resolved_intent="b",
+            nlp_confidence=0.123456,
+            domain="d",
+            reason="r",
         )
         entry = _read_entries(log_file)[0]
         # 4 decimal places max
@@ -147,6 +170,7 @@ class TestLogFollowupResolved:
 
 
 # ── log_clarification_skip ────────────────────────────────────────────────────
+
 
 class TestLogClarificationSkip:
     def test_writes_one_entry(self, logger: NLPErrorLogger, log_file: Path):
@@ -189,18 +213,33 @@ class TestLogClarificationSkip:
 
 # ── multiple entries ──────────────────────────────────────────────────────────
 
+
 class TestMultipleEntries:
-    def test_each_log_call_appends_a_new_line(self, logger: NLPErrorLogger, log_file: Path):
+    def test_each_log_call_appends_a_new_line(
+        self, logger: NLPErrorLogger, log_file: Path
+    ):
         logger.log_intent_override(
-            user_input="a", original_intent="x:y", corrected_intent="z:w",
-            original_confidence=0.5, corrected_confidence=0.9, reason="r",
+            user_input="a",
+            original_intent="x:y",
+            corrected_intent="z:w",
+            original_confidence=0.5,
+            corrected_confidence=0.9,
+            reason="r",
         )
         logger.log_followup_resolved(
-            user_input="b", nlp_intent="p", resolved_intent="q",
-            nlp_confidence=0.4, domain="d", reason="r",
+            user_input="b",
+            nlp_intent="p",
+            resolved_intent="q",
+            nlp_confidence=0.4,
+            domain="d",
+            reason="r",
         )
         logger.log_clarification_skip(
-            user_input="c", intent="m:n", confidence=0.7, mood="neutral", reason="r",
+            user_input="c",
+            intent="m:n",
+            confidence=0.7,
+            mood="neutral",
+            reason="r",
         )
         entries = _read_entries(log_file)
         assert len(entries) == 3
@@ -210,6 +249,7 @@ class TestMultipleEntries:
 
 
 # ── thread safety ─────────────────────────────────────────────────────────────
+
 
 class TestThreadSafety:
     def test_concurrent_writes_produce_distinct_valid_entries(
@@ -243,12 +283,17 @@ class TestThreadSafety:
 
 # ── directory auto-creation ───────────────────────────────────────────────────
 
+
 class TestDirectoryCreation:
     def test_creates_parent_directory_if_missing(self, tmp_path: Path):
         nested = tmp_path / "deep" / "nested" / "nlp_errors.jsonl"
         logger = NLPErrorLogger(log_file=nested)
         logger.log_clarification_skip(
-            user_input="x", intent="a", confidence=0.5, mood="neutral", reason="r",
+            user_input="x",
+            intent="a",
+            confidence=0.5,
+            mood="neutral",
+            reason="r",
         )
         assert nested.exists()
         entries = _read_entries(nested)
@@ -256,6 +301,7 @@ class TestDirectoryCreation:
 
 
 # ── singleton helper ──────────────────────────────────────────────────────────
+
 
 class TestGetNlpErrorLogger:
     def test_returns_nlp_error_logger_instance(self):

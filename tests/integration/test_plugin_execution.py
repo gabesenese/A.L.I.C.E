@@ -12,7 +12,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from ai.plugins.plugin_system import PluginManager, PluginInterface
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 
 class MockPlugin(PluginInterface):
@@ -32,7 +32,9 @@ class MockPlugin(PluginInterface):
     def can_handle(self, intent: str, entities: Dict, query: str = None) -> bool:
         return intent == "test" or "test" in intent.lower()
 
-    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
+    def execute(
+        self, intent: str, query: str, entities: Dict, context: Dict
+    ) -> Dict[str, Any]:
         self.execution_count += 1
         return {
             "success": True,
@@ -40,8 +42,8 @@ class MockPlugin(PluginInterface):
             "data": {
                 "intent": intent,
                 "query": query,
-                "execution_count": self.execution_count
-            }
+                "execution_count": self.execution_count,
+            },
         }
 
     def shutdown(self) -> None:
@@ -75,32 +77,27 @@ class TestPluginExecution:
     def test_plugin_execution(self, populated_manager):
         """Plugins should execute correctly"""
         result = populated_manager.execute_for_intent(
-            intent="test",
-            query="test query",
-            entities={},
-            context={}
+            intent="test", query="test query", entities={}, context={}
         )
 
         assert result is not None
-        assert result['success'] is True
-        assert 'Mock plugin' in result['response']
-        assert result['data']['execution_count'] == 1
+        assert result["success"] is True
+        assert "Mock plugin" in result["response"]
+        assert result["data"]["execution_count"] == 1
 
     def test_plugin_can_handle_matching(self, populated_manager):
         """Plugin matching should work correctly"""
         # Should match "test" intent
         result = populated_manager.execute_for_intent(
-            intent="test",
-            query="run test",
-            entities={},
-            context={}
+            intent="test", query="run test", entities={}, context={}
         )
 
         assert result is not None
-        assert result['plugin'] == "MockPlugin"
+        assert result["plugin"] == "MockPlugin"
 
     def test_plugin_execution_failure_handling(self, plugin_manager):
         """Failed plugins should not crash the system"""
+
         class FailingPlugin(PluginInterface):
             def __init__(self):
                 super().__init__()
@@ -109,7 +106,9 @@ class TestPluginExecution:
             def initialize(self) -> bool:
                 return True
 
-            def can_handle(self, intent: str, entities: Dict, query: str = None) -> bool:
+            def can_handle(
+                self, intent: str, entities: Dict, query: str = None
+            ) -> bool:
                 return intent == "fail"
 
             def execute(self, intent: str, query: str, entities: Dict, context: Dict):
@@ -122,14 +121,11 @@ class TestPluginExecution:
 
         # Should not crash, should return None or error result
         result = plugin_manager.execute_for_intent(
-            intent="fail",
-            query="fail",
-            entities={},
-            context={}
+            intent="fail", query="fail", entities={}, context={}
         )
 
         # Either returns None or an error structure
-        assert result is None or result.get('success') is False
+        assert result is None or result.get("success") is False
 
     def test_plugin_enable_disable(self, populated_manager):
         """Plugins should be enable/disable-able"""
@@ -140,10 +136,7 @@ class TestPluginExecution:
 
         # Should not execute when disabled
         result = populated_manager.execute_for_intent(
-            intent="test",
-            query="test",
-            entities={},
-            context={}
+            intent="test", query="test", entities={}, context={}
         )
 
         assert result is None  # No plugin handled it
@@ -154,16 +147,14 @@ class TestPluginExecution:
 
         # Should execute again
         result = populated_manager.execute_for_intent(
-            intent="test",
-            query="test",
-            entities={},
-            context={}
+            intent="test", query="test", entities={}, context={}
         )
 
         assert result is not None
 
     def test_multiple_plugin_priority(self, plugin_manager):
         """Higher priority plugins should execute first"""
+
         class HighPriorityPlugin(MockPlugin):
             def __init__(self):
                 super().__init__()
@@ -182,10 +173,7 @@ class TestPluginExecution:
         plugin_manager.register_plugin(high, priority=10)
 
         result = plugin_manager.execute_for_intent(
-            intent="test",
-            query="test",
-            entities={},
-            context={}
+            intent="test", query="test", entities={}, context={}
         )
 
         # Should execute, priority order is respected internally
@@ -196,7 +184,7 @@ class TestPluginExecution:
         plugins = populated_manager.get_all_plugins()
 
         assert len(plugins) > 0
-        assert any(p['name'] == 'MockPlugin' for p in plugins)
+        assert any(p["name"] == "MockPlugin" for p in plugins)
 
     def test_get_capabilities(self, populated_manager):
         """Should return all capabilities"""

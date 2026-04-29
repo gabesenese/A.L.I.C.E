@@ -4,9 +4,8 @@ Abstract storage interface for memory entries
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import List, Dict, Optional, Any
-from datetime import datetime
 import numpy as np
 import logging
 

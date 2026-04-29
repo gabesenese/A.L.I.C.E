@@ -6,11 +6,10 @@ ALICE learns from her mistakes and improves over time.
 """
 
 import logging
-import json
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict, field
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +175,7 @@ class WeakSpotDetector:
     ) -> PostMortem:
         """Analyze why a routing path keeps failing."""
         intents = Counter(f.intent for f in failures)
-        errors = [f.error_message for f in failures]
+        [f.error_message for f in failures]
         retry_successes = sum(
             1 for f in failures if f.was_retried and f.retry_succeeded
         )
@@ -200,7 +199,7 @@ class WeakSpotDetector:
             severity="high" if len(failures) >= 5 else "medium",
             suggested_fixes=[
                 f"Review routing decision logic for {path}",
-                f"Add retry handling for transient failures",
+                "Add retry handling for transient failures",
                 f"Add additional validation before committing to {path}",
                 f"Consider adding fallback to alternate routing for {intents.most_common(1)[0][0]}",
             ],
@@ -216,7 +215,7 @@ class WeakSpotDetector:
     ) -> PostMortem:
         """Analyze why an intent keeps failing."""
         paths = Counter(f.routing_path for f in failures)
-        errors = [f.error_message for f in failures]
+        [f.error_message for f in failures]
 
         postmortem = PostMortem(
             pattern_name=f"weak_intent__{intent.replace(':', '_')}",
@@ -252,8 +251,8 @@ class WeakSpotDetector:
             severity="critical" if len(failures) >= 5 else "high",
             suggested_fixes=[
                 f"Debug and fix root cause: {error_pattern}",
-                f"Add error handling and recovery for this error type",
-                f"Add pre-check validation to prevent this error",
+                "Add error handling and recovery for this error type",
+                "Add pre-check validation to prevent this error",
             ],
         )
 
@@ -264,7 +263,7 @@ class WeakSpotDetector:
         first = failures[0]
 
         test_code = f"""
-def test_weak_spot_regression_{path.replace(':', '_')}():
+def test_weak_spot_regression_{path.replace(":", "_")}():
     \"\"\"Regression test: {path} should handle {first.intent} consistently\"\"\"
     # Context: This routing path has failed {len(failures)} times
     # Typical error: {first.error_message}

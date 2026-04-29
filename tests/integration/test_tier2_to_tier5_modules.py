@@ -16,7 +16,9 @@ def test_multi_step_reasoning_builds_plan_with_secondary_intents():
         user_input="create a note and remind me at 9",
         primary_intent="notes:create",
         primary_confidence=0.88,
-        secondary_intents=[{"intent": "reminder:create", "confidence": 0.81, "text": "remind me at 9"}],
+        secondary_intents=[
+            {"intent": "reminder:create", "confidence": 0.81, "text": "remind me at 9"}
+        ],
     )
     payload = plan.as_dict()
     assert payload["complexity"] == "multi_step"

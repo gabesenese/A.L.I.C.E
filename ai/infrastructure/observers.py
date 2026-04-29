@@ -152,7 +152,6 @@ class SystemHealthObserver(Observer):
             self._last_memory_warning is None
             or (now - self._last_memory_warning) > self._warning_cooldown
         ):
-
             usage = event.data.get("usage", 0)
             available = event.data.get("available", 0)
             available_gb = available / (1024**3)

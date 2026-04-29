@@ -20,12 +20,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import List, Optional
 
 
 # ── loaders ──────────────────────────────────────────────────────────────────
+
 
 def _load_habits(path: Path) -> List[dict]:
     habits: List[dict] = []
@@ -59,6 +59,7 @@ def _load_jsonl(path: Path) -> List[dict]:
 
 # ── formatters ───────────────────────────────────────────────────────────────
 
+
 def _format_habits(habits: List[dict]) -> str:
     if not habits:
         return "_No habits mined yet._\n"
@@ -66,18 +67,20 @@ def _format_habits(habits: List[dict]) -> str:
     # Sort by confidence descending
     habits = sorted(habits, key=lambda h: h.get("confidence", 0), reverse=True)
 
-    lines = ["| # | Macro Name | Sequence | Confidence | Trigger Length |",
-             "|---|------------|----------|------------|----------------|"]
+    lines = [
+        "| # | Macro Name | Sequence | Confidence | Trigger Length |",
+        "|---|------------|----------|------------|----------------|",
+    ]
     for i, h in enumerate(habits[:30], 1):
         name = h.get("name", "unnamed")
-        seq  = h.get("sequence", [])
+        seq = h.get("sequence", [])
         # sequence items can be strings or dicts
         seq_str = " → ".join(
             f"{s['intent']}:{s['plugin']}" if isinstance(s, dict) else str(s)
             for s in seq
         )
-        conf   = h.get("confidence", 0)
-        trig   = h.get("trigger_length", "?")
+        conf = h.get("confidence", 0)
+        trig = h.get("trigger_length", "?")
         lines.append(f"| {i} | `{name}` | {seq_str} | {conf:.1f} | {trig} |")
     return "\n".join(lines) + "\n"
 
@@ -86,13 +89,15 @@ def _format_anomalies(records: List[dict]) -> str:
     if not records:
         return "_No anomaly records._\n"
 
-    lines = ["| # | Metric | Value | Threshold | Timestamp |",
-             "|---|--------|-------|-----------|-----------|"]
+    lines = [
+        "| # | Metric | Value | Threshold | Timestamp |",
+        "|---|--------|-------|-----------|-----------|",
+    ]
     for i, r in enumerate(records[-20:], 1):
         metric = r.get("metric", "?")
-        val    = r.get("value", "?")
-        thr    = r.get("threshold", "?")
-        ts     = r.get("timestamp", "?")[:19]
+        val = r.get("value", "?")
+        thr = r.get("threshold", "?")
+        ts = r.get("timestamp", "?")[:19]
         lines.append(f"| {i} | `{metric}` | {val} | {thr} | {ts} |")
     return "\n".join(lines) + "\n"
 
@@ -101,26 +106,29 @@ def _format_debug_fixes(records: List[dict]) -> str:
     if not records:
         return "_No self-debug fix records._\n"
 
-    lines = ["| # | Strategy | Failure Type | Target | Confidence | Timestamp |",
-             "|---|----------|--------------|--------|------------|-----------|"]
+    lines = [
+        "| # | Strategy | Failure Type | Target | Confidence | Timestamp |",
+        "|---|----------|--------------|--------|------------|-----------|",
+    ]
     for i, r in enumerate(records[-20:], 1):
         strat = r.get("strategy", "?")
         ftype = r.get("failure_type", "?")
-        tgt   = r.get("target", "?")
-        conf  = r.get("confidence", 0)
-        ts    = r.get("timestamp", "?")[:19]
+        tgt = r.get("target", "?")
+        conf = r.get("confidence", 0)
+        ts = r.get("timestamp", "?")[:19]
         lines.append(f"| {i} | `{strat}` | `{ftype}` | `{tgt}` | {conf:.2f} | {ts} |")
     return "\n".join(lines) + "\n"
 
 
 # ── top-level report builder ──────────────────────────────────────────────────
 
+
 def build_report(
     habits_path: Path,
     anomalies_path: Optional[Path],
     debug_fixes_path: Optional[Path],
 ) -> str:
-    habits   = _load_habits(habits_path)
+    habits = _load_habits(habits_path)
     sections = [
         "# A.L.I.C.E Habit & Debug Dashboard\n",
         f"Habit macros learned: **{len(habits)}** | source: `{habits_path}`\n",
@@ -146,6 +154,7 @@ def build_report(
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -187,9 +196,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    habits_path       = Path(args.habits)
-    anomalies_path    = Path(args.anomalies_path) if args.anomalies else None
-    debug_fixes_path  = Path(args.debug_path) if args.debug_log else None
+    habits_path = Path(args.habits)
+    anomalies_path = Path(args.anomalies_path) if args.anomalies else None
+    debug_fixes_path = Path(args.debug_path) if args.debug_log else None
 
     report = build_report(habits_path, anomalies_path, debug_fixes_path)
 

@@ -89,6 +89,9 @@ def test_generate_natural_response_uses_scoped_phrase_mode_and_clamp():
         user_input="help",
     )
 
-    assert gateway.last_call_type in {LLMCallType.PHRASE_MICRO, LLMCallType.PHRASE_STRUCTURED}
+    assert gateway.last_call_type in {
+        LLMCallType.PHRASE_MICRO,
+        LLMCallType.PHRASE_STRUCTURED,
+    }
     assert "as an ai" not in out.lower()
     assert len(out) <= 220

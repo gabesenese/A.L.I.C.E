@@ -12,7 +12,7 @@ When Alice uses the LLM (last resort), the teacher loop:
 import json
 import os
 import logging
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Optional, Any
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -315,7 +315,7 @@ class TeacherLoop:
             with open(training_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
 
-            logger.info(f"[TeacherLoop] Added pattern to training data")
+            logger.info("[TeacherLoop] Added pattern to training data")
 
         except Exception as e:
             logger.error(f"[TeacherLoop] Error adding to training data: {e}")

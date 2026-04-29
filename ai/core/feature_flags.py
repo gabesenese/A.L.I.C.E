@@ -65,9 +65,9 @@ class FeatureFlagManager:
         self._initialized = True
         self.config_path = config_path or Path("data/feature_flags.json")
         self._flags: Dict[str, FeatureFlag] = {}
-        self._user_overrides: Dict[str, Set[str]] = (
-            {}
-        )  # user_id -> set of enabled flags
+        self._user_overrides: Dict[
+            str, Set[str]
+        ] = {}  # user_id -> set of enabled flags
         self._reload_lock = Lock()
 
         # Default flags for P0 NLP improvements

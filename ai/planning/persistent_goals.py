@@ -10,9 +10,9 @@ Enables Alice to work on complex goals over days/weeks.
 import json
 import time
 import uuid
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from enum import Enum
 import logging
@@ -352,7 +352,9 @@ class PersistentGoalSystem:
     def _infer_step_type_from_description(description: str) -> str:
         """Infer step type from plain-text plans when explicit metadata is absent."""
         low = str(description or "").strip().lower()
-        if any(token in low for token in ("research", "investigate", "explore", "gather")):
+        if any(
+            token in low for token in ("research", "investigate", "explore", "gather")
+        ):
             return "research"
         if any(token in low for token in ("analy", "inspect", "review")):
             return "analyze"
@@ -391,11 +393,15 @@ class PersistentGoalSystem:
                     or step_desc.get("text")
                     or f"Step {i + 1}"
                 ).strip()
-                step_type = str(
-                    step_desc.get("type")
-                    or self._infer_step_type_from_description(description)
-                    or "implement"
-                ).strip().lower()
+                step_type = (
+                    str(
+                        step_desc.get("type")
+                        or self._infer_step_type_from_description(description)
+                        or "implement"
+                    )
+                    .strip()
+                    .lower()
+                )
                 raw_dependencies = [
                     str(dep).strip().lower()
                     for dep in list(step_desc.get("dependencies") or [])
@@ -466,7 +472,12 @@ class PersistentGoalSystem:
         # Check if goal is complete
         if all(s.status == "completed" for s in goal.steps):
             self.update_goal_status(goal_id, GoalStatus.COMPLETED)
-        elif goal.status in {GoalStatus.CREATED, GoalStatus.PLANNING, GoalStatus.BLOCKED, GoalStatus.PAUSED}:
+        elif goal.status in {
+            GoalStatus.CREATED,
+            GoalStatus.PLANNING,
+            GoalStatus.BLOCKED,
+            GoalStatus.PAUSED,
+        }:
             goal.status = GoalStatus.IN_PROGRESS
             goal.updated_at = time.time()
 

@@ -4,7 +4,7 @@ Performance tuning and runtime optimization
 """
 
 from ai.optimization.runtime_thresholds import get_thresholds, update_thresholds
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
 import logging
 
 logger = logging.getLogger(__name__)

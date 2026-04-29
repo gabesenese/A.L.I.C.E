@@ -5,4 +5,4 @@ Provides multiple interface options
 
 from .rich_terminal import RichTerminalUI
 
-__all__ = ['RichTerminalUI']
+__all__ = ["RichTerminalUI"]

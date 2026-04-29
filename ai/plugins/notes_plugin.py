@@ -26,7 +26,6 @@ Note Types: general, todo, idea, meeting (auto-detected or can be specified)
 """
 
 import os
-import sys
 import json
 import logging
 import uuid
@@ -37,9 +36,7 @@ from typing import (
     List,
     Optional,
     Any,
-    Tuple,
     Final,
-    ClassVar,
     Protocol,
     runtime_checkable,
 )
@@ -817,7 +814,6 @@ class NotesManager:
                     note.priority, str(min_priority)
                 ):
                     continue
-                text = f"{note.title}\n{note.content}"
                 note_vec = self._get_note_embedding(note, embedding_manager)
                 similarity = embedding_manager.calculate_similarity(query_vec, note_vec)
                 if similarity >= min_similarity:
@@ -1745,9 +1741,9 @@ class NotesPlugin(PluginInterface):
         self.pending_confirmation: Optional[Dict[str, Any]] = None
 
         # Sliding window of recent conversation turns for "create from context" feature
-        self._conversation_context: List[Dict[str, str]] = (
-            []
-        )  # [{"role": "user"|"assistant", "text": "..."}]
+        self._conversation_context: List[
+            Dict[str, str]
+        ] = []  # [{"role": "user"|"assistant", "text": "..."}]
 
         # Learning and telemetry state (no hardcoded response text path)
         self.learning_state_path = Path("data/notes/notes_learning_state.json")
@@ -2859,7 +2855,7 @@ class NotesPlugin(PluginInterface):
             import hashlib
 
             sid = hashlib.md5(
-                f"{telemetry_entry.get('timestamp','')}-{action}".encode()
+                f"{telemetry_entry.get('timestamp', '')}-{action}".encode()
             ).hexdigest()[:16]
             selector.record_feedback(
                 selection_id=sid,
@@ -5177,7 +5173,7 @@ class NotesPlugin(PluginInterface):
         pinned = len([n for n in all_notes if n.pinned])
 
         # Build response
-        message = f" **Note Statistics**\n\n"
+        message = " **Note Statistics**\n\n"
         message += f"   Total active notes: {total_count}\n"
 
         if todos > 0:

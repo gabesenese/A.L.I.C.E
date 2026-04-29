@@ -9,7 +9,7 @@ import threading
 import time
 from collections import Counter, defaultdict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Tuple
 

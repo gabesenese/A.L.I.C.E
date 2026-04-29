@@ -7,7 +7,7 @@ When the router is not confident, the LLM produces a structured Goal JSON
 import json
 import re
 import logging
-from typing import Optional, Any, Callable
+from typing import Optional, Callable
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)

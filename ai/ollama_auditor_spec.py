@@ -3,7 +3,7 @@ Ollama Auditor Specification
 Multi-dimensional grading rubric for Alice responses
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 from dataclasses import dataclass
 from enum import Enum
 

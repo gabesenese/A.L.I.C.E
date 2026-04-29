@@ -11,7 +11,6 @@ from typing import Callable, Any, Optional, Dict
 from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +136,7 @@ class TaskQueue:
 
                 try:
                     # Execute task
-                    result = task.func(*task.args, **task.kwargs)
+                    task.func(*task.args, **task.kwargs)
 
                     with self.lock:
                         self.stats["completed"] += 1

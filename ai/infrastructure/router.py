@@ -398,16 +398,49 @@ class RequestRouter:
             return True
 
         social_tokens = {
-            "hi", "hey", "hello", "yo", "sup", "bye", "goodbye", "thanks", "thank", "thx",
+            "hi",
+            "hey",
+            "hello",
+            "yo",
+            "sup",
+            "bye",
+            "goodbye",
+            "thanks",
+            "thank",
+            "thx",
         }
         return bool(set(tokens) & social_tokens)
 
     def _has_explicit_action_verb(self, text_lower: str) -> bool:
         action_verbs = {
-            "create", "make", "read", "open", "delete", "remove", "move", "rename",
-            "send", "reply", "search", "find", "list", "show", "get", "set",
-            "remember", "recall", "forget", "store", "save", "check", "write",
-            "update", "edit", "schedule", "archive", "unarchive",
+            "create",
+            "make",
+            "read",
+            "open",
+            "delete",
+            "remove",
+            "move",
+            "rename",
+            "send",
+            "reply",
+            "search",
+            "find",
+            "list",
+            "show",
+            "get",
+            "set",
+            "remember",
+            "recall",
+            "forget",
+            "store",
+            "save",
+            "check",
+            "write",
+            "update",
+            "edit",
+            "schedule",
+            "archive",
+            "unarchive",
         }
         return any(verb in text_lower for verb in action_verbs)
 
@@ -427,7 +460,11 @@ class RequestRouter:
                 domain = "weather"
             elif "email" in intent_lower:
                 domain = "email"
-            elif "calendar" in intent_lower or "schedule" in intent_lower or "meeting" in intent_lower:
+            elif (
+                "calendar" in intent_lower
+                or "schedule" in intent_lower
+                or "meeting" in intent_lower
+            ):
                 domain = "calendar"
             elif "file_operations" in intent_lower or "file" in intent_lower:
                 domain = "file_operations"

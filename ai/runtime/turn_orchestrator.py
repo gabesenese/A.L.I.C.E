@@ -64,7 +64,9 @@ class TurnOrchestrator:
             RouterRequest(user_input=user_input, turn_number=turn_number)
         )
 
-        resolved_input = str((decision.metadata or {}).get("resolved_input") or user_input)
+        resolved_input = str(
+            (decision.metadata or {}).get("resolved_input") or user_input
+        )
         memory = self.boundaries.memory.recall(
             MemoryRequest(query=resolved_input, user_id=user_id, max_items=8)
         )
@@ -93,7 +95,11 @@ class TurnOrchestrator:
         if decision.route not in {"tool", "plugin"}:
             return ExecutePhaseResult(tool_result=None, executed=False)
 
-        tool_name = decision.intent.split(":", 1)[0] if ":" in decision.intent else decision.intent
+        tool_name = (
+            decision.intent.split(":", 1)[0]
+            if ":" in decision.intent
+            else decision.intent
+        )
         tool_result = self.boundaries.tools.execute(
             ToolInvocation(
                 tool_name=tool_name,

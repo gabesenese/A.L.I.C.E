@@ -66,7 +66,9 @@ def _write_learning_fixture(tmp_path):
             "tone": "helpful",
         },
     ]
-    learned.write_text("\n".join(json.dumps(item) for item in entries) + "\n", encoding="utf-8")
+    learned.write_text(
+        "\n".join(json.dumps(item) for item in entries) + "\n", encoding="utf-8"
+    )
 
     entities = {
         "for": {
@@ -90,7 +92,9 @@ def _write_learning_fixture(tmp_path):
             "metadata": {},
         },
     }
-    (data_dir / "entities.json").write_text(json.dumps(entities, indent=2), encoding="utf-8")
+    (data_dir / "entities.json").write_text(
+        json.dumps(entities, indent=2), encoding="utf-8"
+    )
 
     relationships = [
         {
@@ -103,7 +107,9 @@ def _write_learning_fixture(tmp_path):
             "source": "conversation",
         }
     ]
-    (data_dir / "relationships.json").write_text(json.dumps(relationships, indent=2), encoding="utf-8")
+    (data_dir / "relationships.json").write_text(
+        json.dumps(relationships, indent=2), encoding="utf-8"
+    )
     (data_dir / "patterns.json").write_text("{}", encoding="utf-8")
     return data_dir
 
@@ -124,8 +130,16 @@ def test_learning_data_qa_flags_bad_learns_and_corrupted_knowledge(tmp_path):
     assert "relationship_from_rendered_list" in codes
     assert report["group_summaries"]["learned_phrasings"]["total_findings"] == 4
     assert report["group_summaries"]["knowledge"]["total_findings"] == 6
-    assert report["area_summaries"]["entities"]["issue_counts"]["entity_list_artifact"] == 1
-    assert report["area_summaries"]["relationships"]["issue_counts"]["relationship_from_rendered_list"] == 1
+    assert (
+        report["area_summaries"]["entities"]["issue_counts"]["entity_list_artifact"]
+        == 1
+    )
+    assert (
+        report["area_summaries"]["relationships"]["issue_counts"][
+            "relationship_from_rendered_list"
+        ]
+        == 1
+    )
 
 
 def test_learning_data_qa_clean_quarantines_critical_records(tmp_path):
@@ -139,13 +153,19 @@ def test_learning_data_qa_clean_quarantines_critical_records(tmp_path):
     assert cleanup["severity_threshold"] == "critical"
     assert cleanup["total_removed_records"] == 6
 
-    learned_lines = (data_dir / "learned_phrasings.jsonl").read_text(encoding="utf-8").splitlines()
+    learned_lines = (
+        (data_dir / "learned_phrasings.jsonl").read_text(encoding="utf-8").splitlines()
+    )
     assert learned_lines == []
 
-    remaining_entities = json.loads((data_dir / "entities.json").read_text(encoding="utf-8"))
+    remaining_entities = json.loads(
+        (data_dir / "entities.json").read_text(encoding="utf-8")
+    )
     assert set(remaining_entities) == {"for"}
 
-    remaining_relationships = json.loads((data_dir / "relationships.json").read_text(encoding="utf-8"))
+    remaining_relationships = json.loads(
+        (data_dir / "relationships.json").read_text(encoding="utf-8")
+    )
     assert remaining_relationships == []
 
     files = cleanup["files"]

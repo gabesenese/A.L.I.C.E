@@ -12,20 +12,21 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import warnings
-warnings.filterwarnings('ignore')
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+warnings.filterwarnings("ignore")
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
 def main():
     """Start automation scheduler"""
-    
-    print("\n" + "="*70)
+
+    print("\n" + "=" * 70)
     print("STARTING NIGHTLY AUDIT AUTOMATION")
-    print("="*70)
-    
+    print("=" * 70)
+
     # Initialize components
     print("\n[1/2] Initializing components...")
     try:
@@ -38,21 +39,21 @@ def main():
         from ai.optimization.metric_tracker import create_tracker
         from scripts.automation.nightly_audit_scheduler import create_scheduler
         from ai.optimization.audit_config_optimizer import create_optimizer
-        
+
         alice = ALICE(debug=False)
         llm = LocalLLMEngine(config=LLMConfig(model="llama3.1:8b"))
-        
+
         scheduler = create_scheduler(
             alice,
             create_teacher(llm),
             create_auditor(llm),
             create_scorer(),
             create_injector(),
-            create_tracker()
+            create_tracker(),
         )
-        
-        optimizer = create_optimizer()
-        
+
+        create_optimizer()
+
         print("ALICE initialized")
         print("LLM engine ready")
         print("Teacher (query generator) ready")
@@ -61,36 +62,38 @@ def main():
         print("Injector (training pipeline) ready")
         print("Tracker (metrics) ready")
         print("Optimizer (auto-tune) ready")
-    
+
     except Exception as e:
         print(f"Failed to initialize: {e}")
         import traceback
+
         traceback.print_exc()
         return False
-    
+
     # Start scheduler
     print("\n[2/2] Starting scheduler...")
     try:
-        schedule_thread = scheduler.start_scheduler(hour=2, minute=0)
-        
+        scheduler.start_scheduler(hour=2, minute=0)
+
         print("Scheduler started")
         print("\nCONFIGURATION:")
         status = scheduler.scheduler.get_status()
-        print(f"  - Status: Running")
-        print(f"  - Schedule: Daily at 02:00 (2 AM)")
+        print("  - Status: Running")
+        print("  - Schedule: Daily at 02:00 (2 AM)")
         print(f"  - Scheduled jobs: {status['scheduled_jobs']}")
         print(f"  - Next run: {status['next_run']}")
-        
+
     except Exception as e:
         print(f"Failed to start scheduler: {e}")
         import traceback
+
         traceback.print_exc()
         return False
-    
-    print("\n" + "="*70)
+
+    print("\n" + "=" * 70)
     print("AUTOMATION STARTED")
-    print("="*70)
-    
+    print("=" * 70)
+
     print("\nWHAT HAPPENS NIGHTLY (2 AM):")
     print("  1. Generate test queries for all domains (teacher)")
     print("  2. Get Alice responses for each query")
@@ -101,32 +104,32 @@ def main():
     print("  7. Fine-tune model on domain-specific data")
     print("  8. Compare post-training metrics")
     print("  9. Auto-adjust parameters if needed (optimizer)")
-    
+
     print("\nMONITOR PROGRESS:")
     print("  - View metrics: data/training/metrics/domain_metrics.jsonl")
     print("  - View audit feedback: data/training/audit_feedback.jsonl")
     print("  - View domain datasets: data/training/{domain}_feedback.json")
     print("  - Run: python scripts/monitor_audit_progress.py")
-    
+
     print("\nTO STOP SCHEDULER:")
     print("  - Kill this process (Ctrl+C)")
     print("  - Run: taskkill /F /IM python.exe (to kill all Python processes)")
-    
-    print("\n" + "="*70 + "\n")
-    
+
+    print("\n" + "=" * 70 + "\n")
+
     # Keep running - scheduler is daemon thread
     # Ignore Ctrl+C since we're running in background
     import signal
     import time
-    
+
     def ignore_signal(signum, frame):
         # Ignore Ctrl+C in background mode
         pass
-    
+
     signal.signal(signal.SIGINT, ignore_signal)
-    
+
     print("Scheduler running in background. Process will continue until killed.\n")
-    
+
     # Daemon thread will keep running
     try:
         while True:

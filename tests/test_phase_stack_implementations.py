@@ -41,7 +41,9 @@ def test_clarification_prompt_respects_concise_profile():
 def test_record_turn_clarification_counter_not_double_counted():
     layers = FoundationLayers()
     first = layers.record_turn(confidence=0.7, clarification=True, safety_blocked=False)
-    second = layers.record_turn(confidence=0.8, clarification=False, safety_blocked=False)
+    second = layers.record_turn(
+        confidence=0.8, clarification=False, safety_blocked=False
+    )
 
     assert first["clarifications"] == 1
     assert second["clarifications"] == 1
@@ -56,7 +58,9 @@ def test_live_state_reports_staleness_metadata():
         }
     )
 
-    snapshot = service.freshest_weather_snapshot(world_state_memory=stub, max_age_seconds=10)
+    snapshot = service.freshest_weather_snapshot(
+        world_state_memory=stub, max_age_seconds=10
+    )
     assert snapshot is not None
     assert "is_stale" in snapshot
     assert snapshot["is_stale"] is True

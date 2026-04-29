@@ -6,7 +6,6 @@ Makes ALICE transparent; users understand her choices.
 """
 
 import logging
-import json
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -209,7 +208,7 @@ I routed your request as follows:
 - {decision.decision_reasoning}
 
 **Factors I considered:**
-- {', '.join(decision.factors_used[:3])}
+- {", ".join(decision.factors_used[:3])}
 
 **Alternative routes I considered:**
 """
@@ -254,7 +253,9 @@ I routed your request as follows:
                 "reliability": (
                     "high"
                     if success_rate > 0.8
-                    else "medium" if success_rate > 0.6 else "low"
+                    else "medium"
+                    if success_rate > 0.6
+                    else "low"
                 ),
             }
 
@@ -341,7 +342,9 @@ I routed your request as follows:
             symbol = (
                 "✓"
                 if decision.execution_success
-                else "✗" if decision.execution_success is False else "?"
+                else "✗"
+                if decision.execution_success is False
+                else "?"
             )
             lines.append(
                 f"{symbol} {decision.decision_id}: {decision.classified_intent}"

@@ -19,8 +19,18 @@ def test_list_notes_action_formatting():
             "shown": 2,
             "limit": 10,
             "notes": [
-                {"title": "Alpha", "tags": ["work"], "updated_at": "2026-02-20T10:00:00", "preview": "First"},
-                {"title": "Beta", "tags": [], "updated_at": "2026-02-20T11:00:00", "preview": "Second"},
+                {
+                    "title": "Alpha",
+                    "tags": ["work"],
+                    "updated_at": "2026-02-20T10:00:00",
+                    "preview": "First",
+                },
+                {
+                    "title": "Beta",
+                    "tags": [],
+                    "updated_at": "2026-02-20T11:00:00",
+                    "preview": "Second",
+                },
             ],
         },
     }
@@ -59,8 +69,18 @@ def test_note_ambiguous_action_formatting():
             "error": "note_ambiguous",
             "selection_hint": "Reply with the option number (e.g., 1 or 2)",
             "candidates": [
-                {"option": 1, "title": "Grocery List", "tags": ["home"], "updated_at": "2026-02-20T10:00:00"},
-                {"option": 2, "title": "Grocery List Weekend", "tags": [], "updated_at": "2026-02-20T11:00:00"},
+                {
+                    "option": 1,
+                    "title": "Grocery List",
+                    "tags": ["home"],
+                    "updated_at": "2026-02-20T10:00:00",
+                },
+                {
+                    "option": 2,
+                    "title": "Grocery List Weekend",
+                    "tags": [],
+                    "updated_at": "2026-02-20T11:00:00",
+                },
             ],
         },
     }

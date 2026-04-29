@@ -53,7 +53,11 @@ class _LowConfidenceRouter:
         }
 
     def describe_models(self):
-        return {"fast": "llama3.2:3b", "reasoning": "llama3.1:8b", "coding": "qwen2.5-coder:7b"}
+        return {
+            "fast": "llama3.2:3b",
+            "reasoning": "llama3.1:8b",
+            "coding": "qwen2.5-coder:7b",
+        }
 
     def runtime_status(self):
         return {
@@ -87,7 +91,9 @@ def test_gateway_reports_model_roles_and_last_route(monkeypatch):
     assert "last_route" in stats
     assert isinstance(stats.get("model_roles", {}), dict)
     assert isinstance(stats.get("last_route", {}), dict)
-    assert set(["fast", "reasoning", "coding"]).issubset(set(stats.get("model_roles", {}).keys()))
+    assert set(["fast", "reasoning", "coding"]).issubset(
+        set(stats.get("model_roles", {}).keys())
+    )
 
     reset_gateway()
 
@@ -134,7 +140,9 @@ def test_generation_routes_through_multi_router_when_enabled(monkeypatch):
     reset_gateway()
 
 
-def test_generation_strict_mode_blocks_legacy_fallback_when_router_unavailable(monkeypatch):
+def test_generation_strict_mode_blocks_legacy_fallback_when_router_unavailable(
+    monkeypatch,
+):
     monkeypatch.setenv("ALICE_MULTI_LLM_ROUTER", "1")
     monkeypatch.setenv("ALICE_MULTI_LLM_STRICT_GENERATION", "1")
 

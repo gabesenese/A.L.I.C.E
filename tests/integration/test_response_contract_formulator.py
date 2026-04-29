@@ -19,8 +19,15 @@ def test_response_formulator_generate_returns_user_response_contract():
 
     final_response = formulator.generate(
         intent="weather:forecast",
-        context={"user_input": "will it snow this week?", "response": "There is a chance later this week."},
-        tool_results={"plugin": "WeatherPlugin", "action": "forecast", "response": "There is a chance later this week."},
+        context={
+            "user_input": "will it snow this week?",
+            "response": "There is a chance later this week.",
+        },
+        tool_results={
+            "plugin": "WeatherPlugin",
+            "action": "forecast",
+            "response": "There is a chance later this week.",
+        },
         reasoning_output=reasoning,
         mode="final_answer_only",
     )
@@ -41,8 +48,15 @@ def test_response_formulator_leak_filter_regenerates_internal_text():
 
     final_response = formulator.generate(
         intent="weather:forecast",
-        context={"user_input": "is it gonna snow by any chance?", "response": "analysis: the user wants snow check"},
-        tool_results={"plugin": "WeatherPlugin", "action": "forecast", "response": "analysis: key points: check snow"},
+        context={
+            "user_input": "is it gonna snow by any chance?",
+            "response": "analysis: the user wants snow check",
+        },
+        tool_results={
+            "plugin": "WeatherPlugin",
+            "action": "forecast",
+            "response": "analysis: key points: check snow",
+        },
         reasoning_output=reasoning,
         mode="final_answer_only",
     )
@@ -93,7 +107,10 @@ def test_response_formulator_project_fallback_stays_concise_and_non_policy():
 
     final_response = formulator.generate(
         intent="learning:project_ideation",
-        context={"user_input": "i want to create an ai agent", "response": "intent=learning:project_ideation"},
+        context={
+            "user_input": "i want to create an ai agent",
+            "response": "intent=learning:project_ideation",
+        },
         tool_results={},
         reasoning_output=reasoning,
         mode="final_answer_only",
@@ -221,7 +238,10 @@ def test_process_input_wrapper_blocks_internal_output_leakage():
     alice.last_assistant_response = ""
 
     # Internal pipeline leaks meta text; wrapper must sanitize before returning.
-    alice._process_input_internal = lambda _user_input, use_voice=False: "analysis: the user wants agent architecture"
+    alice._process_input_internal = (
+        lambda _user_input,
+        use_voice=False: "analysis: the user wants agent architecture"
+    )
 
     user_text = ALICE.process_input(alice, "I want to build an agent-like AI")
 
@@ -304,12 +324,10 @@ def test_process_input_wrapper_strips_internal_contract_lines_before_response():
     alice._last_plugin_result = {}
     alice.last_assistant_response = ""
 
-    alice._process_input_internal = (
-        lambda _user_input, use_voice=False: (
-            "intent=conversation:general\n"
-            "raw_response=internal\n"
-            "The practical answer is to separate planning, execution, and verification loops."
-        )
+    alice._process_input_internal = lambda _user_input, use_voice=False: (
+        "intent=conversation:general\n"
+        "raw_response=internal\n"
+        "The practical answer is to separate planning, execution, and verification loops."
     )
 
     user_text = ALICE.process_input(alice, "how should i design an ai agent loop?")

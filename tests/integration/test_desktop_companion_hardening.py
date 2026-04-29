@@ -153,15 +153,24 @@ def test_current_events_guard_detects_world_situation_without_live_sources():
 
     alice = ALICE.__new__(ALICE)
 
-    assert alice._is_freshness_sensitive_current_events_request(
-        "what is happening in the world right now?"
-    ) is True
-    assert alice._is_freshness_sensitive_current_events_request(
-        "how can i design an assistant with today's technology?"
-    ) is False
-    assert alice._is_freshness_sensitive_current_events_request(
-        "what is happening with Alice right now?"
-    ) is False
+    assert (
+        alice._is_freshness_sensitive_current_events_request(
+            "what is happening in the world right now?"
+        )
+        is True
+    )
+    assert (
+        alice._is_freshness_sensitive_current_events_request(
+            "how can i design an assistant with today's technology?"
+        )
+        is False
+    )
+    assert (
+        alice._is_freshness_sensitive_current_events_request(
+            "what is happening with Alice right now?"
+        )
+        is False
+    )
 
     payload = alice._freshness_required_payload(
         "what is happening in the world right now?"

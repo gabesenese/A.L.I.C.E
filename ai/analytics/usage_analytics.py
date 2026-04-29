@@ -6,7 +6,7 @@ Tracks A.L.I.C.E usage patterns and generates insights
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict, Counter
 

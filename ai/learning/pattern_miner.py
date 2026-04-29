@@ -11,7 +11,7 @@ from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field, asdict
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Callable, Deque, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Deque, Dict, Iterator, List, Optional, Tuple
 from datetime import datetime
 
 
@@ -240,7 +240,7 @@ class PatternMiner:
     def get_pattern_stats(self) -> Dict[str, Any]:
         """Get statistics about proposed patterns."""
         pending = self.get_pending_patterns()
-        approved = self.get_approved_patterns()
+        self.get_approved_patterns()
 
         return {
             "total_proposals": len(self.proposed_patterns["proposals"]),
@@ -397,7 +397,7 @@ class HabitMiner:
             tmp = self._path.with_suffix(".tmp")
             tmp.write_text("\n".join(lines), encoding="utf-8")
             tmp.replace(self._path)
-        except Exception as exc:
+        except Exception:
             pass  # non-critical persistence
 
     def _load(self) -> None:

@@ -14,6 +14,7 @@ from pathlib import Path
 
 class ExpectedRoute(Enum):
     """Expected routing decision for a scenario step"""
+
     SELF_REFLECTION = "SELF_REFLECTION"
     CONVERSATIONAL = "CONVERSATIONAL"
     TOOL = "TOOL"
@@ -25,6 +26,7 @@ class ExpectedRoute(Enum):
 @dataclass
 class ScenarioStep:
     """A single step in a conversation scenario"""
+
     user_input: str
     expected_intent: str
     expected_route: ExpectedRoute
@@ -36,6 +38,7 @@ class ScenarioStep:
 @dataclass
 class ScenarioResult:
     """Result of running a scenario step"""
+
     step: ScenarioStep
     actual_route: str
     actual_intent: str
@@ -50,6 +53,7 @@ class ScenarioResult:
 @dataclass
 class Scenario:
     """A complete conversation scenario"""
+
     name: str
     description: str
     domain: str
@@ -68,17 +72,17 @@ EMAIL_SCENARIOS = [
                 user_input="show me my recent emails",
                 expected_intent="list_emails",
                 expected_route=ExpectedRoute.TOOL,
-                domain="email"
+                domain="email",
             ),
             ScenarioStep(
                 user_input="read the first email",
                 expected_intent="read_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                expected_entities={"index": 1}
-            )
+                expected_entities={"index": 1},
+            ),
         ],
-        tags=["email", "list", "read"]
+        tags=["email", "list", "read"],
     ),
     Scenario(
         name="Search Emails",
@@ -90,10 +94,10 @@ EMAIL_SCENARIOS = [
                 expected_intent="search_emails",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                expected_entities={"query": "from:john"}
+                expected_entities={"query": "from:john"},
             )
         ],
-        tags=["email", "search"]
+        tags=["email", "search"],
     ),
     Scenario(
         name="Compose Email",
@@ -105,10 +109,10 @@ EMAIL_SCENARIOS = [
                 expected_intent="compose_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                expected_entities={"to": "sarah"}
+                expected_entities={"to": "sarah"},
             )
         ],
-        tags=["email", "compose"]
+        tags=["email", "compose"],
     ),
     Scenario(
         name="Delete Email",
@@ -120,11 +124,11 @@ EMAIL_SCENARIOS = [
                 expected_intent="delete_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                expected_entities={"index": 3}
+                expected_entities={"index": 3},
             )
         ],
-        tags=["email", "delete"]
-    )
+        tags=["email", "delete"],
+    ),
 ]
 
 
@@ -140,10 +144,10 @@ NOTES_SCENARIOS = [
                 expected_intent="create_note",
                 expected_route=ExpectedRoute.TOOL,
                 domain="notes",
-                expected_entities={"content": "meeting tomorrow"}
+                expected_entities={"content": "meeting tomorrow"},
             )
         ],
-        tags=["notes", "create"]
+        tags=["notes", "create"],
     ),
     Scenario(
         name="Search Notes",
@@ -155,10 +159,10 @@ NOTES_SCENARIOS = [
                 expected_intent="search_notes",
                 expected_route=ExpectedRoute.TOOL,
                 domain="notes",
-                expected_entities={"query": "project ideas"}
+                expected_entities={"query": "project ideas"},
             )
         ],
-        tags=["notes", "search"]
+        tags=["notes", "search"],
     ),
     Scenario(
         name="List All Notes",
@@ -169,11 +173,11 @@ NOTES_SCENARIOS = [
                 user_input="show me all my notes",
                 expected_intent="list_notes",
                 expected_route=ExpectedRoute.TOOL,
-                domain="notes"
+                domain="notes",
             )
         ],
-        tags=["notes", "list"]
-    )
+        tags=["notes", "list"],
+    ),
 ]
 
 
@@ -188,10 +192,10 @@ SYSTEM_SCENARIOS = [
                 user_input="what's the weather like?",
                 expected_intent="get_weather",
                 expected_route=ExpectedRoute.TOOL,
-                domain="weather"
+                domain="weather",
             )
         ],
-        tags=["weather", "system"]
+        tags=["weather", "system"],
     ),
     Scenario(
         name="Weekly Forecast",
@@ -203,10 +207,10 @@ SYSTEM_SCENARIOS = [
                 expected_intent="get_weather_forecast",
                 expected_route=ExpectedRoute.TOOL,
                 domain="weather",
-                expected_entities={"time_range": "week"}
+                expected_entities={"time_range": "week"},
             )
         ],
-        tags=["weather", "forecast"]
+        tags=["weather", "forecast"],
     ),
     Scenario(
         name="Weekend Forecast",
@@ -218,10 +222,10 @@ SYSTEM_SCENARIOS = [
                 expected_intent="get_weather_forecast",
                 expected_route=ExpectedRoute.TOOL,
                 domain="weather",
-                expected_entities={"time_range": "weekend"}
+                expected_entities={"time_range": "weekend"},
             )
         ],
-        tags=["weather", "forecast", "weekend"]
+        tags=["weather", "forecast", "weekend"],
     ),
     Scenario(
         name="Check Time",
@@ -232,10 +236,10 @@ SYSTEM_SCENARIOS = [
                 user_input="what time is it?",
                 expected_intent="get_time",
                 expected_route=ExpectedRoute.TOOL,
-                domain="time"
+                domain="time",
             )
         ],
-        tags=["time", "system"]
+        tags=["time", "system"],
     ),
     Scenario(
         name="System Status",
@@ -246,11 +250,11 @@ SYSTEM_SCENARIOS = [
                 user_input="how's the system doing?",
                 expected_intent="system_status",
                 expected_route=ExpectedRoute.CONVERSATIONAL,
-                domain="system"
+                domain="system",
             )
         ],
-        tags=["system", "status"]
-    )
+        tags=["system", "status"],
+    ),
 ]
 
 
@@ -265,10 +269,10 @@ CONVERSATIONAL_SCENARIOS = [
                 user_input="hi alice",
                 expected_intent="greeting",
                 expected_route=ExpectedRoute.CONVERSATIONAL,
-                domain="conversational"
+                domain="conversational",
             )
         ],
-        tags=["conversational", "greeting"]
+        tags=["conversational", "greeting"],
     ),
     Scenario(
         name="Thanks",
@@ -279,10 +283,10 @@ CONVERSATIONAL_SCENARIOS = [
                 user_input="thanks for your help",
                 expected_intent="thanks",
                 expected_route=ExpectedRoute.CONVERSATIONAL,
-                domain="conversational"
+                domain="conversational",
             )
         ],
-        tags=["conversational", "thanks"]
+        tags=["conversational", "thanks"],
     ),
     Scenario(
         name="How Are You",
@@ -293,11 +297,11 @@ CONVERSATIONAL_SCENARIOS = [
                 user_input="how are you doing?",
                 expected_intent="status_inquiry",
                 expected_route=ExpectedRoute.CONVERSATIONAL,
-                domain="conversational"
+                domain="conversational",
             )
         ],
-        tags=["conversational", "status"]
-    )
+        tags=["conversational", "status"],
+    ),
 ]
 
 
@@ -313,10 +317,10 @@ CLARIFICATION_SCENARIOS = [
                 expected_intent="vague_question",
                 expected_route=ExpectedRoute.CLARIFICATION,
                 domain="clarification",
-                notes="Should ask: weather, astronomy, or general info?"
+                notes="Should ask: weather, astronomy, or general info?",
             )
         ],
-        tags=["clarification", "vague"]
+        tags=["clarification", "vague"],
     ),
     Scenario(
         name="Vague Thing Reference",
@@ -328,10 +332,10 @@ CLARIFICATION_SCENARIOS = [
                 expected_intent="vague_request",
                 expected_route=ExpectedRoute.CLARIFICATION,
                 domain="clarification",
-                notes="Should ask what thing they're referring to"
+                notes="Should ask what thing they're referring to",
             )
         ],
-        tags=["clarification", "vague"]
+        tags=["clarification", "vague"],
     ),
     Scenario(
         name="Ambiguous Time Reference",
@@ -343,10 +347,10 @@ CLARIFICATION_SCENARIOS = [
                 expected_intent="schedule_action",
                 expected_route=ExpectedRoute.CLARIFICATION,
                 domain="clarification",
-                notes="Should ask what to schedule and what time"
+                notes="Should ask what to schedule and what time",
             )
         ],
-        tags=["clarification", "ambiguous"]
+        tags=["clarification", "ambiguous"],
     ),
     Scenario(
         name="Generic Question",
@@ -358,11 +362,11 @@ CLARIFICATION_SCENARIOS = [
                 expected_intent="vague_temporal_question",
                 expected_route=ExpectedRoute.CLARIFICATION,
                 domain="clarification",
-                notes="Should ask: weather, emails, calendar, or what?"
+                notes="Should ask: weather, emails, calendar, or what?",
             )
         ],
-        tags=["clarification", "temporal"]
-    )
+        tags=["clarification", "temporal"],
+    ),
 ]
 
 
@@ -378,10 +382,10 @@ ENHANCED_EMAIL_SCENARIOS = [
                 expected_intent="delete_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                expected_entities={"index": 2}
+                expected_entities={"index": 2},
             )
         ],
-        tags=["email", "delete"]
+        tags=["email", "delete"],
     ),
     Scenario(
         name="Compose with Recipient",
@@ -393,10 +397,10 @@ ENHANCED_EMAIL_SCENARIOS = [
                 expected_intent="compose_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                expected_entities={"recipient": "alice@example.com"}
+                expected_entities={"recipient": "alice@example.com"},
             )
         ],
-        tags=["email", "compose"]
+        tags=["email", "compose"],
     ),
     Scenario(
         name="Reply to Email",
@@ -407,10 +411,10 @@ ENHANCED_EMAIL_SCENARIOS = [
                 user_input="reply to the last email",
                 expected_intent="reply_email",
                 expected_route=ExpectedRoute.TOOL,
-                domain="email"
+                domain="email",
             )
         ],
-        tags=["email", "reply"]
+        tags=["email", "reply"],
     ),
     Scenario(
         name="Reply to Email Variant 1",
@@ -421,10 +425,10 @@ ENHANCED_EMAIL_SCENARIOS = [
                 user_input="respond to the most recent email",
                 expected_intent="reply_email",
                 expected_route=ExpectedRoute.TOOL,
-                domain="email"
+                domain="email",
             )
         ],
-        tags=["email", "reply"]
+        tags=["email", "reply"],
     ),
     Scenario(
         name="Reply to Specific Email",
@@ -436,10 +440,10 @@ ENHANCED_EMAIL_SCENARIOS = [
                 expected_intent="reply_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                expected_entities={"sender": "john"}
+                expected_entities={"sender": "john"},
             )
         ],
-        tags=["email", "reply", "context"]
+        tags=["email", "reply", "context"],
     ),
     Scenario(
         name="Forward Email",
@@ -451,10 +455,10 @@ ENHANCED_EMAIL_SCENARIOS = [
                 expected_intent="forward_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                expected_entities={"recipient": "sarah"}
+                expected_entities={"recipient": "sarah"},
             )
         ],
-        tags=["email", "forward"]
+        tags=["email", "forward"],
     ),
     Scenario(
         name="Mark Email as Read",
@@ -465,10 +469,10 @@ ENHANCED_EMAIL_SCENARIOS = [
                 user_input="mark all emails as read",
                 expected_intent="mark_read",
                 expected_route=ExpectedRoute.TOOL,
-                domain="email"
+                domain="email",
             )
         ],
-        tags=["email", "manage"]
+        tags=["email", "manage"],
     ),
     Scenario(
         name="Archive Email",
@@ -480,11 +484,11 @@ ENHANCED_EMAIL_SCENARIOS = [
                 expected_intent="archive_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                expected_entities={"index": 1}
+                expected_entities={"index": 1},
             )
         ],
-        tags=["email", "archive"]
-    )
+        tags=["email", "archive"],
+    ),
 ]
 
 
@@ -499,10 +503,10 @@ ENHANCED_NOTES_SCENARIOS = [
                 user_input="show all my notes",
                 expected_intent="list_notes",
                 expected_route=ExpectedRoute.TOOL,
-                domain="notes"
+                domain="notes",
             )
         ],
-        tags=["notes", "list"]
+        tags=["notes", "list"],
     ),
     Scenario(
         name="Search Notes by Topic",
@@ -514,10 +518,10 @@ ENHANCED_NOTES_SCENARIOS = [
                 expected_intent="search_notes",
                 expected_route=ExpectedRoute.TOOL,
                 domain="notes",
-                expected_entities={"query": "python"}
+                expected_entities={"query": "python"},
             )
         ],
-        tags=["notes", "search"]
+        tags=["notes", "search"],
     ),
     Scenario(
         name="Delete Note",
@@ -529,11 +533,11 @@ ENHANCED_NOTES_SCENARIOS = [
                 expected_intent="delete_notes",
                 expected_route=ExpectedRoute.TOOL,
                 domain="notes",
-                notes="Should delete the todo list"
+                notes="Should delete the todo list",
             )
         ],
-        tags=["notes", "delete"]
-    )
+        tags=["notes", "delete"],
+    ),
 ]
 
 
@@ -549,10 +553,10 @@ ENHANCED_CLARIFICATION_SCENARIOS = [
                 expected_intent="vague_temporal_question",
                 expected_route=ExpectedRoute.CLARIFICATION,
                 domain="clarification",
-                notes="Could be: emails, calendar, notes, or general info?"
+                notes="Could be: emails, calendar, notes, or general info?",
             )
         ],
-        tags=["clarification", "temporal"]
+        tags=["clarification", "temporal"],
     ),
     Scenario(
         name="Pronoun Reference Without Context",
@@ -564,10 +568,10 @@ ENHANCED_CLARIFICATION_SCENARIOS = [
                 expected_intent="vague_question",
                 expected_route=ExpectedRoute.CLARIFICATION,
                 domain="clarification",
-                notes="No prior mention of 'he' in conversation"
+                notes="No prior mention of 'he' in conversation",
             )
         ],
-        tags=["clarification", "pronoun"]
+        tags=["clarification", "pronoun"],
     ),
     Scenario(
         name="Vague Action Request",
@@ -579,11 +583,11 @@ ENHANCED_CLARIFICATION_SCENARIOS = [
                 expected_intent="vague_request",
                 expected_route=ExpectedRoute.CLARIFICATION,
                 domain="clarification",
-                notes="No 'this' mentioned yet, which list?"
+                notes="No 'this' mentioned yet, which list?",
             )
         ],
-        tags=["clarification", "action"]
-    )
+        tags=["clarification", "action"],
+    ),
 ]
 
 
@@ -599,10 +603,10 @@ ENHANCED_WEATHER_SCENARIOS = [
                 expected_intent="get_weather",
                 expected_route=ExpectedRoute.TOOL,
                 domain="weather",
-                expected_entities={"location": "tokyo"}
+                expected_entities={"location": "tokyo"},
             )
         ],
-        tags=["weather", "location"]
+        tags=["weather", "location"],
     ),
     Scenario(
         name="Weather Forecast",
@@ -613,11 +617,11 @@ ENHANCED_WEATHER_SCENARIOS = [
                 user_input="will it rain tomorrow?",
                 expected_intent="get_weather",
                 expected_route=ExpectedRoute.TOOL,
-                domain="weather"
+                domain="weather",
             )
         ],
-        tags=["weather", "forecast"]
-    )
+        tags=["weather", "forecast"],
+    ),
 ]
 
 # Time Scenarios (Testing time intent recognition)
@@ -631,10 +635,10 @@ TIME_SCENARIOS = [
                 user_input="what time is it?",
                 expected_intent="get_time",
                 expected_route=ExpectedRoute.TOOL,
-                domain="time"
+                domain="time",
             )
         ],
-        tags=["time", "current"]
+        tags=["time", "current"],
     ),
     Scenario(
         name="Ask Time Variant 1",
@@ -645,10 +649,10 @@ TIME_SCENARIOS = [
                 user_input="tell me the current time",
                 expected_intent="get_time",
                 expected_route=ExpectedRoute.TOOL,
-                domain="time"
+                domain="time",
             )
         ],
-        tags=["time", "current"]
+        tags=["time", "current"],
     ),
     Scenario(
         name="Ask Time Variant 2",
@@ -659,10 +663,10 @@ TIME_SCENARIOS = [
                 user_input="what's the time right now?",
                 expected_intent="get_time",
                 expected_route=ExpectedRoute.TOOL,
-                domain="time"
+                domain="time",
             )
         ],
-        tags=["time", "current"]
+        tags=["time", "current"],
     ),
     Scenario(
         name="Ask Date",
@@ -673,10 +677,10 @@ TIME_SCENARIOS = [
                 user_input="what's today's date?",
                 expected_intent="get_date",
                 expected_route=ExpectedRoute.TOOL,
-                domain="time"
+                domain="time",
             )
         ],
-        tags=["time", "date"]
+        tags=["time", "date"],
     ),
     Scenario(
         name="Ask Date Variant",
@@ -687,11 +691,11 @@ TIME_SCENARIOS = [
                 user_input="what day is it today?",
                 expected_intent="get_date",
                 expected_route=ExpectedRoute.TOOL,
-                domain="time"
+                domain="time",
             )
         ],
-        tags=["time", "date"]
-    )
+        tags=["time", "date"],
+    ),
 ]
 
 # Enhanced System Scenarios
@@ -705,10 +709,10 @@ ENHANCED_SYSTEM_SCENARIOS = [
                 user_input="what's my cpu usage?",
                 expected_intent="system_status",
                 expected_route=ExpectedRoute.CONVERSATIONAL,
-                domain="system"
+                domain="system",
             )
         ],
-        tags=["system", "cpu"]
+        tags=["system", "cpu"],
     ),
     Scenario(
         name="Memory Status",
@@ -719,10 +723,10 @@ ENHANCED_SYSTEM_SCENARIOS = [
                 user_input="how much memory is available?",
                 expected_intent="system_status",
                 expected_route=ExpectedRoute.CONVERSATIONAL,
-                domain="system"
+                domain="system",
             )
         ],
-        tags=["system", "memory"]
+        tags=["system", "memory"],
     ),
     Scenario(
         name="Battery Status",
@@ -733,11 +737,11 @@ ENHANCED_SYSTEM_SCENARIOS = [
                 user_input="is the battery low?",
                 expected_intent="system_status",
                 expected_route=ExpectedRoute.CONVERSATIONAL,
-                domain="system"
+                domain="system",
             )
         ],
-        tags=["system", "battery"]
-    )
+        tags=["system", "battery"],
+    ),
 ]
 
 
@@ -752,17 +756,17 @@ MULTI_TURN_SCENARIOS = [
                 user_input="reply to the last email",
                 expected_intent="reply_email",
                 expected_route=ExpectedRoute.TOOL,
-                domain="email"
+                domain="email",
             ),
             ScenarioStep(
                 user_input="send it",
                 expected_intent="compose_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                notes="Follow-up should understand 'it' refers to the reply"
-            )
+                notes="Follow-up should understand 'it' refers to the reply",
+            ),
         ],
-        tags=["multi-turn", "email", "pronoun-resolution"]
+        tags=["multi-turn", "email", "pronoun-resolution"],
     ),
     Scenario(
         name="Note Delete Follow-up",
@@ -773,17 +777,17 @@ MULTI_TURN_SCENARIOS = [
                 user_input="create a note about my meeting",
                 expected_intent="create_note",
                 expected_route=ExpectedRoute.TOOL,
-                domain="notes"
+                domain="notes",
             ),
             ScenarioStep(
                 user_input="actually delete it",
                 expected_intent="delete_notes",
                 expected_route=ExpectedRoute.TOOL,
                 domain="notes",
-                notes="Follow-up should understand 'it' refers to the note just created"
-            )
+                notes="Follow-up should understand 'it' refers to the note just created",
+            ),
         ],
-        tags=["multi-turn", "notes", "pronoun-resolution"]
+        tags=["multi-turn", "notes", "pronoun-resolution"],
     ),
     Scenario(
         name="Search Email Then Reply",
@@ -794,17 +798,17 @@ MULTI_TURN_SCENARIOS = [
                 user_input="search for emails from john",
                 expected_intent="search_emails",
                 expected_route=ExpectedRoute.TOOL,
-                domain="email"
+                domain="email",
             ),
             ScenarioStep(
                 user_input="reply to the first one",
                 expected_intent="reply_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                notes="Follow-up should remember the search context"
-            )
+                notes="Follow-up should remember the search context",
+            ),
         ],
-        tags=["multi-turn", "email", "entity-tracking"]
+        tags=["multi-turn", "email", "entity-tracking"],
     ),
     Scenario(
         name="Clarification With Action",
@@ -815,17 +819,17 @@ MULTI_TURN_SCENARIOS = [
                 user_input="can you do something with my emails?",
                 expected_intent="vague_request",
                 expected_route=ExpectedRoute.CLARIFICATION,
-                domain="clarification"
+                domain="clarification",
             ),
             ScenarioStep(
                 user_input="sort them by date",
                 expected_intent="vague_request",
                 expected_route=ExpectedRoute.CLARIFICATION,
                 domain="clarification",
-                notes="Follow-up clarifies the vague request with more context"
-            )
+                notes="Follow-up clarifies the vague request with more context",
+            ),
         ],
-        tags=["multi-turn", "clarification", "follow-up"]
+        tags=["multi-turn", "clarification", "follow-up"],
     ),
     Scenario(
         name="Weather Then Schedule",
@@ -836,17 +840,17 @@ MULTI_TURN_SCENARIOS = [
                 user_input="what's the weather like tomorrow?",
                 expected_intent="get_weather",
                 expected_route=ExpectedRoute.TOOL,
-                domain="weather"
+                domain="weather",
             ),
             ScenarioStep(
                 user_input="schedule a picnic if it's sunny",
                 expected_intent="schedule_action",
                 expected_route=ExpectedRoute.CLARIFICATION,
                 domain="weather",
-                notes="Follow-up connects weather info to scheduling decision"
-            )
+                notes="Follow-up connects weather info to scheduling decision",
+            ),
         ],
-        tags=["multi-turn", "weather", "conditional-action"]
+        tags=["multi-turn", "weather", "conditional-action"],
     ),
     Scenario(
         name="List Then Specific Read",
@@ -857,17 +861,17 @@ MULTI_TURN_SCENARIOS = [
                 user_input="show me my emails",
                 expected_intent="list_emails",
                 expected_route=ExpectedRoute.TOOL,
-                domain="email"
+                domain="email",
             ),
             ScenarioStep(
                 user_input="read the second one",
                 expected_intent="read_email",
                 expected_route=ExpectedRoute.TOOL,
                 domain="email",
-                notes="Follow-up references ordinal position from previous list"
-            )
+                notes="Follow-up references ordinal position from previous list",
+            ),
         ],
-        tags=["multi-turn", "email", "ordinal-reference"]
+        tags=["multi-turn", "email", "ordinal-reference"],
     ),
     Scenario(
         name="Create Then List Notes",
@@ -878,18 +882,18 @@ MULTI_TURN_SCENARIOS = [
                 user_input="create a note called 'todo'",
                 expected_intent="create_note",
                 expected_route=ExpectedRoute.TOOL,
-                domain="notes"
+                domain="notes",
             ),
             ScenarioStep(
                 user_input="show me all my notes",
                 expected_intent="list_notes",
                 expected_route=ExpectedRoute.TOOL,
                 domain="notes",
-                notes="Follow-up should see newly created note in context"
-            )
+                notes="Follow-up should see newly created note in context",
+            ),
         ],
-        tags=["multi-turn", "notes", "state-tracking"]
-    )
+        tags=["multi-turn", "notes", "state-tracking"],
+    ),
 ]
 
 
@@ -905,10 +909,10 @@ FILE_SCENARIOS = [
                 expected_intent="create_file",
                 expected_route=ExpectedRoute.TOOL,
                 domain="file",
-                expected_entities={"filename": "test.txt"}
+                expected_entities={"filename": "test.txt"},
             )
         ],
-        tags=["file", "create"]
+        tags=["file", "create"],
     ),
     Scenario(
         name="Create File Variant 1",
@@ -920,10 +924,10 @@ FILE_SCENARIOS = [
                 expected_intent="create_file",
                 expected_route=ExpectedRoute.TOOL,
                 domain="file",
-                expected_entities={"filename": "data.json"}
+                expected_entities={"filename": "data.json"},
             )
         ],
-        tags=["file", "create"]
+        tags=["file", "create"],
     ),
     Scenario(
         name="Create File Variant 2",
@@ -935,10 +939,10 @@ FILE_SCENARIOS = [
                 expected_intent="create_file",
                 expected_route=ExpectedRoute.TOOL,
                 domain="file",
-                expected_entities={"filename": "report.pdf"}
+                expected_entities={"filename": "report.pdf"},
             )
         ],
-        tags=["file", "create"]
+        tags=["file", "create"],
     ),
     Scenario(
         name="Read File",
@@ -950,10 +954,10 @@ FILE_SCENARIOS = [
                 expected_intent="read_file",
                 expected_route=ExpectedRoute.TOOL,
                 domain="file",
-                expected_entities={"filename": "notes.txt"}
+                expected_entities={"filename": "notes.txt"},
             )
         ],
-        tags=["file", "read"]
+        tags=["file", "read"],
     ),
     Scenario(
         name="Read File Variant 1",
@@ -965,10 +969,10 @@ FILE_SCENARIOS = [
                 expected_intent="read_file",
                 expected_route=ExpectedRoute.TOOL,
                 domain="file",
-                expected_entities={"filename": "config.yaml"}
+                expected_entities={"filename": "config.yaml"},
             )
         ],
-        tags=["file", "read"]
+        tags=["file", "read"],
     ),
     Scenario(
         name="Read File Variant 2",
@@ -980,10 +984,10 @@ FILE_SCENARIOS = [
                 expected_intent="read_file",
                 expected_route=ExpectedRoute.TOOL,
                 domain="file",
-                expected_entities={"filename": "readme.md"}
+                expected_entities={"filename": "readme.md"},
             )
         ],
-        tags=["file", "read"]
+        tags=["file", "read"],
     ),
     Scenario(
         name="Delete File",
@@ -995,10 +999,10 @@ FILE_SCENARIOS = [
                 expected_intent="delete_file",
                 expected_route=ExpectedRoute.TOOL,
                 domain="file",
-                expected_entities={"filename": "test.txt"}
+                expected_entities={"filename": "test.txt"},
             )
         ],
-        tags=["file", "delete"]
+        tags=["file", "delete"],
     ),
     Scenario(
         name="Delete File Variant 1",
@@ -1010,10 +1014,10 @@ FILE_SCENARIOS = [
                 expected_intent="delete_file",
                 expected_route=ExpectedRoute.TOOL,
                 domain="file",
-                expected_entities={"filename": "old_data.csv"}
+                expected_entities={"filename": "old_data.csv"},
             )
         ],
-        tags=["file", "delete"]
+        tags=["file", "delete"],
     ),
     Scenario(
         name="Move File",
@@ -1025,10 +1029,10 @@ FILE_SCENARIOS = [
                 expected_intent="move_file",
                 expected_route=ExpectedRoute.TOOL,
                 domain="file",
-                expected_entities={"source": "notes.txt", "destination": "archive"}
+                expected_entities={"source": "notes.txt", "destination": "archive"},
             )
         ],
-        tags=["file", "move"]
+        tags=["file", "move"],
     ),
     Scenario(
         name="Rename File",
@@ -1040,10 +1044,13 @@ FILE_SCENARIOS = [
                 expected_intent="move_file",
                 expected_route=ExpectedRoute.TOOL,
                 domain="file",
-                expected_entities={"source": "document.txt", "destination": "final_report.txt"}
+                expected_entities={
+                    "source": "document.txt",
+                    "destination": "final_report.txt",
+                },
             )
         ],
-        tags=["file", "move", "rename"]
+        tags=["file", "move", "rename"],
     ),
     Scenario(
         name="List Files",
@@ -1054,11 +1061,11 @@ FILE_SCENARIOS = [
                 user_input="list all files in this directory",
                 expected_intent="list_files",
                 expected_route=ExpectedRoute.TOOL,
-                domain="file"
+                domain="file",
             )
         ],
-        tags=["file", "list"]
-    )
+        tags=["file", "list"],
+    ),
 ]
 
 
@@ -1074,10 +1081,10 @@ MEMORY_SCENARIOS = [
                 expected_intent="store_preference",
                 expected_route=ExpectedRoute.TOOL,
                 domain="memory",
-                expected_entities={"preference": "coffee", "context": "morning"}
+                expected_entities={"preference": "coffee", "context": "morning"},
             )
         ],
-        tags=["memory", "preferences"]
+        tags=["memory", "preferences"],
     ),
     Scenario(
         name="Remember Preference Variant 1",
@@ -1089,10 +1096,10 @@ MEMORY_SCENARIOS = [
                 expected_intent="store_preference",
                 expected_route=ExpectedRoute.TOOL,
                 domain="memory",
-                expected_entities={"preference": "working out", "context": "6am"}
+                expected_entities={"preference": "working out", "context": "6am"},
             )
         ],
-        tags=["memory", "preferences"]
+        tags=["memory", "preferences"],
     ),
     Scenario(
         name="Remember Fact",
@@ -1104,10 +1111,10 @@ MEMORY_SCENARIOS = [
                 expected_intent="store_preference",
                 expected_route=ExpectedRoute.TOOL,
                 domain="memory",
-                expected_entities={"preference": "birthday", "context": "March 15th"}
+                expected_entities={"preference": "birthday", "context": "March 15th"},
             )
         ],
-        tags=["memory", "facts"]
+        tags=["memory", "facts"],
     ),
     Scenario(
         name="Recall Preference",
@@ -1119,10 +1126,10 @@ MEMORY_SCENARIOS = [
                 expected_intent="recall_memory",
                 expected_route=ExpectedRoute.RAG,
                 domain="memory",
-                expected_entities={"topic": "morning routine"}
+                expected_entities={"topic": "morning routine"},
             )
         ],
-        tags=["memory", "recall", "rag"]
+        tags=["memory", "recall", "rag"],
     ),
     Scenario(
         name="Recall Preference Variant 1",
@@ -1134,10 +1141,10 @@ MEMORY_SCENARIOS = [
                 expected_intent="recall_memory",
                 expected_route=ExpectedRoute.RAG,
                 domain="memory",
-                expected_entities={"topic": "preferences"}
+                expected_entities={"topic": "preferences"},
             )
         ],
-        tags=["memory", "recall", "rag"]
+        tags=["memory", "recall", "rag"],
     ),
     Scenario(
         name="Search Memory",
@@ -1149,10 +1156,10 @@ MEMORY_SCENARIOS = [
                 expected_intent="search_memory",
                 expected_route=ExpectedRoute.RAG,
                 domain="memory",
-                expected_entities={"timeframe": "yesterday"}
+                expected_entities={"timeframe": "yesterday"},
             )
         ],
-        tags=["memory", "search", "rag"]
+        tags=["memory", "search", "rag"],
     ),
     Scenario(
         name="Search Memory Variant 1",
@@ -1164,10 +1171,10 @@ MEMORY_SCENARIOS = [
                 expected_intent="search_memory",
                 expected_route=ExpectedRoute.RAG,
                 domain="memory",
-                expected_entities={"topic": "project"}
+                expected_entities={"topic": "project"},
             )
         ],
-        tags=["memory", "search", "rag"]
+        tags=["memory", "search", "rag"],
     ),
     Scenario(
         name="Search Memory Variant 2",
@@ -1179,11 +1186,11 @@ MEMORY_SCENARIOS = [
                 expected_intent="search_memory",
                 expected_route=ExpectedRoute.RAG,
                 domain="memory",
-                expected_entities={"topic": "budget", "timeframe": "last week"}
+                expected_entities={"topic": "budget", "timeframe": "last week"},
             )
         ],
-        tags=["memory", "search", "rag"]
-    )
+        tags=["memory", "search", "rag"],
+    ),
 ]
 
 
@@ -1194,9 +1201,11 @@ def _load_generated_scenarios() -> List[Scenario]:
         return []
 
     try:
-        with open(generated_file, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(generated_file, "r", encoding="utf-8", errors="ignore") as f:
             payload = json.load(f)
-        scenario_defs = payload.get('scenarios', []) if isinstance(payload, dict) else payload
+        scenario_defs = (
+            payload.get("scenarios", []) if isinstance(payload, dict) else payload
+        )
     except Exception:
         return []
 
@@ -1204,24 +1213,28 @@ def _load_generated_scenarios() -> List[Scenario]:
     for s in scenario_defs:
         try:
             steps = []
-            for step in s.get('steps', []):
-                expected_route = ExpectedRoute(step.get('expected_route', 'TOOL'))
-                steps.append(ScenarioStep(
-                    user_input=step.get('user_input', ''),
-                    expected_intent=step.get('expected_intent', ''),
-                    expected_route=expected_route,
-                    domain=s.get('domain'),
-                    expected_entities=step.get('expected_entities', {}),
-                    notes=step.get('notes', '')
-                ))
+            for step in s.get("steps", []):
+                expected_route = ExpectedRoute(step.get("expected_route", "TOOL"))
+                steps.append(
+                    ScenarioStep(
+                        user_input=step.get("user_input", ""),
+                        expected_intent=step.get("expected_intent", ""),
+                        expected_route=expected_route,
+                        domain=s.get("domain"),
+                        expected_entities=step.get("expected_entities", {}),
+                        notes=step.get("notes", ""),
+                    )
+                )
 
-            scenarios.append(Scenario(
-                name=s.get('name', 'Generated Scenario'),
-                description=s.get('description', ''),
-                domain=s.get('domain', 'unknown'),
-                steps=steps,
-                tags=s.get('tags', ['generated'])
-            ))
+            scenarios.append(
+                Scenario(
+                    name=s.get("name", "Generated Scenario"),
+                    description=s.get("description", ""),
+                    domain=s.get("domain", "unknown"),
+                    steps=steps,
+                    tags=s.get("tags", ["generated"]),
+                )
+            )
         except Exception:
             continue
 
@@ -1233,21 +1246,21 @@ GENERATED_SCENARIOS = _load_generated_scenarios()
 
 # All scenarios combined
 ALL_SCENARIOS = (
-    EMAIL_SCENARIOS +
-    ENHANCED_EMAIL_SCENARIOS +
-    NOTES_SCENARIOS +
-    ENHANCED_NOTES_SCENARIOS +
-    SYSTEM_SCENARIOS +
-    ENHANCED_SYSTEM_SCENARIOS +
-    CONVERSATIONAL_SCENARIOS +
-    CLARIFICATION_SCENARIOS +
-    ENHANCED_CLARIFICATION_SCENARIOS +
-    ENHANCED_WEATHER_SCENARIOS +
-    TIME_SCENARIOS +
-    FILE_SCENARIOS +
-    MEMORY_SCENARIOS +
-    MULTI_TURN_SCENARIOS +
-    GENERATED_SCENARIOS
+    EMAIL_SCENARIOS
+    + ENHANCED_EMAIL_SCENARIOS
+    + NOTES_SCENARIOS
+    + ENHANCED_NOTES_SCENARIOS
+    + SYSTEM_SCENARIOS
+    + ENHANCED_SYSTEM_SCENARIOS
+    + CONVERSATIONAL_SCENARIOS
+    + CLARIFICATION_SCENARIOS
+    + ENHANCED_CLARIFICATION_SCENARIOS
+    + ENHANCED_WEATHER_SCENARIOS
+    + TIME_SCENARIOS
+    + FILE_SCENARIOS
+    + MEMORY_SCENARIOS
+    + MULTI_TURN_SCENARIOS
+    + GENERATED_SCENARIOS
 )
 
 

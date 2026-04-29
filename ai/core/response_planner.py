@@ -10,7 +10,6 @@ Pipeline position:  Executive Decision → Response Plan → LLM Context Build �
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 

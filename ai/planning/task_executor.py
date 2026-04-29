@@ -16,7 +16,6 @@ import platform
 import shutil
 from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
-import json
 import threading
 import time
 
@@ -345,7 +344,7 @@ class TaskExecutor:
 
                 # Note: This requires AudioDeviceCmdlets module
                 # Install with: Install-Module -Name AudioDeviceCmdlets
-                result = self.execute_command(f'powershell -Command "{command}"')
+                self.execute_command(f'powershell -Command "{command}"')
 
                 return TaskResult(
                     success=True,

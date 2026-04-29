@@ -3,12 +3,11 @@ Memory Pruning and Archival System
 Automatically manages memory lifecycle to prevent unbounded growth
 """
 
-import os
 import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)

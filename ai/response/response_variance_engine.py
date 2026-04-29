@@ -9,7 +9,6 @@ import hashlib
 import time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 from collections import defaultdict, deque
 
 logger = logging.getLogger(__name__)
@@ -226,7 +225,7 @@ class ResponseVarianceEngine:
 
         # Core instruction
         prompt_parts.append(
-            f"Generate a natural, conversational response for this situation:"
+            "Generate a natural, conversational response for this situation:"
         )
         prompt_parts.append(f"Intent: {context.intent_type}")
         prompt_parts.append(f"Data: {context.data}")
@@ -250,9 +249,9 @@ class ResponseVarianceEngine:
         # Variance constraint
         if similar_responses:
             prompt_parts.append(
-                f"\nIMPORTANT: Generate a DIFFERENT response than these recent ones:\n"
+                "\nIMPORTANT: Generate a DIFFERENT response than these recent ones:\n"
                 + "\n".join(f"- {r}" for r in similar_responses)
-                + f"\nUse different phrasing, structure, and approach."
+                + "\nUse different phrasing, structure, and approach."
             )
 
         # Verbosity constraint
@@ -318,9 +317,9 @@ class ResponseVarianceEngine:
         # Handle repetition awareness
         if context.repetition_count >= 2:
             prefixes = [
-                f"I notice you're asking about this again—",
-                f"You've asked about this a few times now—",
-                f"I see you're still checking on this—",
+                "I notice you're asking about this again—",
+                "You've asked about this a few times now—",
+                "I see you're still checking on this—",
             ]
             prefix = prefixes[min(context.repetition_count - 2, len(prefixes) - 1)]
         else:

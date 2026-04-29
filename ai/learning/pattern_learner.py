@@ -4,13 +4,13 @@ Learns user behavior patterns to enable anticipatory suggestions
 """
 
 from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from collections import defaultdict
 import json
 import logging
 
-from ai.infrastructure.event_bus import get_event_bus, EventType, EventPriority
+from ai.infrastructure.event_bus import get_event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +217,6 @@ class PatternLearner:
                     trigger.get("day_of_week") == day_of_week
                     and trigger.get("hour") == hour
                 ):
-
                     suggestion = self._format_suggestion(pattern)
                     suggestions.append((pattern, suggestion))
 
@@ -254,9 +253,9 @@ class PatternLearner:
             if action_type == "review_notes":
                 return f"You usually review {action_target} notes around this time. Want me to prepare a summary?"
             elif action_type == "check_calendar":
-                return f"Would you like me to show your upcoming events?"
+                return "Would you like me to show your upcoming events?"
             elif action_type == "check_email":
-                return f"Ready to check your email? I can summarize new messages."
+                return "Ready to check your email? I can summarize new messages."
             else:
                 return f"You typically {action_type} {action_target} now. Need help with that?"
         else:

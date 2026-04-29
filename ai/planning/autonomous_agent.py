@@ -16,7 +16,6 @@ import time
 import logging
 from typing import Dict, List, Any, Optional, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 import json
 from pathlib import Path
@@ -485,7 +484,7 @@ Goal: {goal.title}
 Status: {goal.status.value}
 Progress: {int(goal.progress * 100)}%
 Runtime: {runtime_minutes:.1f} minutes
-Steps Completed: {len([s for s in goal.steps if s.status == 'completed'])} / {len(goal.steps)}
+Steps Completed: {len([s for s in goal.steps if s.status == "completed"])} / {len(goal.steps)}
 Errors: {context.error_count}
         """.strip()
 

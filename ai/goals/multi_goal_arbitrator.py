@@ -7,7 +7,7 @@ Prevents goal confusion and ensures focused execution.
 
 import logging
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 

@@ -26,7 +26,11 @@ def seed_templates():
     # Notes plugin templates
     formulator.add_template(
         action="create_note",
-        example_data={"title": "Shopping List", "tags": ["personal"], "note_type": "general"},
+        example_data={
+            "title": "Shopping List",
+            "tags": ["personal"],
+            "note_type": "general",
+        },
         example_phrasings=[
             "I created a note called 'Shopping List' for you.",
             "Done. I added a new note titled 'Shopping List'.",
@@ -34,9 +38,9 @@ def seed_templates():
         ],
         formulation_rules=[
             "Mention the note title",
-            "Be concise", 
-            "Confirm the action"
-        ]
+            "Be concise",
+            "Confirm the action",
+        ],
     )
 
     formulator.add_template(
@@ -50,8 +54,8 @@ def seed_templates():
         formulation_rules=[
             "State the count",
             "Clarify archived vs deleted",
-            "Mention restoration possibility"
-        ]
+            "Mention restoration possibility",
+        ],
     )
 
     formulator.add_template(
@@ -65,8 +69,8 @@ def seed_templates():
         formulation_rules=[
             "State result count",
             "Reference the search query",
-            "Use 'found' for success, 'didn't find' for no results"
-        ]
+            "Use 'found' for success, 'didn't find' for no results",
+        ],
     )
 
     formulator.add_template(
@@ -80,8 +84,8 @@ def seed_templates():
         formulation_rules=[
             "Be clear no results were found",
             "Reference the search query",
-            "Don't apologize unnecessarily"
-        ]
+            "Don't apologize unnecessarily",
+        ],
     )
 
     formulator.add_template(
@@ -95,14 +99,19 @@ def seed_templates():
         formulation_rules=[
             "State the new priority level",
             "Mention the note title",
-            "Confirm the action was completed"
-        ]
+            "Confirm the action was completed",
+        ],
     )
 
     # Weather plugin templates
     formulator.add_template(
         action="weather_current",
-        example_data={"location": "Seattle", "temp": 65, "condition": "Cloudy", "unit": "C"},
+        example_data={
+            "location": "Seattle",
+            "temp": 65,
+            "condition": "Cloudy",
+            "unit": "C",
+        },
         example_phrasings=[
             "It's 65°C and cloudy in Seattle right now.",
             "Current weather in Seattle: 65°C, cloudy conditions.",
@@ -112,13 +121,19 @@ def seed_templates():
             "State temperature with unit",
             "Mention condition",
             "Include location",
-            "Use 'current' or 'right now' for present tense"
-        ]
+            "Use 'current' or 'right now' for present tense",
+        ],
     )
 
     formulator.add_template(
         action="weather_forecast",
-        example_data={"location": "Portland", "high": 72, "low": 55, "condition": "Rainy", "day": "tomorrow"},
+        example_data={
+            "location": "Portland",
+            "high": 72,
+            "low": 55,
+            "condition": "Rainy",
+            "day": "tomorrow",
+        },
         example_phrasings=[
             "Tomorrow in Portland: high of 72°F, low of 55°F, with rain.",
             "Portland tomorrow will be rainy with temps between 55 and 72 degrees.",
@@ -128,14 +143,18 @@ def seed_templates():
             "Specify when (today/tomorrow/etc)",
             "Include location",
             "State high and low temps",
-            "Mention condition"
-        ]
+            "Mention condition",
+        ],
     )
 
     # Time plugin templates
     formulator.add_template(
         action="current_time",
-        example_data={"time": "3:45 PM", "timezone": "PST", "date": "February 12, 2026"},
+        example_data={
+            "time": "3:45 PM",
+            "timezone": "PST",
+            "date": "February 12, 2026",
+        },
         example_phrasings=[
             "It's 3:45 PM PST.",
             "The time is 3:45 PM.",
@@ -144,8 +163,8 @@ def seed_templates():
         formulation_rules=[
             "State the time clearly",
             "Include timezone if relevant",
-            "Use natural language (afternoon vs PM when appropriate)"
-        ]
+            "Use natural language (afternoon vs PM when appropriate)",
+        ],
     )
 
     formulator.add_template(
@@ -159,14 +178,18 @@ def seed_templates():
         formulation_rules=[
             "Include day of week",
             "State month, day, and year",
-            "Use 'today is' for present tense"
-        ]
+            "Use 'today is' for present tense",
+        ],
     )
 
     # Search plugin templates
     formulator.add_template(
         action="web_search",
-        example_data={"query": "Python tutorials", "results_count": 10, "top_result": "Learn Python - Official Docs"},
+        example_data={
+            "query": "Python tutorials",
+            "results_count": 10,
+            "top_result": "Learn Python - Official Docs",
+        },
         example_phrasings=[
             "I found 10 results for 'Python tutorials'. The top result is 'Learn Python - Official Docs'.",
             "Here are 10 results for 'Python tutorials', starting with 'Learn Python - Official Docs'.",
@@ -176,14 +199,18 @@ def seed_templates():
             "Reference the search query",
             "State result count",
             "Mention top result if relevant",
-            "Use active voice"
-        ]
+            "Use active voice",
+        ],
     )
 
     # File operations templates
     formulator.add_template(
         action="list_files",
-        example_data={"path": "/home/user/documents", "count": 15, "file_types": ["pdf", "docx"]},
+        example_data={
+            "path": "/home/user/documents",
+            "count": 15,
+            "file_types": ["pdf", "docx"],
+        },
         example_phrasings=[
             "I found 15 files in your documents folder.",
             "There are 15 files in /home/user/documents.",
@@ -192,13 +219,17 @@ def seed_templates():
         formulation_rules=[
             "State the count",
             "Reference the location",
-            "Mention file types if relevant"
-        ]
+            "Mention file types if relevant",
+        ],
     )
 
     formulator.add_template(
         action="file_operation_error",
-        example_data={"operation": "delete", "file": "report.pdf", "error": "File not found"},
+        example_data={
+            "operation": "delete",
+            "file": "report.pdf",
+            "error": "File not found",
+        },
         example_phrasings=[
             "I couldn't delete report.pdf - the file wasn't found.",
             "report.pdf doesn't exist, so I couldn't remove it.",
@@ -207,8 +238,8 @@ def seed_templates():
         formulation_rules=[
             "State what failed",
             "Explain why briefly",
-            "Be clear but not overly technical"
-        ]
+            "Be clear but not overly technical",
+        ],
     )
 
     # Generic success/failure templates
@@ -223,13 +254,17 @@ def seed_templates():
         formulation_rules=[
             "Confirm completion",
             "Reference what was done",
-            "Be concise"
-        ]
+            "Be concise",
+        ],
     )
 
     formulator.add_template(
         action="operation_failure",
-        example_data={"operation": "save", "target": "configuration", "reason": "Permission denied"},
+        example_data={
+            "operation": "save",
+            "target": "configuration",
+            "reason": "Permission denied",
+        },
         example_phrasings=[
             "I couldn't save the configuration - permission was denied.",
             "Save failed due to a permission issue.",
@@ -238,8 +273,8 @@ def seed_templates():
         formulation_rules=[
             "State what failed",
             "Briefly explain why",
-            "Don't over-apologize"
-        ]
+            "Don't over-apologize",
+        ],
     )
 
     formulator.add_template(
@@ -253,8 +288,8 @@ def seed_templates():
         formulation_rules=[
             "State the count clearly",
             "Mention the filter/category if any",
-            "Use natural language"
-        ]
+            "Use natural language",
+        ],
     )
 
     print(f"\n Seeded {len(formulator.templates)} response templates")

@@ -298,7 +298,7 @@ class GmailPlugin:
             self.service.users().messages().modify(
                 userId="me", id=email_id, body={"removeLabelIds": ["INBOX"]}
             ).execute()
-            logger.info(f"[OK] Email archived")
+            logger.info("[OK] Email archived")
             return True
         except Exception as e:
             logger.error(f"[ERROR] Failed to archive: {e}")
@@ -311,7 +311,7 @@ class GmailPlugin:
 
         try:
             self.service.users().messages().trash(userId="me", id=email_id).execute()
-            logger.info(f"[OK] Email moved to trash")
+            logger.info("[OK] Email moved to trash")
             return True
         except Exception as e:
             logger.error(f"[ERROR] Failed to delete: {e}")

@@ -9,7 +9,6 @@ import logging
 import psutil
 import os
 from typing import Dict, Any, List
-from dataclasses import asdict
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

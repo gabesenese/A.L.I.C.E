@@ -5,7 +5,7 @@ Generates diverse test queries to teach Alice per domain
 
 import json
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict
 from ai.ollama_teaching_spec import TEACHING_VECTORS, TeachingVector
 from ai.core.llm_engine import LocalLLMEngine
 
@@ -136,7 +136,7 @@ Example: ["query1", "query2", ...]
         else:
             # Generic fallback
             for i in range(count):
-                queries.append(f"{template} (variant {i+1})")
+                queries.append(f"{template} (variant {i + 1})")
 
         return queries[:count]
 

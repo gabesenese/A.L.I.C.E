@@ -6,8 +6,7 @@ Handles structured vs. unstructured outputs.
 """
 
 import logging
-import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -158,7 +157,7 @@ class ResultQualityScorer:
         """Score how relevant the result is to the original query."""
         score = 1.0
 
-        user_lower = user_input.lower()
+        user_input.lower()
         response = str(result.get("response") or "").lower()
         data = result.get("data", {})
 

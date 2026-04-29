@@ -6,7 +6,7 @@ Tracks memory usage over time and provides insights
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from datetime import datetime, timedelta
 from collections import defaultdict
 

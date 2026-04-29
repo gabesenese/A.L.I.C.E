@@ -120,7 +120,10 @@ def test_companion_daemon_records_cycle_and_notifies_for_stale_goal():
     assert decisions[0].decision_type == "ask"
     assert decisions[0].reason == "goal_stale_with_next_action"
     assert notifications == [
-        ("Goal 'Ship desktop companion' has been idle for 2h. Next step: Run the companion tests", "normal")
+        (
+            "Goal 'Ship desktop companion' has been idle for 2h. Next step: Run the companion tests",
+            "normal",
+        )
     ]
     assert world.environment_writes[-1][0] == "companion_daemon"
     assert world.environment_writes[-1][1]["active_goal_count"] == 1

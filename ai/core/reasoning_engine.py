@@ -8,7 +8,7 @@ import re
 import logging
 import uuid
 import threading
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 from dataclasses import dataclass, field
 from enum import Enum
@@ -305,7 +305,7 @@ class ReasoningEngine:
     ) -> None:
         """Record a conversation turn"""
         with self._lock:
-            turn_id = f"t{len(self.turns)+1}_{int(datetime.now().timestamp())}"
+            turn_id = f"t{len(self.turns) + 1}_{int(datetime.now().timestamp())}"
             self.turns.append(
                 ConversationTurn(
                     turn_id=turn_id,
@@ -391,8 +391,6 @@ class ReasoningEngine:
         resolved_input: Optional[str] = None,
     ) -> GoalResolution:
         """Resolve current goal from user input and intent"""
-        cancelled = False
-        revised = False
         msg: Optional[str] = None
         inp = (resolved_input or user_input).strip().lower()
 
@@ -400,7 +398,6 @@ class ReasoningEngine:
         for pat in self.CANCEL_PATTERNS:
             if re.search(pat, inp) and self._is_pure_cancellation_input(inp):
                 self.set_goal(None)
-                cancelled = True
                 msg = "Understood. Cancelled."
                 return GoalResolution(
                     goal=None,
@@ -432,7 +429,6 @@ class ReasoningEngine:
                 entities=dict(entities),
             )
             self.set_goal(new_goal)
-            revised = True
             return GoalResolution(
                 goal=new_goal,
                 intent=intent,

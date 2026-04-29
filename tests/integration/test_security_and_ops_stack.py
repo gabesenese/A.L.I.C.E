@@ -19,12 +19,16 @@ def test_network_guard_and_rate_limiter():
 def test_capability_acquisition_and_benchmark():
     stack = get_roadmap_completion_stack()
 
-    cap = stack.capability_acquisition.register_candidate("new_skill", sandboxed=True, approved=True)
+    cap = stack.capability_acquisition.register_candidate(
+        "new_skill", sandboxed=True, approved=True
+    )
     assert cap["enabled"] is True
 
-    bench = stack.benchmark_harness.run([
-        {"accuracy": 0.8, "latency_ms": 100, "success": True},
-        {"accuracy": 0.6, "latency_ms": 120, "success": False},
-    ])
+    bench = stack.benchmark_harness.run(
+        [
+            {"accuracy": 0.8, "latency_ms": 100, "success": True},
+            {"accuracy": 0.6, "latency_ms": 120, "success": False},
+        ]
+    )
     assert bench["accuracy"] > 0.0
     assert bench["latency_ms"] > 0.0

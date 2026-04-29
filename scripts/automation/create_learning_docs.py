@@ -299,9 +299,10 @@ Alice learns to say things like:
 - data/response_templates/independence.json - Independence tracking
 
 
-Alice will truly learn and develop her own voice! 
+Alice will truly learn and develop her own voice!
 """
-with open('ALICE_LEARNING_ARCHITECTURE.md', 'w', encoding='utf-8') as f:
+
+with open("ALICE_LEARNING_ARCHITECTURE.md", "w", encoding="utf-8") as f:
     f.write(__doc__)
 
 print("Created: ALICE_LEARNING_ARCHITECTURE.md")

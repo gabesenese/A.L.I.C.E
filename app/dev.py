@@ -10,7 +10,6 @@ import signal
 import subprocess
 import logging
 from pathlib import Path
-from datetime import datetime
 from threading import Thread, Event
 
 
@@ -24,9 +23,7 @@ except ImportError:
     from watchdog.events import FileSystemEventHandler
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(message)s',
-    datefmt='%H:%M:%S'
+    level=logging.INFO, format="%(asctime)s - %(message)s", datefmt="%H:%M:%S"
 )
 logger = logging.getLogger(__name__)
 
@@ -43,23 +40,18 @@ class ALICEReloader(FileSystemEventHandler):
         self.startup_grace_period = 1.5  # Reduced from 3.0 to 1.5 seconds
 
         self.ignored_patterns = {
-            '__pycache__',
-            '.pyc',
-            '.git',
-            '.pytest_cache',
-            '.venv',
-            'venv',
-            'env',
-            '.swp',
-            '.tmp',
-            '~'
+            "__pycache__",
+            ".pyc",
+            ".git",
+            ".pytest_cache",
+            ".venv",
+            "venv",
+            "env",
+            ".swp",
+            ".tmp",
+            "~",
         }
-        self.ignored_paths = {
-            'data/',
-            'memory/',
-            'config/cred/',
-            'scripts/data/'
-        }
+        self.ignored_paths = {"data/", "memory/", "config/cred/", "scripts/data/"}
 
         # Track file modification times to detect real changes
         self.file_mtimes = {}
@@ -68,10 +60,10 @@ class ALICEReloader(FileSystemEventHandler):
 
     def should_ignore(self, path):
         """Check if file should be ignored"""
-        path_str = str(path).replace('\\', '/')
+        path_str = str(path).replace("\\", "/")
 
         # Ignore non-Python files
-        if not path_str.endswith('.py'):
+        if not path_str.endswith(".py"):
             logger.debug(f"Ignoring non-Python file: {path_str}")
             return True
 
@@ -101,7 +93,7 @@ class ALICEReloader(FileSystemEventHandler):
                 logger.debug(f"First time tracking file: {path_str}")
                 # For moved files (atomic saves), treat as changed even if first time
                 if is_move:
-                    logger.debug(f"File moved (atomic save) - treating as changed")
+                    logger.debug("File moved (atomic save) - treating as changed")
                     return True
                 return False  # Don't trigger on first observation for regular modifications
 
@@ -133,12 +125,14 @@ class ALICEReloader(FileSystemEventHandler):
         # Grace period - ignore events during startup
         time_since_startup = time.time() - self.startup_time
         if time_since_startup < self.startup_grace_period:
-            logger.debug(f"Ignoring event during startup grace period ({time_since_startup:.2f}s < {self.startup_grace_period}s)")
+            logger.debug(
+                f"Ignoring event during startup grace period ({time_since_startup:.2f}s < {self.startup_grace_period}s)"
+            )
             return
 
         # Check if file actually changed
         if not self.file_changed(event.src_path):
-            logger.debug(f"Ignoring event - file didn't actually change")
+            logger.debug("Ignoring event - file didn't actually change")
             return
 
         # Debounce - avoid multiple reloads for same change
@@ -178,11 +172,11 @@ class ALICEReloader(FileSystemEventHandler):
 
         # On Windows, editors often save by creating temp file then renaming to original
         # The dest_path is the final Python file location
-        if hasattr(event, 'dest_path'):
+        if hasattr(event, "dest_path"):
             dest_path = event.dest_path
 
             # Only process .py files
-            if not dest_path.endswith('.py'):
+            if not dest_path.endswith(".py"):
                 logger.debug(f"Ignoring moved non-Python file: {dest_path}")
                 return
 
@@ -192,19 +186,21 @@ class ALICEReloader(FileSystemEventHandler):
             # Use same grace period and change detection logic
             time_since_startup = time.time() - self.startup_time
             if time_since_startup < self.startup_grace_period:
-                logger.debug(f"Ignoring move event during startup grace period")
+                logger.debug("Ignoring move event during startup grace period")
                 return
 
             # Check if file actually changed
             if not self.file_changed(dest_path, is_move=True):
-                logger.debug(f"Ignoring move - file didn't actually change")
+                logger.debug("Ignoring move - file didn't actually change")
                 return
 
             # Debounce
             current_time = time.time()
             time_since_last = current_time - self.last_reload_time
             if time_since_last < self.debounce_seconds:
-                logger.debug(f"Debouncing reload (last reload {time_since_last:.2f}s ago)")
+                logger.debug(
+                    f"Debouncing reload (last reload {time_since_last:.2f}s ago)"
+                )
                 return
 
             self.last_reload_time = current_time
@@ -230,7 +226,13 @@ class ALICEReloader(FileSystemEventHandler):
 class ALICERunner:
     """Manages ALICE process with auto-reload"""
 
-    def __init__(self, voice_enabled=False, model='llama3.1:8b', show_thinking=True, llm_policy='default'):
+    def __init__(
+        self,
+        voice_enabled=False,
+        model="llama3.1:8b",
+        show_thinking=True,
+        llm_policy="default",
+    ):
         self.voice_enabled = voice_enabled
         self.model = model
         self.show_thinking = show_thinking  # In dev mode, show A.L.I.C.E thinking steps
@@ -246,19 +248,19 @@ class ALICERunner:
     def build_command(self):
         """Build ALICE command"""
         # Get the path to alice.py (in the app directory)
-        alice_script = Path(__file__).parent / 'alice.py'
-        cmd = [sys.executable, str(alice_script), '--model', self.model]
+        alice_script = Path(__file__).parent / "alice.py"
+        cmd = [sys.executable, str(alice_script), "--model", self.model]
 
         if self.voice_enabled:
-            cmd.append('--voice')
+            cmd.append("--voice")
 
         # Add LLM policy flag
-        if self.llm_policy != 'default':
-            cmd.extend(['--llm-policy', self.llm_policy])
+        if self.llm_policy != "default":
+            cmd.extend(["--llm-policy", self.llm_policy])
 
         # Dev mode: show A.L.I.C.E thinking (intent, plugins, verifier)
-        if getattr(self, 'show_thinking', True):
-            cmd.append('--debug')
+        if getattr(self, "show_thinking", True):
+            cmd.append("--debug")
 
         return cmd
 
@@ -277,11 +279,7 @@ class ALICERunner:
         try:
             # Start in same terminal
             self.process = subprocess.Popen(
-                cmd,
-                stdout=sys.stdout,
-                stderr=sys.stderr,
-                stdin=sys.stdin,
-                bufsize=0
+                cmd, stdout=sys.stdout, stderr=sys.stderr, stdin=sys.stdin, bufsize=0
             )
 
             self.restart_count += 1
@@ -289,7 +287,7 @@ class ALICERunner:
 
         except Exception as e:
             logger.error(f"Failed to start ALICE: {e}")
-    
+
     def stop_alice(self):
         """Stop ALICE process"""
         if self.process and self.process.poll() is None:
@@ -319,10 +317,11 @@ class ALICERunner:
             except Exception as e:
                 logger.error(f"Error stopping ALICE: {e}")
                 import traceback
+
                 logger.debug(traceback.format_exc())
 
         self.process = None
-    
+
     def request_restart(self):
         """Request ALICE restart"""
         logger.debug("Restart requested via file watcher")
@@ -357,7 +356,7 @@ class ALICERunner:
 
         finally:
             self.stop_alice()
-    
+
     def shutdown(self):
         """Shutdown runner"""
         logger.info("Shutting down...")
@@ -365,7 +364,14 @@ class ALICERunner:
         self.stop_alice()
 
 
-def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thinking=True, llm_policy='default', debug=False):
+def run_dev_mode(
+    voice_enabled=False,
+    model="llama3.1:8b",
+    watch=True,
+    show_thinking=True,
+    llm_policy="default",
+    debug=False,
+):
     """
     Run ALICE in development mode with auto-reload
 
@@ -397,7 +403,12 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
     print()
 
     # Create runner
-    runner = ALICERunner(voice_enabled=voice_enabled, model=model, show_thinking=show_thinking, llm_policy=llm_policy)
+    runner = ALICERunner(
+        voice_enabled=voice_enabled,
+        model=model,
+        show_thinking=show_thinking,
+        llm_policy=llm_policy,
+    )
 
     # Set up file watcher
     observer = None
@@ -409,11 +420,19 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
         project_root = Path(__file__).parent.parent
 
         # Watch main directories (relative to project root)
-        watch_dirs = ['ai', 'app', 'speech', 'ui', 'features', 'self_learning', 'plugins']
+        watch_dirs = [
+            "ai",
+            "app",
+            "speech",
+            "ui",
+            "features",
+            "self_learning",
+            "plugins",
+        ]
 
         logger.info("Setting up file watcher...")
         logger.info(f"Project root: {project_root}")
-        print(f"\n[DEV]  Watching directories for .py file changes:")
+        print("\n[DEV]  Watching directories for .py file changes:")
         watched_count = 0
         for dir_name in watch_dirs:
             watch_path = project_root / dir_name
@@ -427,13 +446,17 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
         if watched_count > 0:
             observer.start()
             print(f"[DEV]  File watcher active ({watched_count} directories)")
-            print(f"[DEV]     Auto-reload enabled - edit any .py file to trigger reload")
-            print(f"[DEV]      Grace period: {event_handler.startup_grace_period}s after startup\n")
+            print(
+                "[DEV]     Auto-reload enabled - edit any .py file to trigger reload"
+            )
+            print(
+                f"[DEV]      Grace period: {event_handler.startup_grace_period}s after startup\n"
+            )
         else:
             logger.warning("No directories found to watch!")
             observer = None
         print()
-    
+
     # Handle Ctrl+C gracefully
     def signal_handler(signum, frame):
         logger.info("\nShutdown signal received")
@@ -441,14 +464,14 @@ def run_dev_mode(voice_enabled=False, model='llama3.1:8b', watch=True, show_thin
         if observer:
             observer.stop()
         sys.exit(0)
-    
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
     # Run in separate thread
     runner_thread = Thread(target=runner.run, daemon=True)
     runner_thread.start()
-    
+
     # Keep main thread alive
     try:
         while runner_thread.is_alive():
@@ -474,46 +497,40 @@ Examples:
   python dev.py --voice            # Enable voice mode
   python dev.py --no-watch         # Disable auto-reload
   python dev.py --model llama3.2:3b  # Use different model
-        """
+        """,
     )
 
-    parser.add_argument(
-        '--voice',
-        action='store_true',
-        help='Enable voice interaction'
-    )
+    parser.add_argument("--voice", action="store_true", help="Enable voice interaction")
 
     parser.add_argument(
-        '--model',
+        "--model",
         type=str,
-        default='llama3.1:8b',
-        help='LLM model to use (default: llama3.1:8b)'
+        default="llama3.1:8b",
+        help="LLM model to use (default: llama3.1:8b)",
     )
 
     parser.add_argument(
-        '--no-watch',
-        action='store_true',
-        help='Disable file watching (no auto-reload)'
+        "--no-watch", action="store_true", help="Disable file watching (no auto-reload)"
     )
 
     parser.add_argument(
-        '--no-thinking',
-        action='store_true',
-        help='Disable A.L.I.C.E thinking steps in dev mode'
+        "--no-thinking",
+        action="store_true",
+        help="Disable A.L.I.C.E thinking steps in dev mode",
     )
 
     parser.add_argument(
-        '--llm-policy',
+        "--llm-policy",
         type=str,
-        choices=['default', 'minimal', 'strict'],
-        default='default',
-        help='LLM policy mode: minimal (patterns only), strict (no LLM), default (balanced)'
+        choices=["default", "minimal", "strict"],
+        default="default",
+        help="LLM policy mode: minimal (patterns only), strict (no LLM), default (balanced)",
     )
 
     parser.add_argument(
-        '--debug',
-        action='store_true',
-        help='Enable debug logging for file watcher and reload diagnostics'
+        "--debug",
+        action="store_true",
+        help="Enable debug logging for file watcher and reload diagnostics",
     )
 
     args = parser.parse_args()
@@ -524,5 +541,5 @@ Examples:
         watch=not args.no_watch,
         show_thinking=not args.no_thinking,
         llm_policy=args.llm_policy,
-        debug=args.debug
+        debug=args.debug,
     )

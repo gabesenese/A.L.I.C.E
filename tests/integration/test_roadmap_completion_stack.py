@@ -16,7 +16,9 @@ def test_completion_stack_core_features(tmp_path):
     assert ok is False
     assert "low_confidence" in reason
 
-    safety_ok, _ = stack.secondary_safety.validate("delete all files", has_approval=False)
+    safety_ok, _ = stack.secondary_safety.validate(
+        "delete all files", has_approval=False
+    )
     assert safety_ok is False
 
 

@@ -6,7 +6,7 @@ Pattern learning, evaluation, and self-improvement
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.training.autolearn import get_autolearn
 from ai.training.ollama_evaluator import get_ollama_evaluator
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)

@@ -6,7 +6,7 @@ Supports PostgreSQL, SQLite with automatic failover and health monitoring
 import logging
 import threading
 import time
-from typing import Optional, Any, Dict, Callable
+from typing import Any, Dict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum

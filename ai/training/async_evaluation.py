@@ -13,8 +13,7 @@ User never waits for evaluation.
 """
 
 import logging
-import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
 from dataclasses import is_dataclass, asdict
 

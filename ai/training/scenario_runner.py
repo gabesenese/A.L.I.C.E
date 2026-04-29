@@ -97,7 +97,9 @@ class ScenarioRunner:
             )
 
         self.results.extend(legacy_results)
-        self.training_data.extend(self._build_training_entries(scenario_name, delegate_results))
+        self.training_data.extend(
+            self._build_training_entries(scenario_name, delegate_results)
+        )
 
         all_success = all(r.success for r in legacy_results)
         return legacy_results, all_success
@@ -109,7 +111,9 @@ class ScenarioRunner:
         use_teacher: bool,
     ) -> "CanonicalScenarioRunner":
         """Create canonical runner lazily to avoid import-time side effects."""
-        from scenarios.sim.run_scenarios import ScenarioRunner as CanonicalScenarioRunner
+        from scenarios.sim.run_scenarios import (
+            ScenarioRunner as CanonicalScenarioRunner,
+        )
 
         return CanonicalScenarioRunner(
             llm_policy=llm_policy,
@@ -170,13 +174,17 @@ class ScenarioRunner:
             for entry in self.training_data:
                 f.write(json.dumps(entry) + "\n")
 
-        logger.info("Saved %s training rows to %s", len(self.training_data), output_path)
+        logger.info(
+            "Saved %s training rows to %s", len(self.training_data), output_path
+        )
         return str(output_path)
 
     def save_scenario_results(self, output_file: Optional[str] = None) -> str:
         """Save legacy-compatible scenario result rows as JSONL."""
         output_path = (
-            Path(output_file) if output_file else self.output_dir / "scenario_results.jsonl"
+            Path(output_file)
+            if output_file
+            else self.output_dir / "scenario_results.jsonl"
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -196,7 +204,9 @@ class ScenarioRunner:
 
         by_scenario: Dict[str, Dict[str, int]] = {}
         for result in self.results:
-            bucket = by_scenario.setdefault(result.scenario_name, {"success": 0, "total": 0})
+            bucket = by_scenario.setdefault(
+                result.scenario_name, {"success": 0, "total": 0}
+            )
             bucket["total"] += 1
             if result.success:
                 bucket["success"] += 1
@@ -204,13 +214,19 @@ class ScenarioRunner:
         return {
             "total_turns": total_turns,
             "successful_turns": successful_turns,
-            "success_rate": (successful_turns / total_turns * 100) if total_turns else 0.0,
-            "intent_accuracy": (intent_matches / total_turns * 100) if total_turns else 0.0,
+            "success_rate": (successful_turns / total_turns * 100)
+            if total_turns
+            else 0.0,
+            "intent_accuracy": (intent_matches / total_turns * 100)
+            if total_turns
+            else 0.0,
             "tool_accuracy": (tool_matches / total_turns * 100) if total_turns else 0.0,
             "by_scenario": by_scenario,
         }
 
-    def _to_canonical_scenario(self, scenario_name: str, scenario: Dict[str, Any]) -> Scenario:
+    def _to_canonical_scenario(
+        self, scenario_name: str, scenario: Dict[str, Any]
+    ) -> Scenario:
         """Convert legacy scenario dict to canonical Scenario dataclass."""
         steps: List[ScenarioStep] = []
 
@@ -250,7 +266,9 @@ class ScenarioRunner:
             return ExpectedRoute.CONVERSATIONAL
         return ExpectedRoute.CONVERSATIONAL
 
-    def _expected_tools_from_legacy(self, scenario: Dict[str, Any]) -> List[Optional[str]]:
+    def _expected_tools_from_legacy(
+        self, scenario: Dict[str, Any]
+    ) -> List[Optional[str]]:
         """Extract expected_tool per turn from legacy scenario dict."""
         return [turn.get("expected_tool") for turn in scenario.get("turns", [])]
 
@@ -296,11 +314,15 @@ class ScenarioRunner:
                     "intent": result.actual_intent or result.step.expected_intent,
                     "entities": result.step.expected_entities,
                     "response": result.actual_response,
-                    "tool": result.actual_route if result.actual_route == ExpectedRoute.TOOL.value else None,
+                    "tool": result.actual_route
+                    if result.actual_route == ExpectedRoute.TOOL.value
+                    else None,
                     "scenario": scenario_name,
                     "turn": idx,
                     "success": result.route_match and result.intent_match,
-                    "quality_score": 0.9 if (result.route_match and result.intent_match) else 0.5,
+                    "quality_score": 0.9
+                    if (result.route_match and result.intent_match)
+                    else 0.5,
                     "category": "synthetic_from_scenarios",
                     "timestamp": datetime.now().isoformat(),
                 }

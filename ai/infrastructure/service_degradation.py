@@ -5,7 +5,7 @@ Provides graceful fallback when external services are unavailable
 
 import logging
 from typing import Optional, Dict, Any, Callable
-from datetime import datetime, timedelta
+from datetime import datetime
 from dataclasses import dataclass
 from ai.errors import (
     OllamaConnectionError,

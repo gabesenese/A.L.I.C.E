@@ -9,7 +9,6 @@ import logging
 from typing import Dict, Optional, List
 from dataclasses import dataclass
 from enum import Enum
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -275,11 +274,11 @@ TONE CONSTRAINT FOR THIS RESPONSE:
 - Vocabulary level: {char.vocabulary_level}
 - Sentence length: {char.sentence_length}
 - Depth: {char.explanation_depth}
-- Contractions: {'allowed' if char.contractions else 'avoid'}
+- Contractions: {"allowed" if char.contractions else "avoid"}
 - Personhood claims: {'allowed ("I think...")' if char.personhood_claims else 'avoid ("suggest" instead)'}
-- Emoji: {'very occasional' if char.emoji_frequency > 0 else 'never'}
-- Humor: {'occasional' if char.humor_level > 0.1 else 'avoid'}
-- Characteristic phrases: {', '.join(char.markers[:3])}
+- Emoji: {"very occasional" if char.emoji_frequency > 0 else "never"}
+- Humor: {"occasional" if char.humor_level > 0.1 else "avoid"}
+- Characteristic phrases: {", ".join(char.markers[:3])}
 
 Maintain consistency with this tone throughout.
 """
@@ -297,7 +296,7 @@ Maintain consistency with this tone throughout.
         issues = []
 
         # Check for contradiction to contractions setting
-        if char.contractions and "do not" in response and "don't" in response == False:
+        if char.contractions and "do not" in response and "don't" in response is False:
             score -= 0.1  # Should use contractions
             issues.append("uses full forms when contractions expected")
 

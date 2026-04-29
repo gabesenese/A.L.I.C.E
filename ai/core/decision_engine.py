@@ -6,9 +6,8 @@ probabilistic reasoning, and utility theory.
 """
 
 import math
-from typing import Dict, List, Any, Optional, Tuple, Callable
+from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
-from collections import defaultdict
 import logging
 
 logger = logging.getLogger(__name__)

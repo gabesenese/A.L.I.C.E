@@ -88,7 +88,9 @@ def _warning_regressed(
 
     baseline_warning_count = baseline.get("warning_count")
     if not isinstance(baseline_warning_count, int) or baseline_warning_count < 0:
-        raise ValueError("Baseline must contain a non-negative integer 'warning_count'.")
+        raise ValueError(
+            "Baseline must contain a non-negative integer 'warning_count'."
+        )
 
     allowed = int(baseline_warning_count * (1.0 + threshold_ratio))
     return warning_count > allowed
@@ -149,7 +151,9 @@ def evaluate_gate(
             "passed": not warning_block,
             "details": {
                 "warning_count": warning_count,
-                "baseline_warning_count": None if baseline is None else baseline.get("warning_count"),
+                "baseline_warning_count": None
+                if baseline is None
+                else baseline.get("warning_count"),
                 "threshold_ratio": warning_growth_threshold,
             },
             "exit_code_on_fail": EXIT_WARNING_REGRESSION,
@@ -190,10 +194,14 @@ def _print_gate_summary(result: Dict[str, Any]) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Run CI gate checks against learning-data QA findings.")
+    parser = argparse.ArgumentParser(
+        description="Run CI gate checks against learning-data QA findings."
+    )
     parser.add_argument("--root", default=".", help="Project root to audit.")
     parser.add_argument("--report", help="Optional path for a JSON gate report.")
-    parser.add_argument("--baseline", help="Optional baseline JSON with warning_count for trend checks.")
+    parser.add_argument(
+        "--baseline", help="Optional baseline JSON with warning_count for trend checks."
+    )
     parser.add_argument(
         "--warning-growth-threshold",
         type=float,
@@ -238,7 +246,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not args.baseline:
             print("Baseline error: --write-baseline requires --baseline.")
             return EXIT_BASELINE_ERROR
-        write_baseline(args.baseline, int(qa_report.get("severity_counts", {}).get("warning", 0) or 0), qa_report)
+        write_baseline(
+            args.baseline,
+            int(qa_report.get("severity_counts", {}).get("warning", 0) or 0),
+            qa_report,
+        )
         print(f"Baseline written: {args.baseline}")
 
     if args.report:

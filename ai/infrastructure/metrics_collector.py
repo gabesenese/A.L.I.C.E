@@ -4,7 +4,6 @@ Prometheus-compatible metrics with automatic export
 """
 
 import math
-import statistics
 import time
 import logging
 from typing import Deque, Dict, Callable, Any, List, Optional
@@ -502,7 +501,7 @@ def track_time(
                 result = func(*args, **kwargs)
                 success = True
                 return result
-            except Exception as e:
+            except Exception:
                 success = False
                 raise
             finally:
