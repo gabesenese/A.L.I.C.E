@@ -1,4 +1,4 @@
-.PHONY: install test lint format fix check docker run
+.PHONY: install test lint format fix check docker dev
 
 install:
 	pip install -r requirements.txt -r requirements-dev.txt
@@ -24,5 +24,5 @@ check: lint test
 docker:
 	docker-compose up --build
 
-run:
-	uvicorn app.main:app --reload
+dev:
+	python app/dev.py
