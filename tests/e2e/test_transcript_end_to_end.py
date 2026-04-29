@@ -17,12 +17,18 @@ class _FakeNlp:
     def process(self, text):
         lower = text.lower()
         if "unclear" in lower:
-            return _NlpResult(intent="conversation:general", intent_confidence=0.4, keywords=[])
+            return _NlpResult(
+                intent="conversation:general", intent_confidence=0.4, keywords=[]
+            )
         if "danger" in lower:
             return _NlpResult(intent="unknown", intent_confidence=0.2, keywords=[])
         if "weather" in lower:
-            return _NlpResult(intent="weather:current", intent_confidence=0.92, keywords=["weather"])
-        return _NlpResult(intent="conversation:general", intent_confidence=0.8, keywords=[])
+            return _NlpResult(
+                intent="weather:current", intent_confidence=0.92, keywords=["weather"]
+            )
+        return _NlpResult(
+            intent="conversation:general", intent_confidence=0.8, keywords=[]
+        )
 
 
 class _FakeMemory:
@@ -33,7 +39,9 @@ class _FakeMemory:
         return [{"content": f"mem:{query}", "score": 0.7}][:top_k]
 
     def store_memory(self, content, memory_type="episodic", context=None):
-        self._stored.append({"content": content, "memory_type": memory_type, "context": context or {}})
+        self._stored.append(
+            {"content": content, "memory_type": memory_type, "context": context or {}}
+        )
 
 
 class _FakePlugins:
@@ -109,7 +117,16 @@ def test_transcript_pipeline_end_to_end():
             assert expected_contains in result.response_text.lower()
 
         if "requires_follow_up" in row:
-            assert result.metadata["requires_follow_up"] is bool(row["requires_follow_up"])
+            assert result.metadata["requires_follow_up"] is bool(
+                row["requires_follow_up"]
+            )
 
         stage_names = [stage["name"] for stage in result.metadata["stages"]]
-        assert stage_names == ["input", "route", "execute", "verify", "respond", "state_update"]
+        assert stage_names == [
+            "input",
+            "route",
+            "execute",
+            "verify",
+            "respond",
+            "state_update",
+        ]

@@ -7,7 +7,11 @@ import re
 from typing import Any, Dict, List, Tuple
 
 from ai.contracts import RouterDecision, ToolResult, VerifierResult
-from ai.runtime.turn_orchestrator import ExecutePhaseResult, RoutePhaseResult, TurnOrchestrator
+from ai.runtime.turn_orchestrator import (
+    ExecutePhaseResult,
+    RoutePhaseResult,
+    TurnOrchestrator,
+)
 
 
 def _dedupe_keep_order(values: List[str], limit: int) -> List[str]:
@@ -54,7 +58,9 @@ class CompanionMemoryDomains:
 @dataclass
 class CompanionState:
     identity_model: IdentityModel
-    memory_domains: CompanionMemoryDomains = field(default_factory=CompanionMemoryDomains)
+    memory_domains: CompanionMemoryDomains = field(
+        default_factory=CompanionMemoryDomains
+    )
     turn_number: int = 0
     last_user_input: str = ""
     last_intent: str = ""
@@ -150,7 +156,11 @@ class CompanionPolicyEngine:
         route = str(route_decision.route or "").lower()
         band = str(route_decision.decision_band or "").lower()
 
-        if route == "clarify" or route_decision.needs_clarification or band == "clarify":
+        if (
+            route == "clarify"
+            or route_decision.needs_clarification
+            or band == "clarify"
+        ):
             return PolicyDecision(
                 decision_type="clarify",
                 reason="clarification_required",
@@ -218,7 +228,9 @@ class CompanionPolicyEngine:
         if not text:
             return False
 
-        has_personal_state = any(marker in text for marker in self._contextual_reaction_state_terms)
+        has_personal_state = any(
+            marker in text for marker in self._contextual_reaction_state_terms
+        )
         has_direct_request = "?" in text or any(
             marker in text for marker in self._contextual_reaction_request_terms
         )
@@ -235,9 +247,21 @@ class CompanionRuntimeLoop:
     )
     _user_state_signal_patterns = (
         ("cold", re.compile(r"\b(cold|chilly|freezing)\b", re.IGNORECASE)),
-        ("sick", re.compile(r"\b(sick|ill|under the weather|not feeling well|flu|fever)\b", re.IGNORECASE)),
-        ("tired", re.compile(r"\b(tired|exhausted|drained|burned out)\b", re.IGNORECASE)),
-        ("stressed", re.compile(r"\b(stressed|anxious|overwhelmed|panic)\b", re.IGNORECASE)),
+        (
+            "sick",
+            re.compile(
+                r"\b(sick|ill|under the weather|not feeling well|flu|fever)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "tired",
+            re.compile(r"\b(tired|exhausted|drained|burned out)\b", re.IGNORECASE),
+        ),
+        (
+            "stressed",
+            re.compile(r"\b(stressed|anxious|overwhelmed|panic)\b", re.IGNORECASE),
+        ),
     )
 
     def __init__(self, policy_engine: CompanionPolicyEngine | None = None) -> None:
@@ -337,7 +361,9 @@ class CompanionRuntimeLoop:
                 attempt=attempt,
                 max_attempts=max_attempts,
             )
-            last_phase = ExecutePhaseResult(tool_result=normalized, executed=phase.executed)
+            last_phase = ExecutePhaseResult(
+                tool_result=normalized, executed=phase.executed
+            )
 
             if normalized.success:
                 return last_phase, {
@@ -359,7 +385,9 @@ class CompanionRuntimeLoop:
             "approval_required": False,
         }
 
-    def build_approval_response(self, *, policy: PolicyDecision, decision: RouterDecision) -> str:
+    def build_approval_response(
+        self, *, policy: PolicyDecision, decision: RouterDecision
+    ) -> str:
         intent = str(decision.intent or "action")
         reason = str(policy.approval_reason or "safety_check")
         return (
@@ -413,7 +441,9 @@ class CompanionRuntimeLoop:
         companion_state.last_intent = str(route_decision.intent or "")
         companion_state.last_route = str(route_decision.route or "")
         companion_state.last_response_excerpt = str(response_text or "").strip()[:280]
-        companion_state.last_user_state_signals = self._extract_user_state_signals(user_input)
+        companion_state.last_user_state_signals = self._extract_user_state_signals(
+            user_input
+        )
         if tool_result is not None:
             companion_state.last_tool_result = self._summarize_tool_result(tool_result)
 
@@ -429,9 +459,13 @@ class CompanionRuntimeLoop:
             )
 
         project_hints = self._extract_project_hints(user_input)
-        active_goals = list((route_decision.metadata or {}).get("active_goals", []) or [])
+        active_goals = list(
+            (route_decision.metadata or {}).get("active_goals", []) or []
+        )
         companion_state.memory_domains.projects = _dedupe_keep_order(
-            list(companion_state.memory_domains.projects) + active_goals + project_hints,
+            list(companion_state.memory_domains.projects)
+            + active_goals
+            + project_hints,
             limit=12,
         )
 
@@ -455,7 +489,9 @@ class CompanionRuntimeLoop:
 
         unresolved = list(companion_state.memory_domains.unresolved_threads)
         if requires_follow_up:
-            unresolved.append(str(follow_up_question or user_input or "follow_up").strip())
+            unresolved.append(
+                str(follow_up_question or user_input or "follow_up").strip()
+            )
         elif policy.decision_type == "follow_up" and unresolved:
             unresolved = unresolved[1:]
 
@@ -464,7 +500,9 @@ class CompanionRuntimeLoop:
             limit=8,
         )
 
-        companion_state.memory_domains.causal_lessons = companion_state.memory_domains.causal_lessons[-16:]
+        companion_state.memory_domains.causal_lessons = (
+            companion_state.memory_domains.causal_lessons[-16:]
+        )
         companion_state.memory_domains.identity = self._build_identity_snapshot(
             state=companion_state,
             user_state=None,

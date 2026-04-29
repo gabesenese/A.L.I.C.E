@@ -13,8 +13,8 @@ router = APIRouter()
 
 @router.get("/", response_class=HTMLResponse)
 async def web_home() -> HTMLResponse:
-        return HTMLResponse(
-                """
+    return HTMLResponse(
+        """
 <!doctype html>
 <html lang="en">
 <head>
@@ -216,7 +216,7 @@ async def web_home() -> HTMLResponse:
 </body>
 </html>
 """
-        )
+    )
 
 
 @router.get("/health", response_model=HealthResponse)

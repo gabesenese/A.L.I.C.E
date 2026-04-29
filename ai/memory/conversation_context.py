@@ -9,10 +9,9 @@ coherent multi-turn conversations.
 """
 
 import time
-from typing import Dict, List, Any, Optional, Set, Tuple
+from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from collections import deque
-from datetime import datetime, timedelta
 import re
 import logging
 
@@ -75,12 +74,12 @@ class ConversationContextManager:
         self.topic_history: List[Tuple[str, int]] = []  # (topic, turn_id)
 
         # Entity tracking for reference resolution
-        self.mentioned_entities: Dict[str, List[int]] = (
-            {}
-        )  # entity -> [turn_ids where mentioned]
-        self.entity_types: Dict[str, str] = (
-            {}
-        )  # entity -> type (person, file, concept, etc)
+        self.mentioned_entities: Dict[
+            str, List[int]
+        ] = {}  # entity -> [turn_ids where mentioned]
+        self.entity_types: Dict[
+            str, str
+        ] = {}  # entity -> type (person, file, concept, etc)
 
         # Salience tracking (what's currently important)
         self.salient_entities: List[str] = []

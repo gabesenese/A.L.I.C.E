@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import os
 
-_ENABLE_OTEL = str(os.getenv("ALICE_ENABLE_OTEL", "false")).lower() in {"1", "true", "yes", "on"}
+_ENABLE_OTEL = str(os.getenv("ALICE_ENABLE_OTEL", "false")).lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 try:
     if not _ENABLE_OTEL:
         raise RuntimeError("OTEL disabled")
     from opentelemetry import metrics, trace
-    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+        OTLPMetricExporter,
+    )
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
@@ -39,6 +46,7 @@ try:
         description="Total turns processed",
     )
 except Exception:  # pragma: no cover - fallback when telemetry deps are optional
+
     class _NoopSpan:
         def __enter__(self):
             return self

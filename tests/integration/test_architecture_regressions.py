@@ -147,7 +147,9 @@ def test_execution_verifier_rejects_when_contract_success_criteria_fail():
     )
 
     assert report.accepted is False
-    assert any(issue.startswith("success_criterion_not_met:") for issue in report.issues)
+    assert any(
+        issue.startswith("success_criterion_not_met:") for issue in report.issues
+    )
 
 
 def test_execution_loop_replans_when_tool_verified_but_goal_not_advanced():
@@ -157,7 +159,9 @@ def test_execution_loop_replans_when_tool_verified_but_goal_not_advanced():
         intent="notes:update",
         confidence=0.83,
         entities={},
-        conversation_state={"active_goal_stack": [{"goal_id": "g1", "title": "organize notes"}]},
+        conversation_state={
+            "active_goal_stack": [{"goal_id": "g1", "title": "organize notes"}]
+        },
     )
     decision = controller.decide(
         state,

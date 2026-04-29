@@ -40,7 +40,9 @@ def _extract_eval_turns(rows: List[Dict[str, Any]], limit: int) -> List[Dict[str
         if not user_input:
             continue
 
-        expected_route = str(row.get("route") or (row.get("metadata") or {}).get("route") or "").strip()
+        expected_route = str(
+            row.get("route") or (row.get("metadata") or {}).get("route") or ""
+        ).strip()
         if not expected_route:
             normalized = user_input.lower()
             if normalized.startswith("weather") or "weather" in normalized:
@@ -82,7 +84,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build transcript eval pack JSONL")
     parser.add_argument("--input", required=True, help="Input JSONL transcript path")
     parser.add_argument("--output", required=True, help="Output JSONL eval pack path")
-    parser.add_argument("--limit", type=int, default=50, help="Maximum turns to include")
+    parser.add_argument(
+        "--limit", type=int, default=50, help="Maximum turns to include"
+    )
     args = parser.parse_args()
 
     rows = _read_jsonl(Path(args.input))

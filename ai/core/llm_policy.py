@@ -172,11 +172,11 @@ class LLMPolicy:
 
             if not approved:
                 self.denied_calls += 1
-                logger.info(f"LLM call denied by user")
+                logger.info("LLM call denied by user")
                 return False, "User declined LLM call"
 
             self.approved_calls += 1
-            logger.info(f"LLM call approved by user")
+            logger.info("LLM call approved by user")
 
         # Increment counters
         self.calls_this_minute += 1

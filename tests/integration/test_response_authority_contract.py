@@ -30,7 +30,9 @@ def test_response_authority_refines_before_deterministic_fallback():
         accepted=False,
         response="raw llm draft",
         refine_fn=lambda _: "refined answer",
-        deterministic_fn=lambda: calls.__setitem__("deterministic", calls["deterministic"] + 1),
+        deterministic_fn=lambda: calls.__setitem__(
+            "deterministic", calls["deterministic"] + 1
+        ),
     )
 
     assert outcome.action == "refine"

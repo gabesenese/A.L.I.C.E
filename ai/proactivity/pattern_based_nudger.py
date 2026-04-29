@@ -256,7 +256,9 @@ class PatternBasedNudger:
         status = (
             "✓ accepted"
             if accepted
-            else "✗ declined" if accepted is False else "delivered"
+            else "✗ declined"
+            if accepted is False
+            else "delivered"
         )
         logger.info(f"[Nudger] Nudge {status}: {nudge.pattern_matched}")
 

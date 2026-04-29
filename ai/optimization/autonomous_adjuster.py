@@ -14,10 +14,9 @@ Key responsibilities:
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 from collections import defaultdict
-from datetime import datetime, timedelta
-import os
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -374,7 +373,7 @@ class AutonomousThresholdAdjuster:
         }
 
         # Log summary
-        logger.info(f"[AutonomousAdjuster] Cycle complete:")
+        logger.info("[AutonomousAdjuster] Cycle complete:")
         logger.info(f"  - Analysis domains: {len(analysis.get('domain_errors', {}))}")
         logger.info(
             f"  - Adjustments made: {len(adjustments.get('adjustments_made', []))}"

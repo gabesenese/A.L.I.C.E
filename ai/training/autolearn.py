@@ -16,8 +16,8 @@ import logging
 import time
 import json
 import threading
-from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
+from typing import Dict, Any, List
+from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
 
@@ -324,7 +324,8 @@ class AutoLearn:
 
         # Get recent failures for attention
         failures = self.ollama_evaluator.get_recent_evaluations(
-            days=days, max_score=69  # Failed evaluations
+            days=days,
+            max_score=69,  # Failed evaluations
         )
 
         # Identify problem areas

@@ -15,8 +15,6 @@ Supports commands like:
 - "Forget my coffee preference"
 """
 
-import os
-import sys
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
@@ -187,7 +185,7 @@ class MemoryPlugin(PluginInterface):
             topic = entities.get("topic") or "general"
 
             # Store as episodic memory
-            memory_entry = {
+            {
                 "content": content,
                 "topic": topic,
                 "timestamp": datetime.now().isoformat(),

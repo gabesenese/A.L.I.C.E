@@ -3,7 +3,7 @@ RAG Engine for A.L.I.C.E
 Retrieval-Augmented Generation capabilities
 """
 
-from ai.memory.memory_store import MemoryStore, MemoryEntry
+from ai.memory.memory_store import MemoryStore
 from ai.memory.embedding_manager import EmbeddingManager
 from typing import List, Dict, Any, Optional
 import logging

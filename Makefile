@@ -1,4 +1,4 @@
-.PHONY: install test lint format check docker run
+.PHONY: install test lint format fix check docker run
 
 install:
 	pip install -r requirements.txt -r requirements-dev.txt
@@ -14,6 +14,10 @@ lint:
 format:
 	ruff format .
 	ruff check --fix .
+
+fix:
+	-ruff check . --fix --unsafe-fixes
+	@echo Auto-fix complete. Run 'make lint' to review remaining issues.
 
 check: lint test
 

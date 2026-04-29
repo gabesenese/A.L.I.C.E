@@ -53,7 +53,9 @@ def test_build_core_benchmark_creates_locked_100(tmp_path):
     assert payload["locked"] is True
     assert payload["size"] == 100
     assert len(payload["scenarios"]) == 100
-    assert set(payload["domain_counts"]).issuperset({"notes", "weather", "email", "conversation", "music"})
+    assert set(payload["domain_counts"]).issuperset(
+        {"notes", "weather", "email", "conversation", "music"}
+    )
 
 
 def test_compare_scorecards_passes_on_objective_improvement():

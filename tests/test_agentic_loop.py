@@ -4,11 +4,15 @@ from ai.core.agentic_loop import AgenticLoop
 def test_agentic_loop_runs_all_stages_and_updates_memory():
     loop = AgenticLoop(
         perceive_fn=lambda payload: {"observation": payload.get("text", "")},
-        reason_fn=lambda state: {"summary": f"seen:{state['perceived'].get('observation')}"},
+        reason_fn=lambda state: {
+            "summary": f"seen:{state['perceived'].get('observation')}"
+        },
         goal_fn=lambda state: {"goal": "answer_user"},
         decide_fn=lambda state: {"action": "respond", "confidence": 0.9},
         execute_fn=lambda decision: {"status": "ok", "action": decision.get("action")},
-        learn_fn=lambda feedback: {"adapted": feedback["execution"].get("status") == "ok"},
+        learn_fn=lambda feedback: {
+            "adapted": feedback["execution"].get("status") == "ok"
+        },
     )
 
     report = loop.run_cycle({"text": "hello"})

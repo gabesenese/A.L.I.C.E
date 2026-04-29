@@ -35,7 +35,13 @@ _DEPS_LOADED = False
 
 
 def _load_optional_deps() -> None:
-    global _DEPS_LOADED, np, TfidfVectorizer, LogisticRegression, cosine_similarity, SentenceTransformer
+    global \
+        _DEPS_LOADED, \
+        np, \
+        TfidfVectorizer, \
+        LogisticRegression, \
+        cosine_similarity, \
+        SentenceTransformer
     if _DEPS_LOADED:
         return
     try:
@@ -231,7 +237,9 @@ class LearningEngine:
         hard_lesson_summary = {}
         if hard_lessons:
             try:
-                from ai.optimization.autonomous_adjuster import create_autonomous_adjuster
+                from ai.optimization.autonomous_adjuster import (
+                    create_autonomous_adjuster,
+                )
 
                 adjuster = create_autonomous_adjuster(project_root)
                 hard_lesson_summary = adjuster.apply_hard_lessons(hard_lessons)
@@ -365,7 +373,9 @@ class LearningEngine:
             query_vec = self.vectorizer.transform([user_input])
             similarities = cosine_similarity(query_vec, self._tfidf_matrix)[0]
             candidate_count = min(top_k, len(similarities))
-            top_indices = np.argpartition(similarities, -candidate_count)[-candidate_count:]
+            top_indices = np.argpartition(similarities, -candidate_count)[
+                -candidate_count:
+            ]
             top_indices = top_indices[np.argsort(similarities[top_indices])[::-1]]
 
             similar = []
@@ -620,9 +630,7 @@ class LearningEngine:
             return
         raw: List[TrainingExample] = []
         try:
-            with open(
-                self.training_file, "r", encoding="utf-8", errors="ignore"
-            ) as f:
+            with open(self.training_file, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
                     if line.strip():
                         try:
@@ -639,7 +647,7 @@ class LearningEngine:
         except Exception as e:
             logger.warning(f"[Learning] Error loading examples: {e}")
         # Keep only the most recent slice to bound memory
-        self.examples = raw[-self._MAX_EXAMPLES_IN_MEMORY:]
+        self.examples = raw[-self._MAX_EXAMPLES_IN_MEMORY :]
 
     def _save_patterns(self):
         """Save learned patterns to disk"""
@@ -980,7 +988,9 @@ class AutoCorrectionEngine:
             logger.warning(f"[AutoCorrection] Teacher judge failed: {e}")
             return None
 
-    def apply_corrections_to_thresholds(self, force_apply: bool = False) -> Dict[str, Any]:
+    def apply_corrections_to_thresholds(
+        self, force_apply: bool = False
+    ) -> Dict[str, Any]:
         """
         Apply corrections to adjust NLP thresholds and rules.
         Only applies corrections that have been validated multiple times,
@@ -999,7 +1009,10 @@ class AutoCorrectionEngine:
             if correction.get("applied"):
                 continue
 
-            if not force_apply and correction.get("validation_count", 0) < MIN_VALIDATIONS:
+            if (
+                not force_apply
+                and correction.get("validation_count", 0) < MIN_VALIDATIONS
+            ):
                 continue
 
             domain = correction.get("domain", "").lower()
@@ -1015,10 +1028,12 @@ class AutoCorrectionEngine:
             correction["applied"] = True
             applied_count += 1
             by_type[correction.get("correction_type")] += 1
-            newly_applied.append({
-                "user_input": user_input,
-                "expected_intent": expected_intent,
-            })
+            newly_applied.append(
+                {
+                    "user_input": user_input,
+                    "expected_intent": expected_intent,
+                }
+            )
 
             logger.info(
                 f"[AutoCorrection] Applying: {user_input[:30]}... "
@@ -1045,7 +1060,9 @@ class AutoCorrectionEngine:
                 data = {}
             existing = data.get("corrections", [])
             # Deduplicate by user_input (case-insensitive)
-            existing_keys = {e["user_input"].lower() for e in existing if "user_input" in e}
+            existing_keys = {
+                e["user_input"].lower() for e in existing if "user_input" in e
+            }
             for entry in new_entries:
                 if entry["user_input"].lower() not in existing_keys:
                     existing.append(entry)
@@ -1054,7 +1071,9 @@ class AutoCorrectionEngine:
             data["last_updated"] = datetime.now().isoformat()
             with open(curated_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-            logger.info(f"[AutoCorrection] Wrote {len(new_entries)} entries to curated_patterns.json ({len(existing)} total)")
+            logger.info(
+                f"[AutoCorrection] Wrote {len(new_entries)} entries to curated_patterns.json ({len(existing)} total)"
+            )
         except Exception as e:
             logger.error(f"[AutoCorrection] Failed to write curated_patterns.json: {e}")
 
@@ -1101,7 +1120,7 @@ class PatternPromotionEngine:
                     # Ensure it's a dict (not a list)
                     if isinstance(data, list):
                         logger.warning(
-                            f"[PatternPromotion] learning_patterns.json contains array, converting to dict"
+                            "[PatternPromotion] learning_patterns.json contains array, converting to dict"
                         )
                         return {}
                     return data if isinstance(data, dict) else {}

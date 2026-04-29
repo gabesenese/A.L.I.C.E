@@ -11,7 +11,6 @@ touching the underlying model.
 from __future__ import annotations
 
 import logging
-import math
 import random
 import threading
 import time
@@ -21,13 +20,20 @@ from typing import Any, Dict, List, Optional, Tuple
 # Optional integrations — imported lazily so the module can still be loaded
 # in environments without turn_logger / policy_trainer on the path.
 try:
-    from ai.core.turn_logger import get_turn_logger as _get_turn_logger, TurnEntry, TopKEntry, PolicySnapshot
+    from ai.core.turn_logger import (
+        get_turn_logger as _get_turn_logger,
+        TurnEntry,
+        TopKEntry,
+        PolicySnapshot,
+    )
+
     _TURN_LOGGER_AVAILABLE = True
 except ImportError:
     _TURN_LOGGER_AVAILABLE = False
 
 try:
     from ai.core.policy_trainer import get_policy_trainer as _get_policy_trainer
+
     _POLICY_TRAINER_AVAILABLE = True
 except ImportError:
     _POLICY_TRAINER_AVAILABLE = False
@@ -120,7 +126,9 @@ class InteractionPolicy:
         settings = self._hand_tuned_derive(mood, urgency, compound)
 
         # ── 2. Optionally blend with learned model ────────────────────────────
-        if (use_learned_model or self._is_learned_model_enabled()) and _POLICY_TRAINER_AVAILABLE:
+        if (
+            use_learned_model or self._is_learned_model_enabled()
+        ) and _POLICY_TRAINER_AVAILABLE:
             try:
                 trainer = _get_policy_trainer()
                 if trainer.is_ready:
@@ -144,7 +152,9 @@ class InteractionPolicy:
                         skip_clarif = clarify_prob <= 0.5
                         # cautious_prob > 0.5 → cautious (lower threshold, shorter)
                         if cautious_prob > 0.5:
-                            new_threshold = max(0.30, settings.clarification_threshold - 0.10)
+                            new_threshold = max(
+                                0.30, settings.clarification_threshold - 0.10
+                            )
                             new_length = "brief"
                         else:
                             new_threshold = settings.clarification_threshold
@@ -158,13 +168,17 @@ class InteractionPolicy:
                         )
                         policy_source = "learned_model"
             except Exception as exc:
-                logger.debug("[InteractionPolicy] Learned model inference failed: %s", exc)
+                logger.debug(
+                    "[InteractionPolicy] Learned model inference failed: %s", exc
+                )
 
         # ── 3. Log this turn's policy decision ───────────────────────────────
         if _TURN_LOGGER_AVAILABLE:
             try:
                 _top_k_entries = [
-                    TopKEntry(intent=e.get("intent", ""), score=float(e.get("score", 0.0)))
+                    TopKEntry(
+                        intent=e.get("intent", ""), score=float(e.get("score", 0.0))
+                    )
                     for e in (top_k or [])
                 ]
                 entry = TurnEntry(
@@ -201,6 +215,7 @@ class InteractionPolicy:
         """Check feature flag 'policy_learned_model' if available."""
         try:
             from ai.core.feature_flags import get_feature_flags
+
             return get_feature_flags().is_enabled("policy_learned_model")
         except Exception:
             return False

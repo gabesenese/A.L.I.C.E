@@ -6,7 +6,6 @@ Tracks relationships between entities mentioned in conversations
 import json
 import logging
 import re
-import sqlite3
 from datetime import datetime
 from typing import Dict, List, Set, Tuple, Optional, Any
 from dataclasses import dataclass, asdict
@@ -437,7 +436,6 @@ class EntityRelationshipTracker:
                             and target
                             not in ["the", "and", "or", "but", "my", "his", "her"]
                         ):
-
                             relationship = EntityRelationship(
                                 source_entity=source,
                                 target_entity=target,

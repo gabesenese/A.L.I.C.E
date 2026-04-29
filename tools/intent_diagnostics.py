@@ -26,10 +26,11 @@ import json
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def _load_corrections(path: Path) -> List[dict]:
     """Load JSONL correction records. Each line is one override event."""
@@ -80,8 +81,8 @@ def _precision_recall(matrix: Dict[str, Dict[str, int]]) -> Dict[str, dict]:
             if predicted == actual:
                 tp[predicted] += count
             else:
-                fp[predicted] += count   # NLP said predicted, real was actual
-                fn[actual] += count       # NLP missed real intent=actual
+                fp[predicted] += count  # NLP said predicted, real was actual
+                fn[actual] += count  # NLP missed real intent=actual
 
     all_intents = set(tp.keys()) | set(fp.keys()) | set(fn.keys())
     stats: Dict[str, dict] = {}
@@ -90,10 +91,12 @@ def _precision_recall(matrix: Dict[str, Dict[str, int]]) -> Dict[str, dict]:
         _fp = fp[intent]
         _fn = fn[intent]
         prec = _tp / (_tp + _fp) if (_tp + _fp) > 0 else 0.0
-        rec  = _tp / (_tp + _fn) if (_tp + _fn) > 0 else 0.0
-        f1   = (2 * prec * rec / (prec + rec)) if (prec + rec) > 0 else 0.0
+        rec = _tp / (_tp + _fn) if (_tp + _fn) > 0 else 0.0
+        f1 = (2 * prec * rec / (prec + rec)) if (prec + rec) > 0 else 0.0
         stats[intent] = {
-            "tp": _tp, "fp": _fp, "fn": _fn,
+            "tp": _tp,
+            "fp": _fp,
+            "fn": _fn,
             "precision": round(prec, 3),
             "recall": round(rec, 3),
             "f1": round(f1, 3),
@@ -106,9 +109,7 @@ def _write_confusion_csv(
     matrix: Dict[str, Dict[str, int]],
     out_path: Path,
 ) -> None:
-    all_intents = sorted(
-        set(matrix.keys()) | {a for v in matrix.values() for a in v}
-    )
+    all_intents = sorted(set(matrix.keys()) | {a for v in matrix.values() for a in v})
     with out_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
         writer.writerow(["predicted \\ actual"] + all_intents)
@@ -145,6 +146,7 @@ def _warm_up_router(records: List[dict]) -> None:
     """
     try:
         from ai.core.intent_classifier import get_bayesian_router
+
         router = get_bayesian_router()
         warmed = 0
         for r in records:
@@ -153,14 +155,19 @@ def _warm_up_router(records: List[dict]) -> None:
             conf = float(r.get("original_confidence") or r.get("confidence") or 0.5)
             if original and corrected:
                 was_correct = original == corrected
-                router.record_outcome(original, was_correct=was_correct, confidence=conf)
+                router.record_outcome(
+                    original, was_correct=was_correct, confidence=conf
+                )
                 warmed += 1
-        print(f"[warm-up] Seeded BayesianIntentRouter with {warmed} historical records.")
+        print(
+            f"[warm-up] Seeded BayesianIntentRouter with {warmed} historical records."
+        )
     except Exception as exc:
         print(f"[warm-up] Router warm-up skipped: {exc}")
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -198,7 +205,7 @@ def main() -> None:
         sys.exit(0)
 
     matrix = _build_confusion(records)
-    stats  = _precision_recall(matrix)
+    stats = _precision_recall(matrix)
 
     if args.output:
         out_path = Path(args.output)
@@ -208,6 +215,7 @@ def main() -> None:
         print(f"Report written to {out_path}")
     else:
         import io
+
         buf = io.StringIO()
         _write_markdown_report(stats, len(records), buf)
         print(buf.getvalue())

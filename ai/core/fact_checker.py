@@ -5,7 +5,6 @@ Validates factual claims before Alice makes them.
 Prevents hallucination by verifying claims against actual data.
 """
 
-import re
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 import logging

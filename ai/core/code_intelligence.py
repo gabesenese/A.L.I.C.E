@@ -6,10 +6,7 @@ Provides Alice with sophisticated code comprehension capabilities.
 """
 
 import ast
-import re
-from typing import Dict, List, Any, Optional, Tuple, Set
-from pathlib import Path
-from collections import defaultdict
+from typing import Dict, List, Any
 import logging
 
 logger = logging.getLogger(__name__)

@@ -6,7 +6,7 @@ Adapts communication style to match each user's preferences
 
 import logging
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
 from collections import defaultdict
 from pathlib import Path

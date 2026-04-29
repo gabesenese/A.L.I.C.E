@@ -49,13 +49,15 @@ class StatefulCounterPlugin(PluginInterface):
 
             # Load previous state
             if self.state_file.exists():
-                with open(self.state_file, 'r', encoding='utf-8') as f:
+                with open(self.state_file, "r", encoding="utf-8") as f:
                     state_data = json.load(f)
 
-                self.total_count = state_data.get('total_count', 0)
-                self.history = state_data.get('history', [])
+                self.total_count = state_data.get("total_count", 0)
+                self.history = state_data.get("history", [])
 
-                logger.info(f"{self.name} loaded state: {self.total_count} total interactions")
+                logger.info(
+                    f"{self.name} loaded state: {self.total_count} total interactions"
+                )
             else:
                 logger.info(f"{self.name} starting fresh (no saved state)")
 
@@ -77,7 +79,9 @@ class StatefulCounterPlugin(PluginInterface):
 
         return False
 
-    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
+    def execute(
+        self, intent: str, query: str, entities: Dict, context: Dict
+    ) -> Dict[str, Any]:
         """
         Execute plugin functionality with state updates.
         """
@@ -96,11 +100,13 @@ class StatefulCounterPlugin(PluginInterface):
                 self.session_count += 1
 
                 # Add to history
-                self.history.append({
-                    "timestamp": datetime.now().isoformat(),
-                    "query": query,
-                    "count": self.total_count
-                })
+                self.history.append(
+                    {
+                        "timestamp": datetime.now().isoformat(),
+                        "query": query,
+                        "count": self.total_count,
+                    }
+                )
 
                 # Keep only last 100 entries
                 if len(self.history) > 100:
@@ -114,9 +120,9 @@ class StatefulCounterPlugin(PluginInterface):
                     "action": "increment_count",
                     "data": {
                         "total_count": self.total_count,
-                        "session_count": self.session_count
+                        "session_count": self.session_count,
                     },
-                    "formulate": True
+                    "formulate": True,
                 }
 
             else:  # get_stats
@@ -127,10 +133,14 @@ class StatefulCounterPlugin(PluginInterface):
                         "total_count": self.total_count,
                         "session_count": self.session_count,
                         "history_size": len(self.history),
-                        "first_use": self.history[0]["timestamp"] if self.history else None,
-                        "last_use": self.history[-1]["timestamp"] if self.history else None
+                        "first_use": self.history[0]["timestamp"]
+                        if self.history
+                        else None,
+                        "last_use": self.history[-1]["timestamp"]
+                        if self.history
+                        else None,
                     },
-                    "formulate": True
+                    "formulate": True,
                 }
 
         except Exception as e:
@@ -139,7 +149,7 @@ class StatefulCounterPlugin(PluginInterface):
                 "success": False,
                 "action": intent,
                 "data": {},
-                "response": f"Error: {str(e)}"
+                "response": f"Error: {str(e)}",
             }
 
     def _save_state(self) -> None:
@@ -147,12 +157,9 @@ class StatefulCounterPlugin(PluginInterface):
         Persist state to disk.
         """
         try:
-            state_data = {
-                "total_count": self.total_count,
-                "history": self.history
-            }
+            state_data = {"total_count": self.total_count, "history": self.history}
 
-            with open(self.state_file, 'w', encoding='utf-8') as f:
+            with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(state_data, f, indent=2, ensure_ascii=False)
 
             logger.debug(f"{self.name} state saved")
@@ -186,19 +193,13 @@ if __name__ == "__main__":
         # Simulate interactions
         for i in range(3):
             result = plugin.execute(
-                intent="count",
-                query=f"count this {i}",
-                entities={},
-                context={}
+                intent="count", query=f"count this {i}", entities={}, context={}
             )
-            print(f" Execution {i+1}: {result['data']}")
+            print(f" Execution {i + 1}: {result['data']}")
 
         # Get stats
         stats = plugin.execute(
-            intent="stats",
-            query="show stats",
-            entities={},
-            context={}
+            intent="stats", query="show stats", entities={}, context={}
         )
         print(f" Stats: {stats['data']}")
 

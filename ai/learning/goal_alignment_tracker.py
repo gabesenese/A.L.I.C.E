@@ -7,7 +7,7 @@ Collects implicit and explicit feedback to improve routing/quality metrics.
 
 import logging
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
@@ -167,7 +167,7 @@ class GoalAlignmentTracker:
             entry.was_helpful = False
             entry.feedback_confidence = 0.7
             self.alignment_stats["implicit_signal_count"] += 1
-            logger.info(f"[Alignment] Inferred: User repeated question → NOT HELPFUL")
+            logger.info("[Alignment] Inferred: User repeated question → NOT HELPFUL")
 
         elif is_followup:
             entry.feedback_signal = FeedbackSignal.IMPLICIT_FOLLOWUP
@@ -175,14 +175,14 @@ class GoalAlignmentTracker:
             entry.feedback_confidence = 0.6
             self.alignment_stats["implicit_signal_count"] += 1
             self.alignment_stats["helpful_count"] += 1
-            logger.info(f"[Alignment] Inferred: User asked followup → HELPFUL")
+            logger.info("[Alignment] Inferred: User asked followup → HELPFUL")
 
         elif is_abandon:
             entry.feedback_signal = FeedbackSignal.IMPLICIT_ABANDON
             entry.was_helpful = False
             entry.feedback_confidence = 0.5
             self.alignment_stats["implicit_signal_count"] += 1
-            logger.info(f"[Alignment] Inferred: User abandoned topic → NOT HELPFUL")
+            logger.info("[Alignment] Inferred: User abandoned topic → NOT HELPFUL")
 
     def _is_repeat_question(self, last_input: str, new_input: str) -> bool:
         """Detect if user is repeating essentially the same question."""

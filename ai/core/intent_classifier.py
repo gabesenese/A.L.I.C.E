@@ -84,9 +84,9 @@ class QueryCache:
         """
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
-        self.cache: Dict[str, Tuple[Dict, float]] = (
-            {}
-        )  # query_hash -> (result, timestamp)
+        self.cache: Dict[
+            str, Tuple[Dict, float]
+        ] = {}  # query_hash -> (result, timestamp)
         self.access_order = deque()  # LRU tracking
         self.lock = threading.Lock()
         self.hits = 0
@@ -307,9 +307,7 @@ class SemanticIntentClassifier:
 
         # Statistics
         self.total_queries = 0
-        self.low_confidence_queries = (
-            []
-        )  # Track queries with low confidence for learning
+        self.low_confidence_queries = []  # Track queries with low confidence for learning
 
         # Initialize the model
         self._load_model()
@@ -366,9 +364,10 @@ class SemanticIntentClassifier:
                 logging.getLogger("paddlenlp.transformers").setLevel(logging.ERROR)
                 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
-                with contextlib.redirect_stdout(
-                    io.StringIO()
-                ), contextlib.redirect_stderr(io.StringIO()):
+                with (
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
                     self.model = SentenceTransformer(
                         self.model_name,
                         device="cpu",  # Explicitly use CPU to avoid GPU issues
@@ -653,7 +652,9 @@ class SemanticIntentClassifier:
             centroid = vecs.mean(axis=0).astype(np.float32)
             norm = np.linalg.norm(centroid)
             self.intent_centroids[key] = centroid / norm if norm > 1e-9 else centroid
-        logger.debug("[Centroids] Built %d intent prototype vectors", len(self.intent_centroids))
+        logger.debug(
+            "[Centroids] Built %d intent prototype vectors", len(self.intent_centroids)
+        )
 
     def _build_intent_hierarchy(self):
         """Build hierarchical intent structure"""
@@ -1005,7 +1006,10 @@ class IntentCostMatrix:
         self._overrides[key] = round(min(2.0, max(0.1, new_val)), 3)
         logger.debug(
             "[CostMatrix] (%s \u2192 %s): %.3f \u2192 %.3f",
-            original_intent, corrected_intent, current, self._overrides[key],
+            original_intent,
+            corrected_intent,
+            current,
+            self._overrides[key],
         )
 
 
@@ -1151,9 +1155,7 @@ class BayesianIntentRouter:
             except Exception:
                 pass
 
-    def drain_for_cost_update(
-        self, error_log_path: str, max_entries: int = 100
-    ) -> int:
+    def drain_for_cost_update(self, error_log_path: str, max_entries: int = 100) -> int:
         """Read recent JSONL error-log entries and update the cost matrix via EMA.
 
         Expected JSONL format per line:
@@ -1243,7 +1245,7 @@ if __name__ == "__main__":
             print()
         else:
             print(f"Query: '{query}'")
-            print(f"  -> No match found")
+            print("  -> No match found")
             print()
 
     # Show statistics

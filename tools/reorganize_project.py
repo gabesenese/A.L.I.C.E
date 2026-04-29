@@ -9,7 +9,6 @@ executing file moves.
 """
 
 import argparse
-import os
 import shutil
 from pathlib import Path
 
@@ -29,7 +28,6 @@ REORGANIZATION = {
         "ai/knowledge_engine.py",
         "ai/reasoning_engine.py",
     ],
-
     # Learning Systems - How Alice improves
     "ai/learning/": [
         "ai/learning_engine.py",
@@ -40,7 +38,6 @@ REORGANIZATION = {
         "ai/active_learning_manager.py",
         "ai/self_reflection.py",
     ],
-
     # Memory & Context - Alice's recall
     "ai/memory/": [
         "ai/memory_system.py",
@@ -51,7 +48,6 @@ REORGANIZATION = {
         "ai/predictive_prefetcher.py",
         "ai/conversation_summarizer.py",
     ],
-
     # Plugins - External capabilities
     "ai/plugins/": [
         "ai/plugin_system.py",
@@ -64,7 +60,6 @@ REORGANIZATION = {
         "ai/music_plugin.py",
         "ai/notes_plugin.py",
     ],
-
     # Training & Quality - Make Alice better
     "ai/training/": [
         "ai/ollama_teacher.py",
@@ -78,7 +73,6 @@ REORGANIZATION = {
         "ai/scenario_runner.py",
         "ai/synthetic_corpus_generator.py",
     ],
-
     # Optimization & Monitoring
     "ai/optimization/": [
         "ai/autonomous_adjuster.py",
@@ -88,7 +82,6 @@ REORGANIZATION = {
         "ai/runtime_thresholds.py",
         "ai/system_monitor.py",
     ],
-
     # Goals & Planning
     "ai/planning/": [
         "ai/goal_tracker.py",
@@ -98,7 +91,6 @@ REORGANIZATION = {
         "ai/plan_executor.py",
         "ai/proactive_assistant.py",
     ],
-
     # Infrastructure
     "ai/infrastructure/": [
         "ai/event_bus.py",
@@ -110,7 +102,6 @@ REORGANIZATION = {
         "ai/system_state.py",
         "ai/policy.py",
     ],
-
     # Data models & utilities
     "ai/models/": [
         "ai/ml_models.py",
@@ -118,7 +109,6 @@ REORGANIZATION = {
         "ai/simple_formatters.py",
         "ai/entity_relationship_tracker.py",
     ],
-
     # Tests - all testing
     "tests/": [
         "test_alice_knowledge.py",
@@ -132,24 +122,20 @@ REORGANIZATION = {
         "tests/test_weather_followup.py",
         "ai/test_audit_cycle.py",
     ],
-
     # Tools - development & maintenance
     "tools/auditing/": [
         "tools/training_data_auditor.py",
     ],
-
     "tools/debugging/": [
         "tools/debug_import.py",
         "tools/debug_patterns.py",
         "tools/check_training_data.py",
     ],
-
     "tools/monitoring/": [
         "tools/monitoring/monitor_training.py",
         "tools/monitoring/monitor_audit_progress.py",
         "tools/monitoring/monitor_live.py",
     ],
-
     # Scripts - automation
     "scripts/automation/": [
         "scripts/automation/automated_training.py",
@@ -158,26 +144,22 @@ REORGANIZATION = {
         "scripts/automation/start_automation.py",
         "scripts/automation/nightly_audit_scheduler.py",
     ],
-
     "scripts/training/": [
         "scripts/training/run_learning_cycle.py",
         "scripts/training/run_scenarios_and_train.py",
         "scripts/training/simple_learning.py",
         "scripts/training/run_and_report_scenarios.py",
     ],
-
     "scripts/testing/": [
         "scripts/testing/test_audit_components.py",
         "scripts/testing/test_audit_pipeline.py",
         "scripts/testing/test_automation.py",
     ],
-
     "scripts/utilities/": [
         "scripts/utilities/count_scenarios.py",
         "scripts/utilities/deprecate_modules.py",
         "ai/promote_patterns.py",
     ],
-
     # Keep in place (already organized or special)
     "_keep_in_place": [
         "app/main.py",
@@ -191,7 +173,6 @@ REORGANIZATION = {
         "features/personal_events.py",
         "features/welcome.py",
     ],
-
     # Deprecated - move to archive or delete
     "_deprecated": [
         "ai/lab_simulator.py",  # Old testing
@@ -202,7 +183,7 @@ REORGANIZATION = {
         "app/example_events.py",  # Example file
         "generate_scenarios.py",  # Duplicate functionality
         "reports/assessment_report.py",  # Old report
-    ]
+    ],
 }
 
 
@@ -284,7 +265,9 @@ def execute_reorganization(dry_run=True, min_existing_ratio: float = 0.60):
         return True
 
     if not healthy:
-        print("\n[BLOCKED] Reorganization map appears stale for current repository state.")
+        print(
+            "\n[BLOCKED] Reorganization map appears stale for current repository state."
+        )
         print(
             f"[BLOCKED] Existing ratio {stats['existing_ratio']:.1%} is below "
             f"required {min_existing_ratio:.1%}."
@@ -337,7 +320,9 @@ def execute_reorganization(dry_run=True, min_existing_ratio: float = 0.60):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Quarantined project reorganization tool")
+    parser = argparse.ArgumentParser(
+        description="Quarantined project reorganization tool"
+    )
     parser.add_argument("--execute", action="store_true", help="Actually move files")
     parser.add_argument(
         "--acknowledge-quarantine",

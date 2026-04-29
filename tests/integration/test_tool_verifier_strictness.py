@@ -99,7 +99,10 @@ def test_verifier_rejects_execution_context_mismatch():
             "response": "done",
             "data": {"notes": [{"title": "A"}], "count": 1},
         },
-        execution_context={"expected_plugin": "WeatherPlugin", "expected_action": "get_current"},
+        execution_context={
+            "expected_plugin": "WeatherPlugin",
+            "expected_action": "get_current",
+        },
     )
     assert res.accepted is False
     assert any("execution expectation" in issue for issue in res.issues)

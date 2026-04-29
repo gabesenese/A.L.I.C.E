@@ -46,7 +46,9 @@ class TestGoalCancellationGuardrails:
             )
         )
 
-        result = engine.resolve_goal("never mind, how are you today?", "status_inquiry", {})
+        result = engine.resolve_goal(
+            "never mind, how are you today?", "status_inquiry", {}
+        )
 
         assert result.cancelled is False
         assert result.intent == "status_inquiry"

@@ -23,6 +23,7 @@ def pytest_configure(config):
     logging.getLogger("torch._subclasses.fake_tensor").setLevel(logging.CRITICAL)
     try:
         from torch._subclasses import fake_tensor
+
         atexit.unregister(fake_tensor.dump_cache_stats)
     except Exception:
         pass

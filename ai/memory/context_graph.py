@@ -8,11 +8,11 @@ import logging
 import json
 import time
 from typing import Dict, List, Optional, Set, Any, Tuple, Callable
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 from collections import defaultdict, deque
 import threading
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 import hashlib
 
 logger = logging.getLogger(__name__)
@@ -118,9 +118,9 @@ class ContextGraph:
 
         # Core graph structures
         self.entities: Dict[str, Entity] = {}
-        self.relationships: Dict[Tuple[str, str, str], Relationship] = (
-            {}
-        )  # (source, target, type) -> relationship
+        self.relationships: Dict[
+            Tuple[str, str, str], Relationship
+        ] = {}  # (source, target, type) -> relationship
 
         # Conversation history (chronological)
         self.conversation_history: deque = deque(maxlen=100)

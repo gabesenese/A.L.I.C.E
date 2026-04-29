@@ -8,7 +8,6 @@ Or call from within ALICE via the /analyze-learning command.
 """
 
 import json
-import re
 import logging
 from pathlib import Path
 from collections import defaultdict, Counter
@@ -78,11 +77,11 @@ class LearningInsights:
             )
 
         lines = [
-            f"{'='*70}",
+            f"{'=' * 70}",
             "  A.L.I.C.E  ·  Learning Insights Report",
             f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
             f"  Issues analysed: {len(self._issues)} (last {self.lookback_days} days)",
-            f"{'='*70}",
+            f"{'=' * 70}",
             "",
         ]
 
@@ -196,7 +195,7 @@ class LearningInsights:
         for issue_type, count in by_type.most_common():
             lines.append(f"  {issue_type:<40} {count:>4}")
         lines.append("")
-        lines.append(f"{'='*70}")
+        lines.append(f"{'=' * 70}")
 
         return "\n".join(lines)
 

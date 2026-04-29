@@ -507,7 +507,9 @@ class ResponseFormulator:
 
         user_input = str(context.get("user_input") or "").strip()
         domain = str(payload.get("domain") or "current events").strip()
-        source_requirement = str(payload.get("source_requirement") or "live sources").strip()
+        source_requirement = str(
+            payload.get("source_requirement") or "live sources"
+        ).strip()
         blocked_source = str(payload.get("blocked_source") or "model memory").strip()
         search_dimensions = [
             str(item).strip()
@@ -519,7 +521,11 @@ class ResponseFormulator:
 
         dimensions = ", ".join(search_dimensions[:-1])
         if len(search_dimensions) > 1:
-            dimensions = f"{dimensions}, or {search_dimensions[-1]}" if dimensions else search_dimensions[-1]
+            dimensions = (
+                f"{dimensions}, or {search_dimensions[-1]}"
+                if dimensions
+                else search_dimensions[-1]
+            )
         else:
             dimensions = search_dimensions[0]
 
@@ -538,7 +544,9 @@ class ResponseFormulator:
                 f"from {blocked_source}; narrow it by {dimensions} and I can fetch current context."
             ),
         ]
-        index_basis = sum(ord(ch) for ch in user_input.lower()) if user_input else len(domain)
+        index_basis = (
+            sum(ord(ch) for ch in user_input.lower()) if user_input else len(domain)
+        )
         seed = variants[index_basis % len(variants)]
         return self._dynamic_phrase(seed, tone="careful and concise")
 

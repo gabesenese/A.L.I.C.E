@@ -31,10 +31,7 @@ class TestLearningCycle:
 
     def test_learning_progression_0_to_3_examples(self, learner):
         """Learning should progress: 0 examples -> can't phrase -> 3 examples -> can phrase"""
-        thought = {
-            "type": "reminder_created",
-            "data": {"reminder": "test"}
-        }
+        thought = {"type": "reminder_created", "data": {"reminder": "test"}}
 
         # Initially can't phrase
         assert learner.can_phrase_myself(thought, "warm") is False
@@ -43,7 +40,7 @@ class TestLearningCycle:
         learner.record_phrasing(
             alice_thought=thought,
             ollama_phrasing="Reminder set!",
-            context={'tone': 'warm'}
+            context={"tone": "warm"},
         )
         assert learner.can_phrase_myself(thought, "warm") is False
 
@@ -51,8 +48,8 @@ class TestLearningCycle:
         for i in range(2):
             learner.record_phrasing(
                 alice_thought=thought,
-                ollama_phrasing=f"Got it! Reminder created.",
-                context={'tone': 'warm'}
+                ollama_phrasing="Got it! Reminder created.",
+                context={"tone": "warm"},
             )
 
         # Now should be able to phrase
@@ -71,7 +68,7 @@ class TestLearningCycle:
             learner.record_phrasing(
                 alice_thought=thought,
                 ollama_phrasing="Test response",
-                context={'tone': 'warm'}
+                context={"tone": "warm"},
             )
 
         # Confidence should increase
@@ -98,7 +95,7 @@ class TestLearningCycle:
             learner.record_phrasing(
                 alice_thought=thought,
                 ollama_phrasing="Hey there!",
-                context={'tone': 'warm'}
+                context={"tone": "warm"},
             )
 
         # Can phrase with warm tone
@@ -115,14 +112,14 @@ class TestLearningCycle:
             learner.record_phrasing(
                 alice_thought=thought,
                 ollama_phrasing=f"Response {i}",
-                context={'tone': 'warm'}
+                context={"tone": "warm"},
             )
 
         stats = learner.get_stats()
 
-        assert stats['total_examples'] == 10
-        assert stats['total_patterns'] == 3  # 3 different action types
-        assert 'patterns' in stats
+        assert stats["total_examples"] == 10
+        assert stats["total_patterns"] == 3  # 3 different action types
+        assert "patterns" in stats
 
     def test_formulator_independence_increases_over_time(self, formulator):
         """Response formulator should become more independent with use"""
@@ -135,7 +132,7 @@ class TestLearningCycle:
                 data={"count": i},
                 success=True,
                 user_input=f"test {i}",
-                tone="warm"
+                tone="warm",
             )
 
             assert response is not None
@@ -146,7 +143,7 @@ class TestLearningCycle:
             data={"count": 99},
             success=True,
             user_input="test 99",
-            tone="warm"
+            tone="warm",
         )
 
         assert response is not None
@@ -156,7 +153,7 @@ class TestLearningCycle:
         thought_training = {
             "type": "capability_answer",
             "can_do": True,
-            "details": ["read files", "search code"]
+            "details": ["read files", "search code"],
         }
 
         # Train
@@ -164,14 +161,14 @@ class TestLearningCycle:
             learner.record_phrasing(
                 alice_thought=thought_training,
                 ollama_phrasing="Yes, I can read files and search code.",
-                context={'tone': 'warm'}
+                context={"tone": "warm"},
             )
 
         # New thought with different details
         thought_new = {
             "type": "capability_answer",
             "can_do": True,
-            "details": ["analyze data", "create charts"]
+            "details": ["analyze data", "create charts"],
         }
 
         # Should be able to phrase (same pattern)
@@ -195,14 +192,14 @@ class TestLearningCycle:
             learner1.record_phrasing(
                 alice_thought=thought,
                 ollama_phrasing="Persisted response",
-                context={'tone': 'warm'}
+                context={"tone": "warm"},
             )
         assert learner1.can_phrase_myself(thought, "warm") is True
 
         # Second instance: should load persisted data
         learner2 = PhrasingLearner(storage_path=storage)
         assert learner2.can_phrase_myself(thought, "warm") is True
-        assert learner2.get_stats()['total_examples'] == 3
+        assert learner2.get_stats()["total_examples"] == 3
 
     def test_weather_advice_phrasing_drops_user_name(self, learner):
         """Weather advice should not replay direct user-name addressing."""

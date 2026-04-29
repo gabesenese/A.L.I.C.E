@@ -15,13 +15,11 @@ import logging
 import math
 import pickle
 import importlib
-import io
-import contextlib
 import random
 import threading
 from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime, timezone
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 import numpy as np
 from pathlib import Path
 import hashlib
@@ -724,13 +722,17 @@ class MemorySystem:
             dt = datetime.fromisoformat(str(ts).rstrip("Z"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            age_hours = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0)
+            age_hours = max(
+                0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
+            )
             # Half-life-like decay: older memories still contribute but less.
             return math.exp(-0.035 * age_hours)
         except (ValueError, TypeError):
             return 0.5
 
-    def _estimate_confidence(self, entry: Optional[MemoryEntry], recall_row: Dict[str, Any]) -> float:
+    def _estimate_confidence(
+        self, entry: Optional[MemoryEntry], recall_row: Dict[str, Any]
+    ) -> float:
         """Estimate memory confidence from metadata with reasonable fallbacks."""
         if entry and isinstance(entry.context, dict):
             raw_conf = entry.context.get("confidence")
@@ -1365,7 +1367,7 @@ class MemorySystem:
         self._save_archived_memories(archived)
 
         logger.info(
-            f"[OK] Consolidated memories: kept {max_episodic} (avg importance: {sum(m.importance for m in self.episodic_memory)/len(self.episodic_memory):.2f}), archived {len(archived)}"
+            f"[OK] Consolidated memories: kept {max_episodic} (avg importance: {sum(m.importance for m in self.episodic_memory) / len(self.episodic_memory):.2f}), archived {len(archived)}"
         )
 
         # Save updated memories
@@ -1900,12 +1902,12 @@ if __name__ == "__main__":
                 )
 
         # Get RAG context
-        print(f"\nRAG Context for 'Python programming':")
+        print("\nRAG Context for 'Python programming':")
         context = memory.get_context_for_llm("Python programming", max_memories=3)
         print(context)
 
         # Statistics
-        print(f"\n Memory Statistics:")
+        print("\n Memory Statistics:")
         stats = memory.get_statistics()
         for key, value in stats.items():
             print(f"   {key}: {value}")

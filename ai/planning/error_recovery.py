@@ -8,7 +8,7 @@ Makes Alice resilient to failures and able to adapt to changing circumstances.
 import logging
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 
 logger = logging.getLogger(__name__)

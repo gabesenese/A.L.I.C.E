@@ -12,8 +12,19 @@ class TaskProfile:
 
 
 _CODE_KW = {
-    "code", "python", "bug", "debug", "stack trace", "traceback", "refactor",
-    "unit test", "pytest", "function", "class", "compile", "syntax",
+    "code",
+    "python",
+    "bug",
+    "debug",
+    "stack trace",
+    "traceback",
+    "refactor",
+    "unit test",
+    "pytest",
+    "function",
+    "class",
+    "compile",
+    "syntax",
 }
 _PLAN_KW = {"plan", "roadmap", "strategy", "architecture", "design", "steps"}
 _MULTI_KW = {" and ", " then ", " also ", " after that ", " plus "}

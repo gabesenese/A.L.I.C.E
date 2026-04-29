@@ -10,7 +10,6 @@ import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Set, Tuple
-import importlib
 import os
 from datetime import datetime
 
@@ -567,7 +566,11 @@ class WeatherPlugin(PluginInterface):
                 humidity = current.get("relative_humidity_2m")
                 wind = current.get("wind_speed_10m")
                 weather_code = current.get("weather_code")
-                condition = weather_codes.get(weather_code) if weather_code is not None else None
+                condition = (
+                    weather_codes.get(weather_code)
+                    if weather_code is not None
+                    else None
+                )
 
                 # If no usable data came back, treat as a no-data response
                 if temp is None and condition is None:
@@ -890,12 +893,6 @@ class SystemControlPlugin(PluginInterface):
             import json
 
             # Use PowerShell to get installed apps
-            powershell_cmd = """
-            Get-WmiObject -Class Win32_Product | 
-            Select-Object Name, InstallLocation | 
-            Where-Object {$_.Name -ne $null -and $_.InstallLocation -ne $null} |
-            ConvertTo-Json
-            """
 
             # Also get apps from Programs folder and Start Menu
             start_menu_cmd = """
@@ -1014,7 +1011,6 @@ class SystemControlPlugin(PluginInterface):
         if any(word in query_lower for word in ["open", "launch", "start"]) and not any(
             word in query_lower for word in ["volume", "brightness", "file"]
         ):
-
             # Extract app name - look for word after "open", "launch", "start"
             import re
 
@@ -1438,5 +1434,5 @@ if __name__ == "__main__":
             print(f"  Plugin: {result['plugin']}")
             print(f"  Response: {result['response']}")
         else:
-            print(f"  No plugin could handle this request")
+            print("  No plugin could handle this request")
         print()

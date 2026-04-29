@@ -12,7 +12,7 @@ Architecture:
 import json
 import logging
 import re
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict

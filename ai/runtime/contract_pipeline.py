@@ -125,12 +125,16 @@ class ContractPipeline:
             approval_reason="",
         )
 
-        return demoted_route_phase, demoted_policy, {
-            "applied": True,
-            "reason": reason,
-            "previous_intent": previous_intent,
-            "tool_execution_disabled": True,
-        }
+        return (
+            demoted_route_phase,
+            demoted_policy,
+            {
+                "applied": True,
+                "reason": reason,
+                "previous_intent": previous_intent,
+                "tool_execution_disabled": True,
+            },
+        )
 
     @staticmethod
     def _merge_issue_lists(*issue_lists: List[str]) -> List[str]:
@@ -179,7 +183,10 @@ class ContractPipeline:
             entities={
                 "topic": str(getattr(decision, "intent", "") or "").split(":", 1)[0],
                 "_intent_plausibility": float(
-                    max(0.0, min(1.0, float(getattr(decision, "confidence", 0.0) or 0.0)))
+                    max(
+                        0.0,
+                        min(1.0, float(getattr(decision, "confidence", 0.0) or 0.0)),
+                    )
                 ),
             },
             conversation_state={
@@ -219,7 +226,8 @@ class ContractPipeline:
         return self.executive_controller.run_turn_state_machine(
             state=state,
             decision=executive_decision,
-            has_explicit_action_cue=self._is_tool_route(route) and not approval_required,
+            has_explicit_action_cue=self._is_tool_route(route)
+            and not approval_required,
             has_active_goal=bool(metadata.get("active_goals")),
             pre_route_blocked=approval_required or route == "clarify",
             tool_vetoed=route == "refuse",
@@ -238,7 +246,9 @@ class ContractPipeline:
         route = str(getattr(decision, "route", "") or "").strip().lower()
         route_is_tool = self._is_tool_route(route)
         approval_required = bool(action_discipline.get("approval_required"))
-        tool_success = bool(route_is_tool and tool_result is not None and tool_result.success)
+        tool_success = bool(
+            route_is_tool and tool_result is not None and tool_result.success
+        )
 
         verification_payload = self._verification_to_dict(verification)
         verification_accepted = bool(verification_payload["accepted"])
@@ -258,7 +268,9 @@ class ContractPipeline:
         if route_is_tool and tool_result is not None and not tool_result.success:
             retryable = bool(
                 not action_discipline.get("retried")
-                and self.companion_runtime.policy_engine.is_transient_tool_error(tool_result)
+                and self.companion_runtime.policy_engine.is_transient_tool_error(
+                    tool_result
+                )
             )
 
         execution_report = self.execution_verifier.verify_task_result(
@@ -280,7 +292,9 @@ class ContractPipeline:
         verification_passed = bool(verification_accepted and execution_report.accepted)
         combined_issues = self._merge_issue_lists(
             execution_report.issues,
-            [] if verification_accepted else [str(verification_payload.get("reason") or "verification_failed")],
+            []
+            if verification_accepted
+            else [str(verification_payload.get("reason") or "verification_failed")],
         )
 
         if approval_required:
@@ -444,16 +458,20 @@ class ContractPipeline:
                     "resolved_input": resolved_input,
                     "policy_decision": policy.decision_type,
                     "policy_reason": policy.reason,
-                    "tool_execution_disabled": bool(route_veto.get("tool_execution_disabled")),
+                    "tool_execution_disabled": bool(
+                        route_veto.get("tool_execution_disabled")
+                    ),
                     "plan": plan,
                 },
             )
         )
 
-        execute_phase, action_discipline = self.companion_runtime.execute_with_discipline(
-            orchestrator=self.orchestrator,
-            route_phase=route_phase,
-            policy=policy,
+        execute_phase, action_discipline = (
+            self.companion_runtime.execute_with_discipline(
+                orchestrator=self.orchestrator,
+                route_phase=route_phase,
+                policy=policy,
+            )
         )
         action_discipline = dict(action_discipline or {})
         action_discipline["policy_decision"] = policy.decision_type
@@ -484,7 +502,9 @@ class ContractPipeline:
                         "schema_validation": str(
                             (tool_result.diagnostics or {}).get("stage") or "ok"
                         ),
-                        "attempt_count": int(action_discipline.get("attempt_count") or 1),
+                        "attempt_count": int(
+                            action_discipline.get("attempt_count") or 1
+                        ),
                         "retried": bool(action_discipline.get("retried")),
                     },
                 )
@@ -496,7 +516,9 @@ class ContractPipeline:
                     "skipped",
                     {
                         "route": decision.route,
-                        "attempt_count": int(action_discipline.get("attempt_count") or 0),
+                        "attempt_count": int(
+                            action_discipline.get("attempt_count") or 0
+                        ),
                         "retried": bool(action_discipline.get("retried")),
                     },
                 )
@@ -514,7 +536,9 @@ class ContractPipeline:
                 confidence=1.0,
                 diagnostics={
                     "policy_decision": policy.decision_type,
-                    "approval_reason": str(action_discipline.get("approval_reason") or ""),
+                    "approval_reason": str(
+                        action_discipline.get("approval_reason") or ""
+                    ),
                 },
             )
             stages.append(
@@ -548,7 +572,9 @@ class ContractPipeline:
             verification = verify_phase.verification
 
             if verification is None:
-                stages.append(self._stage("verify", "skipped", {"reason": "no_verifier"}))
+                stages.append(
+                    self._stage("verify", "skipped", {"reason": "no_verifier"})
+                )
             else:
                 stages.append(
                     self._stage(
@@ -569,7 +595,9 @@ class ContractPipeline:
             )
             respond_requires_follow_up = bool(respond_phase.requires_follow_up)
             respond_metadata = dict(respond_phase.metadata or {})
-            follow_up_question = str(respond_metadata.get("follow_up_question") or "").strip()
+            follow_up_question = str(
+                respond_metadata.get("follow_up_question") or ""
+            ).strip()
 
         if policy.decision_type in {"follow_up", "clarify"}:
             respond_requires_follow_up = True
@@ -593,9 +621,11 @@ class ContractPipeline:
             response_text=response_text,
             action_discipline=action_discipline,
         )
-        post_execution_state_machine = self.executive_controller.run_post_execution_state_machine(
-            pre_execution=turn_state_machine,
-            outcome=turn_execution_outcome,
+        post_execution_state_machine = (
+            self.executive_controller.run_post_execution_state_machine(
+                pre_execution=turn_state_machine,
+                outcome=turn_execution_outcome,
+            )
         )
 
         if not turn_execution_outcome.verification_passed:

@@ -13,11 +13,9 @@ This creates a self-improving loop: teacher feedback → adjustments → better 
 
 import json
 import logging
-import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 from datetime import datetime
-import hashlib
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)

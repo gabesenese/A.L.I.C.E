@@ -6,7 +6,6 @@ Handles memory consolidation and deduplication
 from ai.memory.memory_store import MemoryStore, MemoryEntry
 from ai.memory.embedding_manager import EmbeddingManager
 from ai.memory.persistence_manager import PersistenceManager
-from typing import List, Optional
 import numpy as np
 import logging
 
@@ -203,7 +202,7 @@ class ConsolidationEngine:
             if archived_memories:
                 self.persistence.save_archived_memories(archived_memories)
 
-            logger.info(f" Consolidation complete:")
+            logger.info(" Consolidation complete:")
             logger.info(f"   Kept: {len(to_keep)} memories")
             logger.info(f"   Archived: {len(archived_memories)} memories")
 

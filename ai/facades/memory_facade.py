@@ -3,7 +3,7 @@ Memory Facade for A.L.I.C.E
 Unified memory management interface
 """
 
-from ai.memory.memory_system import MemorySystem, get_memory_system
+from ai.memory.memory_system import get_memory_system
 from ai.memory.context_engine import get_context_engine
 from ai.memory.smart_context_cache import get_context_cache
 from ai.memory.adaptive_context_selector import get_context_selector

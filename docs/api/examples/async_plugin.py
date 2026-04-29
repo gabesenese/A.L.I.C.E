@@ -63,7 +63,9 @@ class AsyncAPIPlugin(PluginInterface):
 
         return False
 
-    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
+    def execute(
+        self, intent: str, query: str, entities: Dict, context: Dict
+    ) -> Dict[str, Any]:
         """
         Execute async operation.
 
@@ -90,7 +92,7 @@ class AsyncAPIPlugin(PluginInterface):
                 "success": False,
                 "action": intent,
                 "data": {},
-                "response": f"Operation timed out after {self.timeout} seconds"
+                "response": f"Operation timed out after {self.timeout} seconds",
             }
 
         except Exception as e:
@@ -99,29 +101,26 @@ class AsyncAPIPlugin(PluginInterface):
                 "success": False,
                 "action": intent,
                 "data": {},
-                "response": f"Error: {str(e)}"
+                "response": f"Error: {str(e)}",
             }
 
-    async def _async_execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
+    async def _async_execute(
+        self, intent: str, query: str, entities: Dict, context: Dict
+    ) -> Dict[str, Any]:
         """
         Actual async implementation.
         """
         try:
             # Simulate async API call with timeout
             data = await asyncio.wait_for(
-                self._fetch_data_async(query),
-                timeout=self.timeout
+                self._fetch_data_async(query), timeout=self.timeout
             )
 
             return {
                 "success": True,
                 "action": "async_fetch",
-                "data": {
-                    "result": data,
-                    "query": query,
-                    "async": True
-                },
-                "formulate": True
+                "data": {"result": data, "query": query, "async": True},
+                "formulate": True,
             }
 
         except asyncio.TimeoutError:
@@ -147,7 +146,7 @@ class AsyncAPIPlugin(PluginInterface):
         return {
             "query": query,
             "timestamp": asyncio.get_event_loop().time(),
-            "data": f"Fetched data for: {query}"
+            "data": f"Fetched data for: {query}",
         }
 
     async def _fetch_multiple_async(self, queries: list) -> list:
@@ -182,6 +181,7 @@ class AsyncAPIPlugin(PluginInterface):
 
 # Example usage
 if __name__ == "__main__":
+
     async def demo():
         """Demonstrate async plugin usage"""
         plugin = AsyncAPIPlugin()
@@ -191,10 +191,7 @@ if __name__ == "__main__":
 
             # Single async call
             result = plugin.execute(
-                intent="fetch",
-                query="test data",
-                entities={},
-                context={}
+                intent="fetch", query="test data", entities={}, context={}
             )
             print(f" Single fetch: {result['data']}")
 

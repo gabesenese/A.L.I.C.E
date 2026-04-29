@@ -8,7 +8,7 @@ from typing import Dict, Any, Callable, List, Optional
 import logging
 import re
 
-from .task_planner import ExecutionPlan, PlanStep, StepStatus, PlanStatus
+from .task_planner import ExecutionPlan, StepStatus, PlanStatus
 from ai.infrastructure.event_bus import get_event_bus, EventType, EventPriority
 from ai.infrastructure.system_state import get_state_tracker
 
@@ -295,7 +295,7 @@ class PlanExecutor:
         content = params.get("content", "")
         focus = params.get("focus", "")
 
-        prompt = f"Summarize the following content"
+        prompt = "Summarize the following content"
         if focus:
             prompt += f" focusing on {focus}"
         prompt += f":\n\n{content}"
@@ -307,7 +307,7 @@ class PlanExecutor:
         query = params.get("query", "")
         context = params.get("context", "")
 
-        prompt = f"Answer this question"
+        prompt = "Answer this question"
         if context:
             prompt += f" using the following context:\n\n{context}\n\nQuestion: {query}"
         else:
@@ -318,7 +318,7 @@ class PlanExecutor:
     def _execute_llm_draft(self, action: str, params: Dict[str, Any]) -> str:
         """Execute LLM email drafting"""
         subject = params.get("subject", "")
-        context = params.get("context", {})
+        params.get("context", {})
 
         prompt = f"Draft a professional email with subject: {subject}"
 

@@ -61,7 +61,9 @@ def test_turn_state_assembler_builds_goal_stack_and_continuation_state():
     assert goal_state.get("active_goal_count", 0) >= 2
     assert goal_state.get("priority_goal", {}).get("goal_id") == "g1"
     assert continuation.get("mode") == "clarification_followup"
-    assert continuation.get("parent_context", {}).get("parent_request") == "teach me nlp"
+    assert (
+        continuation.get("parent_context", {}).get("parent_request") == "teach me nlp"
+    )
 
 
 def test_turn_state_summary_includes_authoritative_sections():

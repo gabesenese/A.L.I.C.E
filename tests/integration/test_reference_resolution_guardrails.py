@@ -22,7 +22,9 @@ class TestReferenceResolutionGuardrails:
             )
         )
 
-        result = self.engine.resolve_references("can you summarize what this file is doing?")
+        result = self.engine.resolve_references(
+            "can you summarize what this file is doing?"
+        )
 
         assert "this" not in result.bindings
         assert result.resolved_input == "can you summarize what this file is doing?"

@@ -31,33 +31,33 @@ TRAINING_FILE = Path("data/training/training_data.jsonl")
 # For each intent: a short description Ollama uses to generate varied phrasings.
 # "generation" is deliberately excluded — it's the catch-all we want to reduce.
 INTENT_DESCRIPTIONS = {
-    "email:list":     "listing / checking emails (inbox, unread, new messages)",
-    "email:read":     "reading / opening a specific email",
-    "email:search":   "searching emails by sender, subject, or keyword",
-    "email:compose":  "composing / writing / sending a new email",
-    "email:delete":   "deleting / removing an email",
-    "email:reply":    "replying to an email",
-    "notes:create":   "creating / adding / writing a new note or memo",
-    "notes:list":     "listing / showing all notes",
-    "notes:read":     "reading / opening a specific note",
-    "notes:search":   "searching notes by keyword or title",
-    "notes:delete":   "deleting a note",
+    "email:list": "listing / checking emails (inbox, unread, new messages)",
+    "email:read": "reading / opening a specific email",
+    "email:search": "searching emails by sender, subject, or keyword",
+    "email:compose": "composing / writing / sending a new email",
+    "email:delete": "deleting / removing an email",
+    "email:reply": "replying to an email",
+    "notes:create": "creating / adding / writing a new note or memo",
+    "notes:list": "listing / showing all notes",
+    "notes:read": "reading / opening a specific note",
+    "notes:search": "searching notes by keyword or title",
+    "notes:delete": "deleting a note",
     "notes:query_exist": "checking whether a note exists (how many, does X note exist)",
-    "weather:current":   "asking about current weather conditions right now",
-    "weather:forecast":  "asking about future weather / forecast / tomorrow / this week",
-    "time:current":      "asking what time or date it is",
-    "system:status":     "asking about Alice's system health, status, or how she is doing",
-    "music:pause":       "pausing / stopping music that is playing",
-    "music:play":        "playing music, a song, an artist, or a playlist",
-    "music:skip":        "skipping to the next song / track",
-    "schedule_action":   "scheduling a reminder, alarm, or calendar event",
+    "weather:current": "asking about current weather conditions right now",
+    "weather:forecast": "asking about future weather / forecast / tomorrow / this week",
+    "time:current": "asking what time or date it is",
+    "system:status": "asking about Alice's system health, status, or how she is doing",
+    "music:pause": "pausing / stopping music that is playing",
+    "music:play": "playing music, a song, an artist, or a playlist",
+    "music:skip": "skipping to the next song / track",
+    "schedule_action": "scheduling a reminder, alarm, or calendar event",
     "file_operations:create": "creating a new file or directory",
     "file_operations:delete": "deleting a file or directory",
-    "file_operations:move":   "moving or renaming a file",
-    "code:request":           "asking to read, explain, or write code",
-    "conversation:help":      "asking for help or what Alice can do",
-    "vague_question":         "vague open-ended question that needs clarification",
-    "vague_request":          "vague open-ended request that needs clarification",
+    "file_operations:move": "moving or renaming a file",
+    "code:request": "asking to read, explain, or write code",
+    "conversation:help": "asking for help or what Alice can do",
+    "vague_question": "vague open-ended question that needs clarification",
+    "vague_request": "vague open-ended request that needs clarification",
 }
 
 # Target count per intent — intents with fewer examples than this will be filled
@@ -69,7 +69,12 @@ def _call_ollama(prompt: str, model: str = "llama3.1:8b", timeout: int = 60) -> 
     try:
         r = requests.post(
             "http://localhost:11434/api/generate",
-            json={"model": model, "prompt": prompt, "stream": False, "temperature": 0.9},
+            json={
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "temperature": 0.9,
+            },
             timeout=timeout,
         )
         if r.status_code == 200:
@@ -117,7 +122,12 @@ def _generate_examples(intent: str, description: str, count: int, model: str) ->
 
     lines = [l.strip().lstrip("•-*0123456789.) ") for l in raw.splitlines()]
     # Filter: must be at least 5 chars, not a header or meta line
-    results = [l for l in lines if len(l) >= 5 and not l.lower().startswith(("here are", "sure", "of course", "note:"))]
+    results = [
+        l
+        for l in lines
+        if len(l) >= 5
+        and not l.lower().startswith(("here are", "sure", "of course", "note:"))
+    ]
     return results[:count]
 
 
@@ -125,17 +135,19 @@ def _append_to_training_file(examples: list, intent: str, dry_run: bool = False)
     """Append examples to training_data.jsonl. Returns count written."""
     records = []
     for text in examples:
-        records.append({
-            "user_input": text,
-            "assistant_response": "",  # filled at runtime by Alice
-            "context": {"intent": intent},
-            "intent": intent,
-            "entities": {},
-            "timestamp": datetime.now().isoformat(),
-            "quality_score": 0.85,
-            "source": "synthetic_generated",
-            "feedback": None,
-        })
+        records.append(
+            {
+                "user_input": text,
+                "assistant_response": "",  # filled at runtime by Alice
+                "context": {"intent": intent},
+                "intent": intent,
+                "entities": {},
+                "timestamp": datetime.now().isoformat(),
+                "quality_score": 0.85,
+                "source": "synthetic_generated",
+                "feedback": None,
+            }
+        )
 
     if dry_run:
         for r in records[:5]:
@@ -160,9 +172,9 @@ def run(
 ):
     existing = _load_existing_counts()
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("INTENT EXAMPLE GENERATOR")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Training file: {TRAINING_FILE}")
     print(f"Min examples threshold: {min_examples}")
     print(f"Generate count per intent: {generate_count}")
@@ -206,31 +218,49 @@ def run(
         print(f"  OK: {written} examples {'previewed' if dry_run else 'written'}")
 
     print()
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     if dry_run:
         print(f"DRY RUN complete. Would have written ~{total_written} examples.")
     else:
         print(f"Done. Total examples written: {total_written}")
         new_counts = _load_existing_counts()
         print(f"New training_data.jsonl size: {sum(new_counts.values())} records")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate synthetic intent training examples")
-    parser.add_argument("--intent", nargs="+", help="Specific intent(s) to generate for")
-    parser.add_argument("--min-examples", type=int, default=DEFAULT_MIN_EXAMPLES,
-                        help=f"Fill intents that have fewer than this many examples (default: {DEFAULT_MIN_EXAMPLES})")
-    parser.add_argument("--count", type=int, default=DEFAULT_GENERATE_COUNT,
-                        help=f"How many examples to generate per intent (default: {DEFAULT_GENERATE_COUNT})")
+    parser = argparse.ArgumentParser(
+        description="Generate synthetic intent training examples"
+    )
+    parser.add_argument(
+        "--intent", nargs="+", help="Specific intent(s) to generate for"
+    )
+    parser.add_argument(
+        "--min-examples",
+        type=int,
+        default=DEFAULT_MIN_EXAMPLES,
+        help=f"Fill intents that have fewer than this many examples (default: {DEFAULT_MIN_EXAMPLES})",
+    )
+    parser.add_argument(
+        "--count",
+        type=int,
+        default=DEFAULT_GENERATE_COUNT,
+        help=f"How many examples to generate per intent (default: {DEFAULT_GENERATE_COUNT})",
+    )
     parser.add_argument("--model", default="llama3.1:8b", help="Ollama model to use")
-    parser.add_argument("--dry-run", action="store_true", help="Preview without writing")
-    parser.add_argument("--list", action="store_true", help="List current intent counts and exit")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Preview without writing"
+    )
+    parser.add_argument(
+        "--list", action="store_true", help="List current intent counts and exit"
+    )
     args = parser.parse_args()
 
     if args.list:
         counts = _load_existing_counts()
-        print(f"\nCurrent training examples per intent ({sum(counts.values())} total):\n")
+        print(
+            f"\nCurrent training examples per intent ({sum(counts.values())} total):\n"
+        )
         for intent, count in sorted(counts.items(), key=lambda x: x[1]):
             flag = "  <-- THIN" if count < DEFAULT_MIN_EXAMPLES else ""
             print(f"  {count:4d}  {intent}{flag}")

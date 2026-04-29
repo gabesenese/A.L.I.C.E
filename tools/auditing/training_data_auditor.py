@@ -12,7 +12,7 @@ import re
 import shutil
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -59,7 +59,7 @@ class TrainingDataAuditor:
             "ladie system",
             "ladie project",
             "knowledge graph",  # If Alice doesn't actually have one
-            "neural network",   # If not actually using one
+            "neural network",  # If not actually using one
         ]
 
         # Error indicators
@@ -70,7 +70,7 @@ class TrainingDataAuditor:
             "error occurred",
             "something went wrong",
             "try again",
-            "can't help with that"
+            "can't help with that",
         ]
 
     def audit_training_examples(self) -> Dict[str, Any]:
@@ -86,7 +86,7 @@ class TrainingDataAuditor:
         remove = []
         issues = defaultdict(int)
 
-        with open(training_file, 'r', encoding='utf-8') as f:
+        with open(training_file, "r", encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -105,55 +105,55 @@ class TrainingDataAuditor:
                         issues[reason] += 1
 
                 except json.JSONDecodeError:
-                    issues['invalid_json'] += 1
+                    issues["invalid_json"] += 1
                     continue
 
         return {
-            'total_examples': total,
-            'keep_count': len(keep),
-            'remove_count': len(remove),
-            'issues': dict(issues),
-            'quality_rate': len(keep) / total if total > 0 else 0,
-            'examples_to_keep': keep
+            "total_examples": total,
+            "keep_count": len(keep),
+            "remove_count": len(remove),
+            "issues": dict(issues),
+            "quality_rate": len(keep) / total if total > 0 else 0,
+            "examples_to_keep": keep,
         }
 
     def _should_keep_example(self, example: Dict[str, Any]) -> tuple[bool, str]:
         """Determine if training example should be kept"""
 
-        response = example.get('assistant_response', '')
-        user_input = example.get('user_input', '')
-        quality_score = example.get('quality_score', 0.5)
+        response = example.get("assistant_response", "")
+        user_input = example.get("user_input", "")
+        quality_score = example.get("quality_score", 0.5)
 
         # Check 1: Quality score too low
         if quality_score < self.min_quality_score:
-            return False, 'low_quality_score'
+            return False, "low_quality_score"
 
         # Check 2: Response too short or too long
         if len(response) < self.min_response_length:
-            return False, 'response_too_short'
+            return False, "response_too_short"
         if len(response) > self.max_response_length:
-            return False, 'response_too_long'
+            return False, "response_too_long"
 
         # Check 3: Contains error markers
         response_lower = response.lower()
         for marker in self.error_markers:
             if marker in response_lower:
-                return False, 'contains_error_marker'
+                return False, "contains_error_marker"
 
         # Check 4: Contains hallucination markers
         for marker in self.hallucination_markers:
             if marker in response_lower:
-                return False, 'hallucinated_content'
+                return False, "hallucinated_content"
 
         # Check 5: Empty or useless
         if not response.strip() or not user_input.strip():
-            return False, 'empty_content'
+            return False, "empty_content"
 
         # Check 6: Repetitive pattern (same response copied)
         if response.count(response[:20]) > 2:
-            return False, 'repetitive_content'
+            return False, "repetitive_content"
 
-        return True, 'passed'
+        return True, "passed"
 
     def clean_training_data(self, backup: bool = True):
         """Clean training data by removing low-quality examples"""
@@ -163,36 +163,42 @@ class TrainingDataAuditor:
         # Audit first
         audit_result = self.audit_training_examples()
 
-        if audit_result.get('status') == 'no_data':
+        if audit_result.get("status") == "no_data":
             logger.warning("No training data to clean")
             return audit_result
 
-        logger.info(f"Audit complete:")
+        logger.info("Audit complete:")
         logger.info(f"  Total: {audit_result['total_examples']}")
         logger.info(f"  Keep: {audit_result['keep_count']}")
         logger.info(f"  Remove: {audit_result['remove_count']}")
         logger.info(f"  Quality rate: {audit_result['quality_rate']:.1%}")
 
-        if audit_result['issues']:
+        if audit_result["issues"]:
             logger.info("  Issues found:")
-            for issue, count in sorted(audit_result['issues'].items(), key=lambda x: x[1], reverse=True):
+            for issue, count in sorted(
+                audit_result["issues"].items(), key=lambda x: x[1], reverse=True
+            ):
                 logger.info(f"    - {issue}: {count}")
 
         # Backup original
         if backup:
             training_file = self.training_dir / "training_data.jsonl"
-            backup_file = self.training_dir / f"training_data.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
+            backup_file = (
+                self.training_dir
+                / f"training_data.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
+            )
 
             if training_file.exists():
                 import shutil
+
                 shutil.copy(training_file, backup_file)
                 logger.info(f"Backup created: {backup_file}")
 
         # Write cleaned data
         training_file = self.training_dir / "training_data.jsonl"
-        with open(training_file, 'w', encoding='utf-8') as f:
-            for example in audit_result['examples_to_keep']:
-                f.write(json.dumps(example) + '\n')
+        with open(training_file, "w", encoding="utf-8") as f:
+            for example in audit_result["examples_to_keep"]:
+                f.write(json.dumps(example) + "\n")
 
         logger.info(f"Cleaned training data written to {training_file}")
 
@@ -205,24 +211,99 @@ class TrainingDataAuditor:
         if not entities_file.exists():
             return {"status": "no_data"}
 
-        with open(entities_file, 'r', encoding='utf-8') as f:
+        with open(entities_file, "r", encoding="utf-8") as f:
             entities = json.load(f)
 
         # Noise words that shouldn't be entities
         noise_words = {
-            'i', 'you', 'we', 'they', 'it', 'he', 'she',
-            'my', 'your', 'our', 'their', 'his', 'her',
-            'as', 'if', 'but', 'and', 'or', 'so', 'for',
-            'the', 'a', 'an', 'this', 'that', 'these', 'those',
-            'how', 'what', 'when', 'where', 'who', 'why',
-            'is', 'are', 'was', 'were', 'be', 'been', 'being',
-            'have', 'has', 'had', 'do', 'does', 'did',
-            'will', 'would', 'should', 'could', 'can', 'may', 'might',
-            'need', 'want', 'like', 'know', 'think', 'see', 'get',
-            'make', 'take', 'give', 'go', 'come', 'say', 'tell',
-            'let', 'nice', 'good', 'great', 'well', 'now', 'then',
-            'since', 'given', 'while', 'however', 'therefore', 'thus',
-            'to', 'from', 'in', 'on', 'at', 'by', 'with', 'about'
+            "i",
+            "you",
+            "we",
+            "they",
+            "it",
+            "he",
+            "she",
+            "my",
+            "your",
+            "our",
+            "their",
+            "his",
+            "her",
+            "as",
+            "if",
+            "but",
+            "and",
+            "or",
+            "so",
+            "for",
+            "the",
+            "a",
+            "an",
+            "this",
+            "that",
+            "these",
+            "those",
+            "how",
+            "what",
+            "when",
+            "where",
+            "who",
+            "why",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "should",
+            "could",
+            "can",
+            "may",
+            "might",
+            "need",
+            "want",
+            "like",
+            "know",
+            "think",
+            "see",
+            "get",
+            "make",
+            "take",
+            "give",
+            "go",
+            "come",
+            "say",
+            "tell",
+            "let",
+            "nice",
+            "good",
+            "great",
+            "well",
+            "now",
+            "then",
+            "since",
+            "given",
+            "while",
+            "however",
+            "therefore",
+            "thus",
+            "to",
+            "from",
+            "in",
+            "on",
+            "at",
+            "by",
+            "with",
+            "about",
         }
 
         keep = {}
@@ -237,22 +318,22 @@ class TrainingDataAuditor:
                 continue
 
             # Remove if very short and low confidence
-            if len(name) <= 2 and data['confidence'] < 0.8:
+            if len(name) <= 2 and data["confidence"] < 0.8:
                 remove[name] = data
                 continue
 
             # Remove if never mentioned (mention_count = 0)
-            if data['mention_count'] == 0:
+            if data["mention_count"] == 0:
                 remove[name] = data
                 continue
 
             keep[name] = data
 
         return {
-            'total_entities': len(entities),
-            'keep_count': len(keep),
-            'remove_count': len(remove),
-            'cleaned_entities': keep
+            "total_entities": len(entities),
+            "keep_count": len(keep),
+            "remove_count": len(remove),
+            "cleaned_entities": keep,
         }
 
     def clean_knowledge_entities(self, backup: bool = True):
@@ -262,11 +343,11 @@ class TrainingDataAuditor:
 
         audit_result = self.audit_knowledge_entities()
 
-        if audit_result.get('status') == 'no_data':
+        if audit_result.get("status") == "no_data":
             logger.warning("No knowledge data to clean")
             return audit_result
 
-        logger.info(f"Entity audit complete:")
+        logger.info("Entity audit complete:")
         logger.info(f"  Total: {audit_result['total_entities']}")
         logger.info(f"  Keep: {audit_result['keep_count']}")
         logger.info(f"  Remove: {audit_result['remove_count']}")
@@ -274,17 +355,21 @@ class TrainingDataAuditor:
         # Backup original
         if backup:
             entities_file = self.knowledge_dir / "entities.json"
-            backup_file = self.knowledge_dir / f"entities.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            backup_file = (
+                self.knowledge_dir
+                / f"entities.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            )
 
             if entities_file.exists():
                 import shutil
+
                 shutil.copy(entities_file, backup_file)
                 logger.info(f"Backup created: {backup_file}")
 
         # Write cleaned data
         entities_file = self.knowledge_dir / "entities.json"
-        with open(entities_file, 'w', encoding='utf-8') as f:
-            json.dump(audit_result['cleaned_entities'], f, indent=2)
+        with open(entities_file, "w", encoding="utf-8") as f:
+            json.dump(audit_result["cleaned_entities"], f, indent=2)
 
         logger.info(f"Cleaned entities written to {entities_file}")
 
@@ -303,13 +388,13 @@ class TrainingDataAuditor:
         # Clean training data
         print("1. Auditing training examples...")
         print("-" * 70)
-        results['training'] = self.clean_training_data(backup=True)
+        results["training"] = self.clean_training_data(backup=True)
         print()
 
         # Clean knowledge entities
         print("2. Auditing knowledge entities...")
         print("-" * 70)
-        results['entities'] = self.clean_knowledge_entities(backup=True)
+        results["entities"] = self.clean_knowledge_entities(backup=True)
         print()
 
         # Summary
@@ -317,16 +402,16 @@ class TrainingDataAuditor:
         print("AUDIT COMPLETE")
         print("=" * 70)
 
-        if results.get('training', {}).get('status') != 'no_data':
-            training = results['training']
-            print(f"Training Data:")
+        if results.get("training", {}).get("status") != "no_data":
+            training = results["training"]
+            print("Training Data:")
             print(f"  Removed: {training['remove_count']} low-quality examples")
             print(f"  Kept: {training['keep_count']} high-quality examples")
             print(f"  Quality: {training['quality_rate']:.1%}")
 
-        if results.get('entities', {}).get('status') != 'no_data':
-            entities = results['entities']
-            print(f"\nKnowledge Entities:")
+        if results.get("entities", {}).get("status") != "no_data":
+            entities = results["entities"]
+            print("\nKnowledge Entities:")
             print(f"  Removed: {entities['remove_count']} noise entities")
             print(f"  Kept: {entities['keep_count']} valid entities")
 
@@ -351,24 +436,111 @@ class LearningDataQAAuditor:
     SEVERITY_ORDER = {"info": 1, "warning": 2, "critical": 3}
 
     STOPWORDS = {
-        "a", "an", "and", "are", "as", "at", "be", "been", "being", "but",
-        "by", "can", "could", "did", "do", "does", "for", "from", "get", "go",
-        "had", "has", "have", "he", "her", "here", "hers", "him", "his", "how",
-        "i", "if", "in", "is", "it", "its", "know", "like", "make", "me",
-        "my", "need", "now", "of", "on", "or", "our", "say", "see", "she",
-        "so", "something", "tell", "that", "the", "their", "them", "then",
-        "there", "these", "they", "this", "those", "to", "us", "want", "was",
-        "we", "were", "what", "when", "where", "who", "why", "will", "with",
-        "would", "you", "your",
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "being",
+        "but",
+        "by",
+        "can",
+        "could",
+        "did",
+        "do",
+        "does",
+        "for",
+        "from",
+        "get",
+        "go",
+        "had",
+        "has",
+        "have",
+        "he",
+        "her",
+        "here",
+        "hers",
+        "him",
+        "his",
+        "how",
+        "i",
+        "if",
+        "in",
+        "is",
+        "it",
+        "its",
+        "know",
+        "like",
+        "make",
+        "me",
+        "my",
+        "need",
+        "now",
+        "of",
+        "on",
+        "or",
+        "our",
+        "say",
+        "see",
+        "she",
+        "so",
+        "something",
+        "tell",
+        "that",
+        "the",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "to",
+        "us",
+        "want",
+        "was",
+        "we",
+        "were",
+        "what",
+        "when",
+        "where",
+        "who",
+        "why",
+        "will",
+        "with",
+        "would",
+        "you",
+        "your",
     }
 
     DOMAIN_KEYWORDS = {
         "music": {"music", "song", "play", "pause", "stop", "track", "audio"},
-        "weather": {"weather", "forecast", "temperature", "rain", "snow", "umbrella", "coat", "jacket"},
+        "weather": {
+            "weather",
+            "forecast",
+            "temperature",
+            "rain",
+            "snow",
+            "umbrella",
+            "coat",
+            "jacket",
+        },
         "notes": {"note", "notes", "list", "write down", "archive"},
         "email": {"email", "mail", "inbox", "reply", "send", "compose"},
         "calendar": {"calendar", "meeting", "schedule", "appointment", "event"},
-        "file_operations": {"file", "folder", "directory", "open", "read", "write", "delete"},
+        "file_operations": {
+            "file",
+            "folder",
+            "directory",
+            "open",
+            "read",
+            "write",
+            "delete",
+        },
         "memory": {"remember", "recall", "forget", "memory", "preference"},
     }
 
@@ -458,11 +630,17 @@ class LearningDataQAAuditor:
                 continue
 
             if path.name == "learned_phrasings.jsonl":
-                summary = self._clean_learned_phrasings_file(path, locators, quarantine_root, backup, timestamp)
+                summary = self._clean_learned_phrasings_file(
+                    path, locators, quarantine_root, backup, timestamp
+                )
             elif path.name == "entities.json":
-                summary = self._clean_entities_file(path, locators, quarantine_root, backup, timestamp)
+                summary = self._clean_entities_file(
+                    path, locators, quarantine_root, backup, timestamp
+                )
             elif path.name == "relationships.json":
-                summary = self._clean_relationships_file(path, locators, quarantine_root, backup, timestamp)
+                summary = self._clean_relationships_file(
+                    path, locators, quarantine_root, backup, timestamp
+                )
             else:
                 summary = {
                     "path": relative_path,
@@ -541,7 +719,9 @@ class LearningDataQAAuditor:
     def _build_area_summaries(self) -> Dict[str, Dict[str, Any]]:
         summaries: Dict[str, Dict[str, Any]] = {}
         for area in self.AREAS:
-            area_findings = [finding for finding in self.findings if finding.area == area]
+            area_findings = [
+                finding for finding in self.findings if finding.area == area
+            ]
             summaries[area] = {
                 "total_findings": len(area_findings),
                 "severity_counts": dict(Counter(f.severity for f in area_findings)),
@@ -550,10 +730,14 @@ class LearningDataQAAuditor:
             }
         return summaries
 
-    def _build_group_summaries(self, area_summaries: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    def _build_group_summaries(
+        self, area_summaries: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
         group_summaries: Dict[str, Dict[str, Any]] = {}
         for group_name in sorted(set(self.AREA_GROUPS.values())):
-            group_areas = [area for area, group in self.AREA_GROUPS.items() if group == group_name]
+            group_areas = [
+                area for area, group in self.AREA_GROUPS.items() if group == group_name
+            ]
             severity_counts: Counter[str] = Counter()
             issue_counts: Counter[str] = Counter()
             total_findings = 0
@@ -590,7 +774,9 @@ class LearningDataQAAuditor:
         shutil.copy2(path, backup_path)
         return str(backup_path)
 
-    def _quarantine_output_path(self, path: Path, quarantine_root: Path, timestamp: str) -> Path:
+    def _quarantine_output_path(
+        self, path: Path, quarantine_root: Path, timestamp: str
+    ) -> Path:
         relative_parent = path.relative_to(self.root_dir).parent
         destination_dir = quarantine_root / relative_parent
         destination_dir.mkdir(parents=True, exist_ok=True)
@@ -667,7 +853,11 @@ class LearningDataQAAuditor:
                 "reason": "entities.json is not a JSON object.",
             }
 
-        flagged_keys = {locator.split(":", 1)[1] for locator in locators if locator.startswith("entity:")}
+        flagged_keys = {
+            locator.split(":", 1)[1]
+            for locator in locators
+            if locator.startswith("entity:")
+        }
         removed = {key: value for key, value in payload.items() if key in flagged_keys}
         kept = {key: value for key, value in payload.items() if key not in flagged_keys}
 
@@ -726,10 +916,15 @@ class LearningDataQAAuditor:
         flagged_indexes = {
             int(locator.split(":", 1)[1])
             for locator in locators
-            if locator.startswith("relationship:") and locator.split(":", 1)[1].isdigit()
+            if locator.startswith("relationship:")
+            and locator.split(":", 1)[1].isdigit()
         }
-        kept = [item for index, item in enumerate(payload) if index not in flagged_indexes]
-        removed = [item for index, item in enumerate(payload) if index in flagged_indexes]
+        kept = [
+            item for index, item in enumerate(payload) if index not in flagged_indexes
+        ]
+        removed = [
+            item for index, item in enumerate(payload) if index in flagged_indexes
+        ]
 
         summary = {
             "path": path.relative_to(self.root_dir).as_posix(),
@@ -792,7 +987,9 @@ class LearningDataQAAuditor:
         elif path.name == "patterns.json":
             self._audit_patterns(path, payload)
 
-    def _audit_learned_phrasing_entry(self, path: Path, line_no: int, entry: Dict[str, Any]) -> None:
+    def _audit_learned_phrasing_entry(
+        self, path: Path, line_no: int, entry: Dict[str, Any]
+    ) -> None:
         required = {
             "pattern": str,
             "alice_thought": dict,
@@ -803,7 +1000,9 @@ class LearningDataQAAuditor:
         }
         for key, expected_type in required.items():
             value = entry.get(key)
-            if not isinstance(value, expected_type) or (isinstance(value, str) and not value.strip()):
+            if not isinstance(value, expected_type) or (
+                isinstance(value, str) and not value.strip()
+            ):
                 self._add_finding(
                     "critical",
                     "missing_or_invalid_field",
@@ -866,7 +1065,9 @@ class LearningDataQAAuditor:
                 record_locator=f"line:{line_no}",
             )
 
-        if thought_type == "weather_advice" and self._contains_unwanted_personalization(phrasing):
+        if thought_type == "weather_advice" and self._contains_unwanted_personalization(
+            phrasing
+        ):
             self._add_finding(
                 "critical",
                 "weather_personalization_leak",
@@ -877,7 +1078,10 @@ class LearningDataQAAuditor:
                 record_locator=f"line:{line_no}",
             )
 
-        if thought_type in {"operation_success", "operation_failure"} and self._contains_placeholder_name(phrasing):
+        if thought_type in {
+            "operation_success",
+            "operation_failure",
+        } and self._contains_placeholder_name(phrasing):
             self._add_finding(
                 "warning",
                 "placeholder_user_name",
@@ -889,8 +1093,16 @@ class LearningDataQAAuditor:
             )
 
         if thought_type == "operation_success":
-            details = thought.get("details", {}) if isinstance(thought.get("details"), dict) else {}
-            if details.get("found") is False and details.get("count") == 0 and re.search(r"\bfound\b", phrasing, re.IGNORECASE):
+            details = (
+                thought.get("details", {})
+                if isinstance(thought.get("details"), dict)
+                else {}
+            )
+            if (
+                details.get("found") is False
+                and details.get("count") == 0
+                and re.search(r"\bfound\b", phrasing, re.IGNORECASE)
+            ):
                 self._add_finding(
                     "critical",
                     "contradictory_success_content",
@@ -911,7 +1123,9 @@ class LearningDataQAAuditor:
                     record_locator=f"line:{line_no}",
                 )
 
-        if thought_type == "operation_failure" and any(marker in phrasing.lower() for marker in self.SUCCESS_MARKERS):
+        if thought_type == "operation_failure" and any(
+            marker in phrasing.lower() for marker in self.SUCCESS_MARKERS
+        ):
             self._add_finding(
                 "warning",
                 "failure_success_tone_mismatch",
@@ -926,7 +1140,9 @@ class LearningDataQAAuditor:
             domain = thought_type.split(":", 1)[0].strip().lower()
             if domain in self.DOMAIN_KEYWORDS and user_input:
                 lowered_input = user_input.lower()
-                if not any(keyword in lowered_input for keyword in self.DOMAIN_KEYWORDS[domain]):
+                if not any(
+                    keyword in lowered_input for keyword in self.DOMAIN_KEYWORDS[domain]
+                ):
                     self._add_finding(
                         "critical",
                         "wrong_domain_learning",
@@ -939,12 +1155,22 @@ class LearningDataQAAuditor:
 
     def _audit_entities(self, path: Path, payload: Any) -> None:
         if not isinstance(payload, dict):
-            self._add_finding("critical", "invalid_entities_shape", path, "entities.json must contain a JSON object.")
+            self._add_finding(
+                "critical",
+                "invalid_entities_shape",
+                path,
+                "entities.json must contain a JSON object.",
+            )
             return
 
         for entity_key, entity in payload.items():
             if not isinstance(entity, dict):
-                self._add_finding("critical", "invalid_entity_record", path, f"Entity '{entity_key}' is not a JSON object.")
+                self._add_finding(
+                    "critical",
+                    "invalid_entity_record",
+                    path,
+                    f"Entity '{entity_key}' is not a JSON object.",
+                )
                 continue
 
             name = str(entity.get("name", entity_key))
@@ -952,32 +1178,89 @@ class LearningDataQAAuditor:
             mention_count = entity.get("mention_count")
 
             if name != entity_key:
-                self._add_finding("warning", "entity_key_name_mismatch", path, f"Entity key '{entity_key}' does not match stored name '{name}'.", sample=name, record_locator=f"entity:{entity_key}")
+                self._add_finding(
+                    "warning",
+                    "entity_key_name_mismatch",
+                    path,
+                    f"Entity key '{entity_key}' does not match stored name '{name}'.",
+                    sample=name,
+                    record_locator=f"entity:{entity_key}",
+                )
 
-            if not isinstance(confidence, (int, float)) or not 0.0 <= float(confidence) <= 1.0:
-                self._add_finding("critical", "invalid_entity_confidence", path, f"Entity '{name}' has invalid confidence: {confidence}.", sample=str(entity), record_locator=f"entity:{entity_key}")
+            if (
+                not isinstance(confidence, (int, float))
+                or not 0.0 <= float(confidence) <= 1.0
+            ):
+                self._add_finding(
+                    "critical",
+                    "invalid_entity_confidence",
+                    path,
+                    f"Entity '{name}' has invalid confidence: {confidence}.",
+                    sample=str(entity),
+                    record_locator=f"entity:{entity_key}",
+                )
 
             if not isinstance(mention_count, int) or mention_count < 0:
-                self._add_finding("critical", "invalid_entity_mention_count", path, f"Entity '{name}' has invalid mention_count: {mention_count}.", sample=str(entity), record_locator=f"entity:{entity_key}")
+                self._add_finding(
+                    "critical",
+                    "invalid_entity_mention_count",
+                    path,
+                    f"Entity '{name}' has invalid mention_count: {mention_count}.",
+                    sample=str(entity),
+                    record_locator=f"entity:{entity_key}",
+                )
 
             normalized = name.strip().lower()
             if normalized in self.STOPWORDS:
-                self._add_finding("warning", "noise_entity", path, f"Entity '{name}' looks like a stopword/noise capture.", sample=name, record_locator=f"entity:{entity_key}")
+                self._add_finding(
+                    "warning",
+                    "noise_entity",
+                    path,
+                    f"Entity '{name}' looks like a stopword/noise capture.",
+                    sample=name,
+                    record_locator=f"entity:{entity_key}",
+                )
 
             if "\n" in name or re.search(r"\n\d+$", name):
-                self._add_finding("critical", "entity_list_artifact", path, f"Entity '{name}' looks like a note-list extraction artifact.", sample=name, record_locator=f"entity:{entity_key}")
+                self._add_finding(
+                    "critical",
+                    "entity_list_artifact",
+                    path,
+                    f"Entity '{name}' looks like a note-list extraction artifact.",
+                    sample=name,
+                    record_locator=f"entity:{entity_key}",
+                )
 
             if re.fullmatch(r"something(?:\s+something){2,}", normalized):
-                self._add_finding("critical", "entity_repetition_artifact", path, f"Entity '{name}' looks like repeated placeholder text.", sample=name, record_locator=f"entity:{entity_key}")
+                self._add_finding(
+                    "critical",
+                    "entity_repetition_artifact",
+                    path,
+                    f"Entity '{name}' looks like repeated placeholder text.",
+                    sample=name,
+                    record_locator=f"entity:{entity_key}",
+                )
 
     def _audit_relationships(self, path: Path, payload: Any) -> None:
         if not isinstance(payload, list):
-            self._add_finding("critical", "invalid_relationships_shape", path, "relationships.json must contain a JSON array.")
+            self._add_finding(
+                "critical",
+                "invalid_relationships_shape",
+                path,
+                "relationships.json must contain a JSON array.",
+            )
             return
 
         for index, rel in enumerate(payload):
             if not isinstance(rel, dict):
-                self._add_finding("critical", "invalid_relationship_record", path, "Relationship record is not a JSON object.", sample=str(rel), record_locator=f"relationship:{index}")
+                self._add_finding(
+                    "critical",
+                    "invalid_relationship_record",
+                    path,
+                    "Relationship record is not a JSON object.",
+                    sample=str(rel),
+                    record_locator=f"relationship:{index}",
+                )
                 continue
 
             source_entity = str(rel.get("source_entity", ""))
@@ -985,26 +1268,69 @@ class LearningDataQAAuditor:
             confidence = rel.get("confidence")
             context = str(rel.get("context", ""))
 
-            if not isinstance(confidence, (int, float)) or not 0.0 <= float(confidence) <= 1.0:
-                self._add_finding("critical", "invalid_relationship_confidence", path, "Relationship has invalid confidence.", sample=str(rel), record_locator=f"relationship:{index}")
+            if (
+                not isinstance(confidence, (int, float))
+                or not 0.0 <= float(confidence) <= 1.0
+            ):
+                self._add_finding(
+                    "critical",
+                    "invalid_relationship_confidence",
+                    path,
+                    "Relationship has invalid confidence.",
+                    sample=str(rel),
+                    record_locator=f"relationship:{index}",
+                )
 
-            if any(name.strip().lower() in self.STOPWORDS for name in (source_entity, target_entity)):
-                self._add_finding("warning", "relationship_noise_entity", path, "Relationship references a noise-word entity.", sample=f"{source_entity} -> {target_entity}", record_locator=f"relationship:{index}")
+            if any(
+                name.strip().lower() in self.STOPWORDS
+                for name in (source_entity, target_entity)
+            ):
+                self._add_finding(
+                    "warning",
+                    "relationship_noise_entity",
+                    path,
+                    "Relationship references a noise-word entity.",
+                    sample=f"{source_entity} -> {target_entity}",
+                    record_locator=f"relationship:{index}",
+                )
 
             if "\n" in source_entity or "\n" in target_entity:
-                self._add_finding("critical", "relationship_list_artifact", path, "Relationship entity contains numbered-list or multiline extraction artifacts.", sample=f"{source_entity} -> {target_entity}", record_locator=f"relationship:{index}")
+                self._add_finding(
+                    "critical",
+                    "relationship_list_artifact",
+                    path,
+                    "Relationship entity contains numbered-list or multiline extraction artifacts.",
+                    sample=f"{source_entity} -> {target_entity}",
+                    record_locator=f"relationship:{index}",
+                )
 
             if "**you have" in context.lower() or "…and" in context:
-                self._add_finding("critical", "relationship_from_rendered_list", path, "Relationship appears to be extracted from rendered note-list output rather than real knowledge.", sample=context, record_locator=f"relationship:{index}")
+                self._add_finding(
+                    "critical",
+                    "relationship_from_rendered_list",
+                    path,
+                    "Relationship appears to be extracted from rendered note-list output rather than real knowledge.",
+                    sample=context,
+                    record_locator=f"relationship:{index}",
+                )
 
     def _audit_patterns(self, path: Path, payload: Any) -> None:
         if not isinstance(payload, dict):
-            self._add_finding("warning", "invalid_patterns_shape", path, "patterns.json is not a JSON object.")
+            self._add_finding(
+                "warning",
+                "invalid_patterns_shape",
+                path,
+                "patterns.json is not a JSON object.",
+            )
             return
         if not payload:
-            self._add_finding("warning", "empty_patterns_file", path, "patterns.json is empty.")
+            self._add_finding(
+                "warning", "empty_patterns_file", path, "patterns.json is empty."
+            )
 
-    def _extract_user_input(self, thought: Dict[str, Any], context: Dict[str, Any]) -> str:
+    def _extract_user_input(
+        self, thought: Dict[str, Any], context: Dict[str, Any]
+    ) -> str:
         if isinstance(context.get("user_input"), str) and context["user_input"].strip():
             return context["user_input"].strip()
         data = thought.get("data") if isinstance(thought.get("data"), dict) else {}
@@ -1056,7 +1382,9 @@ def _print_learning_qa_summary(report: Dict[str, Any]) -> None:
     issue_counts = report.get("issue_counts", {})
     if issue_counts:
         print("Top issues:")
-        for code, count in sorted(issue_counts.items(), key=lambda item: item[1], reverse=True)[:12]:
+        for code, count in sorted(
+            issue_counts.items(), key=lambda item: item[1], reverse=True
+        )[:12]:
             print(f"  - {code}: {count}")
 
     group_summaries = report.get("group_summaries", {})
@@ -1066,13 +1394,21 @@ def _print_learning_qa_summary(report: Dict[str, Any]) -> None:
             group_summary = group_summaries.get(group_name)
             if not group_summary:
                 continue
-            label = "Learned phrasings" if group_name == "learned_phrasings" else "Entities / relationships"
+            label = (
+                "Learned phrasings"
+                if group_name == "learned_phrasings"
+                else "Entities / relationships"
+            )
             print(f"  {label}: {group_summary['total_findings']} findings")
             for severity in ("critical", "warning", "info"):
                 count = group_summary.get("severity_counts", {}).get(severity)
                 if count:
                     print(f"    - {severity}: {count}")
-            top_codes = sorted(group_summary.get("issue_counts", {}).items(), key=lambda item: item[1], reverse=True)[:6]
+            top_codes = sorted(
+                group_summary.get("issue_counts", {}).items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:6]
             for code, count in top_codes:
                 print(f"    - {code}: {count}")
 
@@ -1097,20 +1433,37 @@ def _print_learning_qa_summary(report: Dict[str, Any]) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Audit Alice's training and learned data.")
+    parser = argparse.ArgumentParser(
+        description="Audit Alice's training and learned data."
+    )
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("clean", help="Run the original training/entity cleanup audit.")
+    subparsers.add_parser(
+        "clean", help="Run the original training/entity cleanup audit."
+    )
 
-    qa_parser = subparsers.add_parser("qa", help="Run learned phrasing and persisted learning QA checks.")
+    qa_parser = subparsers.add_parser(
+        "qa", help="Run learned phrasing and persisted learning QA checks."
+    )
     qa_parser.add_argument("--root", default=".", help="Project root to audit.")
     qa_parser.add_argument("--report", help="Optional path to write the JSON report.")
-    qa_parser.add_argument("--strict", action="store_true", help="Exit with code 1 if any critical findings are present.")
+    qa_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit with code 1 if any critical findings are present.",
+    )
 
-    qa_clean_parser = subparsers.add_parser("qa-clean", help="Quarantine bad learned entries and rewrite cleaned learning data.")
+    qa_clean_parser = subparsers.add_parser(
+        "qa-clean",
+        help="Quarantine bad learned entries and rewrite cleaned learning data.",
+    )
     qa_clean_parser.add_argument("--root", default=".", help="Project root to audit.")
-    qa_clean_parser.add_argument("--report", help="Optional path to write the JSON cleanup report.")
-    qa_clean_parser.add_argument("--quarantine-dir", help="Optional directory to store quarantined records.")
+    qa_clean_parser.add_argument(
+        "--report", help="Optional path to write the JSON cleanup report."
+    )
+    qa_clean_parser.add_argument(
+        "--quarantine-dir", help="Optional directory to store quarantined records."
+    )
     qa_clean_parser.add_argument(
         "--min-severity",
         choices=("critical", "warning", "info"),
@@ -1141,7 +1494,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "qa-clean":
         auditor = LearningDataQAAuditor(root_dir=args.root)
-        result = auditor.clean(min_severity=args.min_severity, quarantine_dir=args.quarantine_dir)
+        result = auditor.clean(
+            min_severity=args.min_severity, quarantine_dir=args.quarantine_dir
+        )
         _print_learning_qa_summary(result["report"])
         cleanup = result["cleanup"]
         print("\nQA CLEANUP")
@@ -1150,7 +1505,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Quarantine root: {cleanup['quarantine_root']}")
         print(f"Total removed records: {cleanup['total_removed_records']}")
         for path_key, file_summary in cleanup.get("files", {}).items():
-            print(f"  - {path_key}: removed={file_summary['removed_records']} kept={file_summary['kept_records']}")
+            print(
+                f"  - {path_key}: removed={file_summary['removed_records']} kept={file_summary['kept_records']}"
+            )
             if file_summary.get("backup_path"):
                 print(f"    backup: {file_summary['backup_path']}")
             if file_summary.get("quarantine_path"):

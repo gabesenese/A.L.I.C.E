@@ -34,7 +34,9 @@ class AppContainer:
     pipeline: ContractPipeline
 
 
-def _build_boundaries(nlp: NLPProcessor, llm: LocalLLMEngine, settings: Settings) -> RuntimeBoundaries:
+def _build_boundaries(
+    nlp: NLPProcessor, llm: LocalLLMEngine, settings: Settings
+) -> RuntimeBoundaries:
     memory_store: list[dict[str, Any]] = []
     vector_memory: VectorMemory | None = None
     if settings.memory_backend == "chroma":
@@ -45,7 +47,13 @@ def _build_boundaries(nlp: NLPProcessor, llm: LocalLLMEngine, settings: Settings
 
     def route_fn(request: RouterRequest) -> RouterDecision:
         processed = nlp.process(request.user_input)
-        route = "tool" if processed.intent.startswith(("weather:", "notes:", "email:", "calendar:")) else "conversation"
+        route = (
+            "tool"
+            if processed.intent.startswith(
+                ("weather:", "notes:", "email:", "calendar:")
+            )
+            else "conversation"
+        )
         return RouterDecision(
             route=route,
             intent=processed.intent,
@@ -58,12 +66,20 @@ def _build_boundaries(nlp: NLPProcessor, llm: LocalLLMEngine, settings: Settings
             try:
                 import asyncio
 
-                items = asyncio.run(vector_memory.query(request.query, n_results=request.max_items))
+                items = asyncio.run(
+                    vector_memory.query(request.query, n_results=request.max_items)
+                )
                 return MemoryResult(items=items, source="chroma", confidence=0.7)
             except Exception:
                 pass
-        matched = [item for item in memory_store if request.query.lower() in str(item.get("content", "")).lower()]
-        return MemoryResult(items=matched[-request.max_items :], source="in_memory", confidence=0.5)
+        matched = [
+            item
+            for item in memory_store
+            if request.query.lower() in str(item.get("content", "")).lower()
+        ]
+        return MemoryResult(
+            items=matched[-request.max_items :], source="in_memory", confidence=0.5
+        )
 
     def store_fn(item: dict[str, Any]) -> None:
         if vector_memory is not None:
@@ -72,7 +88,9 @@ def _build_boundaries(nlp: NLPProcessor, llm: LocalLLMEngine, settings: Settings
 
                 trace_id = str(item.get("trace_id", ""))
                 text = str(item.get("content", ""))
-                asyncio.run(vector_memory.store(trace_id=trace_id, text=text, metadata=item))
+                asyncio.run(
+                    vector_memory.store(trace_id=trace_id, text=text, metadata=item)
+                )
                 return
             except Exception:
                 pass

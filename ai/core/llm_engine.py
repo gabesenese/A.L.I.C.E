@@ -11,13 +11,11 @@ import re
 import asyncio
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any, Generator
-from datetime import datetime
 import sys
 import io
 import subprocess
 import time
 import os
-from pathlib import Path
 
 
 def _configure_stdio_utf8() -> None:
@@ -610,7 +608,9 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
         if stream:
             chunks = []
             prompt = messages[-1].content if messages else ""
-            for chunk in await asyncio.to_thread(lambda: list(self.stream_chat(prompt))):
+            for chunk in await asyncio.to_thread(
+                lambda: list(self.stream_chat(prompt))
+            ):
                 chunks.append(chunk)
             return ChatResponse(content="".join(chunks))
 
@@ -923,7 +923,7 @@ Please phrase this naturally using the specified tone. Keep Alice's personality 
         """
         try:
             reasoning_text = "\n".join(
-                [f"{i+1}. {step}" for i, step in enumerate(logic_chain)]
+                [f"{i + 1}. {step}" for i, step in enumerate(logic_chain)]
             )
 
             audit_request = f"""Please audit this reasoning chain for errors or inconsistencies:
@@ -1075,7 +1075,7 @@ if __name__ == "__main__":
 
                 if user_input.lower() == "/stats":
                     stats = assistant.get_stats()
-                    print(f"\nStatistics:")
+                    print("\nStatistics:")
                     print(f"   Messages: {stats['messages']}")
                     print(f"   Temperature: {stats['temperature']}")
                     print(f"   Model: {stats['model']}")

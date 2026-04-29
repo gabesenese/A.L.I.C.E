@@ -2,7 +2,9 @@ from ai.core.unified_action_engine import ActionRequest, UnifiedActionEngine
 
 
 class _StubToolExecutor:
-    def __init__(self, *, handled=True, verified=True, result=None, result_sequence=None):
+    def __init__(
+        self, *, handled=True, verified=True, result=None, result_sequence=None
+    ):
         self.handled = handled
         self.verified = verified
         self.result = result or {}
@@ -20,7 +22,9 @@ class _StubToolExecutor:
             "context": context,
         }
 
-        current_result = self.result_sequence.pop(0) if self.result_sequence else self.result
+        current_result = (
+            self.result_sequence.pop(0) if self.result_sequence else self.result
+        )
 
         class _Outcome:
             def __init__(self, handled, verified, result):

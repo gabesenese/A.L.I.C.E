@@ -1,5 +1,5 @@
 from ai.integration.build_runner import BuildRunner
-from ai.integration.git_manager import GitManager, GitCommandResult
+from ai.integration.git_manager import GitManager
 
 
 class _FakeCompleted:
@@ -14,7 +14,9 @@ def test_git_manager_status_and_branch_with_mock(monkeypatch):
 
     def fake_run(args, cwd=None, capture_output=True, text=True, timeout=15):
         if args[:3] == ["git", "status", "--short"]:
-            return _FakeCompleted(0, " M app/main.py\n?? ai/integration/git_manager.py\n", "")
+            return _FakeCompleted(
+                0, " M app/main.py\n?? ai/integration/git_manager.py\n", ""
+            )
         if args[:4] == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
             return _FakeCompleted(0, "main\n", "")
         return _FakeCompleted(1, "", "unexpected")
@@ -46,7 +48,9 @@ def test_git_manager_handles_failures(monkeypatch):
 def test_build_runner_executes_python_commands(monkeypatch):
     runner = BuildRunner(project_root=".")
 
-    def fake_run(command, cwd=None, capture_output=True, text=True, timeout=120, shell=True):
+    def fake_run(
+        command, cwd=None, capture_output=True, text=True, timeout=120, shell=True
+    ):
         if "pytest" in command:
             return _FakeCompleted(0, "8 passed in 0.50s\n", "")
         if "compileall" in command:
@@ -66,7 +70,9 @@ def test_build_runner_executes_python_commands(monkeypatch):
 def test_build_runner_failure_path(monkeypatch):
     runner = BuildRunner(project_root=".")
 
-    def fake_run(command, cwd=None, capture_output=True, text=True, timeout=120, shell=True):
+    def fake_run(
+        command, cwd=None, capture_output=True, text=True, timeout=120, shell=True
+    ):
         return _FakeCompleted(2, "", "build failed")
 
     monkeypatch.setattr("subprocess.run", fake_run)

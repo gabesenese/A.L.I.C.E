@@ -278,7 +278,9 @@ def test_post_execution_state_machine_marks_retry_for_retryable_failure() -> Non
     assert post.contract.as_dict()["next_action_type"] == "retry_tool"
 
 
-def test_post_execution_state_machine_marks_completed_after_verified_goal_advance() -> None:
+def test_post_execution_state_machine_marks_completed_after_verified_goal_advance() -> (
+    None
+):
     controller = ExecutiveController()
     state = controller.build_state(
         user_input="delete note groceries",
@@ -324,7 +326,9 @@ def test_post_execution_state_machine_marks_completed_after_verified_goal_advanc
     assert post.contract.as_dict()["next_action_type"] == "continue_goal"
 
 
-def test_post_execution_state_machine_escalates_unverified_non_retryable_tool_turn() -> None:
+def test_post_execution_state_machine_escalates_unverified_non_retryable_tool_turn() -> (
+    None
+):
     controller = ExecutiveController()
     state = controller.build_state(
         user_input="delete note groceries",
@@ -724,7 +728,9 @@ def test_status_inquiry_forces_simple_native_path() -> None:
     assert decision.reason == "simple_conversational_native_path"
 
 
-def test_help_intent_with_educational_question_does_not_force_simple_native_path() -> None:
+def test_help_intent_with_educational_question_does_not_force_simple_native_path() -> (
+    None
+):
     controller = ExecutiveController()
     state = controller.build_state(
         user_input="give me a brief summary of how ai works",
@@ -976,7 +982,9 @@ def test_goal_blockers_and_next_action_shape_routing_scores() -> None:
         ("thanks", "conversation:general"),
     ],
 )
-def test_simple_conversational_prompts_force_native_direct_path(utterance: str, intent: str) -> None:
+def test_simple_conversational_prompts_force_native_direct_path(
+    utterance: str, intent: str
+) -> None:
     controller = ExecutiveController()
     state = controller.build_state(
         user_input=utterance,
@@ -998,7 +1006,9 @@ def test_simple_conversational_prompts_force_native_direct_path(utterance: str, 
     assert decision.reason == "simple_conversational_native_path"
 
 
-def test_pre_route_guard_allows_rich_conceptual_prompt_even_when_plausibility_is_low() -> None:
+def test_pre_route_guard_allows_rich_conceptual_prompt_even_when_plausibility_is_low() -> (
+    None
+):
     controller = ExecutiveController()
     state = controller.build_state(
         user_input="let's imagine how assistant would be created with today's technology no fiction",
@@ -1021,7 +1031,9 @@ def test_pre_route_guard_allows_rich_conceptual_prompt_even_when_plausibility_is
     assert guard["reason"] == "rich_conceptual_prompt"
 
 
-def test_rich_conceptual_prompt_with_clarification_intent_prefers_direct_answer_mode() -> None:
+def test_rich_conceptual_prompt_with_clarification_intent_prefers_direct_answer_mode() -> (
+    None
+):
     controller = ExecutiveController()
     state = controller.build_state(
         user_input="let's imagine how assistant would be created with today's technology no fiction",
@@ -1043,7 +1055,9 @@ def test_rich_conceptual_prompt_with_clarification_intent_prefers_direct_answer_
     assert decision.reason == "conceptual_build_question"
 
 
-def test_rich_conceptual_build_prompt_with_clarification_bias_still_uses_fresh_reasoning() -> None:
+def test_rich_conceptual_build_prompt_with_clarification_bias_still_uses_fresh_reasoning() -> (
+    None
+):
     controller = ExecutiveController()
     state = controller.build_state(
         user_input="how can i create an ai just like assistant but with todays technology",
@@ -1136,7 +1150,9 @@ def test_answerability_direct_question_routes_to_answer_direct() -> None:
     }
 
 
-def test_response_acceptance_gate_sets_llm_failure_reason_for_answerable_question() -> None:
+def test_response_acceptance_gate_sets_llm_failure_reason_for_answerable_question() -> (
+    None
+):
     controller = ExecutiveController()
 
     result = controller.evaluate_response(

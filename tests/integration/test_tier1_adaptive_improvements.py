@@ -28,7 +28,9 @@ def test_context_intent_refiner_uses_debug_context():
 
 def test_constraint_preference_extractor_detects_format_and_detail():
     extractor = ConstraintPreferenceExtractor()
-    prefs = extractor.extract("Give me a detailed answer in bullet points under 120 words with examples")
+    prefs = extractor.extract(
+        "Give me a detailed answer in bullet points under 120 words with examples"
+    )
     assert prefs["format"] == "bullet_points"
     assert prefs["detail"] == "detailed"
     assert prefs["max_words"] == 120

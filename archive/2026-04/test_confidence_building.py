@@ -6,10 +6,12 @@ Run many interactions to build Alice's confidence and independence
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.main import ALICE
 import time
+
 
 def build_confidence():
     """Run extensive interactions to build Alice's confidence"""
@@ -21,7 +23,7 @@ def build_confidence():
 
     # Initialize Alice
     print("Initializing Alice...")
-    alice = ALICE(llm_model='llama3.1:8b', voice_enabled=False)
+    alice = ALICE(llm_model="llama3.1:8b", voice_enabled=False)
     print()
 
     # Define test scenarios - each will be repeated to build confidence
@@ -30,23 +32,19 @@ def build_confidence():
         ("Who created you?", 5),
         ("What is your name?", 5),
         ("Who are you?", 5),
-
         # Factual learning (repeat to strengthen entities)
         ("My name is Gabriel", 3),
         ("I live in Waterloo", 3),
         ("I am a software developer", 3),
         ("I work on AI projects", 3),
-
         # Knowledge recall questions
         ("Where do I live?", 4),
         ("What do I do for work?", 4),
         ("What is my name?", 4),
-
         # Relationship building
         ("You help me with coding", 2),
         ("You are my AI assistant", 2),
         ("We work together on projects", 2),
-
         # General conversation
         ("How are you today?", 3),
         ("What can you help me with?", 3),
@@ -67,16 +65,18 @@ def build_confidence():
         for i in range(repeat_count):
             current += 1
             progress = (current / total_interactions) * 100
-            print(f"[{progress:5.1f}%] Iteration {i+1}/{repeat_count}...", end=" ")
+            print(f"[{progress:5.1f}%] Iteration {i + 1}/{repeat_count}...", end=" ")
 
-            response = alice.process_input(question)
+            alice.process_input(question)
 
             # Check confidence
             can_answer, conf = alice.knowledge_engine.can_answer_independently(
                 question, "conversation:question"
             )
 
-            print(f"Confidence: {conf:.2f} {'[CAN ANSWER INDEPENDENTLY]' if can_answer else ''}")
+            print(
+                f"Confidence: {conf:.2f} {'[CAN ANSWER INDEPENDENTLY]' if can_answer else ''}"
+            )
 
             # Small delay to not overwhelm Ollama
             if i < repeat_count - 1:
@@ -84,7 +84,9 @@ def build_confidence():
 
         # Show what Alice learned from this scenario
         stats = alice.knowledge_engine.get_stats()
-        print(f"  Entities: {stats['total_entities']}, Relationships: {stats['total_relationships']}")
+        print(
+            f"  Entities: {stats['total_entities']}, Relationships: {stats['total_relationships']}"
+        )
 
     print()
     print("=" * 70)
@@ -102,17 +104,20 @@ def build_confidence():
 
     # Show top entities
     print("Top Mentioned Entities:")
-    for entity, count in stats['top_entities'][:10]:
+    for entity, count in stats["top_entities"][:10]:
         entity_info = alice.knowledge_engine.get_entity_info(entity)
         if entity_info:
-            print(f"  - {entity}: {count} mentions, confidence: {entity_info['confidence']:.2f}")
+            print(
+                f"  - {entity}: {count} mentions, confidence: {entity_info['confidence']:.2f}"
+            )
     print()
 
     # Show topic confidence levels
     print("Topic Confidence Levels:")
     for topic, confidence in sorted(
         alice.knowledge_engine.topic_confidence.items(),
-        key=lambda x: x[1], reverse=True
+        key=lambda x: x[1],
+        reverse=True,
     )[:15]:
         bar = "█" * int(confidence * 50)
         status = "[INDEPENDENT]" if confidence > 0.7 else ""
@@ -130,7 +135,7 @@ def build_confidence():
         "What is your name?",
         "Where do I live?",
         "What do I do?",
-        "Who are you?"
+        "Who are you?",
     ]
 
     for question in test_questions:
@@ -143,6 +148,7 @@ def build_confidence():
     print()
     print("Knowledge saved to data/knowledge/")
     print()
+
 
 if __name__ == "__main__":
     build_confidence()

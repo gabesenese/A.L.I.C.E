@@ -15,7 +15,7 @@ import logging
 import json
 import os
 import sys
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any
 from datetime import datetime
 from dataclasses import dataclass
 

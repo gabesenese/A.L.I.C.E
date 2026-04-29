@@ -9,7 +9,7 @@ import json
 import logging
 import zlib
 from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from collections import deque
 
@@ -180,9 +180,9 @@ class SessionSummarizer:
         latest = self.summaries[-1]
         context = f"""
 Session {latest.session_id[:8]}... (turn {latest.turn_count})
-Topics: {', '.join(latest.main_topics)}
-Goals: {', '.join(latest.active_goals)}
-Key facts: {', '.join(latest.top_10_facts[:5])}
+Topics: {", ".join(latest.main_topics)}
+Goals: {", ".join(latest.active_goals)}
+Key facts: {", ".join(latest.top_10_facts[:5])}
 """
         return context.strip()
 

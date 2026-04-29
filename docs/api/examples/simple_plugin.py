@@ -68,7 +68,14 @@ class SimpleGreetingPlugin(PluginInterface):
 
         # Check query keywords
         if query:
-            greeting_words = ["hello", "hi", "hey", "greetings", "good morning", "good afternoon"]
+            greeting_words = [
+                "hello",
+                "hi",
+                "hey",
+                "greetings",
+                "good morning",
+                "good afternoon",
+            ]
             query_lower = query.lower()
 
             for word in greeting_words:
@@ -77,7 +84,9 @@ class SimpleGreetingPlugin(PluginInterface):
 
         return False
 
-    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
+    def execute(
+        self, intent: str, query: str, entities: Dict, context: Dict
+    ) -> Dict[str, Any]:
         """
         Execute the plugin functionality.
 
@@ -96,6 +105,7 @@ class SimpleGreetingPlugin(PluginInterface):
 
             # Detect time of day for appropriate greeting
             from datetime import datetime
+
             hour = datetime.now().hour
 
             if hour < 12:
@@ -113,9 +123,9 @@ class SimpleGreetingPlugin(PluginInterface):
                 "data": {
                     "time_of_day": time_of_day,
                     "greeting_count": self.greeting_count,
-                    "user_name": context.get("user_name", "there")
+                    "user_name": context.get("user_name", "there"),
                 },
-                "formulate": True  # Let Alice learn natural phrasing
+                "formulate": True,  # Let Alice learn natural phrasing
             }
 
         except Exception as e:
@@ -124,7 +134,7 @@ class SimpleGreetingPlugin(PluginInterface):
                 "success": False,
                 "action": "respond_greeting",
                 "data": {},
-                "response": f"I encountered an error: {str(e)}"
+                "response": f"I encountered an error: {str(e)}",
             }
 
     def shutdown(self) -> None:
@@ -132,7 +142,9 @@ class SimpleGreetingPlugin(PluginInterface):
         Cleanup when plugin is shut down.
         """
         try:
-            logger.info(f"{self.name} shutting down. Total greetings: {self.greeting_count}")
+            logger.info(
+                f"{self.name} shutting down. Total greetings: {self.greeting_count}"
+            )
             # Save state if needed
         except Exception as e:
             logger.error(f"{self.name} shutdown error: {e}")
@@ -156,7 +168,7 @@ if __name__ == "__main__":
             intent="greeting",
             query="Hello Alice!",
             entities={},
-            context={"user_name": "User"}
+            context={"user_name": "User"},
         )
 
         print(f" Result: {result}")

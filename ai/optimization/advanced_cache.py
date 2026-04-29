@@ -6,11 +6,9 @@ and adaptive optimization.
 """
 
 import time
-from typing import Dict, Any, Optional, List, Tuple, Callable
+from typing import Dict, Any, Optional, List
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-import heapq
 import logging
 
 logger = logging.getLogger(__name__)

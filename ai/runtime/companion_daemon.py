@@ -379,8 +379,10 @@ class CompanionDaemon:
             trigger_ts = self._to_timestamp(reminder.get("trigger_time"))
             if not trigger_ts:
                 continue
-            if now <= trigger_ts <= now + float(
-                self.config.upcoming_reminder_window_seconds
+            if (
+                now
+                <= trigger_ts
+                <= now + float(self.config.upcoming_reminder_window_seconds)
             ):
                 message = str(reminder.get("message") or "Reminder")
                 when = datetime.fromtimestamp(trigger_ts).strftime("%H:%M")
@@ -421,9 +423,7 @@ class CompanionDaemon:
                 "updated_at": getattr(goal, "updated_at", None),
                 "deadline": getattr(goal, "deadline", None),
                 "blockers": list(getattr(goal, "blockers", []) or []),
-                "success_criteria": list(
-                    getattr(goal, "success_criteria", []) or []
-                ),
+                "success_criteria": list(getattr(goal, "success_criteria", []) or []),
                 "current_step": getattr(goal, "current_step", None),
                 "next_action": getattr(goal, "next_action", ""),
             }
@@ -488,7 +488,9 @@ class CompanionDaemon:
         plugins = dict((snapshot or {}).get("plugins") or {})
         failed_plugins = list(plugins.get("failed_plugins") or [])
         if failed_plugins:
-            messages.append(f"failed plugins: {', '.join(map(str, failed_plugins[:3]))}")
+            messages.append(
+                f"failed plugins: {', '.join(map(str, failed_plugins[:3]))}"
+            )
         return messages
 
     def _emit_notifications(
@@ -556,9 +558,7 @@ class CompanionDaemon:
                     "pending_reminder_count": len(
                         list(observation.get("pending_reminders") or [])
                     ),
-                    "journal_summary": dict(
-                        observation.get("journal_summary") or {}
-                    ),
+                    "journal_summary": dict(observation.get("journal_summary") or {}),
                 },
                 "timestamp": now,
             }

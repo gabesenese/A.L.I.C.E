@@ -72,7 +72,7 @@ class MetricTracker:
         improvement = overall_score - pre.get("overall", 0)
 
         logger.info(
-            f"POST-TRAINING {domain}: {overall_score:.2f}/5.0 " f"(+{improvement:+.2f})"
+            f"POST-TRAINING {domain}: {overall_score:.2f}/5.0 (+{improvement:+.2f})"
         )
 
     def get_improvement(self, domain: str) -> Dict[str, float]:

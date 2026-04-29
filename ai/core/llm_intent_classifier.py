@@ -123,15 +123,15 @@ Examples of classification with reasoning:
         # Add few-shot examples
         for i, example in enumerate(self.few_shot_examples, 1):
             prompt += f"""Example {i}:
-Query: "{example['query']}"
-Reasoning: {example['reasoning']}
-Result: {{"intent": "{example['intent']}", "action": "{example['action']}", "confidence": {example['confidence']}}}
+Query: "{example["query"]}"
+Reasoning: {example["reasoning"]}
+Result: {{"intent": "{example["intent"]}", "action": "{example["action"]}", "confidence": {example["confidence"]}}}
 
 """
 
         # Add context if available
         if context and len(context) > 0:
-            prompt += f"\nRecent conversation context:\n"
+            prompt += "\nRecent conversation context:\n"
             for i, ctx in enumerate(context[-3:], 1):  # Last 3 queries
                 prompt += f"{i}. {ctx}\n"
             prompt += "\n"
@@ -233,7 +233,7 @@ JSON response:"""
                     if result:
                         results.append(result)
             except Exception as e:
-                logger.warning(f"Error generating sample {i+1}: {e}")
+                logger.warning(f"Error generating sample {i + 1}: {e}")
                 continue
 
         if not results:

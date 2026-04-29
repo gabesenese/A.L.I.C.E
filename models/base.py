@@ -11,8 +11,9 @@ import requests
 
 
 class Model(Protocol):
-    def generate(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        ...
+    def generate(
+        self, prompt: str, context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]: ...
 
 
 @dataclass(slots=True)
@@ -42,11 +43,15 @@ class OllamaRoleModel:
     timeout_seconds: int = 45
     base_url: str = "http://localhost:11434"
 
-    def generate(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def generate(
+        self, prompt: str, context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         start = time.perf_counter()
         text = str(prompt or "").strip()
         if not text:
-            return ModelOutput("", 0.0, self.reasoning_used, self.model_name, 0.0).as_dict()
+            return ModelOutput(
+                "", 0.0, self.reasoning_used, self.model_name, 0.0
+            ).as_dict()
 
         if os.getenv("ALICE_MULTI_LLM_MOCK", "0") == "1":
             elapsed = (time.perf_counter() - start) * 1000.0
@@ -60,7 +65,9 @@ class OllamaRoleModel:
 
         ctx = context or {}
         context_blob = "\n".join(f"{k}: {v}" for k, v in ctx.items() if v is not None)
-        user_prompt = text if not context_blob else f"Context:\n{context_blob}\n\nTask:\n{text}"
+        user_prompt = (
+            text if not context_blob else f"Context:\n{context_blob}\n\nTask:\n{text}"
+        )
 
         resp = requests.post(
             f"{self.base_url}/api/chat",
@@ -83,4 +90,6 @@ class OllamaRoleModel:
 
         elapsed = (time.perf_counter() - start) * 1000.0
         conf = 0.9 if answer else 0.2
-        return ModelOutput(answer, conf, self.reasoning_used, self.model_name, elapsed).as_dict()
+        return ModelOutput(
+            answer, conf, self.reasoning_used, self.model_name, elapsed
+        ).as_dict()

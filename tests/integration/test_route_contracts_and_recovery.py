@@ -18,11 +18,13 @@ def test_route_contract_confidence_bands():
 def test_recovery_improvement_and_failure_clustering():
     stack = get_roadmap_completion_stack()
 
-    clustered = stack.failure_clusterer.cluster([
-        {"signature": "timeout"},
-        {"signature": "timeout"},
-        {"signature": "parse_error"},
-    ])
+    clustered = stack.failure_clusterer.cluster(
+        [
+            {"signature": "timeout"},
+            {"signature": "timeout"},
+            {"signature": "parse_error"},
+        ]
+    )
     assert clustered["timeout"] == 2
 
     result = stack.improvement_engine.run(
@@ -33,5 +35,7 @@ def test_recovery_improvement_and_failure_clustering():
     )
     assert result["rolled_back"] is True
 
-    snippet = stack.regression_generator.generate_test_snippet({"signature": "timeout bug", "error": "timeout"})
+    snippet = stack.regression_generator.generate_test_snippet(
+        {"signature": "timeout bug", "error": "timeout"}
+    )
     assert "test_generated_" in snippet

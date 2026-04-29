@@ -30,7 +30,6 @@ import json
 import logging
 import math
 import os
-import random
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -51,14 +50,22 @@ PLUGIN_MISS = "PLUGIN_MISS"
 CONFIDENCE = "CONFIDENCE"
 
 # NLP-specific failure tags (Improvement 4)
-NLP_WRONG_INTENT = "NLP_WRONG_INTENT"    # classified intent != expected intent
-NLP_WRONG_ENTITY = "NLP_WRONG_ENTITY"   # entity extraction produced wrong value
-BAD_FOLLOWUP = "BAD_FOLLOWUP"           # follow-up resolution did not carry context
-BAD_TEMPORAL = "BAD_TEMPORAL"           # temporal expression was misparse or absent
+NLP_WRONG_INTENT = "NLP_WRONG_INTENT"  # classified intent != expected intent
+NLP_WRONG_ENTITY = "NLP_WRONG_ENTITY"  # entity extraction produced wrong value
+BAD_FOLLOWUP = "BAD_FOLLOWUP"  # follow-up resolution did not carry context
+BAD_TEMPORAL = "BAD_TEMPORAL"  # temporal expression was misparse or absent
 
 _ALL_TYPES = {
-    SLOT_MISS, FRAME_MISS, COREF_MISS, ROUTE_MISS, PLUGIN_MISS, CONFIDENCE,
-    NLP_WRONG_INTENT, NLP_WRONG_ENTITY, BAD_FOLLOWUP, BAD_TEMPORAL,
+    SLOT_MISS,
+    FRAME_MISS,
+    COREF_MISS,
+    ROUTE_MISS,
+    PLUGIN_MISS,
+    CONFIDENCE,
+    NLP_WRONG_INTENT,
+    NLP_WRONG_ENTITY,
+    BAD_FOLLOWUP,
+    BAD_TEMPORAL,
 }
 
 # ---------------------------------------------------------------------------
@@ -372,25 +379,28 @@ class FailureTaxonomy:
 
         # Top-3 failing intents by total failures
         intent_totals = {
-            intent: sum(counts.values())
-            for intent, counts in per_intent.items()
+            intent: sum(counts.values()) for intent, counts in per_intent.items()
         }
-        top_intents = sorted(intent_totals.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_intents = sorted(intent_totals.items(), key=lambda x: x[1], reverse=True)[
+            :3
+        ]
         top_failing_intents = []
         for intent, total in top_intents:
             dominant_type = max(per_intent[intent].items(), key=lambda x: x[1])[0]
-            top_failing_intents.append({
-                "intent": intent,
-                "total_failures": total,
-                "dominant_type": dominant_type,
-            })
+            top_failing_intents.append(
+                {
+                    "intent": intent,
+                    "total_failures": total,
+                    "dominant_type": dominant_type,
+                }
+            )
 
         # Top-3 failing patterns by failure_type count
-        top_patterns = sorted(type_summary.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_patterns = sorted(type_summary.items(), key=lambda x: x[1], reverse=True)[
+            :3
+        ]
         top_failing_patterns = [
-            {"failure_type": ft, "count": cnt}
-            for ft, cnt in top_patterns
-            if cnt > 0
+            {"failure_type": ft, "count": cnt} for ft, cnt in top_patterns if cnt > 0
         ]
 
         # Suggested changes (heuristic rules)
@@ -406,7 +416,11 @@ class FailureTaxonomy:
                     if r.get("intent") == intent and r.get("failure_type") == SLOT_MISS:
                         for s in r.get("missing_slots", []):
                             missing_counts[s] = missing_counts.get(s, 0) + 1
-                top_slot = max(missing_counts, key=missing_counts.get) if missing_counts else "unknown"
+                top_slot = (
+                    max(missing_counts, key=missing_counts.get)
+                    if missing_counts
+                    else "unknown"
+                )
                 suggested.append(
                     f"Add '{top_slot}' slot extractor for {intent} ({dtype} ×{total})"
                 )
@@ -427,9 +441,7 @@ class FailureTaxonomy:
                     f"Improve TemporalParser coverage for {intent} expressions ({dtype} ×{total})"
                 )
             else:
-                suggested.append(
-                    f"Investigate {dtype} failures in {intent} (×{total})"
-                )
+                suggested.append(f"Investigate {dtype} failures in {intent} (×{total})")
 
         return {
             "generated_at": datetime.utcnow().isoformat(),

@@ -9,11 +9,10 @@ Makes Alice personalized and adaptive.
 
 import json
 import time
-from typing import Dict, List, Any, Optional, Set, Tuple
+from typing import Dict, List, Any, Optional, Set
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from collections import defaultdict, Counter
 import logging
 
 logger = logging.getLogger(__name__)
@@ -230,7 +229,6 @@ class UserProfileEngine:
 
         # Analyze user input characteristics
         input_length = len(user_input.split())
-        is_question = "?" in user_input
         has_technical_terms = any(
             term in user_input.lower()
             for term in ["api", "function", "class", "algorithm"]
@@ -468,8 +466,8 @@ class UserProfileEngine:
         if not self.profile:
             return {}
 
-        current_hour = datetime.now().hour
-        day_of_week = datetime.now().strftime("%A")
+        datetime.now().hour
+        datetime.now().strftime("%A")
 
         # Check for time-based patterns
         active_patterns = self.get_active_patterns(min_confidence=0.6)

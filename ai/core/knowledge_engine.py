@@ -573,7 +573,7 @@ class KnowledgeEngine:
         Returns (can_answer, confidence)
         """
         # Check entities mentioned in question
-        words = question.lower().split()
+        question.lower().split()
         relevant_entities = [
             e for e in self.entities.values() if e.name.lower() in question.lower()
         ]

@@ -124,7 +124,11 @@ def test_unified_action_engine_blocks_high_risk_rollback_without_approval():
         goal="create production note",
         plugin="notes",
         action="create",
-        params={"title": "Prod", "_raw_query": "create prod note", "_approval_token": True},
+        params={
+            "title": "Prod",
+            "_raw_query": "create prod note",
+            "_approval_token": True,
+        },
         source_intent="notes:create",
         confidence=0.8,
         rollback_policy="auto",
@@ -220,7 +224,9 @@ def test_repeated_execution_failures_pause_autonomy_and_escalate():
         "reason": "failure_rate_spike",
         "recommended_action": "pause_autonomy_and_escalate",
     }
-    decision = dispatcher.dispatch(event=event, goal_summary={"goals": []}, active_goal_id="goal-ops")
+    decision = dispatcher.dispatch(
+        event=event, goal_summary={"goals": []}, active_goal_id="goal-ops"
+    )
 
     assert decision.outcome == OUTCOME_ESCALATE_AND_STOP
     assert decision.pause_autonomy is True
@@ -269,7 +275,12 @@ def test_dispatcher_decision_dict_exposes_standard_contract_fields():
     assert payload.get("severity") == "medium"
     assert payload.get("affected_goal") == "goal-clarify"
     assert payload.get("recommended_action") == "ask_clarification_then_replan"
-    assert payload.get("runtime_outcome") in {"ask_user", "act_automatically", "log_silently", "escalate_and_stop"}
+    assert payload.get("runtime_outcome") in {
+        "ask_user",
+        "act_automatically",
+        "log_silently",
+        "escalate_and_stop",
+    }
     assert isinstance(payload.get("dedupe_key"), str)
     assert payload.get("confidence") == 0.73
 
@@ -419,7 +430,9 @@ def test_autonomous_execution_loop_records_failure_via_fail_current_step():
     assert agent.calls[0][0].get("type") == "test"
 
 
-def test_autonomous_execution_loop_quiet_hours_handles_overnight_and_daytime(monkeypatch):
+def test_autonomous_execution_loop_quiet_hours_handles_overnight_and_daytime(
+    monkeypatch,
+):
     import ai.planning.autonomous_execution_loop as loop_module
 
     class _FakeDatetime:

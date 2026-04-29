@@ -9,9 +9,13 @@ sys.path.insert(0, str(project_root))
 from ai.core.nlp_processor import NLPProcessor, ParsedCommand, RouteDecision
 
 
-EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
+EXACT_LOG_PROMPT = (
+    "let's imagine how assistant would be created with today's technology no fiction"
+)
 EXACT_FICTIONAL_INVENTOR_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
-EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
+EXACT_CREATE_PROMPT = (
+    "how can i create an ai just like assistant but with todays technology"
+)
 
 
 class TestLayeredTokenizer:
@@ -33,7 +37,9 @@ class TestLayeredTokenizer:
         debug = self.nlp.debug_tokenizer("read the second note #work")
         tokens = debug.get("tokens", [])
         assert any(t.get("kind") == "ordinal" for t in tokens)
-        assert any(t.get("role") == "action" and t.get("normalized") == "read" for t in tokens)
+        assert any(
+            t.get("role") == "action" and t.get("normalized") == "read" for t in tokens
+        )
         assert any(t.get("kind") == "hashtag" for t in tokens)
 
     def test_parsed_command_extracts_note_read_title(self):
@@ -78,7 +84,9 @@ class TestLayeredTokenizer:
         result = self.nlp.process("show my latest emails")
         assert isinstance(result.intent_candidates, list)
         assert 1 <= len(result.intent_candidates) <= 3
-        assert all("intent" in item and "score" in item for item in result.intent_candidates)
+        assert all(
+            "intent" in item and "score" in item for item in result.intent_candidates
+        )
 
     def test_weather_misroute_gets_unknown_fallback(self):
         result = self.nlp.process("can we brainstorm a plan for my week")
@@ -88,7 +96,9 @@ class TestLayeredTokenizer:
         assert modifiers.get("unknown_intent_fallback") is True
 
     def test_category_gate_disables_tools_for_conversation_query(self):
-        result = self.nlp.process("let's brainstorm architecture ideas for this project")
+        result = self.nlp.process(
+            "let's brainstorm architecture ideas for this project"
+        )
         modifiers = result.parsed_command.get("modifiers", {})
         assert modifiers.get("intent_category") == "conversation"
         assert modifiers.get("tool_execution_disabled") is True
@@ -108,7 +118,9 @@ class TestLayeredTokenizer:
         assert result.intent == "conversation:goal_statement"
         assert result.intent_confidence >= 0.8
 
-    def test_goal_statement_detector_does_not_capture_direct_informational_difference_prompt(self):
+    def test_goal_statement_detector_does_not_capture_direct_informational_difference_prompt(
+        self,
+    ):
         result = self.nlp.process(
             "i want to know the difference between the agentic ai and generative ai"
         )
@@ -120,7 +132,9 @@ class TestLayeredTokenizer:
             or modifiers.get("goal_statement_demoted") == "direct_informational_query"
         )
 
-    def test_answerability_gate_routes_specific_domain_question_to_learning_explanation_request(self):
+    def test_answerability_gate_routes_specific_domain_question_to_learning_explanation_request(
+        self,
+    ):
         result = self.nlp.process("how does optimizer training work in nlp models?")
         modifiers = result.parsed_command.get("modifiers", {})
 
@@ -135,7 +149,9 @@ class TestLayeredTokenizer:
 
     def test_llm_intent_fallback_adopts_stronger_hybrid_candidate(self):
         class _StubLLMIntentClassifier:
-            def classify_hybrid(self, query, semantic_confidence, semantic_intent, context=None):
+            def classify_hybrid(
+                self, query, semantic_confidence, semantic_intent, context=None
+            ):
                 return "notes:create", 0.87, "llm_cot"
 
         route = RouteDecision(
@@ -165,7 +181,9 @@ class TestLayeredTokenizer:
             def __init__(self):
                 self.called = False
 
-            def classify_hybrid(self, query, semantic_confidence, semantic_intent, context=None):
+            def classify_hybrid(
+                self, query, semantic_confidence, semantic_intent, context=None
+            ):
                 self.called = True
                 return "email:compose", 0.9, "llm_cot"
 
@@ -223,7 +241,9 @@ class TestLayeredTokenizer:
         assert not result.intent.startswith("notes:")
 
     def test_memory_recall_phrase_not_misclassified_as_store(self):
-        result = self.nlp.process("do you remember that coding problem we were talking about?")
+        result = self.nlp.process(
+            "do you remember that coding problem we were talking about?"
+        )
         assert result.intent == "memory:recall"
 
     def test_notes_plausibility_penalizes_internal_code_query(self):
@@ -253,7 +273,7 @@ class TestLayeredTokenizer:
         assert not pivot.intent.startswith("calendar:")
 
     def test_followup_chain_benchmark_rejection_phrase_avoids_weather_bleed(self):
-        """"not that one" after notes context should not misroute into weather."""
+        """ "not that one" after notes context should not misroute into weather."""
         self.nlp.process("show my notes")
         self.nlp.process("open the first one")
         rejection = self.nlp.process("not that one")
@@ -357,7 +377,9 @@ class TestLayeredTokenizer:
 
         assert modifiers.get("pending_slot_followup", {}).get("filled") is True
         pending = self.nlp.context.pending_clarification
-        pending_type = str((pending or {}).get("slot_type") or (pending or {}).get("type") or "").lower()
+        pending_type = str(
+            (pending or {}).get("slot_type") or (pending or {}).get("type") or ""
+        ).lower()
         assert pending_type != "route_choice"
 
     def test_rich_conceptual_prompt_not_classified_as_clarification_needed(self):
@@ -384,7 +406,9 @@ class TestLayeredTokenizer:
         assert modifiers.get("pending_slot_followup") is None
         assert modifiers.get("unknown_intent_fallback") is False
 
-    def test_exact_fictional_inventor_prompt_routes_without_clarification_or_unknown_fallback(self):
+    def test_exact_fictional_inventor_prompt_routes_without_clarification_or_unknown_fallback(
+        self,
+    ):
         result = self.nlp.process(EXACT_FICTIONAL_INVENTOR_PROMPT)
         modifiers = result.parsed_command.get("modifiers", {})
 

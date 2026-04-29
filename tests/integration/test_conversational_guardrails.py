@@ -27,13 +27,19 @@ def _context(user_input: str, intent: str) -> ConversationalContext:
 
 def test_conversational_engine_ignores_substring_greeting_match() -> None:
     """Words like 'polymorphism' should not trigger 'hi' greeting matching."""
-    engine = ConversationalEngine(memory_system=None, training_collector=None, world_state=None)
+    engine = ConversationalEngine(
+        memory_system=None, training_collector=None, world_state=None
+    )
     ctx = _context("what is polymorphism", "conversation:question")
 
-    assert engine.can_handle("what is polymorphism", "conversation:question", ctx) is False
+    assert (
+        engine.can_handle("what is polymorphism", "conversation:question", ctx) is False
+    )
 
 
-def test_phrasing_learner_skips_high_variance_conversation_patterns(tmp_path: Path) -> None:
+def test_phrasing_learner_skips_high_variance_conversation_patterns(
+    tmp_path: Path,
+) -> None:
     """Open-ended conversation buckets should not be learned/replayed directly."""
     learner = PhrasingLearner(storage_path=str(tmp_path / "phrasing.jsonl"))
     thought = {

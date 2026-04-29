@@ -4,7 +4,7 @@ Handles document ingestion, searching, and management
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 from pathlib import Path
 from ai.plugins.plugin_system import PluginInterface
 from ai.memory.memory_system import MemorySystem
@@ -222,7 +222,7 @@ class DocumentPlugin(PluginInterface):
             formatted_results = []
             for i, result in enumerate(results, 1):
                 # Get source file and chunk info from memory entry ID
-                memory_id = result.get("id", "")
+                result.get("id", "")
                 content_preview = (
                     result["content"][:200] + "..."
                     if len(result["content"]) > 200

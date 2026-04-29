@@ -4,7 +4,6 @@ Call this daily or weekly, e.g. via cron or Task Scheduler.
 """
 
 import sys
-import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

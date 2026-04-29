@@ -251,8 +251,8 @@ class LabSimulator:
         queries = []
 
         inbox = scenario.get("inbox", [])
-        calendar = scenario.get("calendar", [])
-        files = scenario.get("files", [])
+        scenario.get("calendar", [])
+        scenario.get("files", [])
 
         query_templates = [
             # Email queries
@@ -278,7 +278,7 @@ class LabSimulator:
                 "expected_tool": "calendar",
             },
             lambda: {
-                "query": f"Do I have any meetings with 'Client'",
+                "query": "Do I have any meetings with 'Client'",
                 "type": "calendar_filter",
                 "expected_tool": "calendar",
             },

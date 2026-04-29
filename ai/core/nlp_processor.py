@@ -21,8 +21,7 @@ import importlib
 import json
 from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-import math
+from datetime import datetime
 import asyncio
 from collections import OrderedDict, defaultdict, deque, Counter
 from pathlib import Path
@@ -142,16 +141,18 @@ try:
     from ai.core.conversation_memory import ConversationMemory
     from ai.core.implicit_intent_detector import ImplicitIntentDetector
     from ai.core.dialogue_state_machine import DialogueStateMachine
+
     INTELLIGENCE_FOUNDATIONS_AVAILABLE = True
 except ImportError:
     INTELLIGENCE_FOUNDATIONS_AVAILABLE = False
     ConversationMemory = None
     ImplicitIntentDetector = None
     DialogueStateMachine = None
-    logging.warning("[WARN] Tier foundation modules unavailable. Running base NLP stack.")
+    logging.warning(
+        "[WARN] Tier foundation modules unavailable. Running base NLP stack."
+    )
 
-from ai.core.perception import Perception, PerceptionResult
-from ai.core.followup_resolver import FollowUpResolver, FollowUpResult
+from ai.core.followup_resolver import FollowUpResolver
 from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
 from ai.core.goal_recognizer import get_goal_recognizer
 from ai.core.foundation_layers import FoundationLayers
@@ -164,34 +165,109 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 # Negation detection (shared by EmotionDetector and _detect_intent_semantic)
-_NEGATION_WORDS: frozenset = frozenset({
-    "not", "no", "never", "don't", "dont", "won't", "wont",
-    "can't", "cant", "stop", "isn't", "isnt", "aren't", "arent",
-    "didn't", "didnt", "wouldn't", "wouldnt", "shouldn't", "shouldnt",
-})
+_NEGATION_WORDS: frozenset = frozenset(
+    {
+        "not",
+        "no",
+        "never",
+        "don't",
+        "dont",
+        "won't",
+        "wont",
+        "can't",
+        "cant",
+        "stop",
+        "isn't",
+        "isnt",
+        "aren't",
+        "arent",
+        "didn't",
+        "didnt",
+        "wouldn't",
+        "wouldnt",
+        "shouldn't",
+        "shouldnt",
+    }
+)
 
 _TOKEN_PATTERN = re.compile(r'"[^"]+"|#\w+|\d+(?:st|nd|rd|th)?|[A-Za-z]+|[^\w\s]')
 _ORDINAL_TOKEN_RE = re.compile(r"\d+(?:st|nd|rd|th)")
 _ALPHA_TOKEN_RE = re.compile(r"[A-Za-z]+")
 
-_NOTE_TERMS: frozenset = frozenset({"note", "notes", "list", "lists", "todo", "task", "tasks"})
-_EMAIL_TERMS: frozenset = frozenset({"email", "emails", "mail", "inbox", "sender", "subject"})
-_CALENDAR_TERMS: frozenset = frozenset({"calendar", "event", "events", "meeting", "schedule"})
-_WEATHER_TERMS: frozenset = frozenset({
-    "weather", "forecast", "temperature", "rain", "snow", "sunny", "cloudy", "overcast",
-    "wind", "windy", "storm", "humidity", "humid", "outside", "precipitation",
-    "precip", "drizzle", "thunder", "thunderstorm",
-})
-_WEATHER_FORECAST_TERMS: frozenset = frozenset({
-    "tomorrow", "tonight", "week", "weekend", "forecast", "monday", "tuesday",
-    "wednesday", "thursday", "friday", "saturday", "sunday", "chance", "expect", "later",
-})
-_WEATHER_EVENT_TERMS: frozenset = frozenset({"snow", "rain", "storm", "drizzle", "thunder"})
-_WEATHER_FUTURE_TERMS: frozenset = frozenset({"will", "gonna", "going", "chance", "expect", "is"})
-_SYSTEM_TERMS: frozenset = frozenset({"system", "cpu", "memory", "disk", "battery", "status"})
-_NON_WEATHER_TARGET_TERMS: frozenset = frozenset({
-    "note", "notes", "memo", "email", "emails", "mail", "calendar", "event", "events", "meeting",
-})
+_NOTE_TERMS: frozenset = frozenset(
+    {"note", "notes", "list", "lists", "todo", "task", "tasks"}
+)
+_EMAIL_TERMS: frozenset = frozenset(
+    {"email", "emails", "mail", "inbox", "sender", "subject"}
+)
+_CALENDAR_TERMS: frozenset = frozenset(
+    {"calendar", "event", "events", "meeting", "schedule"}
+)
+_WEATHER_TERMS: frozenset = frozenset(
+    {
+        "weather",
+        "forecast",
+        "temperature",
+        "rain",
+        "snow",
+        "sunny",
+        "cloudy",
+        "overcast",
+        "wind",
+        "windy",
+        "storm",
+        "humidity",
+        "humid",
+        "outside",
+        "precipitation",
+        "precip",
+        "drizzle",
+        "thunder",
+        "thunderstorm",
+    }
+)
+_WEATHER_FORECAST_TERMS: frozenset = frozenset(
+    {
+        "tomorrow",
+        "tonight",
+        "week",
+        "weekend",
+        "forecast",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "chance",
+        "expect",
+        "later",
+    }
+)
+_WEATHER_EVENT_TERMS: frozenset = frozenset(
+    {"snow", "rain", "storm", "drizzle", "thunder"}
+)
+_WEATHER_FUTURE_TERMS: frozenset = frozenset(
+    {"will", "gonna", "going", "chance", "expect", "is"}
+)
+_SYSTEM_TERMS: frozenset = frozenset(
+    {"system", "cpu", "memory", "disk", "battery", "status"}
+)
+_NON_WEATHER_TARGET_TERMS: frozenset = frozenset(
+    {
+        "note",
+        "notes",
+        "memo",
+        "email",
+        "emails",
+        "mail",
+        "calendar",
+        "event",
+        "events",
+        "meeting",
+    }
+)
 _WAKE_WORD_PREFIX_RE = re.compile(
     r"^\s*(?:hey|ok|okay)?\s*(?:assistant|alice)\b[\s,:\-]*",
     re.IGNORECASE,
@@ -203,7 +279,7 @@ def _has_negation_before(text_lower: str, keyword: str, window_chars: int = 40) 
     idx = text_lower.find(keyword)
     if idx == -1:
         return False
-    preceding = text_lower[max(0, idx - window_chars):idx]
+    preceding = text_lower[max(0, idx - window_chars) : idx]
     return bool(_NEGATION_WORDS & set(preceding.split()))
 
 
@@ -216,7 +292,9 @@ def _is_negated_command(text_lower: str) -> bool:
 # System
 _P1_SYSTEM_STATUS: frozenset = frozenset({"status", "doing", "health", "how"})
 _P1_SYSTEM_RESOURCES: frozenset = frozenset({"cpu", "memory", "disk", "battery", "gpu"})
-_P1_SYSTEM_RESOURCE_VERBS: frozenset = frozenset({"usage", "available", "how much", "low", "check", "is"})
+_P1_SYSTEM_RESOURCE_VERBS: frozenset = frozenset(
+    {"usage", "available", "how much", "low", "check", "is"}
+)
 
 # File operations
 _P1_FILE_CREATE: frozenset = frozenset({"create", "make", "new"})
@@ -224,10 +302,20 @@ _P1_FILE_READ: frozenset = frozenset({"read", "open", "show", "display", "view"}
 _P1_FILE_DELETE: frozenset = frozenset({"delete", "remove", "trash"})
 _P1_FILE_MOVE: frozenset = frozenset({"move", "rename", "relocate"})
 _P1_FILE_LIST: frozenset = frozenset({"list", "show"})
-_P1_FILE_MARKERS: frozenset = frozenset({
-    "file", "document", ".txt", ".pdf", ".csv", ".json", ".yaml", ".md",
-    "folder", "directory",
-})
+_P1_FILE_MARKERS: frozenset = frozenset(
+    {
+        "file",
+        "document",
+        ".txt",
+        ".pdf",
+        ".csv",
+        ".json",
+        ".yaml",
+        ".md",
+        "folder",
+        "directory",
+    }
+)
 
 # Memory
 _P1_MEMORY_STORE: frozenset = frozenset({"remember", "keep in mind", "save this"})
@@ -250,9 +338,13 @@ _P1_EMAIL_DELETE_VERBS: frozenset = frozenset({"delete", "remove", "trash"})
 _P1_EMAIL_DELETE_NOUNS: frozenset = frozenset({"email", "mail", "message"})
 _P1_EMAIL_REPLY_VERBS: frozenset = frozenset({"reply", "respond"})
 _P1_EMAIL_SEARCH_VERBS: frozenset = frozenset({"search", "find", "look for"})
-_P1_EMAIL_SEARCH_NOUNS: frozenset = frozenset({"email", "mail", "inbox", "message", "from"})
+_P1_EMAIL_SEARCH_NOUNS: frozenset = frozenset(
+    {"email", "mail", "inbox", "message", "from"}
+)
 _P1_EMAIL_LIST_VERBS: frozenset = frozenset({"show", "list", "recent", "latest"})
-_P1_EMAIL_LIST_NOUNS: frozenset = frozenset({"email", "emails", "mail", "mails", "inbox"})
+_P1_EMAIL_LIST_NOUNS: frozenset = frozenset(
+    {"email", "emails", "mail", "mails", "inbox"}
+)
 _P1_EMAIL_READ_VERBS: frozenset = frozenset({"read", "open", "display", "view"})
 _P1_EMAIL_READ_NOUNS: frozenset = frozenset({"email", "emails", "mail", "message"})
 
@@ -282,76 +374,182 @@ _P1_NOTES_APPEND_RE = re.compile(
 
 # Reminders
 _P1_REMINDER_SET: tuple = (
-    "remind me", "set a reminder", "add a reminder", "create a reminder",
-    "alert me", "notify me when", "don't let me forget",
+    "remind me",
+    "set a reminder",
+    "add a reminder",
+    "create a reminder",
+    "alert me",
+    "notify me when",
+    "don't let me forget",
 )
 _P1_REMINDER_LIST: tuple = (
-    "my reminders", "what reminders", "show reminders", "list reminders",
-    "any reminders", "upcoming reminders", "pending reminders",
+    "my reminders",
+    "what reminders",
+    "show reminders",
+    "list reminders",
+    "any reminders",
+    "upcoming reminders",
+    "pending reminders",
 )
 _P1_REMINDER_CANCEL_VERBS: frozenset = frozenset({"cancel", "delete", "remove"})
 
 # Short conversational acknowledgments — must be caught before semantic classifier
 # so phrases like "will do", "got it" can't be mis-routed to music:play
-_P1_CONV_ACK: frozenset = frozenset({
-    "will do", "got it", "noted", "understood", "sure", "sure thing",
-    "sounds good", "sounds great", "alright", "okay", "ok", "okie",
-    "roger", "roger that", "copy that", "aye", "yep", "yup", "yeah",
-    "sure will", "on it", "done", "all good", "no problem", "np",
-    "perfect", "great", "awesome", "nice",
-    # affirmative agreement phrases
-    "good idea", "great idea", "nice idea", "good point", "fair point",
-    "fair enough", "makes sense", "that makes sense", "good call", "nice one",
-    "true", "exactly", "absolutely", "definitely", "of course",
-    "i see", "i know", "i know right", "right", "for sure",
-    "you're welcome", "youre welcome", "no worries", "anytime",
-})
+_P1_CONV_ACK: frozenset = frozenset(
+    {
+        "will do",
+        "got it",
+        "noted",
+        "understood",
+        "sure",
+        "sure thing",
+        "sounds good",
+        "sounds great",
+        "alright",
+        "okay",
+        "ok",
+        "okie",
+        "roger",
+        "roger that",
+        "copy that",
+        "aye",
+        "yep",
+        "yup",
+        "yeah",
+        "sure will",
+        "on it",
+        "done",
+        "all good",
+        "no problem",
+        "np",
+        "perfect",
+        "great",
+        "awesome",
+        "nice",
+        # affirmative agreement phrases
+        "good idea",
+        "great idea",
+        "nice idea",
+        "good point",
+        "fair point",
+        "fair enough",
+        "makes sense",
+        "that makes sense",
+        "good call",
+        "nice one",
+        "true",
+        "exactly",
+        "absolutely",
+        "definitely",
+        "of course",
+        "i see",
+        "i know",
+        "i know right",
+        "right",
+        "for sure",
+        "you're welcome",
+        "youre welcome",
+        "no worries",
+        "anytime",
+    }
+)
 
 # Greetings / thanks / status
 _P1_THANKS: tuple = ("thanks", "thank you", "thx", "thank", "thanks for")
 _P1_STATUS_INQUIRY: tuple = (
-    "how are you", "how are you doing", "how is it going", "how have you been"
+    "how are you",
+    "how are you doing",
+    "how is it going",
+    "how have you been",
 )
 _P1_GREETING_WORDS: frozenset = frozenset({"hi", "hey", "hello", "yo", "sup", "hiya"})
 
 # Vague / clarification
 _P1_VAGUE_PRONOUNS: tuple = (
-    "who is he", "who is she", "who is that", "what is that", "who is that person"
+    "who is he",
+    "who is she",
+    "who is that",
+    "what is that",
+    "who is that person",
 )
-_P1_VAGUE_TEMPORAL: frozenset = frozenset({
-    "yesterday", "tomorrow", "last week", "last month", "next week", "next month"
-})
+_P1_VAGUE_TEMPORAL: frozenset = frozenset(
+    {"yesterday", "tomorrow", "last week", "last month", "next week", "next month"}
+)
 _P1_VAGUE_REQUESTS: tuple = (
-    "add this to", "put this in", "do that thing",
-    "can you do that", "that thing", "this thing",
+    "add this to",
+    "put this in",
+    "do that thing",
+    "can you do that",
+    "that thing",
+    "this thing",
 )
 
 # Weather
-_P1_WEATHER_KEYWORDS: frozenset = frozenset({
-    "weather", "forecast", "temperature", "rain", "snow",
-    "sunny", "cloudy", "overcast", "humid", "cold", "hot",
-    "wind", "windy", "storm",
-})
-_P1_FORECAST_WORDS: frozenset = frozenset({
-    "tomorrow", "tonight", "weekend", "next week", "forecast",
-    "this week", "7 day", "7-day",
-})
+_P1_WEATHER_KEYWORDS: frozenset = frozenset(
+    {
+        "weather",
+        "forecast",
+        "temperature",
+        "rain",
+        "snow",
+        "sunny",
+        "cloudy",
+        "overcast",
+        "humid",
+        "cold",
+        "hot",
+        "wind",
+        "windy",
+        "storm",
+    }
+)
+_P1_FORECAST_WORDS: frozenset = frozenset(
+    {
+        "tomorrow",
+        "tonight",
+        "weekend",
+        "next week",
+        "forecast",
+        "this week",
+        "7 day",
+        "7-day",
+    }
+)
 
 # PHASE 3 fallback
 _P3_FORECAST_PHRASES: tuple = (
-    "forecast", "this week", "next week", "weekend", "tomorrow",
-    "7 day", "7-day", "next few days", "next 7 days",
-    "monday", "tuesday", "wednesday", "thursday",
-    "friday", "saturday", "sunday",
+    "forecast",
+    "this week",
+    "next week",
+    "weekend",
+    "tomorrow",
+    "7 day",
+    "7-day",
+    "next few days",
+    "next 7 days",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
 )
 _P3_WEATHER_WORDS: frozenset = frozenset({"weather", "temperature", "outside"})
 _P3_VAGUE_PATTERNS: tuple = (
-    "who is he", "who is she", "who is that",
-    "what is that", "what about that",
-    "add this to", "put this in",
-    "what happened", "what about",
-    "how do i", "how can i",
-    "tell me about the", "tell me about a",
+    "who is he",
+    "who is she",
+    "who is that",
+    "what is that",
+    "what about that",
+    "add this to",
+    "put this in",
+    "what happened",
+    "what about",
+    "how do i",
+    "how can i",
+    "tell me about the",
+    "tell me about a",
 )
 
 
@@ -1014,8 +1212,18 @@ class CoreferenceResolver:
     """
 
     # Pronouns that can refer to a note / file / generic object
-    _OBJECT_PRONOUNS = {"it", "this", "that", "the note", "the task", "the file",
-                         "the event", "the song", "the email", "the reminder"}
+    _OBJECT_PRONOUNS = {
+        "it",
+        "this",
+        "that",
+        "the note",
+        "the task",
+        "the file",
+        "the event",
+        "the song",
+        "the email",
+        "the reminder",
+    }
     # Pronouns that can refer to a person
     _PERSON_PRONOUNS = {"them", "he", "she", "they"}
 
@@ -1033,7 +1241,9 @@ class CoreferenceResolver:
 
         all_pronouns = self._OBJECT_PRONOUNS | self._PERSON_PRONOUNS
         for pronoun in sorted(all_pronouns, key=len, reverse=True):  # longest first
-            if pronoun == "it" and any(phrase in text_lower for phrase in protected_it_phrases):
+            if pronoun == "it" and any(
+                phrase in text_lower for phrase in protected_it_phrases
+            ):
                 continue
             if re.search(rf"\b{re.escape(pronoun)}\b", text_lower):
                 replacement = self._find_referent(pronoun, context)
@@ -1046,7 +1256,9 @@ class CoreferenceResolver:
                         flags=re.IGNORECASE,
                     )
                     logger.info(f"[COREF] Resolved '{pronoun}' -> '{replacement}'")
-                    text_lower = resolved_text.lower()  # re-scan after each substitution
+                    text_lower = (
+                        resolved_text.lower()
+                    )  # re-scan after each substitution
 
         return resolved_text
 
@@ -1152,7 +1364,9 @@ class EmotionDetector:
 
         for emotion, keywords in self.EMOTION_KEYWORDS.items():
             for keyword in keywords:
-                if keyword in text_lower and not _has_negation_before(text_lower, keyword):
+                if keyword in text_lower and not _has_negation_before(
+                    text_lower, keyword
+                ):
                     emotions.append(emotion)
                     break
 
@@ -1536,7 +1750,11 @@ class NLPProcessor:
             return []
         try:
             turns = self.conversation_memory.recent(limit=limit)
-            return [str(turn.user_input or "").strip() for turn in turns if str(turn.user_input or "").strip()]
+            return [
+                str(turn.user_input or "").strip()
+                for turn in turns
+                if str(turn.user_input or "").strip()
+            ]
         except Exception:
             return []
 
@@ -1586,8 +1804,14 @@ class NLPProcessor:
             return route
 
         # Keep explicit high-impact commands deterministic when confidence is already acceptable.
-        explicit_action = str(getattr(parsed_command, "action", "") or "").strip().lower()
-        if explicit_action in {"delete", "remove", "update", "append", "send", "compose"} and route_conf >= 0.60:
+        explicit_action = (
+            str(getattr(parsed_command, "action", "") or "").strip().lower()
+        )
+        if (
+            explicit_action
+            in {"delete", "remove", "update", "append", "send", "compose"}
+            and route_conf >= 0.60
+        ):
             return route
 
         llm_context = self._recent_context_for_llm_intent(limit=3)
@@ -1613,7 +1837,19 @@ class NLPProcessor:
 
         # If the route already points to a concrete non-conversation action, keep it.
         if (
-            route.intent.startswith(("notes:", "email:", "calendar:", "file_operations:", "memory:", "reminder:", "system:", "weather:", "time:"))
+            route.intent.startswith(
+                (
+                    "notes:",
+                    "email:",
+                    "calendar:",
+                    "file_operations:",
+                    "memory:",
+                    "reminder:",
+                    "system:",
+                    "weather:",
+                    "time:",
+                )
+            )
             and llm_intent.startswith("conversation:")
             and route_conf >= 0.62
         ):
@@ -1884,7 +2120,9 @@ class NLPProcessor:
         if not last_intent:
             return None
 
-        reference_present = any(token.flags.get("is_reference") for token in content_tokens)
+        reference_present = any(
+            token.flags.get("is_reference") for token in content_tokens
+        )
         explicit_reference_tokens = {
             "it",
             "this",
@@ -1896,7 +2134,9 @@ class NLPProcessor:
             "those",
             "these",
         }
-        has_reference = reference_present or bool(token_words & explicit_reference_tokens)
+        has_reference = reference_present or bool(
+            token_words & explicit_reference_tokens
+        )
         if not has_reference:
             return None
 
@@ -2068,7 +2308,9 @@ class NLPProcessor:
                     _upsert(implied_intent, implied_score, "plugin_prior")
 
         ranked = sorted(
-            aggregate.values(), key=lambda item: float(item.get("score", 0.0)), reverse=True
+            aggregate.values(),
+            key=lambda item: float(item.get("score", 0.0)),
+            reverse=True,
         )[: max(1, int(limit))]
         for idx, item in enumerate(ranked, start=1):
             item["rank"] = idx
@@ -2166,7 +2408,9 @@ class NLPProcessor:
                 score -= 0.14
                 issues.append(f"missing_{intent_plugin}_cues")
 
-        if intent_plugin == "weather" and not any(_contains_cue(cue) for cue in weather_cues):
+        if intent_plugin == "weather" and not any(
+            _contains_cue(cue) for cue in weather_cues
+        ):
             score -= 0.28
             issues.append("weather_without_weather_signals")
 
@@ -2205,7 +2449,9 @@ class NLPProcessor:
                     "wind",
                 }
             )
-            if not (has_location_signal or has_temperature_signal or has_forecast_signal):
+            if not (
+                has_location_signal or has_temperature_signal or has_forecast_signal
+            ):
                 score -= 0.24
                 issues.append("missing_weather_required_entities")
 
@@ -2214,7 +2460,9 @@ class NLPProcessor:
         if contradiction_hits:
             score -= 0.24
             issues.append(f"negative_evidence_{intent_plugin}_contradiction")
-            if intent_plugin == "weather" and not any(_contains_cue(cue) for cue in weather_cues):
+            if intent_plugin == "weather" and not any(
+                _contains_cue(cue) for cue in weather_cues
+            ):
                 score -= 0.10
                 issues.append("weather_contradiction_without_weather_support")
 
@@ -2235,7 +2483,8 @@ class NLPProcessor:
         if (
             parsed_command.object_type == "unknown"
             and not parsed_command.references
-            and intent_plugin in {
+            and intent_plugin
+            in {
                 "notes",
                 "email",
                 "calendar",
@@ -2244,7 +2493,10 @@ class NLPProcessor:
             score -= 0.08
             issues.append("no_object_for_domain_intent")
 
-        if intent_plugin in {"notes", "email", "calendar"} and parsed_command.references:
+        if (
+            intent_plugin in {"notes", "email", "calendar"}
+            and parsed_command.references
+        ):
             score += 0.18
             if parsed_command.action in {"read", "show", "open", "list"}:
                 score += 0.08
@@ -2337,7 +2589,9 @@ class NLPProcessor:
             if explicit_tool_cues or object_hint in tool_objects:
                 has_tool_cue = True
         if plugin_scores:
-            best_plugin, best_score = max(plugin_scores.items(), key=lambda item: float(item[1]))
+            best_plugin, best_score = max(
+                plugin_scores.items(), key=lambda item: float(item[1])
+            )
             tool_plugins = set(self.plugin_registry.all_actions.keys()) | {
                 "notes",
                 "email",
@@ -2361,7 +2615,11 @@ class NLPProcessor:
             "strategy",
             "plan",
         }
-        if has_conversation_cue and bool(words & design_conversation_cues) and not explicit_tool_cues:
+        if (
+            has_conversation_cue
+            and bool(words & design_conversation_cues)
+            and not explicit_tool_cues
+        ):
             return "conversation"
 
         if has_conversation_cue and not has_tool_cue:
@@ -2395,7 +2653,9 @@ class NLPProcessor:
         if not has_task:
             return False
 
-        has_build_verb = bool(re.search(r"\b(create|created|build|built|make|made)\b", low))
+        has_build_verb = bool(
+            re.search(r"\b(create|created|build|built|make|made)\b", low)
+        )
 
         constraint_cues = {
             "no fiction",
@@ -2615,7 +2875,11 @@ class NLPProcessor:
             "[FRAME_MERGE] Follow-up '%s' merged into frame '%s' with updated slots: %s",
             text[:60],
             merged["name"],
-            {k: v for k, v in merged["slots"].items() if k in ("date", "time", "target")},
+            {
+                k: v
+                for k, v in merged["slots"].items()
+                if k in ("date", "time", "target")
+            },
         )
         return merged
 
@@ -2870,7 +3134,11 @@ class NLPProcessor:
             parsed.action = "list" if re.search(r"\b(show|list)\b", lower) else "search"
             parsed.object_type = "calendar"
         elif any(word in lower for word in _P1_WEATHER_KEYWORDS):
-            parsed.action = "forecast" if any(word in lower for word in _P1_FORECAST_WORDS) else "current"
+            parsed.action = (
+                "forecast"
+                if any(word in lower for word in _P1_FORECAST_WORDS)
+                else "current"
+            )
             parsed.object_type = "weather"
 
         title_match = re.search(
@@ -2961,10 +3229,7 @@ class NLPProcessor:
             and parsed.object_type == "calendar"
         ):
             scores["calendar"] += 1.0
-        if (
-            parsed.action in {"current", "forecast"}
-            and parsed.object_type == "weather"
-        ):
+        if parsed.action in {"current", "forecast"} and parsed.object_type == "weather":
             scores["weather"] += 1.0
         if parsed.references:
             scores["notes"] += 0.6
@@ -2998,7 +3263,9 @@ class NLPProcessor:
 
         # Strong weather language should outrank weak lexical collisions in notes/email/calendar.
         weather_signal_strength = sum(token_counts[word] for word in _WEATHER_TERMS)
-        has_explicit_non_weather_target = bool(normalized_set & _NON_WEATHER_TARGET_TERMS)
+        has_explicit_non_weather_target = bool(
+            normalized_set & _NON_WEATHER_TARGET_TERMS
+        )
         if weather_signal_strength >= 1 and not has_explicit_non_weather_target:
             scores["notes"] *= 0.35
             scores["email"] *= 0.45
@@ -3039,7 +3306,9 @@ class NLPProcessor:
         intent: str,
         entities: Dict[str, List[Entity]],
     ) -> Dict[str, Slot]:
-        return await asyncio.to_thread(self.slot_filler.extract_slots, text, intent, entities)
+        return await asyncio.to_thread(
+            self.slot_filler.extract_slots, text, intent, entities
+        )
 
     def debug_tokenizer(self, text: str) -> Dict[str, Any]:
         """Development HUD for tokenizer introspection."""
@@ -3096,10 +3365,14 @@ class NLPProcessor:
         if self._correction_embeddings is not None or not self.learned_corrections:
             return
         classifier = self._ensure_semantic_classifier()
-        if classifier is None or not hasattr(classifier, "_model") or classifier._model is None:
+        if (
+            classifier is None
+            or not hasattr(classifier, "_model")
+            or classifier._model is None
+        ):
             return
         try:
-            import numpy as np
+
             keys = list(self.learned_corrections.keys())
             embs = classifier._model.encode(keys, normalize_embeddings=True)
             self._correction_keys = keys
@@ -3122,10 +3395,15 @@ class NLPProcessor:
         if self._correction_embeddings is None or self._correction_keys is None:
             return None
         classifier = self._ensure_semantic_classifier()
-        if classifier is None or not hasattr(classifier, "_model") or classifier._model is None:
+        if (
+            classifier is None
+            or not hasattr(classifier, "_model")
+            or classifier._model is None
+        ):
             return None
         try:
             import numpy as np
+
             query_emb = classifier._model.encode(
                 [text.lower()], normalize_embeddings=True
             )
@@ -3137,7 +3415,10 @@ class NLPProcessor:
                 learned_intent = self.learned_corrections[matched_key]
                 logger.info(
                     "[LEARNED-SEM] '%s' ~ '%s' (%.2f) -> %s",
-                    text, matched_key, best_sim, learned_intent,
+                    text,
+                    matched_key,
+                    best_sim,
+                    learned_intent,
                 )
                 return learned_intent, min(0.93, 0.80 + best_sim * 0.13)
         except Exception as exc:
@@ -3217,7 +3498,9 @@ class NLPProcessor:
         normalized_text = self._normalize_for_tokenizer(clean_text)
         contextual_text = normalized_text
         if self.conversation_memory is not None:
-            contextual_text = self.conversation_memory.build_contextual_input(normalized_text)
+            contextual_text = self.conversation_memory.build_contextual_input(
+                normalized_text
+            )
 
         # Step 3: Surface + lexical + semantic hint layers
         segments = self._surface_segment(normalized_text)
@@ -3257,10 +3540,12 @@ class NLPProcessor:
         _orig_key = text.strip().lower()
         _correction_intent = (
             self.learned_corrections.get(_correction_key)
-            if self.learned_corrections else None
+            if self.learned_corrections
+            else None
         ) or (
             self.learned_corrections.get(_orig_key)
-            if self.learned_corrections and _orig_key != _correction_key else None
+            if self.learned_corrections and _orig_key != _correction_key
+            else None
         )
         _send_followup_correction_guard = bool(
             re.search(r"\bsend\b", _correction_key)
@@ -3316,9 +3601,8 @@ class NLPProcessor:
 
             _send_followup_intent = None
             _tl_words = set(_tl.split())
-            if (
-                "send" in _tl_words
-                and any(p in _tl_words for p in {"her", "him", "them"})
+            if "send" in _tl_words and any(
+                p in _tl_words for p in {"her", "him", "them"}
             ):
                 _send_followup_intent = "email:compose"
 
@@ -3356,7 +3640,9 @@ class NLPProcessor:
                 weighted_candidates = self._build_weighted_parse(
                     parsed_command, plugin_scores, normalized_text
                 )
-                shallow_confidence = max(plugin_scores.values()) if plugin_scores else 0.0
+                shallow_confidence = (
+                    max(plugin_scores.values()) if plugin_scores else 0.0
+                )
                 run_deep_stage = self.foundation_layers.should_run_deep_stage(
                     turn_budget, shallow_confidence=shallow_confidence
                 )
@@ -3405,19 +3691,21 @@ class NLPProcessor:
                 intent = route.intent
                 intent_confidence = route.confidence
 
-            intent, intent_confidence = self.route_coordinator.apply_initial_routing_policy(
-                intent=intent,
-                intent_confidence=float(intent_confidence or 0.0),
-                route=route,
-                parsed_command=parsed_command,
-                plugin_scores=plugin_scores,
-                semantic_intent=semantic_intent,
-                weighted_candidates=weighted_candidates,
-                build_uncertainty_prompt=self._build_uncertainty_prompt,
-                build_top_intent_candidates=self._build_top_intent_candidates,
-                validate_intent_plausibility=self._validate_intent_plausibility,
-                should_force_unknown_fallback=self._should_force_unknown_fallback,
-                normalized_text=normalized_text,
+            intent, intent_confidence = (
+                self.route_coordinator.apply_initial_routing_policy(
+                    intent=intent,
+                    intent_confidence=float(intent_confidence or 0.0),
+                    route=route,
+                    parsed_command=parsed_command,
+                    plugin_scores=plugin_scores,
+                    semantic_intent=semantic_intent,
+                    weighted_candidates=weighted_candidates,
+                    build_uncertainty_prompt=self._build_uncertainty_prompt,
+                    build_top_intent_candidates=self._build_top_intent_candidates,
+                    validate_intent_plausibility=self._validate_intent_plausibility,
+                    should_force_unknown_fallback=self._should_force_unknown_fallback,
+                    normalized_text=normalized_text,
+                )
             )
 
         intent, intent_confidence = self.route_coordinator.apply_category_gate(
@@ -3516,7 +3804,10 @@ class NLPProcessor:
                     and hasattr(route, "trace")
                     and route.trace.get("source") == "phase1_authoritative"
                 )
-                if not _phase1_locked and frame_result.confidence > intent_confidence + 0.07:
+                if (
+                    not _phase1_locked
+                    and frame_result.confidence > intent_confidence + 0.07
+                ):
                     logger.info(
                         "[FRAME] Override route %s (%.2f) → frame %s (%.2f)",
                         intent,
@@ -3570,7 +3861,9 @@ class NLPProcessor:
                 float(intent_confidence or 0.0),
                 float(_followup_result.confidence),
             )
-            if intent.startswith(("notes:", "email:", "calendar:", "reminder:", "weather:")):
+            if intent.startswith(
+                ("notes:", "email:", "calendar:", "reminder:", "weather:")
+            ):
                 parsed_command.modifiers["unknown_intent_fallback"] = False
                 parsed_command.modifiers.pop("disambiguation", None)
             route = RouteDecision(
@@ -3585,13 +3878,24 @@ class NLPProcessor:
                 },
             )
 
-        _pending_slot = self.context.pending_clarification if hasattr(self.context, "pending_clarification") else {}
-        _pending_slot_type = str(
-            (_pending_slot or {}).get("slot_type")
-            or (_pending_slot or {}).get("type")
-            or ""
-        ).strip().lower()
-        if isinstance(_pending_slot, dict) and _pending_slot_type in {"help_narrowing", "narrowing"}:
+        _pending_slot = (
+            self.context.pending_clarification
+            if hasattr(self.context, "pending_clarification")
+            else {}
+        )
+        _pending_slot_type = (
+            str(
+                (_pending_slot or {}).get("slot_type")
+                or (_pending_slot or {}).get("type")
+                or ""
+            )
+            .strip()
+            .lower()
+        )
+        if isinstance(_pending_slot, dict) and _pending_slot_type in {
+            "help_narrowing",
+            "narrowing",
+        }:
             _slot_text = normalized_text.strip().strip(".!,;:")
             _slot_tokens = re.findall(r"\b[a-z0-9']+\b", _slot_text.lower())
             _has_action_word = bool(
@@ -3601,7 +3905,18 @@ class NLPProcessor:
                 )
             )
             _social_only = set(_slot_tokens).issubset(
-                {"hi", "hello", "hey", "thanks", "thank", "ok", "okay", "sure", "bye", "goodbye"}
+                {
+                    "hi",
+                    "hello",
+                    "hey",
+                    "thanks",
+                    "thank",
+                    "ok",
+                    "okay",
+                    "sure",
+                    "bye",
+                    "goodbye",
+                }
             )
             _looks_like_help_opener = bool(
                 re.search(
@@ -3609,7 +3924,9 @@ class NLPProcessor:
                     _slot_text.lower(),
                 )
             )
-            _expected_shape = str(_pending_slot.get("expected_answer_shape") or "").strip().lower()
+            _expected_shape = (
+                str(_pending_slot.get("expected_answer_shape") or "").strip().lower()
+            )
             _ordinal_selected = ""
             if re.search(r"\b(second|2nd|two)\b", _slot_text.lower()):
                 _ordinal_selected = "second"
@@ -3623,8 +3940,12 @@ class NLPProcessor:
             _shape_allows_fill = True
             if _expected_shape == "single_token":
                 _shape_allows_fill = len(_slot_tokens) == 1
-            elif _expected_shape in {"short_topic_or_subdomain", "short_disambiguation_or_selection", "ordinal_or_short_phrase"}:
-                _shape_allows_fill = (1 <= len(_slot_tokens) <= 5)
+            elif _expected_shape in {
+                "short_topic_or_subdomain",
+                "short_disambiguation_or_selection",
+                "ordinal_or_short_phrase",
+            }:
+                _shape_allows_fill = 1 <= len(_slot_tokens) <= 5
 
             if (
                 _slot_text
@@ -3647,8 +3968,12 @@ class NLPProcessor:
                     "expected_answer_shape": _expected_shape,
                 }
                 if _ordinal_selected:
-                    parsed_command.modifiers["pending_slot_followup"]["selected_reference"] = _ordinal_selected
-                    parsed_command.modifiers["selected_object_reference"] = _ordinal_selected
+                    parsed_command.modifiers["pending_slot_followup"][
+                        "selected_reference"
+                    ] = _ordinal_selected
+                    parsed_command.modifiers["selected_object_reference"] = (
+                        _ordinal_selected
+                    )
                 parsed_command.modifiers["followup_resolution"] = {
                     "was_followup": True,
                     "domain": "conversation",
@@ -3664,28 +3989,47 @@ class NLPProcessor:
                     trace={"source": "pending_help_slot"},
                 )
 
-        if isinstance(_pending_slot, dict) and _pending_slot_type in {"route_choice", "help_route_choice"}:
+        if isinstance(_pending_slot, dict) and _pending_slot_type in {
+            "route_choice",
+            "help_route_choice",
+        }:
             _choice_text = normalized_text.strip().lower()
             _choice_tokens = re.findall(r"\b[a-z0-9']+\b", _choice_text)
             _compact_choice = len(_choice_tokens) <= 4
             _choice = ""
-            if re.search(r"\b(explanation|explain|walk\s*through|teach|how|why)\b", _choice_text):
+            if re.search(
+                r"\b(explanation|explain|walk\s*through|teach|how|why)\b", _choice_text
+            ):
                 _choice = "explanation"
-            elif re.search(r"\b(direct\s+action|action|do\s+it|execute|perform|run\s+it)\b", _choice_text):
+            elif re.search(
+                r"\b(direct\s+action|action|do\s+it|execute|perform|run\s+it)\b",
+                _choice_text,
+            ):
                 _choice = "direct_action"
-            elif re.search(r"\b(quick\s+search|search|look\s*up|find\s+info|web|online)\b", _choice_text):
+            elif re.search(
+                r"\b(quick\s+search|search|look\s*up|find\s+info|web|online)\b",
+                _choice_text,
+            ):
                 _choice = "quick_search"
 
-            if _choice and _compact_choice and not self._is_rich_conceptual_request(_choice_text):
+            if (
+                _choice
+                and _compact_choice
+                and not self._is_rich_conceptual_request(_choice_text)
+            ):
                 intent = "conversation:clarification_needed"
                 intent_confidence = max(float(intent_confidence or 0.0), 0.88)
                 parsed_command.modifiers["pending_slot_followup"] = {
                     "filled": True,
                     "slot": "route_choice",
                     "value": _choice,
-                    "parent_topic": str(_pending_slot.get("parent_topic") or "conversation"),
+                    "parent_topic": str(
+                        _pending_slot.get("parent_topic") or "conversation"
+                    ),
                     "parent_request": str(_pending_slot.get("parent_request") or ""),
-                    "parent_intent": str(_pending_slot.get("parent_intent") or "conversation:help"),
+                    "parent_intent": str(
+                        _pending_slot.get("parent_intent") or "conversation:help"
+                    ),
                     "reason": "pending_route_choice_slot",
                     "expected_answer_shape": "single_token",
                 }
@@ -3705,7 +4049,10 @@ class NLPProcessor:
                     trace={"source": "pending_route_choice_slot"},
                 )
 
-        if self._is_rich_conceptual_request(normalized_text) and intent == "conversation:clarification_needed":
+        if (
+            self._is_rich_conceptual_request(normalized_text)
+            and intent == "conversation:clarification_needed"
+        ):
             intent = (
                 "learning:system_design"
                 if self._is_conceptual_build_architecture_prompt(normalized_text)
@@ -3766,8 +4113,16 @@ class NLPProcessor:
         # answer (an ordinal, yes/no, pronoun, etc.) rather than a new command,
         # map it to the pending candidate plugin instead of a raw NLP intent.
         _clarif_resolution_cues = (
-            "that one", "the first", "first one", "second one", "third one",
-            "yes", "no", "neither", "that", "option",
+            "that one",
+            "the first",
+            "first one",
+            "second one",
+            "third one",
+            "yes",
+            "no",
+            "neither",
+            "that",
+            "option",
         )
         if (
             self.context.dialogue_state == "clarifying"
@@ -3775,7 +4130,9 @@ class NLPProcessor:
             and intent_confidence < 0.70
             and any(cue in normalized_text.lower() for cue in _clarif_resolution_cues)
         ):
-            _pending_plugins = self.context.pending_clarification.get("candidate_plugins", [])
+            _pending_plugins = self.context.pending_clarification.get(
+                "candidate_plugins", []
+            )
             if _pending_plugins:
                 _tl_low = normalized_text.lower()
                 _idx = 0
@@ -3786,7 +4143,9 @@ class NLPProcessor:
                 _sel = _pending_plugins[min(_idx, len(_pending_plugins) - 1)]
                 intent = f"{_sel}:general"
                 intent_confidence = 0.78
-                parsed_command.modifiers["selected_object_reference"] = f"candidate_plugin:{_sel}"
+                parsed_command.modifiers["selected_object_reference"] = (
+                    f"candidate_plugin:{_sel}"
+                )
                 route = RouteDecision(
                     intent=intent,
                     confidence=intent_confidence,
@@ -3805,13 +4164,20 @@ class NLPProcessor:
             and isinstance(getattr(route, "trace", None), dict)
             and route.trace.get("source") == "followup_resolver"
         )
-        if intent_confidence < 0.70 and self.learned_corrections and not _followup_locked:
+        if (
+            intent_confidence < 0.70
+            and self.learned_corrections
+            and not _followup_locked
+        ):
             _sem = self._try_semantic_correction(normalized_text)
             if _sem:
                 _sem_intent, _sem_conf = _sem
                 logger.info(
                     "[LEARNED-SEM] Override %s (%.2f) -> %s (%.2f)",
-                    intent, intent_confidence, _sem_intent, _sem_conf,
+                    intent,
+                    intent_confidence,
+                    _sem_intent,
+                    _sem_conf,
                 )
                 intent = _sem_intent
                 intent_confidence = _sem_conf
@@ -3824,7 +4190,9 @@ class NLPProcessor:
         _compound_parts = _compound_sep.split(normalized_text.strip())
         if len(_compound_parts) > 1:
             # Prefer structured compound parsing via the frame parser
-            if self.frame_parser is not None and hasattr(self.frame_parser, 'parse_compound'):
+            if self.frame_parser is not None and hasattr(
+                self.frame_parser, "parse_compound"
+            ):
                 _frame_ctx = {
                     "last_plugin": parsed_command.modifiers.get("last_plugin"),
                     "last_intent": parsed_command.modifiers.get("last_intent", ""),
@@ -3867,9 +4235,7 @@ class NLPProcessor:
                             pass
                 if _secondary_intents:
                     parsed_command.modifiers["secondary_intents"] = _secondary_intents
-                    logger.debug(
-                        "[COMPOUND] Secondary intents: %s", _secondary_intents
-                    )
+                    logger.debug("[COMPOUND] Secondary intents: %s", _secondary_intents)
 
         # Final safety pass: late frame/semantic overrides can change intent after
         # early fallback checks, so enforce clarification fallback one more time.
@@ -3893,7 +4259,9 @@ class NLPProcessor:
             route is not None
             and isinstance(getattr(route, "trace", None), dict)
             and route.trace.get("source") == "followup_resolver"
-            and intent.startswith(("notes:", "email:", "calendar:", "reminder:", "weather:"))
+            and intent.startswith(
+                ("notes:", "email:", "calendar:", "reminder:", "weather:")
+            )
         )
 
         intent, intent_confidence = self.route_coordinator.apply_final_fallback(
@@ -4211,7 +4579,9 @@ class NLPProcessor:
 
         logger.debug("[THOUGHT_TRACE] %s", trace.compact())
 
-        import pathlib, json as _json
+        import pathlib
+        import json as _json
+
         _log_dir = pathlib.Path("data") / "analytics"
         try:
             _log_dir.mkdir(parents=True, exist_ok=True)
@@ -4309,7 +4679,9 @@ class NLPProcessor:
 
         # PHASE 1: HIGH-CONFIDENCE EXPLICIT PATTERNS (these override semantic classification)
         # System intents - check BEFORE time (system has "how's" pattern that could match time)
-        if "system" in text_lower and any(word in text_lower for word in _P1_SYSTEM_STATUS):
+        if "system" in text_lower and any(
+            word in text_lower for word in _P1_SYSTEM_STATUS
+        ):
             return "system:status", 0.9
         # Resource check: "how is/is my + cpu/memory/disk/battery"
         if any(word in text_lower for word in ["how is", "is my", "is the"]) and any(
@@ -4350,9 +4722,11 @@ class NLPProcessor:
         is_memory_question = text_lower.endswith("?") and (
             "remember" in text_lower or "know" in text_lower
         )
-        if not is_memory_question and any(
-            word in text_lower for word in _P1_MEMORY_STORE
-        ) and any(word in text_lower for word in _P1_MEMORY_STORE_OBJ):
+        if (
+            not is_memory_question
+            and any(word in text_lower for word in _P1_MEMORY_STORE)
+            and any(word in text_lower for word in _P1_MEMORY_STORE_OBJ)
+        ):
             return "memory:store", 0.95
         # Search: "what did we talk about/discuss"
         if any(phrase in text_lower for phrase in _P1_MEMORY_SEARCH_SUBJ) and any(
@@ -4362,19 +4736,25 @@ class NLPProcessor:
 
         # Email intents - VERY explicit: action word + email word (0.85-0.9 confidence)
         # Compose: "compose/draft/write + email/mail"
-        if any(word in text_lower for word in _P1_EMAIL_COMPOSE_VERBS) and any(
-            word in text_lower for word in _P1_EMAIL_NOUNS
-        ) and not _negated:
+        if (
+            any(word in text_lower for word in _P1_EMAIL_COMPOSE_VERBS)
+            and any(word in text_lower for word in _P1_EMAIL_NOUNS)
+            and not _negated
+        ):
             return "email:compose", 0.9
         # Delete: "delete/remove/trash + email/mail"
-        if any(word in text_lower for word in _P1_EMAIL_DELETE_VERBS) and any(
-            word in text_lower for word in _P1_EMAIL_DELETE_NOUNS
-        ) and not _negated:
+        if (
+            any(word in text_lower for word in _P1_EMAIL_DELETE_VERBS)
+            and any(word in text_lower for word in _P1_EMAIL_DELETE_NOUNS)
+            and not _negated
+        ):
             return "email:delete", 0.9
         # Reply: "reply/respond to email/mail"
-        if any(word in text_lower for word in _P1_EMAIL_REPLY_VERBS) and any(
-            word in text_lower for word in _P1_EMAIL_DELETE_NOUNS
-        ) and not _negated:
+        if (
+            any(word in text_lower for word in _P1_EMAIL_REPLY_VERBS)
+            and any(word in text_lower for word in _P1_EMAIL_DELETE_NOUNS)
+            and not _negated
+        ):
             return "email:reply", 0.85
         # Search: "find/search + email/mail + (from/subject/sender)"
         if any(word in text_lower for word in _P1_EMAIL_SEARCH_VERBS) and any(
@@ -4396,7 +4776,9 @@ class NLPProcessor:
         # Read note content: "what is in the grocery list?", "what's inside my notes?"
         # Must come before list/append to avoid misclassification.
         if _P1_NOTES_READ_CONTENT_RE.search(text_lower) and not _negated:
-            _mentions_note_word = bool(re.search(r"\b(note|notes|list|lists|memo)\b", text_lower))
+            _mentions_note_word = bool(
+                re.search(r"\b(note|notes|list|lists|memo)\b", text_lower)
+            )
             _pronoun_only = bool(re.search(r"\b(it|this|that)\b", text_lower))
             _notes_context = bool(
                 getattr(self.context, "last_intent", "").startswith("notes:")
@@ -4413,19 +4795,22 @@ class NLPProcessor:
         ):
             return "notes:append", 0.9
         # Create: "create/new/make + note" - requires explicit note/memo keyword
-        if any(word in text_lower for word in _P1_NOTES_CREATE_VERBS) and any(
-            word in text_lower for word in _P1_NOTES_KEYWORDS
-        ) and not _negated:
+        if (
+            any(word in text_lower for word in _P1_NOTES_CREATE_VERBS)
+            and any(word in text_lower for word in _P1_NOTES_KEYWORDS)
+            and not _negated
+        ):
             return "notes:create", 0.9
         # "add a note" - create, not append (no "to the" structure)
-        if text_lower.startswith("add") and any(
-            word in text_lower for word in _P1_NOTES_KEYWORDS
-        ) and not _negated:
+        if (
+            text_lower.startswith("add")
+            and any(word in text_lower for word in _P1_NOTES_KEYWORDS)
+            and not _negated
+        ):
             return "notes:create", 0.9
         # Existence/count questions: "do i have notes?", "how many notes do i have?"
-        if (
-            re.search(r"\b(do i have|how many|i have)\b", text_lower)
-            and re.search(r"\bnotes?\b", text_lower)
+        if re.search(r"\b(do i have|how many|i have)\b", text_lower) and re.search(
+            r"\bnotes?\b", text_lower
         ):
             return "notes:query_exist", 0.90
         # List: "show/list + note(s)"
@@ -4439,9 +4824,11 @@ class NLPProcessor:
         ):
             return "notes:search", 0.9
         # Delete: "delete/remove + note(s)"
-        if any(word in text_lower for word in _P1_NOTES_DELETE_VERBS) and any(
-            word in text_lower for word in _P1_NOTES_KEYWORDS
-        ) and not _negated:
+        if (
+            any(word in text_lower for word in _P1_NOTES_DELETE_VERBS)
+            and any(word in text_lower for word in _P1_NOTES_KEYWORDS)
+            and not _negated
+        ):
             return "notes:delete", 0.85
 
         # ── Reminder intents (must come BEFORE thanks/greetings) ─────────────────
@@ -4504,7 +4891,11 @@ class NLPProcessor:
         # Short conversational acknowledgments — catch before semantic classifier
         # e.g. "will do", "got it", "sure", "sounds good", "noted"
         _text_stripped = text_lower.strip(".,!? ")
-        if _text_stripped in _P1_CONV_ACK or len(text_lower.split()) <= 3 and _text_stripped in _P1_CONV_ACK:
+        if (
+            _text_stripped in _P1_CONV_ACK
+            or len(text_lower.split()) <= 3
+            and _text_stripped in _P1_CONV_ACK
+        ):
             return "conversation:ack", 0.92
 
         # Thanks - check BEFORE greetings (to prevent "thanks" being matched by semantic classifier)
@@ -4628,13 +5019,42 @@ class NLPProcessor:
         # Prevent force-fitting casual chat into tool intents.
         _words = set(re.findall(r"\b[a-z']+\b", text_lower))
         _conversation_cues = {
-            "how", "why", "what", "hey", "hi", "hello", "day", "feeling",
-            "doing", "going", "think", "chat", "talk",
+            "how",
+            "why",
+            "what",
+            "hey",
+            "hi",
+            "hello",
+            "day",
+            "feeling",
+            "doing",
+            "going",
+            "think",
+            "chat",
+            "talk",
         }
         _tool_cues = {
-            "email", "calendar", "meeting", "note", "notes", "file", "files",
-            "weather", "forecast", "temperature", "reminder", "time", "date",
-            "create", "delete", "read", "write", "open", "search", "list", "show",
+            "email",
+            "calendar",
+            "meeting",
+            "note",
+            "notes",
+            "file",
+            "files",
+            "weather",
+            "forecast",
+            "temperature",
+            "reminder",
+            "time",
+            "date",
+            "create",
+            "delete",
+            "read",
+            "write",
+            "open",
+            "search",
+            "list",
+            "show",
         }
         if (
             len(_words) <= 12
@@ -4835,15 +5255,20 @@ class NLPProcessor:
             disambiguation = _modifiers.get("disambiguation", {})
             _pending_slot_followup = _modifiers.get("pending_slot_followup", {})
 
-        _existing_slot_type = str(
-            (_existing_pending or {}).get("slot_type")
-            or (_existing_pending or {}).get("type")
-            or ""
-        ).strip().lower()
+        _existing_slot_type = (
+            str(
+                (_existing_pending or {}).get("slot_type")
+                or (_existing_pending or {}).get("type")
+                or ""
+            )
+            .strip()
+            .lower()
+        )
         _preserve_existing_slot = bool(
             isinstance(_existing_pending, dict)
             and _existing_pending
-            and _existing_slot_type in {"route_choice", "help_route_choice", "help_narrowing", "narrowing"}
+            and _existing_slot_type
+            in {"route_choice", "help_route_choice", "help_narrowing", "narrowing"}
             and bool(_existing_pending.get("active", True))
         )
         _slot_was_filled = bool(
@@ -4863,7 +5288,11 @@ class NLPProcessor:
         # Persist the semantic frame for follow-up merging
         if isinstance(result.parsed_command, dict):
             _frame_data = result.parsed_command.get("modifiers", {}).get("frame")
-            if _frame_data and isinstance(_frame_data, dict) and _frame_data.get("name"):
+            if (
+                _frame_data
+                and isinstance(_frame_data, dict)
+                and _frame_data.get("name")
+            ):
                 self.context.last_frame = dict(_frame_data)
 
         # Extract entities to context
@@ -5200,3 +5629,15 @@ def get_temporal_understanding(temporal_parser: Any) -> TemporalUnderstanding:
 
 
 # Follow-up resolver and perception classes are extracted to dedicated modules.
+
+# Backwards-compatibility exports: some callers import Perception/FollowUpResolver
+# from `ai.core.nlp_processor`; re-export them from their new modules so legacy
+# imports continue to work during migration.
+try:  # pragma: no cover - runtime compatibility
+    from ai.core.perception import Perception, PerceptionResult
+    from ai.core.followup_resolver import FollowUpResolver
+except Exception:  # keep import-time resilience for environments missing optional modules
+    Perception = None
+    PerceptionResult = None
+    FollowUpResolver = None
+

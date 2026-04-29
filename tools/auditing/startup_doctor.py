@@ -121,7 +121,11 @@ class StartupDoctor:
             results=all_results,
         )
 
-        report_path = Path(output_path) if output_path else self.root_dir / "data" / "qa" / "startup_health_summary.json"
+        report_path = (
+            Path(output_path)
+            if output_path
+            else self.root_dir / "data" / "qa" / "startup_health_summary.json"
+        )
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
@@ -144,7 +148,9 @@ class StartupDoctor:
             ]
             if not ready:
                 unresolved = sorted(pending)
-                raise ValueError(f"Dependency cycle detected among checks: {unresolved}")
+                raise ValueError(
+                    f"Dependency cycle detected among checks: {unresolved}"
+                )
 
             with ThreadPoolExecutor(max_workers=min(4, len(ready))) as executor:
                 futures = {
@@ -159,7 +165,9 @@ class StartupDoctor:
 
         return results
 
-    def _run_single_check(self, check: CheckDefinition, context: CheckContext) -> CheckResult:
+    def _run_single_check(
+        self, check: CheckDefinition, context: CheckContext
+    ) -> CheckResult:
         started_ts = datetime.now().isoformat()
         started_perf = time.perf_counter()
 
@@ -321,11 +329,23 @@ class StartupDoctor:
             context.root_dir / "data",
             context.root_dir / "tools" / "auditing" / "training_data_auditor.py",
         ]
-        missing = [str(path.relative_to(context.root_dir)) for path in required if not path.exists()]
+        missing = [
+            str(path.relative_to(context.root_dir))
+            for path in required
+            if not path.exists()
+        ]
 
         status = "pass" if not missing else "fail"
-        summary = "Required runtime paths are available." if not missing else "Required runtime paths are missing."
-        remediation = None if not missing else "Restore missing runtime paths before startup diagnostics."
+        summary = (
+            "Required runtime paths are available."
+            if not missing
+            else "Required runtime paths are missing."
+        )
+        remediation = (
+            None
+            if not missing
+            else "Restore missing runtime paths before startup diagnostics."
+        )
 
         return CheckResult(
             check_id="preflight_required_paths",
@@ -353,7 +373,9 @@ class StartupDoctor:
             except json.JSONDecodeError:
                 baseline = None
 
-        gate = evaluate_gate(report=qa_report, baseline=baseline, warning_growth_threshold=0.10)
+        gate = evaluate_gate(
+            report=qa_report, baseline=baseline, warning_growth_threshold=0.10
+        )
         status = "pass" if gate.get("status") == "pass" else "fail"
 
         remediation = None
@@ -394,7 +416,11 @@ class StartupDoctor:
                 remediation="Generate correction history through normal usage, then rerun standard/deep profile.",
             )
 
-        from tools.intent_diagnostics import _build_confusion, _load_corrections, _precision_recall
+        from tools.intent_diagnostics import (
+            _build_confusion,
+            _load_corrections,
+            _precision_recall,
+        )
 
         records = _load_corrections(corrections)
         if not records:
@@ -412,11 +438,21 @@ class StartupDoctor:
 
         matrix = _build_confusion(records)
         stats = _precision_recall(matrix)
-        macro_f1_values = [entry["f1"] for entry in stats.values() if entry.get("support", 0) > 0]
-        macro_f1 = round(sum(macro_f1_values) / len(macro_f1_values), 3) if macro_f1_values else 0.0
+        macro_f1_values = [
+            entry["f1"] for entry in stats.values() if entry.get("support", 0) > 0
+        ]
+        macro_f1 = (
+            round(sum(macro_f1_values) / len(macro_f1_values), 3)
+            if macro_f1_values
+            else 0.0
+        )
 
         status = "pass" if macro_f1 >= 0.60 else "fail"
-        remediation = None if status == "pass" else "Review top confusion pairs and retrain intent routing hot paths."
+        remediation = (
+            None
+            if status == "pass"
+            else "Review top confusion pairs and retrain intent routing hot paths."
+        )
 
         return CheckResult(
             check_id="intent_diagnostics_snapshot",
@@ -487,7 +523,11 @@ class StartupDoctor:
             )
 
         status = "pass" if completed.returncode == 0 else "fail"
-        remediation = None if status == "pass" else "Inspect test_init.py output and initialization dependencies."
+        remediation = (
+            None
+            if status == "pass"
+            else "Inspect test_init.py output and initialization dependencies."
+        )
 
         return CheckResult(
             check_id="startup_smoke_test",
@@ -496,7 +536,9 @@ class StartupDoctor:
             started_at=started,
             finished_at=datetime.now().isoformat(),
             duration_ms=int((time.perf_counter() - start_perf) * 1000),
-            summary="Startup smoke test completed." if status == "pass" else "Startup smoke test failed.",
+            summary="Startup smoke test completed."
+            if status == "pass"
+            else "Startup smoke test failed.",
             details={
                 "returncode": completed.returncode,
                 "stdout_tail": completed.stdout[-1200:],
@@ -533,7 +575,9 @@ def _print_console_summary(report: Dict[str, Any]) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Run startup diagnostics for A.L.I.C.E.")
+    parser = argparse.ArgumentParser(
+        description="Run startup diagnostics for A.L.I.C.E."
+    )
     parser.add_argument("--root", default=".", help="Project root path.")
     parser.add_argument(
         "--profile",
@@ -542,7 +586,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Diagnostic profile to run.",
     )
     parser.add_argument("--output", help="Optional custom report output path.")
-    parser.add_argument("--strict", action="store_true", help="Exit non-zero when status is blocked or degraded.")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero when status is blocked or degraded.",
+    )
 
     args = parser.parse_args(argv)
 

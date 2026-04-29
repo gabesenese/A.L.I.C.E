@@ -1,29 +1,115 @@
 @echo off
+setlocal EnableExtensions EnableDelayedExpansion
 REM A.L.I.C.E Development Environment
-REM This script activates the virtual environment and keeps CMD open
+REM Interactive command menu with the virtual environment activated
 
 cd /d "%~dp0"
 call .venv\Scripts\activate.bat
 
+where make >nul 2>nul
+if %errorlevel%==0 (
+	set "USE_MAKE=1"
+	set "RUN_CMD=python app\dev.py"
+	set "TEST_CMD=make test"
+	set "LINT_CMD=make lint"
+	set "FIX_CMD=ruff check . --fix --unsafe-fixes --exit-zero"
+	set "CHECK_CMD=make check"
+	set "FORMAT_CMD=make format"
+) else (
+	set "USE_MAKE=0"
+	set "RUN_CMD=python app\dev.py"
+	set "TEST_CMD=python -m pytest tests/ -v"
+	set "LINT_CMD=ruff check ."
+	set "FIX_CMD=ruff check . --fix --unsafe-fixes --exit-zero"
+	set "FORMAT_CMD=ruff format ."
+)
+
+:menu
+cls
 echo.
 echo ========================================
 echo   A.L.I.C.E Development Environment
 echo   Virtual Environment: ACTIVATED
 echo ========================================
 echo.
-echo Quick Commands:
-echo   make run                    - Run A.L.I.C.E API
-echo   python -m uvicorn app.main:app --reload --app-dir "%~dp0" - Run API directly
-echo   python -m pytest tests/ -v  - Run all tests
-echo   ruff check .                - Check code quality
+echo Choose a command:
+echo   1  Run app
+echo   2  Run tests
+echo   3  Lint
+echo   4  Collect tests (pytest --collect-only)
+echo   5  Full check
+echo   6  Format
+echo   7  Open plain shell
+echo   8  Exit
 echo.
+choice /c 12345678 /n /m "Select an option: "
 
-where make >nul 2>nul
-if %errorlevel%==0 (
-	make run
+if errorlevel 8 goto exit
+if errorlevel 7 goto plain_shell
+if errorlevel 6 goto format
+if errorlevel 5 goto check
+if errorlevel 4 goto collect
+if errorlevel 3 goto lint
+if errorlevel 2 goto test
+if errorlevel 1 goto run
+goto menu
+
+:run
+echo.
+echo Running: %RUN_CMD%
+call %RUN_CMD%
+pause
+goto menu
+
+:test
+echo.
+echo Running: %TEST_CMD%
+call %TEST_CMD%
+pause
+goto menu
+
+:lint
+echo.
+echo Running: %LINT_CMD%
+call %LINT_CMD%
+pause
+goto menu
+
+:collect
+echo.
+echo Running: python -m pytest --collect-only -q
+call python -m pytest --collect-only -q
+pause
+goto menu
+
+:check
+echo.
+if "%USE_MAKE%"=="1" (
+	echo Running: %CHECK_CMD%
+	call %CHECK_CMD%
 ) else (
-	echo [WARN] make not found. Falling back to uvicorn.
-	python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --app-dir "%~dp0"
+	echo Running: %LINT_CMD%
+	call %LINT_CMD%
+	echo.
+	echo Running: %TEST_CMD%
+	call %TEST_CMD%
 )
+pause
+goto menu
 
+:format
+echo.
+echo Running: %FORMAT_CMD%
+call %FORMAT_CMD%
+pause
+goto menu
+
+:plain_shell
+echo.
+echo Opening an interactive shell in the activated environment.
 cmd /k
+goto menu
+
+:exit
+endlocal
+exit /b 0

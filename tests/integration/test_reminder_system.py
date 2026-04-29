@@ -8,12 +8,10 @@ Covers:
 * Persistence round-trip (save → load)
 * _check_reminders delivery callback
 """
+
 import json
-import tempfile
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -21,9 +19,11 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _nlp_intent(text: str) -> str:
     """Return the NLP intent for *text* using the keyword-only path."""
     from ai.core.nlp_processor import NLPProcessor
+
     nlp = NLPProcessor()
     return nlp.process(text).intent
 
@@ -32,36 +32,46 @@ def _nlp_intent(text: str) -> str:
 # 1. NLP classification
 # ---------------------------------------------------------------------------
 
+
 class TestReminderNLPClassification:
     """Test that reminder queries are routed to the correct intents."""
 
-    @pytest.mark.parametrize("text", [
-        "remind me to call mom in 30 minutes",
-        "set a reminder for 9am to exercise",
-        "remind me about the meeting tomorrow",
-        "don't let me forget to buy milk",
-        "alert me at 8pm to take my medicine",
-        "notify me when the timer is done",
-        "add a reminder to pick up the kids at 3pm",
-    ])
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "remind me to call mom in 30 minutes",
+            "set a reminder for 9am to exercise",
+            "remind me about the meeting tomorrow",
+            "don't let me forget to buy milk",
+            "alert me at 8pm to take my medicine",
+            "notify me when the timer is done",
+            "add a reminder to pick up the kids at 3pm",
+        ],
+    )
     def test_set_intent(self, text):
         assert _nlp_intent(text) == "reminder:set"
 
-    @pytest.mark.parametrize("text", [
-        "what reminders do I have",
-        "show my reminders",
-        "list reminders",
-        "do I have any pending reminders",
-        "show upcoming reminders",
-    ])
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "what reminders do I have",
+            "show my reminders",
+            "list reminders",
+            "do I have any pending reminders",
+            "show upcoming reminders",
+        ],
+    )
     def test_list_intent(self, text):
         assert _nlp_intent(text) == "reminder:list"
 
-    @pytest.mark.parametrize("text", [
-        "cancel reminder about doctor appointment",
-        "delete reminder for gym",
-        "remove the reminder to call mom",
-    ])
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "cancel reminder about doctor appointment",
+            "delete reminder for gym",
+            "remove the reminder to call mom",
+        ],
+    )
     def test_cancel_intent(self, text):
         assert _nlp_intent(text) == "reminder:cancel"
 
@@ -70,6 +80,7 @@ class TestReminderNLPClassification:
 # 2. parse_reminder_time
 # ---------------------------------------------------------------------------
 
+
 class TestParseReminderTime:
     """Test the time-parsing utility for various natural-language patterns."""
 
@@ -77,6 +88,7 @@ class TestParseReminderTime:
 
     def _p(self, text: str) -> datetime:
         from ai.planning.proactive_assistant import parse_reminder_time
+
         result = parse_reminder_time(text, now=self.BASE)
         assert result is not None, f"parse_reminder_time({text!r}) returned None"
         return result
@@ -144,6 +156,7 @@ class TestParseReminderTime:
     # -- returns None when no time found --
     def test_no_time_returns_none(self):
         from ai.planning.proactive_assistant import parse_reminder_time
+
         result = parse_reminder_time("remind me to stretch", now=self.BASE)
         assert result is None
 
@@ -152,20 +165,24 @@ class TestParseReminderTime:
 # 3. ProactiveAssistant: add / list / cancel + persistence
 # ---------------------------------------------------------------------------
 
+
 class TestProactiveAssistantReminders:
     """Test the ProactiveAssistant reminder CRUD and persistence."""
 
     def _make_assistant(self, path: Path):
         """Create a fresh ProactiveAssistant pointing at a temp file."""
         import ai.planning.proactive_assistant as pa_mod
+
         # Redirect module-level path so save/load use temp file
         orig = pa_mod._REMINDERS_PATH
         pa_mod._REMINDERS_PATH = path
         from ai.planning.proactive_assistant import ProactiveAssistant
+
         pa = ProactiveAssistant()
         pa_mod._REMINDERS_PATH = orig  # restore so other tests are unaffected
         # Re-point the instance's module reference for save/load calls
         pa._reminders_path = path
+
         # Patch _save/_load to use our temp path
         def _save():
             data = [
@@ -188,6 +205,7 @@ class TestProactiveAssistantReminders:
                 if item.get("delivered"):
                     continue
                 from ai.planning.proactive_assistant import Reminder
+
                 pa.reminders[item["reminder_id"]] = Reminder(
                     reminder_id=item["reminder_id"],
                     message=item["message"],
@@ -264,9 +282,11 @@ class TestProactiveAssistantReminders:
 # 4. Delivery callback fires when reminder is due
 # ---------------------------------------------------------------------------
 
+
 class TestReminderDelivery:
     def test_due_reminder_calls_callback(self):
         from ai.planning.proactive_assistant import ProactiveAssistant, Reminder
+
         pa = ProactiveAssistant()
         # Suppress actual file I/O for this test
         pa._save_reminders = lambda: None
@@ -285,6 +305,7 @@ class TestReminderDelivery:
 
     def test_future_reminder_not_delivered(self):
         from ai.planning.proactive_assistant import ProactiveAssistant, Reminder
+
         pa = ProactiveAssistant()
         pa._save_reminders = lambda: None
         delivered = []
@@ -299,13 +320,17 @@ class TestReminderDelivery:
 # 5. make_reminder_id uniqueness
 # ---------------------------------------------------------------------------
 
+
 def test_make_reminder_id_unique():
     from ai.planning.proactive_assistant import make_reminder_id
+
     ids = {make_reminder_id() for _ in range(50)}
     assert len(ids) == 50
 
+
 def test_make_reminder_id_format():
     from ai.planning.proactive_assistant import make_reminder_id
+
     rid = make_reminder_id()
     assert rid.startswith("rem_")
     assert len(rid) == 12  # "rem_" + 8 hex chars

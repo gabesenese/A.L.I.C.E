@@ -6,7 +6,7 @@ from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 
 # Load CMU Pronouncing Dictionary
-nltk.download('cmudict')
+nltk.download("cmudict")
 d = nltk.corpus.cmudict.dict()
 
 # Directory containing segmented audio files & checkpoint
@@ -25,16 +25,17 @@ lm_path = "C:/Users/gabri/AppData/Local/Programs/Python/Python312/Lib/site-packa
 
 # Configure the decoder
 config = {
-    'verbose': True,
-    'audio_file': None,
-    'buffer_size': 2048,
-    'no_search': False,
-    'full_utt': False,
-    'hmm': hmm_path,
-    'lm': lm_path,
-    'dict': dict_path,
-    'bestpath': True
+    "verbose": True,
+    "audio_file": None,
+    "buffer_size": 2048,
+    "no_search": False,
+    "full_utt": False,
+    "hmm": hmm_path,
+    "lm": lm_path,
+    "dict": dict_path,
+    "bestpath": True,
 }
+
 
 def words_to_phonemes(words):
     phoneme_list = []
@@ -46,10 +47,11 @@ def words_to_phonemes(words):
             print(f"Word '{word}' not found in CMU dictionary.")
     return phoneme_list
 
+
 def process_file(filename):
     if filename.endswith(".wav"):
         audio_file_path = os.path.join(segments_dir, filename)
-        config['audio_file'] = audio_file_path
+        config["audio_file"] = audio_file_path
 
         try:
             # Create an AudioFile object with the current configuration
@@ -61,10 +63,12 @@ def process_file(filename):
                     words = phrase.hypothesis().split()
                     phonemes = words_to_phonemes(words)
                     segment_audio = AudioSegment.from_wav(audio_file_path)
-                    
+
                     # Save each phoneme audio segment
                     for i, phoneme in enumerate(phonemes):
-                        phoneme_file = os.path.join(phoneme_output_dir, f"{phoneme}_{i}.wav")
+                        phoneme_file = os.path.join(
+                            phoneme_output_dir, f"{phoneme}_{i}.wav"
+                        )
                         segment_audio.export(phoneme_file, format="wav")
 
             # Print progress bar
@@ -73,17 +77,19 @@ def process_file(filename):
         except Exception as e:
             print(f"Failed to process {filename}: {e}")
 
+
 def main():
     print("Starting to generate phonemes ...")
     files = [f for f in os.listdir(segments_dir) if f.endswith(".wav")]
-    
+
     # Initialize progress bar
-    with tqdm(total=len(files)) as pbar:
+    with tqdm(total=len(files)):
         # Use multiprocessing to process files concurrently
         with Pool(cpu_count()) as pool:
             pool.map(process_file, files)
-    
+
     print("Phoneme extraction completed.")
+
 
 if __name__ == "__main__":
     main()

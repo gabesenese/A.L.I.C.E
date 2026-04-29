@@ -171,16 +171,16 @@ def welcome_message(name="User", show_ascii=True):
         margin = max(0, (terminal_width - art_width) // 2)
         centered_block = "\n".join(" " * margin + line for line in lines_padded)
         print(centered_block)
-    
+
     # Welcome message
     message = f"Welcome, {name}!"
-    
+
     # Borders
     border = "=" * terminal_width
-    
+
     # Center message
     centered_message = message.center(terminal_width)
-    
+
     print(border)
     print(centered_message)
     print(border)
@@ -241,7 +241,7 @@ def get_greeting(name="User", time_of_day=None):
 def display_startup_info():
     """Display startup information"""
     terminal_width = get_terminal_width()
-    
+
     info = [
         "A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity",
         datetime.datetime.now().strftime("%A, %B %d, %Y"),
@@ -249,7 +249,7 @@ def display_startup_info():
         "",
         "Type /help for available commands",
     ]
-    
+
     for line in info:
         print(line.center(terminal_width))
 
@@ -257,7 +257,7 @@ def display_startup_info():
 def animate_text(text, delay=0.03):
     """Display text with typewriter animation effect"""
     for char in text:
-        print(char, end='', flush=True)
+        print(char, end="", flush=True)
         time.sleep(delay)
     print()  # Newline at end
 
@@ -265,7 +265,7 @@ def animate_text(text, delay=0.03):
 def animated_loading(duration=2):
     """Show animated loading effect"""
     terminal_width = get_terminal_width()
-    
+
     frames = ["|", "/", "-", "\\"]  # Simple spinner without special characters
     messages = [
         "Initializing neural networks",
@@ -273,28 +273,28 @@ def animated_loading(duration=2):
         "Preparing voice systems",
         "Activating memory cores",
         "Establishing connections",
-        "Ready!"
+        "Ready!",
     ]
-    
+
     start_time = time.time()
     frame_idx = 0
     msg_idx = 0
-    
+
     while time.time() - start_time < duration:
         # Get current message
         msg = messages[min(msg_idx, len(messages) - 1)]
-        
+
         # Display spinning frame with message
         display = f"{frames[frame_idx]} {msg}...".center(terminal_width)
         print(f"\r{display}", end="", flush=True)
-        
+
         # Update indices
         frame_idx = (frame_idx + 1) % len(frames)
         if frame_idx == 0:
             msg_idx += 1
-        
+
         time.sleep(0.1)
-    
+
     # Clear line
     print("\r" + " " * terminal_width + "\r", end="")
 
@@ -302,30 +302,30 @@ def animated_loading(duration=2):
 def full_welcome_sequence(name="User", show_animation=True):
     """Display complete welcome sequence"""
     terminal_width = get_terminal_width()
-    
+
     # Clear screen (optional)
     # os.system('cls' if os.name == 'nt' else 'clear')
-    
+
     print("\n")
-    
+
     # Welcome banner
     welcome_message(name, show_ascii=True)
-    
+
     print("\n")
-    
+
     # Loading animation
     if show_animation:
         animated_loading(duration=2)
-    
+
     # Startup info
     display_startup_info()
-    
+
     print("\n")
-    
+
     # Greeting
     greeting = get_greeting(name)
     print(greeting.center(terminal_width))
-    
+
     print("\n" + "=" * terminal_width + "\n")
 
 
@@ -333,7 +333,7 @@ def full_welcome_sequence(name="User", show_animation=True):
 if __name__ == "__main__":
     # Test welcome sequence
     full_welcome_sequence("User", show_animation=True)
-    
+
     # Test different times of day
     print("\nTesting different greetings:\n")
     for time_period in ["morning", "afternoon", "evening", "night"]:

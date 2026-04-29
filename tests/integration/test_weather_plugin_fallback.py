@@ -4,7 +4,9 @@ from ai.plugins.plugin_system import WeatherPlugin
 def test_weather_plugin_strips_wake_word_from_location_candidate():
     plugin = WeatherPlugin()
     assert plugin._clean_location_candidate("seattle alice") == "seattle"
-    assert plugin._clean_location_candidate("Austin, Texas assistant") == "Austin, Texas"
+    assert (
+        plugin._clean_location_candidate("Austin, Texas assistant") == "Austin, Texas"
+    )
 
 
 def test_weather_plugin_detect_location_fallback_uses_ip_data(monkeypatch):

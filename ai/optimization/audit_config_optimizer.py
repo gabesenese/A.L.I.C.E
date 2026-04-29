@@ -5,7 +5,7 @@ Tweaks thresholds and weights to maximize improvement
 
 import json
 import logging
-from typing import Dict, List, Any
+from typing import Dict, Any
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -189,7 +189,7 @@ class ConfigOptimizer:
         for key, adjustment in adjustments.items():
             current = adjustment.get("current")
             suggested = adjustment.get("suggested")
-            reason = adjustment.get("reason")
+            adjustment.get("reason")
 
             # Map key to config path and apply
             if "query_difficulty" in key:

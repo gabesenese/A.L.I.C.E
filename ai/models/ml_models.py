@@ -27,7 +27,13 @@ logger = logging.getLogger(__name__)
 
 
 def _load_ml_deps() -> None:
-    global _ML_DEPS_LOADED, np, TfidfVectorizer, LogisticRegression, KMeans, StandardScaler
+    global \
+        _ML_DEPS_LOADED, \
+        np, \
+        TfidfVectorizer, \
+        LogisticRegression, \
+        KMeans, \
+        StandardScaler
     if _ML_DEPS_LOADED:
         return
     try:

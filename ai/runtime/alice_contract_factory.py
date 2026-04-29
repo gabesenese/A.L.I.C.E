@@ -65,18 +65,20 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     }
     _weather_fact_patterns = (
         re.compile(r"\b-?\d{1,2}(?:\.\d+)?\s*°\s*[cf]\b", re.IGNORECASE),
-        re.compile(r"\b(?:high|low)\s+(?:of\s+)?-?\d{1,2}(?:\.\d+)?\s*°?\s*[cf]?\b", re.IGNORECASE),
-        re.compile(r"\b(?:wind|breeze)[^\n]{0,24}\b\d{1,3}\s*(?:km/h|kph|mph|m/s)\b", re.IGNORECASE),
+        re.compile(
+            r"\b(?:high|low)\s+(?:of\s+)?-?\d{1,2}(?:\.\d+)?\s*°?\s*[cf]?\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:wind|breeze)[^\n]{0,24}\b\d{1,3}\s*(?:km/h|kph|mph|m/s)\b",
+            re.IGNORECASE,
+        ),
         re.compile(r"\bhumidity[^\n]{0,16}\b\d{1,3}%\b", re.IGNORECASE),
     )
 
     def _normalize_path(path_text: str) -> str:
         return (
-            str(path_text or "")
-            .strip()
-            .strip("`'\"")
-            .replace("\\", "/")
-            .lstrip("./")
+            str(path_text or "").strip().strip("`'\"").replace("\\", "/").lstrip("./")
         )
 
     def _extract_code_path_claims(text: str) -> List[str]:
@@ -186,7 +188,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "coat",
             "jacket",
         )
-        if not any(re.search(r"\b" + re.escape(term) + r"\b", text) for term in weather_scope_terms):
+        if not any(
+            re.search(r"\b" + re.escape(term) + r"\b", text)
+            for term in weather_scope_terms
+        ):
             return False
 
         has_query_shape = bool(
@@ -270,7 +275,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         return any(term in text for term in framing_terms)
 
     def _looks_like_current_events_request(user_input: str) -> bool:
-        detector = getattr(alice, "_is_freshness_sensitive_current_events_request", None)
+        detector = getattr(
+            alice, "_is_freshness_sensitive_current_events_request", None
+        )
         if callable(detector):
             try:
                 return bool(detector(user_input))
@@ -482,7 +489,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "available_file_count": len(available_paths),
         }
 
-    def _verify_weather_claims(*, user_input: str, response_text: str) -> Dict[str, Any]:
+    def _verify_weather_claims(
+        *, user_input: str, response_text: str
+    ) -> Dict[str, Any]:
         text = str(response_text or "").strip()
         low = text.lower()
         if not text:
@@ -508,7 +517,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if not has_weather_language:
             return {}
 
-        has_fact_pattern = any(pattern.search(text) for pattern in _weather_fact_patterns)
+        has_fact_pattern = any(
+            pattern.search(text) for pattern in _weather_fact_patterns
+        )
         if not has_fact_pattern and "forecast" not in low:
             return {}
 
@@ -528,7 +539,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if has_live_data_disclaimer:
             return {}
 
-        if not _looks_like_weather_request(user_input) and "according to my knowledge" not in low:
+        if (
+            not _looks_like_weather_request(user_input)
+            and "according to my knowledge" not in low
+        ):
             return {}
 
         placeholder_markers = []
@@ -981,7 +995,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"type": "deterministic_location"},
             )
 
-        if req.decision.intent == "code:request" and hasattr(alice, "_handle_code_request"):
+        if req.decision.intent == "code:request" and hasattr(
+            alice, "_handle_code_request"
+        ):
             code_response = ""
             try:
                 code_response = str(
@@ -1094,13 +1110,17 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 )
 
             nested_data = (
-                tool_payload.get("data") if isinstance(tool_payload.get("data"), dict) else {}
+                tool_payload.get("data")
+                if isinstance(tool_payload.get("data"), dict)
+                else {}
             )
             weather_tool_turn = (
                 str(req.decision.intent or "").startswith("weather:")
                 or str(req.tool_result.tool_name or "").lower().startswith("weather")
-                or str((nested_data or {}).get("plugin_type") or "").lower() == "weather"
-                or "weather:" in str((nested_data or {}).get("message_code") or "").lower()
+                or str((nested_data or {}).get("plugin_type") or "").lower()
+                == "weather"
+                or "weather:"
+                in str((nested_data or {}).get("message_code") or "").lower()
             )
             if weather_tool_turn:
                 return ResponseOutput(

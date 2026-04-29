@@ -11,9 +11,13 @@ EXACT_PROMPT = (
     "in today's world with no fiction"
 )
 
-EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
+EXACT_LOG_PROMPT = (
+    "let's imagine how assistant would be created with today's technology no fiction"
+)
 EXACT_FICTIONAL_INVENTOR_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
-EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
+EXACT_CREATE_PROMPT = (
+    "how can i create an ai just like assistant but with todays technology"
+)
 EXACT_FRAMEWORKS_PROMPT = "research existing frameworks for agentic autonomy in ai"
 
 
@@ -24,7 +28,9 @@ class _FakeResolveResult:
     unresolved_pronouns: list
 
 
-def test_context_resolver_keeps_raw_input_when_rewrite_has_placeholder_noise(monkeypatch):
+def test_context_resolver_keeps_raw_input_when_rewrite_has_placeholder_noise(
+    monkeypatch,
+):
     resolver = ContextResolver()
 
     def _fake_resolve(user_input, state):
@@ -35,7 +41,9 @@ def test_context_resolver_keeps_raw_input_when_rewrite_has_placeholder_noise(mon
         )
 
     monkeypatch.setattr(resolver.reference_resolver, "resolve", _fake_resolve)
-    monkeypatch.setattr(resolver.ambiguity_detector, "should_clarify", lambda **kwargs: False)
+    monkeypatch.setattr(
+        resolver.ambiguity_detector, "should_clarify", lambda **kwargs: False
+    )
 
     result = resolver.resolve(EXACT_PROMPT, {"referenced_entities": []})
 
@@ -45,9 +53,7 @@ def test_context_resolver_keeps_raw_input_when_rewrite_has_placeholder_noise(mon
 
 def test_semantic_fidelity_guard_rejects_programming_drift_response():
     controller = ExecutiveController()
-    bad = (
-        "Polymorphism and interface inheritance are the foundations to understand this topic."
-    )
+    bad = "Polymorphism and interface inheritance are the foundations to understand this topic."
 
     evaluation = controller.evaluate_response(
         user_input=EXACT_PROMPT,
@@ -172,15 +178,22 @@ def test_deterministic_knowledge_fallback_handles_nlp_learning_overview_request(
 def test_answerability_gate_detects_specific_domain_questions_and_ignores_ambiguous_phrasing():
     alice = ALICE.__new__(ALICE)
 
-    assert alice._is_answerability_direct_question(
-        "how does optimizer training work in nlp models?"
-    ) is True
-    assert alice._is_answerability_direct_question(
-        "i want to know the difference between the agentic ai and generative ai"
-    ) is True
-    assert alice._is_answerability_direct_question(
-        "how does optimizer stuff work?"
-    ) is False
+    assert (
+        alice._is_answerability_direct_question(
+            "how does optimizer training work in nlp models?"
+        )
+        is True
+    )
+    assert (
+        alice._is_answerability_direct_question(
+            "i want to know the difference between the agentic ai and generative ai"
+        )
+        is True
+    )
+    assert (
+        alice._is_answerability_direct_question("how does optimizer stuff work?")
+        is False
+    )
 
 
 def test_goal_statement_promotion_demotes_direct_difference_prompt_to_question_intent():
@@ -201,9 +214,7 @@ def test_goal_statement_promotion_demotes_direct_difference_prompt_to_question_i
 def test_answerability_gate_fallback_returns_substantive_answer_for_unknown_direct_question():
     alice = ALICE.__new__(ALICE)
 
-    response = alice._answerability_gate_fallback_response(
-        "what is agentic autonomy?"
-    )
+    response = alice._answerability_gate_fallback_response("what is agentic autonomy?")
 
     low = response.lower()
     assert "clarify" not in low
@@ -228,10 +239,13 @@ def test_answerability_gate_fallback_handles_existing_framework_inventory_prompt
 def test_answerability_gate_forces_answer_first_without_clarification():
     alice = ALICE.__new__(ALICE)
 
-    assert alice._should_answer_first_without_clarification(
-        "how does optimizer training work in nlp models?",
-        "conversation:question",
-    ) is True
+    assert (
+        alice._should_answer_first_without_clarification(
+            "how does optimizer training work in nlp models?",
+            "conversation:question",
+        )
+        is True
+    )
 
 
 def test_fast_lane_sanitizer_removes_clarification_dead_end_for_answerable_question():
@@ -283,9 +297,12 @@ def test_deterministic_knowledge_fallback_handles_ai_agent_algorithm_question():
 def test_executive_controller_marks_difference_prompt_as_answerable_direct_question():
     controller = ExecutiveController()
 
-    assert controller._is_answerability_direct_question(
-        "i want to know the difference between the agentic ai and generative ai"
-    ) is True
+    assert (
+        controller._is_answerability_direct_question(
+            "i want to know the difference between the agentic ai and generative ai"
+        )
+        is True
+    )
 
 
 def test_safe_llm_failure_recovery_prefers_llm_retry_before_deterministic_fallback():
@@ -296,7 +313,9 @@ def test_safe_llm_failure_recovery_prefers_llm_retry_before_deterministic_fallba
     }
 
     calls = {"deterministic": 0}
-    alice._retry_llm_answer_after_failure = lambda **_kwargs: "Retry answer from ollama."
+    alice._retry_llm_answer_after_failure = (
+        lambda **_kwargs: "Retry answer from ollama."
+    )
 
     def _deterministic(*_args, **_kwargs):
         calls["deterministic"] += 1
@@ -348,9 +367,7 @@ def test_deterministic_knowledge_fallback_handles_existing_framework_inventory_p
 
 def test_semantic_fidelity_guard_rejects_theoretical_drift_for_practical_framework_prompt():
     controller = ExecutiveController()
-    bad = (
-        "A useful autonomy framework is Dennett's Intentional Stance and Tononi's IIT theory of consciousness."
-    )
+    bad = "A useful autonomy framework is Dennett's Intentional Stance and Tononi's IIT theory of consciousness."
 
     evaluation = controller.evaluate_response(
         user_input=EXACT_FRAMEWORKS_PROMPT,
@@ -367,9 +384,12 @@ def test_semantic_fidelity_guard_rejects_theoretical_drift_for_practical_framewo
 def test_agent_algorithm_question_detector_matches_user_style_query():
     alice = ALICE.__new__(ALICE)
 
-    assert alice._is_agent_algorithm_question(
-        "and which algorithms are best for an ai agent"
-    ) is True
+    assert (
+        alice._is_agent_algorithm_question(
+            "and which algorithms are best for an ai agent"
+        )
+        is True
+    )
 
 
 def test_fast_lane_sanitizer_removes_hype_opener_and_inline_breaks():
@@ -544,9 +564,14 @@ def test_native_scaffold_handles_simple_conversation_openers_without_llm():
     alice = ALICE.__new__(ALICE)
 
     assert alice._native_scaffold_response("how are you?", "status_inquiry") is not None
-    assert alice._native_scaffold_response("how are you?", "conversation:general") is not None
+    assert (
+        alice._native_scaffold_response("how are you?", "conversation:general")
+        is not None
+    )
     assert alice._native_scaffold_response("hello", "conversation:general") is not None
-    assert alice._native_scaffold_response("can you help me?", "conversation:help") is None
+    assert (
+        alice._native_scaffold_response("can you help me?", "conversation:help") is None
+    )
     assert alice._native_scaffold_response("thanks", "conversation:general") is not None
 
 
@@ -596,8 +621,7 @@ def test_self_answer_gate_prefers_native_conceptual_for_rich_prompt():
     assert "real-world" in response or "real world" in response
     assert "architecture" in response
     assert any(
-        token in response
-        for token in ("foundations", "memory", "planning", "autonomy")
+        token in response for token in ("foundations", "memory", "planning", "autonomy")
     )
 
 
@@ -786,8 +810,14 @@ def test_recovery_seed_for_ai_project_prompt_is_natural_not_debug_key_value():
 def test_distributed_cache_disabled_for_learning_prompts():
     alice = ALICE.__new__(ALICE)
 
-    assert alice._should_use_distributed_response_cache("i want to learn about nlp") is False
-    assert alice._should_use_distributed_response_cache("explain transformer embeddings") is False
+    assert (
+        alice._should_use_distributed_response_cache("i want to learn about nlp")
+        is False
+    )
+    assert (
+        alice._should_use_distributed_response_cache("explain transformer embeddings")
+        is False
+    )
     assert alice._should_use_distributed_response_cache("open notepad") is True
 
 
@@ -971,7 +1001,9 @@ def test_clamp_final_response_rewrites_anthropomorphic_routine_claims():
     assert "a practical option is to" in low
 
 
-def test_contract_respond_stage_replaces_stale_clarification_scaffold_for_project_ideation() -> None:
+def test_contract_respond_stage_replaces_stale_clarification_scaffold_for_project_ideation() -> (
+    None
+):
     alice = ALICE.__new__(ALICE)
 
     repaired = alice._contract_respond_stage(
@@ -1007,7 +1039,9 @@ def test_deterministic_framework_fallback_handles_short_agentic_prompt() -> None
     assert "iit" not in low
 
 
-def test_safe_llm_failure_recovery_records_explicit_answer_path_failure_reason() -> None:
+def test_safe_llm_failure_recovery_records_explicit_answer_path_failure_reason() -> (
+    None
+):
     alice = ALICE.__new__(ALICE)
     alice._internal_reasoning_state = {
         "confidence": 0.78,
@@ -1167,7 +1201,9 @@ def test_llm_context_injects_recent_weather_only_for_weather_relevant_queries() 
     assert "RECENT WEATHER:" in weather
 
 
-def test_two_turn_llm_fallback_finalization_skips_publish_polish_and_runs_single_gate() -> None:
+def test_two_turn_llm_fallback_finalization_skips_publish_polish_and_runs_single_gate() -> (
+    None
+):
     alice = ALICE.__new__(ALICE)
     alice.phrasing_learner = None
     alice._internal_reasoning_state = {
@@ -1179,7 +1215,8 @@ def test_two_turn_llm_fallback_finalization_skips_publish_polish_and_runs_single
     assert greeting is not None
 
     alice._deterministic_fallback_once = (
-        lambda _u, _i: "Agentic AI uses goals, planning, tool execution, and verification loops."
+        lambda _u,
+        _i: "Agentic AI uses goals, planning, tool execution, and verification loops."
     )
     recovered = alice._safe_llm_failure_response(
         user_input="i want to learn more about agentic ai",
