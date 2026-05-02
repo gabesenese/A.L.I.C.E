@@ -444,17 +444,49 @@ class RequestRouter:
         }
         return any(verb in text_lower for verb in action_verbs)
 
+    def _looks_like_goal_statement(self, text_lower: str) -> bool:
+        goal_cues = (
+            "i want to",
+            "i would like to",
+            "i'd like to",
+            "i'm trying to",
+            "im trying to",
+            "i am trying to",
+            "i'm working on",
+            "i am working on",
+            "i'm learning",
+            "i am learning",
+            "trying to learn",
+            "want to learn",
+            "learn how to",
+            "my goal is",
+            "i plan to",
+            "i'm aiming to",
+            "i am aiming to",
+        )
+        if any(cue in text_lower for cue in goal_cues):
+            return True
+        return "ai companion" in text_lower or "personal assistant" in text_lower
+
     def should_clarify(
         self, intent: str, confidence: float, entities: Dict[str, Any], user_text: str
     ) -> bool:
         """Check if we should ask for clarification instead of executing tool"""
+        text_lower = user_text.lower()
+        intent_lower = self._normalize_intent(intent)
+
+        # Clarify when a tool intent conflicts with a goal-statement style request.
+        if self._is_tool_intent(intent_lower) and self._looks_like_goal_statement(
+            text_lower
+        ):
+            note_markers = ("note", "notes", "memo", "list", "lists")
+            if "note" in intent_lower and not any(m in text_lower for m in note_markers):
+                return True
+
         # Clarify when below configured threshold unless user text is explicit.
         if confidence < self.CLARIFICATION_THRESHOLD:
             # Check if text has strong domain keywords
-            text_lower = user_text.lower()
-
             # Detect domain from intent
-            intent_lower = self._normalize_intent(intent)
             domain = None
             if "weather" in intent_lower:
                 domain = "weather"

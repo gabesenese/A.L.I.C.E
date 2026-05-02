@@ -203,6 +203,7 @@ class PluginManager:
                                 result = plugin.execute(
                                     intent, query, entities, context
                                 )
+                                result = self._normalize_plugin_result(result)
                                 result["plugin"] = actual_plugin_name
                                 result["semantic_match"] = semantic_result
                                 return result
@@ -242,6 +243,7 @@ class PluginManager:
             logger.info(f" Executing plugin: {plugin_name} (score: {score:.1f})")
             try:
                 result = plugin.execute(intent, query, entities, context)
+                result = self._normalize_plugin_result(result)
                 result["plugin"] = plugin_name
                 result["match_score"] = score
                 return result
@@ -253,6 +255,7 @@ class PluginManager:
                     logger.info(f" Trying fallback plugin: {plugin_name}")
                     try:
                         result = plugin.execute(intent, query, entities, context)
+                        result = self._normalize_plugin_result(result)
                         result["plugin"] = plugin_name
                         result["match_score"] = score
                         return result
@@ -260,6 +263,19 @@ class PluginManager:
                         logger.error(f"[ERROR] Fallback plugin also failed: {e2}")
 
         return None
+
+    @staticmethod
+    def _normalize_plugin_result(result: Optional[Dict]) -> Optional[Dict]:
+        if not isinstance(result, dict):
+            return result
+
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        has_error = bool(result.get("error") or data.get("error"))
+        if "success" not in result:
+            result["success"] = not has_error
+        if "error" not in result and data.get("error"):
+            result["error"] = data.get("error")
+        return result
 
     def get_all_plugins(self) -> List[Dict]:
         """Get information about all registered plugins"""

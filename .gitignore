@@ -107,3 +107,4 @@ data/feature_flags.json
 .gitignore
 data/analytics/memory_monitor_config.json
 .gitignore
+models/ollama/Alice.Modelfile

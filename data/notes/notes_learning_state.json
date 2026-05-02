@@ -1,0 +1,36 @@
+{
+  "action_token_weights": {
+    "create_note": {
+      "i'm": -0.08,
+      "trying": -0.08,
+      "learn": -0.08,
+      "how": -0.16,
+      "make": -0.16,
+      "companion": -0.16,
+      "none": -0.08,
+      "these": -0.08,
+      "chat": -0.08,
+      "bot": -0.08,
+      "like": -0.24,
+      "assistants": -0.08,
+      "something": -0.08,
+      "that": -0.08,
+      "feels": -0.08,
+      "jarvis": -0.08,
+      "but": -0.08,
+      "with": -0.08,
+      "todays": -0.08,
+      "let's": -0.08,
+      "think": -0.08,
+      "through": -0.08,
+      "alice": -0.08,
+      "more": -0.08,
+      "without": -0.08,
+      "adding": -0.08,
+      "hardcoded": -0.08,
+      "fallbacks": -0.08
+    }
+  },
+  "note_selection_weights": {},
+  "updated_at": "2026-05-02T00:40:40.918276"
+}

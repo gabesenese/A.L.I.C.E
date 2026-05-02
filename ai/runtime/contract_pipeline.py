@@ -344,23 +344,7 @@ class ContractPipeline:
         outcome: TurnExecutionOutcome,
         action_discipline: Dict[str, Any],
     ) -> str:
-        text = str(response_text or "").strip()
-        if not text:
-            return ""
-        if not outcome.verification_passed:
-            return text
-        if not (tool_result and getattr(tool_result, "success", False)):
-            return text
-        if bool(action_discipline.get("approval_required")):
-            return text
-
-        suffix = (
-            f"Verified execution via {str(getattr(tool_result, 'tool_name', '') or 'tool')}"
-            f".{str(getattr(tool_result, 'action', '') or 'action')}."
-        )
-        if suffix.lower() in text.lower():
-            return text
-        return f"{text}\n\n{suffix}"
+        return str(response_text or "").strip()
 
     @staticmethod
     def _merge_unique(base_items: list[str], new_items: list[str]) -> list[str]:
@@ -490,6 +474,18 @@ class ContractPipeline:
                 )
             )
         elif execute_phase.executed and tool_result is not None:
+            tool_payload = tool_result.data if isinstance(tool_result.data, dict) else {}
+            tool_data = (
+                tool_payload.get("data")
+                if isinstance(tool_payload.get("data"), dict)
+                else {}
+            )
+            tool_error_detail = str(
+                tool_payload.get("error")
+                or tool_data.get("error")
+                or tool_data.get("message_code")
+                or ""
+            ).strip()
             stages.append(
                 self._stage(
                     "execute",
@@ -498,6 +494,7 @@ class ContractPipeline:
                         "tool": tool_result.tool_name,
                         "action": tool_result.action,
                         "error": tool_result.error,
+                        "error_detail": tool_error_detail,
                         "confidence": tool_result.confidence,
                         "schema_validation": str(
                             (tool_result.diagnostics or {}).get("stage") or "ok"

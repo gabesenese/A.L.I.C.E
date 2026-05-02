@@ -69,6 +69,36 @@ class RouteCoordinator:
         "chance",
         "should i",
     )
+    _notes_explicit_evidence_phrases = (
+        "note",
+        "notes",
+        "memo",
+        "write this down",
+        "save this",
+        "remember this",
+        "add this to my notes",
+    )
+    _weather_explicit_request_terms = (
+        "what's",
+        "what is",
+        "how",
+        "when",
+        "where",
+        "will",
+        "should",
+        "can you",
+        "could you",
+        "please",
+        "check",
+        "show",
+        "tell me",
+        "forecast",
+        "temperature",
+        "rain",
+        "snow",
+        "humidity",
+        "wind",
+    )
 
     def __init__(self, config: Optional[RouteCoordinatorConfig] = None) -> None:
         if config is None:
@@ -308,6 +338,24 @@ class RouteCoordinator:
             text=lower_text,
             previous_intent=prior_intent,
         )
+        tool_eligibility = self._tool_eligibility_gate(
+            text=lower_text,
+            intent=str(intent or ""),
+        )
+        if tool_eligibility is not None:
+            modifiers["tool_execution_disabled"] = True
+            modifiers["tool_eligibility_gate"] = dict(tool_eligibility)
+            routing_trace = dict(modifiers.get("routing_trace") or {})
+            routing_trace.update(
+                {
+                    "tool_eligibility_gate": True,
+                    "reason": str(tool_eligibility.get("reason") or ""),
+                    "original_intent": str(tool_eligibility.get("original_intent") or ""),
+                }
+            )
+            modifiers["routing_trace"] = routing_trace
+            return "conversation:general", max(float(intent_confidence or 0.0), 0.82)
+
         current_intent_is_tool = (":" in str(intent or "")) and not str(
             intent
         ).startswith("conversation:")
@@ -381,6 +429,41 @@ class RouteCoordinator:
         )
 
         return has_personal_state and not has_direct_request
+
+    def _has_explicit_notes_evidence(self, text: str) -> bool:
+        utterance = str(text or "").strip().lower()
+        if not utterance:
+            return False
+        return any(phrase in utterance for phrase in self._notes_explicit_evidence_phrases)
+
+    def _has_explicit_weather_request(self, text: str) -> bool:
+        utterance = str(text or "").strip().lower()
+        if "weather" not in utterance:
+            return False
+        if "?" in utterance:
+            return True
+        return any(term in utterance for term in self._weather_explicit_request_terms)
+
+    def _tool_eligibility_gate(self, *, text: str, intent: str) -> Optional[Dict[str, Any]]:
+        normalized_intent = str(intent or "").strip().lower()
+        if not normalized_intent or normalized_intent.startswith("conversation:"):
+            return None
+
+        if normalized_intent == "notes:create" and not self._has_explicit_notes_evidence(text):
+            return {
+                "reason": "notes_create_requires_explicit_notes_domain_evidence",
+                "original_intent": normalized_intent,
+                "tool_execution_disabled": True,
+            }
+
+        if normalized_intent.startswith("weather:") and not self._has_explicit_weather_request(text):
+            return {
+                "reason": "weather_tool_requires_explicit_request",
+                "original_intent": normalized_intent,
+                "tool_execution_disabled": True,
+            }
+
+        return None
 
     def ensure_metadata(
         self,

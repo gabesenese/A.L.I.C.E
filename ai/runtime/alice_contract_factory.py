@@ -62,6 +62,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         "internal",
         "source",
         "local",
+        "project",
     }
     _weather_fact_patterns = (
         re.compile(r"\b-?\d{1,2}(?:\.\d+)?\s*°\s*[cf]\b", re.IGNORECASE),
@@ -414,9 +415,24 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return str(final_payload.message or "").strip()
         return str(final_payload or "").strip()
 
-    def _verify_codebase_claims(response_text: str) -> Dict[str, Any]:
+    def _verify_codebase_claims(
+        response_text: str, user_input: str = ""
+    ) -> Dict[str, Any]:
         text = str(response_text or "")
         low = text.lower()
+        user_text = str(user_input or "").lower().strip()
+        if not text:
+            return {}
+
+        explicit_paths = _extract_code_path_claims(text)
+        explicit_dirs = _extract_directory_claims(text)
+
+        # Only enforce codebase claim verification when the user asked for code access
+        # or the assistant claimed concrete paths/directories.
+        if not explicit_paths and not explicit_dirs:
+            if not _looks_like_code_request(user_text):
+                return {}
+
         if not any(
             marker in low
             for marker in (
@@ -914,14 +930,34 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
             return tool_result
 
+        success = bool(result.get("success", False))
+        data = dict(result)
+        data_error = (
+            (data.get("data") or {}).get("error")
+            if isinstance(data.get("data"), dict)
+            else ""
+        )
+        message_code = (
+            (data.get("data") or {}).get("message_code")
+            if isinstance(data.get("data"), dict)
+            else ""
+        )
+        error = str(result.get("error") or data_error or "")
+        if not error and not success and message_code:
+            error = str(message_code)
+
         tool_result = ToolResult(
-            success=bool(result.get("success", False)),
+            success=success,
             tool_name=str(result.get("plugin") or invocation.tool_name),
             action=invocation.action,
-            data=dict(result),
-            error=str(result.get("error") or ""),
+            data=data,
+            error=error,
             confidence=float(result.get("confidence", 0.7) or 0.7),
-            diagnostics={"route": "plugin_manager"},
+            diagnostics={
+                "route": "plugin_manager",
+                "message_code": str(message_code or ""),
+                "plugin_error": str(data_error or ""),
+            },
         )
         try:
             validate_tool_result_payload(
@@ -1254,7 +1290,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     },
                 )
 
-            code_claim_diagnostics = _verify_codebase_claims(response_text)
+            code_claim_diagnostics = _verify_codebase_claims(
+                response_text, req.user_input
+            )
             if code_claim_diagnostics:
                 return VerifierResult(
                     accepted=False,

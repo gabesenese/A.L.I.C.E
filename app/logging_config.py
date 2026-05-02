@@ -6,6 +6,8 @@ import logging
 import contextvars
 from typing import Any, Dict
 
+from ai.infrastructure.structured_logging import configure_logging
+
 _trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
     "alice_trace_id", default=""
 )

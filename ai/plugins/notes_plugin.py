@@ -3969,6 +3969,23 @@ class NotesPlugin(PluginInterface):
             # Ensure response field exists for new interface
             if "response" not in result:
                 result["response"] = result.get("message", "")
+            if "error" not in result:
+                data_err = (
+                    result.get("data", {}).get("error")
+                    if isinstance(result.get("data"), dict)
+                    else ""
+                )
+                if data_err:
+                    result["error"] = data_err
+            if not str(result.get("message") or "").strip():
+                msg_code = (
+                    result.get("data", {}).get("message_code")
+                    if isinstance(result.get("data"), dict)
+                    else ""
+                )
+                if msg_code:
+                    result["message"] = str(msg_code)
+                    result.setdefault("response", str(msg_code))
 
             if (
                 result.get("data", {}).get("error") == "note_ambiguous"

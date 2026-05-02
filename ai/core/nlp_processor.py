@@ -154,6 +154,7 @@ from ai.core.followup_resolver import FollowUpResolver, FollowUpResult
 from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
 from ai.core.goal_recognizer import get_goal_recognizer
 from ai.core.foundation_layers import FoundationLayers
+from ai.plugins.registry import PluginRegistry, discover_plugins
 
 logger = logging.getLogger(__name__)
 
@@ -4389,6 +4390,41 @@ class NLPProcessor:
             word in text_lower for word in _P1_EMAIL_READ_NOUNS
         ):
             return "email:read", 0.85
+
+        # Goal-statement guard: avoid routing reflective project goals into tools.
+        _goal_phrases = (
+            "i want to",
+            "i would like to",
+            "i'd like to",
+            "i'm trying to",
+            "im trying to",
+            "i am trying to",
+            "i'm working on",
+            "i am working on",
+            "i'm learning",
+            "i am learning",
+            "trying to learn",
+            "want to learn",
+            "learn how to",
+            "my goal is",
+            "i plan to",
+            "i'm aiming to",
+            "i am aiming to",
+        )
+        _note_markers = (
+            "note",
+            "notes",
+            "memo",
+            "list",
+            "lists",
+            "jot down",
+            "write down",
+            "remember this",
+            "save this",
+        )
+        if any(p in text_lower for p in _goal_phrases) or "ai companion" in text_lower:
+            if not any(m in text_lower for m in _note_markers):
+                return "conversation:goal_statement", 0.9
 
         # Notes intents - distinguish VERY clearly
         # Read note content: "what is in the grocery list?", "what's inside my notes?"

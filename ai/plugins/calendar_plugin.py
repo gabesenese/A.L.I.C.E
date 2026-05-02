@@ -132,6 +132,15 @@ class CalendarPlugin(PluginInterface):
                 logger.warning(" Calendar plugin initialized without authentication")
                 return True  # Still allow plugin to load for setup
         except Exception as e:
+            error_text = str(e).lower()
+            if "invalid_grant" in error_text or "bad request" in error_text:
+                logger.warning(
+                    "Calendar auth failed (%s); loading plugin in disabled mode",
+                    e,
+                )
+                self.service = None
+                return True
+
             logger.error(f"Failed to initialize calendar plugin: {e}")
             return False
 
@@ -214,19 +223,26 @@ class CalendarPlugin(PluginInterface):
 
         # If no valid credentials, start OAuth flow
         if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                if not os.path.exists(self.credentials_file):
-                    logger.warning(
-                        "Calendar credentials file not found. Calendar features disabled."
-                    )
-                    return None
+            try:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else:
+                    if not os.path.exists(self.credentials_file):
+                        logger.warning(
+                            "Calendar credentials file not found. Calendar features disabled."
+                        )
+                        return None
 
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    self.credentials_file, SCOPES
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        self.credentials_file, SCOPES
+                    )
+                    creds = flow.run_local_server(port=0)
+            except Exception as e:
+                logger.warning(
+                    "Calendar authentication unavailable (%s); calendar features will stay disabled",
+                    e,
                 )
-                creds = flow.run_local_server(port=0)
+                return None
 
             # Save credentials
             os.makedirs(os.path.dirname(self.token_file), exist_ok=True)

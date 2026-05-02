@@ -1,3 +1,10 @@
+import os
+import sys
+import logging
+import time
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple, Union, Callable, Iterable, Sequence
+
 from app.bootstrap import create_app
 
 app = create_app()
@@ -4369,6 +4376,29 @@ class ALICE:
             r"\bby the way\b",
             r"\bI've got a few resources\b",
         )
+        memory_leak_patterns = (
+            r"\bkeeping\s+(?:track|an\s+eye)\s+on\b",
+            r"\bconversation\s+history\b",
+            r"\bprevious\s+conversation\b",
+            r"\bwe\s+were\s+discussing\b",
+            r"\blast\s+time\b",
+            r"\blast\s+night\b",
+            r"\bearlier\s+(?:today|this\s+week)\b",
+            r"\bi\s+noticed\s+you\s+were\s+working\s+on\b",
+        )
+        memory_request = any(
+            phrase in user_input.lower()
+            for phrase in (
+                "last time",
+                "conversation history",
+                "remember",
+                "did we",
+                "previous",
+                "earlier",
+                "yesterday",
+                "last night",
+            )
+        )
 
         filtered_lines = []
         for line in text.splitlines():
@@ -4376,6 +4406,11 @@ class ALICE:
             if not normalized:
                 continue
             if any(re.search(pattern, normalized, flags=re.IGNORECASE) for pattern in blocked_patterns):
+                continue
+            if not memory_request and any(
+                re.search(pattern, normalized, flags=re.IGNORECASE)
+                for pattern in memory_leak_patterns
+            ):
                 continue
             filtered_lines.append(normalized)
 
