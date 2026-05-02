@@ -18,6 +18,7 @@ from ai.core.executive_controller import (
 )
 from ai.contracts import RuntimeBoundaries, VerifierResult
 from ai.infrastructure.telemetry import tracer, turn_counter, turn_latency
+from ai.memory.memory_extractor import MemoryExtractor
 from ai.runtime.companion_runtime import CompanionRuntimeLoop
 from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
@@ -47,6 +48,7 @@ class ContractPipeline:
         self.executive_controller = executive_controller or ExecutiveController()
         self.execution_verifier = execution_verifier or get_execution_verifier()
         self.orchestrator = TurnOrchestrator(boundaries)
+        self.memory_extractor = MemoryExtractor()
 
     @staticmethod
     def _is_tool_route(route: str) -> bool:
@@ -439,6 +441,7 @@ class ContractPipeline:
                     "decision_band": decision.decision_band,
                     "memory_count": len(memory.items),
                     "memory_confidence": memory.confidence,
+                    "memory_metadata": dict(memory.metadata or {}),
                     "resolved_input": resolved_input,
                     "policy_decision": policy.decision_type,
                     "policy_reason": policy.reason,
@@ -689,9 +692,36 @@ class ContractPipeline:
             "post_execution_state_machine": post_execution_state_machine.as_dict(),
             "task_verification": dict(task_verification or {}),
         }
-        memory_task = asyncio.create_task(
-            asyncio.to_thread(self.boundaries.memory.store, memory_payload)
+        extracted_candidates = self.memory_extractor.extract_from_user_turn(
+            user_text=user_input,
+            user_name=str(getattr(user_state_snapshot, "user_name", "") or user_id or "User"),
+            source="conversation",
         )
+        structured_payloads = []
+        for candidate in extracted_candidates:
+            if not bool(candidate.should_store) or not str(candidate.content or "").strip():
+                continue
+            structured_payloads.append(
+                {
+                    "content": str(candidate.content).strip(),
+                    "domain": str(candidate.domain),
+                    "kind": str(candidate.kind),
+                    "scope": str(candidate.scope),
+                    "confidence": float(candidate.confidence),
+                    "source": str(candidate.source),
+                    "trace_id": trace_id,
+                    "importance": max(0.6, float(candidate.confidence)),
+                    "intent": decision.intent,
+                    "route": decision.route,
+                }
+            )
+
+        async def _store_memory_bundle() -> None:
+            await asyncio.to_thread(self.boundaries.memory.store, memory_payload)
+            for payload in structured_payloads:
+                await asyncio.to_thread(self.boundaries.memory.store, payload)
+
+        memory_task = asyncio.create_task(_store_memory_bundle())
 
         merged_active_goals = self._merge_unique(
             list((decision.metadata or {}).get("active_goals", []) or []),
@@ -754,6 +784,7 @@ class ContractPipeline:
                 "requires_follow_up": respond_requires_follow_up,
                 "tools_used": [tool_result.tool_name] if tool_result else [],
                 "plan": plan,
+                "memory_recall": dict(memory.metadata or {}),
                 "resolved_input": resolved_input,
                 "verification": {
                     "accepted": verification.accepted if verification else True,
@@ -786,6 +817,10 @@ class ContractPipeline:
                             action_discipline.get("approval_reason") or ""
                         ),
                     },
+                },
+                "memory_extraction": {
+                    "candidate_count": len(extracted_candidates),
+                    "stored_count": len(structured_payloads),
                 },
                 "state": {
                     "current_task": state.current_task,

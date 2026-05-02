@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from datetime import datetime
 
+from ai.memory.personal_memory import PersonalMemoryStore
 from ai.runtime.alice_contract_factory import build_runtime_boundaries
 from ai.runtime.contract_pipeline import ContractPipeline
 
@@ -65,9 +67,12 @@ class _FakeNlp:
 class _FakeMemory:
     def __init__(self):
         self._stored = []
+        self.episodic_memory = []
 
     def search(self, query, top_k=8):
         lower = str(query or "").lower()
+        if "force vector miss" in lower:
+            return []
         if "personal grounded" in lower:
             return [
                 {
@@ -95,10 +100,39 @@ class _FakeMemory:
             ][:top_k]
         return [{"content": f"mem:{query}", "score": 0.7}][:top_k]
 
-    def store_memory(self, content, memory_type="episodic", context=None):
+    def store_memory(
+        self,
+        content,
+        memory_type="episodic",
+        context=None,
+        importance=0.5,
+        tags=None,
+    ):
         self._stored.append(
-            {"content": content, "memory_type": memory_type, "context": context or {}}
+            {
+                "content": content,
+                "memory_type": memory_type,
+                "context": context or {},
+                "importance": importance,
+                "tags": list(tags or []),
+            }
         )
+        self.episodic_memory.append(
+            type(
+                "Mem",
+                (),
+                {
+                    "id": f"mem_{len(self.episodic_memory)+1}",
+                    "content": content,
+                    "memory_type": memory_type,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "context": context or {},
+                    "importance": importance,
+                    "tags": list(tags or []),
+                },
+            )()
+        )
+        return f"id_{len(self._stored)}"
 
 
 class _FakePlugins:
@@ -830,18 +864,128 @@ def test_personal_memory_query_with_weak_evidence_returns_insufficient_memory_me
     assert "do not have enough saved memory" in result.response_text.lower()
 
 
-def test_personal_memory_query_with_structured_evidence_returns_grounded_summary():
+def test_meaningful_personal_statement_is_extracted_and_stored_as_structured_memory():
     alice = _FakeAlice()
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
     result = pipeline.run_turn(
-        user_input="what did i talk about my personal grounded life?",
+        user_input="I am trying to gain weight and get to 72kg",
         user_id="u1",
         turn_number=44,
+    )
+
+    assert result.handled is True
+    structured = [
+        row
+        for row in alice.memory._stored
+        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+    ]
+    assert structured
+    ctx = structured[-1]["context"]
+    assert ctx["domain"] == "fitness"
+    assert ctx["kind"] == "project_goal"
+    assert ctx["scope"] == "long_term"
+    assert "72kg" in structured[-1]["content"]
+
+
+def test_filler_statement_is_not_stored_as_structured_memory():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(user_input="yeah", user_id="u1", turn_number=45)
+
+    assert result.handled is True
+    structured = [
+        row
+        for row in alice.memory._stored
+        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+    ]
+    assert structured == []
+
+
+def test_personal_life_recall_uses_personal_life_memories_not_alice_project_memories():
+    alice = _FakeAlice()
+    store = PersonalMemoryStore(alice.memory)
+    store.store_structured_memory(
+        content="Gabriel wants Alice to become a Jarvis-like AI companion/operator.",
+        domain="alice_project",
+        kind="project_goal",
+        scope="long_term",
+        confidence=0.9,
+        source="conversation",
+    )
+    store.store_structured_memory(
+        content="Gabriel shared that family conversations are important lately.",
+        domain="personal_life",
+        kind="conversation_event",
+        scope="day_to_day",
+        confidence=0.9,
+        source="conversation",
+    )
+
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+    result = pipeline.run_turn(
+        user_input="what did i talk about my personal life?",
+        user_id="u1",
+        turn_number=46,
+    )
+
+    assert result.handled is True
+    assert result.metadata["response_type"] == "personal_memory_grounded"
+    low = result.response_text.lower()
+    assert "family conversations are important" in low
+    assert "jarvis-like" not in low
+
+
+def test_direct_structured_retrieval_finds_memories_when_vector_search_misses():
+    memory = _FakeMemory()
+    store = PersonalMemoryStore(memory)
+    store.store_structured_memory(
+        content="Gabriel discussed personal life priorities.",
+        domain="personal_life",
+        kind="conversation_event",
+        scope="day_to_day",
+        confidence=0.8,
+        source="conversation",
+    )
+
+    rows = store.retrieve_structured_memory(
+        "force vector miss what did i say",
+        domain="personal_life",
+        top_k=3,
+    )
+    assert rows
+    assert "personal life priorities" in rows[0]["content"].lower()
+
+
+def test_personal_memory_query_with_structured_evidence_returns_grounded_summary():
+    alice = _FakeAlice()
+    store = PersonalMemoryStore(alice.memory)
+    store.store_structured_memory(
+        content="You said your sister visited last weekend.",
+        domain="personal_life",
+        kind="conversation_event",
+        scope="day_to_day",
+        confidence=0.9,
+        source="conversation",
+    )
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+    result = pipeline.run_turn(
+        user_input="what did i talk about my personal life?",
+        user_id="u1",
+        turn_number=47,
     )
 
     assert result.handled is True
     assert result.metadata["response_type"] == "personal_memory_grounded"
     assert "here is what i have saved in memory" in result.response_text.lower()
     assert "sister visited last weekend" in result.response_text.lower()
+    recall = result.metadata.get("memory_recall") or {}
+    assert recall.get("memory_recall_mode") is True
+    assert recall.get("requested_domain") == "personal_life"
+    assert recall.get("retrieved_memory_count", 0) >= 1
+    assert isinstance(recall.get("evidence_sources"), list)

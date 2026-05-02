@@ -414,6 +414,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "avg_weighted": avg_weighted,
         }
 
+    def _evidence_sources(items: List[Dict[str, Any]]) -> List[str]:
+        seen = set()
+        sources: List[str] = []
+        for row in items:
+            ctx = dict(row.get("context") or {})
+            source = str(ctx.get("source") or row.get("source") or "conversation").strip()
+            if not source:
+                continue
+            key = source.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            sources.append(source)
+        return sources
+
     def _has_sufficient_personal_evidence(items: List[Dict[str, Any]]) -> bool:
         if not items:
             return False
@@ -971,7 +986,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             items: List[Dict[str, Any]] = []
             metadata: Dict[str, Any] = {"count": 0}
             if getattr(alice, "memory", None):
-                if personal_memory and _is_personal_memory_query(req.query):
+                personal_mode = bool(personal_memory and _is_personal_memory_query(req.query))
+                if personal_mode:
                     domain = _infer_personal_domain(req.query)
                     day_to_day = personal_memory.retrieve_structured_memory(
                         req.query,
@@ -992,14 +1008,28 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     )
                     items = list(day_to_day) + list(long_term)
                     metadata = {
-                        "count": len(items),
+                        "count": len(items or []),
                         "mode": "personal_structured",
-                        "domain": domain,
+                        "memory_recall_mode": True,
+                        "requested_domain": domain,
+                        "retrieved_memory_count": len(items or []),
+                        "evidence_count": len(items or []),
+                        "insufficient_evidence": not _has_sufficient_personal_evidence(items),
+                        "evidence_sources": _evidence_sources(items),
                         "evidence": _memory_strength(items),
                     }
                 else:
                     items = alice.memory.search(req.query, top_k=req.max_items)
-                    metadata = {"count": len(items or []), "mode": "default_search"}
+                    metadata = {
+                        "count": len(items or []),
+                        "mode": "default_search",
+                        "memory_recall_mode": False,
+                        "requested_domain": "",
+                        "retrieved_memory_count": len(items or []),
+                        "evidence_count": len(items or []),
+                        "insufficient_evidence": False,
+                        "evidence_sources": _evidence_sources(items),
+                    }
             return MemoryResult(
                 items=list(items or []),
                 source="memory_system",

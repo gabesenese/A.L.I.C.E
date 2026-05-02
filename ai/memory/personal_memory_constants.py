@@ -26,7 +26,7 @@ PERSONAL_MEMORY_KINDS: set[str] = {
     "conversation_event",
 }
 
-PERSONAL_MEMORY_SCOPES: set[str] = {"day_to_day", "long_term"}
+PERSONAL_MEMORY_SCOPES: set[str] = {"session", "day_to_day", "long_term"}
 
 DEFAULT_PERSONAL_DOMAIN = "general"
 DEFAULT_PERSONAL_KIND = "conversation_event"

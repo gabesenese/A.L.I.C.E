@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -116,6 +117,54 @@ class PersonalMemoryStore:
             out.append(row)
         return out
 
+    def _iter_structured_entries(self) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        sources = []
+        for attr in ("episodic_memory", "semantic_memory", "procedural_memory", "document_memory"):
+            bucket = getattr(self.memory, attr, None)
+            if isinstance(bucket, list):
+                sources.extend(bucket)
+        for item in sources:
+            tags = [str(t or "").strip().lower() for t in list(getattr(item, "tags", []) or [])]
+            if "structured:personal" not in tags:
+                continue
+            ctx = getattr(item, "context", {}) if hasattr(item, "context") else {}
+            rows.append(
+                {
+                    "id": getattr(item, "id", ""),
+                    "content": str(getattr(item, "content", "") or ""),
+                    "type": str(getattr(item, "memory_type", "") or ""),
+                    "timestamp": str(getattr(item, "timestamp", "") or ""),
+                    "importance": float(getattr(item, "importance", 0.5) or 0.5),
+                    "tags": tags,
+                    "context": dict(ctx or {}),
+                    "source": str((ctx or {}).get("source") or "conversation"),
+                }
+            )
+        return rows
+
+    @staticmethod
+    def _recency_score(ts: str) -> float:
+        if not ts:
+            return 0.5
+        try:
+            dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            age_hours = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0)
+            return math.exp(-0.03 * age_hours)
+        except Exception:
+            return 0.5
+
+    @staticmethod
+    def _lexical_similarity(query: str, content: str) -> float:
+        q_tokens = {t for t in re.findall(r"[a-z0-9]+", str(query).lower()) if len(t) > 2}
+        c_tokens = {t for t in re.findall(r"[a-z0-9]+", str(content).lower()) if len(t) > 2}
+        if not q_tokens or not c_tokens:
+            return 0.0
+        overlap = len(q_tokens.intersection(c_tokens))
+        return float(overlap) / float(max(1, len(q_tokens)))
+
     def retrieve_structured_memory(
         self,
         query: str,
@@ -142,34 +191,54 @@ class PersonalMemoryStore:
             else None
         )
 
-        # Phase 1: broad semantic recall, then strict structured filtering.
-        candidates = list(
-            self.memory.search(
-                query=query,
-                top_k=max(int(top_k or 8) * 4, 12),
-                min_similarity=min_similarity,
-                weighted=True,
-            )
-            or []
-        )
-        structured = self._filter_structured(
-            candidates,
+        # Phase 1: direct scan of structured entries to avoid vector misses.
+        structured_rows = self._iter_structured_entries()
+        filtered = self._filter_structured(
+            structured_rows,
             domain=normalized_domain,
             kind=normalized_kind,
             scope=normalized_scope,
         )
-        if structured:
-            return structured[:top_k]
-
-        # Phase 2: structured-any fallback, still no untagged memory fabrication.
-        if normalized_domain or normalized_kind or normalized_scope:
-            broader = self._filter_structured(
-                candidates,
-                domain=normalized_domain if normalized_domain else None,
+        if not filtered and normalized_domain:
+            filtered = self._filter_structured(
+                structured_rows,
+                domain=normalized_domain,
                 kind=None,
                 scope=None,
             )
-            if broader:
-                return broader[:top_k]
 
-        return []
+        ranked: List[Dict[str, Any]] = []
+        for row in filtered:
+            ctx = dict(row.get("context") or {})
+            confidence = max(0.0, min(1.0, float(ctx.get("confidence", row.get("importance", 0.5)) or 0.5)))
+            importance = max(0.0, min(1.0, float(row.get("importance", 0.5) or 0.5)))
+            recency = self._recency_score(str(row.get("timestamp") or ""))
+            lexical = self._lexical_similarity(query, str(row.get("content") or ""))
+            combined = confidence * 0.35 + importance * 0.25 + recency * 0.25 + lexical * 0.15
+            ranked.append(
+                {
+                    **row,
+                    "similarity": lexical,
+                    "weighted_score": max(0.0, min(1.0, combined)),
+                    "score_components": {
+                        "confidence": round(confidence, 4),
+                        "importance": round(importance, 4),
+                        "recency": round(recency, 4),
+                        "lexical_similarity": round(lexical, 4),
+                    },
+                }
+            )
+        ranked.sort(
+            key=lambda r: (
+                float(r.get("weighted_score", 0.0)),
+                float((r.get("context") or {}).get("confidence", 0.0)),
+                str(r.get("timestamp", "")),
+            ),
+            reverse=True,
+        )
+        # Optional quality floor.
+        return [
+            row
+            for row in ranked
+            if float(row.get("weighted_score", 0.0)) >= float(min_similarity or 0.0) * 0.5
+        ][:top_k]
