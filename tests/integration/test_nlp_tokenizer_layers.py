@@ -134,6 +134,14 @@ class TestLayeredTokenizer:
             result = self.nlp.process(prompt)
             assert result.intent.startswith("notes:")
 
+    def test_review_understanding_prompt_does_not_emit_read_note_frame(self):
+        self.nlp.reset_context()
+        result = self.nlp.process("let's review your understanding")
+        frame = ((result.parsed_command or {}).get("modifiers", {}).get("frame", {}))
+        assert str(frame.get("name") or "") != "READ_NOTE"
+        assert not result.intent.startswith("notes:")
+        assert result.intent.startswith("conversation:")
+
     def test_goal_statement_objective_phrase_is_recognized(self):
         result = self.nlp.process(
             "My objective is to build a reliable agent architecture with planning and verification"

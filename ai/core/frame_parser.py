@@ -94,6 +94,20 @@ def _has_create_note_explicit_evidence(text_lower: str) -> bool:
     )
 
 
+def _keyword_matches_with_boundaries(text_lower: str, keyword: str) -> bool:
+    token = str(keyword or "").strip().lower()
+    if not token:
+        return False
+    if " " in token:
+        parts = [re.escape(part) for part in token.split() if part]
+        if not parts:
+            return False
+        pattern = r"\b" + r"\s+".join(parts) + r"\b"
+    else:
+        pattern = r"\b" + re.escape(token) + r"\b"
+    return bool(re.search(pattern, text_lower))
+
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -623,7 +637,7 @@ class FrameParser:
         keyword_bonus = 0.0
         negation_deduction = 0.0
         for kw in frame.trigger_keywords:
-            if kw in text_lower:
+            if _keyword_matches_with_boundaries(text_lower, kw):
                 if _has_negation_before(text_lower, kw):
                     # Negated keyword → small deduction instead of bonus
                     negation_deduction += 0.10

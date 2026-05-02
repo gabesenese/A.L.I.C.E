@@ -106,3 +106,67 @@ def test_live_runtime_routes_rain_weekend_to_weather_tool():
     assert result.handled is True
     assert result.metadata["route"] == "tool"
     assert result.metadata["intent"] == "weather:forecast"
+
+
+def test_live_runtime_routes_review_understanding_prompt_to_conversation():
+    alice = _LiveAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="let's review your understanding",
+        user_id="u-live",
+        turn_number=3,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] in {"llm", "conversation"}
+    assert str(result.metadata["intent"]).startswith("conversation:")
+
+
+def test_live_runtime_routes_review_what_you_understood_to_conversation():
+    alice = _LiveAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="review what you understood",
+        user_id="u-live",
+        turn_number=4,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] in {"llm", "conversation"}
+    assert str(result.metadata["intent"]).startswith("conversation:")
+
+
+def test_live_runtime_routes_explicit_read_note_to_notes_tool():
+    alice = _LiveAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="read my note about Alice",
+        user_id="u-live",
+        turn_number=5,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] == "tool"
+    assert str(result.metadata["intent"]).startswith("notes:read")
+
+
+def test_live_runtime_routes_show_my_notes_to_notes_tool():
+    alice = _LiveAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="show my notes",
+        user_id="u-live",
+        turn_number=6,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] == "tool"
+    assert str(result.metadata["intent"]).startswith("notes:")

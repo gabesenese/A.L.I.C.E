@@ -73,9 +73,17 @@ class RouteCoordinator:
         "note",
         "notes",
         "memo",
+        "notebook",
+        "saved note",
+        "my notes",
         "write this down",
         "save this",
         "remember this",
+        "take note",
+        "read the note",
+        "show my notes",
+        "open the note",
+        "what is in my note",
         "add this to my notes",
     )
     _weather_explicit_request_terms = (
@@ -450,7 +458,14 @@ class RouteCoordinator:
         utterance = str(text or "").strip().lower()
         if not utterance:
             return False
-        return any(phrase in utterance for phrase in self._notes_explicit_evidence_phrases)
+        if any(phrase in utterance for phrase in self._notes_explicit_evidence_phrases):
+            return True
+        # Allow saved-list objects only when explicitly referenced as owned/specific lists.
+        if re.search(r"\b(?:my|the)\s+[a-z][a-z0-9_-]*\s+list\b", utterance):
+            return True
+        if re.search(r"\b(?:what(?:'s|\s+is)\s+in|open|read|show)\b.{0,30}\blist\b", utterance):
+            return True
+        return False
 
     def _has_explicit_weather_request(self, text: str) -> bool:
         utterance = str(text or "").strip().lower()
@@ -467,9 +482,9 @@ class RouteCoordinator:
         if not normalized_intent or normalized_intent.startswith("conversation:"):
             return None
 
-        if normalized_intent == "notes:create" and not self._has_explicit_notes_evidence(text):
+        if normalized_intent.startswith("notes:") and not self._has_explicit_notes_evidence(text):
             return {
-                "reason": "notes_create_requires_explicit_notes_domain_evidence",
+                "reason": "notes_tool_requires_explicit_notes_domain_evidence",
                 "original_intent": normalized_intent,
                 "tool_execution_disabled": True,
             }
