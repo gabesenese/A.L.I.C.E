@@ -989,3 +989,69 @@ def test_personal_memory_query_with_structured_evidence_returns_grounded_summary
     assert recall.get("requested_domain") == "personal_life"
     assert recall.get("retrieved_memory_count", 0) >= 1
     assert isinstance(recall.get("evidence_sources"), list)
+
+
+def test_mixed_alice_and_personal_statement_creates_personal_life_memory():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="I feel like Alice remembers coding stuff but not my personal life",
+        user_id="u1",
+        turn_number=48,
+    )
+
+    assert result.handled is True
+    structured = [
+        row
+        for row in alice.memory._stored
+        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+    ]
+    domains = {str((row.get("context") or {}).get("domain") or "") for row in structured}
+    assert "personal_life" in domains
+
+
+def test_personal_life_question_recalls_memory_from_mixed_statement():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+    pipeline.run_turn(
+        user_input="I feel like Alice remembers coding stuff but not my personal life",
+        user_id="u1",
+        turn_number=49,
+    )
+
+    recall_turn = pipeline.run_turn(
+        user_input="what did i talk about my personal life?",
+        user_id="u1",
+        turn_number=50,
+    )
+
+    assert recall_turn.handled is True
+    assert recall_turn.metadata["response_type"] == "personal_memory_grounded"
+    assert "personal-life context" in recall_turn.response_text.lower()
+
+
+def test_alice_project_only_memory_does_not_answer_personal_life_question():
+    alice = _FakeAlice()
+    store = PersonalMemoryStore(alice.memory)
+    store.store_structured_memory(
+        content="Gabriel wants Alice project memory to be more robust.",
+        domain="alice_project",
+        kind="project_goal",
+        scope="long_term",
+        confidence=0.9,
+        source="conversation",
+    )
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="what did i talk about my personal life?",
+        user_id="u1",
+        turn_number=51,
+    )
+
+    assert result.handled is True
+    assert result.metadata["response_type"] == "personal_memory_insufficient"

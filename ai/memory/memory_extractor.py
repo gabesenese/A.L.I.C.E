@@ -75,6 +75,14 @@ class MemoryExtractor:
             re.IGNORECASE,
         ),
     }
+    _personal_priority_pattern = re.compile(
+        r"\b(i feel|my personal life|about me|my life)\b",
+        re.IGNORECASE,
+    )
+    _alice_project_pattern = re.compile(
+        r"\b(alice|jarvis|coding|code|project|feature|roadmap|memory)\b",
+        re.IGNORECASE,
+    )
 
     def _is_filler(self, text: str) -> bool:
         low = str(text or "").strip().lower()
@@ -86,11 +94,18 @@ class MemoryExtractor:
             return True
         return False
 
-    def _pick_domain(self, text: str) -> str:
+    def _pick_domains(self, text: str) -> List[str]:
+        found: List[str] = []
         for domain, pattern in self._domain_patterns.items():
             if pattern.search(text):
-                return domain
-        return DEFAULT_PERSONAL_DOMAIN
+                found.append(domain)
+        if not found:
+            return [DEFAULT_PERSONAL_DOMAIN]
+
+        has_personal_priority = bool(self._personal_priority_pattern.search(text))
+        if has_personal_priority and "personal_life" in found:
+            found = ["personal_life"] + [d for d in found if d != "personal_life"]
+        return found
 
     @staticmethod
     def _pick_kind(text: str, domain: str) -> str:
@@ -152,28 +167,52 @@ class MemoryExtractor:
                 )
             ]
 
-        domain = self._pick_domain(text)
-        kind = self._pick_kind(text, domain)
-        scope = self._pick_scope(text, kind)
-        domain = domain if domain in PERSONAL_MEMORY_DOMAINS else DEFAULT_PERSONAL_DOMAIN
-        kind = kind if kind in PERSONAL_MEMORY_KINDS else DEFAULT_PERSONAL_KIND
-        scope = scope if scope in PERSONAL_MEMORY_SCOPES else "day_to_day"
-
-        confidence = 0.62
-        if kind in {"project_goal", "emotional_state", "preference"}:
-            confidence = 0.78
-        if domain in {"alice_project", "fitness", "personal_life"}:
-            confidence = max(confidence, 0.75)
-
-        content = self._rewrite_content(user_name, text, domain, kind)
-        return [
-            MemoryCandidate(
-                content=content,
-                domain=domain,
-                kind=kind,
-                scope=scope,
-                confidence=confidence,
-                source=source,
-                should_store=True,
+        domains = self._pick_domains(text)
+        has_mixed_alice_and_personal = bool(
+            self._alice_project_pattern.search(text)
+            and self._personal_priority_pattern.search(text)
+        )
+        candidates: List[MemoryCandidate] = []
+        for domain in domains:
+            normalized_domain = (
+                domain if domain in PERSONAL_MEMORY_DOMAINS else DEFAULT_PERSONAL_DOMAIN
             )
-        ]
+            kind = self._pick_kind(text, normalized_domain)
+            if has_mixed_alice_and_personal and normalized_domain == "alice_project":
+                kind = "conversation_event"
+            if has_mixed_alice_and_personal and normalized_domain == "personal_life":
+                kind = "emotional_state"
+            kind = kind if kind in PERSONAL_MEMORY_KINDS else DEFAULT_PERSONAL_KIND
+            scope = self._pick_scope(text, kind)
+            scope = scope if scope in PERSONAL_MEMORY_SCOPES else "day_to_day"
+
+            confidence = 0.62
+            if kind in {"project_goal", "emotional_state", "preference"}:
+                confidence = 0.78
+            if normalized_domain in {"alice_project", "fitness", "personal_life"}:
+                confidence = max(confidence, 0.75)
+            if normalized_domain == "personal_life" and self._personal_priority_pattern.search(text):
+                confidence = max(confidence, 0.84)
+
+            content = self._rewrite_content(user_name, text, normalized_domain, kind)
+            candidates.append(
+                MemoryCandidate(
+                    content=content,
+                    domain=normalized_domain,
+                    kind=kind,
+                    scope=scope,
+                    confidence=confidence,
+                    source=source,
+                    should_store=True,
+                )
+            )
+
+        # Keep deterministic unique domain entries (one candidate per domain).
+        out: List[MemoryCandidate] = []
+        seen = set()
+        for candidate in candidates:
+            if candidate.domain in seen:
+                continue
+            seen.add(candidate.domain)
+            out.append(candidate)
+        return out
