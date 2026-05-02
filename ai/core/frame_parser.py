@@ -62,6 +62,19 @@ _NEGATION_WORDS: frozenset = frozenset(
     }
 )
 _NEG_WINDOW = 32  # characters to look back from a keyword for a negation word
+_CREATE_NOTE_WEAK_VERB_RE = re.compile(r"\b(make|add|create|write)\b", re.IGNORECASE)
+_CREATE_NOTE_EXPLICIT_EVIDENCE_PATTERNS: Tuple[re.Pattern, ...] = (
+    re.compile(r"\bnotes?\b", re.IGNORECASE),
+    re.compile(r"\bmemo\b", re.IGNORECASE),
+    re.compile(r"\bjot\s+down\b", re.IGNORECASE),
+    re.compile(r"\bwrite\s+this\s+down\b", re.IGNORECASE),
+    re.compile(r"\bwrite\b.{0,40}\bdown\b", re.IGNORECASE),
+    re.compile(r"\bsave\s+this\b", re.IGNORECASE),
+    re.compile(r"\bsave\b.{0,40}\bto\s+my\s+notes?\b", re.IGNORECASE),
+    re.compile(r"\bremember\s+this\b", re.IGNORECASE),
+    re.compile(r"\btake\s+note\b", re.IGNORECASE),
+    re.compile(r"\badd\s+this\s+to\s+my\s+notes\b", re.IGNORECASE),
+)
 
 
 def _has_negation_before(
@@ -73,6 +86,12 @@ def _has_negation_before(
         return False
     snippet = text_lower[max(0, idx - window) : idx]
     return any(neg in snippet for neg in _NEGATION_WORDS)
+
+
+def _has_create_note_explicit_evidence(text_lower: str) -> bool:
+    return any(
+        pattern.search(text_lower) for pattern in _CREATE_NOTE_EXPLICIT_EVIDENCE_PATTERNS
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -128,9 +147,14 @@ _FRAMES: List[FrameDefinition] = [
             "add",
             "new",
             "jot",
+            "jot down",
             "record",
             "draft",
             "save",
+            "save this",
+            "remember this",
+            "write this down",
+            "add this to my notes",
             "compose",
             "note down",
             "take note",
@@ -140,6 +164,10 @@ _FRAMES: List[FrameDefinition] = [
             r"\bnote\b.{0,20}\b(about|on|regarding|for|titled?)\b",
             r"\b(take|jot).{0,10}\bnote\b",
             r"\b(remind(?:er)?|memo)\b.{0,20}\babout\b",
+            r"\bwrite\s+this\s+down\b",
+            r"\bsave\s+this(?:\s+to\s+my\s+notes?)?\b",
+            r"\bremember\s+this\b",
+            r"\badd\s+this\s+to\s+my\s+notes?\b",
         ],
         anti_patterns=[
             r"\b(find|search|look\s+for|show|read|open|get|list|delete|remove)\b",
@@ -228,7 +256,7 @@ _FRAMES: List[FrameDefinition] = [
             r"\bnotes?\b.{0,15}\b(i\s+have|do\s+i\s+have)\b",
         ],
         anti_patterns=[
-            r"\b(find|search|look\s+for|about|tagged|in it|inside|in the|how many)\b",
+            r"\b(find|search|look\s+for|about|tagged|in it|inside|in the|how many|save this|write this down|remember this)\b",
         ],
         required_slots=[],
         optional_slots=["tags", "date_range"],
@@ -621,6 +649,12 @@ class FrameParser:
             if pat.search(text_lower):
                 anti_penalty += 0.20
         score -= min(0.40, anti_penalty)
+
+        if frame.name == "CREATE_NOTE":
+            has_weak_create_verb = bool(_CREATE_NOTE_WEAK_VERB_RE.search(text_lower))
+            has_explicit_notes_evidence = _has_create_note_explicit_evidence(text_lower)
+            if has_weak_create_verb and not has_explicit_notes_evidence:
+                score -= 0.55
 
         # ── Context-aware boosts ─────────────────────────────────────────────
         last_plugin = context.get("last_plugin")

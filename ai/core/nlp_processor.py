@@ -4427,6 +4427,15 @@ class NLPProcessor:
                 return "conversation:goal_statement", 0.9
 
         # Notes intents - distinguish VERY clearly
+        # Explicit note-capture requests should route to notes:create even without "note" noun.
+        if (
+            re.search(
+                r"\b(write\b.{0,40}\bdown|save\b.{0,40}(?:\bto\s+my\s+notes?\b)?|remember\b.{0,40}|add\b.{0,40}\bto\s+my\s+notes?\b)\b",
+                text_lower,
+            )
+            and not _negated
+        ):
+            return "notes:create", 0.93
         # Read note content: "what is in the grocery list?", "what's inside my notes?"
         # Must come before list/append to avoid misclassification.
         if _P1_NOTES_READ_CONTENT_RE.search(text_lower) and not _negated:

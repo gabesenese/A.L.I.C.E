@@ -101,6 +101,39 @@ class TestLayeredTokenizer:
         assert result.intent == "conversation:goal_statement"
         assert result.intent_confidence >= 0.8
 
+    def test_collaborative_reasoning_prompt_does_not_emit_create_note_frame(self):
+        prompts = [
+            "let's think through how to make alice more companion-like without adding hardcoded fallbacks",
+            "how can we make alice more agentic",
+            "let's figure out how to improve alice",
+            "what should we do to make alice feel more like jarvis",
+        ]
+
+        for prompt in prompts:
+            self.nlp.reset_context()
+            result = self.nlp.process(prompt)
+            frame = (
+                (result.parsed_command or {})
+                .get("modifiers", {})
+                .get("frame", {})
+            )
+            frame_name = str(frame.get("name") or "")
+            assert frame_name != "CREATE_NOTE"
+            assert not result.intent.startswith("notes:create")
+            assert result.intent.startswith("conversation:")
+
+    def test_explicit_note_requests_still_allow_create_note_routing(self):
+        prompts = [
+            "create a note about making alice more companion-like",
+            "write this down: make alice more companion-like",
+            "save this to my notes",
+        ]
+
+        for prompt in prompts:
+            self.nlp.reset_context()
+            result = self.nlp.process(prompt)
+            assert result.intent.startswith("notes:")
+
     def test_goal_statement_objective_phrase_is_recognized(self):
         result = self.nlp.process(
             "My objective is to build a reliable agent architecture with planning and verification"
