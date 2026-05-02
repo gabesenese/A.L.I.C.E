@@ -27,6 +27,7 @@ from ai.contracts import (
     validate_tool_result_payload,
     ToolSchemaValidationError,
 )
+from ai.memory.personal_memory import PersonalMemoryStore
 
 
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
@@ -75,6 +76,27 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             re.IGNORECASE,
         ),
         re.compile(r"\bhumidity[^\n]{0,16}\b\d{1,3}%\b", re.IGNORECASE),
+    )
+    _personal_history_patterns = (
+        re.compile(r"\bwhat did i (?:talk|say|mention|share)\b", re.IGNORECASE),
+        re.compile(r"\bmy personal life\b", re.IGNORECASE),
+        re.compile(r"\babout me\b", re.IGNORECASE),
+        re.compile(r"\bdo you remember\b", re.IGNORECASE),
+        re.compile(r"\bwhat do you remember\b", re.IGNORECASE),
+    )
+    _personal_domain_keywords = {
+        "finance": ("money", "finance", "budget", "debt", "income"),
+        "fitness": ("fitness", "gym", "workout", "exercise"),
+        "relationships": ("relationship", "partner", "wife", "husband", "friend"),
+        "health": ("health", "sick", "illness", "medical", "pain", "sleep"),
+        "work": ("work", "job", "career", "office", "manager"),
+        "alice_project": ("alice", "project", "repo", "codebase", "feature"),
+        "preferences": ("prefer", "preference", "like", "dislike"),
+    }
+    personal_memory = (
+        PersonalMemoryStore(getattr(alice, "memory"))
+        if getattr(alice, "memory", None)
+        else None
     )
 
     def _normalize_path(path_text: str) -> str:
@@ -354,6 +376,84 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 and any(marker in text for marker in world_markers)
             )
             or broad_situation
+        )
+
+    def _is_personal_memory_query(user_input: str) -> bool:
+        text = str(user_input or "").strip()
+        if not text:
+            return False
+        low = text.lower()
+        if "personal" in low and "life" in low:
+            return True
+        return any(pattern.search(text) for pattern in _personal_history_patterns)
+
+    def _infer_personal_domain(user_input: str) -> str:
+        text = str(user_input or "").lower()
+        for domain, cues in _personal_domain_keywords.items():
+            if any(cue in text for cue in cues):
+                return domain
+        return "personal_life"
+
+    def _memory_strength(items: List[Dict[str, Any]]) -> Dict[str, float]:
+        if not items:
+            return {"count": 0.0, "avg_similarity": 0.0, "avg_weighted": 0.0}
+        count = float(len(items))
+        avg_similarity = (
+            sum(float(i.get("similarity", 0.0) or 0.0) for i in items) / count
+        )
+        avg_weighted = (
+            sum(
+                float(i.get("weighted_score", i.get("score", 0.0)) or 0.0)
+                for i in items
+            )
+            / count
+        )
+        return {
+            "count": count,
+            "avg_similarity": avg_similarity,
+            "avg_weighted": avg_weighted,
+        }
+
+    def _has_sufficient_personal_evidence(items: List[Dict[str, Any]]) -> bool:
+        if not items:
+            return False
+        strength = _memory_strength(items)
+        top_similarity = float(items[0].get("similarity", 0.0) or 0.0)
+        top_weighted = float(
+            items[0].get("weighted_score", items[0].get("score", 0.0)) or 0.0
+        )
+        return bool(
+            top_similarity >= 0.46
+            and top_weighted >= 0.40
+            and strength["avg_similarity"] >= 0.40
+        )
+
+    def _personal_memory_fallback_response(user_input: str, intent: str) -> str:
+        return _surface_text(
+            "I do not have enough saved memory yet to answer that accurately.",
+            user_input=user_input,
+            intent=intent,
+            route="contract_personal_memory_guard",
+        )
+
+    def _render_personal_memory_summary(
+        user_input: str,
+        intent: str,
+        items: List[Dict[str, Any]],
+    ) -> str:
+        snippets: List[str] = []
+        for row in items[:4]:
+            content = str(row.get("content") or "").strip()
+            if content:
+                snippets.append(content)
+        if not snippets:
+            return _personal_memory_fallback_response(user_input, intent)
+        summary = "Here is what I have saved in memory:\n- " + "\n- ".join(snippets)
+        return _surface_text(
+            summary,
+            user_input=user_input,
+            intent=intent,
+            route="contract_personal_memory_recall",
         )
 
     def _freshness_required_payload(user_input: str) -> Dict[str, Any]:
@@ -868,14 +968,43 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
     def _recall(req: MemoryRequest) -> MemoryResult:
         try:
-            items = []
+            items: List[Dict[str, Any]] = []
+            metadata: Dict[str, Any] = {"count": 0}
             if getattr(alice, "memory", None):
-                items = alice.memory.search(req.query, top_k=req.max_items)
+                if personal_memory and _is_personal_memory_query(req.query):
+                    domain = _infer_personal_domain(req.query)
+                    day_to_day = personal_memory.retrieve_structured_memory(
+                        req.query,
+                        domain=domain,
+                        scope="day_to_day",
+                        top_k=req.max_items,
+                    )
+                    remaining = max(0, req.max_items - len(day_to_day))
+                    long_term = (
+                        personal_memory.retrieve_structured_memory(
+                            req.query,
+                            domain=domain,
+                            scope="long_term",
+                            top_k=remaining,
+                        )
+                        if remaining > 0
+                        else []
+                    )
+                    items = list(day_to_day) + list(long_term)
+                    metadata = {
+                        "count": len(items),
+                        "mode": "personal_structured",
+                        "domain": domain,
+                        "evidence": _memory_strength(items),
+                    }
+                else:
+                    items = alice.memory.search(req.query, top_k=req.max_items)
+                    metadata = {"count": len(items or []), "mode": "default_search"}
             return MemoryResult(
                 items=list(items or []),
                 source="memory_system",
                 confidence=0.8 if items else 0.3,
-                metadata={"count": len(items or [])},
+                metadata=metadata,
             )
         except Exception as exc:
             return MemoryResult(
@@ -892,9 +1021,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if not text:
             return
         try:
-            alice.memory.store_memory(
-                content=text, memory_type="episodic", context=item
-            )
+            if personal_memory:
+                personal_memory.store_structured_memory(
+                    content=text,
+                    domain=str(item.get("domain") or "general"),
+                    kind=str(item.get("kind") or "conversation_event"),
+                    scope=str(item.get("scope") or "day_to_day"),
+                    confidence=float(item.get("confidence", 0.65) or 0.65),
+                    source=str(item.get("source") or "conversation"),
+                    trace_id=str(item.get("trace_id") or "") or None,
+                    importance=float(item.get("importance", 0.7) or 0.7),
+                )
+            else:
+                alice.memory.store_memory(
+                    content=text, memory_type="episodic", context=item
+                )
         except Exception:
             # Storage errors should not block response path.
             return
@@ -1189,6 +1330,30 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     ),
                     metadata={"type": "weather_tool_fallback"},
                 )
+
+        if _is_personal_memory_query(req.user_input):
+            memory_items = list(req.memory.items or [])
+            if not _has_sufficient_personal_evidence(memory_items):
+                return ResponseOutput(
+                    text=_personal_memory_fallback_response(
+                        req.user_input, req.decision.intent
+                    ),
+                    confidence=0.96,
+                    metadata={
+                        "type": "personal_memory_insufficient",
+                        "memory_evidence": _memory_strength(memory_items),
+                    },
+                )
+            return ResponseOutput(
+                text=_render_personal_memory_summary(
+                    req.user_input, req.decision.intent, memory_items
+                ),
+                confidence=0.88,
+                metadata={
+                    "type": "personal_memory_grounded",
+                    "memory_evidence": _memory_strength(memory_items),
+                },
+            )
 
         llm_text = ""
         if getattr(alice, "llm", None):

@@ -67,6 +67,32 @@ class _FakeMemory:
         self._stored = []
 
     def search(self, query, top_k=8):
+        lower = str(query or "").lower()
+        if "personal grounded" in lower:
+            return [
+                {
+                    "content": "You said your sister visited last weekend.",
+                    "similarity": 0.82,
+                    "weighted_score": 0.79,
+                    "tags": [
+                        "structured:personal",
+                        "domain:personal_life",
+                        "kind:conversation_event",
+                        "scope:day_to_day",
+                    ],
+                },
+                {
+                    "content": "You mentioned focusing on family time this month.",
+                    "similarity": 0.76,
+                    "weighted_score": 0.74,
+                    "tags": [
+                        "structured:personal",
+                        "domain:personal_life",
+                        "kind:routine",
+                        "scope:long_term",
+                    ],
+                },
+            ][:top_k]
         return [{"content": f"mem:{query}", "score": 0.7}][:top_k]
 
     def store_memory(self, content, memory_type="episodic", context=None):
@@ -785,3 +811,37 @@ def test_contract_pipeline_escalates_hard_tool_failures_in_post_execution_state_
     assert outcome["needs_escalation"] is True
     assert post["phase"] == "escalated"
     assert task_verification["accepted"] is False
+
+
+def test_personal_memory_query_with_weak_evidence_returns_insufficient_memory_message():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="what did i talk about my personal life?",
+        user_id="u1",
+        turn_number=43,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] == "llm"
+    assert result.metadata["response_type"] == "personal_memory_insufficient"
+    assert "do not have enough saved memory" in result.response_text.lower()
+
+
+def test_personal_memory_query_with_structured_evidence_returns_grounded_summary():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="what did i talk about my personal grounded life?",
+        user_id="u1",
+        turn_number=44,
+    )
+
+    assert result.handled is True
+    assert result.metadata["response_type"] == "personal_memory_grounded"
+    assert "here is what i have saved in memory" in result.response_text.lower()
+    assert "sister visited last weekend" in result.response_text.lower()
