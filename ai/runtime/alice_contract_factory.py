@@ -27,6 +27,7 @@ from ai.contracts import (
     validate_tool_result_payload,
     ToolSchemaValidationError,
 )
+from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
 from ai.memory.personal_memory import PersonalMemoryStore
 
 
@@ -98,6 +99,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if getattr(alice, "memory", None)
         else None
     )
+    memory_answer_verifier = MemoryAnswerVerifier()
 
     def _normalize_path(path_text: str) -> str:
         return (
@@ -155,6 +157,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 "source files",
             )
         )
+        if not has_scope and re.search(r"\balice['’]s\b.*\bcode\b", text):
+            has_scope = True
         if not has_scope:
             return False
 
@@ -254,6 +258,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         ):
             return "weather:forecast"
         return "weather:current"
+
+    def _looks_like_weather_commentary_without_request(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        if "weather" not in text:
+            return False
+        if "?" in text:
+            return False
+        return any(
+            marker in text
+            for marker in ("don't want you to check", "dont want you to check", "just saying")
+        )
+
+    def _looks_like_collaborative_reasoning_statement(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        return ("let's think through" in text or "lets think through" in text)
 
     def _looks_like_proactive_agent_design_statement(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
@@ -437,10 +456,15 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         top_weighted = float(
             items[0].get("weighted_score", items[0].get("score", 0.0)) or 0.0
         )
+        top_ctx = dict(items[0].get("context") or {})
+        top_confidence = float(top_ctx.get("confidence", items[0].get("importance", 0.0)) or 0.0)
         return bool(
-            top_similarity >= 0.46
-            and top_weighted >= 0.40
-            and strength["avg_similarity"] >= 0.40
+            (
+                top_similarity >= 0.46
+                and top_weighted >= 0.40
+                and strength["avg_similarity"] >= 0.40
+            )
+            or (len(items) >= 1 and top_confidence >= 0.75)
         )
 
     def _personal_memory_fallback_response(user_input: str, intent: str) -> str:
@@ -832,6 +856,15 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
+        if _looks_like_weather_commentary_without_request(req.user_input):
+            return RouterDecision(
+                route="llm",
+                intent="conversation:general",
+                confidence=0.86,
+                decision_band="execute",
+                metadata={"reason": "weather_commentary_without_action"},
+            )
+
         if _looks_like_weather_request(req.user_input):
             weather_intent = _infer_weather_intent(req.user_input)
             return RouterDecision(
@@ -854,6 +887,18 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={
                     "reason": "freshness_sensitive_current_events",
                     "requires_live_sources": True,
+                    "resolved_input": req.user_input,
+                },
+            )
+
+        if _looks_like_collaborative_reasoning_statement(req.user_input):
+            return RouterDecision(
+                route="llm",
+                intent="conversation:goal_statement",
+                confidence=0.87,
+                decision_band="execute",
+                metadata={
+                    "reason": "collaborative_reasoning_statement",
                     "resolved_input": req.user_input,
                 },
             )
@@ -1047,11 +1092,38 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     def _store(item: Dict[str, Any]) -> None:
         if not getattr(alice, "memory", None):
             return
+        op = str(item.get("memory_operation") or "").strip().lower()
+        if op and personal_memory:
+            try:
+                if op == "forget_recent":
+                    personal_memory.forget_recent_memory()
+                    return
+                if op == "mark_recent_incorrect":
+                    recent = personal_memory.find_recent_structured_memories(top_k=1)
+                    if recent:
+                        personal_memory.mark_memory_incorrect(
+                            str(recent[0].get("id") or ""),
+                            str(item.get("reason") or "user_marked_incorrect"),
+                        )
+                    return
+                if op == "update_recent":
+                    recent = personal_memory.find_recent_structured_memories(top_k=1)
+                    if recent:
+                        personal_memory.update_memory(
+                            str(recent[0].get("id") or ""),
+                            str(item.get("reason") or recent[0].get("content") or ""),
+                        )
+                    return
+            except Exception:
+                return
         text = str(item.get("content") or item.get("text") or "").strip()
         if not text:
             return
         try:
-            if personal_memory:
+            has_structured_fields = all(
+                str(item.get(key) or "").strip() for key in ("domain", "kind", "scope")
+            )
+            if personal_memory and has_structured_fields:
                 personal_memory.store_structured_memory(
                     content=text,
                     domain=str(item.get("domain") or "general"),
@@ -1374,14 +1446,32 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "memory_evidence": _memory_strength(memory_items),
                     },
                 )
+            grounded_text = _render_personal_memory_summary(
+                req.user_input, req.decision.intent, memory_items
+            )
+            verification = memory_answer_verifier.verify_answer(
+                answer_text=grounded_text,
+                evidence_items=memory_items,
+            )
+            if not bool(verification.get("accepted")):
+                return ResponseOutput(
+                    text=_personal_memory_fallback_response(
+                        req.user_input, req.decision.intent
+                    ),
+                    confidence=0.96,
+                    metadata={
+                        "type": "personal_memory_insufficient",
+                        "memory_evidence": _memory_strength(memory_items),
+                        "memory_answer_verification": verification,
+                    },
+                )
             return ResponseOutput(
-                text=_render_personal_memory_summary(
-                    req.user_input, req.decision.intent, memory_items
-                ),
-                confidence=0.88,
+                text=grounded_text,
+                confidence=max(0.7, float(verification.get("confidence") or 0.7)),
                 metadata={
                     "type": "personal_memory_grounded",
                     "memory_evidence": _memory_strength(memory_items),
+                    "memory_answer_verification": verification,
                 },
             )
 

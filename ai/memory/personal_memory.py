@@ -7,6 +7,7 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from ai.memory.memory_consolidator import MemoryConsolidator
 from ai.memory.personal_memory_constants import (
     DEFAULT_PERSONAL_DOMAIN,
     DEFAULT_PERSONAL_KIND,
@@ -20,6 +21,7 @@ from ai.memory.personal_memory_constants import (
 class PersonalMemoryStore:
     def __init__(self, memory_system: Any):
         self.memory = memory_system
+        self.consolidator = MemoryConsolidator(memory_system)
 
     @staticmethod
     def _normalize_token(value: str, allowed: set[str], default: str) -> str:
@@ -80,7 +82,7 @@ class PersonalMemoryStore:
             ]
         )
 
-        return str(
+        memory_id = str(
             self.memory.store_memory(
                 content=str(content or "").strip(),
                 memory_type="episodic",
@@ -89,6 +91,88 @@ class PersonalMemoryStore:
                 tags=tags,
             )
         )
+        try:
+            self.consolidator.consolidate_recent(
+                domain=normalized_domain,
+                kind=normalized_kind,
+                scope=normalized_scope,
+            )
+        except Exception:
+            pass
+        return memory_id
+
+    def find_recent_structured_memories(
+        self,
+        *,
+        domain: Optional[str] = None,
+        kind: Optional[str] = None,
+        top_k: int = 5,
+    ) -> List[Dict[str, Any]]:
+        rows = self._iter_structured_entries()
+        if domain:
+            rows = [r for r in rows if self._has_tag(r, "domain", str(domain).lower())]
+        if kind:
+            rows = [r for r in rows if self._has_tag(r, "kind", str(kind).lower())]
+        rows = [r for r in rows if not bool((r.get("context") or {}).get("superseded"))]
+        rows.sort(key=lambda r: str(r.get("timestamp", "")), reverse=True)
+        return rows[: max(1, int(top_k or 5))]
+
+    def _update_entry_context(self, entry_id: str, updates: Dict[str, Any]) -> bool:
+        for attr in ("episodic_memory", "semantic_memory", "procedural_memory", "document_memory"):
+            bucket = getattr(self.memory, attr, None)
+            if not isinstance(bucket, list):
+                continue
+            for entry in bucket:
+                if str(getattr(entry, "id", "")) != str(entry_id):
+                    continue
+                ctx = dict(getattr(entry, "context", {}) or {})
+                ctx.update(dict(updates or {}))
+                entry.context = ctx
+                return True
+        return False
+
+    def forget_recent_memory(self, domain: str | None = None, kind: str | None = None) -> Dict[str, Any]:
+        recent = self.find_recent_structured_memories(domain=domain, kind=kind, top_k=1)
+        if not recent:
+            return {"updated": False}
+        target = recent[0]
+        ok = self._update_entry_context(
+            str(target.get("id", "")),
+            {
+                "invalid": True,
+                "invalid_reason": "user_forget_request",
+            },
+        )
+        return {"updated": bool(ok), "memory_id": str(target.get("id", ""))}
+
+    def update_memory(
+        self, memory_id: str, new_content: str, confidence: float | None = None
+    ) -> Dict[str, Any]:
+        for attr in ("episodic_memory", "semantic_memory", "procedural_memory", "document_memory"):
+            bucket = getattr(self.memory, attr, None)
+            if not isinstance(bucket, list):
+                continue
+            for entry in bucket:
+                if str(getattr(entry, "id", "")) != str(memory_id):
+                    continue
+                entry.content = str(new_content or "").strip()
+                ctx = dict(getattr(entry, "context", {}) or {})
+                ctx["corrected"] = True
+                if confidence is not None:
+                    ctx["confidence"] = max(0.0, min(1.0, float(confidence)))
+                entry.context = ctx
+                return {"updated": True, "memory_id": str(memory_id)}
+        return {"updated": False, "memory_id": str(memory_id)}
+
+    def mark_memory_incorrect(self, memory_id: str, reason: str) -> Dict[str, Any]:
+        ok = self._update_entry_context(
+            str(memory_id),
+            {
+                "invalid": True,
+                "invalid_reason": str(reason or "user_marked_incorrect"),
+            },
+        )
+        return {"updated": bool(ok), "memory_id": str(memory_id)}
 
     @staticmethod
     def _has_tag(row: Dict[str, Any], prefix: str, value: str) -> bool:
@@ -210,6 +294,8 @@ class PersonalMemoryStore:
         ranked: List[Dict[str, Any]] = []
         for row in filtered:
             ctx = dict(row.get("context") or {})
+            if bool(ctx.get("invalid")) or bool(ctx.get("superseded")):
+                continue
             confidence = max(0.0, min(1.0, float(ctx.get("confidence", row.get("importance", 0.5)) or 0.5)))
             importance = max(0.0, min(1.0, float(row.get("importance", 0.5) or 0.5)))
             recency = self._recency_score(str(row.get("timestamp") or ""))
@@ -236,9 +322,4 @@ class PersonalMemoryStore:
             ),
             reverse=True,
         )
-        # Optional quality floor.
-        return [
-            row
-            for row in ranked
-            if float(row.get("weighted_score", 0.0)) >= float(min_similarity or 0.0) * 0.5
-        ][:top_k]
+        return ranked[:top_k]

@@ -72,7 +72,7 @@ class MemoryExtractor:
             re.IGNORECASE,
         ),
         "personal_life": re.compile(
-            r"\b(personal life|my life|about me|i feel|i am|i'm)\b",
+            r"\b(personal life|my life|about me|i feel)\b",
             re.IGNORECASE,
         ),
     }
@@ -239,6 +239,8 @@ class MemoryExtractor:
                 # Avoid storing action/capability fragments as personal memory.
                 should_store = True
                 if is_action_fragment and normalized_domain in {"alice_project", "general"}:
+                    should_store = False
+                if normalized_domain == "general":
                     should_store = False
                 # Day-to-day explicit event already captured above.
                 if self._day_to_day_personal_pattern.search(fragment) and normalized_domain == "personal_life":
