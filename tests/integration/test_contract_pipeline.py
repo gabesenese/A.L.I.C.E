@@ -423,6 +423,38 @@ def test_contract_pipeline_routes_weather_lexical_request_to_tool_even_when_nlp_
     assert result.metadata["verification"]["accepted"] is True
 
 
+def test_contract_pipeline_routes_rain_weekend_weather_request_to_tool():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="will it rain this weekend?",
+        user_id="u1",
+        turn_number=18,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] == "tool"
+    assert result.metadata["intent"] == "weather:forecast"
+
+
+def test_contract_pipeline_routes_temperature_tonight_weather_request_to_tool():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="what's the temperature tonight?",
+        user_id="u1",
+        turn_number=19,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] == "tool"
+    assert result.metadata["intent"].startswith("weather:")
+
+
 def test_weather_followup_personal_reaction_does_not_call_weather_tool():
     alice = _FakeAlice()
     boundaries = build_runtime_boundaries(alice)

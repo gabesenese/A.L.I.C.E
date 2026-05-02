@@ -99,6 +99,22 @@ class RouteCoordinator:
         "humidity",
         "wind",
     )
+    _weather_domain_terms = (
+        "weather",
+        "forecast",
+        "temperature",
+        "temp",
+        "rain",
+        "snow",
+        "humidity",
+        "wind",
+        "cold",
+        "hot",
+        "outside",
+        "storm",
+        "cloudy",
+        "sunny",
+    )
 
     def __init__(self, config: Optional[RouteCoordinatorConfig] = None) -> None:
         if config is None:
@@ -438,11 +454,13 @@ class RouteCoordinator:
 
     def _has_explicit_weather_request(self, text: str) -> bool:
         utterance = str(text or "").strip().lower()
-        if "weather" not in utterance:
+        if not utterance:
             return False
-        if "?" in utterance:
-            return True
-        return any(term in utterance for term in self._weather_explicit_request_terms)
+        has_weather_domain = any(term in utterance for term in self._weather_domain_terms)
+        has_request_shape = "?" in utterance or any(
+            term in utterance for term in self._weather_explicit_request_terms
+        )
+        return has_weather_domain and has_request_shape
 
     def _tool_eligibility_gate(self, *, text: str, intent: str) -> Optional[Dict[str, Any]]:
         normalized_intent = str(intent or "").strip().lower()
