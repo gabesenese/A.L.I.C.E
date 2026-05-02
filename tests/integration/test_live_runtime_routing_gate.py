@@ -121,7 +121,7 @@ def test_live_runtime_routes_review_understanding_prompt_to_conversation():
 
     assert result.handled is True
     assert result.metadata["route"] in {"llm", "conversation"}
-    assert str(result.metadata["intent"]).startswith("conversation:")
+    assert str(result.metadata["intent"]) == "conversation:understanding_review"
 
 
 def test_live_runtime_routes_review_what_you_understood_to_conversation():
@@ -137,7 +137,23 @@ def test_live_runtime_routes_review_what_you_understood_to_conversation():
 
     assert result.handled is True
     assert result.metadata["route"] in {"llm", "conversation"}
-    assert str(result.metadata["intent"]).startswith("conversation:")
+    assert str(result.metadata["intent"]) == "conversation:understanding_review"
+
+
+def test_live_runtime_routes_help_prompt_to_conversation_help():
+    alice = _LiveAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="what can you do?",
+        user_id="u-live",
+        turn_number=7,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] in {"llm", "conversation"}
+    assert str(result.metadata["intent"]) == "conversation:help"
 
 
 def test_live_runtime_routes_explicit_read_note_to_notes_tool():

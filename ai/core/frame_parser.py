@@ -127,6 +127,7 @@ class FrameDefinition:
     optional_slots: List[str]
     base_confidence: float = 0.55
     priority: int = 5  # lower = higher priority when tied
+    allow_zero_evidence: bool = False
 
 
 @dataclass
@@ -440,6 +441,7 @@ _FRAMES: List[FrameDefinition] = [
         optional_slots=[],
         base_confidence=0.50,
         priority=8,
+        allow_zero_evidence=True,
     ),
 ]
 
@@ -663,6 +665,10 @@ class FrameParser:
             if pat.search(text_lower):
                 anti_penalty += 0.20
         score -= min(0.40, anti_penalty)
+
+        has_evidence = bool(matched_keywords or matched_patterns)
+        if not has_evidence and not frame.allow_zero_evidence:
+            score -= 0.50
 
         if frame.name == "CREATE_NOTE":
             has_weak_create_verb = bool(_CREATE_NOTE_WEAK_VERB_RE.search(text_lower))

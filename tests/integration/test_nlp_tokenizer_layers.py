@@ -140,7 +140,19 @@ class TestLayeredTokenizer:
         frame = ((result.parsed_command or {}).get("modifiers", {}).get("frame", {}))
         assert str(frame.get("name") or "") != "READ_NOTE"
         assert not result.intent.startswith("notes:")
-        assert result.intent.startswith("conversation:")
+        assert result.intent == "conversation:understanding_review"
+
+    def test_understanding_question_routes_to_understanding_review_intent(self):
+        self.nlp.reset_context()
+        result = self.nlp.process("what did you understand?")
+        frame = ((result.parsed_command or {}).get("modifiers", {}).get("frame", {}))
+        assert str(frame.get("name") or "") != "READ_NOTE"
+        assert result.intent == "conversation:understanding_review"
+
+    def test_help_prompt_stays_in_conversation_help_intent(self):
+        self.nlp.reset_context()
+        result = self.nlp.process("what can you do?")
+        assert result.intent == "conversation:help"
 
     def test_goal_statement_objective_phrase_is_recognized(self):
         result = self.nlp.process(

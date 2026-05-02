@@ -4558,6 +4558,19 @@ class NLPProcessor:
         if any(phrase in text_lower for phrase in _P1_STATUS_INQUIRY):
             return "status_inquiry", 0.85
 
+        # Understanding/self-review prompts should not collapse into generic help.
+        if (
+            re.search(
+                r"\b(review|summarize|recap|go over|tell me)\b.{0,60}\b(understand(?:ing|stood)?|what you (?:understand|understood)|what we are doing|our plan)\b",
+                text_lower,
+            )
+            or re.search(
+                r"\bwhat did you understand\b",
+                text_lower,
+            )
+        ):
+            return "conversation:understanding_review", 0.92
+
         # Greetings (high confidence) - must be after Thanks to not interfere
         greeting_tokens = set(re.findall(r"\b[a-z']+\b", text_lower))
         if _P1_GREETING_WORDS & greeting_tokens and len(text_lower.split()) <= 4:
