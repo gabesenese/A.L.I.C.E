@@ -24,6 +24,7 @@ class MemoryCandidate:
     confidence: float
     source: str
     should_store: bool
+    fragment: str = ""
 
 
 class MemoryExtractor:
@@ -83,6 +84,26 @@ class MemoryExtractor:
         r"\b(alice|jarvis|coding|code|project|feature|roadmap|memory)\b",
         re.IGNORECASE,
     )
+    _action_request_pattern = re.compile(
+        r"\b(can you|could you|are you able to|please|check|inspect|review|analyze|scan|look at)\b",
+        re.IGNORECASE,
+    )
+    _day_to_day_personal_pattern = re.compile(
+        r"\b("
+        r"did some shopping|went shopping|went out with friends|had lunch with|"
+        r"stayed home|worked late|went to the gym|went to gym|did groceries|ran errands"
+        r")\b",
+        re.IGNORECASE,
+    )
+
+    def _split_fragments(self, text: str) -> List[str]:
+        raw_parts = re.split(r"[?.!;]|,(?=\s*(?:can|could|are|please)\b)", text)
+        parts = []
+        for raw in raw_parts:
+            part = " ".join(str(raw or "").strip().split())
+            if part:
+                parts.append(part)
+        return parts if parts else [text]
 
     def _is_filler(self, text: str) -> bool:
         low = str(text or "").strip().lower()
@@ -167,52 +188,83 @@ class MemoryExtractor:
                 )
             ]
 
-        domains = self._pick_domains(text)
+        fragments = self._split_fragments(text)
         has_mixed_alice_and_personal = bool(
             self._alice_project_pattern.search(text)
             and self._personal_priority_pattern.search(text)
         )
         candidates: List[MemoryCandidate] = []
-        for domain in domains:
-            normalized_domain = (
-                domain if domain in PERSONAL_MEMORY_DOMAINS else DEFAULT_PERSONAL_DOMAIN
-            )
-            kind = self._pick_kind(text, normalized_domain)
-            if has_mixed_alice_and_personal and normalized_domain == "alice_project":
-                kind = "conversation_event"
-            if has_mixed_alice_and_personal and normalized_domain == "personal_life":
-                kind = "emotional_state"
-            kind = kind if kind in PERSONAL_MEMORY_KINDS else DEFAULT_PERSONAL_KIND
-            scope = self._pick_scope(text, kind)
-            scope = scope if scope in PERSONAL_MEMORY_SCOPES else "day_to_day"
-
-            confidence = 0.62
-            if kind in {"project_goal", "emotional_state", "preference"}:
-                confidence = 0.78
-            if normalized_domain in {"alice_project", "fitness", "personal_life"}:
-                confidence = max(confidence, 0.75)
-            if normalized_domain == "personal_life" and self._personal_priority_pattern.search(text):
-                confidence = max(confidence, 0.84)
-
-            content = self._rewrite_content(user_name, text, normalized_domain, kind)
-            candidates.append(
-                MemoryCandidate(
-                    content=content,
-                    domain=normalized_domain,
-                    kind=kind,
-                    scope=scope,
-                    confidence=confidence,
-                    source=source,
-                    should_store=True,
+        for fragment in fragments:
+            fragment_domains = self._pick_domains(fragment)
+            is_action_fragment = bool(self._action_request_pattern.search(fragment))
+            # Explicit day-to-day personal events get a dedicated personal memory candidate.
+            if self._day_to_day_personal_pattern.search(fragment):
+                day_content = self._rewrite_content(
+                    user_name, fragment, "personal_life", "conversation_event"
                 )
-            )
+                candidates.append(
+                    MemoryCandidate(
+                        content=day_content,
+                        domain="personal_life",
+                        kind="conversation_event",
+                        scope="day_to_day",
+                        confidence=0.82,
+                        source=source,
+                        should_store=True,
+                        fragment=fragment,
+                    )
+                )
 
-        # Keep deterministic unique domain entries (one candidate per domain).
+            for domain in fragment_domains:
+                normalized_domain = (
+                    domain if domain in PERSONAL_MEMORY_DOMAINS else DEFAULT_PERSONAL_DOMAIN
+                )
+                kind = self._pick_kind(fragment, normalized_domain)
+                if has_mixed_alice_and_personal and normalized_domain == "alice_project":
+                    kind = "conversation_event"
+                if has_mixed_alice_and_personal and normalized_domain == "personal_life":
+                    kind = "emotional_state"
+                kind = kind if kind in PERSONAL_MEMORY_KINDS else DEFAULT_PERSONAL_KIND
+                scope = self._pick_scope(fragment, kind)
+                scope = scope if scope in PERSONAL_MEMORY_SCOPES else "day_to_day"
+
+                confidence = 0.62
+                if kind in {"project_goal", "emotional_state", "preference"}:
+                    confidence = 0.78
+                if normalized_domain in {"alice_project", "fitness", "personal_life"}:
+                    confidence = max(confidence, 0.75)
+                if normalized_domain == "personal_life" and self._personal_priority_pattern.search(fragment):
+                    confidence = max(confidence, 0.84)
+
+                # Avoid storing action/capability fragments as personal memory.
+                should_store = True
+                if is_action_fragment and normalized_domain in {"alice_project", "general"}:
+                    should_store = False
+                # Day-to-day explicit event already captured above.
+                if self._day_to_day_personal_pattern.search(fragment) and normalized_domain == "personal_life":
+                    should_store = False
+
+                content = self._rewrite_content(user_name, fragment, normalized_domain, kind)
+                candidates.append(
+                    MemoryCandidate(
+                        content=content,
+                        domain=normalized_domain,
+                        kind=kind,
+                        scope=scope,
+                        confidence=confidence,
+                        source=source,
+                        should_store=should_store,
+                        fragment=fragment,
+                    )
+                )
+
+        # Keep deterministic unique entries by (domain, fragment), preferring storable candidates.
         out: List[MemoryCandidate] = []
         seen = set()
         for candidate in candidates:
-            if candidate.domain in seen:
+            dedupe_key = (candidate.domain, candidate.fragment.lower().strip())
+            if dedupe_key in seen:
                 continue
-            seen.add(candidate.domain)
+            seen.add(dedupe_key)
             out.append(candidate)
         return out

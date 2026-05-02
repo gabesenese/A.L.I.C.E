@@ -1055,3 +1055,99 @@ def test_alice_project_only_memory_does_not_answer_personal_life_question():
 
     assert result.handled is True
     assert result.metadata["response_type"] == "personal_memory_insufficient"
+
+
+def test_mixed_turn_shopping_plus_code_request_stores_personal_update_and_keeps_code_route():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="nothing new, just did some shopping today, are you able to check alice's codebase?",
+        user_id="u1",
+        turn_number=52,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] == "code:request"
+    structured = [
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+    ]
+    assert structured
+    personal_rows = [row for row in structured if (row.get("context") or {}).get("domain") == "personal_life"]
+    assert personal_rows
+    latest = personal_rows[-1]
+    ctx = latest["context"]
+    assert ctx["kind"] == "conversation_event"
+    assert ctx["scope"] == "day_to_day"
+    assert "shopping" in latest["content"].lower()
+    mem_meta = result.metadata["memory_extraction"]
+    assert "personal_life" in mem_meta["stored_domains"]
+    assert "conversation_event" in mem_meta["stored_kinds"]
+    assert mem_meta["extracted_fragments"]
+
+
+def test_mixed_turn_gym_plus_code_request_stores_personal_or_fitness_memory_and_keeps_code_route():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="nothing new, just went to the gym, can you check Alice's memory code?",
+        user_id="u1",
+        turn_number=53,
+    )
+
+    assert result.handled is True
+    assert result.metadata["intent"] == "code:request"
+    structured = [
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+    ]
+    assert structured
+    domains = {(row.get("context") or {}).get("domain") for row in structured}
+    assert ("fitness" in domains) or ("personal_life" in domains)
+    assert any("gym" in str(row.get("content") or "").lower() for row in structured)
+
+
+def test_code_request_only_does_not_store_fake_personal_memory():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="are you able to check alice's codebase?",
+        user_id="u1",
+        turn_number=54,
+    )
+
+    assert result.handled is True
+    assert result.metadata["intent"] == "code:request"
+    assert result.metadata["route"] == "local"
+    structured = [
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+    ]
+    assert structured == []
+
+
+def test_personal_update_only_stores_day_to_day_personal_memory():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="nothing new, just did some shopping today",
+        user_id="u1",
+        turn_number=55,
+    )
+
+    assert result.handled is True
+    structured = [
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+    ]
+    assert structured
+    latest = structured[-1]
+    assert (latest.get("context") or {}).get("domain") == "personal_life"
+    assert (latest.get("context") or {}).get("kind") == "conversation_event"
+    assert (latest.get("context") or {}).get("scope") == "day_to_day"
+    assert "shopping" in str(latest.get("content") or "").lower()
