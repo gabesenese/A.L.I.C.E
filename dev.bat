@@ -10,6 +10,7 @@ where make >nul 2>nul
 if %errorlevel%==0 (
 	set "USE_MAKE=1"
 	set "RUN_CMD=python app\dev.py"
+	set "DEBUG_MODE_CMD=python -m app.alice --model llama3.1:8b --debug"
 	set "TEST_CMD=make test"
 	set "LINT_CMD=make lint"
 	set "FIX_CMD=ruff check . --fix --unsafe-fixes --exit-zero"
@@ -18,6 +19,7 @@ if %errorlevel%==0 (
 ) else (
 	set "USE_MAKE=0"
 	set "RUN_CMD=python app\dev.py"
+	set "DEBUG_MODE_CMD=python -m app.alice --model llama3.1:8b --debug"
 	set "TEST_CMD=python -m pytest tests/ -v"
 	set "LINT_CMD=ruff check ."
 	set "FIX_CMD=ruff check . --fix --unsafe-fixes --exit-zero"
@@ -40,11 +42,13 @@ echo   4  Collect tests (pytest --collect-only)
 echo   5  Full check
 echo   6  Format
 echo   7  Open plain shell
-echo   8  Exit
+echo   8  Debug mode
+echo   9  Exit
 echo.
-choice /c 12345678 /n /m "Select an option: "
+choice /c 123456789 /n /m "Select an option: "
 
-if errorlevel 8 goto exit
+if errorlevel 9 goto exit
+if errorlevel 8 goto debug_mode
 if errorlevel 7 goto plain_shell
 if errorlevel 6 goto format
 if errorlevel 5 goto check
@@ -108,6 +112,13 @@ goto menu
 echo.
 echo Opening an interactive shell in the activated environment.
 cmd /k
+goto menu
+
+:debug_mode
+echo.
+echo Running: %DEBUG_MODE_CMD%
+call %DEBUG_MODE_CMD%
+pause
 goto menu
 
 :exit
