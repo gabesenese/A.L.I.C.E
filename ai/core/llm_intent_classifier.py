@@ -99,7 +99,7 @@ class LLMIntentClassifier:
             Formatted prompt with few-shot examples and CoT instructions
         """
         # Start with role definition
-        prompt = """You are an expert intent classifier for an AI assistant named A.L.I.C.E.
+        prompt = """You are an expert intent classifier for an AI system named A.L.I.C.E.
 
 Your task: Classify user queries into intents and actions by reasoning step-by-step.
 

@@ -4422,7 +4422,7 @@ class NLPProcessor:
             "remember this",
             "save this",
         )
-        if any(p in text_lower for p in _goal_phrases) or "ai companion" in text_lower:
+        if any(p in text_lower for p in _goal_phrases) or "ai system" in text_lower:
             if not any(m in text_lower for m in _note_markers):
                 return "conversation:goal_statement", 0.9
 

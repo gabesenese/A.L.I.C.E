@@ -156,7 +156,7 @@ class OllamaEvaluator:
     ) -> str:
         """Build prompt for Ollama to evaluate Alice's response"""
 
-        return f"""You are evaluating Alice, an AI assistant's response quality.
+        return f"""You are evaluating Alice, an AI system's response quality.
 
 USER REQUEST: "{user_input}"
 

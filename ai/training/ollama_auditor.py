@@ -112,7 +112,7 @@ class OllamaAuditor:
         Returns:
             (score, reasoning)
         """
-        prompt = f"""You are grading an AI assistant's response.
+        prompt = f"""You are grading an AI system's response.
 
 DIMENSION: {dimension.value}
 {rubric.description}

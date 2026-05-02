@@ -1,6 +1,6 @@
 """
 A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity
-Main Orchestrator - Intelligent Personal Assistant
+Main Orchestrator - Intelligent Personal AI System
 
 Integrates all components:
 - Advanced NLP with intent detection
@@ -237,7 +237,7 @@ logger = logging.getLogger(__name__)
 class ALICE:
     """
     Main A.L.I.C.E system
-    Intelligent personal assistant with advanced AI capabilities
+    Intelligent AI system with advanced capabilities
     """
 
     def __init__(
@@ -846,7 +846,7 @@ class ALICE:
                     active_systems=10,
                 )
                 logger.info(
-                    "[OK] All 10 Tier Improvements active - advanced assistant capabilities enabled"
+                    "[OK] All 10 Tier Improvements active - advanced capabilities enabled"
                 )
             except Exception as e:
                 logger.error(f"[ERROR] Tier improvements initialization failed: {e}")
@@ -5159,7 +5159,7 @@ class ALICE:
         ]
         if any(word in user_input.lower() for word in code_keywords):
             codebase_summary = self.self_reflection.get_codebase_summary()
-            reflection_context = "CRITICAL: You ARE A.L.I.C.E, an AI assistant with read-only access to your own codebase. "
+            reflection_context = "CRITICAL: You ARE A.L.I.C.E, an AI system with read-only access to your own codebase. "
             reflection_context += f"Your codebase is at {codebase_summary['base_path']} with {codebase_summary['total_files']} Python files. "
             reflection_context += "You can read files, analyze code, search, and suggest improvements through the self_reflection system. "
             reflection_context += "When asked about code access, confirm you have it and offer to read/analyze files. "
@@ -7849,7 +7849,7 @@ class ALICE:
         assistant_label = (
             "A.L.I.C.E"
             if ("alice" in text or "a.l.i.c.e" in text)
-            else "your assistant"
+            else "your system"
         )
 
         framework_pool = [
@@ -7981,7 +7981,7 @@ class ALICE:
         label = (
             "A.L.I.C.E"
             if ("alice" in text or "a.l.i.c.e" in text)
-            else "your assistant"
+            else "your system"
         )
 
         bottleneck_pool = [
@@ -8308,7 +8308,7 @@ class ALICE:
             take=1,
         )
 
-        assistant_label = "A.L.I.C.E" if "alice" in text else "your assistant"
+        assistant_label = "A.L.I.C.E" if "alice" in text else "your system"
         framework_line = (
             framework_t[0] if framework_t else framework_templates[0]
         ).format(frameworks=self._format_compact_list(frameworks))
@@ -11431,7 +11431,7 @@ class ALICE:
             and ("assistant" in text or "assistance" in text)
         ):
             return (
-                "Short answer: an AI assistant is mostly reactive, helping when prompted, while an AI agent is proactive, "
+                "Short answer: an AI system is mostly reactive, helping when prompted, while an AI agent is proactive, "
                 "able to plan steps, use tools, and execute tasks toward a goal with less hand-holding."
             )
         if "optimizer" in text:
@@ -18810,10 +18810,10 @@ class ALICE:
 
         if not skip_welcome:
             print("\n" + "=" * 80)
-            print("A.L.I.C.E - Your Personal AI Assistant")
+            print("A.L.I.C.E - Your Personal AI System")
             print("=" * 80)
             print(
-                f"\nHello {self.context.user_prefs.name}! I'm ALICE, your advanced AI assistant."
+                f"\nHello {self.context.user_prefs.name}! I'm ALICE, your advanced AI system."
             )
             print("I'm here to help you with anything you need.\n")
             print("Commands:")
@@ -20988,7 +20988,7 @@ def main():
     """Main entry point for A.L.I.C.E"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="A.L.I.C.E - Advanced AI Assistant")
+    parser = argparse.ArgumentParser(description="A.L.I.C.E - Advanced AI System")
     parser.add_argument("--voice", action="store_true", help="Enable voice interaction")
     parser.add_argument(
         "--voice-only", action="store_true", help="Run in voice-only mode"

@@ -153,7 +153,7 @@ class AutonomousAgent:
 
     def _build_planning_prompt(self, goal: str, context: Dict[str, Any]) -> str:
         """Build prompt for goal decomposition"""
-        prompt = f"""You are Alice, an autonomous AI assistant. Break down this goal into executable steps.
+        prompt = f"""You are Alice, an autonomous AI system. Break down this goal into executable steps.
 
 Goal: {goal}
 

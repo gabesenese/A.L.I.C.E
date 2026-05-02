@@ -182,7 +182,7 @@ logger = logging.getLogger(__name__)
 class ALICE:
     """
     Main A.L.I.C.E system
-    Intelligent personal assistant with advanced AI capabilities
+    Intelligent AI system with advanced capabilities
     """
     
     def __init__(
@@ -686,7 +686,7 @@ class ALICE:
                     component='tier_improvements',
                     active_systems=10
                 )
-                logger.info("[OK] All 10 Tier Improvements active - advanced assistant capabilities enabled")
+                logger.info("[OK] All 10 Tier Improvements active - advanced capabilities enabled")
             except Exception as e:
                 logger.error(f"[ERROR] Tier improvements initialization failed: {e}")
                 import traceback
@@ -3412,7 +3412,7 @@ class ALICE:
                         'have access', 'can you see', 'your files']
         if any(word in user_input.lower() for word in code_keywords):
             codebase_summary = self.self_reflection.get_codebase_summary() 
-            reflection_context = f"CRITICAL: You ARE A.L.I.C.E, an AI assistant with read-only access to your own codebase. "
+            reflection_context = f"CRITICAL: You ARE A.L.I.C.E, an AI system with read-only access to your own codebase. "
             reflection_context += f"Your codebase is at {codebase_summary['base_path']} with {codebase_summary['total_files']} Python files. "
             reflection_context += f"You can read files, analyze code, search, and suggest improvements through the self_reflection system. "
             reflection_context += f"When asked about code access, confirm you have it and offer to read/analyze files. "
@@ -12647,9 +12647,9 @@ class ALICE:
         
         if not skip_welcome:
             print("\n" + "=" * 80)
-            print("A.L.I.C.E - Your Personal AI Assistant")
+            print("A.L.I.C.E - Your Personal AI System")
             print("=" * 80)
-            print(f"\nHello {self.context.user_prefs.name}! I'm ALICE, your advanced AI assistant.")
+            print(f"\nHello {self.context.user_prefs.name}! I'm ALICE, your advanced AI system.")
             print("I'm here to help you with anything you need.\n")
             print("Commands:")
             print("   /help      - Show available commands")
@@ -14444,7 +14444,7 @@ def main():
     """Main entry point for A.L.I.C.E"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="A.L.I.C.E - Advanced AI Assistant")
+    parser = argparse.ArgumentParser(description="A.L.I.C.E - Advanced AI System")
     parser.add_argument("--voice", action="store_true", help="Enable voice interaction")
     parser.add_argument("--voice-only", action="store_true", help="Run in voice-only mode")
     parser.add_argument("--model", default="llama3", help="LLM model to use")

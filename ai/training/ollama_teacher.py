@@ -62,7 +62,7 @@ class OllamaTeacher:
 
     def _generate_from_template(self, vector: TeachingVector, count: int) -> List[str]:
         """Generate queries by filling in the template via Ollama"""
-        prompt = f"""You are generating {count} diverse test queries to teach an AI assistant about: {vector.description}
+        prompt = f"""You are generating {count} diverse test queries to teach an AI system about: {vector.description}
 
 Template: {vector.test_template}
 

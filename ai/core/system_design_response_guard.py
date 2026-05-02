@@ -18,7 +18,7 @@ class SystemDesignResponseGuard:
                 "if an assistant existed",
                 "how would you build",
                 "real-world ai system",
-                "fictional ai assistant",
+                "fictional ai system",
             )
         )
         return topic_hit and any(

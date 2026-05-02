@@ -466,7 +466,7 @@ class RequestRouter:
         )
         if any(cue in text_lower for cue in goal_cues):
             return True
-        return "ai companion" in text_lower or "personal assistant" in text_lower
+        return "ai system" in text_lower or "personal system" in text_lower
 
     def should_clarify(
         self, intent: str, confidence: float, entities: Dict[str, Any], user_text: str

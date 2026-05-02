@@ -102,7 +102,7 @@ class OllamaTeacherComparison:
 
         try:
             # Craft prompt for teacher
-            prompt = f"""You are a helpful AI assistant. The user said: "{user_input}"
+            prompt = f"""You are a helpful AI system. The user said: "{user_input}"
 
 """
             if intent:

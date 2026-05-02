@@ -67,7 +67,7 @@ class ChatResponse:
 # OLLAMA TOOL PROMPTS - Ollama is Alice's Tool, NOT Alice
 # ============================================================================
 
-KNOWLEDGE_PROMPT = """You are a knowledge assistant.
+KNOWLEDGE_PROMPT = """You are a knowledge engine.
 Your role: Provide factual information when queried.
 - Alice will ask you specific questions
 - Provide accurate, concise answers
@@ -75,7 +75,7 @@ Your role: Provide factual information when queried.
 - If uncertain, say so clearly
 DO NOT act as Alice - you are her knowledge tool."""
 
-PARSER_PROMPT = """You are a linguistic analysis assistant.
+PARSER_PROMPT = """You are a linguistic analysis engine.
 Your role: Parse complex natural language into structured meaning.
 - Extract intent and entities
 - Identify ambiguities
@@ -96,7 +96,7 @@ DO NOT make decisions - only phrase what Alice tells you to say.
 DO NOT add personality Alice didn't specify - she controls her own tone.
 DO NOT suggest follow-up topics or ask what the user wants to talk about next — answer the question and stop."""
 
-AUDITOR_PROMPT = """You are a logic verification assistant.
+AUDITOR_PROMPT = """You are a logic verification engine.
 Your role: Check if Alice's reasoning makes sense.
 - Given: Alice's logic chain
 - Output: Errors, inconsistencies, or "looks good"
@@ -172,7 +172,7 @@ class LocalLLMEngine:
         self.config = config or LLMConfig()
         self.conversation_history = []
         self._available_models: List[str] = []
-        self.system_prompt = """You are A.L.I.C.E (Artificial Linguistic Intelligence Computer Entity), a personal AI assistant.
+        self.system_prompt = """You are A.L.I.C.E (Artificial Linguistic Intelligence Computer Entity), a personal AI system.
 
 You're being trained on your user's actual interactions. Every conversation helps you learn their preferences and develop your unique personality. You're not a generic LLM - you're A.L.I.C.E, learning and evolving with each interaction.
 
@@ -1013,7 +1013,7 @@ Provide:
 if __name__ == "__main__":
     _configure_stdio_utf8()
     print("=" * 80)
-    print("A.L.I.C.E - Advanced GPU-Accelerated AI Assistant")
+    print("A.L.I.C.E - Advanced GPU-Accelerated AI System")
     print("=" * 80)
     print("\n Optimized for:")
     print("   - CPU: Intel i7-14700K")
