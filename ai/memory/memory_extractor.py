@@ -64,7 +64,7 @@ class MemoryExtractor:
             re.IGNORECASE,
         ),
         "work": re.compile(
-            r"\b(work|job|career|manager|office|deadline|client)\b",
+            r"\b(worked late|work was busy|my job|manager|at the office|office|career|coworker|client|work shift)\b",
             re.IGNORECASE,
         ),
         "preferences": re.compile(
@@ -95,9 +95,19 @@ class MemoryExtractor:
         r")\b",
         re.IGNORECASE,
     )
+    _alice_project_work_pattern = re.compile(
+        r"\b(ready to work on (?:our )?(?:ai|alice|project)|"
+        r"let[' ]?s (?:continue )?work(?:ing)? on (?:alice|the ai project)|"
+        r"ready to keep building alice|back to working on alice|"
+        r"let[' ]?s get back to alice|work on (?:alice|our ai project|the codebase|the repo))\b",
+        re.IGNORECASE,
+    )
 
     def _split_fragments(self, text: str) -> List[str]:
-        raw_parts = re.split(r"[?.!;]|,(?=\s*(?:can|could|are|please)\b)", text)
+        raw_parts = re.split(
+            r"[?.!;]|,(?=\s*(?:can|could|are|please|ready to|let[' ]?s|back to)\b)",
+            text,
+        )
         parts = []
         for raw in raw_parts:
             part = " ".join(str(raw or "").strip().split())
@@ -154,6 +164,20 @@ class MemoryExtractor:
     def _rewrite_content(user_name: str, text: str, domain: str, kind: str) -> str:
         clean = " ".join(str(text or "").strip().split())
         subject = user_name.strip() or "User"
+        low = clean.lower()
+        if "did some shopping today" in low or "went shopping today" in low:
+            return f"{subject} did some shopping today."
+        if "went to the gym" in low:
+            return f"{subject} went to the gym today."
+        if "worked late today" in low:
+            return f"{subject} worked late today."
+        if domain == "alice_project" and (
+            "ready to work on" in low
+            or "continue working on alice" in low
+            or "keep building alice" in low
+            or "back to working on alice" in low
+        ):
+            return f"{subject} was ready to work on the AI/Alice project."
         if domain == "alice_project" and "jarvis" in clean.lower():
             return f"{subject} wants Alice to become a Jarvis-like AI companion/operator."
         if domain == "fitness" and re.search(r"\b(?:\d{2,3})\s*kg\b", clean, re.IGNORECASE):
@@ -196,6 +220,12 @@ class MemoryExtractor:
         candidates: List[MemoryCandidate] = []
         for fragment in fragments:
             fragment_domains = self._pick_domains(fragment)
+            if self._alice_project_work_pattern.search(fragment):
+                if "alice_project" not in fragment_domains:
+                    fragment_domains.insert(0, "alice_project")
+                fragment_domains = [d for d in fragment_domains if d != "work"] + (
+                    ["work"] if "work" in fragment_domains and "worked late" in fragment.lower() else []
+                )
             is_action_fragment = bool(self._action_request_pattern.search(fragment))
             # Explicit day-to-day personal events get a dedicated personal memory candidate.
             if self._day_to_day_personal_pattern.search(fragment):

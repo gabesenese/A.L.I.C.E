@@ -274,6 +274,22 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         text = str(user_input or "").lower().strip()
         return ("let's think through" in text or "lets think through" in text)
 
+    def _looks_like_project_work_session_start(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+        patterns = (
+            r"\bready to work on (?:our )?(?:ai project|ai|alice|the project)\b",
+            r"\blet[' ]?s work on alice\b",
+            r"\blet[' ]?s continue working on alice\b",
+            r"\bi[' ]?m ready to work on the project\b",
+            r"\bready to keep building alice\b",
+            r"\blet[' ]?s continue the ai project\b",
+            r"\bback to working on alice\b",
+            r"\blet[' ]?s get back to alice\b",
+        )
+        return any(re.search(pat, text) for pat in patterns)
+
     def _looks_like_proactive_agent_design_statement(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
         if len(text) < 60:
@@ -899,6 +915,18 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 decision_band="execute",
                 metadata={
                     "reason": "collaborative_reasoning_statement",
+                    "resolved_input": req.user_input,
+                },
+            )
+
+        if _looks_like_project_work_session_start(req.user_input):
+            return RouterDecision(
+                route="llm",
+                intent="conversation:project_work_session",
+                confidence=0.9,
+                decision_band="execute",
+                metadata={
+                    "reason": "project_work_session_start",
                     "resolved_input": req.user_input,
                 },
             )

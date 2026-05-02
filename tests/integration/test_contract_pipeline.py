@@ -1151,3 +1151,96 @@ def test_personal_update_only_stores_day_to_day_personal_memory():
     assert (latest.get("context") or {}).get("kind") == "conversation_event"
     assert (latest.get("context") or {}).get("scope") == "day_to_day"
     assert "shopping" in str(latest.get("content") or "").lower()
+
+
+def test_project_work_session_mixed_turn_routes_conversation_and_stores_personal_and_project_memory():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="going good, did some shopping today, ready to work on our ai project",
+        user_id="u1",
+        turn_number=56,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] == "llm"
+    assert result.metadata["intent"] in {
+        "conversation:project_work_session",
+        "conversation:goal_statement",
+    }
+    assert result.metadata["decision_band"] != "clarify"
+
+    structured = [
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+    ]
+    domains = [(row.get("context") or {}).get("domain") for row in structured]
+    assert "personal_life" in domains
+    assert "alice_project" in domains
+    assert "work" not in domains
+
+    personal_rows = [r for r in structured if (r.get("context") or {}).get("domain") == "personal_life"]
+    project_rows = [r for r in structured if (r.get("context") or {}).get("domain") == "alice_project"]
+    assert any("shopping today" in str(r.get("content") or "").lower() for r in personal_rows)
+    assert any("ready to work on the ai/alice project" in str(r.get("content") or "").lower() for r in project_rows)
+
+
+def test_ready_to_work_on_alice_routes_project_session_without_clarification():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="ready to work on Alice",
+        user_id="u1",
+        turn_number=57,
+    )
+
+    assert result.handled is True
+    assert result.metadata["route"] == "llm"
+    assert result.metadata["intent"] == "conversation:project_work_session"
+    assert result.metadata["decision_band"] != "clarify"
+
+
+def test_i_worked_late_today_extracts_work_domain_day_to_day_event():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    result = pipeline.run_turn(
+        user_input="I worked late today",
+        user_id="u1",
+        turn_number=58,
+    )
+    assert result.handled is True
+    structured = [
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+    ]
+    work_rows = [r for r in structured if (r.get("context") or {}).get("domain") == "work"]
+    assert work_rows
+    latest = work_rows[-1]
+    assert (latest.get("context") or {}).get("kind") == "conversation_event"
+    assert (latest.get("context") or {}).get("scope") == "day_to_day"
+
+
+def test_personal_recall_after_project_work_mixed_turn_mentions_shopping_not_project_details():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+    pipeline.run_turn(
+        user_input="going good, did some shopping today, ready to work on our ai project",
+        user_id="u1",
+        turn_number=59,
+    )
+
+    recall = pipeline.run_turn(
+        user_input="what did I talk about my personal life?",
+        user_id="u1",
+        turn_number=60,
+    )
+    assert recall.handled is True
+    assert recall.metadata["response_type"] == "personal_memory_grounded"
+    low = recall.response_text.lower()
+    assert "shopping today" in low
+    assert "ready to work on the ai/alice project" not in low
