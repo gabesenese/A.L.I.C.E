@@ -801,10 +801,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         nlp_result = alice.nlp.process(resolved_input)
         intent = str(getattr(nlp_result, "intent", "unknown") or "unknown")
         confidence = float(getattr(nlp_result, "intent_confidence", 0.0) or 0.0)
+        parsed_command = getattr(nlp_result, "parsed_command", {}) or {}
+        modifiers = (
+            parsed_command.get("modifiers", {})
+            if isinstance(parsed_command, dict)
+            else {}
+        )
 
         route = "llm"
         if ":" in intent and not intent.startswith("conversation"):
             route = "tool"
+
+        if route == "tool" and bool(modifiers.get("tool_execution_disabled")):
+            route = "llm"
+            if not intent.startswith("conversation:"):
+                intent = "conversation:general"
 
         lower_input = req.user_input.lower()
         if confidence >= 0.80:
@@ -849,6 +860,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             metadata={
                 "keywords": list(getattr(nlp_result, "keywords", []) or []),
                 "resolved_input": resolved_input,
+                "tool_execution_disabled": bool(modifiers.get("tool_execution_disabled")),
+                "tool_eligibility_gate": dict(modifiers.get("tool_eligibility_gate") or {}),
                 **resolution_meta,
             },
         )
