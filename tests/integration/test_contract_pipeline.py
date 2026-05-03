@@ -1341,3 +1341,77 @@ def test_consolidation_marks_exact_duplicate_as_superseded_and_retrieval_ignores
         top_k=5,
     )
     assert len(rows) == 1
+
+
+def test_operator_flow_capability_then_analyze_routes_local_without_clarify():
+    alice = _FakeAlice()
+    boundaries = build_runtime_boundaries(alice)
+    pipeline = ContractPipeline(boundaries)
+
+    first = pipeline.run_turn(
+        user_input="alright lets focus on my ai project, you have access to alice's code right?",
+        user_id="u1",
+        turn_number=70,
+    )
+    assert first.handled is True
+    assert first.metadata["route"] == "local"
+    assert first.metadata["intent"] == "code:request"
+    assert "inspect the local workspace" in first.response_text.lower()
+    op1 = first.metadata.get("operator_context") or {}
+    assert op1.get("active_capability") == "code_inspection"
+    assert op1.get("awaiting_target") is True
+
+    second = pipeline.run_turn(
+        user_input="i want you to analyze legacy-main.py",
+        user_id="u1",
+        turn_number=71,
+    )
+    assert second.handled is True
+    assert second.metadata["route"] == "local"
+    assert second.metadata["intent"] == "code:analyze_file"
+    assert second.metadata["decision_band"] != "clarify"
+    op2 = second.metadata.get("operator_context") or {}
+    assert str(op2.get("inferred_target_file") or "").lower() == "legacy-main.py"
+
+
+def test_direct_analyze_request_routes_local_code_analyze_file():
+    alice = _FakeAlice()
+    result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
+        user_input="review legacy-main.py",
+        user_id="u1",
+        turn_number=72,
+    )
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] == "code:analyze_file"
+    assert result.metadata["decision_band"] != "clarify"
+
+
+def test_files_question_routes_to_code_list_files_not_clarify():
+    alice = _FakeAlice()
+    result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
+        user_input="what files can you inspect for me?",
+        user_id="u1",
+        turn_number=73,
+    )
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] == "code:list_files"
+    assert result.metadata["decision_band"] != "clarify"
+    assert "what exact outcome" not in result.response_text.lower()
+
+
+def test_followup_what_about_file_routes_to_analyze_after_code_capability():
+    alice = _FakeAlice()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+    first = pipeline.run_turn(
+        user_input="you have access to alice's code right?",
+        user_id="u1",
+        turn_number=74,
+    )
+    assert first.metadata["intent"] == "code:request"
+    second = pipeline.run_turn(
+        user_input="what about legacy-main.py?",
+        user_id="u1",
+        turn_number=75,
+    )
+    assert second.metadata["route"] == "local"
+    assert second.metadata["intent"] == "code:analyze_file"

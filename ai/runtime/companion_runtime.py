@@ -167,7 +167,7 @@ class CompanionPolicyEngine:
                 retry_budget=0,
             )
 
-        if route in {"tool", "plugin"}:
+        if route in {"tool", "plugin", "local"}:
             if self.is_contextual_reaction(
                 user_input=user_input,
                 previous_intent=companion_state.last_intent,
@@ -184,7 +184,7 @@ class CompanionPolicyEngine:
             )
             return PolicyDecision(
                 decision_type="act",
-                reason="tool_route",
+                reason="tool_or_local_route",
                 retry_budget=1,
                 requires_approval=requires_approval,
                 approval_reason=approval_reason,

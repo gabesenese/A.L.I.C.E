@@ -809,6 +809,14 @@ class ContractPipeline:
                 "memory_extraction": {
                     **dict(memory_plan.get("memory_extraction") or {}),
                 },
+                "operator_context": dict(
+                    ((tool_result.diagnostics or {}).get("operator_context") if tool_result else {})
+                    or {}
+                ),
+                "local_execution": dict(
+                    ((tool_result.diagnostics or {}).get("local_execution") if tool_result else {})
+                    or {}
+                ),
                 "state": {
                     "current_task": state.current_task,
                     "prior_task": state.prior_task,

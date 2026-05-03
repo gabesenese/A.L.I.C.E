@@ -92,7 +92,7 @@ class TurnOrchestrator:
         route_phase: RoutePhaseResult,
     ) -> ExecutePhaseResult:
         decision = route_phase.decision
-        if decision.route not in {"tool", "plugin"}:
+        if decision.route not in {"tool", "plugin", "local"}:
             return ExecutePhaseResult(tool_result=None, executed=False)
 
         tool_name = (

@@ -29,6 +29,7 @@ from ai.contracts import (
 )
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
 from ai.memory.personal_memory import PersonalMemoryStore
+from ai.runtime.local_action_executor import LocalActionExecutor
 
 
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
@@ -100,6 +101,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         else None
     )
     memory_answer_verifier = MemoryAnswerVerifier()
+    local_executor = LocalActionExecutor(alice)
 
     def _normalize_path(path_text: str) -> str:
         return (
@@ -171,6 +173,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         has_question_or_command = bool(
             re.search(r"\b(?:can|could|would|do|are)\s+you\b", text)
             or text.endswith("?")
+            or re.search(r"\b(?:i want you to|i need you to|let[' ]?s|can we)\b", text)
             or text.startswith(
                 (
                     "show",
@@ -186,6 +189,22 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
         )
         return bool(has_action and has_question_or_command)
+
+    def _looks_like_code_list_request(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        return bool(
+            re.search(r"\b(what files can you (?:inspect|see)|what files can you inspect for me|list files|show workspace files|what files can you see)\b", text)
+        )
+
+    def _extract_code_target(user_input: str) -> str:
+        match = re.search(r"([a-zA-Z0-9_./\\-]+\.py)\b", str(user_input or ""))
+        return str(match.group(1)) if match else ""
+
+    def _looks_like_code_analyze_request(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        if _extract_code_target(user_input):
+            return bool(re.search(r"\b(analy[sz]e|review|inspect|look at|read|what about|check)\b", text) or text.endswith(".py"))
+        return False
 
     def _looks_like_weather_request(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
@@ -853,6 +872,40 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         return base
 
     def _route(req: RouterRequest) -> RouterDecision:
+        operator_ctx = dict(getattr(alice, "_operator_context", {}) or {})
+        continuation_active = bool(
+            operator_ctx.get("active_capability") == "code_inspection"
+            and operator_ctx.get("awaiting_target")
+        )
+
+        if _looks_like_code_list_request(req.user_input):
+            return RouterDecision(
+                route="local",
+                intent="code:list_files",
+                confidence=0.95,
+                decision_band="execute",
+                metadata={"reason": "code_list_request", "resolved_input": req.user_input},
+            )
+
+        if _looks_like_code_analyze_request(req.user_input) or (
+            continuation_active and bool(_extract_code_target(req.user_input))
+        ):
+            target = _extract_code_target(req.user_input)
+            return RouterDecision(
+                route="local",
+                intent="code:analyze_file",
+                confidence=0.95,
+                decision_band="execute",
+                metadata={
+                    "reason": "code_analyze_request",
+                    "resolved_input": req.user_input,
+                    "operator_context": {
+                        "continuation_from_previous_turn": continuation_active,
+                        "inferred_target_file": target,
+                    },
+                },
+            )
+
         if req.user_input.startswith("/"):
             return RouterDecision(
                 route="command",
@@ -1215,6 +1268,36 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 diagnostics={"stage": "pre_tool_validation"},
             )
 
+        if str(invocation.action or "").startswith("code:") or str(invocation.action or "") in {
+            "system:location",
+            "freshness:current_events",
+        }:
+            local = local_executor.execute(
+                action=str(invocation.action or ""),
+                query=str(invocation.params.get("query") or ""),
+                context=dict(invocation.params.get("context") or {})
+                | {"target_file": _extract_code_target(str(invocation.params.get("query") or ""))},
+            )
+            success = bool(local.get("success"))
+            return ToolResult(
+                success=success,
+                tool_name="local_action_executor",
+                action=invocation.action,
+                data={
+                    "response": str(local.get("response") or ""),
+                    "operator_context": dict(local.get("operator_context") or {}),
+                    "local_execution": dict(local.get("local_execution") or {}),
+                    "close_matches": list((local.get("operator_context") or {}).get("close_matches") or []),
+                },
+                error=str(local.get("error") or ""),
+                confidence=0.9 if success else 0.3,
+                diagnostics={
+                    "route": "local_executor",
+                    "operator_context": dict(local.get("operator_context") or {}),
+                    "local_execution": dict(local.get("local_execution") or {}),
+                },
+            )
+
         if not getattr(alice, "plugins", None):
             return ToolResult(
                 success=False,
@@ -1292,6 +1375,14 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         return tool_result
 
     def _generate(req: ResponseRequest) -> ResponseOutput:
+        if req.tool_result is not None:
+            try:
+                diag_ctx = dict((req.tool_result.diagnostics or {}).get("operator_context") or {})
+                if diag_ctx:
+                    setattr(alice, "_operator_context", diag_ctx)
+            except Exception:
+                pass
+
         if req.decision.decision_band == "refuse" or req.decision.route == "refuse":
             refusal_text = _surface_text(
                 "I can't safely perform that request. Share a narrower safe action and I will continue.",
@@ -1341,9 +1432,53 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"type": "deterministic_location"},
             )
 
+        if req.decision.route == "local" and req.tool_result is not None and not req.tool_result.success:
+            data = dict(req.tool_result.data or {})
+            op_ctx = dict(data.get("operator_context") or {})
+            inferred = str(op_ctx.get("inferred_target_file") or "")
+            close = list(op_ctx.get("close_matches") or [])
+            if inferred and close:
+                msg = f"I could not find {inferred}. Close matches:\n- " + "\n- ".join(close[:5])
+            elif inferred:
+                msg = f"I could not find {inferred} in the current workspace."
+            else:
+                msg = str(req.tool_result.error or "I could not complete that local inspection request.")
+            return ResponseOutput(
+                text=_surface_text(
+                    msg,
+                    user_input=req.user_input,
+                    intent=req.decision.intent,
+                    route="contract_local_execution_error",
+                ),
+                confidence=0.45,
+                metadata={
+                    "type": "local_execution_error",
+                    "operator_context": op_ctx,
+                    "local_execution": dict(data.get("local_execution") or {}),
+                },
+            )
+
         if req.decision.intent == "code:request" and hasattr(
             alice, "_handle_code_request"
         ):
+            if req.tool_result and req.tool_result.success:
+                local_payload = dict(req.tool_result.data or {})
+                local_response = str(local_payload.get("response") or "").strip()
+                if local_response:
+                    return ResponseOutput(
+                        text=_surface_text(
+                            local_response,
+                            user_input=req.user_input,
+                            intent=req.decision.intent,
+                            route="contract_local_code_request",
+                        ),
+                        confidence=float(req.tool_result.confidence or 0.85),
+                        metadata={
+                            "type": "local_code_request",
+                            "operator_context": dict(local_payload.get("operator_context") or {}),
+                            "local_execution": dict(local_payload.get("local_execution") or {}),
+                        },
+                    )
             code_response = ""
             try:
                 code_response = str(
@@ -1434,6 +1569,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         if req.tool_result and req.tool_result.success:
             tool_payload = dict(req.tool_result.data or {})
+            op_ctx = dict(tool_payload.get("operator_context") or {})
+            if op_ctx:
+                try:
+                    setattr(alice, "_operator_context", op_ctx)
+                except Exception:
+                    pass
             tool_response = str(tool_payload.get("response") or "").strip()
             if not tool_response:
                 tool_response = _compose_weather_response_from_tool_payload(
