@@ -496,11 +496,24 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         intent: str,
         items: List[Dict[str, Any]],
     ) -> str:
+        def _norm(text: str) -> str:
+            value = str(text or "").strip().lower()
+            value = re.sub(r"^\s*[-*]\s*", "", value)
+            value = re.sub(r"[^a-z0-9\s]", " ", value)
+            value = re.sub(r"\s+", " ", value).strip()
+            return value
+
+        seen = set()
         snippets: List[str] = []
         for row in items[:4]:
             content = str(row.get("content") or "").strip()
-            if content:
-                snippets.append(content)
+            if not content:
+                continue
+            key = _norm(content)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            snippets.append(content)
         if not snippets:
             return _personal_memory_fallback_response(user_input, intent)
         summary = "Here is what I have saved in memory:\n- " + "\n- ".join(snippets)
@@ -1062,24 +1075,33 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 personal_mode = bool(personal_memory and _is_personal_memory_query(req.query))
                 if personal_mode:
                     domain = _infer_personal_domain(req.query)
-                    day_to_day = personal_memory.retrieve_structured_memory(
+                    day_to_day_detail = personal_memory.retrieve_structured_memory_detailed(
                         req.query,
                         domain=domain,
                         scope="day_to_day",
                         top_k=req.max_items,
                     )
+                    day_to_day = list(day_to_day_detail.get("items") or [])
                     remaining = max(0, req.max_items - len(day_to_day))
-                    long_term = (
-                        personal_memory.retrieve_structured_memory(
+                    long_term_detail = (
+                        personal_memory.retrieve_structured_memory_detailed(
                             req.query,
                             domain=domain,
                             scope="long_term",
                             top_k=remaining,
                         )
                         if remaining > 0
-                        else []
+                        else {"items": []}
                     )
+                    long_term = list(long_term_detail.get("items") or [])
                     items = list(day_to_day) + list(long_term)
+                    raw_retrieved_count = int(day_to_day_detail.get("raw_retrieved_count", 0)) + int(
+                        long_term_detail.get("raw_retrieved_count", 0)
+                    )
+                    deduped_count = len(items)
+                    downranked_mixed_count = int(day_to_day_detail.get("downranked_mixed_count", 0)) + int(
+                        long_term_detail.get("downranked_mixed_count", 0)
+                    )
                     metadata = {
                         "count": len(items or []),
                         "mode": "personal_structured",
@@ -1090,6 +1112,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "insufficient_evidence": not _has_sufficient_personal_evidence(items),
                         "evidence_sources": _evidence_sources(items),
                         "evidence": _memory_strength(items),
+                        "raw_retrieved_count": raw_retrieved_count,
+                        "deduped_count": deduped_count,
+                        "duplicate_count_removed": max(0, raw_retrieved_count - deduped_count),
+                        "downranked_mixed_count": downranked_mixed_count,
                     }
                 else:
                     items = alice.memory.search(req.query, top_k=req.max_items)

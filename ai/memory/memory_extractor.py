@@ -102,6 +102,11 @@ class MemoryExtractor:
         r"let[' ]?s get back to alice|work on (?:alice|our ai project|the codebase|the repo))\b",
         re.IGNORECASE,
     )
+    _memory_recall_query_pattern = re.compile(
+        r"\b(what did i talk about|what did i mention|what do you remember|"
+        r"what did i talk about my (?:life|personal life)|what did i talk about my life today)\b",
+        re.IGNORECASE,
+    )
 
     def _split_fragments(self, text: str) -> List[str]:
         raw_parts = re.split(
@@ -199,6 +204,19 @@ class MemoryExtractor:
         source: str = "conversation",
     ) -> List[MemoryCandidate]:
         text = str(user_text or "").strip()
+        if self._memory_recall_query_pattern.search(text):
+            return [
+                MemoryCandidate(
+                    content="",
+                    domain=DEFAULT_PERSONAL_DOMAIN,
+                    kind=DEFAULT_PERSONAL_KIND,
+                    scope="session",
+                    confidence=0.0,
+                    source=source,
+                    should_store=False,
+                    fragment=text,
+                )
+            ]
         if self._is_filler(text):
             return [
                 MemoryCandidate(

@@ -259,6 +259,71 @@ class PersonalMemoryStore:
         top_k: int = 8,
         min_similarity: float = 0.35,
     ) -> List[Dict[str, Any]]:
+        result = self.retrieve_structured_memory_detailed(
+            query,
+            domain=domain,
+            kind=kind,
+            scope=scope,
+            top_k=top_k,
+            min_similarity=min_similarity,
+        )
+        return list(result.get("items") or [])
+
+    @staticmethod
+    def _normalize_content_for_dedupe(text: str) -> str:
+        value = str(text or "").strip().lower()
+        value = re.sub(r"^\s*[-*]\s*", "", value)
+        value = re.sub(r"[^a-z0-9\s]", " ", value)
+        value = re.sub(r"\s+", " ", value).strip()
+        return value
+
+    @staticmethod
+    def _is_broad_mixed_turn_content(text: str) -> bool:
+        low = str(text or "").strip().lower()
+        if not low.startswith("gabriel said:") and not low.startswith("user said:"):
+            return False
+        multi_topic_markers = (
+            ("shopping", "ready to work"),
+            ("shopping", "project"),
+            ("shopping", "codebase"),
+            ("gym", "ready to work"),
+            ("lunch", "code"),
+        )
+        return any(a in low and b in low for a, b in multi_topic_markers)
+
+    @staticmethod
+    def _is_clean_personal_fragment(text: str) -> bool:
+        low = str(text or "").strip().lower()
+        clean_markers = (
+            "did some shopping today",
+            "went shopping today",
+            "went to the gym today",
+            "worked late today",
+            "had lunch with",
+            "stayed home today",
+        )
+        return any(marker in low for marker in clean_markers) and not low.startswith("gabriel said:")
+
+    @staticmethod
+    def _is_meta_recall_query_content(text: str) -> bool:
+        low = str(text or "").strip().lower()
+        return bool(
+            re.search(
+                r"\b(what did i talk about|what do you remember|what did i mention)\b",
+                low,
+            )
+        )
+
+    def retrieve_structured_memory_detailed(
+        self,
+        query: str,
+        *,
+        domain: Optional[str] = None,
+        kind: Optional[str] = None,
+        scope: Optional[str] = None,
+        top_k: int = 8,
+        min_similarity: float = 0.35,
+    ) -> Dict[str, Any]:
         normalized_domain = (
             self._normalize_token(domain, PERSONAL_MEMORY_DOMAINS, DEFAULT_PERSONAL_DOMAIN)
             if domain
@@ -283,7 +348,7 @@ class PersonalMemoryStore:
             kind=normalized_kind,
             scope=normalized_scope,
         )
-        if not filtered and normalized_domain:
+        if not filtered and normalized_domain and normalized_scope is None:
             filtered = self._filter_structured(
                 structured_rows,
                 domain=normalized_domain,
@@ -292,15 +357,30 @@ class PersonalMemoryStore:
             )
 
         ranked: List[Dict[str, Any]] = []
+        raw_candidate_count = len(filtered)
+        downranked_mixed_count = 0
+        has_clean_fragment = any(
+            self._is_clean_personal_fragment(str(row.get("content") or "")) for row in filtered
+        )
         for row in filtered:
             ctx = dict(row.get("context") or {})
             if bool(ctx.get("invalid")) or bool(ctx.get("superseded")):
+                continue
+            if normalized_domain == "personal_life" and self._is_meta_recall_query_content(
+                str(row.get("content") or "")
+            ):
                 continue
             confidence = max(0.0, min(1.0, float(ctx.get("confidence", row.get("importance", 0.5)) or 0.5)))
             importance = max(0.0, min(1.0, float(row.get("importance", 0.5) or 0.5)))
             recency = self._recency_score(str(row.get("timestamp") or ""))
             lexical = self._lexical_similarity(query, str(row.get("content") or ""))
             combined = confidence * 0.35 + importance * 0.25 + recency * 0.25 + lexical * 0.15
+            if has_clean_fragment and self._is_broad_mixed_turn_content(str(row.get("content") or "")):
+                downranked_mixed_count += 1
+                if normalized_domain == "personal_life":
+                    # Prefer clean personal event fragments and suppress broad mixed-turn sentences.
+                    continue
+                combined = max(0.0, combined - 0.22)
             ranked.append(
                 {
                     **row,
@@ -322,4 +402,46 @@ class PersonalMemoryStore:
             ),
             reverse=True,
         )
-        return ranked[:top_k]
+        raw_retrieved_count = raw_candidate_count
+        by_norm: Dict[str, Dict[str, Any]] = {}
+        for row in ranked:
+            key = self._normalize_content_for_dedupe(str(row.get("content") or ""))
+            if not key:
+                continue
+            current = by_norm.get(key)
+            if current is None:
+                by_norm[key] = row
+                continue
+            cur_conf = float((current.get("context") or {}).get("confidence", current.get("importance", 0.0)) or 0.0)
+            new_conf = float((row.get("context") or {}).get("confidence", row.get("importance", 0.0)) or 0.0)
+            current_key = (
+                float(current.get("weighted_score", 0.0)),
+                cur_conf,
+                str(current.get("timestamp", "")),
+            )
+            new_key = (
+                float(row.get("weighted_score", 0.0)),
+                new_conf,
+                str(row.get("timestamp", "")),
+            )
+            if new_key > current_key:
+                by_norm[key] = row
+
+        deduped = list(by_norm.values())
+        deduped.sort(
+            key=lambda r: (
+                float(r.get("weighted_score", 0.0)),
+                float((r.get("context") or {}).get("confidence", 0.0)),
+                str(r.get("timestamp", "")),
+            ),
+            reverse=True,
+        )
+        deduped = deduped[:top_k]
+        deduped_count = len(deduped)
+        return {
+            "items": deduped,
+            "raw_retrieved_count": raw_retrieved_count,
+            "deduped_count": deduped_count,
+            "duplicate_count_removed": max(0, raw_retrieved_count - deduped_count),
+            "downranked_mixed_count": downranked_mixed_count,
+        }

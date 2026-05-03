@@ -1244,3 +1244,100 @@ def test_personal_recall_after_project_work_mixed_turn_mentions_shopping_not_pro
     low = recall.response_text.lower()
     assert "shopping today" in low
     assert "ready to work on the ai/alice project" not in low
+
+
+def test_personal_recall_dedupes_identical_structured_memories_in_response():
+    alice = _FakeAlice()
+    store = PersonalMemoryStore(alice.memory)
+    store.store_structured_memory(
+        content="Gabriel did some shopping today.",
+        domain="personal_life",
+        kind="conversation_event",
+        scope="day_to_day",
+        confidence=0.82,
+        source="conversation",
+    )
+    store.store_structured_memory(
+        content="Gabriel did some shopping today.",
+        domain="personal_life",
+        kind="conversation_event",
+        scope="day_to_day",
+        confidence=0.83,
+        source="conversation",
+    )
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+    result = pipeline.run_turn(
+        user_input="what did I talk about my personal life?",
+        user_id="u1",
+        turn_number=61,
+    )
+    assert result.handled is True
+    assert result.response_text.lower().count("gabriel did some shopping today") == 1
+    recall = result.metadata.get("memory_recall") or {}
+    assert int(recall.get("duplicate_count_removed", 0)) >= 1
+
+
+def test_personal_recall_prefers_clean_fragment_over_raw_mixed_sentence():
+    alice = _FakeAlice()
+    store = PersonalMemoryStore(alice.memory)
+    store.store_structured_memory(
+        content="Gabriel said: going good, did some shopping today, ready to work on our ai project",
+        domain="personal_life",
+        kind="conversation_event",
+        scope="day_to_day",
+        confidence=0.75,
+        source="conversation",
+    )
+    store.store_structured_memory(
+        content="Gabriel did some shopping today.",
+        domain="personal_life",
+        kind="conversation_event",
+        scope="day_to_day",
+        confidence=0.83,
+        source="conversation",
+    )
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+    result = pipeline.run_turn(
+        user_input="what did I talk about my personal life?",
+        user_id="u1",
+        turn_number=62,
+    )
+    low = result.response_text.lower()
+    assert "gabriel did some shopping today" in low
+    assert "ready to work on our ai project" not in low
+    recall = result.metadata.get("memory_recall") or {}
+    assert int(recall.get("downranked_mixed_count", 0)) >= 1
+
+
+def test_consolidation_marks_exact_duplicate_as_superseded_and_retrieval_ignores_it():
+    alice = _FakeAlice()
+    store = PersonalMemoryStore(alice.memory)
+    store.store_structured_memory(
+        content="Gabriel did some shopping today.",
+        domain="personal_life",
+        kind="conversation_event",
+        scope="day_to_day",
+        confidence=0.82,
+        source="conversation",
+    )
+    store.store_structured_memory(
+        content="Gabriel did some shopping today.",
+        domain="personal_life",
+        kind="conversation_event",
+        scope="day_to_day",
+        confidence=0.84,
+        source="conversation",
+    )
+
+    structured = [
+        r for r in alice.memory.episodic_memory if "structured:personal" in list(getattr(r, "tags", []) or [])
+    ]
+    assert any(bool((getattr(r, "context", {}) or {}).get("superseded")) for r in structured)
+
+    rows = store.retrieve_structured_memory(
+        "what did i talk about my personal life",
+        domain="personal_life",
+        scope="day_to_day",
+        top_k=5,
+    )
+    assert len(rows) == 1
