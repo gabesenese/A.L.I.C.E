@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Dict, Optional
 
 from ai.contracts import (
@@ -95,6 +96,21 @@ class TurnOrchestrator:
         if decision.route not in {"tool", "plugin", "local"}:
             return ExecutePhaseResult(tool_result=None, executed=False)
 
+        decision_metadata = dict(decision.metadata or {})
+        operator_context = dict(decision_metadata.get("operator_context") or {})
+        turn_plan = dict(decision_metadata.get("turn_plan") or {})
+        resolved_input = str(route_phase.resolved_input or "")
+        target_file = ""
+        explicit_target = str(decision_metadata.get("target_file") or "").strip()
+        if explicit_target:
+            target_file = explicit_target
+        elif operator_context.get("inferred_target_file"):
+            target_file = str(operator_context.get("inferred_target_file") or "").strip()
+        else:
+            match = re.search(r"([a-zA-Z0-9_./\\-]+\.[a-zA-Z0-9]{1,8})\b", resolved_input)
+            if match:
+                target_file = str(match.group(1))
+
         tool_name = (
             decision.intent.split(":", 1)[0]
             if ":" in decision.intent
@@ -108,7 +124,16 @@ class TurnOrchestrator:
                     "intent": decision.intent,
                     "query": route_phase.resolved_input,
                     "entities": {},
-                    "context": {"memory_count": len(route_phase.memory.items)},
+                    "context": {
+                        "memory_count": len(route_phase.memory.items),
+                        "route": decision.route,
+                        "intent": decision.intent,
+                        "decision_metadata": decision_metadata,
+                        "operator_context": operator_context,
+                        "resolved_input": resolved_input,
+                        "target_file": target_file,
+                        "turn_plan": turn_plan,
+                    },
                 },
             )
         )

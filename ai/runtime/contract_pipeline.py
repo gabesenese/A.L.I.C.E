@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -374,6 +376,41 @@ class ContractPipeline:
             "details": dict(details or {}),
         }
 
+    def _append_routing_failure(
+        self,
+        *,
+        trace_id: str,
+        user_input: str,
+        final_route: str,
+        final_intent: str,
+        plan: Dict[str, Any],
+        verification_reason: str = "",
+        veto_reason: str = "",
+        operator_context: Optional[Dict[str, Any]] = None,
+        local_execution: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        try:
+            path = Path("data/routing_failures.jsonl")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            routing_trace = dict(plan.get("routing_trace") or {})
+            payload = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "trace_id": str(trace_id or ""),
+                "user_input": str(user_input or ""),
+                "final_route": str(final_route or ""),
+                "final_intent": str(final_intent or ""),
+                "candidates": list(routing_trace.get("candidates") or []),
+                "evidence_contract_results": list(routing_trace.get("evidence_contract_results") or []),
+                "veto_reason": str(veto_reason or routing_trace.get("reason") or ""),
+                "verification_reason": str(verification_reason or ""),
+                "operator_context": dict(operator_context or {}),
+                "local_execution": dict(local_execution or {}),
+            }
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
+        except Exception:
+            return
+
     async def _run_turn_async(
         self, user_input: str, user_id: str, turn_number: int = 0
     ) -> PipelineResult:
@@ -411,6 +448,9 @@ class ContractPipeline:
         resolved_input = route_phase.resolved_input
         memory = route_phase.memory
         plan = dict(route_phase.plan or {})
+        routing_trace = dict(getattr(decision, "metadata", {}) or {}).get("routing_trace")
+        if isinstance(routing_trace, dict) and routing_trace:
+            plan["routing_trace"] = dict(routing_trace)
         policy = self.companion_runtime.decide(
             user_input=user_input,
             route_decision=decision,
@@ -426,9 +466,41 @@ class ContractPipeline:
         resolved_input = route_phase.resolved_input
         memory = route_phase.memory
         plan = dict(route_phase.plan or {})
+        routing_trace = dict(getattr(decision, "metadata", {}) or {}).get("routing_trace")
+        if isinstance(routing_trace, dict) and routing_trace:
+            plan["routing_trace"] = dict(routing_trace)
         if bool(route_veto.get("applied")):
             plan["route_veto"] = dict(route_veto)
         plan["policy_decision"] = policy.decision_type
+        if str(decision.route or "") == "clarify":
+            self._append_routing_failure(
+                trace_id=trace_id,
+                user_input=user_input,
+                final_route=decision.route,
+                final_intent=decision.intent,
+                plan=plan,
+                veto_reason="route_clarify",
+            )
+        routing_trace_for_log = dict(plan.get("routing_trace") or {})
+        if bool(routing_trace_for_log.get("file_tool_vetoed")):
+            self._append_routing_failure(
+                trace_id=trace_id,
+                user_input=user_input,
+                final_route=decision.route,
+                final_intent=decision.intent,
+                plan=plan,
+                veto_reason=str(routing_trace_for_log.get("reason") or "tool_route_vetoed"),
+            )
+        low_input = str(user_input or "").lower()
+        if any(token in low_input for token in ("why did you do that", "that's wrong", "you misunderstood")):
+            self._append_routing_failure(
+                trace_id=trace_id,
+                user_input=user_input,
+                final_route=decision.route,
+                final_intent=decision.intent,
+                plan=plan,
+                veto_reason="user_reported_misroute",
+            )
 
         stages.append(
             self._stage(
@@ -448,6 +520,7 @@ class ContractPipeline:
                     "tool_execution_disabled": bool(
                         route_veto.get("tool_execution_disabled")
                     ),
+                    "routing_trace": dict(plan.get("routing_trace") or {}),
                     "plan": plan,
                 },
             )
@@ -587,6 +660,18 @@ class ContractPipeline:
                         },
                     )
                 )
+                if not verification.accepted:
+                    self._append_routing_failure(
+                        trace_id=trace_id,
+                        user_input=user_input,
+                        final_route=decision.route,
+                        final_intent=decision.intent,
+                        plan=plan,
+                        verification_reason=str(verification.reason or ""),
+                        veto_reason="verification_failed",
+                        operator_context=dict(((tool_result.diagnostics or {}).get("operator_context") if tool_result else {}) or {}),
+                        local_execution=dict(((tool_result.diagnostics or {}).get("local_execution") if tool_result else {}) or {}),
+                    )
 
             respond_phase = self.orchestrator.respond_phase(verify_phase=verify_phase)
             response_text = self.companion_runtime.shape_response(
@@ -678,6 +763,19 @@ class ContractPipeline:
             tool_result=tool_result,
             action_discipline=action_discipline,
         )
+        local_exec_payload = dict(((tool_result.diagnostics or {}).get("local_execution") if tool_result else {}) or {})
+        if str(local_exec_payload.get("error") or "") == "target_not_found":
+            self._append_routing_failure(
+                trace_id=trace_id,
+                user_input=user_input,
+                final_route=decision.route,
+                final_intent=decision.intent,
+                plan=plan,
+                verification_reason=str((verification.reason if verification else "") or ""),
+                veto_reason="local_execution_target_not_found",
+                operator_context=dict(((tool_result.diagnostics or {}).get("operator_context") if tool_result else {}) or {}),
+                local_execution=local_exec_payload,
+            )
 
         memory_payload = {
             "content": f"user={user_input}\nassistant={response_text}",

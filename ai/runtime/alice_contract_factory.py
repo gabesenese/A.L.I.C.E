@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
+from ai.core.routing.route_arbiter import RouteArbiter
+from ai.core.routing.turn_segmenter import TurnSegmenter
 from ai.contracts import (
     CallableMemoryAdapter,
     CallableResponseAdapter,
@@ -30,6 +32,7 @@ from ai.contracts import (
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
 from ai.memory.personal_memory import PersonalMemoryStore
 from ai.runtime.local_action_executor import LocalActionExecutor
+from ai.runtime.operator_state import update_operator_state
 
 
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
@@ -102,6 +105,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     )
     memory_answer_verifier = MemoryAnswerVerifier()
     local_executor = LocalActionExecutor(alice)
+    route_arbiter = RouteArbiter()
 
     def _normalize_path(path_text: str) -> str:
         return (
@@ -157,9 +161,15 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 "repo",
                 "project files",
                 "source files",
+                "alice's files",
+                "alice files",
+                "workspace files",
+                "files alice has",
             )
         )
-        if not has_scope and re.search(r"\balice['’]s\b.*\bcode\b", text):
+        if not has_scope and re.search(r"\balice['’]s\b.*\b(?:code|files)\b", text):
+            has_scope = True
+        if not has_scope and "alice has" in text and "file" in text:
             has_scope = True
         if not has_scope:
             return False
@@ -193,8 +203,23 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     def _looks_like_code_list_request(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
         return bool(
-            re.search(r"\b(what files can you (?:inspect|see)|what files can you inspect for me|list files|show workspace files|what files can you see)\b", text)
+            re.search(
+                r"\b(what files can you (?:inspect|see)|what files can you inspect for me|list files|show workspace files|what files can you see|what files does alice have|show me files alice has)\b",
+                text,
+            )
         )
+
+    def _has_explicit_file_target(user_input: str) -> bool:
+        text = str(user_input or "").strip().lower()
+        if not text:
+            return False
+        if re.search(r"\b[a-z0-9_./\\-]+\.[a-z0-9]{1,8}\b", text):
+            return True
+        if re.search(r"\b(?:[a-z]:\\|/|\.{1,2}/)[^\s]+\b", text):
+            return True
+        if re.search(r"\b(?:named|called)\s+[a-z0-9_./\\-]+\b", text):
+            return True
+        return False
 
     def _extract_code_target(user_input: str) -> str:
         match = re.search(r"([a-zA-Z0-9_./\\-]+\.py)\b", str(user_input or ""))
@@ -873,12 +898,37 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
     def _route(req: RouterRequest) -> RouterDecision:
         operator_ctx = dict(getattr(alice, "_operator_context", {}) or {})
+        state = dict(getattr(alice, "_operator_state", {}) or {})
         continuation_active = bool(
             operator_ctx.get("active_capability") == "code_inspection"
             and operator_ctx.get("awaiting_target")
         )
+        low = str(req.user_input or "").lower()
+
+        if TurnSegmenter.looks_like_project_mode(req.user_input):
+            setattr(
+                alice,
+                "_operator_state",
+                update_operator_state(
+                    state,
+                    {
+                        "active_mode": "alice_project_operator",
+                        "active_objective": "Improve Alice into an agentic companion/operator",
+                        "current_focus": "alice runtime operator loop",
+                        "awaiting_target": False,
+                    },
+                ),
+            )
 
         if _looks_like_code_list_request(req.user_input):
+            setattr(
+                alice,
+                "_operator_state",
+                update_operator_state(
+                    state,
+                    {"active_mode": "code_inspection", "awaiting_target": True, "last_route": "local", "last_intent": "code:list_files"},
+                ),
+            )
             return RouterDecision(
                 route="local",
                 intent="code:list_files",
@@ -891,6 +941,14 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             continuation_active and bool(_extract_code_target(req.user_input))
         ):
             target = _extract_code_target(req.user_input)
+            setattr(
+                alice,
+                "_operator_state",
+                update_operator_state(
+                    state,
+                    {"active_mode": "code_inspection", "awaiting_target": False, "last_route": "local", "last_intent": "code:analyze_file", "last_inspected_file": target},
+                ),
+            )
             return RouterDecision(
                 route="local",
                 intent="code:analyze_file",
@@ -903,6 +961,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "continuation_from_previous_turn": continuation_active,
                         "inferred_target_file": target,
                     },
+                    "target_file": target,
                 },
             )
 
@@ -927,6 +986,14 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if _looks_like_code_request(req.user_input):
+            setattr(
+                alice,
+                "_operator_state",
+                update_operator_state(
+                    state,
+                    {"active_mode": "code_inspection", "awaiting_target": True, "last_route": "local", "last_intent": "code:request"},
+                ),
+            )
             return RouterDecision(
                 route="local",
                 intent="code:request",
@@ -1066,10 +1133,60 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if ":" in intent and not intent.startswith("conversation"):
             route = "tool"
 
+        if (
+            str(intent).startswith("file_operations:")
+            and not _has_explicit_file_target(req.user_input)
+        ):
+            arbitration = route_arbiter.arbitrate(
+                user_input=req.user_input,
+                candidate_route=route,
+                candidate_intent=intent,
+                confidence=confidence,
+                active_mode=str(state.get("active_mode") or ""),
+            )
+            rerouted_intent = str(arbitration.get("intent") or "code:request")
+            return RouterDecision(
+                route=str(arbitration.get("route") or "local"),
+                intent=rerouted_intent,
+                confidence=max(confidence, 0.82),
+                decision_band="execute",
+                needs_clarification=False,
+                metadata={
+                    "reason": "file_tool_veto_no_explicit_target",
+                    "routing_trace": {
+                        **dict(arbitration.get("trace") or {}),
+                        "file_tool_vetoed": True,
+                        "reason": "no_explicit_file_target",
+                        "original_intent": "file_operations:read",
+                        "rerouted_to": rerouted_intent,
+                    },
+                    "original_intent": "file_operations:read",
+                },
+            )
+
+        if "file" in low and ("what files" in low or "files does alice have" in low):
+            return RouterDecision(
+                route="local",
+                intent="code:list_files",
+                confidence=max(confidence, 0.85),
+                decision_band="execute",
+                needs_clarification=False,
+                metadata={
+                    "reason": "workspace_files_question",
+                    "resolved_input": resolved_input,
+                },
+            )
+
         if route == "tool" and bool(modifiers.get("tool_execution_disabled")):
-            route = "llm"
-            if not intent.startswith("conversation:"):
-                intent = "conversation:general"
+            gate = dict(modifiers.get("tool_eligibility_gate") or {})
+            rerouted_to = str(gate.get("rerouted_to") or "").strip()
+            if gate.get("file_tool_vetoed") and rerouted_to in {"code:request", "code:list_files"}:
+                route = "local"
+                intent = rerouted_to
+            else:
+                route = "llm"
+                if not intent.startswith("conversation:"):
+                    intent = "conversation:general"
 
         lower_input = req.user_input.lower()
         if confidence >= 0.80:
@@ -1116,6 +1233,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 "resolved_input": resolved_input,
                 "tool_execution_disabled": bool(modifiers.get("tool_execution_disabled")),
                 "tool_eligibility_gate": dict(modifiers.get("tool_eligibility_gate") or {}),
+                "routing_trace": dict(modifiers.get("routing_trace") or {}),
+                "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
                 **resolution_meta,
             },
         )
@@ -1435,12 +1554,17 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if req.decision.route == "local" and req.tool_result is not None and not req.tool_result.success:
             data = dict(req.tool_result.data or {})
             op_ctx = dict(data.get("operator_context") or {})
+            local_exec = dict(data.get("local_execution") or {})
             inferred = str(op_ctx.get("inferred_target_file") or "")
             close = list(op_ctx.get("close_matches") or [])
             if inferred and close:
                 msg = f"I could not find {inferred}. Close matches:\n- " + "\n- ".join(close[:5])
             elif inferred:
-                msg = f"I could not find {inferred} in the current workspace."
+                wf_count = int(local_exec.get("workspace_file_count") or 0)
+                if wf_count > 0:
+                    msg = f"I could not find {inferred} in the current workspace ({wf_count} files indexed). I can list files first if you want."
+                else:
+                    msg = f"I could not find {inferred} in the current workspace."
             else:
                 msg = str(req.tool_result.error or "I could not complete that local inspection request.")
             return ResponseOutput(
@@ -1454,7 +1578,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={
                     "type": "local_execution_error",
                     "operator_context": op_ctx,
-                    "local_execution": dict(data.get("local_execution") or {}),
+                    "local_execution": local_exec,
                 },
             )
 
@@ -1548,8 +1672,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if req.decision.needs_clarification:
+            local_file_q = bool(re.search(r"\bfile|files|code|workspace\b", str(req.user_input or ""), re.IGNORECASE))
+            clarify_base = "Which file should I inspect?" if local_file_q else "What exact result should I produce next?"
             clarify_text = _surface_text(
-                "Share the exact outcome you want so I can route this correctly.",
+                clarify_base,
                 user_input=req.user_input,
                 intent=req.decision.intent,
                 route="contract_clarification",
