@@ -27,7 +27,7 @@ class EvidenceContracts:
             "file_tool_vetoed": False,
         }
 
-        if normalized == "file_operations:read":
+        if normalized.startswith("file_operations:"):
             if not cls.has_explicit_file_target(text):
                 reroute = "code:list_files" if cls.FILE_LIST_PATTERN.search(text) else "code:request"
                 result.update(

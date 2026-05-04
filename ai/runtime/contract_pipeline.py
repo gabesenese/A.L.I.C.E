@@ -21,7 +21,9 @@ from ai.core.executive_controller import (
 from ai.contracts import RuntimeBoundaries, VerifierResult
 from ai.infrastructure.telemetry import tracer, turn_counter, turn_latency
 from ai.runtime.companion_runtime import CompanionRuntimeLoop
+from ai.runtime.agent_loop import build_agent_loop_state
 from ai.runtime.memory_turn_service import MemoryTurnService
+from ai.runtime.next_step_policy import decide_next_step
 from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
 
@@ -387,7 +389,10 @@ class ContractPipeline:
         verification_reason: str = "",
         veto_reason: str = "",
         operator_context: Optional[Dict[str, Any]] = None,
+        operator_state: Optional[Dict[str, Any]] = None,
         local_execution: Optional[Dict[str, Any]] = None,
+        agent_loop: Optional[Dict[str, Any]] = None,
+        response_excerpt: str = "",
     ) -> None:
         try:
             path = Path("data/routing_failures.jsonl")
@@ -404,7 +409,10 @@ class ContractPipeline:
                 "veto_reason": str(veto_reason or routing_trace.get("reason") or ""),
                 "verification_reason": str(verification_reason or ""),
                 "operator_context": dict(operator_context or {}),
+                "operator_state": dict(operator_state or {}),
                 "local_execution": dict(local_execution or {}),
+                "agent_loop": dict(agent_loop or {}),
+                "response_excerpt": str(response_excerpt or "")[:240],
             }
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
@@ -480,6 +488,7 @@ class ContractPipeline:
                 final_intent=decision.intent,
                 plan=plan,
                 veto_reason="route_clarify",
+                operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
             )
         routing_trace_for_log = dict(plan.get("routing_trace") or {})
         if bool(routing_trace_for_log.get("file_tool_vetoed")):
@@ -490,6 +499,7 @@ class ContractPipeline:
                 final_intent=decision.intent,
                 plan=plan,
                 veto_reason=str(routing_trace_for_log.get("reason") or "tool_route_vetoed"),
+                operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
             )
         low_input = str(user_input or "").lower()
         if any(token in low_input for token in ("why did you do that", "that's wrong", "you misunderstood")):
@@ -500,6 +510,7 @@ class ContractPipeline:
                 final_intent=decision.intent,
                 plan=plan,
                 veto_reason="user_reported_misroute",
+                operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
             )
 
         stages.append(
@@ -670,6 +681,7 @@ class ContractPipeline:
                         verification_reason=str(verification.reason or ""),
                         veto_reason="verification_failed",
                         operator_context=dict(((tool_result.diagnostics or {}).get("operator_context") if tool_result else {}) or {}),
+                        operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
                         local_execution=dict(((tool_result.diagnostics or {}).get("local_execution") if tool_result else {}) or {}),
                     )
 
@@ -738,6 +750,20 @@ class ContractPipeline:
                 action_discipline=action_discipline,
             )
 
+        if str((respond_metadata or {}).get("type") or "") in {"fallback", "code_request_fallback"} or str((respond_metadata or {}).get("fallback") or ""):
+            self._append_routing_failure(
+                trace_id=trace_id,
+                user_input=user_input,
+                final_route=decision.route,
+                final_intent=decision.intent,
+                plan=plan,
+                veto_reason="fallback_response_used",
+                operator_context=dict(((tool_result.diagnostics or {}).get("operator_context") if tool_result else {}) or {}),
+                operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
+                local_execution=dict(((tool_result.diagnostics or {}).get("local_execution") if tool_result else {}) or {}),
+                response_excerpt=response_text,
+            )
+
         stages.append(
             self._stage(
                 "respond",
@@ -764,6 +790,21 @@ class ContractPipeline:
             action_discipline=action_discipline,
         )
         local_exec_payload = dict(((tool_result.diagnostics or {}).get("local_execution") if tool_result else {}) or {})
+        operator_state_payload = dict((decision.metadata or {}).get("operator_state") or {})
+        next_step = decide_next_step(
+            route=str(decision.route or ""),
+            intent=str(decision.intent or ""),
+            operator_state=operator_state_payload,
+            local_execution=local_exec_payload,
+            available_files=list((local_exec_payload.get("suggested_next_files") or [])),
+        )
+        agent_loop_payload = build_agent_loop_state(
+            user_input=user_input,
+            route=str(decision.route or ""),
+            intent=str(decision.intent or ""),
+            local_execution=local_exec_payload,
+            active_objective=str(operator_state_payload.get("active_objective") or ""),
+        )
         if str(local_exec_payload.get("error") or "") == "target_not_found":
             self._append_routing_failure(
                 trace_id=trace_id,
@@ -774,7 +815,10 @@ class ContractPipeline:
                 verification_reason=str((verification.reason if verification else "") or ""),
                 veto_reason="local_execution_target_not_found",
                 operator_context=dict(((tool_result.diagnostics or {}).get("operator_context") if tool_result else {}) or {}),
+                operator_state=operator_state_payload,
                 local_execution=local_exec_payload,
+                agent_loop=agent_loop_payload,
+                response_excerpt=response_text,
             )
 
         memory_payload = {
@@ -911,10 +955,13 @@ class ContractPipeline:
                     ((tool_result.diagnostics or {}).get("operator_context") if tool_result else {})
                     or {}
                 ),
+                "operator_state": operator_state_payload,
                 "local_execution": dict(
                     ((tool_result.diagnostics or {}).get("local_execution") if tool_result else {})
                     or {}
                 ),
+                "next_step_policy": next_step.to_dict(),
+                "agent_loop": agent_loop_payload,
                 "state": {
                     "current_task": state.current_task,
                     "prior_task": state.prior_task,

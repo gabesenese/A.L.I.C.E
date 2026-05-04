@@ -15,8 +15,10 @@ class OperatorState:
     last_intent: str = ""
     last_inspected_file: str = ""
     last_failure: str = ""
+    last_success: str = ""
     next_recommended_action: str = ""
     suggested_next_files: List[str] = field(default_factory=list)
+    active_file_candidates: List[str] = field(default_factory=list)
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -29,8 +31,10 @@ class OperatorState:
             "last_intent": self.last_intent,
             "last_inspected_file": self.last_inspected_file,
             "last_failure": self.last_failure,
+            "last_success": self.last_success,
             "next_recommended_action": self.next_recommended_action,
             "suggested_next_files": list(self.suggested_next_files or []),
+            "active_file_candidates": list(self.active_file_candidates or []),
             "updated_at": self.updated_at,
         }
 
@@ -46,8 +50,10 @@ class OperatorState:
             last_intent=str(data.get("last_intent") or ""),
             last_inspected_file=str(data.get("last_inspected_file") or ""),
             last_failure=str(data.get("last_failure") or ""),
+            last_success=str(data.get("last_success") or ""),
             next_recommended_action=str(data.get("next_recommended_action") or ""),
             suggested_next_files=list(data.get("suggested_next_files") or []),
+            active_file_candidates=list(data.get("active_file_candidates") or []),
             updated_at=str(data.get("updated_at") or datetime.now(timezone.utc).isoformat()),
         )
 

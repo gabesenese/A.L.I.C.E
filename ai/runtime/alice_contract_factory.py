@@ -906,6 +906,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         low = str(req.user_input or "").lower()
 
         if TurnSegmenter.looks_like_project_mode(req.user_input):
+            focus = ""
+            low_input = str(req.user_input or "").lower()
+            if "routing" in low_input or "route" in low_input:
+                focus = "routing"
+            elif "memory" in low_input:
+                focus = "memory"
             setattr(
                 alice,
                 "_operator_state",
@@ -914,7 +920,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     {
                         "active_mode": "alice_project_operator",
                         "active_objective": "Improve Alice into an agentic companion/operator",
-                        "current_focus": "alice runtime operator loop",
+                        "current_focus": focus or "alice runtime operator loop",
                         "awaiting_target": False,
                     },
                 ),
@@ -934,7 +940,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 intent="code:list_files",
                 confidence=0.95,
                 decision_band="execute",
-                metadata={"reason": "code_list_request", "resolved_input": req.user_input},
+                metadata={"reason": "code_list_request", "resolved_input": req.user_input, "operator_state": dict(getattr(alice, "_operator_state", {}) or {})},
             )
 
         if _looks_like_code_analyze_request(req.user_input) or (
@@ -957,6 +963,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={
                     "reason": "code_analyze_request",
                     "resolved_input": req.user_input,
+                    "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
                     "operator_context": {
                         "continuation_from_previous_turn": continuation_active,
                         "inferred_target_file": target,
@@ -1002,6 +1009,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={
                     "reason": "code_request_detected",
                     "resolved_input": req.user_input,
+                    "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
                 },
             )
 
@@ -1133,10 +1141,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if ":" in intent and not intent.startswith("conversation"):
             route = "tool"
 
-        if (
-            str(intent).startswith("file_operations:")
-            and not _has_explicit_file_target(req.user_input)
-        ):
+        if str(intent).startswith("file_operations:") and not _has_explicit_file_target(req.user_input):
             arbitration = route_arbiter.arbitrate(
                 user_input=req.user_input,
                 candidate_route=route,
@@ -1157,10 +1162,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         **dict(arbitration.get("trace") or {}),
                         "file_tool_vetoed": True,
                         "reason": "no_explicit_file_target",
-                        "original_intent": "file_operations:read",
+                        "original_intent": str(intent or ""),
                         "rerouted_to": rerouted_intent,
                     },
-                    "original_intent": "file_operations:read",
+                    "original_intent": str(intent or ""),
+                    "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
                 },
             )
 
@@ -1174,6 +1180,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={
                     "reason": "workspace_files_question",
                     "resolved_input": resolved_input,
+                    "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
                 },
             )
 

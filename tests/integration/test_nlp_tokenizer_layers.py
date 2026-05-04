@@ -106,7 +106,7 @@ class TestLayeredTokenizer:
             "let's think through how to make alice more companion-like without adding hardcoded fallbacks",
             "how can we make alice more agentic",
             "let's figure out how to improve alice",
-            "what should we do to make alice feel more like jarvis",
+            "what should we do to make alice feel more agentic",
         ]
 
         for prompt in prompts:

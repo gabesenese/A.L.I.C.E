@@ -44,7 +44,7 @@ class MemoryExtractor:
 
     _domain_patterns = {
         "alice_project": re.compile(
-            r"\b(alice|jarvis|project|feature|roadmap|architecture|memory system|codebase)\b",
+            r"\b(alice|project|feature|roadmap|architecture|memory system|codebase)\b",
             re.IGNORECASE,
         ),
         "fitness": re.compile(
@@ -81,7 +81,7 @@ class MemoryExtractor:
         re.IGNORECASE,
     )
     _alice_project_pattern = re.compile(
-        r"\b(alice|jarvis|coding|code|project|feature|roadmap|memory)\b",
+        r"\b(alice|coding|code|project|feature|roadmap|memory)\b",
         re.IGNORECASE,
     )
     _action_request_pattern = re.compile(
@@ -183,8 +183,8 @@ class MemoryExtractor:
             or "back to working on alice" in low
         ):
             return f"{subject} was ready to work on the AI/Alice project."
-        if domain == "alice_project" and "jarvis" in clean.lower():
-            return f"{subject} wants Alice to become a Jarvis-like AI companion/operator."
+        if domain == "alice_project" and "agentic" in clean.lower():
+            return f"{subject} wants Alice to become an agentic AI companion/operator."
         if domain == "fitness" and re.search(r"\b(?:\d{2,3})\s*kg\b", clean, re.IGNORECASE):
             target = re.search(r"\b(\d{2,3})\s*kg\b", clean, re.IGNORECASE)
             kg = target.group(1) if target else ""

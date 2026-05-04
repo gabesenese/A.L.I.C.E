@@ -98,6 +98,7 @@ class TurnOrchestrator:
 
         decision_metadata = dict(decision.metadata or {})
         operator_context = dict(decision_metadata.get("operator_context") or {})
+        operator_state = dict(decision_metadata.get("operator_state") or {})
         turn_plan = dict(decision_metadata.get("turn_plan") or {})
         resolved_input = str(route_phase.resolved_input or "")
         target_file = ""
@@ -133,6 +134,9 @@ class TurnOrchestrator:
                         "resolved_input": resolved_input,
                         "target_file": target_file,
                         "turn_plan": turn_plan,
+                        "active_mode": str(operator_state.get("active_mode") or operator_context.get("active_mode") or ""),
+                        "active_objective": str(operator_state.get("active_objective") or ""),
+                        "previous_intent": str(operator_state.get("last_intent") or ""),
                     },
                 },
             )

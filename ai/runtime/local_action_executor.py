@@ -134,6 +134,7 @@ class LocalActionExecutor:
             "share the exact outcome",
             "could not verify",
             "clarify what you want",
+            "ask me to",
         ]
         hardcoded_markers = [
             "I can inspect",
@@ -170,6 +171,8 @@ class LocalActionExecutor:
             flags.append("god-file risk: many function responsibilities")
         if "route=" in low and "intent=" in low:
             flags.append("contains direct hardcoded route/intent decisions")
+        if "ask me to" in low:
+            flags.append("passive capability phrasing detected")
         if "local" in low and "context" in low and "memory_count" in low:
             flags.append("local route may rely on shallow execution context")
         if "legacy" in rel.lower():
@@ -249,6 +252,7 @@ class LocalActionExecutor:
                         + "\n- ".join(focus)
                         + "\nAdditional visible files:\n- "
                         + "\n- ".join(preview[:10])
+                        + "\nNext best move: inspect ai/runtime/turn_orchestrator.py first."
                     )
                 else:
                     text = "I can inspect these workspace files:\n- " + "\n- ".join(preview)
@@ -266,7 +270,7 @@ class LocalActionExecutor:
             if focus:
                 text = (
                     "I can inspect local source code in this workspace and inspect the local workspace. "
-                    "Good next targets are:\n- " + "\n- ".join(focus) + "\nTell me one file to inspect, or ask me to list more files."
+                    "Good next targets are:\n- " + "\n- ".join(focus) + "\nNext best move: inspect ai/runtime/turn_orchestrator.py because it controls route -> execute -> verify -> respond."
                 )
             else:
                 text = "I can attempt local inspection, but I do not currently see workspace files."

@@ -47,7 +47,7 @@ def test_c_alice_project_memory_not_used_as_personal_life():
     alice = _FakeAlice()
     pipeline = ContractPipeline(build_runtime_boundaries(alice))
 
-    first = pipeline.run_turn("I want Alice to become more like Jarvis.", "u1", 1)
+    first = pipeline.run_turn("I want Alice to become more agentic.", "u1", 1)
     assert first.handled is True
 
     second = pipeline.run_turn("what did I talk about my personal life?", "u1", 2)

@@ -59,6 +59,12 @@ class _FakeNlp:
             return _NlpResult(
                 intent="weather:current", intent_confidence=0.92, keywords=["weather"]
             )
+        if "read" in lower and "file" in lower:
+            return _NlpResult(
+                intent="file_operations:read",
+                intent_confidence=0.91,
+                keywords=["file"],
+            )
         return _NlpResult(
             intent="conversation:general", intent_confidence=0.8, keywords=[]
         )
@@ -909,7 +915,7 @@ def test_personal_life_recall_uses_personal_life_memories_not_alice_project_memo
     alice = _FakeAlice()
     store = PersonalMemoryStore(alice.memory)
     store.store_structured_memory(
-        content="Gabriel wants Alice to become a Jarvis-like AI companion/operator.",
+        content="Gabriel wants Alice to become an agentic AI companion/operator.",
         domain="alice_project",
         kind="project_goal",
         scope="long_term",
@@ -937,7 +943,7 @@ def test_personal_life_recall_uses_personal_life_memories_not_alice_project_memo
     assert result.metadata["response_type"] == "personal_memory_grounded"
     low = result.response_text.lower()
     assert "family conversations are important" in low
-    assert "jarvis-like" not in low
+    assert "agentic" not in low
 
 
 def test_direct_structured_retrieval_finds_memories_when_vector_search_misses():
@@ -1415,3 +1421,85 @@ def test_followup_what_about_file_routes_to_analyze_after_code_capability():
     )
     assert second.metadata["route"] == "local"
     assert second.metadata["intent"] == "code:analyze_file"
+
+
+def test_file_capability_question_routes_local_code_request_not_file_read_tool():
+    alice = _FakeAlice()
+    result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
+        user_input="are you able to read me a file alice has?",
+        user_id="u1",
+        turn_number=76,
+    )
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] in {"code:request", "code:list_files"}
+    assert result.metadata["intent"] != "file_operations:read"
+    assert result.metadata["verification"]["reason"] != "tool_failed"
+
+
+def test_can_you_read_alice_files_routes_local_code_request():
+    alice = _FakeAlice()
+    result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
+        user_input="can you read Alice's files?",
+        user_id="u1",
+        turn_number=77,
+    )
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] == "code:request"
+    assert result.metadata["intent"] != "file_operations:read"
+
+
+def test_what_files_does_alice_have_routes_local_code_list_files():
+    alice = _FakeAlice()
+    result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
+        user_input="what files does Alice have?",
+        user_id="u1",
+        turn_number=78,
+    )
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] == "code:list_files"
+
+
+def test_explicit_target_read_routes_local_code_file_action():
+    alice = _FakeAlice()
+    result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
+        user_input="read app/main.py",
+        user_id="u1",
+        turn_number=79,
+    )
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] in {"code:read_file", "code:analyze_file"}
+
+
+def test_read_a_file_vetoes_file_tool_and_reroutes_local():
+    alice = _FakeAlice()
+    result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
+        user_input="read a file",
+        user_id="u1",
+        turn_number=80,
+    )
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] in {"code:request", "code:list_files"}
+    trace = dict((result.metadata.get("plan") or {}).get("routing_trace") or {})
+    if not trace:
+        trace = dict((result.metadata.get("plan") or {}).get("route_veto") or {})
+    assert trace.get("file_tool_vetoed") is True or trace.get("reason") == "no_explicit_file_target"
+
+
+def test_analyze_missing_file_includes_close_matches_and_workspace_context():
+    alice = _FakeAlice()
+    result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
+        user_input="i want you to analyze legacy-main.py",
+        user_id="u1",
+        turn_number=81,
+    )
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] == "code:analyze_file"
+    assert "legacy-main.py" in result.response_text.lower()
+    op = dict(result.metadata.get("operator_context") or {})
+    local_execution = dict(result.metadata.get("local_execution") or {})
+    assert op.get("inferred_target_file")
+    assert op.get("file_exists") is False
+    assert isinstance(op.get("close_matches"), list)
+    assert local_execution.get("success") is False
+    assert local_execution.get("error") == "target_not_found"
+    assert isinstance(local_execution.get("workspace_file_count"), int)
