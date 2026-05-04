@@ -1391,11 +1391,14 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "system:location",
             "freshness:current_events",
         }:
+            context_payload = dict(invocation.params.get("context") or {})
+            extracted_target = _extract_code_target(str(invocation.params.get("query") or ""))
+            if extracted_target:
+                context_payload["target_file"] = extracted_target
             local = local_executor.execute(
                 action=str(invocation.action or ""),
                 query=str(invocation.params.get("query") or ""),
-                context=dict(invocation.params.get("context") or {})
-                | {"target_file": _extract_code_target(str(invocation.params.get("query") or ""))},
+                context=context_payload,
             )
             success = bool(local.get("success"))
             return ToolResult(
