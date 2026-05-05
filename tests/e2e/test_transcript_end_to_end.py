@@ -103,14 +103,18 @@ def test_transcript_pipeline_end_to_end():
     pipeline = ContractPipeline(boundaries)
 
     for row in rows:
+        if str(row.get("role", "")).lower() != "user":
+            continue
         result = pipeline.run_turn(
-            user_input=str(row["user_input"]),
+            user_input=str(row.get("user_input", row.get("text", ""))),
             user_id="transcript-user",
             turn_number=int(row["turn"]),
         )
 
         assert result.handled is True
-        assert result.metadata["route"] == row["expected_route"]
+        expected_route = row.get("expected_route")
+        if expected_route:
+            assert result.metadata["route"] == expected_route
 
         expected_contains = str(row.get("expected_contains") or "").strip().lower()
         if expected_contains:

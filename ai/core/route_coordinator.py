@@ -4,6 +4,7 @@ Keeps intent decision policy out of NLPProcessor orchestration flow.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -122,6 +123,17 @@ class RouteCoordinator:
         "storm",
         "cloudy",
         "sunny",
+    )
+    _file_target_verbs = (
+        "read",
+        "open",
+        "show",
+        "display",
+        "view",
+        "inspect",
+        "analyze",
+        "analyse",
+        "check",
     )
 
     def __init__(self, config: Optional[RouteCoordinatorConfig] = None) -> None:
@@ -477,10 +489,54 @@ class RouteCoordinator:
         )
         return has_weather_domain and has_request_shape
 
+    def _has_explicit_file_target(self, text: str) -> bool:
+        utterance = str(text or "").strip()
+        if not utterance:
+            return False
+        low = utterance.lower()
+        if re.search(r"\b[a-z0-9_./\\-]+\.[a-z0-9]{1,8}\b", low):
+            return True
+        if re.search(r"\b(?:[a-z]:\\|/|\.{1,2}/)[^\s]+\b", low):
+            return True
+        if re.search(r"\b(?:named|called)\s+[a-z0-9_./\\-]+\b", low):
+            return True
+        file_like_tokens = [tok for tok in re.split(r"\s+", low) if tok]
+        for token in file_like_tokens:
+            normalized = token.strip("`'\".,:;!?()[]{}")
+            if "/" in normalized or "\\" in normalized:
+                tail = Path(normalized).name
+                if tail and len(tail) >= 3 and not tail.isdigit():
+                    return True
+        return False
+
+    def _infer_file_tool_reroute_intent(self, text: str) -> str:
+        low = str(text or "").strip().lower()
+        asks_listing = bool(
+            re.search(
+                r"\b(?:what files|show me files|show files|list files|which files|what can you inspect)\b",
+                low,
+            )
+        )
+        if asks_listing:
+            return "code:list_files"
+        return "code:request"
+
     def _tool_eligibility_gate(self, *, text: str, intent: str) -> Optional[Dict[str, Any]]:
         normalized_intent = str(intent or "").strip().lower()
         if not normalized_intent or normalized_intent.startswith("conversation:"):
             return None
+
+        if normalized_intent.startswith("file_operations:"):
+            has_file_action = any(term in str(text or "").lower() for term in self._file_target_verbs)
+            if has_file_action and not self._has_explicit_file_target(text):
+                reroute_intent = self._infer_file_tool_reroute_intent(text)
+                return {
+                    "reason": "no_explicit_file_target",
+                    "original_intent": normalized_intent,
+                    "tool_execution_disabled": True,
+                    "file_tool_vetoed": True,
+                    "rerouted_to": reroute_intent,
+                }
 
         if normalized_intent.startswith("notes:") and not self._has_explicit_notes_evidence(text):
             return {

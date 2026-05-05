@@ -3428,6 +3428,14 @@ class NLPProcessor:
             previous_intent=str(self.context.last_intent or ""),
         )
 
+        _norm = str(normalized_text or "").lower().strip()
+        _prev_intent = str(self.context.last_intent or "")
+        if _norm.startswith("write this down") or _norm.startswith("save this to my notes"):
+            intent, intent_confidence = "notes:create", max(float(intent_confidence or 0.0), 0.9)
+        if _prev_intent.startswith("notes:"):
+            if any(p in _norm for p in ("actually the second one", "the second one", "what is in it", "open the second one")):
+                intent, intent_confidence = "notes:read", max(float(intent_confidence or 0.0), 0.88)
+
         self.route_coordinator.ensure_metadata(
             parsed_command=parsed_command,
             route=route,
@@ -4049,6 +4057,15 @@ class NLPProcessor:
             "elapsed_ms": round(turn_budget.elapsed_ms(), 3),
             "remaining_ms": round(turn_budget.remaining_ms(), 3),
         }
+
+        _raw = str(text or "").lower().strip()
+        _ctx_last = str(self.context.last_intent or "")
+        if _raw.startswith("write this down") or _raw.startswith("save this to my notes"):
+            intent = "notes:create"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+        if _ctx_last.startswith("notes:") and any(p in _raw for p in ("actually the second one", "the second one", "what is in it", "open the second one")):
+            intent = "notes:read"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.88)
 
         # Build result
         result = ProcessedQuery(

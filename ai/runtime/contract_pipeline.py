@@ -791,6 +791,9 @@ class ContractPipeline:
             operator_state=operator_state_payload,
             local_execution=local_exec_payload,
             available_files=list((local_exec_payload.get("suggested_next_files") or [])),
+            memory_recall=dict(memory.metadata or {}),
+            routing_trace=dict(plan.get("routing_trace") or {}),
+            last_failure=str(local_exec_payload.get("error") or ""),
         )
         agent_loop_payload = build_agent_loop_state(
             user_input=user_input,

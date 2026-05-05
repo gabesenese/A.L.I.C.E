@@ -43,10 +43,44 @@ class AgenticLoop:
         foundation_layers: Optional[FoundationLayers] = None,
         live_state: Optional[LiveStateService] = None,
         action_engine: Optional[UnifiedActionEngine] = None,
+        perceive_fn=None,
+        reason_fn=None,
+        goal_fn=None,
+        decide_fn=None,
+        execute_fn=None,
+        learn_fn=None,
     ) -> None:
         self.foundation_layers = foundation_layers or FoundationLayers()
         self.live_state = live_state or get_live_state_service()
         self.action_engine = action_engine or UnifiedActionEngine()
+        # Legacy compatibility hooks used by older integration tests.
+        self._legacy_perceive = perceive_fn
+        self._legacy_reason = reason_fn
+        self._legacy_goal = goal_fn
+        self._legacy_decide = decide_fn
+        self._legacy_execute = execute_fn
+        self._legacy_learn = learn_fn
+
+    def run_once(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Compatibility wrapper for legacy runtime wiring tests."""
+        state = dict(state or {})
+        perceive = self._legacy_perceive(state) if callable(self._legacy_perceive) else {}
+        reason = self._legacy_reason(state) if callable(self._legacy_reason) else {}
+        goal = self._legacy_goal(state) if callable(self._legacy_goal) else {}
+        decision = self._legacy_decide(state) if callable(self._legacy_decide) else {}
+        execution = self._legacy_execute(state) if callable(self._legacy_execute) else {}
+        learning = self._legacy_learn(state) if callable(self._legacy_learn) else {}
+        return {
+            "cycle": {
+                "perception": perceive,
+                "reasoning": reason,
+                "goal": goal,
+                "decision": decision,
+                "execution": execution,
+                "learning": learning,
+            },
+            "memory": {"cycles": 1},
+        }
 
     def run_cycle(self, payload: AgentCycleInput) -> AgentCycleResult:
         perception = self._perception(payload)

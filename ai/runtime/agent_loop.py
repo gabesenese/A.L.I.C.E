@@ -56,6 +56,7 @@ def build_agent_loop_state(
     intent: str,
     local_execution: Dict[str, Any] | None = None,
     active_objective: str = "",
+    max_steps: int = 1,
 ) -> Dict[str, Any]:
     objective = active_objective or "Improve Alice into an agentic companion/operator"
     plan = [
@@ -72,14 +73,20 @@ def build_agent_loop_state(
                 "detail": f"action={local_execution.get('action','')} success={local_execution.get('success', False)}",
             }
         )
+    executed = ["execute_safe_step"] if route == "local" and max_steps >= 1 else []
+    blocked = ""
+    if route not in {"local", "llm"}:
+        blocked = "unsupported_route"
+    elif route == "llm" and max_steps <= 0:
+        blocked = "max_steps_exhausted"
     result = AgentLoopResult(
         active=route in {"local", "llm"},
         objective={"text": objective, "mode": "code_inspection" if str(intent).startswith("code:") else "general"},
         plan_steps=plan,
-        executed_steps=["execute_safe_step"] if route == "local" else [],
+        executed_steps=executed,
         observations=obs,
         verification={"accepted": bool(local_execution.get("success")) if local_execution else True},
         next_step="Continue with the next safe inspection step.",
-        blocked_reason="" if route in {"local", "llm"} else "unsupported_route",
+        blocked_reason=blocked,
     )
     return result.to_dict()

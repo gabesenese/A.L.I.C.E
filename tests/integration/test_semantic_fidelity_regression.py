@@ -14,6 +14,8 @@ EXACT_PROMPT = (
 EXACT_LOG_PROMPT = "let's imagine how assistant would be created with today's technology no fiction"
 EXACT_TONY_PROMPT = "let's imagine how fictional inventor would have created assistant with todays technology, no fiction"
 EXACT_CREATE_PROMPT = "how can i create an ai just like assistant but with todays technology"
+EXACT_FICTIONAL_INVENTOR_PROMPT = EXACT_TONY_PROMPT
+EXACT_FRAMEWORKS_PROMPT = "what practical frameworks should i use for agentic ai in production with no fiction"
 
 
 @dataclass

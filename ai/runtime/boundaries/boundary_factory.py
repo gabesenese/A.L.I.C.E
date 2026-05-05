@@ -905,6 +905,19 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         )
         low = str(req.user_input or "").lower()
 
+        if ("what's the next step" in low or "what is the next step" in low) and state.get("active_objective"):
+            return RouterDecision(
+                route="local",
+                intent="code:request",
+                confidence=0.93,
+                decision_band="execute",
+                metadata={
+                    "reason": "operator_next_step_query",
+                    "resolved_input": req.user_input,
+                    "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
+                },
+            )
+
         if TurnSegmenter.looks_like_project_mode(req.user_input):
             focus = ""
             low_input = str(req.user_input or "").lower()
@@ -912,6 +925,16 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 focus = "routing"
             elif "memory" in low_input:
                 focus = "memory"
+            elif "runtime" in low_input:
+                focus = "runtime"
+            elif "local code" in low_input or "code execution" in low_input:
+                focus = "local code execution"
+            elif "cleanup" in low_input:
+                focus = "cleanup"
+            elif "proactivity" in low_input:
+                focus = "proactivity"
+            elif "loop" in low_input:
+                focus = "agent loop"
             setattr(
                 alice,
                 "_operator_state",
@@ -922,6 +945,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "active_objective": "Improve Alice into an agentic companion/operator",
                         "current_focus": focus or "alice runtime operator loop",
                         "awaiting_target": False,
+                        "current_step": "set_objective",
                     },
                 ),
             )
@@ -1577,6 +1601,24 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     msg = f"I could not find {inferred} in the current workspace."
             else:
                 msg = str(req.tool_result.error or "I could not complete that local inspection request.")
+            try:
+                current_state = dict(getattr(alice, "_operator_state", {}) or {})
+                inferred = str(op_ctx.get("inferred_target_file") or "")
+                setattr(
+                    alice,
+                    "_operator_state",
+                    update_operator_state(
+                        current_state,
+                        {
+                            "last_failure": str(local_exec.get("error") or req.tool_result.error or "local_execution_failed"),
+                            "known_blockers": [str(local_exec.get("error") or "local_execution_failed")],
+                            "current_step": "resolve_blocker",
+                            "last_inspected_file": inferred or str(current_state.get("last_inspected_file") or ""),
+                        },
+                    ),
+                )
+            except Exception:
+                pass
             return ResponseOutput(
                 text=_surface_text(
                     msg,
@@ -1718,6 +1760,27 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     user_input=req.user_input,
                 )
             if tool_response:
+                try:
+                    if req.decision.route == "local":
+                        lx = dict(tool_payload.get("local_execution") or {})
+                        inspected = str(lx.get("inspected_file") or "")
+                        current_state = dict(getattr(alice, "_operator_state", {}) or {})
+                        setattr(
+                            alice,
+                            "_operator_state",
+                            update_operator_state(
+                                current_state,
+                                {
+                                    "last_success": str(req.decision.intent or "local_success"),
+                                    "last_failure": "",
+                                    "current_step": "observe_result",
+                                    "files_inspected": [inspected] if inspected else [],
+                                    "last_inspected_file": inspected or str(current_state.get("last_inspected_file") or ""),
+                                },
+                            ),
+                        )
+                except Exception:
+                    pass
                 return ResponseOutput(
                     text=_surface_text(
                         tool_response,

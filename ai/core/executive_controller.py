@@ -2287,24 +2287,11 @@ class ExecutiveController:
                 cue in user_low
                 for cue in (
                     "agentic autonomy",
+                    "agentic ai",
                     "autonomous agent",
                     "ai agent",
                     "autonomy in ai",
                 )
-            )
-            and (
-                any(
-                    cue in user_low
-                    for cue in (
-                        "build",
-                        "building",
-                        "implement",
-                        "implementation",
-                        "existing",
-                        "research",
-                    )
-                )
-                or len(re.findall(r"\b[a-z0-9']+\b", user_low)) <= 7
             )
         )
         if practical_framework_prompt:
