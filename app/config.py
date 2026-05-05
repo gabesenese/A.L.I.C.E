@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     enable_voice: bool = False
     enable_vision: bool = False
     enable_web_search: bool = False
+    runtime_mode: str = "minimal"
 
     # Memory
     memory_backend: str = "chroma"
