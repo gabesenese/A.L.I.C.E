@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union, Callable, Iterable, Sequence
 
 from app.bootstrap import create_app
+from app.runtime_modes import RuntimeModeConfig, resolve_runtime_mode
 
 app = create_app()
 
@@ -45,7 +46,6 @@ from ai.plugins.calendar_plugin import CalendarPlugin
 from ai.plugins.notes_plugin import NotesPlugin
 from ai.plugins.maps_plugin import MapsPlugin
 from ai.planning.task_executor import TaskExecutor
-from speech.speech_engine import SpeechEngine, SpeechConfig
 
 # New anticipatory AI systems
 from ai.infrastructure.event_bus import get_event_bus, EventType, EventPriority
@@ -81,7 +81,6 @@ from ai.core.reflection_engine import get_reflection_engine
 from ai.core.response_planner import get_response_planner
 from ai.core.goal_tracker import get_goal_tracker
 from ai.core.response_quality_tracker import get_response_quality_tracker
-from ai.core.cognitive_orchestrator import get_cognitive_orchestrator
 from ai.core.goal_recognizer import get_goal_recognizer
 from ai.core.turn_routing_policy import get_turn_routing_policy
 from ai.core.live_state_service import get_live_state_service
@@ -114,29 +113,17 @@ from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_
 from ai.core.autonomy_dispatcher import TinyAutonomyDispatcher, OUTCOME_ESCALATE_AND_STOP
 from ai.learning.phrasing_learner import PhrasingLearner
 from ai.core.response_formulator import get_response_formulator
-from ai.lab_simulator import LabSimulator
-from ai.red_team_tester import RedTeamTester
 
 # Continuous learning system
 from ai.learning.realtime_logger import get_realtime_logger
-from ai.learning.continuous_learning import get_continuous_learning_loop
-from ai.learning.response_quality_checker import get_quality_checker
 
 # Automated learning system (Ollama-driven)
-from ai.training.ollama_evaluator import get_ollama_evaluator
-from ai.training.autolearn import get_autolearn
-from ai.training.async_evaluation import get_async_evaluator
 
 # Advanced learning, testing, and telemetry
 from ai.learning.pattern_miner import PatternMiner
-from ai.training.synthetic_corpus_generator import SyntheticCorpusGenerator
-from ai.memory.multimodal_context import MultimodalContext
 
 # Analytics and memory management
-from ai.analytics.memory_growth_monitor import get_memory_growth_monitor
-from ai.analytics.usage_analytics import get_usage_analytics
 from ai.memory.embedding_manager import get_embedding_manager
-from ai.memory.bg_embedding_generator import get_bg_embedding_generator
 from ai.memory.memory_pruner import get_memory_pruner
 
 # Production Infrastructure
@@ -192,8 +179,11 @@ class ALICE:
         user_name: str = "User",
         debug: bool = False,
         privacy_mode: bool = False,
-        llm_policy: str = "default"
+        llm_policy: str = "default",
+        runtime_mode: str | None = None,
     ):
+        self.runtime_mode = resolve_runtime_mode(runtime_mode)
+        self.runtime_mode_config = RuntimeModeConfig.for_mode(self.runtime_mode)
         self.voice_enabled = voice_enabled
         self.debug = debug
         self.privacy_mode = privacy_mode
@@ -201,6 +191,13 @@ class ALICE:
         self.user_name = user_name
         self.strict_no_llm = llm_policy == "strict"
         self.running = False
+        logger.info("Runtime mode: %s", self.runtime_mode)
+        skipped_optional = []
+        for key, enabled in vars(self.runtime_mode_config).items():
+            if key.startswith("enable_") and not enabled:
+                skipped_optional.append(key.replace("enable_", ""))
+        if skipped_optional:
+            logger.info("Skipped optional systems: %s", ", ".join(sorted(skipped_optional)))
         
         # ===== PRODUCTION INFRASTRUCTURE INITIALIZATION =====
         logger.info("=" * 80)
@@ -462,17 +459,20 @@ class ALICE:
             self.response_planner = get_response_planner()
             self.goal_tracker = get_goal_tracker()
             self.response_quality_tracker = get_response_quality_tracker()
-            self.cognitive_orchestrator = get_cognitive_orchestrator(
-                goal_tracker=self.goal_tracker,
-                reflection_engine=self.reflection_engine,
-                response_quality_tracker=self.response_quality_tracker,
-                executive_controller=self.executive_controller,
-                conversation_state_tracker=getattr(self, 'conversation_state_tracker', None),
-                response_planner=self.response_planner,
-                tick_interval_seconds=5.0,
-                reasoning_importance_threshold=0.74,
-            )
-            self.cognitive_orchestrator.start()
+            self.cognitive_orchestrator = None
+            if self.runtime_mode_config.enable_cognitive_orchestrator:
+                from ai.core.cognitive_orchestrator import get_cognitive_orchestrator
+                self.cognitive_orchestrator = get_cognitive_orchestrator(
+                    goal_tracker=self.goal_tracker,
+                    reflection_engine=self.reflection_engine,
+                    response_quality_tracker=self.response_quality_tracker,
+                    executive_controller=self.executive_controller,
+                    conversation_state_tracker=getattr(self, 'conversation_state_tracker', None),
+                    response_planner=self.response_planner,
+                    tick_interval_seconds=5.0,
+                    reasoning_importance_threshold=0.74,
+                )
+                self.cognitive_orchestrator.start()
             self._internal_reasoning_state = {}
             self._exec_should_store_memory = True
             self._last_exec_gate_eval = {}
@@ -492,15 +492,19 @@ class ALICE:
             logger.info("[OK] Learning engine initialized - A.L.I.C.E will learn from your interactions")
 
             # 2.9.1. Real-time Continuous Learning System
-            logger.info("Initializing continuous learning system...")
-            self.realtime_logger = get_realtime_logger()
-            self.continuous_learning = get_continuous_learning_loop(
-                learning_engine=self.learning_engine,
-                realtime_logger=self.realtime_logger,
-                check_interval_hours=6,
-                auto_start=True
-            )
-            logger.info("[OK] Continuous learning active - Alice learns 24/7 from real-time errors")
+            self.realtime_logger = None
+            self.continuous_learning = None
+            if self.runtime_mode_config.enable_background_learning:
+                logger.info("Initializing continuous learning system...")
+                self.realtime_logger = get_realtime_logger()
+                from ai.learning.continuous_learning import get_continuous_learning_loop
+                self.continuous_learning = get_continuous_learning_loop(
+                    learning_engine=self.learning_engine,
+                    realtime_logger=self.realtime_logger,
+                    check_interval_hours=6,
+                    auto_start=True
+                )
+                logger.info("[OK] Continuous learning active - Alice learns 24/7 from real-time errors")
 
             # 2.9.2. Failure taxonomy for retraining signal
             try:
@@ -564,38 +568,36 @@ class ALICE:
                     logger.info(f"  - {goal.title} ({int(goal.progress * 100)}% complete)")
 
             # 3.11. Proactive Intelligence Loop - Background monitoring and insights
-            logger.info("Initializing proactive intelligence...")
-            from ai.planning.proactive_intelligence import get_proactive_intelligence
-            self.proactive_intelligence = get_proactive_intelligence(check_interval=60)
-
-            # Inject dependencies
-            self.proactive_intelligence.inject_dependencies(
-                goal_system=self.goal_system,
-                profile_engine=self.user_profile,
-                context_manager=self.conversation_context
-            )
-
-            # Start proactive loop
-            self.proactive_intelligence.start()
-            logger.info("[OK] Proactive intelligence active - Alice will monitor and help proactively")
+            self.proactive_intelligence = None
+            if self.runtime_mode_config.enable_proactive_loops:
+                logger.info("Initializing proactive intelligence...")
+                from ai.planning.proactive_intelligence import get_proactive_intelligence
+                self.proactive_intelligence = get_proactive_intelligence(check_interval=60)
+                self.proactive_intelligence.inject_dependencies(
+                    goal_system=self.goal_system,
+                    profile_engine=self.user_profile,
+                    context_manager=self.conversation_context
+                )
+                self.proactive_intelligence.start()
+                logger.info("[OK] Proactive intelligence active - Alice will monitor and help proactively")
 
             # 3.12. Autonomous Agent System - Multi-step goal execution
-            logger.info("Initializing autonomous agent system...")
-            from ai.planning.autonomous_agent import AutonomousAgent
-            from ai.planning.autonomous_execution_loop import AutonomousExecutionLoop
-
-            self.autonomous_agent = AutonomousAgent(
-                goal_system=self.goal_system,
-                llm_engine=None,  # Will be set after LLM engine loads
-                plugin_system=self.plugins if hasattr(self, 'plugins') else None
-            )
-
-            self.execution_loop = AutonomousExecutionLoop(
-                goal_system=self.goal_system,
-                autonomous_agent=self.autonomous_agent
-            )
-
-            logger.info("[OK] Autonomous agent ready - Alice can work on multi-step goals independently")
+            self.autonomous_agent = None
+            self.execution_loop = None
+            if self.runtime_mode_config.enable_autonomous_agent:
+                logger.info("Initializing autonomous agent system...")
+                from ai.planning.autonomous_agent import AutonomousAgent
+                from ai.planning.autonomous_execution_loop import AutonomousExecutionLoop
+                self.autonomous_agent = AutonomousAgent(
+                    goal_system=self.goal_system,
+                    llm_engine=None,
+                    plugin_system=self.plugins if hasattr(self, 'plugins') else None
+                )
+                self.execution_loop = AutonomousExecutionLoop(
+                    goal_system=self.goal_system,
+                    autonomous_agent=self.autonomous_agent
+                )
+                logger.info("[OK] Autonomous agent ready - Alice can work on multi-step goals independently")
 
             # 3.13. Capability Registry - Alice knows what she can do (in code, not prompts)
             logger.info("Initializing capability registry...")
@@ -626,77 +628,74 @@ class ALICE:
                 self.structured_logger.error(f"Foundation systems failed: {e}", component='foundations')
 
             # 4.0.5. ===== 10 TIER IMPROVEMENTS INITIALIZATION =====
-            logger.info("🚀 Initializing 10 Tier Improvements (quarantine-aware)...")
-            try:
-                # Tier 1: High-Impact Wins
-                logger.info("  ├─ Tier 1: Initializing long-session coherence...")
-                if is_enabled("session_summarizer"):
-                    from ai.memory.session_summarizer import SessionSummarizer
-                    self.session_summarizer = SessionSummarizer(summarize_every_n_turns=5)
-                
-                logger.info("  ├─ Tier 1: Initializing capability constraints...")
-                if is_enabled("capability_constraints"):
-                    from ai.infrastructure.capability_constraints import CapabilityConstraintsLedger
-                    self.capability_constraints = CapabilityConstraintsLedger()
-                
-                logger.info("  ├─ Tier 1: Initializing result quality scorer...")
-                if is_enabled("result_quality_scorer"):
-                    from ai.core.result_quality_scorer import ResultQualityScorer
-                    self.result_quality_scorer = ResultQualityScorer()
-                
-                logger.info("  ├─ Tier 1: Initializing goal alignment tracker...")
-                if is_enabled("goal_alignment_tracker"):
-                    from ai.learning.goal_alignment_tracker import GoalAlignmentTracker
-                    self.goal_alignment_tracker = GoalAlignmentTracker()
-                
-                # Tier 2: Personality & Agency
-                logger.info("  ├─ Tier 2: Initializing tone trajectory engine...")
-                if is_enabled("tone_trajectory_engine"):
-                    from ai.learning.tone_trajectory_engine import ToneTrajectoryEngine
-                    self.tone_trajectory_engine = ToneTrajectoryEngine()
-                
-                logger.info("  ├─ Tier 2: Initializing pattern-based nudger...")
-                if is_enabled("pattern_based_nudger"):
-                    from ai.proactivity.pattern_based_nudger import PatternBasedNudger
-                    self.pattern_nudger = PatternBasedNudger()
-                
-                # Tier 3: Deep System Knowledge
-                logger.info("  ├─ Tier 3: Initializing system state API...")
-                if is_enabled("system_state_api"):
-                    from ai.introspection.system_state_api import SystemStateAPI
-                    self.system_state_api = SystemStateAPI()
-                
-                logger.info("  ├─ Tier 3: Initializing weak-spot detector...")
-                if is_enabled("weak_spot_detector"):
-                    from ai.learning.weak_spot_detector import WeakSpotDetector
-                    self.weak_spot_detector = WeakSpotDetector()
-                
-                # Tier 4: Mission-Aligned Execution 
-                logger.info("  ├─ Tier 4: Initializing multi-goal arbitrator...")
-                if is_enabled("multi_goal_arbitrator"):
-                    from ai.goals.multi_goal_arbitrator import MultiGoalArbitrator
-                    self.multi_goal_arbitrator = MultiGoalArbitrator()
-                
-                logger.info("  └─ Tier 4: Initializing routing decision logger...")
-                if is_enabled("routing_decision_logger"):
-                    self.routing_decision_logger = RoutingDecisionLogger()
-                
-                self.structured_logger.info(
-                    "All 10 tier improvements initialized successfully",
-                    component='tier_improvements',
-                    active_systems=10
-                )
-                logger.info("[OK] All 10 Tier Improvements active - advanced capabilities enabled")
-            except Exception as e:
-                logger.error(f"[ERROR] Tier improvements initialization failed: {e}")
-                import traceback
-                traceback.print_exc()
-                self.structured_logger.error(f"Tier improvements failed: {e}", component='tier_improvements')
-                # Don't fail startup if improvements fail - these are enhancements
+            if self.runtime_mode_config.enable_advanced_tiers:
+                logger.info("Initializing 10 Tier Improvements (quarantine-aware)...")
+                try:
+                    logger.info("  - Tier 1: Initializing long-session coherence...")
+                    if is_enabled("session_summarizer"):
+                        from ai.memory.session_summarizer import SessionSummarizer
+                        self.session_summarizer = SessionSummarizer(summarize_every_n_turns=5)
+
+                    logger.info("  - Tier 1: Initializing capability constraints...")
+                    if is_enabled("capability_constraints"):
+                        from ai.infrastructure.capability_constraints import CapabilityConstraintsLedger
+                        self.capability_constraints = CapabilityConstraintsLedger()
+
+                    logger.info("  - Tier 1: Initializing result quality scorer...")
+                    if is_enabled("result_quality_scorer"):
+                        from ai.core.result_quality_scorer import ResultQualityScorer
+                        self.result_quality_scorer = ResultQualityScorer()
+
+                    logger.info("  - Tier 1: Initializing goal alignment tracker...")
+                    if is_enabled("goal_alignment_tracker"):
+                        from ai.learning.goal_alignment_tracker import GoalAlignmentTracker
+                        self.goal_alignment_tracker = GoalAlignmentTracker()
+
+                    logger.info("  - Tier 2: Initializing tone trajectory engine...")
+                    if is_enabled("tone_trajectory_engine"):
+                        from ai.learning.tone_trajectory_engine import ToneTrajectoryEngine
+                        self.tone_trajectory_engine = ToneTrajectoryEngine()
+
+                    logger.info("  - Tier 2: Initializing pattern-based nudger...")
+                    if is_enabled("pattern_based_nudger"):
+                        from ai.proactivity.pattern_based_nudger import PatternBasedNudger
+                        self.pattern_nudger = PatternBasedNudger()
+
+                    logger.info("  - Tier 3: Initializing system state API...")
+                    if is_enabled("system_state_api"):
+                        from ai.introspection.system_state_api import SystemStateAPI
+                        self.system_state_api = SystemStateAPI()
+
+                    logger.info("  - Tier 3: Initializing weak-spot detector...")
+                    if is_enabled("weak_spot_detector"):
+                        from ai.learning.weak_spot_detector import WeakSpotDetector
+                        self.weak_spot_detector = WeakSpotDetector()
+
+                    logger.info("  - Tier 4: Initializing multi-goal arbitrator...")
+                    if is_enabled("multi_goal_arbitrator"):
+                        from ai.goals.multi_goal_arbitrator import MultiGoalArbitrator
+                        self.multi_goal_arbitrator = MultiGoalArbitrator()
+
+                    logger.info("  - Tier 4: Initializing routing decision logger...")
+                    if is_enabled("routing_decision_logger"):
+                        self.routing_decision_logger = RoutingDecisionLogger()
+
+                    self.structured_logger.info(
+                        "All 10 tier improvements initialized successfully",
+                        component='tier_improvements',
+                        active_systems=10
+                    )
+                    logger.info("[OK] All 10 Tier Improvements active - advanced capabilities enabled")
+                except Exception as e:
+                    logger.error(f"[ERROR] Tier improvements initialization failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    self.structured_logger.error(f"Tier improvements failed: {e}", component='tier_improvements')
+                    # Don't fail startup if improvements fail - these are enhancements
             # ===== END 10 TIER IMPROVEMENTS =====
 
             # Inject LLM engine into autonomous agent now that it's loaded
-            if hasattr(self, 'autonomous_agent'):
+            if getattr(self, 'autonomous_agent', None):
                 self.autonomous_agent.llm_engine = self.llm
 
             # 4.1. LLM Gateway - Single entry point for all LLM calls
@@ -734,27 +733,30 @@ class ALICE:
             logger.info("Initializing automated learning system...")
 
             # Ollama Evaluator - scores every response 0-100
-            self.ollama_evaluator = get_ollama_evaluator(llm_engine=self.llm)
-            logger.info("[OK] Ollama evaluator ready - automated feedback active")
-
-            # Async Evaluation Wrapper - non-blocking evaluation
-            self.async_evaluator = get_async_evaluator(
-                ollama_evaluator=self.ollama_evaluator,
-                response_formulator=self.response_formulator,
-                realtime_logger=self.realtime_logger
-            )
-            logger.info("[OK] Async evaluator ready - user experience won't be blocked")
-
-            # AutoLearn - 6-hour automated learning cycles
-            self.autolearn = get_autolearn(
-                ollama_evaluator=self.ollama_evaluator,
-                learning_engine=self.learning_engine,
-                response_formulator=self.response_formulator,
-                realtime_logger=self.realtime_logger,
-                check_interval_hours=6,
-                auto_start=True
-            )
-            logger.info("[OK] AutoLearn active - Alice will improve every 6 hours automatically")
+            self.ollama_evaluator = None
+            self.async_evaluator = None
+            self.autolearn = None
+            if self.runtime_mode_config.enable_training:
+                from ai.training.ollama_evaluator import get_ollama_evaluator
+                from ai.training.async_evaluation import get_async_evaluator
+                from ai.training.autolearn import get_autolearn
+                self.ollama_evaluator = get_ollama_evaluator(llm_engine=self.llm)
+                logger.info("[OK] Ollama evaluator ready - automated feedback active")
+                self.async_evaluator = get_async_evaluator(
+                    ollama_evaluator=self.ollama_evaluator,
+                    response_formulator=self.response_formulator,
+                    realtime_logger=self.realtime_logger
+                )
+                logger.info("[OK] Async evaluator ready - user experience won't be blocked")
+                self.autolearn = get_autolearn(
+                    ollama_evaluator=self.ollama_evaluator,
+                    learning_engine=self.learning_engine,
+                    response_formulator=self.response_formulator,
+                    realtime_logger=self.realtime_logger,
+                    check_interval_hours=6,
+                    auto_start=True
+                )
+                logger.info("[OK] AutoLearn active - Alice will improve every 6 hours automatically")
             
             # 4.2. Configure LLM Policy based on startup flag
             if self.llm_policy != "default":
@@ -823,8 +825,9 @@ class ALICE:
             
             # 7. Speech Engine (optional)
             self.speech = None
-            if voice_enabled: 
+            if voice_enabled and self.runtime_mode_config.enable_voice:
                 logger.info("Loading speech engine...")
+                from speech.speech_engine import SpeechEngine, SpeechConfig
                 speech_config = SpeechConfig(wake_words=["alice", "hey alice", "ok alice"])
                 self.speech = SpeechEngine(speech_config)
             
@@ -842,115 +845,82 @@ class ALICE:
                 self.gmail = None
             
             # 9. Advanced learning, testing, and telemetry systems
-            logger.info("Initializing advanced learning systems...")
-            try:
-                # Pattern miner for learning from logged interactions
-                self.pattern_miner = PatternMiner()
-                logger.info("[OK] Pattern miner ready - will detect learnable patterns")
-                
-                # Synthetic corpus generator for pre-training
-                self.synthetic_corpus_gen = SyntheticCorpusGenerator()
-                logger.info("[OK] Synthetic corpus generator ready")
-                
-                # Multimodal context for system-aware interactions
-                self.multimodal_context = MultimodalContext()
-                logger.info("[OK] Multimodal context capture enabled")
-                
-                # Lab simulator for stress testing
-                self.lab_simulator = LabSimulator()
-                logger.info("[OK] Lab simulator ready for scenario generation")
-                
-                # Red team tester for security validation
-                self.red_team_tester = RedTeamTester()
-                logger.info("[OK] Red team tester ready")
-                
-            except Exception as e:
-                logger.warning(f"[WARNING] Advanced learning systems initialization partial: {e}")
+            self.pattern_miner = None
+            self.synthetic_corpus_gen = None
+            self.multimodal_context = None
+            self.lab_simulator = None
+            self.red_team_tester = None
+            if self.runtime_mode_config.enable_lab_tools or self.runtime_mode_config.enable_training:
+                logger.info("Initializing advanced learning systems...")
+                try:
+                    self.pattern_miner = PatternMiner()
+                    logger.info("[OK] Pattern miner ready - will detect learnable patterns")
+                    if self.runtime_mode_config.enable_training:
+                        from ai.training.synthetic_corpus_generator import SyntheticCorpusGenerator
+                        from ai.memory.multimodal_context import MultimodalContext
+                        self.synthetic_corpus_gen = SyntheticCorpusGenerator()
+                        self.multimodal_context = MultimodalContext()
+                    if self.runtime_mode_config.enable_lab_tools:
+                        from ai.lab_simulator import LabSimulator
+                        from ai.red_team_tester import RedTeamTester
+                        self.lab_simulator = LabSimulator()
+                        self.red_team_tester = RedTeamTester()
+                except Exception as e:
+                    logger.warning(f"[WARNING] Advanced learning systems initialization partial: {e}")
             
             # 9.5. Event-driven architecture
-            logger.info("Initializing event-driven systems...")
-            
-            # Event bus
-            self.event_bus = get_event_bus()
-            logger.info("[OK] Event bus ready")
-            
-            # System state tracker
-            self.state_tracker = get_state_tracker()
-            self.state_tracker.start_monitoring(interval=30)  # Check every 30 seconds
-            logger.info("[OK] System state tracker monitoring")
-            
-            # Pattern learner for anticipatory suggestions
-            self.pattern_learner = get_pattern_learner()
-            logger.info("[OK] Pattern learner ready")
-            
-            # System monitor for OS-level awareness
-            self.system_monitor = get_system_monitor()
-            self.system_monitor.start_monitoring()
-            logger.info("[OK] System monitor tracking apps")
-            
-            # Task planner (separates planning from execution)
-            self.planner = get_planner()
-            logger.info("[OK] Task planner ready")
-            
-            # Plan executor
-            self.plan_executor = initialize_executor(
-                plugin_manager=self.plugins,
-                llm_engine=self.llm,
-                memory_system=self.memory
-            )
-            logger.info("[OK] Plan executor ready")
-
-            # Advanced reasoning planner + persistent task queue
-            self.reasoning_planner = ReasoningPlanner()
-            self.persistent_task_queue = PersistentTaskQueue("data/planning/runtime_tasks.json")
-            self.persistent_task_queue.register_handler("execute_plan", self._execute_plan_queue_task)
-            self.persistent_task_queue.start_background_loop(tick_seconds=0.2)
-            logger.info("[OK] Reasoning planner and persistent queue wired")
-            
-            # Observer manager for smart notifications
-            self.observer_manager = get_observer_manager()
-            self.observer_manager.set_notification_callback(self._handle_observer_notification)
-            self.observer_manager.start_all()
-            logger.info("[OK] Background observers watching")
-            
-            # Proactive assistant (reminders, follow-ups, proactive info)
-            calendar_plugin = None
-            notes_plugin = None
-            for name, plugin in self.plugins.plugins.items():
-                if 'Calendar' in name or isinstance(plugin, CalendarPlugin):
-                    calendar_plugin = plugin
-                if 'Notes' in name or isinstance(plugin, NotesPlugin):
-                    notes_plugin = plugin
-            self.proactive_assistant = get_proactive_assistant(
-                world_state=self.reasoning_engine,
-                calendar_plugin=calendar_plugin,
-                notes_plugin=notes_plugin
-            )
-            self.proactive_assistant.set_notification_callback(self._handle_observer_notification)
-            self.proactive_assistant.start()
-            logger.info("[OK] Proactive assistant monitoring")
+            if self.runtime_mode_config.enable_proactive_loops or self.runtime_mode_config.enable_advanced_tiers:
+                logger.info("Initializing event-driven systems...")
+                self.event_bus = get_event_bus()
+                self.state_tracker = get_state_tracker()
+                self.state_tracker.start_monitoring(interval=30)
+                self.pattern_learner = get_pattern_learner()
+                self.system_monitor = get_system_monitor()
+                self.system_monitor.start_monitoring()
+                self.planner = get_planner()
+                self.plan_executor = initialize_executor(
+                    plugin_manager=self.plugins,
+                    llm_engine=self.llm,
+                    memory_system=self.memory
+                )
+                self.reasoning_planner = ReasoningPlanner()
+                self.persistent_task_queue = PersistentTaskQueue("data/planning/runtime_tasks.json")
+                self.persistent_task_queue.register_handler("execute_plan", self._execute_plan_queue_task)
+                self.persistent_task_queue.start_background_loop(tick_seconds=0.2)
+                self.observer_manager = get_observer_manager()
+                self.observer_manager.set_notification_callback(self._handle_observer_notification)
+                self.observer_manager.start_all()
+                calendar_plugin = None
+                notes_plugin = None
+                for name, plugin in self.plugins.plugins.items():
+                    if 'Calendar' in name or isinstance(plugin, CalendarPlugin):
+                        calendar_plugin = plugin
+                    if 'Notes' in name or isinstance(plugin, NotesPlugin):
+                        notes_plugin = plugin
+                self.proactive_assistant = get_proactive_assistant(
+                    world_state=self.reasoning_engine,
+                    calendar_plugin=calendar_plugin,
+                    notes_plugin=notes_plugin
+                )
+                self.proactive_assistant.set_notification_callback(self._handle_observer_notification)
+                self.proactive_assistant.start()
 
             # 10. Analytics and Memory Management
             logger.info("Initializing analytics and memory management...")
-
-            # Usage analytics - track interaction patterns
-            self.usage_analytics = get_usage_analytics()
-            logger.info("[OK] Usage analytics ready")
-
-            # Memory growth monitor - track memory size over time
-            self.memory_growth_monitor = get_memory_growth_monitor()
-            logger.info("[OK] Memory growth monitor ready")
-
-            # Background embedding generator - async embedding generation
-            self.bg_embedding_generator = get_bg_embedding_generator(
-                embedding_manager=get_embedding_manager()
-            )
-            self.bg_embedding_generator.start()
-            logger.info("[OK] Background embedding generator started")
-
-            # Memory pruner - automatic memory lifecycle management
+            self.usage_analytics = None
+            self.memory_growth_monitor = None
+            self.bg_embedding_generator = None
             self.memory_pruner = get_memory_pruner()
-            logger.info("[OK] Memory pruner ready")
+            if self.runtime_mode_config.enable_analytics:
+                from ai.analytics.usage_analytics import get_usage_analytics
+                from ai.analytics.memory_growth_monitor import get_memory_growth_monitor
+                from ai.memory.bg_embedding_generator import get_bg_embedding_generator
+                self.usage_analytics = get_usage_analytics()
+                self.memory_growth_monitor = get_memory_growth_monitor()
+                self.bg_embedding_generator = get_bg_embedding_generator(
+                    embedding_manager=get_embedding_manager()
+                )
+                self.bg_embedding_generator.start()
 
             logger.info("=" * 80)
             logger.info("[OK] A.L.I.C.E initialized successfully!")

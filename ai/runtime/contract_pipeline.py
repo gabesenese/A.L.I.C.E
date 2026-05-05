@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -24,6 +22,8 @@ from ai.runtime.companion_runtime import CompanionRuntimeLoop
 from ai.runtime.agent_loop import build_agent_loop_state
 from ai.runtime.memory_turn_service import MemoryTurnService
 from ai.runtime.next_step_policy import decide_next_step
+from ai.runtime.pipeline.metadata_builder import PipelineMetadataBuilder
+from ai.runtime.pipeline.routing_failure_logger import RoutingFailureLogger
 from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
 
@@ -53,6 +53,7 @@ class ContractPipeline:
         self.execution_verifier = execution_verifier or get_execution_verifier()
         self.orchestrator = TurnOrchestrator(boundaries)
         self.memory_turn_service = MemoryTurnService()
+        self.routing_failure_logger = RoutingFailureLogger()
 
     @staticmethod
     def _is_tool_route(route: str) -> bool:
@@ -394,30 +395,23 @@ class ContractPipeline:
         agent_loop: Optional[Dict[str, Any]] = None,
         response_excerpt: str = "",
     ) -> None:
-        try:
-            path = Path("data/routing_failures.jsonl")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            routing_trace = dict(plan.get("routing_trace") or {})
-            payload = {
-                "timestamp": datetime.utcnow().isoformat(),
-                "trace_id": str(trace_id or ""),
-                "user_input": str(user_input or ""),
-                "final_route": str(final_route or ""),
-                "final_intent": str(final_intent or ""),
-                "candidates": list(routing_trace.get("candidates") or []),
-                "evidence_contract_results": list(routing_trace.get("evidence_contract_results") or []),
-                "veto_reason": str(veto_reason or routing_trace.get("reason") or ""),
-                "verification_reason": str(verification_reason or ""),
-                "operator_context": dict(operator_context or {}),
-                "operator_state": dict(operator_state or {}),
-                "local_execution": dict(local_execution or {}),
-                "agent_loop": dict(agent_loop or {}),
-                "response_excerpt": str(response_excerpt or "")[:240],
-            }
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
-        except Exception:
-            return
+        routing_trace = dict(plan.get("routing_trace") or {})
+        payload = self.routing_failure_logger.build_payload(
+            trace_id=str(trace_id or ""),
+            user_input=str(user_input or ""),
+            final_route=str(final_route or ""),
+            final_intent=str(final_intent or ""),
+            candidates=list(routing_trace.get("candidates") or []),
+            evidence_contract_results=list(routing_trace.get("evidence_contract_results") or []),
+            veto_reason=str(veto_reason or routing_trace.get("reason") or ""),
+            verification_reason=str(verification_reason or ""),
+            operator_context=dict(operator_context or {}),
+            operator_state=dict(operator_state or {}),
+            local_execution=dict(local_execution or {}),
+            agent_loop=dict(agent_loop or {}),
+            response_excerpt=str(response_excerpt or "")[:240],
+        )
+        self.routing_failure_logger.append(payload)
 
     async def _run_turn_async(
         self, user_input: str, user_id: str, turn_number: int = 0
@@ -901,29 +895,31 @@ class ContractPipeline:
         metrics_task = asyncio.create_task(asyncio.sleep(0))
         await asyncio.gather(memory_task, metrics_task)
 
-        return PipelineResult(
-            handled=bool(response_text),
-            response_text=response_text,
-            metadata={
+        metadata_payload = PipelineMetadataBuilder.build(
+            {
                 "trace_id": trace_id,
                 "route": decision.route,
                 "intent": decision.intent,
                 "decision_band": decision.decision_band,
                 "confidence": decision.confidence,
-                "response_type": str((respond_metadata or {}).get("type") or "response"),
-                "requires_follow_up": respond_requires_follow_up,
-                "tools_used": [tool_result.tool_name] if tool_result else [],
-                "plan": plan,
-                "memory_recall": dict(memory.metadata or {}),
-                "resolved_input": resolved_input,
-                "verification": {
-                    "accepted": verification.accepted if verification else True,
-                    "reason": verification.reason if verification else "not_configured",
-                    "confidence": verification.confidence if verification else 1.0,
-                    "diagnostics": (
-                        dict(verification.diagnostics) if verification else {}
-                    ),
-                },
+            },
+            response_type=str((respond_metadata or {}).get("type") or "response"),
+            requires_follow_up=respond_requires_follow_up,
+            tools_used=[tool_result.tool_name] if tool_result else [],
+            plan=plan,
+            memory_recall=dict(memory.metadata or {}),
+            resolved_input=resolved_input,
+            verification={
+                "accepted": verification.accepted if verification else True,
+                "reason": verification.reason if verification else "not_configured",
+                "confidence": verification.confidence if verification else 1.0,
+                "diagnostics": (
+                    dict(verification.diagnostics) if verification else {}
+                ),
+            },
+        )
+        metadata_payload.update(
+            {
                 "turn_contract": post_execution_state_machine.contract.as_dict(),
                 "turn_execution_outcome": turn_execution_outcome.as_dict(),
                 "post_execution_state_machine": post_execution_state_machine.as_dict(),
@@ -972,7 +968,12 @@ class ContractPipeline:
                 },
                 "latency_ms": elapsed_ms,
                 "stages": stages,
-            },
+            }
+        )
+        return PipelineResult(
+            handled=bool(response_text),
+            response_text=response_text,
+            metadata=metadata_payload,
         )
 
     def run_turn(
