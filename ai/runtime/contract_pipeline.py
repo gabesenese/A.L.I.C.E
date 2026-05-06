@@ -720,10 +720,26 @@ class ContractPipeline:
         )
 
         if not turn_execution_outcome.verification_passed:
-            response_text = (
-                "I could not verify that result safely. "
-                "Please rephrase the request or provide more detail."
-            )
+            if verification and str(verification.reason or "") == "unsupported_continuity_claim":
+                op_state = dict((decision.metadata or {}).get("operator_state") or {})
+                active_objective = str(op_state.get("active_objective") or "").strip()
+                current_focus = str(op_state.get("current_focus") or "").strip()
+                if active_objective and current_focus:
+                    response_text = (
+                        "Hey. I am here. "
+                        f"Active focus is {current_focus}. "
+                        "Next step is available from the current operator state."
+                    )
+                else:
+                    response_text = (
+                        "Hey. I am here. "
+                        "No active task is loaded yet, and we can continue an existing project or start fresh."
+                    )
+            else:
+                response_text = (
+                    "I could not verify that result safely. "
+                    "Please rephrase the request or provide more detail."
+                )
             respond_requires_follow_up = True
             respond_metadata = {
                 **dict(respond_metadata or {}),
@@ -973,6 +989,15 @@ class ContractPipeline:
                 "stages": stages,
             }
         )
+        if "continuity_claims" in (respond_metadata or {}):
+            metadata_payload["continuity_claims"] = dict(respond_metadata.get("continuity_claims") or {})
+        greeting_policy = {
+            "greeting_memory_policy": str((respond_metadata or {}).get("greeting_memory_policy") or ""),
+            "broad_memory_suppressed": bool((respond_metadata or {}).get("broad_memory_suppressed")),
+            "active_objective_used": bool((respond_metadata or {}).get("active_objective_used")),
+        }
+        if any(greeting_policy.values()):
+            metadata_payload["greeting_metadata"] = greeting_policy
         return PipelineResult(
             handled=bool(response_text),
             response_text=response_text,

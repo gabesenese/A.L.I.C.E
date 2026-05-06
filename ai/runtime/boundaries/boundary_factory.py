@@ -31,6 +31,7 @@ from ai.contracts import (
 )
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
 from ai.memory.personal_memory import PersonalMemoryStore
+from ai.runtime.continuity_claim_guard import assess_continuity_claims
 from ai.runtime.local_action_executor import LocalActionExecutor
 from ai.runtime.operator_state import update_operator_state
 
@@ -1274,6 +1275,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         try:
             items: List[Dict[str, Any]] = []
             metadata: Dict[str, Any] = {"count": 0}
+            request_intent = str((req.metadata or {}).get("intent") or "").lower()
+            greeting_turn = request_intent.endswith("greeting") or request_intent == "greeting"
             if getattr(alice, "memory", None):
                 personal_mode = bool(personal_memory and _is_personal_memory_query(req.query))
                 if personal_mode:
@@ -1320,7 +1323,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "duplicate_count_removed": max(0, raw_retrieved_count - deduped_count),
                         "downranked_mixed_count": downranked_mixed_count,
                     }
-                else:
+                elif not greeting_turn:
                     items = alice.memory.search(req.query, top_k=req.max_items)
                     metadata = {
                         "count": len(items or []),
@@ -1331,6 +1334,19 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "evidence_count": len(items or []),
                         "insufficient_evidence": False,
                         "evidence_sources": _evidence_sources(items),
+                    }
+                else:
+                    metadata = {
+                        "count": 0,
+                        "mode": "greeting_active_state_only",
+                        "memory_recall_mode": False,
+                        "requested_domain": "",
+                        "retrieved_memory_count": 0,
+                        "evidence_count": 0,
+                        "insufficient_evidence": False,
+                        "evidence_sources": [],
+                        "greeting_memory_policy": "active_state_only",
+                        "broad_memory_suppressed": True,
                     }
             return MemoryResult(
                 items=list(items or []),
@@ -1535,6 +1551,47 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     setattr(alice, "_operator_context", diag_ctx)
             except Exception:
                 pass
+
+        decision_intent = str(req.decision.intent or "")
+        operator_state = dict((req.decision.metadata or {}).get("operator_state") or {})
+        greeting_turn = decision_intent.endswith("greeting") or decision_intent == "greeting"
+
+        def _build_grounded_greeting() -> ResponseOutput:
+            active_objective = str(operator_state.get("active_objective") or "").strip()
+            current_focus = str(operator_state.get("current_focus") or "").strip()
+            if active_objective and current_focus:
+                text = (
+                    "Hey. I am here. "
+                    f"Active focus is {current_focus}. "
+                    "Next step is available from the current operator state."
+                )
+                return ResponseOutput(
+                    text=text,
+                    confidence=0.93,
+                    metadata={
+                        "type": "greeting_grounded",
+                        "greeting_memory_policy": "active_state_only",
+                        "broad_memory_suppressed": True,
+                        "active_objective_used": True,
+                    },
+                )
+            text = (
+                "Hey. I am here. "
+                "No active task is loaded yet, and we can continue an existing project or start fresh."
+            )
+            return ResponseOutput(
+                text=text,
+                confidence=0.92,
+                metadata={
+                    "type": "greeting_grounded",
+                    "greeting_memory_policy": "active_state_only",
+                    "broad_memory_suppressed": True,
+                    "active_objective_used": False,
+                },
+            )
+
+        if greeting_turn:
+            return _build_grounded_greeting()
 
         if req.decision.decision_band == "refuse" or req.decision.route == "refuse":
             refusal_text = _surface_text(
@@ -1879,6 +1936,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 llm_text = ""
 
         if llm_text:
+            continuity = assess_continuity_claims(
+                text=llm_text,
+                memory_items=list(req.memory.items or []),
+                operator_state=operator_state,
+            )
+            llm_text = str(continuity.text or "").strip()
             if hasattr(alice, "_clamp_final_response"):
                 try:
                     llm_text = str(
@@ -1895,7 +1958,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return ResponseOutput(
                 text=llm_text,
                 confidence=max(0.45, float(req.decision.confidence or 0.45)),
-                metadata={"type": "llm_response"},
+                metadata={
+                    "type": "llm_response",
+                    "continuity_claims": continuity.metadata(),
+                },
             )
 
         return ResponseOutput(
@@ -1966,6 +2032,26 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if req.decision.route == "llm":
+            operator_state = dict((req.decision.metadata or {}).get("operator_state") or {})
+            continuity = assess_continuity_claims(
+                text=response_text,
+                memory_items=list(req.memory.items or []),
+                operator_state=operator_state,
+            )
+            if continuity.unsupported_continuity_claim:
+                return VerifierResult(
+                    accepted=False,
+                    reason="unsupported_continuity_claim",
+                    confidence=0.1,
+                    diagnostics={
+                        "route": req.decision.route,
+                        "intent": req.decision.intent,
+                        "unsupported_continuity_claim": True,
+                        "unsupported_claims": list(continuity.unsupported_claims),
+                        "continuity_claims": continuity.metadata(),
+                    },
+                )
+
             weather_claim_diagnostics = _verify_weather_claims(
                 user_input=req.user_input,
                 response_text=response_text,

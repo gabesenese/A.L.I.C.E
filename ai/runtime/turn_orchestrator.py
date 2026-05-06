@@ -69,7 +69,16 @@ class TurnOrchestrator:
             (decision.metadata or {}).get("resolved_input") or user_input
         )
         memory = self.boundaries.memory.recall(
-            MemoryRequest(query=resolved_input, user_id=user_id, max_items=8)
+            MemoryRequest(
+                query=resolved_input,
+                user_id=user_id,
+                max_items=8,
+                metadata={
+                    "intent": decision.intent,
+                    "route": decision.route,
+                    "turn_number": turn_number,
+                },
+            )
         )
 
         plan = {
@@ -199,6 +208,7 @@ class TurnOrchestrator:
             response_text=str(proposed.text or "").strip(),
             requires_follow_up=bool(proposed.requires_follow_up),
             metadata={
+                **dict(proposed.metadata or {}),
                 "type": str((proposed.metadata or {}).get("type") or "response"),
                 "follow_up_question": str(proposed.follow_up_question or ""),
             },
