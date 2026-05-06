@@ -62,6 +62,10 @@ def test_a_greeting_ignores_stale_vector_memory_topic():
     assert "machine learning" not in low
     assert "last time we talked about" not in low
     assert "conversation history suggests" not in low
+    assert "no active task is loaded" not in low
+    assert "operator state" not in low
+    assert "memory policy" not in low
+    assert "broad memory" not in low
     assert result.metadata["route"] == "llm"
     assert result.metadata["verification"]["accepted"] is True
     assert result.metadata["greeting_metadata"]["greeting_memory_policy"] == "active_state_only"
@@ -76,6 +80,9 @@ def test_b_greeting_may_use_active_operator_state_focus():
     }
     result = ContractPipeline(build_runtime_boundaries(alice)).run_turn("hi alice", "u1", 1)
     assert "routing" in result.response_text.lower()
+    assert "current operator state" not in result.response_text.lower()
+    assert "memory policy" not in result.response_text.lower()
+    assert "broad memory" not in result.response_text.lower()
     assert "machine learning" not in result.response_text.lower()
     assert result.metadata["greeting_metadata"]["active_objective_used"] is True
 
@@ -108,4 +115,8 @@ def test_d_same_session_project_state_can_be_referenced():
     assert "machine learning" not in low
     assert "last time we talked about" not in low
     assert "conversation history suggests" not in low
-    assert ("memory" in low) or ("active task" in low)
+    assert "no active task is loaded" not in low
+    assert "operator state" not in low
+    assert "memory policy" not in low
+    assert "broad memory" not in low
+    assert ("alice" in low) or ("memory" in low) or ("continue" in low)

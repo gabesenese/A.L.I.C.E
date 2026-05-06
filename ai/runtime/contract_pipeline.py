@@ -726,14 +726,14 @@ class ContractPipeline:
                 current_focus = str(op_state.get("current_focus") or "").strip()
                 if active_objective and current_focus:
                     response_text = (
-                        "Hey. I am here. "
-                        f"Active focus is {current_focus}. "
-                        "Next step is available from the current operator state."
+                        "Hey. I'm here. "
+                        f"We were focused on Alice's {current_focus} work. "
+                        "We can continue from there if you want."
                     )
                 else:
                     response_text = (
-                        "Hey. I am here. "
-                        "No active task is loaded yet, and we can continue an existing project or start fresh."
+                        "Hey. I'm here. "
+                        "We can continue Alice's development or start fresh."
                     )
             else:
                 response_text = (
