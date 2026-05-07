@@ -1,0 +1,20 @@
+{
+  "base": {
+    "verbosity": 0.5,
+    "formality": 0.3,
+    "humor": 0.4,
+    "directness": 0.6,
+    "enthusiasm": 0.5,
+    "empathy": 0.7
+  },
+  "users": {
+    "test_user": {
+      "verbosity": 0.2499999999999998,
+      "formality": 0.3,
+      "humor": 0.4,
+      "directness": 0.6,
+      "enthusiasm": 0.5,
+      "empathy": 0.7
+    }
+  }
+}

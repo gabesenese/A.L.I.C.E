@@ -1,0 +1,12 @@
+{
+  "name": "Gabriel",
+  "preferred_voice": "default",
+  "temperature_preference": 0.7,
+  "verbose_mode": false,
+  "proactive_suggestions": true,
+  "location": "Kitchener, Canada",
+  "city": "Kitchener",
+  "country": "Canada",
+  "timezone": "America/Toronto",
+  "custom_settings": {}
+}
