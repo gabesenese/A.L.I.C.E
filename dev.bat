@@ -11,16 +11,15 @@ if %errorlevel%==0 (
 	set "USE_MAKE=1"
 	set "RUN_CMD=python app\dev.py"
 	set "DEBUG_MODE_CMD=python -m app.alice --model llama3.1:8b --debug"
-	set "TEST_CMD=make test"
+	set "TEST_CMD=python -m pytest tests/unit tests/integration tests/e2e tests/golden -v"
 	set "LINT_CMD=make lint"
 	set "FIX_CMD=ruff check . --fix --unsafe-fixes --exit-zero"
-	set "CHECK_CMD=make check"
 	set "FORMAT_CMD=make format"
 ) else (
 	set "USE_MAKE=0"
 	set "RUN_CMD=python app\dev.py"
 	set "DEBUG_MODE_CMD=python -m app.alice --model llama3.1:8b --debug"
-	set "TEST_CMD=python -m pytest tests/ -v"
+	set "TEST_CMD=python -m pytest tests/unit tests/integration tests/e2e tests/golden -v"
 	set "LINT_CMD=ruff check ."
 	set "FIX_CMD=ruff check . --fix --unsafe-fixes --exit-zero"
 	set "FORMAT_CMD=ruff format ."
@@ -69,7 +68,7 @@ goto menu
 echo.
 echo Running: %TEST_CMD%
 call %TEST_CMD%
-pause
+call :wait_after_tests
 goto menu
 
 :lint
@@ -83,22 +82,17 @@ goto menu
 echo.
 echo Running: python -m pytest --collect-only -q
 call python -m pytest --collect-only -q
-pause
+call :wait_after_tests
 goto menu
 
 :check
 echo.
-if "%USE_MAKE%"=="1" (
-	echo Running: %CHECK_CMD%
-	call %CHECK_CMD%
-) else (
-	echo Running: %LINT_CMD%
-	call %LINT_CMD%
-	echo.
-	echo Running: %TEST_CMD%
-	call %TEST_CMD%
-)
-pause
+echo Running: %LINT_CMD%
+call %LINT_CMD%
+echo.
+echo Running: %TEST_CMD%
+call %TEST_CMD%
+call :wait_after_tests
 goto menu
 
 :format
@@ -123,4 +117,10 @@ goto menu
 
 :exit
 endlocal
+exit /b 0
+
+:wait_after_tests
+echo.
+set "CONTINUE_INPUT="
+set /p "CONTINUE_INPUT=Press Enter (or type Y) to return to the menu: "
 exit /b 0

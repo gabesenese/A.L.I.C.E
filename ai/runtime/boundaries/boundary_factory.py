@@ -32,6 +32,7 @@ from ai.contracts import (
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
 from ai.memory.personal_memory import PersonalMemoryStore
 from ai.runtime.continuity_claim_guard import assess_continuity_claims
+from ai.runtime.greeting_surface_policy import render_grounded_greeting
 from ai.runtime.local_action_executor import LocalActionExecutor
 from ai.runtime.operator_state import update_operator_state
 
@@ -229,7 +230,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     def _looks_like_code_analyze_request(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
         if _extract_code_target(user_input):
-            return bool(re.search(r"\b(analy[sz]e|review|inspect|look at|read|what about|check)\b", text) or text.endswith(".py"))
+            return bool(
+                re.search(
+                    r"\b(analy[sz]e|review|inspect|look at|read|what about|check)\b",
+                    text,
+                )
+                or text.endswith(".py")
+            )
         return False
 
     def _looks_like_weather_request(user_input: str) -> bool:
@@ -312,12 +319,16 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return False
         return any(
             marker in text
-            for marker in ("don't want you to check", "dont want you to check", "just saying")
+            for marker in (
+                "don't want you to check",
+                "dont want you to check",
+                "just saying",
+            )
         )
 
     def _looks_like_collaborative_reasoning_statement(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
-        return ("let's think through" in text or "lets think through" in text)
+        return "let's think through" in text or "lets think through" in text
 
     def _looks_like_project_work_session_start(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
@@ -499,7 +510,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         sources: List[str] = []
         for row in items:
             ctx = dict(row.get("context") or {})
-            source = str(ctx.get("source") or row.get("source") or "conversation").strip()
+            source = str(
+                ctx.get("source") or row.get("source") or "conversation"
+            ).strip()
             if not source:
                 continue
             key = source.lower()
@@ -518,7 +531,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             items[0].get("weighted_score", items[0].get("score", 0.0)) or 0.0
         )
         top_ctx = dict(items[0].get("context") or {})
-        top_confidence = float(top_ctx.get("confidence", items[0].get("importance", 0.0)) or 0.0)
+        top_confidence = float(
+            top_ctx.get("confidence", items[0].get("importance", 0.0)) or 0.0
+        )
         return bool(
             (
                 top_similarity >= 0.46
@@ -906,7 +921,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         )
         low = str(req.user_input or "").lower()
 
-        if ("what's the next step" in low or "what is the next step" in low) and state.get("active_objective"):
+        if (
+            "what's the next step" in low or "what is the next step" in low
+        ) and state.get("active_objective"):
             return RouterDecision(
                 route="local",
                 intent="code:request",
@@ -957,7 +974,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 "_operator_state",
                 update_operator_state(
                     state,
-                    {"active_mode": "code_inspection", "awaiting_target": True, "last_route": "local", "last_intent": "code:list_files"},
+                    {
+                        "active_mode": "code_inspection",
+                        "awaiting_target": True,
+                        "last_route": "local",
+                        "last_intent": "code:list_files",
+                    },
                 ),
             )
             return RouterDecision(
@@ -965,7 +987,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 intent="code:list_files",
                 confidence=0.95,
                 decision_band="execute",
-                metadata={"reason": "code_list_request", "resolved_input": req.user_input, "operator_state": dict(getattr(alice, "_operator_state", {}) or {})},
+                metadata={
+                    "reason": "code_list_request",
+                    "resolved_input": req.user_input,
+                    "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
+                },
             )
 
         if _looks_like_code_analyze_request(req.user_input) or (
@@ -977,7 +1003,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 "_operator_state",
                 update_operator_state(
                     state,
-                    {"active_mode": "code_inspection", "awaiting_target": False, "last_route": "local", "last_intent": "code:analyze_file", "last_inspected_file": target},
+                    {
+                        "active_mode": "code_inspection",
+                        "awaiting_target": False,
+                        "last_route": "local",
+                        "last_intent": "code:analyze_file",
+                        "last_inspected_file": target,
+                    },
                 ),
             )
             return RouterDecision(
@@ -1023,7 +1055,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 "_operator_state",
                 update_operator_state(
                     state,
-                    {"active_mode": "code_inspection", "awaiting_target": True, "last_route": "local", "last_intent": "code:request"},
+                    {
+                        "active_mode": "code_inspection",
+                        "awaiting_target": True,
+                        "last_route": "local",
+                        "last_intent": "code:request",
+                    },
                 ),
             )
             return RouterDecision(
@@ -1166,7 +1203,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if ":" in intent and not intent.startswith("conversation"):
             route = "tool"
 
-        if str(intent).startswith("file_operations:") and not _has_explicit_file_target(req.user_input):
+        if str(intent).startswith("file_operations:") and not _has_explicit_file_target(
+            req.user_input
+        ):
             arbitration = route_arbiter.arbitrate(
                 user_input=req.user_input,
                 candidate_route=route,
@@ -1212,7 +1251,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if route == "tool" and bool(modifiers.get("tool_execution_disabled")):
             gate = dict(modifiers.get("tool_eligibility_gate") or {})
             rerouted_to = str(gate.get("rerouted_to") or "").strip()
-            if gate.get("file_tool_vetoed") and rerouted_to in {"code:request", "code:list_files"}:
+            if gate.get("file_tool_vetoed") and rerouted_to in {
+                "code:request",
+                "code:list_files",
+            }:
                 route = "local"
                 intent = rerouted_to
             else:
@@ -1263,8 +1305,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             metadata={
                 "keywords": list(getattr(nlp_result, "keywords", []) or []),
                 "resolved_input": resolved_input,
-                "tool_execution_disabled": bool(modifiers.get("tool_execution_disabled")),
-                "tool_eligibility_gate": dict(modifiers.get("tool_eligibility_gate") or {}),
+                "tool_execution_disabled": bool(
+                    modifiers.get("tool_execution_disabled")
+                ),
+                "tool_eligibility_gate": dict(
+                    modifiers.get("tool_eligibility_gate") or {}
+                ),
                 "routing_trace": dict(modifiers.get("routing_trace") or {}),
                 "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
                 **resolution_meta,
@@ -1276,16 +1322,22 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             items: List[Dict[str, Any]] = []
             metadata: Dict[str, Any] = {"count": 0}
             request_intent = str((req.metadata or {}).get("intent") or "").lower()
-            greeting_turn = request_intent.endswith("greeting") or request_intent == "greeting"
+            greeting_turn = (
+                request_intent.endswith("greeting") or request_intent == "greeting"
+            )
             if getattr(alice, "memory", None):
-                personal_mode = bool(personal_memory and _is_personal_memory_query(req.query))
+                personal_mode = bool(
+                    personal_memory and _is_personal_memory_query(req.query)
+                )
                 if personal_mode:
                     domain = _infer_personal_domain(req.query)
-                    day_to_day_detail = personal_memory.retrieve_structured_memory_detailed(
-                        req.query,
-                        domain=domain,
-                        scope="day_to_day",
-                        top_k=req.max_items,
+                    day_to_day_detail = (
+                        personal_memory.retrieve_structured_memory_detailed(
+                            req.query,
+                            domain=domain,
+                            scope="day_to_day",
+                            top_k=req.max_items,
+                        )
                     )
                     day_to_day = list(day_to_day_detail.get("items") or [])
                     remaining = max(0, req.max_items - len(day_to_day))
@@ -1301,13 +1353,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     )
                     long_term = list(long_term_detail.get("items") or [])
                     items = list(day_to_day) + list(long_term)
-                    raw_retrieved_count = int(day_to_day_detail.get("raw_retrieved_count", 0)) + int(
-                        long_term_detail.get("raw_retrieved_count", 0)
-                    )
+                    raw_retrieved_count = int(
+                        day_to_day_detail.get("raw_retrieved_count", 0)
+                    ) + int(long_term_detail.get("raw_retrieved_count", 0))
                     deduped_count = len(items)
-                    downranked_mixed_count = int(day_to_day_detail.get("downranked_mixed_count", 0)) + int(
-                        long_term_detail.get("downranked_mixed_count", 0)
-                    )
+                    downranked_mixed_count = int(
+                        day_to_day_detail.get("downranked_mixed_count", 0)
+                    ) + int(long_term_detail.get("downranked_mixed_count", 0))
                     metadata = {
                         "count": len(items or []),
                         "mode": "personal_structured",
@@ -1315,12 +1367,16 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "requested_domain": domain,
                         "retrieved_memory_count": len(items or []),
                         "evidence_count": len(items or []),
-                        "insufficient_evidence": not _has_sufficient_personal_evidence(items),
+                        "insufficient_evidence": not _has_sufficient_personal_evidence(
+                            items
+                        ),
                         "evidence_sources": _evidence_sources(items),
                         "evidence": _memory_strength(items),
                         "raw_retrieved_count": raw_retrieved_count,
                         "deduped_count": deduped_count,
-                        "duplicate_count_removed": max(0, raw_retrieved_count - deduped_count),
+                        "duplicate_count_removed": max(
+                            0, raw_retrieved_count - deduped_count
+                        ),
                         "downranked_mixed_count": downranked_mixed_count,
                     }
                 elif not greeting_turn:
@@ -1434,12 +1490,16 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 diagnostics={"stage": "pre_tool_validation"},
             )
 
-        if str(invocation.action or "").startswith("code:") or str(invocation.action or "") in {
+        if str(invocation.action or "").startswith("code:") or str(
+            invocation.action or ""
+        ) in {
             "system:location",
             "freshness:current_events",
         }:
             context_payload = dict(invocation.params.get("context") or {})
-            extracted_target = _extract_code_target(str(invocation.params.get("query") or ""))
+            extracted_target = _extract_code_target(
+                str(invocation.params.get("query") or "")
+            )
             if extracted_target:
                 context_payload["target_file"] = extracted_target
             local = local_executor.execute(
@@ -1456,7 +1516,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "response": str(local.get("response") or ""),
                     "operator_context": dict(local.get("operator_context") or {}),
                     "local_execution": dict(local.get("local_execution") or {}),
-                    "close_matches": list((local.get("operator_context") or {}).get("close_matches") or []),
+                    "close_matches": list(
+                        (local.get("operator_context") or {}).get("close_matches") or []
+                    ),
                 },
                 error=str(local.get("error") or ""),
                 confidence=0.9 if success else 0.3,
@@ -1546,7 +1608,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     def _generate(req: ResponseRequest) -> ResponseOutput:
         if req.tool_result is not None:
             try:
-                diag_ctx = dict((req.tool_result.diagnostics or {}).get("operator_context") or {})
+                diag_ctx = dict(
+                    (req.tool_result.diagnostics or {}).get("operator_context") or {}
+                )
                 if diag_ctx:
                     setattr(alice, "_operator_context", diag_ctx)
             except Exception:
@@ -1554,39 +1618,38 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         decision_intent = str(req.decision.intent or "")
         operator_state = dict((req.decision.metadata or {}).get("operator_state") or {})
-        greeting_turn = decision_intent.endswith("greeting") or decision_intent == "greeting"
+        greeting_turn = (
+            decision_intent.endswith("greeting") or decision_intent == "greeting"
+        )
 
         def _build_grounded_greeting() -> ResponseOutput:
-            active_objective = str(operator_state.get("active_objective") or "").strip()
-            current_focus = str(operator_state.get("current_focus") or "").strip()
-            if active_objective and current_focus:
-                text = (
-                    "Hey. I'm here. "
-                    f"We were focused on Alice's {current_focus} work. "
-                    "We can continue from there if you want."
-                )
-                return ResponseOutput(
-                    text=text,
-                    confidence=0.93,
-                    metadata={
-                        "type": "greeting_grounded",
-                        "greeting_memory_policy": "active_state_only",
-                        "broad_memory_suppressed": True,
-                        "active_objective_used": True,
-                    },
-                )
-            text = (
-                "Hey. I'm here. "
-                "We can continue Alice's development or start fresh."
+            session_state = dict(getattr(alice, "_greeting_session_state", {}) or {})
+            user_name = str(getattr(alice, "user_name", "") or "")
+            greeting = render_grounded_greeting(
+                user_name=user_name,
+                operator_state=operator_state,
+                session_state=session_state,
+                user_input=req.user_input,
+                llm_generate=(
+                    (lambda prompt=None, **_kwargs: str(alice.llm.chat(str(prompt or ""), use_history=False) or ""))
+                    if getattr(alice, "llm", None)
+                    else None
+                ),
             )
+            setattr(alice, "_greeting_session_state", dict(greeting.session_state))
             return ResponseOutput(
-                text=text,
+                text=greeting.text,
                 confidence=0.92,
                 metadata={
                     "type": "greeting_grounded",
                     "greeting_memory_policy": "active_state_only",
                     "broad_memory_suppressed": True,
-                    "active_objective_used": False,
+                    "active_objective_used": bool(greeting.active_objective_used),
+                    "greeting_style": str(greeting.greeting_style),
+                    "suppressed_project_menu": bool(greeting.suppressed_project_menu),
+                    "repeated_greeting": bool(greeting.repeated_greeting),
+                    "generated_by": str(greeting.generated_by),
+                    "greeting_reason": str(greeting.reason),
                 },
             )
 
@@ -1642,14 +1705,20 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"type": "deterministic_location"},
             )
 
-        if req.decision.route == "local" and req.tool_result is not None and not req.tool_result.success:
+        if (
+            req.decision.route == "local"
+            and req.tool_result is not None
+            and not req.tool_result.success
+        ):
             data = dict(req.tool_result.data or {})
             op_ctx = dict(data.get("operator_context") or {})
             local_exec = dict(data.get("local_execution") or {})
             inferred = str(op_ctx.get("inferred_target_file") or "")
             close = list(op_ctx.get("close_matches") or [])
             if inferred and close:
-                msg = f"I could not find {inferred}. Close matches:\n- " + "\n- ".join(close[:5])
+                msg = f"I could not find {inferred}. Close matches:\n- " + "\n- ".join(
+                    close[:5]
+                )
             elif inferred:
                 wf_count = int(local_exec.get("workspace_file_count") or 0)
                 if wf_count > 0:
@@ -1657,7 +1726,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 else:
                     msg = f"I could not find {inferred} in the current workspace."
             else:
-                msg = str(req.tool_result.error or "I could not complete that local inspection request.")
+                msg = str(
+                    req.tool_result.error
+                    or "I could not complete that local inspection request."
+                )
             try:
                 current_state = dict(getattr(alice, "_operator_state", {}) or {})
                 inferred = str(op_ctx.get("inferred_target_file") or "")
@@ -1667,10 +1739,17 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     update_operator_state(
                         current_state,
                         {
-                            "last_failure": str(local_exec.get("error") or req.tool_result.error or "local_execution_failed"),
-                            "known_blockers": [str(local_exec.get("error") or "local_execution_failed")],
+                            "last_failure": str(
+                                local_exec.get("error")
+                                or req.tool_result.error
+                                or "local_execution_failed"
+                            ),
+                            "known_blockers": [
+                                str(local_exec.get("error") or "local_execution_failed")
+                            ],
                             "current_step": "resolve_blocker",
-                            "last_inspected_file": inferred or str(current_state.get("last_inspected_file") or ""),
+                            "last_inspected_file": inferred
+                            or str(current_state.get("last_inspected_file") or ""),
                         },
                     ),
                 )
@@ -1708,8 +1787,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         confidence=float(req.tool_result.confidence or 0.85),
                         metadata={
                             "type": "local_code_request",
-                            "operator_context": dict(local_payload.get("operator_context") or {}),
-                            "local_execution": dict(local_payload.get("local_execution") or {}),
+                            "operator_context": dict(
+                                local_payload.get("operator_context") or {}
+                            ),
+                            "local_execution": dict(
+                                local_payload.get("local_execution") or {}
+                            ),
                         },
                     )
             code_response = ""
@@ -1781,8 +1864,18 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if req.decision.needs_clarification:
-            local_file_q = bool(re.search(r"\bfile|files|code|workspace\b", str(req.user_input or ""), re.IGNORECASE))
-            clarify_base = "Which file should I inspect?" if local_file_q else "What exact result should I produce next?"
+            local_file_q = bool(
+                re.search(
+                    r"\bfile|files|code|workspace\b",
+                    str(req.user_input or ""),
+                    re.IGNORECASE,
+                )
+            )
+            clarify_base = (
+                "Which file should I inspect?"
+                if local_file_q
+                else "What exact result should I produce next?"
+            )
             clarify_text = _surface_text(
                 clarify_base,
                 user_input=req.user_input,
@@ -1821,18 +1914,25 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     if req.decision.route == "local":
                         lx = dict(tool_payload.get("local_execution") or {})
                         inspected = str(lx.get("inspected_file") or "")
-                        current_state = dict(getattr(alice, "_operator_state", {}) or {})
+                        current_state = dict(
+                            getattr(alice, "_operator_state", {}) or {}
+                        )
                         setattr(
                             alice,
                             "_operator_state",
                             update_operator_state(
                                 current_state,
                                 {
-                                    "last_success": str(req.decision.intent or "local_success"),
+                                    "last_success": str(
+                                        req.decision.intent or "local_success"
+                                    ),
                                     "last_failure": "",
                                     "current_step": "observe_result",
                                     "files_inspected": [inspected] if inspected else [],
-                                    "last_inspected_file": inspected or str(current_state.get("last_inspected_file") or ""),
+                                    "last_inspected_file": inspected
+                                    or str(
+                                        current_state.get("last_inspected_file") or ""
+                                    ),
                                 },
                             ),
                         )
@@ -1942,6 +2042,29 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 operator_state=operator_state,
             )
             llm_text = str(continuity.text or "").strip()
+            low_input = str(req.user_input or "").lower()
+            continuation_cue = any(
+                cue in low_input
+                for cue in ("continue", "pick up", "where were we", "what's next", "whats next")
+            )
+            if bool(continuity.unsupported_continuity_claim) and (
+                greeting_turn or continuation_cue
+            ):
+                session_state = dict(getattr(alice, "_greeting_session_state", {}) or {})
+                user_name = str(getattr(alice, "user_name", "") or "")
+                greeting = render_grounded_greeting(
+                    user_name=user_name,
+                    operator_state=operator_state,
+                    session_state=session_state,
+                    user_input=req.user_input,
+                    llm_generate=(
+                        (lambda prompt=None, **_kwargs: str(alice.llm.chat(str(prompt or ""), use_history=False) or ""))
+                        if getattr(alice, "llm", None)
+                        else None
+                    ),
+                )
+                setattr(alice, "_greeting_session_state", dict(greeting.session_state))
+                llm_text = str(greeting.text or "").strip()
             if hasattr(alice, "_clamp_final_response"):
                 try:
                     llm_text = str(
@@ -1961,6 +2084,27 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={
                     "type": "llm_response",
                     "continuity_claims": continuity.metadata(),
+                    "greeting_memory_policy": "active_state_only"
+                    if (greeting_turn or continuation_cue)
+                    else "",
+                    "broad_memory_suppressed": bool(greeting_turn or continuation_cue),
+                    "active_objective_used": bool(
+                        greeting.active_objective_used
+                    )
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    else False,
+                    "greeting_style": str(greeting.greeting_style)
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    else "",
+                    "suppressed_project_menu": bool(greeting.suppressed_project_menu)
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    else False,
+                    "repeated_greeting": bool(greeting.repeated_greeting)
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    else False,
+                    "generated_by": str(greeting.generated_by)
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    else "",
                 },
             )
 
@@ -2032,7 +2176,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if req.decision.route == "llm":
-            operator_state = dict((req.decision.metadata or {}).get("operator_state") or {})
+            operator_state = dict(
+                (req.decision.metadata or {}).get("operator_state") or {}
+            )
             continuity = assess_continuity_claims(
                 text=response_text,
                 memory_items=list(req.memory.items or []),
