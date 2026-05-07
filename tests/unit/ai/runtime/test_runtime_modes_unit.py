@@ -7,4 +7,3 @@ def test_default_runtime_mode_is_minimal():
     assert "voice" not in mode.enabled_groups
     assert "lab" not in mode.enabled_groups
     assert "training" not in mode.enabled_groups
-

@@ -42,4 +42,3 @@ def get_runtime_mode(mode: str = "minimal") -> RuntimeMode:
 
 def list_runtime_modes() -> List[str]:
     return sorted(_MODE_GROUPS.keys())
-

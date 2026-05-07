@@ -37,7 +37,11 @@ def test_deep_analysis_detects_structure_and_risks(tmp_path: Path):
     alice = _NoReflectionAlice()
     alice.PROJECT_ROOT = str(tmp_path)
     exe = LocalActionExecutor(alice)
-    out = exe.execute(action="code:analyze_file", query="analyze sample_target.py", context={"target_file": "sample_target.py"})
+    out = exe.execute(
+        action="code:analyze_file",
+        query="analyze sample_target.py",
+        context={"target_file": "sample_target.py"},
+    )
 
     assert out["success"] is True
     lx = dict(out.get("local_execution") or {})

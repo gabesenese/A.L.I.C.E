@@ -11,4 +11,3 @@ class LocalExecutionAdapterResult:
     operator_context: Dict[str, Any]
     local_execution: Dict[str, Any]
     error: str = ""
-

@@ -56,7 +56,11 @@ def _top_level_imports(path: Path):
 
 def _warn_threshold(path: Path, threshold: int) -> str:
     lines = _line_count(path)
-    return f"WARNING: {path.as_posix()} is {lines} lines (>{threshold})" if lines > threshold else ""
+    return (
+        f"WARNING: {path.as_posix()} is {lines} lines (>{threshold})"
+        if lines > threshold
+        else ""
+    )
 
 
 def main() -> None:
@@ -70,8 +74,16 @@ def main() -> None:
 
     mode = "minimal"
     cfg = RuntimeModeConfig.for_mode(mode)
-    enabled = [k.replace("enable_", "") for k, v in vars(cfg).items() if k.startswith("enable_") and v]
-    skipped = [k.replace("enable_", "") for k, v in vars(cfg).items() if k.startswith("enable_") and not v]
+    enabled = [
+        k.replace("enable_", "")
+        for k, v in vars(cfg).items()
+        if k.startswith("enable_") and v
+    ]
+    skipped = [
+        k.replace("enable_", "")
+        for k, v in vars(cfg).items()
+        if k.startswith("enable_") and not v
+    ]
     print(f"Runtime mode: {mode}")
     print(f"Modules initialized (by config): {', '.join(sorted(enabled))}")
     print(f"Optional systems skipped: {', '.join(sorted(skipped))}")

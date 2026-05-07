@@ -9,4 +9,3 @@ class ResponseAdapterResult:
     text: str
     metadata: Dict[str, Any]
     requires_follow_up: bool = False
-

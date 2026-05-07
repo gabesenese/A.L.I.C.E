@@ -33,4 +33,3 @@ def test_factory_wrapper_compatibility():
     assert boundaries is not None
     assert boundaries.routing is not None
     assert boundaries.tools is not None
-

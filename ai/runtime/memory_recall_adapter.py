@@ -9,4 +9,3 @@ class MemoryRecallAdapterResult:
     items: List[Dict[str, Any]]
     confidence: float
     metadata: Dict[str, Any]
-

@@ -2,4 +2,3 @@
 
 Current implementation remains in boundary_factory for compatibility.
 """
-

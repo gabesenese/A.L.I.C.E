@@ -90,7 +90,8 @@ def _has_negation_before(
 
 def _has_create_note_explicit_evidence(text_lower: str) -> bool:
     return any(
-        pattern.search(text_lower) for pattern in _CREATE_NOTE_EXPLICIT_EVIDENCE_PATTERNS
+        pattern.search(text_lower)
+        for pattern in _CREATE_NOTE_EXPLICIT_EVIDENCE_PATTERNS
     )
 
 

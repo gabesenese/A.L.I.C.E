@@ -23,4 +23,3 @@ class RoutingFailureLogger:
         payload = dict(kwargs or {})
         payload.setdefault("timestamp", datetime.utcnow().isoformat())
         return payload
-

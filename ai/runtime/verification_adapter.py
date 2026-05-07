@@ -10,4 +10,3 @@ class VerificationAdapterResult:
     reason: str
     confidence: float
     diagnostics: Dict[str, Any]
-

@@ -128,7 +128,7 @@ class _FakeMemory:
                 "Mem",
                 (),
                 {
-                    "id": f"mem_{len(self.episodic_memory)+1}",
+                    "id": f"mem_{len(self.episodic_memory) + 1}",
                     "content": content,
                     "memory_type": memory_type,
                     "timestamp": datetime.utcnow().isoformat(),
@@ -1014,7 +1014,9 @@ def test_mixed_alice_and_personal_statement_creates_personal_life_memory():
         for row in alice.memory._stored
         if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
-    domains = {str((row.get("context") or {}).get("domain") or "") for row in structured}
+    domains = {
+        str((row.get("context") or {}).get("domain") or "") for row in structured
+    }
     assert "personal_life" in domains
 
 
@@ -1078,10 +1080,16 @@ def test_mixed_turn_shopping_plus_code_request_stores_personal_update_and_keeps_
     assert result.metadata["route"] == "local"
     assert result.metadata["intent"] == "code:request"
     structured = [
-        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row
+        for row in alice.memory._stored
+        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     assert structured
-    personal_rows = [row for row in structured if (row.get("context") or {}).get("domain") == "personal_life"]
+    personal_rows = [
+        row
+        for row in structured
+        if (row.get("context") or {}).get("domain") == "personal_life"
+    ]
     assert personal_rows
     latest = personal_rows[-1]
     ctx = latest["context"]
@@ -1108,7 +1116,9 @@ def test_mixed_turn_gym_plus_code_request_stores_personal_or_fitness_memory_and_
     assert result.handled is True
     assert result.metadata["intent"] == "code:request"
     structured = [
-        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row
+        for row in alice.memory._stored
+        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     assert structured
     domains = {(row.get("context") or {}).get("domain") for row in structured}
@@ -1131,7 +1141,9 @@ def test_code_request_only_does_not_store_fake_personal_memory():
     assert result.metadata["intent"] == "code:request"
     assert result.metadata["route"] == "local"
     structured = [
-        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row
+        for row in alice.memory._stored
+        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     assert structured == []
 
@@ -1149,7 +1161,9 @@ def test_personal_update_only_stores_day_to_day_personal_memory():
 
     assert result.handled is True
     structured = [
-        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row
+        for row in alice.memory._stored
+        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     assert structured
     latest = structured[-1]
@@ -1179,17 +1193,32 @@ def test_project_work_session_mixed_turn_routes_conversation_and_stores_personal
     assert result.metadata["decision_band"] != "clarify"
 
     structured = [
-        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row
+        for row in alice.memory._stored
+        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     domains = [(row.get("context") or {}).get("domain") for row in structured]
     assert "personal_life" in domains
     assert "alice_project" in domains
     assert "work" not in domains
 
-    personal_rows = [r for r in structured if (r.get("context") or {}).get("domain") == "personal_life"]
-    project_rows = [r for r in structured if (r.get("context") or {}).get("domain") == "alice_project"]
-    assert any("shopping today" in str(r.get("content") or "").lower() for r in personal_rows)
-    assert any("ready to work on the ai/alice project" in str(r.get("content") or "").lower() for r in project_rows)
+    personal_rows = [
+        r
+        for r in structured
+        if (r.get("context") or {}).get("domain") == "personal_life"
+    ]
+    project_rows = [
+        r
+        for r in structured
+        if (r.get("context") or {}).get("domain") == "alice_project"
+    ]
+    assert any(
+        "shopping today" in str(r.get("content") or "").lower() for r in personal_rows
+    )
+    assert any(
+        "ready to work on the ai/alice project" in str(r.get("content") or "").lower()
+        for r in project_rows
+    )
 
 
 def test_ready_to_work_on_alice_routes_project_session_without_clarification():
@@ -1221,9 +1250,13 @@ def test_i_worked_late_today_extracts_work_domain_day_to_day_event():
     )
     assert result.handled is True
     structured = [
-        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row
+        for row in alice.memory._stored
+        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
-    work_rows = [r for r in structured if (r.get("context") or {}).get("domain") == "work"]
+    work_rows = [
+        r for r in structured if (r.get("context") or {}).get("domain") == "work"
+    ]
     assert work_rows
     latest = work_rows[-1]
     assert (latest.get("context") or {}).get("kind") == "conversation_event"
@@ -1336,9 +1369,13 @@ def test_consolidation_marks_exact_duplicate_as_superseded_and_retrieval_ignores
     )
 
     structured = [
-        r for r in alice.memory.episodic_memory if "structured:personal" in list(getattr(r, "tags", []) or [])
+        r
+        for r in alice.memory.episodic_memory
+        if "structured:personal" in list(getattr(r, "tags", []) or [])
     ]
-    assert any(bool((getattr(r, "context", {}) or {}).get("superseded")) for r in structured)
+    assert any(
+        bool((getattr(r, "context", {}) or {}).get("superseded")) for r in structured
+    )
 
     rows = store.retrieve_structured_memory(
         "what did i talk about my personal life",
@@ -1482,7 +1519,10 @@ def test_read_a_file_vetoes_file_tool_and_reroutes_local():
     trace = dict((result.metadata.get("plan") or {}).get("routing_trace") or {})
     if not trace:
         trace = dict((result.metadata.get("plan") or {}).get("route_veto") or {})
-    assert trace.get("file_tool_vetoed") is True or trace.get("reason") == "no_explicit_file_target"
+    assert (
+        trace.get("file_tool_vetoed") is True
+        or trace.get("reason") == "no_explicit_file_target"
+    )
 
 
 def test_analyze_missing_file_includes_close_matches_and_workspace_context():

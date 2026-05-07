@@ -19,4 +19,3 @@ def test_factory_wrapper_is_thin():
     path = Path("ai/runtime/alice_contract_factory.py")
     line_count = len(path.read_text(encoding="utf-8", errors="ignore").splitlines())
     assert line_count < 150
-

@@ -26,18 +26,32 @@ class MemoryConsolidator:
 
     def _iter_structured(self) -> List[Any]:
         entries: List[Any] = []
-        for attr in ("episodic_memory", "semantic_memory", "procedural_memory", "document_memory"):
+        for attr in (
+            "episodic_memory",
+            "semantic_memory",
+            "procedural_memory",
+            "document_memory",
+        ):
             bucket = getattr(self.memory, attr, None)
             if isinstance(bucket, list):
                 entries.extend(bucket)
         out: List[Any] = []
         for entry in entries:
-            tags = [str(t or "").strip().lower() for t in list(getattr(entry, "tags", []) or [])]
+            tags = [
+                str(t or "").strip().lower()
+                for t in list(getattr(entry, "tags", []) or [])
+            ]
             if "structured:personal" in tags:
                 out.append(entry)
         return out
 
-    def consolidate_recent(self, *, domain: str | None = None, kind: str | None = None, scope: str | None = None) -> Dict[str, Any]:
+    def consolidate_recent(
+        self,
+        *,
+        domain: str | None = None,
+        kind: str | None = None,
+        scope: str | None = None,
+    ) -> Dict[str, Any]:
         entries = self._iter_structured()
         groups: Dict[str, List[Any]] = {}
         for entry in entries:
@@ -59,16 +73,26 @@ class MemoryConsolidator:
         for _, bucket in groups.items():
             if len(bucket) < 2:
                 continue
-            bucket_sorted = sorted(bucket, key=lambda e: str(getattr(e, "timestamp", "")), reverse=True)
+            bucket_sorted = sorted(
+                bucket, key=lambda e: str(getattr(e, "timestamp", "")), reverse=True
+            )
             anchor = bucket_sorted[0]
             anchor_ctx = dict(getattr(anchor, "context", {}) or {})
             for candidate in bucket_sorted[1:]:
                 cand_ctx = dict(getattr(candidate, "context", {}) or {})
-                sim = _similarity(getattr(anchor, "content", ""), getattr(candidate, "content", ""))
+                sim = _similarity(
+                    getattr(anchor, "content", ""), getattr(candidate, "content", "")
+                )
                 if sim < 0.68:
                     continue
-                anchor_conf = float(anchor_ctx.get("confidence", getattr(anchor, "importance", 0.6)) or 0.6)
-                cand_conf = float(cand_ctx.get("confidence", getattr(candidate, "importance", 0.6)) or 0.6)
+                anchor_conf = float(
+                    anchor_ctx.get("confidence", getattr(anchor, "importance", 0.6))
+                    or 0.6
+                )
+                cand_conf = float(
+                    cand_ctx.get("confidence", getattr(candidate, "importance", 0.6))
+                    or 0.6
+                )
                 new_conf = min(0.99, max(anchor_conf, cand_conf) + 0.05)
                 anchor_ctx["confidence"] = new_conf
                 anchor_ctx["consolidated_at"] = datetime.now(timezone.utc).isoformat()
@@ -79,7 +103,10 @@ class MemoryConsolidator:
                     src_ids.append(str(cand_ctx.get("trace_id")))
                 anchor_ctx["source_trace_ids"] = sorted({sid for sid in src_ids if sid})
                 anchor.context = anchor_ctx
-                anchor.importance = min(0.99, max(float(getattr(anchor, "importance", 0.7) or 0.7), new_conf))
+                anchor.importance = min(
+                    0.99,
+                    max(float(getattr(anchor, "importance", 0.7) or 0.7), new_conf),
+                )
 
                 cand_ctx["superseded"] = True
                 cand_ctx["superseded_by"] = str(getattr(anchor, "id", ""))

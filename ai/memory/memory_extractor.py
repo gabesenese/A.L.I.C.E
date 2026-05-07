@@ -185,7 +185,9 @@ class MemoryExtractor:
             return f"{subject} was ready to work on the AI/Alice project."
         if domain == "alice_project" and "agentic" in clean.lower():
             return f"{subject} wants Alice to become an agentic AI companion/operator."
-        if domain == "fitness" and re.search(r"\b(?:\d{2,3})\s*kg\b", clean, re.IGNORECASE):
+        if domain == "fitness" and re.search(
+            r"\b(?:\d{2,3})\s*kg\b", clean, re.IGNORECASE
+        ):
             target = re.search(r"\b(\d{2,3})\s*kg\b", clean, re.IGNORECASE)
             kg = target.group(1) if target else ""
             return f"{subject} is trying to gain weight and wants to reach {kg}kg."
@@ -242,7 +244,9 @@ class MemoryExtractor:
                 if "alice_project" not in fragment_domains:
                     fragment_domains.insert(0, "alice_project")
                 fragment_domains = [d for d in fragment_domains if d != "work"] + (
-                    ["work"] if "work" in fragment_domains and "worked late" in fragment.lower() else []
+                    ["work"]
+                    if "work" in fragment_domains and "worked late" in fragment.lower()
+                    else []
                 )
             is_action_fragment = bool(self._action_request_pattern.search(fragment))
             # Explicit day-to-day personal events get a dedicated personal memory candidate.
@@ -265,12 +269,20 @@ class MemoryExtractor:
 
             for domain in fragment_domains:
                 normalized_domain = (
-                    domain if domain in PERSONAL_MEMORY_DOMAINS else DEFAULT_PERSONAL_DOMAIN
+                    domain
+                    if domain in PERSONAL_MEMORY_DOMAINS
+                    else DEFAULT_PERSONAL_DOMAIN
                 )
                 kind = self._pick_kind(fragment, normalized_domain)
-                if has_mixed_alice_and_personal and normalized_domain == "alice_project":
+                if (
+                    has_mixed_alice_and_personal
+                    and normalized_domain == "alice_project"
+                ):
                     kind = "conversation_event"
-                if has_mixed_alice_and_personal and normalized_domain == "personal_life":
+                if (
+                    has_mixed_alice_and_personal
+                    and normalized_domain == "personal_life"
+                ):
                     kind = "emotional_state"
                 kind = kind if kind in PERSONAL_MEMORY_KINDS else DEFAULT_PERSONAL_KIND
                 scope = self._pick_scope(fragment, kind)
@@ -281,20 +293,31 @@ class MemoryExtractor:
                     confidence = 0.78
                 if normalized_domain in {"alice_project", "fitness", "personal_life"}:
                     confidence = max(confidence, 0.75)
-                if normalized_domain == "personal_life" and self._personal_priority_pattern.search(fragment):
+                if (
+                    normalized_domain == "personal_life"
+                    and self._personal_priority_pattern.search(fragment)
+                ):
                     confidence = max(confidence, 0.84)
 
                 # Avoid storing action/capability fragments as personal memory.
                 should_store = True
-                if is_action_fragment and normalized_domain in {"alice_project", "general"}:
+                if is_action_fragment and normalized_domain in {
+                    "alice_project",
+                    "general",
+                }:
                     should_store = False
                 if normalized_domain == "general":
                     should_store = False
                 # Day-to-day explicit event already captured above.
-                if self._day_to_day_personal_pattern.search(fragment) and normalized_domain == "personal_life":
+                if (
+                    self._day_to_day_personal_pattern.search(fragment)
+                    and normalized_domain == "personal_life"
+                ):
                     should_store = False
 
-                content = self._rewrite_content(user_name, fragment, normalized_domain, kind)
+                content = self._rewrite_content(
+                    user_name, fragment, normalized_domain, kind
+                )
                 candidates.append(
                     MemoryCandidate(
                         content=content,

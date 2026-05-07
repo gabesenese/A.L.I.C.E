@@ -64,11 +64,15 @@ class AgenticLoop:
     def run_once(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Compatibility wrapper for legacy runtime wiring tests."""
         state = dict(state or {})
-        perceive = self._legacy_perceive(state) if callable(self._legacy_perceive) else {}
+        perceive = (
+            self._legacy_perceive(state) if callable(self._legacy_perceive) else {}
+        )
         reason = self._legacy_reason(state) if callable(self._legacy_reason) else {}
         goal = self._legacy_goal(state) if callable(self._legacy_goal) else {}
         decision = self._legacy_decide(state) if callable(self._legacy_decide) else {}
-        execution = self._legacy_execute(state) if callable(self._legacy_execute) else {}
+        execution = (
+            self._legacy_execute(state) if callable(self._legacy_execute) else {}
+        )
         learning = self._legacy_learn(state) if callable(self._legacy_learn) else {}
         return {
             "cycle": {
@@ -109,9 +113,13 @@ class AgenticLoop:
             "world": world,
         }
 
-    def _reasoning(self, payload: AgentCycleInput, perception: Dict[str, Any]) -> Dict[str, Any]:
+    def _reasoning(
+        self, payload: AgentCycleInput, perception: Dict[str, Any]
+    ) -> Dict[str, Any]:
         policy = self.foundation_layers.clarification_policy(
-            plugin_scores={payload.intent.split(":", 1)[0]: max(0.0, payload.confidence)},
+            plugin_scores={
+                payload.intent.split(":", 1)[0]: max(0.0, payload.confidence)
+            },
             confidence=float(payload.confidence or 0.0),
         )
         return {
@@ -120,7 +128,9 @@ class AgenticLoop:
             "risk_level": self._infer_risk(payload.intent, payload.entities),
         }
 
-    def _goal_setting(self, payload: AgentCycleInput, reasoning: Dict[str, Any]) -> Dict[str, Any]:
+    def _goal_setting(
+        self, payload: AgentCycleInput, reasoning: Dict[str, Any]
+    ) -> Dict[str, Any]:
         goal = str(payload.long_horizon_goal or payload.user_input or "").strip()
         milestones = []
         if goal:
@@ -132,10 +142,14 @@ class AgenticLoop:
         return {
             "goal": goal,
             "milestones": milestones,
-            "autonomy_mode": "supervised" if reasoning["needs_clarification"] else "autonomous",
+            "autonomy_mode": "supervised"
+            if reasoning["needs_clarification"]
+            else "autonomous",
         }
 
-    def _decision(self, payload: AgentCycleInput, goal_plan: Dict[str, Any]) -> Dict[str, Any]:
+    def _decision(
+        self, payload: AgentCycleInput, goal_plan: Dict[str, Any]
+    ) -> Dict[str, Any]:
         plugin, action = self._plugin_action_from_intent(payload.intent)
         return {
             "plugin": plugin,
@@ -143,7 +157,9 @@ class AgenticLoop:
             "should_execute": bool(plugin and action and goal_plan.get("goal")),
         }
 
-    def _execution(self, payload: AgentCycleInput, decision: Dict[str, Any]) -> Dict[str, Any]:
+    def _execution(
+        self, payload: AgentCycleInput, decision: Dict[str, Any]
+    ) -> Dict[str, Any]:
         if not decision.get("should_execute"):
             return {"status": "skipped", "reason": "insufficient_goal_or_decision"}
 
@@ -167,7 +183,9 @@ class AgenticLoop:
             "state_updates": dict(result.state_updates or {}),
         }
 
-    def _learning(self, payload: AgentCycleInput, execution: Dict[str, Any]) -> Dict[str, Any]:
+    def _learning(
+        self, payload: AgentCycleInput, execution: Dict[str, Any]
+    ) -> Dict[str, Any]:
         return {
             "feedback_signal": "positive" if execution.get("success") else "negative",
             "adjustment_hint": (
@@ -186,7 +204,11 @@ class AgenticLoop:
         milestones = list(goal_plan.get("milestones") or [])
         next_milestone = None
         if milestones:
-            next_milestone = milestones[1] if execution.get("success") and len(milestones) > 1 else milestones[0]
+            next_milestone = (
+                milestones[1]
+                if execution.get("success") and len(milestones) > 1
+                else milestones[0]
+            )
         return {
             "goal": goal_plan.get("goal", ""),
             "next_milestone": next_milestone,

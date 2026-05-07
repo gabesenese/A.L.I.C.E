@@ -47,7 +47,9 @@ class FileIndex:
 
         out: List[str] = []
         for dirpath, _, filenames in os.walk(self.root):
-            if any(skip in dirpath.lower() for skip in (".git", ".venv", "__pycache__")):
+            if any(
+                skip in dirpath.lower() for skip in (".git", ".venv", "__pycache__")
+            ):
                 continue
             for name in filenames:
                 if name.endswith((".py", ".md", ".json", ".yaml", ".yml")):
@@ -59,4 +61,3 @@ class FileIndex:
         self._cached_files = out
         self._cached_at = now
         return out
-

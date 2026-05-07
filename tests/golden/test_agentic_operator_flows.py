@@ -24,4 +24,3 @@ def test_next_step_followup_is_grounded():
     second = pipeline.run_turn("what's the next step?", "u1", 2)
     assert second.metadata["route"] in {"local", "llm"}
     assert "ask me to" not in str(second.response_text or "").lower()
-

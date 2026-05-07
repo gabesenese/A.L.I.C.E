@@ -96,7 +96,10 @@ def test_f_vector_memory_alone_is_not_sufficient():
     items = [
         {
             "content": "We discussed machine learning techniques.",
-            "context": {"source": "vector_recall", "timestamp": "2025-01-01T00:00:00+00:00"},
+            "context": {
+                "source": "vector_recall",
+                "timestamp": "2025-01-01T00:00:00+00:00",
+            },
         }
     ]
     result = assess_continuity_claims(
@@ -117,4 +120,3 @@ def test_g_mixed_response_removes_only_unsupported_sentence():
     assert "good to see you" in low
     assert "ready to continue" in low
     assert "machine learning" not in low
-

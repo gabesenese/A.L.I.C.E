@@ -480,7 +480,9 @@ class RequestRouter:
             text_lower
         ):
             note_markers = ("note", "notes", "memo", "list", "lists")
-            if "note" in intent_lower and not any(m in text_lower for m in note_markers):
+            if "note" in intent_lower and not any(
+                m in text_lower for m in note_markers
+            ):
                 return True
 
         # Clarify when below configured threshold unless user text is explicit.

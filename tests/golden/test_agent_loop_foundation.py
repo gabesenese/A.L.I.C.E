@@ -15,4 +15,3 @@ def test_agent_loop_local_code_step():
     assert "execute_safe_step" in payload["executed_steps"]
     assert isinstance(payload["verification"], dict)
     assert isinstance(payload["next_step"], str)
-

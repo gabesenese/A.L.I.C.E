@@ -9,4 +9,3 @@ class PipelineMetadataBuilder:
         out = dict(base or {})
         out.update({k: v for k, v in extra.items()})
         return out
-

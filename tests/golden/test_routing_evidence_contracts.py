@@ -22,4 +22,3 @@ def test_file_operations_delete_veto_without_target():
     assert out["accepted"] is False
     assert out["reason"] == "no_explicit_file_target"
     assert out["file_tool_vetoed"] is True
-

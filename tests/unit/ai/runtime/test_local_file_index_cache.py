@@ -21,4 +21,3 @@ def test_file_index_cache_and_invalidate(tmp_path: Path):
     index.invalidate()
     refreshed = index.list_files()
     assert "a.py" not in refreshed
-

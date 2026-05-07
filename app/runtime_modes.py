@@ -23,16 +23,39 @@ class RuntimeModeConfig:
     def for_mode(cls, mode: str) -> "RuntimeModeConfig":
         m = str(mode or "minimal").strip().lower()
         if m == "voice":
-            return cls(m, True, False, False, False, False, True, True, True, True, True, True)
+            return cls(
+                m, True, False, False, False, False, True, True, True, True, True, True
+            )
         if m == "lab":
-            return cls(m, False, False, True, False, True, True, True, True, True, True, True)
+            return cls(
+                m, False, False, True, False, True, True, True, True, True, True, True
+            )
         if m == "training":
-            return cls(m, False, True, False, True, False, True, False, False, True, True, True)
+            return cls(
+                m, False, True, False, True, False, True, False, False, True, True, True
+            )
         if m == "agentic":
-            return cls(m, False, False, False, False, True, True, True, True, True, True, True)
+            return cls(
+                m, False, False, False, False, True, True, True, True, True, True, True
+            )
         if m == "dev":
-            return cls(m, False, False, False, False, True, True, True, True, True, True, True)
-        return cls("minimal", False, False, False, False, False, False, False, False, False, True, True)
+            return cls(
+                m, False, False, False, False, True, True, True, True, True, True, True
+            )
+        return cls(
+            "minimal",
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            True,
+            True,
+        )
 
 
 def resolve_runtime_mode(explicit_mode: str | None) -> str:
@@ -42,4 +65,3 @@ def resolve_runtime_mode(explicit_mode: str | None) -> str:
     if env_mode:
         return env_mode
     return "minimal"
-

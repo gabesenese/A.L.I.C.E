@@ -446,9 +446,7 @@ def run_dev_mode(
         if watched_count > 0:
             observer.start()
             print(f"[DEV]  File watcher active ({watched_count} directories)")
-            print(
-                "[DEV]     Auto-reload enabled - edit any .py file to trigger reload"
-            )
+            print("[DEV]     Auto-reload enabled - edit any .py file to trigger reload")
             print(
                 f"[DEV]      Grace period: {event_handler.startup_grace_period}s after startup\n"
             )

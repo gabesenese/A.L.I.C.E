@@ -19,11 +19,43 @@ _CLAIM_RE = re.compile("|".join(_CLAIM_PATTERNS), re.IGNORECASE)
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _WORD_RE = re.compile(r"[a-z0-9']+")
 _STOPWORDS = {
-    "the", "a", "an", "we", "you", "i", "me", "my", "our", "your", "was", "were",
-    "are", "is", "to", "of", "about", "last", "time", "talked", "discussing",
-    "mentioned", "remember", "previous", "conversation", "history", "suggests",
-    "left", "off", "on", "and", "or", "in", "with", "for",
-    "today", "day",
+    "the",
+    "a",
+    "an",
+    "we",
+    "you",
+    "i",
+    "me",
+    "my",
+    "our",
+    "your",
+    "was",
+    "were",
+    "are",
+    "is",
+    "to",
+    "of",
+    "about",
+    "last",
+    "time",
+    "talked",
+    "discussing",
+    "mentioned",
+    "remember",
+    "previous",
+    "conversation",
+    "history",
+    "suggests",
+    "left",
+    "off",
+    "on",
+    "and",
+    "or",
+    "in",
+    "with",
+    "for",
+    "today",
+    "day",
 }
 
 
@@ -162,7 +194,9 @@ def _has_recent_session_evidence(items: List[Dict[str, Any]], *, now: datetime) 
     return False
 
 
-def _recent_session_items(items: List[Dict[str, Any]], *, now: datetime) -> List[Dict[str, Any]]:
+def _recent_session_items(
+    items: List[Dict[str, Any]], *, now: datetime
+) -> List[Dict[str, Any]]:
     matched: List[Dict[str, Any]] = []
     cutoff = now - timedelta(hours=6)
     for item in list(items or []):
@@ -179,7 +213,10 @@ def _recent_session_items(items: List[Dict[str, Any]], *, now: datetime) -> List
 
 def _has_active_objective(operator_state: Dict[str, Any]) -> bool:
     state = dict(operator_state or {})
-    return bool(str(state.get("active_objective") or "").strip() and str(state.get("current_focus") or "").strip())
+    return bool(
+        str(state.get("active_objective") or "").strip()
+        and str(state.get("current_focus") or "").strip()
+    )
 
 
 def assess_continuity_claims(
@@ -191,7 +228,9 @@ def assess_continuity_claims(
 ) -> ContinuityGuardResult:
     content = str(text or "").strip()
     if not content:
-        return ContinuityGuardResult("", [], [], [], [], {}, [], {}, {}, {}, False, False)
+        return ContinuityGuardResult(
+            "", [], [], [], [], {}, [], {}, {}, {}, False, False
+        )
 
     sentences = _SENTENCE_SPLIT.split(content)
     detected: List[str] = []
@@ -231,16 +270,24 @@ def assess_continuity_claims(
 
             if recent_items:
                 for item in recent_items:
-                    if _has_topic_overlap(claim_tokens, _tokens(str(item.get("content") or ""))):
+                    if _has_topic_overlap(
+                        claim_tokens, _tokens(str(item.get("content") or ""))
+                    ):
                         reasons.append("recent_session_overlap")
                         break
 
-            if operator_active and state_tokens and _has_topic_overlap(claim_tokens, state_tokens):
+            if (
+                operator_active
+                and state_tokens
+                and _has_topic_overlap(claim_tokens, state_tokens)
+            ):
                 reasons.append("active_objective_overlap")
 
             if structured_items:
                 for item in structured_items:
-                    if _has_topic_overlap(claim_tokens, _tokens(_memory_item_topic_text(item))):
+                    if _has_topic_overlap(
+                        claim_tokens, _tokens(_memory_item_topic_text(item))
+                    ):
                         reasons.append("structured_memory_overlap")
                         break
 

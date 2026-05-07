@@ -36,7 +36,9 @@ def test_b_mixed_turn_keeps_code_route_and_recall_mentions_shopping():
     assert first.metadata["route"] == "local"
     assert first.metadata["intent"] == "code:request"
     structured = _structured_rows(alice)
-    assert any((r.get("context") or {}).get("domain") == "personal_life" for r in structured)
+    assert any(
+        (r.get("context") or {}).get("domain") == "personal_life" for r in structured
+    )
 
     second = pipeline.run_turn("what did I talk about my personal life?", "u1", 2)
     assert second.metadata["response_type"] == "personal_memory_grounded"

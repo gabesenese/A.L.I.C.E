@@ -386,7 +386,9 @@ class RouteCoordinator:
                 {
                     "tool_eligibility_gate": True,
                     "reason": str(tool_eligibility.get("reason") or ""),
-                    "original_intent": str(tool_eligibility.get("original_intent") or ""),
+                    "original_intent": str(
+                        tool_eligibility.get("original_intent") or ""
+                    ),
                 }
             )
             modifiers["routing_trace"] = routing_trace
@@ -475,7 +477,9 @@ class RouteCoordinator:
         # Allow saved-list objects only when explicitly referenced as owned/specific lists.
         if re.search(r"\b(?:my|the)\s+[a-z][a-z0-9_-]*\s+list\b", utterance):
             return True
-        if re.search(r"\b(?:what(?:'s|\s+is)\s+in|open|read|show)\b.{0,30}\blist\b", utterance):
+        if re.search(
+            r"\b(?:what(?:'s|\s+is)\s+in|open|read|show)\b.{0,30}\blist\b", utterance
+        ):
             return True
         return False
 
@@ -483,7 +487,9 @@ class RouteCoordinator:
         utterance = str(text or "").strip().lower()
         if not utterance:
             return False
-        has_weather_domain = any(term in utterance for term in self._weather_domain_terms)
+        has_weather_domain = any(
+            term in utterance for term in self._weather_domain_terms
+        )
         has_request_shape = "?" in utterance or any(
             term in utterance for term in self._weather_explicit_request_terms
         )
@@ -521,13 +527,17 @@ class RouteCoordinator:
             return "code:list_files"
         return "code:request"
 
-    def _tool_eligibility_gate(self, *, text: str, intent: str) -> Optional[Dict[str, Any]]:
+    def _tool_eligibility_gate(
+        self, *, text: str, intent: str
+    ) -> Optional[Dict[str, Any]]:
         normalized_intent = str(intent or "").strip().lower()
         if not normalized_intent or normalized_intent.startswith("conversation:"):
             return None
 
         if normalized_intent.startswith("file_operations:"):
-            has_file_action = any(term in str(text or "").lower() for term in self._file_target_verbs)
+            has_file_action = any(
+                term in str(text or "").lower() for term in self._file_target_verbs
+            )
             if has_file_action and not self._has_explicit_file_target(text):
                 reroute_intent = self._infer_file_tool_reroute_intent(text)
                 return {
@@ -538,14 +548,18 @@ class RouteCoordinator:
                     "rerouted_to": reroute_intent,
                 }
 
-        if normalized_intent.startswith("notes:") and not self._has_explicit_notes_evidence(text):
+        if normalized_intent.startswith(
+            "notes:"
+        ) and not self._has_explicit_notes_evidence(text):
             return {
                 "reason": "notes_tool_requires_explicit_notes_domain_evidence",
                 "original_intent": normalized_intent,
                 "tool_execution_disabled": True,
             }
 
-        if normalized_intent.startswith("weather:") and not self._has_explicit_weather_request(text):
+        if normalized_intent.startswith(
+            "weather:"
+        ) and not self._has_explicit_weather_request(text):
             return {
                 "reason": "weather_tool_requires_explicit_request",
                 "original_intent": normalized_intent,

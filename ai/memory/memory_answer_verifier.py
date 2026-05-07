@@ -11,13 +11,19 @@ def _tokens(text: str) -> set[str]:
 
 
 class MemoryAnswerVerifier:
-    def verify_answer(self, *, answer_text: str, evidence_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def verify_answer(
+        self, *, answer_text: str, evidence_items: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         evidence_tokens = set()
         for row in list(evidence_items or []):
             evidence_tokens.update(_tokens(str(row.get("content") or "")))
 
         unsupported_claims: List[str] = []
-        lines = [ln.strip("- ").strip() for ln in str(answer_text or "").splitlines() if ln.strip()]
+        lines = [
+            ln.strip("- ").strip()
+            for ln in str(answer_text or "").splitlines()
+            if ln.strip()
+        ]
         for ln in lines:
             if ln.lower().startswith("here is what i have saved in memory"):
                 continue

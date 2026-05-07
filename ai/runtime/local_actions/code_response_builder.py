@@ -31,4 +31,3 @@ class CodeResponseBuilder:
         if stats.get("large_file_warning"):
             parts.append("Warning: large file; split review into targeted sections.")
         return " ".join(parts)
-

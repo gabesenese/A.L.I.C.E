@@ -14,4 +14,3 @@ from ai.runtime.alice_contract_factory import build_runtime_boundaries
 
 def build_boundaries(alice: Any) -> RuntimeBoundaries:
     return build_runtime_boundaries(alice)
-

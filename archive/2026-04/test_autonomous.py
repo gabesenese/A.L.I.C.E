@@ -14,21 +14,18 @@ def test_autonomous_imports():
     print("Testing autonomous mode imports...")
 
     try:
-
         print("- autonomous_agent imported successfully")
     except Exception as e:
         print(f"- ERROR importing autonomous_agent: {e}")
         return False
 
     try:
-
         print("- autonomous_execution_loop imported successfully")
     except Exception as e:
         print(f"- ERROR importing autonomous_execution_loop: {e}")
         return False
 
     try:
-
         print("- error_recovery imported successfully")
     except Exception as e:
         print(f"- ERROR importing error_recovery: {e}")

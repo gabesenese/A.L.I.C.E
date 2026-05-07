@@ -33,4 +33,3 @@ def test_next_step_query_uses_operator_state_guidance():
     )
     text = str(result.response_text or "").lower()
     assert "next best move" in text or "inspect" in text
-

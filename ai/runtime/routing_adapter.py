@@ -9,4 +9,3 @@ class RoutingAdapterResult:
     route: str
     intent: str
     metadata: Dict[str, Any]
-

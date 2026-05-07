@@ -2281,17 +2281,16 @@ class ExecutiveController:
         response_tokens = set(self._tokens(response))
 
         user_low = (user_input or "").lower()
-        practical_framework_prompt = (
-            any(cue in user_low for cue in ("framework", "frameworks", "architecture"))
-            and any(
-                cue in user_low
-                for cue in (
-                    "agentic autonomy",
-                    "agentic ai",
-                    "autonomous agent",
-                    "ai agent",
-                    "autonomy in ai",
-                )
+        practical_framework_prompt = any(
+            cue in user_low for cue in ("framework", "frameworks", "architecture")
+        ) and any(
+            cue in user_low
+            for cue in (
+                "agentic autonomy",
+                "agentic ai",
+                "autonomous agent",
+                "ai agent",
+                "autonomy in ai",
             )
         )
         if practical_framework_prompt:

@@ -7847,9 +7847,7 @@ class ALICE:
         """Return an architecture-first response for practical agent build prompts."""
         text = str(user_input or "").lower().strip()
         assistant_label = (
-            "A.L.I.C.E"
-            if ("alice" in text or "a.l.i.c.e" in text)
-            else "your system"
+            "A.L.I.C.E" if ("alice" in text or "a.l.i.c.e" in text) else "your system"
         )
 
         framework_pool = [
@@ -7979,9 +7977,7 @@ class ALICE:
         """Return concrete, execution-oriented guidance for assistant-to-agent migration pain."""
         text = str(user_input or "").lower().strip()
         label = (
-            "A.L.I.C.E"
-            if ("alice" in text or "a.l.i.c.e" in text)
-            else "your system"
+            "A.L.I.C.E" if ("alice" in text or "a.l.i.c.e" in text) else "your system"
         )
 
         bottleneck_pool = [
