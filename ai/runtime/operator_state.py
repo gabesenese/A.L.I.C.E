@@ -32,6 +32,11 @@ class OperatorState:
     last_test_failure: str = ""
     user_corrections: List[str] = field(default_factory=list)
     design_constraints: List[str] = field(default_factory=list)
+    last_self_improvement_event_id: str = ""
+    last_hypothesis_id: str = ""
+    last_patch_plan_id: str = ""
+    last_audit_report_id: str = ""
+    self_improvement_status: str = ""
     updated_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -61,6 +66,11 @@ class OperatorState:
             "last_test_failure": self.last_test_failure,
             "user_corrections": list(self.user_corrections or []),
             "design_constraints": list(self.design_constraints or []),
+            "last_self_improvement_event_id": self.last_self_improvement_event_id,
+            "last_hypothesis_id": self.last_hypothesis_id,
+            "last_patch_plan_id": self.last_patch_plan_id,
+            "last_audit_report_id": self.last_audit_report_id,
+            "self_improvement_status": self.self_improvement_status,
             "updated_at": self.updated_at,
         }
 
@@ -91,6 +101,13 @@ class OperatorState:
             last_test_failure=str(data.get("last_test_failure") or ""),
             user_corrections=list(data.get("user_corrections") or []),
             design_constraints=list(data.get("design_constraints") or []),
+            last_self_improvement_event_id=str(
+                data.get("last_self_improvement_event_id") or ""
+            ),
+            last_hypothesis_id=str(data.get("last_hypothesis_id") or ""),
+            last_patch_plan_id=str(data.get("last_patch_plan_id") or ""),
+            last_audit_report_id=str(data.get("last_audit_report_id") or ""),
+            self_improvement_status=str(data.get("self_improvement_status") or ""),
             updated_at=str(
                 data.get("updated_at") or datetime.now(timezone.utc).isoformat()
             ),
@@ -151,6 +168,22 @@ def sync_operator_state_with_project_memory(
     state.next_recommended_action = str(
         pm.next_recommended_action or state.next_recommended_action
     )
+    state.last_self_improvement_event_id = str(
+        getattr(pm, "last_self_improvement_event_id", "")
+        or state.last_self_improvement_event_id
+    )
+    state.last_hypothesis_id = str(
+        getattr(pm, "last_hypothesis_id", "") or state.last_hypothesis_id
+    )
+    state.last_patch_plan_id = str(
+        getattr(pm, "last_patch_plan_id", "") or state.last_patch_plan_id
+    )
+    state.last_audit_report_id = str(
+        getattr(pm, "last_audit_report_id", "") or state.last_audit_report_id
+    )
+    state.self_improvement_status = str(
+        getattr(pm, "self_improvement_status", "") or state.self_improvement_status
+    )
     state.user_corrections = list(pm.user_corrections or state.user_corrections)
     state.design_constraints = list(pm.design_constraints or state.design_constraints)
     state.updated_at = datetime.now(timezone.utc).isoformat()
@@ -177,6 +210,11 @@ def commit_operator_state_to_project_memory(
             "next_recommended_action": state.next_recommended_action,
             "user_corrections": list(state.user_corrections or []),
             "design_constraints": list(state.design_constraints or []),
+            "last_self_improvement_event_id": state.last_self_improvement_event_id,
+            "last_hypothesis_id": state.last_hypothesis_id,
+            "last_patch_plan_id": state.last_patch_plan_id,
+            "last_audit_report_id": state.last_audit_report_id,
+            "self_improvement_status": state.self_improvement_status,
         },
         user_id=user_id,
     )

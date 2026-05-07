@@ -958,6 +958,67 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
+        if any(
+            phrase in low
+            for phrase in (
+                "audit that failure",
+                "why did that fail",
+                "make a patch plan",
+                "what did you learn from that failure",
+            )
+        ):
+            return RouterDecision(
+                route="local",
+                intent="self_improvement:audit",
+                confidence=0.93,
+                decision_band="execute",
+                metadata={
+                    "reason": "self_improvement_audit_query",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
+
+        if any(
+            phrase in low
+            for phrase in (
+                "generate a codex brief",
+                "codex brief",
+                "implementation brief",
+            )
+        ):
+            return RouterDecision(
+                route="local",
+                intent="self_improvement:brief",
+                confidence=0.92,
+                decision_band="execute",
+                metadata={
+                    "reason": "self_improvement_brief_query",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
+
+        if any(
+            phrase in low
+            for phrase in (
+                "what improvements are pending",
+                "self improvement status",
+                "improvements pending",
+            )
+        ):
+            return RouterDecision(
+                route="local",
+                intent="self_improvement:status",
+                confidence=0.92,
+                decision_band="execute",
+                metadata={
+                    "reason": "self_improvement_status_query",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
+
         continue_command = bool(
             re.match(
                 r"^\s*(continue|keep going|pick up where we left off)\s*[.!?]*\s*$",
@@ -1560,6 +1621,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "operator:next_step",
             "operator:project_status",
             "operator:continue",
+            "self_improvement:audit",
+            "self_improvement:status",
+            "self_improvement:brief",
         }:
             context_payload = dict(invocation.params.get("context") or {})
             extracted_target = _extract_code_target(

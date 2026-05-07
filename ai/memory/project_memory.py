@@ -42,6 +42,11 @@ class ProjectMemoryState:
     next_recommended_action: str = ""
     user_corrections: List[str] = field(default_factory=list)
     design_constraints: List[str] = field(default_factory=_default_design_constraints)
+    last_self_improvement_event_id: str = ""
+    last_hypothesis_id: str = ""
+    last_patch_plan_id: str = ""
+    last_audit_report_id: str = ""
+    self_improvement_status: str = ""
     updated_at: str = field(default_factory=_now_iso)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -67,6 +72,13 @@ class ProjectMemoryState:
             design_constraints=list(
                 data.get("design_constraints") or _default_design_constraints()
             ),
+            last_self_improvement_event_id=str(
+                data.get("last_self_improvement_event_id") or ""
+            ),
+            last_hypothesis_id=str(data.get("last_hypothesis_id") or ""),
+            last_patch_plan_id=str(data.get("last_patch_plan_id") or ""),
+            last_audit_report_id=str(data.get("last_audit_report_id") or ""),
+            self_improvement_status=str(data.get("self_improvement_status") or ""),
             updated_at=str(data.get("updated_at") or _now_iso()),
         )
         # Ensure required design constraints always exist.
@@ -200,5 +212,30 @@ def get_next_context_summary(user_id: str = "default") -> Dict[str, Any]:
         "known_blockers": list(state.known_blockers or [])[:5],
         "last_inspected_file": (state.files_inspected[-1] if state.files_inspected else ""),
         "next_recommended_action": state.next_recommended_action,
+        "last_self_improvement_event_id": state.last_self_improvement_event_id,
+        "last_audit_report_id": state.last_audit_report_id,
+        "self_improvement_status": state.self_improvement_status,
         "updated_at": state.updated_at,
     }
+
+
+def record_improvement_audit(
+    report_summary: Dict[str, Any], user_id: str = "default"
+) -> ProjectMemoryState:
+    data = dict(report_summary or {})
+    return update_project_state(
+        {
+            "last_self_improvement_event_id": str(data.get("event_id") or ""),
+            "last_hypothesis_id": str(data.get("hypothesis_id") or ""),
+            "last_patch_plan_id": str(data.get("patch_plan_id") or ""),
+            "last_audit_report_id": str(data.get("audit_report_id") or ""),
+            "self_improvement_status": str(
+                data.get("status") or "audit_report_recorded"
+            ),
+            "next_recommended_action": str(
+                data.get("next_recommended_action")
+                or "Review audit report and approve implementation scope."
+            ),
+        },
+        user_id=user_id,
+    )

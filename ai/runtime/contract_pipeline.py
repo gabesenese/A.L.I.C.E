@@ -29,6 +29,7 @@ from ai.runtime.response_momentum_policy import apply_response_momentum
 from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
 from ai.memory.project_memory import load_project_state
+from ai.runtime.self_improvement.improvement_loop import ImprovementLoop
 
 
 @dataclass
@@ -58,6 +59,46 @@ class ContractPipeline:
         self.memory_turn_service = MemoryTurnService()
         self.routing_failure_logger = RoutingFailureLogger()
         self._greeting_session_state_by_user: Dict[str, Dict[str, Any]] = {}
+
+    def _maybe_record_behavior_event(
+        self,
+        *,
+        user_id: str,
+        source: str,
+        user_input: str,
+        alice_response: str = "",
+        route: str = "",
+        intent: str = "",
+        trace_id: str = "",
+        failure_kind: str = "unknown",
+        symptom: str = "",
+        expected_behavior: str = "",
+        actual_behavior: str = "",
+        severity: str = "medium",
+        evidence: Optional[Dict[str, Any]] = None,
+        related_files: Optional[List[str]] = None,
+    ) -> None:
+        try:
+            loop = ImprovementLoop(user_id=user_id)
+            event = loop.observe_event(
+                source=source,
+                user_input=user_input,
+                alice_response=alice_response,
+                route=route,
+                intent=intent,
+                trace_id=trace_id,
+                failure_kind=failure_kind,
+                symptom=symptom,
+                expected_behavior=expected_behavior,
+                actual_behavior=actual_behavior,
+                severity=severity,
+                evidence=dict(evidence or {}),
+                related_files=list(related_files or []),
+                user_id=user_id,
+            )
+            loop.maybe_auto_audit(event)
+        except Exception:
+            return
 
     @staticmethod
     def _is_tool_route(route: str) -> bool:
@@ -446,6 +487,29 @@ class ContractPipeline:
             turn_number=turn_number,
             user_state=user_state_snapshot,
         )
+        low_input = str(user_input or "").lower()
+        if any(
+            phrase in low_input
+            for phrase in (
+                "that's wrong",
+                "you misunderstood",
+                "this feels forced",
+                "too dry",
+                "still assistant-like",
+                "not accurate",
+            )
+        ):
+            self._maybe_record_behavior_event(
+                user_id=user_id,
+                source="user_correction",
+                user_input=user_input,
+                trace_id=trace_id,
+                failure_kind="unknown",
+                symptom="User correction signal received.",
+                expected_behavior="Grounded response aligned with user correction.",
+                actual_behavior="User reported incorrect or forced behavior.",
+                severity="medium",
+            )
 
         route_phase = self.orchestrator.route_phase(
             user_input=user_input,
@@ -786,6 +850,39 @@ class ContractPipeline:
                     "I could not verify that result safely. "
                     "Please rephrase the request or provide more detail."
                 )
+            self._maybe_record_behavior_event(
+                user_id=user_id,
+                source="verification_failure",
+                user_input=user_input,
+                alice_response=response_text,
+                route=str(decision.route or ""),
+                intent=str(decision.intent or ""),
+                trace_id=trace_id,
+                failure_kind=(
+                    "continuity_claim"
+                    if verification
+                    and str(verification.reason or "") == "unsupported_continuity_claim"
+                    else "response_grounding"
+                ),
+                symptom=str(verification.reason or "verification_failed")
+                if verification
+                else "verification_failed",
+                expected_behavior="Verified grounded response.",
+                actual_behavior="Verifier rejected the proposed response.",
+                severity="medium",
+                evidence={
+                    "verification_reason": str(verification.reason or "")
+                    if verification
+                    else "",
+                    "verification_diagnostics": dict(verification.diagnostics or {})
+                    if verification
+                    else {},
+                },
+                related_files=[
+                    "ai/runtime/continuity_claim_guard.py",
+                    "ai/runtime/contract_pipeline.py",
+                ],
+            )
             respond_requires_follow_up = True
             respond_metadata = {
                 **dict(respond_metadata or {}),
@@ -930,6 +1027,25 @@ class ContractPipeline:
             active_objective=str(operator_state_payload.get("active_objective") or ""),
         )
         if str(local_exec_payload.get("error") or "") == "target_not_found":
+            self._maybe_record_behavior_event(
+                user_id=user_id,
+                source="local_execution_error",
+                user_input=user_input,
+                alice_response=response_text,
+                route=str(decision.route or ""),
+                intent=str(decision.intent or ""),
+                trace_id=trace_id,
+                failure_kind="local_execution",
+                symptom="local execution target_not_found",
+                expected_behavior="Resolve target file or offer safe list fallback.",
+                actual_behavior="Requested file target could not be resolved.",
+                severity="medium",
+                evidence={"local_execution": dict(local_exec_payload or {})},
+                related_files=[
+                    "ai/runtime/local_actions/file_resolver.py",
+                    "ai/runtime/local_actions/local_action_executor.py",
+                ],
+            )
             self._append_routing_failure(
                 trace_id=trace_id,
                 user_input=user_input,

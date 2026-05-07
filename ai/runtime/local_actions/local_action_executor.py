@@ -7,6 +7,7 @@ from typing import Any, Dict
 from ai.memory.project_memory import get_next_context_summary, load_project_state, update_project_state
 from ai.runtime.agent_loop import AgentLoop
 from ai.runtime.next_step_policy import decide_next_step
+from ai.runtime.self_improvement.improvement_loop import ImprovementLoop
 from ai.runtime.local_actions.code_analyzer import CodeAnalyzer
 from ai.runtime.local_actions.code_response_builder import CodeResponseBuilder
 from ai.runtime.local_actions.file_index import FileIndex
@@ -243,9 +244,80 @@ class LocalActionExecutor:
                 "local_execution": local_execution,
             }
 
-        if action in {"operator:project_status", "operator:next_step", "operator:continue"}:
+        if action in {
+            "operator:project_status",
+            "operator:next_step",
+            "operator:continue",
+            "self_improvement:audit",
+            "self_improvement:status",
+            "self_improvement:brief",
+        }:
             operator_state = dict(ctx.get("operator_state") or {})
             project_state = load_project_state(user_id).to_dict()
+            improvement_loop = ImprovementLoop(user_id=user_id)
+            if action == "self_improvement:status":
+                last_event = improvement_loop.latest_event()
+                last_report = improvement_loop.latest_report()
+                text = (
+                    f"Pending improvement events: {'yes' if last_event else 'no'}. "
+                    f"Latest event kind: {last_event.get('failure_kind') or 'none'}. "
+                    f"Latest audit report: {last_report.get('report_id') or 'none'}. "
+                    "Next move: run an audit for the latest failure if needed."
+                )
+                local_execution["success"] = True
+                return {
+                    "success": True,
+                    "response": text,
+                    "operator_context": operator_context,
+                    "local_execution": local_execution,
+                }
+
+            if action == "self_improvement:audit":
+                latest = improvement_loop.latest_event()
+                if not latest:
+                    local_execution["success"] = True
+                    return {
+                        "success": True,
+                        "response": "No behavior event found yet. Record a failure signal first, then run audit.",
+                        "operator_context": operator_context,
+                        "local_execution": local_execution,
+                    }
+                from ai.runtime.self_improvement.behavior_event import BehaviorEvent
+
+                event = BehaviorEvent(**latest)
+                report = improvement_loop.run_audit_from_event(event)
+                local_execution["success"] = True
+                local_execution["audit_report_id"] = report.report_id
+                return {
+                    "success": True,
+                    "response": report.recommendation,
+                    "operator_context": operator_context,
+                    "local_execution": local_execution,
+                    "data": {"audit_report": report.to_dict()},
+                }
+
+            if action == "self_improvement:brief":
+                latest_report = improvement_loop.latest_report()
+                if not latest_report:
+                    local_execution["success"] = True
+                    return {
+                        "success": True,
+                        "response": "No audit report found yet. Run self-improvement audit first.",
+                        "operator_context": operator_context,
+                        "local_execution": local_execution,
+                    }
+                from ai.runtime.self_improvement.audit_report import AuditReport
+
+                report = AuditReport(**latest_report)
+                brief = improvement_loop.build_codex_brief(report)
+                local_execution["success"] = True
+                return {
+                    "success": True,
+                    "response": brief,
+                    "operator_context": operator_context,
+                    "local_execution": local_execution,
+                }
+
             if action == "operator:project_status":
                 summary = get_next_context_summary(user_id)
                 text = (

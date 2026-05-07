@@ -160,7 +160,14 @@ class EvidenceContracts:
                 result["evidence_score"] = 0.82
             return result
 
-        if normalized in {"operator:next_step", "operator:project_status", "operator:continue"}:
+        if normalized in {
+            "operator:next_step",
+            "operator:project_status",
+            "operator:continue",
+            "self_improvement:audit",
+            "self_improvement:status",
+            "self_improvement:brief",
+        }:
             has_state = bool(active_objective or state.get("current_focus") or proj.get("current_focus"))
             if not has_state:
                 result.update(
@@ -176,6 +183,8 @@ class EvidenceContracts:
                 result["evidence_score"] = 0.86
             if normalized == "operator:continue" and not cls.CONTINUATION_SIGNAL.search(text):
                 result["evidence_score"] = 0.72
+            if normalized.startswith("self_improvement:"):
+                result["evidence_score"] = 0.84
             return result
 
         if normalized == "conversation:greeting":
