@@ -115,9 +115,13 @@ class TurnOrchestrator:
         if explicit_target:
             target_file = explicit_target
         elif operator_context.get("inferred_target_file"):
-            target_file = str(operator_context.get("inferred_target_file") or "").strip()
+            target_file = str(
+                operator_context.get("inferred_target_file") or ""
+            ).strip()
         else:
-            match = re.search(r"([a-zA-Z0-9_./\\-]+\.[a-zA-Z0-9]{1,8})\b", resolved_input)
+            match = re.search(
+                r"([a-zA-Z0-9_./\\-]+\.[a-zA-Z0-9]{1,8})\b", resolved_input
+            )
             if match:
                 target_file = str(match.group(1))
 
@@ -143,8 +147,15 @@ class TurnOrchestrator:
                         "resolved_input": resolved_input,
                         "target_file": target_file,
                         "turn_plan": turn_plan,
-                        "active_mode": str(operator_state.get("active_mode") or operator_context.get("active_mode") or ""),
-                        "active_objective": str(operator_state.get("active_objective") or ""),
+                        "operator_state": dict(operator_state or {}),
+                        "active_mode": str(
+                            operator_state.get("active_mode")
+                            or operator_context.get("active_mode")
+                            or ""
+                        ),
+                        "active_objective": str(
+                            operator_state.get("active_objective") or ""
+                        ),
                         "previous_intent": str(operator_state.get("last_intent") or ""),
                     },
                 },

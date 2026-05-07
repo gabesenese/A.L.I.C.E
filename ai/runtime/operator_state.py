@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from ai.memory.project_memory import ProjectMemoryState, update_project_state
+
 
 @dataclass
 class OperatorState:
@@ -25,7 +27,14 @@ class OperatorState:
     next_recommended_action: str = ""
     suggested_next_files: List[str] = field(default_factory=list)
     active_file_candidates: List[str] = field(default_factory=list)
-    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    files_changed: List[str] = field(default_factory=list)
+    tests_run: List[Dict[str, Any]] = field(default_factory=list)
+    last_test_failure: str = ""
+    user_corrections: List[str] = field(default_factory=list)
+    design_constraints: List[str] = field(default_factory=list)
+    updated_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -47,6 +56,11 @@ class OperatorState:
             "next_recommended_action": self.next_recommended_action,
             "suggested_next_files": list(self.suggested_next_files or []),
             "active_file_candidates": list(self.active_file_candidates or []),
+            "files_changed": list(self.files_changed or []),
+            "tests_run": list(self.tests_run or []),
+            "last_test_failure": self.last_test_failure,
+            "user_corrections": list(self.user_corrections or []),
+            "design_constraints": list(self.design_constraints or []),
             "updated_at": self.updated_at,
         }
 
@@ -72,15 +86,34 @@ class OperatorState:
             next_recommended_action=str(data.get("next_recommended_action") or ""),
             suggested_next_files=list(data.get("suggested_next_files") or []),
             active_file_candidates=list(data.get("active_file_candidates") or []),
-            updated_at=str(data.get("updated_at") or datetime.now(timezone.utc).isoformat()),
+            files_changed=list(data.get("files_changed") or []),
+            tests_run=list(data.get("tests_run") or []),
+            last_test_failure=str(data.get("last_test_failure") or ""),
+            user_corrections=list(data.get("user_corrections") or []),
+            design_constraints=list(data.get("design_constraints") or []),
+            updated_at=str(
+                data.get("updated_at") or datetime.now(timezone.utc).isoformat()
+            ),
         )
 
 
-def update_operator_state(existing: Dict[str, Any] | None, updates: Dict[str, Any]) -> Dict[str, Any]:
+def update_operator_state(
+    existing: Dict[str, Any] | None, updates: Dict[str, Any]
+) -> Dict[str, Any]:
     state = OperatorState.from_dict(existing)
     for key, value in dict(updates or {}).items():
         if hasattr(state, key):
-            if key in {"known_blockers", "files_inspected", "current_plan", "suggested_next_files", "active_file_candidates"}:
+            if key in {
+                "known_blockers",
+                "files_inspected",
+                "current_plan",
+                "suggested_next_files",
+                "active_file_candidates",
+                "files_changed",
+                "tests_run",
+                "user_corrections",
+                "design_constraints",
+            }:
                 if isinstance(value, list):
                     current = list(getattr(state, key) or [])
                     merged = current + [v for v in value if v not in current]
@@ -91,3 +124,59 @@ def update_operator_state(existing: Dict[str, Any] | None, updates: Dict[str, An
                 setattr(state, key, value)
     state.updated_at = datetime.now(timezone.utc).isoformat()
     return state.to_dict()
+
+
+def sync_operator_state_with_project_memory(
+    operator_state: Dict[str, Any] | None,
+    project_memory_state: ProjectMemoryState,
+) -> Dict[str, Any]:
+    state = OperatorState.from_dict(operator_state)
+    pm = project_memory_state
+
+    if pm.active_objective and not state.active_objective:
+        state.active_objective = pm.active_objective
+    if pm.current_focus and not state.current_focus:
+        state.current_focus = pm.current_focus
+
+    # Durable fields should always be hydrated from project memory.
+    state.last_failure = str(pm.last_failure or state.last_failure)
+    state.last_success = str(pm.last_success or state.last_success)
+    state.known_blockers = list(pm.known_blockers or state.known_blockers)
+    state.files_inspected = list(pm.files_inspected or state.files_inspected)
+    state.files_changed = list(pm.files_changed or state.files_changed)
+    state.tests_run = list(pm.tests_run or state.tests_run)
+    state.last_test_failure = str(pm.last_test_failure or state.last_test_failure)
+    state.current_plan = list(pm.current_plan or state.current_plan)
+    state.current_step = str(pm.current_step or state.current_step)
+    state.next_recommended_action = str(
+        pm.next_recommended_action or state.next_recommended_action
+    )
+    state.user_corrections = list(pm.user_corrections or state.user_corrections)
+    state.design_constraints = list(pm.design_constraints or state.design_constraints)
+    state.updated_at = datetime.now(timezone.utc).isoformat()
+    return state.to_dict()
+
+
+def commit_operator_state_to_project_memory(
+    operator_state: Dict[str, Any] | None, user_id: str = "default"
+) -> None:
+    state = OperatorState.from_dict(operator_state)
+    update_project_state(
+        {
+            "active_objective": state.active_objective,
+            "current_focus": state.current_focus,
+            "last_failure": state.last_failure,
+            "last_success": state.last_success,
+            "known_blockers": list(state.known_blockers or []),
+            "files_inspected": list(state.files_inspected or []),
+            "files_changed": list(state.files_changed or []),
+            "tests_run": list(state.tests_run or []),
+            "last_test_failure": state.last_test_failure,
+            "current_plan": list(state.current_plan or []),
+            "current_step": state.current_step,
+            "next_recommended_action": state.next_recommended_action,
+            "user_corrections": list(state.user_corrections or []),
+            "design_constraints": list(state.design_constraints or []),
+        },
+        user_id=user_id,
+    )

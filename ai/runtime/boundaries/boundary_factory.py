@@ -31,10 +31,15 @@ from ai.contracts import (
 )
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
 from ai.memory.personal_memory import PersonalMemoryStore
+from ai.memory.project_memory import load_project_state, update_project_state
 from ai.runtime.continuity_claim_guard import assess_continuity_claims
 from ai.runtime.greeting_surface_policy import render_grounded_greeting
 from ai.runtime.local_action_executor import LocalActionExecutor
-from ai.runtime.operator_state import update_operator_state
+from ai.runtime.operator_state import (
+    commit_operator_state_to_project_memory,
+    sync_operator_state_with_project_memory,
+    update_operator_state,
+)
 
 
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
@@ -915,11 +920,62 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     def _route(req: RouterRequest) -> RouterDecision:
         operator_ctx = dict(getattr(alice, "_operator_context", {}) or {})
         state = dict(getattr(alice, "_operator_state", {}) or {})
+        project_state = load_project_state("default")
+        state = sync_operator_state_with_project_memory(state, project_state)
+        setattr(alice, "_operator_state", state)
         continuation_active = bool(
             operator_ctx.get("active_capability") == "code_inspection"
             and operator_ctx.get("awaiting_target")
         )
         low = str(req.user_input or "").lower()
+
+        if any(
+            phrase in low
+            for phrase in (
+                "what's next",
+                "what is next",
+                "what are we fixing",
+                "where are we with",
+                "what did we last inspect",
+                "what is blocking us",
+                "what were we working on",
+            )
+        ):
+            intent = (
+                "operator:next_step"
+                if "next" in low
+                else "operator:project_status"
+            )
+            return RouterDecision(
+                route="local",
+                intent=intent,
+                confidence=0.94,
+                decision_band="execute",
+                metadata={
+                    "reason": "operator_status_query",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
+
+        continue_command = bool(
+            re.match(
+                r"^\s*(continue|keep going|pick up where we left off)\s*[.!?]*\s*$",
+                low,
+            )
+        )
+        if continue_command and bool(state.get("active_objective") or project_state.active_objective):
+            return RouterDecision(
+                route="local",
+                intent="operator:continue",
+                confidence=0.93,
+                decision_band="execute",
+                metadata={
+                    "reason": "operator_continue_query",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
 
         if (
             "what's the next step" in low or "what is the next step" in low
@@ -1212,6 +1268,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 candidate_intent=intent,
                 confidence=confidence,
                 active_mode=str(state.get("active_mode") or ""),
+                active_objective=str(state.get("active_objective") or ""),
+                operator_state=state,
+                project_memory=project_state.to_dict(),
+                previous_route=str(state.get("last_route") or ""),
+                previous_intent=str(state.get("last_intent") or ""),
+                continuation_context=continuation_active,
             )
             rerouted_intent = str(arbitration.get("intent") or "code:request")
             return RouterDecision(
@@ -1495,6 +1557,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         ) in {
             "system:location",
             "freshness:current_events",
+            "operator:next_step",
+            "operator:project_status",
+            "operator:continue",
         }:
             context_payload = dict(invocation.params.get("context") or {})
             extracted_target = _extract_code_target(
@@ -1760,6 +1825,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         },
                     ),
                 )
+                update_project_state(
+                    {
+                        "last_failure": str(
+                            local_exec.get("error")
+                            or req.tool_result.error
+                            or "local_execution_failed"
+                        ),
+                        "known_blockers": [
+                            str(local_exec.get("error") or "local_execution_failed")
+                        ],
+                        "current_step": "resolve_blocker",
+                        "files_inspected": [inferred] if inferred else [],
+                    },
+                    user_id="default",
+                )
             except Exception:
                 pass
             return ResponseOutput(
@@ -1942,6 +2022,15 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                                     ),
                                 },
                             ),
+                        )
+                        update_project_state(
+                            {
+                                "last_success": str(req.decision.intent or "local_success"),
+                                "last_failure": "",
+                                "current_step": "observe_result",
+                                "files_inspected": [inspected] if inspected else [],
+                            },
+                            user_id="default",
                         )
                 except Exception:
                     pass

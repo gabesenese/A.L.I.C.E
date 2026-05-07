@@ -25,8 +25,10 @@ from ai.runtime.next_step_policy import decide_next_step
 from ai.runtime.pipeline.metadata_builder import PipelineMetadataBuilder
 from ai.runtime.pipeline.routing_failure_logger import RoutingFailureLogger
 from ai.runtime.greeting_surface_policy import render_grounded_greeting
+from ai.runtime.response_momentum_policy import apply_response_momentum
 from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
+from ai.memory.project_memory import load_project_state
 
 
 @dataclass
@@ -910,6 +912,15 @@ class ContractPipeline:
             memory_recall=dict(memory.metadata or {}),
             routing_trace=dict(plan.get("routing_trace") or {}),
             last_failure=str(local_exec_payload.get("error") or ""),
+        )
+        response_text = apply_response_momentum(
+            response_text=response_text,
+            intent=str(decision.intent or ""),
+            route=str(decision.route or ""),
+            operator_state=operator_state_payload,
+            project_memory=load_project_state(str(user_id or "default")).to_dict(),
+            local_execution=local_exec_payload,
+            next_step=str(next_step.next_recommended_action or ""),
         )
         agent_loop_payload = build_agent_loop_state(
             user_input=user_input,

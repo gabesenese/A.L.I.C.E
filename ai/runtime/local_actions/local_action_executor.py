@@ -4,6 +4,9 @@ import re
 from pathlib import Path
 from typing import Any, Dict
 
+from ai.memory.project_memory import get_next_context_summary, load_project_state, update_project_state
+from ai.runtime.agent_loop import AgentLoop
+from ai.runtime.next_step_policy import decide_next_step
 from ai.runtime.local_actions.code_analyzer import CodeAnalyzer
 from ai.runtime.local_actions.code_response_builder import CodeResponseBuilder
 from ai.runtime.local_actions.file_index import FileIndex
@@ -49,7 +52,9 @@ class LocalActionExecutor:
             return m.group(1)
         return ""
 
-    def execute(self, *, action: str, query: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    def execute(
+        self, *, action: str, query: str, context: Dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
         ctx = dict(context or {})
         files = self.file_index.list_files()
         decision_meta = dict(ctx.get("decision_metadata") or {})
@@ -76,6 +81,7 @@ class LocalActionExecutor:
             "success": False,
             "error": "",
         }
+        user_id = str(ctx.get("user_id") or "default")
 
         if action == "code:list_files":
             preview = files[: min(15, len(files))]
@@ -99,28 +105,52 @@ class LocalActionExecutor:
                         + "\nNext best move: inspect ai/runtime/turn_orchestrator.py first."
                     )
                 else:
-                    text = "I can inspect these workspace files:\n- " + "\n- ".join(preview)
+                    text = "I can inspect these workspace files:\n- " + "\n- ".join(
+                        preview
+                    )
             else:
                 text = "I do not currently see workspace files to inspect."
             local_execution["success"] = bool(preview)
-            return {"success": True, "response": text, "operator_context": operator_context, "local_execution": local_execution}
+            return {
+                "success": True,
+                "response": text,
+                "operator_context": operator_context,
+                "local_execution": local_execution,
+            }
 
         if action == "code:request":
             focus = [
-                f for f in files
-                if any(k in f.lower() for k in ("contract_pipeline.py", "turn_orchestrator.py", "alice_contract_factory.py", "route_coordinator.py", "companion_runtime.py"))
+                f
+                for f in files
+                if any(
+                    k in f.lower()
+                    for k in (
+                        "contract_pipeline.py",
+                        "turn_orchestrator.py",
+                        "alice_contract_factory.py",
+                        "route_coordinator.py",
+                        "companion_runtime.py",
+                    )
+                )
             ]
             focus = focus[:5] if focus else files[:5]
             if focus:
                 text = (
                     "I can inspect local source code in this workspace and inspect the local workspace. "
-                    "Good next targets are:\n- " + "\n- ".join(focus) + "\nNext best move: inspect ai/runtime/turn_orchestrator.py because it controls route -> execute -> verify -> respond."
+                    "Good next targets are:\n- "
+                    + "\n- ".join(focus)
+                    + "\nNext best move: inspect ai/runtime/turn_orchestrator.py because it controls route -> execute -> verify -> respond."
                 )
             else:
                 text = "I can attempt local inspection, but I do not currently see workspace files."
             local_execution["success"] = bool(focus)
             operator_context["awaiting_target"] = True
-            return {"success": True, "response": text, "operator_context": operator_context, "local_execution": local_execution}
+            return {
+                "success": True,
+                "response": text,
+                "operator_context": operator_context,
+                "local_execution": local_execution,
+            }
 
         if action in {"code:analyze_file", "code:read_file"}:
             target = (
@@ -129,17 +159,25 @@ class LocalActionExecutor:
                 or self._extract_target_from_query(query)
             )
             operator_context["inferred_target_file"] = target
-            resolved = self.file_resolver.resolve_target(target, files) if target else {"file_exists": False, "resolved": "", "close_matches": files[:8]}
+            resolved = (
+                self.file_resolver.resolve_target(target, files)
+                if target
+                else {"file_exists": False, "resolved": "", "close_matches": files[:8]}
+            )
             operator_context["file_exists"] = bool(resolved["file_exists"])
             operator_context["close_matches"] = list(resolved["close_matches"])
             if not resolved["file_exists"]:
                 local_execution["error"] = "target_not_found"
                 local_execution["workspace_file_count"] = len(files)
-                local_execution["close_matches"] = list(resolved.get("close_matches") or [])
+                local_execution["close_matches"] = list(
+                    resolved.get("close_matches") or []
+                )
                 return {
                     "success": False,
                     "response": "",
-                    "error": f"File not found: {target}" if target else "No file target provided. Ask to list workspace files.",
+                    "error": f"File not found: {target}"
+                    if target
+                    else "No file target provided. Ask to list workspace files.",
                     "operator_context": operator_context,
                     "local_execution": local_execution,
                 }
@@ -150,7 +188,13 @@ class LocalActionExecutor:
                 text = self._read_file_text(rel)
             except Exception as exc:
                 local_execution["error"] = str(exc)
-                return {"success": False, "response": "", "error": f"Could not read {rel}: {exc}", "operator_context": operator_context, "local_execution": local_execution}
+                return {
+                    "success": False,
+                    "response": "",
+                    "error": f"Could not read {rel}: {exc}",
+                    "operator_context": operator_context,
+                    "local_execution": local_execution,
+                }
             stats = self.code_analyzer.stats(text)
             responsibility = self.code_analyzer.responsibility(rel, text)
             risks = self.code_analyzer.risk_flags(text, rel, stats)
@@ -170,16 +214,110 @@ class LocalActionExecutor:
                 suggested=suggested,
             )
             local_execution["success"] = True
-            return {"success": True, "response": summary, "operator_context": operator_context, "local_execution": local_execution}
+            return {
+                "success": True,
+                "response": summary,
+                "operator_context": operator_context,
+                "local_execution": local_execution,
+            }
 
-        if action == "system:location" and hasattr(self.alice, "_build_location_payload"):
+        if action == "system:location" and hasattr(
+            self.alice, "_build_location_payload"
+        ):
             payload = self.alice._build_location_payload()
             local_execution["success"] = bool(payload)
-            return {"success": True, "response": "", "data": payload, "operator_context": operator_context, "local_execution": local_execution}
+            return {
+                "success": True,
+                "response": "",
+                "data": payload,
+                "operator_context": operator_context,
+                "local_execution": local_execution,
+            }
 
         if action == "freshness:current_events":
             local_execution["success"] = True
-            return {"success": True, "response": "", "operator_context": operator_context, "local_execution": local_execution}
+            return {
+                "success": True,
+                "response": "",
+                "operator_context": operator_context,
+                "local_execution": local_execution,
+            }
 
-        return {"success": False, "response": "", "error": f"Unsupported local action: {action}", "operator_context": operator_context, "local_execution": local_execution}
+        if action in {"operator:project_status", "operator:next_step", "operator:continue"}:
+            operator_state = dict(ctx.get("operator_state") or {})
+            project_state = load_project_state(user_id).to_dict()
+            if action == "operator:project_status":
+                summary = get_next_context_summary(user_id)
+                text = (
+                    f"We are improving: {summary.get('active_objective') or 'objective not set yet'}. "
+                    f"Current focus: {summary.get('current_focus') or 'not set'}. "
+                    f"Last blocker: {summary.get('last_failure') or 'none recorded'}. "
+                    f"Last inspected file: {summary.get('last_inspected_file') or 'none yet'}. "
+                    f"Next move: {summary.get('next_recommended_action') or 'determine next step from runtime files'}."
+                )
+                local_execution["success"] = True
+                return {
+                    "success": True,
+                    "response": text,
+                    "operator_context": operator_context,
+                    "local_execution": local_execution,
+                }
 
+            decision = decide_next_step(
+                route=str(ctx.get("route") or "local"),
+                intent=action,
+                operator_state=operator_state,
+                project_memory=project_state,
+                local_execution=local_execution,
+                available_files=files,
+                files_inspected=list(operator_state.get("files_inspected") or []),
+                last_failure=str(operator_state.get("last_failure") or project_state.get("last_failure") or ""),
+            )
+            if action == "operator:next_step":
+                update_project_state(
+                    {"next_recommended_action": decision.next_recommended_action},
+                    user_id=user_id,
+                )
+                local_execution["success"] = True
+                return {
+                    "success": True,
+                    "response": decision.next_recommended_action
+                    or "No grounded next move yet. Start by listing local runtime files.",
+                    "operator_context": operator_context,
+                    "local_execution": {
+                        **local_execution,
+                        "suggested_next_files": list(decision.suggested_next_files or []),
+                    },
+                }
+
+            loop = AgentLoop()
+            loop_result = loop.run(
+                user_input=query,
+                operator_state=operator_state,
+                project_memory=project_state,
+                routing_result={
+                    "route": "local",
+                    "intent": action,
+                    "local_execution": local_execution,
+                },
+                available_files=files,
+                max_steps=1,
+                user_id=user_id,
+            )
+            local_execution["success"] = True
+            local_execution["agent_loop"] = loop_result.to_dict()
+            return {
+                "success": True,
+                "response": loop_result.next_step
+                or ("Blocked: " + loop_result.blocked_reason if loop_result.blocked_reason else "Continue executed one safe step."),
+                "operator_context": operator_context,
+                "local_execution": local_execution,
+            }
+
+        return {
+            "success": False,
+            "response": "",
+            "error": f"Unsupported local action: {action}",
+            "operator_context": operator_context,
+            "local_execution": local_execution,
+        }
