@@ -14,7 +14,7 @@ class _NlpResult:
 class _GreetingNlp:
     def process(self, text: str):
         low = str(text or "").lower().strip()
-        if low in {"hi", "hi alice", "hello", "hey"}:
+        if low in {"hi", "hi alice", "hello", "hey", "yo alice"}:
             return _NlpResult("conversation:greeting", 0.92)
         return _NlpResult("conversation:general", 0.84)
 
@@ -67,7 +67,8 @@ def test_a_greeting_ignores_stale_vector_memory_topic():
     )
 
     low = result.response_text.lower()
-    assert ("good to see you" in low) or ("what's on your mind" in low) or ("what are we thinking about" in low)
+    assert low not in {"hi gabriel.", "hello gabriel.", "hey gabriel, good to see you."}
+    assert ("good to see you" in low) or ("there you are" in low) or ("good to hear from you" in low) or ("i'm here" in low) or ("you're back" in low)
     assert "machine learning" not in low
     assert "last time we talked about" not in low
     assert "conversation history suggests" not in low
@@ -77,8 +78,12 @@ def test_a_greeting_ignores_stale_vector_memory_topic():
     assert "broad memory" not in low
     assert "alice's development" not in low
     assert "start fresh" not in low
+    assert "how can i help" not in low
+    assert "how may i assist" not in low
+    assert "what task" not in low
+    assert "what would you like help with" not in low
     sentence_count = sum(low.count(ch) for ch in ".!?")
-    assert 1 <= sentence_count <= 2
+    assert 2 <= sentence_count <= 3
     assert result.metadata["route"] == "llm"
     assert result.metadata["verification"]["accepted"] is True
     assert (
@@ -159,6 +164,10 @@ def test_f_repeated_greeting_is_shorter_and_no_project_menu_repeat():
     assert "start fresh" not in first_low
     assert "alice's development" not in second_low
     assert "start fresh" not in second_low
+    assert "how can i help" not in second_low
+    assert "how may i assist" not in second_low
+    assert "what's going on" not in second_low
+    assert "what kind of mood are we in" not in second_low
     assert len(second.response_text.split()) <= len(first.response_text.split())
     assert second.response_text.strip() != first.response_text.strip()
 
@@ -169,11 +178,12 @@ def test_f_constrained_llm_unsafe_output_falls_back_safely():
         operator_state={},
         session_state={},
         user_input="hi alice",
-        llm_generate=lambda *args, **kwargs: "We were discussing machine learning last time.",
+        llm_generate=lambda *args, **kwargs: "We were discussing machine learning last time. How can I help?",
     )
     low = result.text.lower()
     assert "machine learning" not in low
     assert "we were discussing" not in low
+    assert "how can i help" not in low
     assert result.generated_by == "fallback"
 
 
@@ -188,6 +198,11 @@ def test_g_greeting_metadata_fields_are_present():
     assert "greeting_style" in meta
     assert "suppressed_project_menu" in meta
     assert "generated_by" in meta
+    assert "warmth_level" in meta
+    assert meta.get("companion_tone") is True
+    assert "assistant_like_prompt_suppressed" in meta
+    assert "validation_passed" in meta
+    assert "validation_reasons" in meta
 
 
 def test_h_unsupported_continuity_claim_guard_still_blocks_unsupported_text():

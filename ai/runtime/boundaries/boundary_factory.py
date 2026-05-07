@@ -1649,6 +1649,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "suppressed_project_menu": bool(greeting.suppressed_project_menu),
                     "repeated_greeting": bool(greeting.repeated_greeting),
                     "generated_by": str(greeting.generated_by),
+                    "warmth_level": str(greeting.warmth_level),
+                    "companion_tone": bool(greeting.companion_tone),
+                    "assistant_like_prompt_suppressed": bool(
+                        greeting.assistant_like_prompt_suppressed
+                    ),
+                    "validation_passed": bool(greeting.validation_passed),
+                    "validation_reasons": list(greeting.validation_reasons),
                     "greeting_reason": str(greeting.reason),
                 },
             )
@@ -2105,6 +2112,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "generated_by": str(greeting.generated_by)
                     if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else "",
+                    "warmth_level": str(greeting.warmth_level)
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    else "",
+                    "companion_tone": bool(greeting.companion_tone)
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    else False,
+                    "assistant_like_prompt_suppressed": bool(greeting.assistant_like_prompt_suppressed)
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    else False,
+                    "validation_passed": bool(greeting.validation_passed)
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    else True,
+                    "validation_reasons": list(greeting.validation_reasons)
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    else [],
                 },
             )
 

@@ -806,6 +806,13 @@ class ContractPipeline:
                         ),
                         "repeated_greeting": bool(greeting.repeated_greeting),
                         "generated_by": str(greeting.generated_by),
+                        "warmth_level": str(greeting.warmth_level),
+                        "companion_tone": bool(greeting.companion_tone),
+                        "assistant_like_prompt_suppressed": bool(
+                            greeting.assistant_like_prompt_suppressed
+                        ),
+                        "validation_passed": bool(greeting.validation_passed),
+                        "validation_reasons": list(greeting.validation_reasons),
                     }
                 )
             follow_up_question = str(
@@ -1119,6 +1126,13 @@ class ContractPipeline:
             ),
             "repeated_greeting": bool((respond_metadata or {}).get("repeated_greeting")),
             "generated_by": str((respond_metadata or {}).get("generated_by") or ""),
+            "warmth_level": str((respond_metadata or {}).get("warmth_level") or ""),
+            "companion_tone": bool((respond_metadata or {}).get("companion_tone")),
+            "assistant_like_prompt_suppressed": bool(
+                (respond_metadata or {}).get("assistant_like_prompt_suppressed")
+            ),
+            "validation_passed": bool((respond_metadata or {}).get("validation_passed", True)),
+            "validation_reasons": list((respond_metadata or {}).get("validation_reasons") or []),
         }
         if any(greeting_policy.values()):
             metadata_payload["greeting_metadata"] = greeting_policy

@@ -16,6 +16,11 @@ class GreetingSurfaceResult:
     suppressed_project_menu: bool
     repeated_greeting: bool
     generated_by: str
+    warmth_level: str
+    companion_tone: bool
+    assistant_like_prompt_suppressed: bool
+    validation_passed: bool
+    validation_reasons: list[str]
     session_state: dict[str, Any]
 
 
@@ -47,28 +52,47 @@ def render_grounded_greeting(
         and (continuation_requested or returning_session or idle_gap_return)
     )
 
+    assistant_like_prompt_suppressed = False
+    warmth_level = "warm"
+    companion_tone = True
+    validation_passed = True
+    validation_reasons: list[str] = []
     if repeated_greeting:
         rendered = _repeat_greeting(text)
         style = "repeated_greeting"
         reason = "repeated_greeting"
         used_objective = False
+        warmth_level = "casual"
     elif continuation_requested and has_active_focus:
         rendered = _objective_greeting(
             user_name=user_name, user_input=text, current_focus=current_focus
         )
-        style = "continuation_greeting"
+        style = "continuation_context"
         reason = "explicit_continuation_request"
         used_objective = True
+        warmth_level = "warm"
     elif allow_focus_reference:
-        rendered = _warm_greeting(user_name=user_name, user_input=text)
-        style = "pure_greeting_with_active_state"
+        rendered = _companion_greeting(
+            user_name=user_name,
+            user_input=text,
+            greeting_count=greeting_count,
+            mode="companion_presence",
+        )
+        style = "companion_presence"
         reason = "active_state_present_without_forcing_continuation"
         used_objective = False
+        warmth_level = "warm"
     else:
-        rendered = _warm_greeting(user_name=user_name, user_input=text)
-        style = "pure_greeting_no_state"
+        rendered = _companion_greeting(
+            user_name=user_name,
+            user_input=text,
+            greeting_count=greeting_count,
+            mode="companion_warm_checkin",
+        )
+        style = "companion_warm_checkin"
         reason = "pure_greeting_no_state"
         used_objective = False
+        warmth_level = "warm"
 
     generated_by = "policy"
     llm_rejected = False
@@ -93,9 +117,25 @@ def render_grounded_greeting(
         used_objective = False
         style = "fallback_warm_safe"
         reason = "unsafe_or_unusable_greeting_replaced"
+        warmth_level = "presence"
+        validation_passed = False
+        validation_reasons.append("unsafe_or_unusable_greeting")
     elif llm_rejected:
         generated_by = "fallback"
         reason = "unsafe_llm_greeting_rejected"
+        validation_passed = False
+        validation_reasons.append("unsafe_llm_greeting_rejected")
+
+    if _looks_assistant_like_task_prompt(rendered):
+        rendered = _companion_rewrite(user_name=user_name, repeated=repeated_greeting)
+        generated_by = "fallback"
+        style = "companion_presence"
+        reason = "assistant_like_task_prompt"
+        warmth_level = "presence"
+        used_objective = False
+        assistant_like_prompt_suppressed = True
+        validation_passed = False
+        validation_reasons.append("assistant_like_task_prompt")
 
     now = datetime.now(timezone.utc).isoformat()
     next_state = dict(state)
@@ -113,6 +153,11 @@ def render_grounded_greeting(
         suppressed_project_menu=True,
         repeated_greeting=repeated_greeting,
         generated_by=generated_by,
+        warmth_level=warmth_level,
+        companion_tone=companion_tone,
+        assistant_like_prompt_suppressed=assistant_like_prompt_suppressed,
+        validation_passed=validation_passed,
+        validation_reasons=validation_reasons,
         session_state=next_state,
     )
 
@@ -121,7 +166,16 @@ def _is_pure_greeting(text: str) -> bool:
     if not text:
         return False
     normalized = " ".join(text.replace(",", " ").split())
-    return normalized in {"hi", "hi alice", "hey", "hello", "hey alice", "hello alice"}
+    return normalized in {
+        "hi",
+        "hi alice",
+        "hey",
+        "hello",
+        "hey alice",
+        "hello alice",
+        "yo",
+        "yo alice",
+    }
 
 
 def _has_continuation_cue(text: str) -> bool:
@@ -138,16 +192,31 @@ def _has_continuation_cue(text: str) -> bool:
     return any(cue in text for cue in cues)
 
 
-def _warm_greeting(*, user_name: str, user_input: str) -> str:
+def _companion_greeting(
+    *, user_name: str, user_input: str, greeting_count: int, mode: str
+) -> str:
     first = _first_name(user_name)
     salutation = _salutation_from_input(user_input)
+    variant = greeting_count % 4
+    if mode == "companion_presence":
+        if first:
+            return f"{salutation} {first}, there you are. Good to hear from you."
+        return "Hey, you're back. I'm here."
     if first:
-        if salutation == "Hello":
-            return f"Hello {first}, good to see you. What's on your mind?"
-        if salutation == "Hi":
-            return f"Hi {first}, good to see you. What's on your mind?"
-        return f"Hey {first}, good to see you. What's on your mind?"
-    return "Hey, I'm here. What are we thinking about?"
+        if variant == 0:
+            return f"{salutation} {first}, good to see you. How's everything going?"
+        if variant == 1:
+            return f"{salutation} {first}, I'm here. What's going on?"
+        if variant == 2:
+            return f"{salutation} {first}, there you are. How are you feeling tonight?"
+        return f"{salutation} {first}, good to hear from you. What kind of mood are we in?"
+    if variant == 0:
+        return "Hey, you're back. How's everything going?"
+    if variant == 1:
+        return "Hey, I'm here. What's going on?"
+    if variant == 2:
+        return "Hey, good to hear from you. How are you feeling tonight?"
+    return "Hey, glad you're here. What kind of mood are we in?"
 
 
 def _objective_greeting(*, user_name: str, user_input: str, current_focus: str) -> str:
@@ -171,8 +240,8 @@ def _warm_fallback(*, user_name: str, repeated: bool) -> str:
         return "Still here."
     first = _first_name(user_name)
     if first:
-        return f"Hey {first}, good to see you."
-    return "Hey, good to see you."
+        return f"Hey {first}, there you are."
+    return "Hey, you're back."
 
 
 def _try_constrained_llm_greeting(
@@ -239,6 +308,16 @@ def _is_safe_warm_greeting(text: str) -> bool:
         "we were discussing",
         "conversation history suggests",
         "machine learning",
+        "how can i help",
+        "how may i assist",
+        "what can i do for you",
+        "ready to assist",
+        "what's on your mind?",
+        "last time",
+        "you mentioned",
+        "conversation history",
+        "what task",
+        "what would you like help with",
     )
     if any(token in low for token in banned):
         return False
@@ -258,4 +337,28 @@ def _salutation_from_input(text: str) -> str:
         return "Hello"
     if "hi" in low:
         return "Hi"
+    if "yo" in low:
+        return "Hey"
     return "Hey"
+
+
+def _looks_assistant_like_task_prompt(text: str) -> bool:
+    low = str(text or "").lower()
+    triggers = (
+        "how can i help",
+        "how may i assist",
+        "what can i do for you",
+        "ready to assist",
+        "what's on your mind",
+        "what are we thinking about",
+    )
+    return any(token in low for token in triggers)
+
+
+def _companion_rewrite(*, user_name: str, repeated: bool) -> str:
+    if repeated:
+        return "Still here."
+    first = _first_name(user_name)
+    if first:
+        return f"Hey {first}, there you are."
+    return "Hey, you're back."
