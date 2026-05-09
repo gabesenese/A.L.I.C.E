@@ -3,132 +3,55 @@ Advanced Welcome System for A.L.I.C.E
 Provides contextual greetings based on time, day, and user preferences
 """
 
-import shutil
 import datetime
-import time
+import json
 import random
+import shutil
+import time
+from pathlib import Path
 
-_GREETING_COMPONENTS = {
-    "early_morning": {
-        "openers": [
-            "Early start, {name}.",
-            "Morning, {name}.",
-            "Up early, {name}.",
-            "Already here, {name}?",
-        ],
-        "witty_lines": [
-            "The day has not had time to become dramatic yet.",
-            "We have a head start. Suspicious, but useful.",
-            "Quiet morning. Rare advantage.",
-            "The world is still loading. Good.",
-        ],
-        "productive_nudges": [
-            "One clean move before the noise.",
-            "Set the direction while it is still quiet.",
-            "Small win first.",
-            "Use the silence wisely.",
-        ],
-    },
-    "morning": {
-        "openers": [
-            "Morning, {name}.",
-            "Good morning, {name}.",
-            "Already moving, {name}?",
-            "Here we are, {name}.",
-        ],
-        "witty_lines": [
-            "We have a plan. Allegedly.",
-            "Let's get one thing right before life gets creative.",
-            "Small win first. Genius later.",
-            "The inbox has not earned our fear yet.",
-        ],
-        "productive_nudges": [
-            "Start with the move that makes the rest easier.",
-            "One useful decision first.",
-            "Momentum prefers a simple opening.",
-            "Make the first move clean.",
-        ],
-    },
-    "afternoon": {
-        "openers": [
-            "Afternoon, {name}.",
-            "Still with you, {name}.",
-            "Halfway-ish, {name}.",
-            "Back at it, {name}.",
-        ],
-        "witty_lines": [
-            "Still time for a clean win.",
-            "The day is negotiable.",
-            "Not perfect. Usable.",
-            "The schedule has opinions. Ignore most of them.",
-        ],
-        "productive_nudges": [
-            "Pick the thing that removes friction.",
-            "One good move changes the tone.",
-            "Reset small. Move forward.",
-            "Win the next hour.",
-        ],
-    },
-    "evening": {
-        "openers": [
-            "Evening, {name}.",
-            "Welcome back, {name}.",
-            "Round two, {name}?",
-            "Still in it, {name}.",
-        ],
-        "witty_lines": [
-            "Back for round two?",
-            "Let's make future-you slightly impressed.",
-            "One clean move before the day escapes.",
-            "The day made its case. We may object.",
-        ],
-        "productive_nudges": [
-            "Close one thing cleanly.",
-            "Leave tomorrow less annoying.",
-            "Tie off the obvious loose end.",
-            "Make the next session easier.",
-        ],
-    },
-    "night": {
-        "openers": [
-            "Night session, {name}.",
-            "Late session, {name}.",
-            "Still moving, {name}.",
-            "Night shift, {name}.",
-        ],
-        "witty_lines": [
-            "Bold choice. Let's make it worth it.",
-            "A questionable hour. A respectable ambition.",
-            "Let's make the tabs earn their keep.",
-            "Not the hour I would choose. But here we are.",
-        ],
-        "productive_nudges": [
-            "Keep the scope honest.",
-            "One clean win is enough.",
-            "Do the useful part first.",
-            "No heroic detours.",
-        ],
-    },
-    "late_night": {
-        "openers": [
-            "Late night, {name}.",
-            "Quiet hours, {name}.",
-            "Still awake, {name}?",
-            "Here after hours, {name}?",
-        ],
-        "witty_lines": [
-            "Let's keep this clever, not chaotic.",
-            "Ambitious. Slightly suspicious. Continue.",
-            "Fine. One clean win.",
-            "This is not ideal. It is, however, available.",
-        ],
-        "productive_nudges": [
-            "Small scope. Smart move.",
-            "Do the useful part first.",
-            "One win, then park it.",
-            "No second rabbit hole.",
-        ],
-    },
+from features.welcome_validation import (
+    is_valid_startup_greeting,
+    validate_startup_greeting,
+)
+
+_GREETING_MESSAGES = {
+    "early_morning": [
+        "Early start, {name}.\n\nThe day has not had time to become dramatic yet.",
+        "Morning, {name}.\n\nWe have a head start. Suspicious, but useful.",
+        "Up early, {name}.\n\nSmall win first.",
+        "Morning, {name}.\n\nUse the silence wisely.",
+    ],
+    "morning": [
+        "Morning, {name}.\n\nWe have a plan. Allegedly.",
+        "Good morning, {name}.\n\nLet's get one thing right before life gets creative.",
+        "Morning, {name}.\n\nSmall win first. Genius later.",
+        "Morning, {name}.\n\nMake the first move clean.",
+    ],
+    "afternoon": [
+        "Afternoon, {name}.\n\nStill time for a clean win.",
+        "Afternoon, {name}.\n\nThe day is negotiable.",
+        "Back at it, {name}.\n\nNot perfect. Usable.",
+        "Afternoon, {name}.\n\nWin the next hour.",
+    ],
+    "evening": [
+        "Evening, {name}.\n\nBack for round two.",
+        "Welcome back, {name}.\n\nLet's make future-you slightly impressed.",
+        "Evening, {name}.\n\nOne clean move before the day escapes.",
+        "Evening, {name}.\n\nLeave tomorrow less annoying.",
+    ],
+    "night": [
+        "Night session, {name}.\n\nBold choice. Let's make it worth it.",
+        "Late session, {name}.\n\nA questionable hour. A respectable ambition.",
+        "Night shift, {name}.\n\nLet's make the tabs earn their keep.",
+        "Night session, {name}.\n\nOne clean win is enough.",
+    ],
+    "late_night": [
+        "Late night, {name}.\n\nLet's keep this clever, not chaotic.",
+        "Quiet hours, {name}.\n\nSmall scope. Smart move.",
+        "Still awake, {name}.\n\nFine. One clean win.",
+        "Late night, {name}.\n\nAmbitious. Slightly suspicious. Continue.",
+    ],
 }
 
 _TIME_ALIASES = {
@@ -142,7 +65,9 @@ _TIME_ALIASES = {
     "late_night": "late_night",
 }
 
-_USED_GREETING_SIGNATURES = {period: set() for period in _GREETING_COMPONENTS}
+_USED_GREETING_SIGNATURES = {period: set() for period in _GREETING_MESSAGES}
+_APPROVED_GREETINGS_PATH = Path("data/welcome_greetings.approved.json")
+_FALLBACK_GREETING = "Welcome back, {name}.\n\nLet's make the tabs earn their keep."
 
 
 def get_terminal_width():
@@ -191,7 +116,7 @@ def _resolve_time_of_day(time_of_day=None):
     if time_of_day:
         raw = str(time_of_day).strip().lower().replace(" ", "_")
         normalized = _TIME_ALIASES.get(raw, raw)
-        if normalized in _GREETING_COMPONENTS:
+        if normalized in _GREETING_MESSAGES:
             return normalized
 
     hour = datetime.datetime.now().hour
@@ -209,106 +134,58 @@ def _resolve_time_of_day(time_of_day=None):
 
 
 def _is_valid_startup_greeting(text: str) -> bool:
-    low = str(text or "").lower()
-    banned = (
-        "how can i help",
-        "how may i assist",
-        "i'm here to help",
-        "i am here to help",
-        "anything you need",
-        "whatever you need",
-        "point me at",
-        "tell me the",
-        "share one objective",
-        "give me the target",
-        "map the shortest path",
-        "minimal and high-value",
-        "point me",
-        "i will map",
-        "i will propose",
-        "i will structure",
-        "execution plan",
-        "systems online",
-        "systems steady",
-        "quiet mode",
-        "no noise",
-        "keep it surgical",
-        "all systems",
-        "neural",
-        "memory cores",
-        "activating",
-        "initializing",
-        "ideal time",
-        "open loops",
-        "handoff",
-        "deep work",
-        "critical path",
-        "protect deep work",
-        "stage immediate next actions",
-        "focused planning",
-        "cry for help",
-        "responsible people",
-        "bad for sleep",
-        "terrible timing",
-        "chaos waited",
-        "denial",
-        "spiral",
-        "damage",
-        "dead",
-        "barely",
-        "rude, but expected",
-        "one useful thing. then we reassess",
-        "clean slate",
-        "sharp moves",
-        "status looks recoverable",
-    )
-    if any(token in low for token in banned):
-        return False
-
-    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
-    if not lines or len(lines) > 3:
-        return False
-    if any(len(line) > 100 for line in lines):
-        return False
-    return True
+    return is_valid_startup_greeting(text, require_name_placeholder=False)
 
 
-def get_greeting(name="User", time_of_day=None, style="witty_light_companion"):
-    """Build a time-aware, non-repeating startup greeting."""
-    if style != "witty_light_companion":
-        style = "witty_light_companion"
+def _load_approved_greetings() -> dict[str, list[str]]:
+    if not _APPROVED_GREETINGS_PATH.exists():
+        return {}
+    try:
+        data = json.loads(_APPROVED_GREETINGS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    output: dict[str, list[str]] = {}
+    for period in _GREETING_MESSAGES:
+        items = data.get(period)
+        if not isinstance(items, list):
+            continue
+        valid_items = [
+            str(item)
+            for item in items
+            if isinstance(item, str)
+            and is_valid_startup_greeting(item, require_name_placeholder=True)
+        ]
+        if valid_items:
+            output[period] = valid_items
+    return output
+
+
+def get_greeting(name="User", time_of_day=None, style="curated"):
+    """Build a time-aware startup greeting using approved/curated full messages."""
+    if style != "curated":
+        style = "curated"
     period = _resolve_time_of_day(time_of_day)
-    default_parts = _GREETING_COMPONENTS.get("afternoon")
-    if default_parts is None and _GREETING_COMPONENTS:
-        default_parts = next(iter(_GREETING_COMPONENTS.values()))
-    parts = _GREETING_COMPONENTS.get(period, default_parts)
-    if not parts:
-        return f"Hello, {name}."
+    approved = _load_approved_greetings()
+    source = approved if approved else _GREETING_MESSAGES
+    options = list(source.get(period) or source.get("afternoon") or [])
+    if not options:
+        return _FALLBACK_GREETING.format(name=name)
+
     used = _USED_GREETING_SIGNATURES.setdefault(period, set())
-
-    combos = [
-        (opener, witty_line, productive_nudge)
-        for opener in parts["openers"]
-        for witty_line in parts["witty_lines"]
-        for productive_nudge in parts["productive_nudges"]
-    ]
-
-    available = [combo for combo in combos if combo not in used] or combos
-    if len(available) == len(combos):
+    available = [text for text in options if text not in used] or list(options)
+    if len(available) == len(options):
         used.clear()
-
     random.shuffle(available)
-    safe_default = f"Welcome back, {name}.\n\nLet's make the tabs earn their keep."
-    for opener, witty_line, productive_nudge in available[:16]:
-        opener_text = opener.format(name=name)
-        include_nudge = random.random() < 0.35
-        body = witty_line if not include_nudge else f"{witty_line} {productive_nudge}"
-        candidate = f"{opener_text}\n\n{body}"
-        if _is_valid_startup_greeting(candidate):
-            used.add((opener, witty_line, productive_nudge))
+
+    for template in available:
+        candidate = str(template).format(name=name)
+        if is_valid_startup_greeting(candidate):
+            used.add(template)
             return candidate
 
-    return safe_default
+    return _FALLBACK_GREETING.format(name=name)
 
 
 def display_startup_info():
