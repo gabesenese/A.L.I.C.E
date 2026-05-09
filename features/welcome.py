@@ -11,122 +11,122 @@ import random
 _GREETING_COMPONENTS = {
     "early_morning": {
         "openers": [
-            "Good early morning, {name}.",
+            "Early start, {name}.",
             "Morning, {name}.",
-            "You are up early, {name}.",
-            "Hello, {name}.",
+            "Up early, {name}.",
+            "Already here, {name}?",
         ],
-        "context": [
-            "Quiet hours are ideal for focused planning.",
-            "This is a strong window to align priorities before the day gets noisy.",
-            "Early momentum now usually compounds through the day.",
-            "If we set direction now, execution gets simpler later.",
+        "witty_lines": [
+            "The day has not had time to become dramatic yet.",
+            "We have a head start. Suspicious, but useful.",
+            "Quiet morning. Rare advantage.",
+            "The world is still loading. Good.",
         ],
-        "agentic_prompt": [
-            "Share one objective and I will map the first two actions.",
-            "Tell me the top priority and I will stage an execution plan.",
-            "Give me the target and I will outline the shortest path.",
-            "Point me to the blocker and I will propose the next move.",
+        "productive_nudges": [
+            "One clean move before the noise.",
+            "Set the direction while it is still quiet.",
+            "Small win first.",
+            "Use the silence wisely.",
         ],
     },
     "morning": {
         "openers": [
-            "Good morning, {name}.",
             "Morning, {name}.",
-            "Hello, {name}.",
-            "Hi, {name}.",
+            "Good morning, {name}.",
+            "Already moving, {name}?",
+            "Here we are, {name}.",
         ],
-        "context": [
-            "Good time to lock in outcomes for today.",
-            "We can start with one high-impact task and build momentum.",
-            "A quick plan now can prevent context switching later.",
-            "Morning planning is the easiest way to protect deep work blocks.",
+        "witty_lines": [
+            "We have a plan. Allegedly.",
+            "Let's get one thing right before life gets creative.",
+            "Small win first. Genius later.",
+            "The inbox has not earned our fear yet.",
         ],
-        "agentic_prompt": [
-            "Name the first goal and I will break it into concrete steps.",
-            "Share the critical task and I will prep the execution sequence.",
-            "Tell me what matters most and I will frame the next actions.",
-            "If you give me the objective, I will structure a practical sprint.",
+        "productive_nudges": [
+            "Start with the move that makes the rest easier.",
+            "One useful decision first.",
+            "Momentum prefers a simple opening.",
+            "Make the first move clean.",
         ],
     },
     "afternoon": {
         "openers": [
-            "Good afternoon, {name}.",
             "Afternoon, {name}.",
-            "Hello, {name}.",
-            "Hi, {name}.",
+            "Still with you, {name}.",
+            "Halfway-ish, {name}.",
+            "Back at it, {name}.",
         ],
-        "context": [
-            "This is a good checkpoint to re-prioritize.",
-            "We can recover momentum quickly with one clear decision.",
-            "A focused reset now can still close the day strong.",
-            "This slot is ideal for clearing blockers on the critical path.",
+        "witty_lines": [
+            "Still time for a clean win.",
+            "The day is negotiable.",
+            "Not perfect. Usable.",
+            "The schedule has opinions. Ignore most of them.",
         ],
-        "agentic_prompt": [
-            "Share the current blocker and I will suggest the next move.",
-            "Tell me the top outcome and I will map the fastest route.",
-            "Give me your status and I will produce a practical plan.",
-            "Name one target and I will stage immediate next actions.",
+        "productive_nudges": [
+            "Pick the thing that removes friction.",
+            "One good move changes the tone.",
+            "Reset small. Move forward.",
+            "Win the next hour.",
         ],
     },
     "evening": {
         "openers": [
-            "Good evening, {name}.",
             "Evening, {name}.",
-            "Hello, {name}.",
-            "Hi, {name}.",
+            "Welcome back, {name}.",
+            "Round two, {name}?",
+            "Still in it, {name}.",
         ],
-        "context": [
-            "This is a good time to close open loops.",
-            "A short review now can make tomorrow cleaner.",
-            "We can convert today's progress into a clear handoff.",
-            "Evening work is strongest when the scope is explicit.",
+        "witty_lines": [
+            "Back for round two?",
+            "Let's make future-you slightly impressed.",
+            "One clean move before the day escapes.",
+            "The day made its case. We may object.",
         ],
-        "agentic_prompt": [
-            "Share what remains and I will prioritize finishing order.",
-            "Tell me what is pending and I will build a closeout plan.",
-            "Give me your target and I will map a clean wrap-up path.",
-            "Name tomorrow's priority and I will prepare the first steps now.",
+        "productive_nudges": [
+            "Close one thing cleanly.",
+            "Leave tomorrow less annoying.",
+            "Tie off the obvious loose end.",
+            "Make the next session easier.",
         ],
     },
     "night": {
         "openers": [
+            "Night session, {name}.",
             "Late session, {name}.",
-            "Good evening, {name}.",
-            "Still in motion, {name}.",
-            "Hello, {name}.",
+            "Still moving, {name}.",
+            "Night shift, {name}.",
         ],
-        "context": [
-            "Night sessions work best with tight scope.",
-            "Let's keep this lean and outcome-focused.",
-            "A single clear objective is the best move at this hour.",
-            "We can reduce noise and execute one important task.",
+        "witty_lines": [
+            "Bold choice. Let's make it worth it.",
+            "A questionable hour. A respectable ambition.",
+            "Let's make the tabs earn their keep.",
+            "Not the hour I would choose. But here we are.",
         ],
-        "agentic_prompt": [
-            "Point to one objective and I will define the exact next step.",
-            "Share the target and I will keep the plan concise.",
-            "Tell me what needs to be done tonight and I will structure it.",
-            "Give me the priority and I will run a focused action sequence.",
+        "productive_nudges": [
+            "Keep the scope honest.",
+            "One clean win is enough.",
+            "Do the useful part first.",
+            "No heroic detours.",
         ],
     },
     "late_night": {
         "openers": [
             "Late night, {name}.",
             "Quiet hours, {name}.",
-            "Still online, {name}.",
-            "Hello, {name}.",
+            "Still awake, {name}?",
+            "Here after hours, {name}?",
         ],
-        "context": [
-            "Best approach now is minimal scope and high value.",
-            "We should optimize for one decisive outcome.",
-            "Late-hour progress is strongest when complexity stays low.",
-            "Let's execute only what matters now and park the rest.",
+        "witty_lines": [
+            "Let's keep this clever, not chaotic.",
+            "Ambitious. Slightly suspicious. Continue.",
+            "Fine. One clean win.",
+            "This is not ideal. It is, however, available.",
         ],
-        "agentic_prompt": [
-            "Name one must-do item and I will drive a focused plan.",
-            "Share the immediate priority and I will outline the quickest route.",
-            "Tell me what cannot wait and I will structure the next actions.",
-            "Give me the critical task and I will keep execution tight.",
+        "productive_nudges": [
+            "Small scope. Smart move.",
+            "Do the useful part first.",
+            "One win, then park it.",
+            "No second rabbit hole.",
         ],
     },
 }
@@ -208,8 +208,75 @@ def _resolve_time_of_day(time_of_day=None):
     return "late_night"
 
 
-def get_greeting(name="User", time_of_day=None):
-    """Build a time-aware, non-repeating greeting with agentic intent."""
+def _is_valid_startup_greeting(text: str) -> bool:
+    low = str(text or "").lower()
+    banned = (
+        "how can i help",
+        "how may i assist",
+        "i'm here to help",
+        "i am here to help",
+        "anything you need",
+        "whatever you need",
+        "point me at",
+        "tell me the",
+        "share one objective",
+        "give me the target",
+        "map the shortest path",
+        "minimal and high-value",
+        "point me",
+        "i will map",
+        "i will propose",
+        "i will structure",
+        "execution plan",
+        "systems online",
+        "systems steady",
+        "quiet mode",
+        "no noise",
+        "keep it surgical",
+        "all systems",
+        "neural",
+        "memory cores",
+        "activating",
+        "initializing",
+        "ideal time",
+        "open loops",
+        "handoff",
+        "deep work",
+        "critical path",
+        "protect deep work",
+        "stage immediate next actions",
+        "focused planning",
+        "cry for help",
+        "responsible people",
+        "bad for sleep",
+        "terrible timing",
+        "chaos waited",
+        "denial",
+        "spiral",
+        "damage",
+        "dead",
+        "barely",
+        "rude, but expected",
+        "one useful thing. then we reassess",
+        "clean slate",
+        "sharp moves",
+        "status looks recoverable",
+    )
+    if any(token in low for token in banned):
+        return False
+
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if not lines or len(lines) > 3:
+        return False
+    if any(len(line) > 100 for line in lines):
+        return False
+    return True
+
+
+def get_greeting(name="User", time_of_day=None, style="witty_light_companion"):
+    """Build a time-aware, non-repeating startup greeting."""
+    if style != "witty_light_companion":
+        style = "witty_light_companion"
     period = _resolve_time_of_day(time_of_day)
     default_parts = _GREETING_COMPONENTS.get("afternoon")
     if default_parts is None and _GREETING_COMPONENTS:
@@ -220,22 +287,28 @@ def get_greeting(name="User", time_of_day=None):
     used = _USED_GREETING_SIGNATURES.setdefault(period, set())
 
     combos = [
-        (opener, context, prompt)
+        (opener, witty_line, productive_nudge)
         for opener in parts["openers"]
-        for context in parts["context"]
-        for prompt in parts["agentic_prompt"]
+        for witty_line in parts["witty_lines"]
+        for productive_nudge in parts["productive_nudges"]
     ]
 
-    available = [combo for combo in combos if combo not in used]
-    if not available:
+    available = [combo for combo in combos if combo not in used] or combos
+    if len(available) == len(combos):
         used.clear()
-        available = combos
 
-    opener, context, prompt = random.choice(available)
-    used.add((opener, context, prompt))
+    random.shuffle(available)
+    safe_default = f"Welcome back, {name}.\n\nLet's make the tabs earn their keep."
+    for opener, witty_line, productive_nudge in available[:16]:
+        opener_text = opener.format(name=name)
+        include_nudge = random.random() < 0.35
+        body = witty_line if not include_nudge else f"{witty_line} {productive_nudge}"
+        candidate = f"{opener_text}\n\n{body}"
+        if _is_valid_startup_greeting(candidate):
+            used.add((opener, witty_line, productive_nudge))
+            return candidate
 
-    opener_text = opener.format(name=name)
-    return f"{opener_text} {context} {prompt}"
+    return safe_default
 
 
 def display_startup_info():
@@ -324,7 +397,8 @@ def full_welcome_sequence(name="User", show_animation=True):
 
     # Greeting
     greeting = get_greeting(name)
-    print(greeting.center(terminal_width))
+    for line in greeting.splitlines():
+        print(line.center(terminal_width))
 
     print("\n" + "=" * terminal_width + "\n")
 
