@@ -1,11 +1,11 @@
 from features import welcome
 
 
-def test_get_greeting_includes_name_and_agentic_prompt():
+def test_get_greeting_includes_name_and_multiline_format():
     greeting = welcome.get_greeting(name="Gabriel", time_of_day="morning")
 
     assert "Gabriel" in greeting
-    assert "I will" in greeting
+    assert "\n\n" in greeting
 
 
 def test_get_greeting_accepts_extended_time_alias():
@@ -22,8 +22,8 @@ def test_get_greeting_uses_non_repeating_combos_before_reset(monkeypatch):
         {
             "morning": {
                 "openers": ["Good morning, {name}."],
-                "context": ["Context A.", "Context B."],
-                "agentic_prompt": ["I will plan it."],
+                "witty_lines": ["Line A.", "Line B."],
+                "productive_nudges": ["Nudge."],
             }
         },
     )
