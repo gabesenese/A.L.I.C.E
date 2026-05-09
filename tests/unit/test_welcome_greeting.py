@@ -1,47 +1,58 @@
 from __future__ import annotations
 
+import json
+
 from features import welcome
+from features.welcome_validation import (
+    is_valid_startup_greeting,
+    validate_startup_greeting,
+)
 
 
-def _assert_no_banned_phrases(text: str) -> None:
-    low = text.lower()
-    banned = (
-        "how can i help",
-        "how may i assist",
-        "i'm here to help",
-        "i am here to help",
-        "anything you need",
-        "whatever you need",
-        "systems online",
-        "systems steady",
-        "quiet mode",
-        "critical path",
-        "open loops",
-        "handoff",
-        "deep work",
-        "cry for help",
-        "responsible people",
-        "one useful thing. then we reassess",
-        "minimal and high-value",
-        "give me the target",
-        "map the shortest path",
-        "point me",
-        "i will map",
-        "i will propose",
-        "execution plan",
-        "keep it surgical",
+def test_validator_rejects_bad_assistant_and_consultant_greetings():
+    bad_1 = (
+        "Still online, Gabriel. I can help you finish one important task and park the rest. "
+        "Want a quick status sweep and a concrete plan?"
     )
-    for token in banned:
-        assert token not in low
+    bad_2 = (
+        "Quiet hours, Gabriel. Let's keep it minimal and high-value. "
+        "Give me the target and I'll map the shortest path."
+    )
+    assert is_valid_startup_greeting(bad_1) is False
+    assert is_valid_startup_greeting(bad_2) is False
 
 
-def test_late_night_never_uses_old_consultant_phrases():
-    for _ in range(128):
-        greeting = welcome.get_greeting("Gabriel", "late_night")
-        low = greeting.lower()
-        assert "minimal and high-value" not in low
-        assert "give me the target" not in low
-        assert "map the shortest path" not in low
+def test_validator_accepts_good_curated_greetings():
+    assert is_valid_startup_greeting("Morning, Gabriel.\n\nWe have a plan. Allegedly.")
+    assert is_valid_startup_greeting(
+        "Late night, Gabriel.\n\nLet's keep this clever, not chaotic."
+    )
+
+
+def test_get_greeting_does_not_call_network(monkeypatch):
+    def _explode(*_args, **_kwargs):
+        raise AssertionError("network should not be called by get_greeting")
+
+    monkeypatch.setattr("urllib.request.urlopen", _explode, raising=False)
+    out = welcome.get_greeting("Gabriel", "late_night")
+    assert "Gabriel" in out
+    assert is_valid_startup_greeting(out)
+
+
+def test_approved_greetings_load_and_format(monkeypatch, tmp_path):
+    approved = {
+        "early_morning": [],
+        "morning": [],
+        "afternoon": [],
+        "evening": [],
+        "night": [],
+        "late_night": ["Late night, {name}.\n\nLet's keep this clever, not chaotic."],
+    }
+    p = tmp_path / "welcome_greetings.approved.json"
+    p.write_text(json.dumps(approved), encoding="utf-8")
+    monkeypatch.setattr(welcome, "_APPROVED_GREETINGS_PATH", p)
+    out = welcome.get_greeting("Gabriel", "late_night")
+    assert out == "Late night, Gabriel.\n\nLet's keep this clever, not chaotic."
 
 
 def test_all_periods_generate_valid_greetings():
@@ -57,61 +68,26 @@ def test_all_periods_generate_valid_greetings():
         assert "Gabriel" in greeting
         lines = [line.strip() for line in greeting.splitlines() if line.strip()]
         assert 1 <= len(lines) <= 3
-        assert all(len(line) <= 100 for line in lines)
-        assert welcome._is_valid_startup_greeting(greeting) is True
-        _assert_no_banned_phrases(greeting)
-
-
-def test_multiline_output_present_for_late_night():
-    greeting = welcome.get_greeting("Gabriel", "late_night")
-    assert "\n\n" in greeting
-
-
-def test_good_examples_accepted():
-    good = (
-        "Morning, Gabriel.\n\nWe have a plan. Allegedly.",
-        "Afternoon, Gabriel.\n\nStill time for a clean win.",
-        "Evening, Gabriel.\n\nBack for round two?",
-        "Night session, Gabriel.\n\nBold choice. Let's make it worth it.",
-        "Welcome back, Gabriel.\n\nLet's make the tabs earn their keep.",
-        "Late night, Gabriel.\n\nLet's keep this clever, not chaotic.",
-    )
-    for sample in good:
-        assert welcome._is_valid_startup_greeting(sample) is True
-
-
-def test_bad_examples_rejected():
-    bad = (
-        "Systems online.",
-        "Systems steady.",
-        "Quiet mode.",
-        "Point me at the blocker and I will propose the next move.",
-        "I'm here to help with anything you need.",
-        "Ideal time to wrap open loops and prepare tomorrow's handoff.",
-        "One useful thing. Then we reassess.",
-        "This is either focus or a cry for help.",
-        "The responsible people have logged off.",
-    )
-    for sample in bad:
-        assert welcome._is_valid_startup_greeting(sample) is False
+        assert all(len(line) <= 90 for line in lines)
+        assert is_valid_startup_greeting(greeting)
 
 
 def test_non_repetition_before_reset(monkeypatch):
     monkeypatch.setattr(
         welcome,
-        "_GREETING_COMPONENTS",
+        "_GREETING_MESSAGES",
         {
-            "morning": {
-                "openers": ["Morning, {name}."],
-                "witty_lines": ["Line A.", "Line B."],
-                "productive_nudges": ["Nudge A.", "Nudge B."],
-            }
+            "morning": [
+                "Morning, {name}.\n\nLine A.",
+                "Morning, {name}.\n\nLine B.",
+                "Morning, {name}.\n\nLine C.",
+            ]
         },
     )
     monkeypatch.setattr(welcome, "_USED_GREETING_SIGNATURES", {"morning": set()})
-    monkeypatch.setattr(welcome.random, "random", lambda: 0.1)
-    seen = {welcome.get_greeting("Gabriel", "morning") for _ in range(4)}
-    assert len(seen) == 4
+    monkeypatch.setattr(welcome, "_load_approved_greetings", lambda: {})
+    seen = {welcome.get_greeting("Gabriel", "morning") for _ in range(3)}
+    assert len(seen) == 3
 
 
 def test_full_welcome_sequence_centers_each_line(monkeypatch):
@@ -123,11 +99,17 @@ def test_full_welcome_sequence_centers_each_line(monkeypatch):
     monkeypatch.setattr(
         welcome,
         "get_greeting",
-        lambda *args, **kwargs: "Evening, Gabriel.\n\nBack for round two?",
+        lambda *args, **kwargs: "Evening, Gabriel.\n\nBack for round two.",
     )
-    monkeypatch.setattr("builtins.print", lambda *args, **kwargs: printed.append(" ".join(str(a) for a in args)))
-
+    monkeypatch.setattr(
+        "builtins.print",
+        lambda *args, **kwargs: printed.append(" ".join(str(a) for a in args)),
+    )
     welcome.full_welcome_sequence("Gabriel", show_animation=False)
-
     assert any("Evening, Gabriel.".center(40).strip() in line for line in printed)
-    assert any("Back for round two?".center(40).strip() in line for line in printed)
+    assert any("Back for round two.".center(40).strip() in line for line in printed)
+
+
+def test_validator_reasons_include_question_mark():
+    reasons = validate_startup_greeting("Morning, {name}?\n\nWe have a plan.")
+    assert "contains_question_mark" in reasons

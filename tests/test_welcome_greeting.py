@@ -18,16 +18,16 @@ def test_get_greeting_accepts_extended_time_alias():
 def test_get_greeting_uses_non_repeating_combos_before_reset(monkeypatch):
     monkeypatch.setattr(
         welcome,
-        "_GREETING_COMPONENTS",
+        "_GREETING_MESSAGES",
         {
-            "morning": {
-                "openers": ["Good morning, {name}."],
-                "witty_lines": ["Line A.", "Line B."],
-                "productive_nudges": ["Nudge."],
-            }
+            "morning": [
+                "Good morning, {name}.\n\nLine A.",
+                "Good morning, {name}.\n\nLine B.",
+            ]
         },
     )
     monkeypatch.setattr(welcome, "_USED_GREETING_SIGNATURES", {"morning": set()})
+    monkeypatch.setattr(welcome, "_load_approved_greetings", lambda: {})
 
     first = welcome.get_greeting(name="Gabriel", time_of_day="morning")
     second = welcome.get_greeting(name="Gabriel", time_of_day="morning")
