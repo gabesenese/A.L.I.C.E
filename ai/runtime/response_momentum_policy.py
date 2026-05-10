@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict
+from ai.runtime.turn_mode_policy import classify_turn_mode
+from ai.runtime.operator_response_surface import render_operator_response
 
 
 def apply_response_momentum(
     *,
+    user_input: str = "",
     response_text: str,
     intent: str,
     route: str,
@@ -23,13 +27,64 @@ def apply_response_momentum(
     local = dict(local_execution or {})
     objective = str(state.get("active_objective") or project.get("active_objective") or "").strip()
     focus = str(state.get("current_focus") or project.get("current_focus") or "").strip()
-    operator_turn = str(intent or "").startswith("operator:") or (
+    normalized_intent = str(intent or "").strip().lower()
+    turn_mode = classify_turn_mode(
+        user_input=user_input,
+        intent=normalized_intent,
+        route=str(route or ""),
+        operator_state=state,
+        project_memory=project,
+    )
+    momentum_turn = turn_mode in {
+        "operator_status",
+        "operator_continue",
+        "educational_explain",
+        "code_work",
+        "tool_result",
+    }
+    operator_turn = normalized_intent.startswith("operator:") or momentum_turn or (
         str(route or "") == "local"
         and str(intent or "").startswith("code:")
         and bool(local)
     )
+
+    # Ban unsupported background-work claims in casual/greeting turns.
+    background_claims = (
+        "processing some interesting stuff in the background",
+        "working behind the scenes",
+        "been monitoring",
+        "been checking",
+        "i was analyzing",
+        "i inspected",
+        "i reviewed",
+    )
+    if turn_mode in {"casual_companion", "greeting"}:
+        low_text = text.lower()
+        if any(token in low_text for token in background_claims):
+            text = "I'm good.\n\nStill focused."
+            low = text.lower()
+        # Never inject project momentum into casual/greeting.
+        return text
+
     if not operator_turn:
         return text
+
+    # For local continuation turns with actual local execution, prefer a compact
+    # evidence-first operator surface over concatenating LLM chatter.
+    if (
+        str(route or "") == "local"
+        and normalized_intent in {"operator:continue", "operator:execute_recommended_action"}
+        and local
+    ):
+        rendered = render_operator_response(
+            user_input=user_input,
+            base_text=text,
+            operator_state=state,
+            local_execution=local,
+            next_step=str(next_step or ""),
+        )
+        if rendered:
+            return rendered
 
     # Avoid passive generic endings.
     passive_markers = (
@@ -37,6 +92,14 @@ def apply_response_momentum(
         "how can i help",
         "how may i assist",
         "sure, i can help with that",
+        "which one sounds like a good starting point to you?",
+        "what would you like to start with?",
+        "what would you like to tackle first",
+        "which one should we inspect",
+        "what would you like to focus on first",
+        "if that sounds interesting",
+        "if you want",
+        "let me know",
     )
     for marker in passive_markers:
         if marker in low:
@@ -46,9 +109,10 @@ def apply_response_momentum(
     if local:
         action = str(local.get("action") or "")
         inspected = str(local.get("inspected_file") or "")
-        if inspected:
+        success = bool(local.get("success"))
+        if inspected and success:
             result_line = f"I inspected `{inspected}` through `{action or 'local execution'}`."
-        elif action:
+        elif action and action.startswith("code:") and success:
             result_line = f"I ran one safe local step: `{action}`."
 
     meaning = ""
@@ -58,17 +122,48 @@ def apply_response_momentum(
         meaning = "That gives us grounded evidence for the next runtime move."
 
     next_line = str(next_step or "").strip()
-    if next_line and not next_line.lower().startswith("next"):
+    allow_next_step = turn_mode in {
+        "operator_status",
+        "operator_continue",
+        "educational_explain",
+        "code_work",
+        "tool_result",
+    }
+    if next_line and allow_next_step and not next_line.lower().startswith("next"):
         next_line = f"Next best move: {next_line}"
-    elif not next_line and state.get("next_recommended_action"):
+    elif allow_next_step and not next_line and state.get("next_recommended_action"):
         next_line = f"Next best move: {state.get('next_recommended_action')}"
 
-    if objective:
+    allow_objective = turn_mode in {
+        "operator_status",
+        "operator_continue",
+        "educational_explain",
+        "code_work",
+        "tool_result",
+    }
+    if objective and allow_objective:
         lead = f"Current objective is {objective}."
         if focus:
             lead = f"{lead} Current focus: {focus}."
     else:
         lead = ""
+
+    if momentum_turn:
+        low_merged = text.lower()
+        if (
+            "which one" in low_merged
+            or "what would you like to start with" in low_merged
+            or re.search(r"\?\s*$", text)
+        ):
+            text = re.sub(r"\s*\?\s*$", ".", text).strip()
+            if not next_line:
+                if "agentic" in low_merged or "companion" in low_merged or "beginner" in low_merged:
+                    next_line = (
+                        "Next best move: start with memory, goals, tools, and the loop; "
+                        "then implement the loop first in Alice."
+                    )
+                elif objective:
+                    next_line = f"Next best move: take one concrete step on {focus or objective}."
 
     parts = [p for p in [lead, text, result_line, meaning, next_line] if str(p).strip()]
     merged = " ".join(parts).strip()

@@ -42,3 +42,22 @@ def assert_approval_for_source_change(decision: ApprovalDecision | None) -> None
     }:
         raise PermissionError("invalid_approval_type")
 
+
+def assert_approval_for_git_operation(decision: ApprovalDecision | None) -> None:
+    if decision is None:
+        raise PermissionError("approval_required_for_git_operation")
+    if not bool(decision.approved):
+        raise PermissionError("git_operation_not_approved")
+    approval_type = str(decision.approval_type or "").strip().lower()
+    if approval_type not in {"git_operation", "manual"}:
+        raise PermissionError("invalid_git_approval_type")
+
+
+def assert_approval_for_merge(decision: ApprovalDecision | None) -> None:
+    if decision is None:
+        raise PermissionError("approval_required_for_merge")
+    if not bool(decision.approved):
+        raise PermissionError("merge_not_approved")
+    approval_type = str(decision.approval_type or "").strip().lower()
+    if approval_type not in {"merge", "manual"}:
+        raise PermissionError("invalid_merge_approval_type")

@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 from ai.memory.project_memory import (
     load_project_state,
+    record_file_inspected,
     record_failure,
     record_success,
     update_project_state,
@@ -70,6 +71,21 @@ class AgentLoop:
     APPROVAL_ACTIONS = {"edit_file", "delete_file", "mutating_shell", "git_action", "external_state_change"}
     REFUSE_ACTIONS = {"destructive", "security_bypass"}
 
+    @staticmethod
+    def _dedupe_preserve(items: List[str]) -> List[str]:
+        out: List[str] = []
+        seen = set()
+        for raw in list(items or []):
+            token = str(raw or "").strip()
+            if not token:
+                continue
+            key = token.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(token)
+        return out
+
     def run(
         self,
         *,
@@ -103,6 +119,7 @@ class AgentLoop:
             user_input=user_input,
             objective=objective,
             state=state,
+            project=project,
             route=route,
             intent=intent,
             files=files,
@@ -137,20 +154,47 @@ class AgentLoop:
             executed.append(step.step_id)
             if obs.success:
                 record_success("agent_loop_step", obs.summary or step.reason, user_id=user_id)
+                if str(obs.inspected_file or "").strip():
+                    record_file_inspected(str(obs.inspected_file), user_id=user_id)
             else:
                 record_failure("agent_loop_step", obs.error or step.reason, user_id=user_id)
+
+        inspected_files = list(state.get("files_inspected") or [])
+        if observations:
+            for observation in observations:
+                if observation.success and str(observation.inspected_file or "").strip():
+                    inspected_files.append(str(observation.inspected_file))
+        inspected_files = self._dedupe_preserve(inspected_files)
+        last_inspected_file = (
+            next(
+                (
+                    str(o.inspected_file)
+                    for o in reversed(observations)
+                    if o.success and str(o.inspected_file or "").strip()
+                ),
+                str(state.get("last_inspected_file") or ""),
+            )
+            or ""
+        )
 
         decision = decide_next_step(
             route=route,
             intent=intent,
-            operator_state=state,
+            operator_state={
+                **state,
+                "files_inspected": inspected_files,
+                "last_inspected_file": last_inspected_file,
+            },
             project_memory=project,
             local_execution=local_execution,
             available_files=files,
             last_failure=str(state.get("last_failure") or ""),
-            files_inspected=list(state.get("files_inspected") or []),
+            files_inspected=inspected_files,
         )
         next_step = str(decision.next_recommended_action or "")
+        recommended_action = dict(decision.last_recommended_action or {})
+        if recommended_action and not recommended_action.get("created_at"):
+            recommended_action["created_at"] = _now_iso()
         verification = {
             "accepted": len(observations) == 0 or all(o.success for o in observations),
             "requires_approval": requires_approval,
@@ -163,6 +207,10 @@ class AgentLoop:
                 "active_objective": objective.text,
                 "current_step": step.action,
                 "next_recommended_action": next_step,
+                "last_recommended_action": recommended_action,
+                "suggested_next_files": list(decision.suggested_next_files or []),
+                "files_inspected": inspected_files,
+                "last_inspected_file": last_inspected_file,
             },
         )
         commit_operator_state_to_project_memory(state, user_id=user_id)
@@ -171,6 +219,9 @@ class AgentLoop:
                 "active_objective": objective.text,
                 "current_step": step.action,
                 "next_recommended_action": next_step,
+                "last_recommended_action": recommended_action,
+                "suggested_next_files": list(decision.suggested_next_files or []),
+                "files_inspected": inspected_files,
             },
             user_id=user_id,
         )
@@ -193,6 +244,7 @@ class AgentLoop:
         user_input: str,
         objective: Objective,
         state: Dict[str, Any],
+        project: Dict[str, Any],
         route: str,
         intent: str,
         files: List[str],
@@ -225,16 +277,27 @@ class AgentLoop:
                 safety_level="safe_read",
                 requires_approval=False,
             )
-        if intent == "operator:continue":
+        if intent in {"operator:continue", "operator:execute_recommended_action"}:
+            last_recommended = dict(
+                state.get("last_recommended_action")
+                or project.get("last_recommended_action")
+                or {}
+            )
+            suggested_state = list(state.get("suggested_next_files") or [])
+            suggested_project = list(project.get("suggested_next_files") or [])
             target = (
-                state.get("last_inspected_file")
+                str(last_recommended.get("target") or "")
+                or (suggested_state[0] if suggested_state else "")
+                or (suggested_project[0] if suggested_project else "")
+                or str(state.get("last_inspected_file") or "")
                 or (files[0] if files else "")
             )
+            reason = str(last_recommended.get("reason") or "")
             return PlanStep(
                 step_id="step_continue",
                 action="analyze_file" if target else "plan",
                 target=str(target or ""),
-                reason="Continue should execute one safe step toward active objective.",
+                reason=reason or "Continue should execute one safe step toward active objective.",
                 safety_level="safe_read",
                 requires_approval=False,
             )
@@ -285,7 +348,7 @@ class AgentLoop:
                 step_id=step.step_id, success=True, evidence={"source": "operator_state"}, summary=summary
             )
         if step.action in {"analyze_file", "list_files"} and local_execution:
-            success = bool(local_execution.get("success", True))
+            success = bool(local_execution.get("success", False))
             return Observation(
                 step_id=step.step_id,
                 success=success,

@@ -165,6 +165,14 @@ class LocalActionExecutor:
                 if target
                 else {"file_exists": False, "resolved": "", "close_matches": files[:8]}
             )
+            if target and not resolved.get("file_exists"):
+                direct = self.root / str(target).replace("\\", "/")
+                if direct.exists() and direct.is_file():
+                    resolved = {
+                        "file_exists": True,
+                        "resolved": str(target).replace("\\", "/"),
+                        "close_matches": [],
+                    }
             operator_context["file_exists"] = bool(resolved["file_exists"])
             operator_context["close_matches"] = list(resolved["close_matches"])
             if not resolved["file_exists"]:
@@ -248,22 +256,32 @@ class LocalActionExecutor:
             "operator:project_status",
             "operator:next_step",
             "operator:continue",
+            "operator:execute_recommended_action",
+            "operator:explain_recommendation",
             "self_improvement:audit",
             "self_improvement:status",
             "self_improvement:brief",
         }:
             operator_state = dict(ctx.get("operator_state") or {})
             project_state = load_project_state(user_id).to_dict()
+            last_recommended_action = dict(
+                operator_state.get("last_recommended_action")
+                or project_state.get("last_recommended_action")
+                or {}
+            )
             improvement_loop = ImprovementLoop(user_id=user_id)
             if action == "self_improvement:status":
-                last_event = improvement_loop.latest_event()
-                last_report = improvement_loop.latest_report()
+                status = improvement_loop.pending_status()
                 text = (
-                    f"Pending improvement events: {'yes' if last_event else 'no'}. "
-                    f"Latest event kind: {last_event.get('failure_kind') or 'none'}. "
-                    f"Latest audit report: {last_report.get('report_id') or 'none'}. "
+                    f"Pending improvement events: {int(status.get('pending_event_count') or 0)}. "
+                    f"Total audit reports: {int(status.get('audit_report_count') or 0)}. "
+                    f"Latest event: {status.get('latest_event_id') or 'none'}. "
+                    f"Latest audit report: {status.get('latest_report_id') or 'none'}. "
                     "Next move: run an audit for the latest failure if needed."
                 )
+                pending_ids = list(status.get("pending_event_ids") or [])
+                if pending_ids:
+                    text += "\nPending event ids:\n- " + "\n- ".join(pending_ids)
                 local_execution["success"] = True
                 return {
                     "success": True,
@@ -335,6 +353,50 @@ class LocalActionExecutor:
                     "local_execution": local_execution,
                 }
 
+            if action == "operator:explain_recommendation":
+                target = str(last_recommended_action.get("target") or "")
+                reason = str(last_recommended_action.get("reason") or "")
+                source = str(last_recommended_action.get("source") or "next_step_policy")
+                action_name = str(last_recommended_action.get("action") or "inspect_file")
+                if not target:
+                    text = "I do not have a stored recommendation yet. I can produce one from the active objective."
+                else:
+                    text = (
+                        f"I recommended `{target}` because {reason or 'it is the highest-value safe next step for the active objective'}. "
+                        f"Source: {source}. Action: {action_name}. "
+                        f"Inspecting it should verify whether that component actually advances the plan -> act -> observe -> verify loop."
+                    )
+                local_execution["success"] = True
+                return {
+                    "success": True,
+                    "response": text,
+                    "operator_context": operator_context,
+                    "local_execution": local_execution,
+                }
+
+            if action in {"operator:continue", "operator:execute_recommended_action"} and last_recommended_action:
+                target = str(last_recommended_action.get("target") or "")
+                planned_action = str(last_recommended_action.get("action") or "")
+                requires_approval = bool(last_recommended_action.get("requires_approval"))
+                if requires_approval:
+                    local_execution["success"] = True
+                    return {
+                        "success": True,
+                        "response": f"The stored step requires explicit approval before execution: `{planned_action}` on `{target}`.",
+                        "operator_context": operator_context,
+                        "local_execution": local_execution,
+                    }
+                if target and planned_action in {"inspect_file", "analyze_file", "read_file"}:
+                    analyze_result = self.execute(
+                        action="code:analyze_file",
+                        query=target,
+                        context={
+                            **ctx,
+                            "target_file": target,
+                        },
+                    )
+                    return analyze_result
+
             decision = decide_next_step(
                 route=str(ctx.get("route") or "local"),
                 intent=action,
@@ -347,7 +409,15 @@ class LocalActionExecutor:
             )
             if action == "operator:next_step":
                 update_project_state(
-                    {"next_recommended_action": decision.next_recommended_action},
+                    {
+                        "next_recommended_action": decision.next_recommended_action,
+                        "last_recommended_action": dict(
+                            decision.last_recommended_action or {}
+                        ),
+                        "suggested_next_files": list(
+                            decision.suggested_next_files or []
+                        ),
+                    },
                     user_id=user_id,
                 )
                 local_execution["success"] = True

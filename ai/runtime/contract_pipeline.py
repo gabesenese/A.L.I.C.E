@@ -28,7 +28,7 @@ from ai.runtime.greeting_surface_policy import render_grounded_greeting
 from ai.runtime.response_momentum_policy import apply_response_momentum
 from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
-from ai.memory.project_memory import load_project_state
+from ai.memory.project_memory import load_project_state, update_project_state
 from ai.runtime.self_improvement.improvement_loop import ImprovementLoop
 
 
@@ -549,6 +549,24 @@ class ContractPipeline:
             plan["route_veto"] = dict(route_veto)
         plan["policy_decision"] = policy.decision_type
         if str(decision.route or "") == "clarify":
+            self._maybe_record_behavior_event(
+                user_id=user_id,
+                source="routing_failure_log",
+                user_input=user_input,
+                route=str(decision.route or ""),
+                intent=str(decision.intent or ""),
+                trace_id=trace_id,
+                failure_kind="routing",
+                symptom="route clarify unexpectedly",
+                expected_behavior="Route should execute or respond when evidence is sufficient.",
+                actual_behavior="Route selected clarify.",
+                severity="medium",
+                evidence={"routing_trace": dict(plan.get("routing_trace") or {})},
+                related_files=[
+                    "ai/core/routing/route_arbiter.py",
+                    "ai/core/routing/evidence_contracts.py",
+                ],
+            )
             self._append_routing_failure(
                 trace_id=trace_id,
                 user_input=user_input,
@@ -912,6 +930,9 @@ class ContractPipeline:
                         ),
                         "validation_passed": bool(greeting.validation_passed),
                         "validation_reasons": list(greeting.validation_reasons),
+                        "continuity_guard_applied": bool(greeting.continuity_guard_applied),
+                        "continuity_claims": dict(greeting.continuity_claims or {}),
+                        "llm_candidate_rejected": bool(greeting.llm_candidate_rejected),
                     }
                 )
             follow_up_question = str(
@@ -1010,7 +1031,29 @@ class ContractPipeline:
             routing_trace=dict(plan.get("routing_trace") or {}),
             last_failure=str(local_exec_payload.get("error") or ""),
         )
+        stored_recommended_action = dict(next_step.last_recommended_action or {})
+        if stored_recommended_action and not stored_recommended_action.get("created_at"):
+            stored_recommended_action["created_at"] = datetime.utcnow().isoformat()
+        if stored_recommended_action or str(next_step.next_recommended_action or "").strip():
+            try:
+                update_project_state(
+                    {
+                        "next_recommended_action": str(next_step.next_recommended_action or ""),
+                        "last_recommended_action": stored_recommended_action,
+                        "suggested_next_files": list(next_step.suggested_next_files or []),
+                    },
+                    user_id=str(user_id or "default"),
+                )
+            except Exception:
+                pass
+        if stored_recommended_action:
+            operator_state_payload["last_recommended_action"] = stored_recommended_action
+        if next_step.suggested_next_files:
+            operator_state_payload["suggested_next_files"] = list(next_step.suggested_next_files or [])
+        if str(next_step.next_recommended_action or "").strip():
+            operator_state_payload["next_recommended_action"] = str(next_step.next_recommended_action or "")
         response_text = apply_response_momentum(
+            user_input=user_input,
             response_text=response_text,
             intent=str(decision.intent or ""),
             route=str(decision.route or ""),

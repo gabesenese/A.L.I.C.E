@@ -1,0 +1,105 @@
+{
+  "action_token_weights": {
+    "create_note": {
+      "i'm": -0.08,
+      "trying": -0.08,
+      "learn": -0.08,
+      "how": -0.32,
+      "make": -0.32,
+      "companion": -0.32,
+      "none": -0.08,
+      "these": -0.08,
+      "chat": -0.08,
+      "bot": -0.08,
+      "like": -0.4,
+      "assistants": -0.08,
+      "something": -0.08,
+      "that": -0.08,
+      "feels": -0.08,
+      "but": -0.08,
+      "with": -0.08,
+      "todays": -0.08,
+      "let's": -0.24,
+      "think": -0.24,
+      "through": -0.24,
+      "alice": -0.24,
+      "more": -0.24,
+      "without": -0.24,
+      "adding": -0.24,
+      "hardcoded": -0.24,
+      "fallbacks": -0.24
+    },
+    "search_notes": {
+      "let's": -0.08,
+      "review": -0.08,
+      "your": -0.08,
+      "understanding": -0.08,
+      "search": 1.4999999999999998,
+      "notes": 1.4999999999999998,
+      "for": 1.4999999999999998,
+      "zelophehad": 1.4999999999999998
+    },
+    "search_notes_content": {
+      "search": 1.4999999999999998,
+      "note": 1.4999999999999998,
+      "content": 1.4999999999999998,
+      "for": 1.4999999999999998,
+      "distributed": 1.4999999999999998,
+      "cache": 1.4999999999999998
+    },
+    "create_note_from_context": {
+      "save": 0.6999999999999997,
+      "this": 0.6999999999999997,
+      "remember": 1.4999999999999998,
+      "that": 1.4999999999999998,
+      "title": 1.4999999999999998,
+      "call": 1.4999999999999998,
+      "john": 1.4999999999999998
+    },
+    "requires_confirmation": {
+      "delete": -2.0,
+      "all": -2.0,
+      "notes": -2.0
+    },
+    "delete_notes": {
+      "confirm": 1.4999999999999998
+    },
+    "action_cancelled": {
+      "cancel": 2.0
+    },
+    "append_note": {
+      "append": 0.6999999999999998,
+      "task": 1.4999999999999998,
+      "extra": -0.7999999999999999,
+      "text": -0.7999999999999999
+    },
+    "list_notes": {
+      "list": 2.0,
+      "notes": 2.0
+    },
+    "link_notes": {
+      "link": 0.6999999999999998,
+      "frontend": 1.4999999999999998,
+      "plan": 2.0,
+      "backend": 1.4999999999999998,
+      "real": -0.7999999999999999,
+      "note": -0.7999999999999999,
+      "nonexistent": -0.7999999999999999,
+      "one": -0.7999999999999999
+    },
+    "show_recent_note_changes": {
+      "show": 1.4999999999999998,
+      "recent": 1.4999999999999998,
+      "changes": 1.4999999999999998,
+      "notes": 1.4999999999999998
+    },
+    "notes_health_check": {
+      "run": 1.4999999999999998,
+      "notes": 1.4999999999999998,
+      "health": 1.4999999999999998,
+      "check": 1.4999999999999998
+    }
+  },
+  "note_selection_weights": {},
+  "updated_at": "2026-05-06T22:26:45.791125"
+}

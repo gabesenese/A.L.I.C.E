@@ -34,6 +34,13 @@ from ai.memory.personal_memory import PersonalMemoryStore
 from ai.memory.project_memory import load_project_state, update_project_state
 from ai.runtime.continuity_claim_guard import assess_continuity_claims
 from ai.runtime.greeting_surface_policy import render_grounded_greeting
+from ai.runtime.dominant_intent_resolver import (
+    is_explicit_weather_request,
+    resolve_dominant_intent_hint,
+)
+from ai.runtime.anti_overclarification_policy import (
+    should_answer_instead_of_clarify,
+)
 from ai.runtime.local_action_executor import LocalActionExecutor
 from ai.runtime.operator_state import (
     commit_operator_state_to_project_memory,
@@ -350,6 +357,48 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             r"\blet[' ]?s get back to alice\b",
         )
         return any(re.search(pat, text) for pat in patterns)
+
+    def _is_recommendation_approval_phrase(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        return text in {
+            "go ahead",
+            "do it",
+            "continue",
+            "yes",
+            "yeah go ahead",
+            "sounds good",
+            "proceed",
+        }
+
+    def _is_recommendation_explain_query(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        return bool(
+            ("why" in text)
+            and any(
+                cue in text
+                for cue in (
+                    "why did you mention",
+                    "why that file",
+                    "why inspect that",
+                    "why agent_loop.py",
+                    "why did you mention to take a look",
+                )
+            )
+        )
+
+    def _fallback_answer_intent(user_input: str) -> str:
+        hint = resolve_dominant_intent_hint(user_input)
+        if hint in {
+            "conversation:educational_explain",
+            "conversation:goal_statement",
+            "operator:continue",
+            "operator:next_step",
+            "operator:project_status",
+            "code:request",
+            "code:list_files",
+        }:
+            return hint
+        return "conversation:goal_statement"
 
     def _looks_like_proactive_agent_design_statement(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
@@ -928,6 +977,44 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             and operator_ctx.get("awaiting_target")
         )
         low = str(req.user_input or "").lower()
+        dominant_hint = resolve_dominant_intent_hint(req.user_input)
+        last_recommended_action = dict(
+            state.get("last_recommended_action")
+            or project_state.last_recommended_action
+            or {}
+        )
+
+        if _is_recommendation_explain_query(req.user_input) and last_recommended_action:
+            return RouterDecision(
+                route="local",
+                intent="operator:explain_recommendation",
+                confidence=0.92,
+                decision_band="execute",
+                metadata={
+                    "reason": "explain_previous_recommendation",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
+
+        if _is_recommendation_approval_phrase(req.user_input) and last_recommended_action:
+            requires_approval = bool(last_recommended_action.get("requires_approval"))
+            intent = (
+                "operator:continue"
+                if requires_approval
+                else "operator:execute_recommended_action"
+            )
+            return RouterDecision(
+                route="local",
+                intent=intent,
+                confidence=0.93,
+                decision_band="execute",
+                metadata={
+                    "reason": "execute_previous_recommendation",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
 
         if any(
             phrase in low
@@ -1201,6 +1288,57 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"reason": "weather_commentary_without_action"},
             )
 
+        if dominant_hint == "code:request":
+            return RouterDecision(
+                route="local",
+                intent="code:request",
+                confidence=0.9,
+                decision_band="execute",
+                metadata={
+                    "reason": "dominant_codebase_analysis_request",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
+
+        if dominant_hint == "conversation:educational_explain":
+            return RouterDecision(
+                route="llm",
+                intent="conversation:educational_explain",
+                confidence=0.9,
+                decision_band="execute",
+                metadata={
+                    "reason": "beginner_research_explain",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
+
+        if dominant_hint == "conversation:goal_statement":
+            if bool(state.get("active_objective") or project_state.active_objective):
+                return RouterDecision(
+                    route="local",
+                    intent="operator:continue",
+                    confidence=0.9,
+                    decision_band="execute",
+                    metadata={
+                        "reason": "dominant_project_objective_with_active_state",
+                        "resolved_input": req.user_input,
+                        "operator_state": state,
+                    },
+                )
+            return RouterDecision(
+                route="llm",
+                intent="conversation:goal_statement",
+                confidence=0.9,
+                decision_band="execute",
+                metadata={
+                    "reason": "dominant_project_objective",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
+
         if _looks_like_weather_request(req.user_input):
             weather_intent = _infer_weather_intent(req.user_input)
             return RouterDecision(
@@ -1284,6 +1422,28 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     ),
                 }
                 if getattr(resolution, "needs_clarification", False):
+                    if should_answer_instead_of_clarify(
+                        req.user_input,
+                        "conversation:clarification_needed",
+                        operator_state=state,
+                        project_memory=project_state.to_dict(),
+                    ):
+                        reroute_intent = _fallback_answer_intent(req.user_input)
+                        return RouterDecision(
+                            route=(
+                                "local"
+                                if reroute_intent.startswith(("operator:", "code:"))
+                                else "llm"
+                            ),
+                            intent=reroute_intent,
+                            confidence=0.74,
+                            decision_band="execute",
+                            needs_clarification=False,
+                            metadata={
+                                "reason": "anti_overclarification_context_resolution",
+                                "resolved_input": resolved_input,
+                            },
+                        )
                     return RouterDecision(
                         route="clarify",
                         intent="clarification:context_resolution",
@@ -1319,6 +1479,15 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         route = "llm"
         if ":" in intent and not intent.startswith("conversation"):
             route = "tool"
+
+        if (
+            intent.startswith("weather:")
+            and not is_explicit_weather_request(req.user_input)
+            and dominant_hint in {"conversation:goal_statement", "conversation:educational_explain"}
+        ):
+            intent = dominant_hint
+            route = "llm"
+            confidence = max(confidence, 0.82)
 
         if str(intent).startswith("file_operations:") and not _has_explicit_file_target(
             req.user_input
@@ -1400,6 +1569,29 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if band == "clarify":
+            if should_answer_instead_of_clarify(
+                req.user_input,
+                intent,
+                operator_state=state,
+                project_memory=project_state.to_dict(),
+            ):
+                reroute_intent = _fallback_answer_intent(req.user_input)
+                reroute_route = (
+                    "local"
+                    if reroute_intent.startswith("operator:") or reroute_intent.startswith("code:")
+                    else "llm"
+                )
+                return RouterDecision(
+                    route=reroute_route,
+                    intent=reroute_intent,
+                    confidence=max(confidence, 0.68),
+                    decision_band="execute",
+                    needs_clarification=False,
+                    metadata={
+                        "reason": "anti_overclarification_reroute",
+                        "resolved_input": resolved_input,
+                    },
+                )
             return RouterDecision(
                 route="clarify",
                 intent=intent,
@@ -1621,6 +1813,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "operator:next_step",
             "operator:project_status",
             "operator:continue",
+            "operator:execute_recommended_action",
+            "operator:explain_recommendation",
             "self_improvement:audit",
             "self_improvement:status",
             "self_improvement:brief",
@@ -1786,6 +1980,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "validation_passed": bool(greeting.validation_passed),
                     "validation_reasons": list(greeting.validation_reasons),
                     "greeting_reason": str(greeting.reason),
+                    "continuity_guard_applied": bool(greeting.continuity_guard_applied),
+                    "continuity_claims": dict(greeting.continuity_claims or {}),
+                    "llm_candidate_rejected": bool(greeting.llm_candidate_rejected),
                 },
             )
 
@@ -1967,22 +2164,39 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 )
 
             fallback = _surface_text(
-                "I can inspect local source code in this workspace. Ask me to list files or inspect a specific file path.",
+                "Yes, I can analyze Alice's current codebase. I will start by listing the main files and then inspect the core runtime routing paths.",
                 user_input=req.user_input,
                 intent=req.decision.intent,
                 route="contract_code_request",
             )
             return ResponseOutput(
                 text=fallback,
-                confidence=0.5,
-                requires_follow_up=True,
-                follow_up_question=_surface_text(
-                    "Do you want a file list or a summary of a specific file?",
+                confidence=0.75,
+                requires_follow_up=False,
+                metadata={"type": "code_request_fallback"},
+            )
+
+        if req.decision.intent in {
+            "conversation:educational_explain",
+            "operator:research_explain",
+        }:
+            text = (
+                "Start simple.\n\n"
+                "An agentic companion has four parts: memory, goals, tools, and a loop.\n\n"
+                "Memory keeps context. Goals decide what matters. Tools let it act. "
+                "The loop checks results and chooses the next move.\n\n"
+                "A chatbot waits for prompts. An agentic companion keeps the mission in view and moves it forward safely.\n\n"
+                "Next best move: build a tiny version of that loop inside Alice."
+            )
+            return ResponseOutput(
+                text=_surface_text(
+                    text,
                     user_input=req.user_input,
                     intent=req.decision.intent,
-                    route="contract_code_request",
+                    route="contract_educational_explain",
                 ),
-                metadata={"type": "code_request_fallback"},
+                confidence=0.92,
+                metadata={"type": "educational_explain"},
             )
 
         if req.decision.intent == "freshness:current_events":

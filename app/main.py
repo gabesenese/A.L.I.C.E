@@ -8721,6 +8721,12 @@ class ALICE:
                     f"Weather time-range cue detected → promoting {intent!r} to 'weather:forecast'"
                 )
             return "weather:forecast", max(float(intent_confidence or 0.0), 0.9)
+        if self._is_weather_clothing_time_range_request(text):
+            if hasattr(self, "_think"):
+                self._think(
+                    f"Weather clothing day-selection detected -> promoting {intent!r} to 'weather:forecast'"
+                )
+            return "weather:forecast", max(float(intent_confidence or 0.0), 0.9)
 
         return intent, float(intent_confidence or 0.0)
 
@@ -17498,20 +17504,32 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
     def _is_weather_clothing_time_range_request(self, user_input: str) -> bool:
         text = str(user_input or "").lower()
+        day_selection = bool(
+            re.search(
+                r"\b(which|what)\s+days?\b|\bwhen\s+(should|do)\b|\bwhen\s+do\s+i\s+need\b",
+                text,
+            )
+        )
         clothing = bool(
             re.search(
-                r"\b(coat|jacket|scarf|hat|gloves|boots|umbrella|wear|bring)\b", text
+                r"\b(coat|jacket|hoodie|sweater|scarf|hat|gloves|boots|umbrella|wear|bring)\b",
+                text,
             )
         )
         time_range = bool(
-            re.search(r"\b(this week|next week|week|weekend|tomorrow|tonight)\b", text)
+            re.search(
+                r"\b(this week|next week|week|weekend|tomorrow|tonight|next few days|coming days)\b",
+                text,
+            )
         )
         weatherish = bool(
             re.search(r"\b(weather|rain|snow|cold|hot|temperature|outside)\b", text)
             or "wear" in text
             or "bring" in text
         )
-        return bool(clothing and time_range and weatherish)
+        # Day-selection clothing questions ("which day", "when should") are forecast asks
+        # even when explicit range words ("this week") are omitted.
+        return bool(clothing and weatherish and (time_range or day_selection))
 
     def _resolve_turn_success_and_route(
         self,
