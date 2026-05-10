@@ -273,6 +273,28 @@ _WAKE_WORD_PREFIX_RE = re.compile(
     r"^\s*(?:hey|ok|okay)?\s*(?:assistant|alice)\b[\s,:\-]*",
     re.IGNORECASE,
 )
+_ACTIONABLE_BOUNDARY_PATTERNS: Tuple[re.Pattern, ...] = (
+    re.compile(r"\bi was wondering if\b", re.IGNORECASE),
+    re.compile(r"\bi was wondering whether\b", re.IGNORECASE),
+    re.compile(r"\bbut can you\b", re.IGNORECASE),
+    re.compile(r"\balso can you\b", re.IGNORECASE),
+    re.compile(r"\bcan you\b", re.IGNORECASE),
+    re.compile(r"\bcould you\b", re.IGNORECASE),
+    re.compile(r"\bdo i have\b", re.IGNORECASE),
+    re.compile(r"\bam i able to\b", re.IGNORECASE),
+    re.compile(r"\bi need to\b", re.IGNORECASE),
+    re.compile(r"\bi want to\b", re.IGNORECASE),
+    re.compile(r"\blet's\b", re.IGNORECASE),
+    re.compile(r"\bnow i\b", re.IGNORECASE),
+)
+_WEATHER_QUESTION_PATTERNS: Tuple[re.Pattern, ...] = (
+    re.compile(r"\bwhat(?:'s| is) the weather\b", re.IGNORECASE),
+    re.compile(r"\bwhat(?:'s| is) the forecast\b", re.IGNORECASE),
+    re.compile(r"\bshould i wear\b", re.IGNORECASE),
+    re.compile(r"\bwill it (?:rain|snow)\b", re.IGNORECASE),
+    re.compile(r"\bis it (?:cold|hot|rainy|snowy|windy)\b", re.IGNORECASE),
+    re.compile(r"\bwhich day should i wear\b", re.IGNORECASE),
+)
 
 
 def _has_negation_before(text_lower: str, keyword: str, window_chars: int = 40) -> bool:
@@ -287,6 +309,55 @@ def _has_negation_before(text_lower: str, keyword: str, window_chars: int = 40) 
 def _is_negated_command(text_lower: str) -> bool:
     """Return True if any of the first 4 tokens is a negation word."""
     return bool(_NEGATION_WORDS & set(text_lower.split()[:4]))
+
+
+def extract_actionable_clause(text: str) -> str:
+    """Return the request-dominant clause when a conversational preface exists."""
+    raw = str(text or "")
+    if not raw.strip():
+        return raw
+    low = raw.lower()
+    best_start: Optional[int] = None
+    for pattern in _ACTIONABLE_BOUNDARY_PATTERNS:
+        match = pattern.search(low)
+        if not match:
+            continue
+        if best_start is None or match.start() < best_start:
+            best_start = match.start()
+    if best_start is None:
+        return raw.strip()
+    clause = raw[best_start:].strip(" ,;:.!?")
+    if not clause:
+        return raw.strip()
+    # Keep request semantics while removing soft-preface wrappers.
+    clause = re.sub(
+        r"^\s*i was wondering (?:if|whether)\s+",
+        "",
+        clause,
+        flags=re.IGNORECASE,
+    ).strip()
+    return clause or raw.strip()
+
+
+def is_casual_weather_context(text: str, actionable_clause: str) -> bool:
+    """True when weather appears as side context while another explicit request leads."""
+    full = str(text or "").lower()
+    clause = str(actionable_clause or "").lower().strip()
+    if not clause or clause == full.strip():
+        return False
+    if any(pattern.search(clause) for pattern in _WEATHER_QUESTION_PATTERNS):
+        return False
+    has_weather_anywhere = any(term in full for term in _P1_WEATHER_KEYWORDS)
+    has_weather_in_clause = any(term in clause for term in _P1_WEATHER_KEYWORDS)
+    if not has_weather_anywhere or has_weather_in_clause:
+        return False
+    explicit_non_weather_request = bool(
+        re.search(
+            r"\b(notes?|reminders?|todo|tasks?|email|emails|calendar|events?|work on|continue|check|show|list|read|open)\b",
+            clause,
+        )
+    )
+    return explicit_non_weather_request
 
 
 # ── PHASE 1 pattern sets ──────────────────────────────────────────────────────
@@ -2050,6 +2121,12 @@ class NLPProcessor:
     ) -> List[Tuple[str, float]]:
         """Produce weighted intent candidates from parsed command and plugin scores."""
         candidates: List[Tuple[str, float]] = []
+        lower = text.lower()
+        if re.search(
+            r"\b(do i have|are there|have any|what notes|which notes|i have)\b.{0,25}\bopen notes?\b",
+            lower,
+        ) or re.search(r"\bany open notes?\b", lower):
+            candidates.append(("notes:query_exist", 0.9))
         if (
             parsed.object_type == "note"
             and parsed.action in self._plugin_actions["notes"]
@@ -4463,6 +4540,23 @@ class NLPProcessor:
         ):
             intent = "notes:read"
             intent_confidence = max(float(intent_confidence or 0.0), 0.88)
+        if re.search(
+            r"\b(do i have|are there|have any|what notes|which notes|i have)\b.{0,25}\bopen notes?\b",
+            _raw,
+        ) or re.search(r"\bany open notes?\b", _raw):
+            intent = "notes:query_exist"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+        if re.search(r"\bwork on alice\b", _raw) or re.search(
+            r"\bnow i\b.{0,30}\bwork on\b", _raw
+        ):
+            intent = "operator:continue"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.88)
+        if re.search(
+            r"\b(which|what)\s+day\b.{0,25}\bwear\b.{0,20}\b(coat|jacket)\b",
+            _raw,
+        ):
+            intent = "weather:forecast"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
 
         # Build result
         result = ProcessedQuery(
@@ -4643,7 +4737,9 @@ class NLPProcessor:
     ) -> Tuple[str, float]:
         """Detect intent using explicit patterns (primary) then semantic classifier (fallback)"""
 
-        text_lower = text.lower()
+        actionable_clause = extract_actionable_clause(text)
+        intent_text = actionable_clause or text
+        text_lower = intent_text.lower()
 
         # Negation guard: "don't create a note" should NOT fire notes:create
         _negated = _is_negated_command(text_lower)
@@ -4861,6 +4957,11 @@ class NLPProcessor:
             and not _negated
         ):
             return "notes:create", 0.93
+        if re.search(
+            r"\b(do i have|are there|have any|what notes|which notes|i have)\b.{0,25}\bopen notes?\b",
+            text_lower,
+        ) or re.search(r"\bany open notes?\b", text_lower):
+            return "notes:query_exist", 0.92
         # Read note content: "what is in the grocery list?", "what's inside my notes?"
         # Must come before list/append to avoid misclassification.
         if _P1_NOTES_READ_CONTENT_RE.search(text_lower) and not _negated:
@@ -4897,8 +4998,12 @@ class NLPProcessor:
         ):
             return "notes:create", 0.9
         # Existence/count questions: "do i have notes?", "how many notes do i have?"
-        if re.search(r"\b(do i have|how many|i have)\b", text_lower) and re.search(
-            r"\bnotes?\b", text_lower
+        if re.search(
+            r"\b(do i have|how many|i have|are there|what notes|which notes|have any)\b",
+            text_lower,
+        ) and re.search(
+            r"\b(open notes?|notes? (?:are|do).*open|any open notes?|notes?)\b",
+            text_lower,
         ):
             return "notes:query_exist", 0.90
         # List: "show/list + note(s)"
@@ -5108,10 +5213,34 @@ class NLPProcessor:
 
         # Weather intents: "what's the weather in X", "will it rain", "is it cold outside?"
         # Must be in PHASE 1 (before semantic classifier) since semantic may misclassify.
+        if re.search(
+            r"\b(which|what)\s+day\b.{0,25}\bwear\b.{0,20}\b(coat|jacket)\b",
+            text_lower,
+        ):
+            return "weather:forecast", 0.9
         if any(word in text_lower for word in _P1_WEATHER_KEYWORDS):
-            if any(word in text_lower for word in _P1_FORECAST_WORDS):
-                return "weather:forecast", 0.88
-            return "weather:current", 0.88
+            suppress_weather = is_casual_weather_context(text, actionable_clause)
+            if any(
+                re.search(
+                    pattern,
+                    text_lower,
+                )
+                for pattern in (
+                    r"\bdo i have any reminders?\b",
+                    r"\bany reminders?\b",
+                    r"\bcheck (?:my )?reminders?\b",
+                )
+            ):
+                return "reminder:list", 0.9
+            if not suppress_weather:
+                if any(word in text_lower for word in _P1_FORECAST_WORDS):
+                    return "weather:forecast", 0.88
+                return "weather:current", 0.88
+
+        if re.search(r"\bwork on alice\b", text_lower) or re.search(
+            r"\bnow i\b.{0,30}\bwork on\b", text_lower
+        ):
+            return "operator:continue", 0.9
 
         # PHASE 1.5: Conversational guard before semantic fallback.
         # Prevent force-fitting casual chat into tool intents.
@@ -5167,7 +5296,7 @@ class NLPProcessor:
         if semantic_classifier:
             try:
                 # Raised threshold to avoid over-eager semantic force-fit.
-                result = semantic_classifier.get_plugin_action(text, threshold=0.58)
+                result = semantic_classifier.get_plugin_action(intent_text, threshold=0.58)
                 if result and result.get("confidence", 0) >= 0.68:
                     # Map plugin:action to intent
                     plugin = result.get("plugin", "")
