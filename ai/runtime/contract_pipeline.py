@@ -549,6 +549,24 @@ class ContractPipeline:
             plan["route_veto"] = dict(route_veto)
         plan["policy_decision"] = policy.decision_type
         if str(decision.route or "") == "clarify":
+            self._maybe_record_behavior_event(
+                user_id=user_id,
+                source="routing_failure_log",
+                user_input=user_input,
+                route=str(decision.route or ""),
+                intent=str(decision.intent or ""),
+                trace_id=trace_id,
+                failure_kind="routing",
+                symptom="route clarify unexpectedly",
+                expected_behavior="Route should execute or respond when evidence is sufficient.",
+                actual_behavior="Route selected clarify.",
+                severity="medium",
+                evidence={"routing_trace": dict(plan.get("routing_trace") or {})},
+                related_files=[
+                    "ai/core/routing/route_arbiter.py",
+                    "ai/core/routing/evidence_contracts.py",
+                ],
+            )
             self._append_routing_failure(
                 trace_id=trace_id,
                 user_input=user_input,
@@ -1011,6 +1029,7 @@ class ContractPipeline:
             last_failure=str(local_exec_payload.get("error") or ""),
         )
         response_text = apply_response_momentum(
+            user_input=user_input,
             response_text=response_text,
             intent=str(decision.intent or ""),
             route=str(decision.route or ""),
