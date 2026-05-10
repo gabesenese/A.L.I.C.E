@@ -25,6 +25,7 @@ class OperatorState:
     last_user_correction: str = ""
     active_task_id: str = ""
     next_recommended_action: str = ""
+    last_recommended_action: Dict[str, Any] = field(default_factory=dict)
     suggested_next_files: List[str] = field(default_factory=list)
     active_file_candidates: List[str] = field(default_factory=list)
     files_changed: List[str] = field(default_factory=list)
@@ -59,6 +60,7 @@ class OperatorState:
             "last_user_correction": self.last_user_correction,
             "active_task_id": self.active_task_id,
             "next_recommended_action": self.next_recommended_action,
+            "last_recommended_action": dict(self.last_recommended_action or {}),
             "suggested_next_files": list(self.suggested_next_files or []),
             "active_file_candidates": list(self.active_file_candidates or []),
             "files_changed": list(self.files_changed or []),
@@ -94,6 +96,7 @@ class OperatorState:
             last_user_correction=str(data.get("last_user_correction") or ""),
             active_task_id=str(data.get("active_task_id") or ""),
             next_recommended_action=str(data.get("next_recommended_action") or ""),
+            last_recommended_action=dict(data.get("last_recommended_action") or {}),
             suggested_next_files=list(data.get("suggested_next_files") or []),
             active_file_candidates=list(data.get("active_file_candidates") or []),
             files_changed=list(data.get("files_changed") or []),
@@ -168,6 +171,12 @@ def sync_operator_state_with_project_memory(
     state.next_recommended_action = str(
         pm.next_recommended_action or state.next_recommended_action
     )
+    state.suggested_next_files = list(
+        getattr(pm, "suggested_next_files", []) or state.suggested_next_files
+    )
+    state.last_recommended_action = dict(
+        getattr(pm, "last_recommended_action", {}) or state.last_recommended_action
+    )
     state.last_self_improvement_event_id = str(
         getattr(pm, "last_self_improvement_event_id", "")
         or state.last_self_improvement_event_id
@@ -208,6 +217,7 @@ def commit_operator_state_to_project_memory(
             "current_plan": list(state.current_plan or []),
             "current_step": state.current_step,
             "next_recommended_action": state.next_recommended_action,
+            "last_recommended_action": dict(state.last_recommended_action or {}),
             "user_corrections": list(state.user_corrections or []),
             "design_constraints": list(state.design_constraints or []),
             "last_self_improvement_event_id": state.last_self_improvement_event_id,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict
 from ai.runtime.turn_mode_policy import classify_turn_mode
+from ai.runtime.operator_response_surface import render_operator_response
 
 
 def apply_response_momentum(
@@ -68,6 +69,23 @@ def apply_response_momentum(
     if not operator_turn:
         return text
 
+    # For local continuation turns with actual local execution, prefer a compact
+    # evidence-first operator surface over concatenating LLM chatter.
+    if (
+        str(route or "") == "local"
+        and normalized_intent in {"operator:continue", "operator:execute_recommended_action"}
+        and local
+    ):
+        rendered = render_operator_response(
+            user_input=user_input,
+            base_text=text,
+            operator_state=state,
+            local_execution=local,
+            next_step=str(next_step or ""),
+        )
+        if rendered:
+            return rendered
+
     # Avoid passive generic endings.
     passive_markers = (
         "let me know if you need anything else",
@@ -76,6 +94,9 @@ def apply_response_momentum(
         "sure, i can help with that",
         "which one sounds like a good starting point to you?",
         "what would you like to start with?",
+        "what would you like to tackle first",
+        "which one should we inspect",
+        "what would you like to focus on first",
         "if that sounds interesting",
         "if you want",
         "let me know",
@@ -88,9 +109,10 @@ def apply_response_momentum(
     if local:
         action = str(local.get("action") or "")
         inspected = str(local.get("inspected_file") or "")
-        if inspected:
+        success = bool(local.get("success"))
+        if inspected and success:
             result_line = f"I inspected `{inspected}` through `{action or 'local execution'}`."
-        elif action:
+        elif action and action.startswith("code:") and success:
             result_line = f"I ran one safe local step: `{action}`."
 
     meaning = ""

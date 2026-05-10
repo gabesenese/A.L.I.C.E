@@ -164,6 +164,8 @@ class EvidenceContracts:
             "operator:next_step",
             "operator:project_status",
             "operator:continue",
+            "operator:execute_recommended_action",
+            "operator:explain_recommendation",
             "self_improvement:audit",
             "self_improvement:status",
             "self_improvement:brief",

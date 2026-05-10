@@ -19,6 +19,7 @@ class CandidateNextAction:
 @dataclass
 class NextStepDecision:
     next_recommended_action: str = ""
+    last_recommended_action: Dict[str, Any] = field(default_factory=dict)
     candidate_actions: List[Dict[str, Any]] = field(default_factory=list)
     suggested_next_files: List[str] = field(default_factory=list)
     should_continue: bool = False
@@ -198,16 +199,71 @@ def decide_next_step(
 
     active_objective = str(state.get("active_objective") or proj.get("active_objective") or "")
     if active_objective and not candidates:
-        candidates.append(
-            _candidate(
-                action="inspect_file",
-                target="ai/runtime/agent_loop.py",
-                reason="Active objective exists; agent loop should drive next safe step.",
-                confidence=0.72,
-                priority=0.72,
-                source="active_objective",
+        inspected_set = {str(p or "").lower() for p in inspected}
+        if "ai/runtime/agent_loop.py" not in inspected_set:
+            candidates.append(
+                _candidate(
+                    action="inspect_file",
+                    target="ai/runtime/agent_loop.py",
+                    reason="Active objective exists; agent loop should drive next safe step.",
+                    confidence=0.72,
+                    priority=0.72,
+                    source="active_objective",
+                )
             )
-        )
+        else:
+            followups = (
+                (
+                    "ai/runtime/next_step_policy.py",
+                    "It decides what Alice should do after each safe step.",
+                    0.76,
+                ),
+                (
+                    "ai/runtime/operator_state.py",
+                    "It stores active objective, current focus, inspected files, and recommendations.",
+                    0.74,
+                ),
+                (
+                    "ai/runtime/response_momentum_policy.py",
+                    "It shapes whether Alice advances with momentum or drifts into passive responses.",
+                    0.72,
+                ),
+                (
+                    "ai/runtime/contract_pipeline.py",
+                    "It coordinates route -> execute -> verify -> respond handoff.",
+                    0.7,
+                ),
+                (
+                    "ai/memory/project_memory.py",
+                    "It persists durable objective and recommendation state across turns.",
+                    0.68,
+                ),
+            )
+            for path, reason_text, conf in followups:
+                if path.lower() in inspected_set:
+                    continue
+                if path in files or _file_exists(path):
+                    candidates.append(
+                        _candidate(
+                            action="inspect_file",
+                            target=path,
+                            reason=reason_text,
+                            confidence=conf,
+                            priority=conf,
+                            source="active_objective_followup",
+                        )
+                    )
+            if not candidates:
+                candidates.append(
+                    _candidate(
+                        action="summarize_findings",
+                        target="inspected_files",
+                        reason="All primary runtime files have been inspected; synthesize findings before continuing.",
+                        confidence=0.69,
+                        priority=0.69,
+                        source="active_objective_followup",
+                    )
+                )
 
     if str(local.get("error") or "") == "target_not_found":
         close = list(local.get("close_matches") or [])
@@ -248,10 +304,16 @@ def decide_next_step(
     suggested_files = [c.target for c in candidates if c.target][:5]
 
     if top:
+        top_payload = asdict(top)
         return NextStepDecision(
             next_recommended_action=(
                 f"Next best move: {top.action.replace('_', ' ')} {top.target} because {top.reason}"
             ).strip(),
+            last_recommended_action={
+                **top_payload,
+                "requires_approval": False,
+                "created_at": "",
+            },
             candidate_actions=[asdict(c) for c in candidates[:8]],
             suggested_next_files=suggested_files,
             should_continue=True,
@@ -269,6 +331,11 @@ def decide_next_step(
     )
     return NextStepDecision(
         next_recommended_action=remembered_next,
+        last_recommended_action=dict(
+            state.get("last_recommended_action")
+            or proj.get("last_recommended_action")
+            or {}
+        ),
         candidate_actions=[],
         suggested_next_files=list(state.get("suggested_next_files") or []),
         should_continue=bool(remembered_next),

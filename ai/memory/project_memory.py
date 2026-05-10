@@ -40,6 +40,8 @@ class ProjectMemoryState:
     current_plan: List[str] = field(default_factory=list)
     current_step: str = ""
     next_recommended_action: str = ""
+    last_recommended_action: Dict[str, Any] = field(default_factory=dict)
+    suggested_next_files: List[str] = field(default_factory=list)
     user_corrections: List[str] = field(default_factory=list)
     design_constraints: List[str] = field(default_factory=_default_design_constraints)
     last_self_improvement_event_id: str = ""
@@ -68,6 +70,8 @@ class ProjectMemoryState:
             current_plan=list(data.get("current_plan") or []),
             current_step=str(data.get("current_step") or ""),
             next_recommended_action=str(data.get("next_recommended_action") or ""),
+            last_recommended_action=dict(data.get("last_recommended_action") or {}),
+            suggested_next_files=list(data.get("suggested_next_files") or []),
             user_corrections=list(data.get("user_corrections") or []),
             design_constraints=list(
                 data.get("design_constraints") or _default_design_constraints()
@@ -128,6 +132,7 @@ def update_project_state(
             "files_inspected",
             "files_changed",
             "current_plan",
+            "suggested_next_files",
             "user_corrections",
             "design_constraints",
         }:
@@ -212,6 +217,7 @@ def get_next_context_summary(user_id: str = "default") -> Dict[str, Any]:
         "known_blockers": list(state.known_blockers or [])[:5],
         "last_inspected_file": (state.files_inspected[-1] if state.files_inspected else ""),
         "next_recommended_action": state.next_recommended_action,
+        "last_recommended_action": dict(state.last_recommended_action or {}),
         "last_self_improvement_event_id": state.last_self_improvement_event_id,
         "last_audit_report_id": state.last_audit_report_id,
         "self_improvement_status": state.self_improvement_status,
@@ -236,6 +242,7 @@ def record_improvement_audit(
                 data.get("next_recommended_action")
                 or "Review audit report and approve implementation scope."
             ),
+            "last_recommended_action": dict(data.get("last_recommended_action") or {}),
         },
         user_id=user_id,
     )

@@ -358,6 +358,34 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         )
         return any(re.search(pat, text) for pat in patterns)
 
+    def _is_recommendation_approval_phrase(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        return text in {
+            "go ahead",
+            "do it",
+            "continue",
+            "yes",
+            "yeah go ahead",
+            "sounds good",
+            "proceed",
+        }
+
+    def _is_recommendation_explain_query(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        return bool(
+            ("why" in text)
+            and any(
+                cue in text
+                for cue in (
+                    "why did you mention",
+                    "why that file",
+                    "why inspect that",
+                    "why agent_loop.py",
+                    "why did you mention to take a look",
+                )
+            )
+        )
+
     def _fallback_answer_intent(user_input: str) -> str:
         hint = resolve_dominant_intent_hint(user_input)
         if hint in {
@@ -950,6 +978,43 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         )
         low = str(req.user_input or "").lower()
         dominant_hint = resolve_dominant_intent_hint(req.user_input)
+        last_recommended_action = dict(
+            state.get("last_recommended_action")
+            or project_state.last_recommended_action
+            or {}
+        )
+
+        if _is_recommendation_explain_query(req.user_input) and last_recommended_action:
+            return RouterDecision(
+                route="local",
+                intent="operator:explain_recommendation",
+                confidence=0.92,
+                decision_band="execute",
+                metadata={
+                    "reason": "explain_previous_recommendation",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
+
+        if _is_recommendation_approval_phrase(req.user_input) and last_recommended_action:
+            requires_approval = bool(last_recommended_action.get("requires_approval"))
+            intent = (
+                "operator:continue"
+                if requires_approval
+                else "operator:execute_recommended_action"
+            )
+            return RouterDecision(
+                route="local",
+                intent=intent,
+                confidence=0.93,
+                decision_band="execute",
+                metadata={
+                    "reason": "execute_previous_recommendation",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
 
         if any(
             phrase in low
@@ -1748,6 +1813,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "operator:next_step",
             "operator:project_status",
             "operator:continue",
+            "operator:execute_recommended_action",
+            "operator:explain_recommendation",
             "self_improvement:audit",
             "self_improvement:status",
             "self_improvement:brief",
@@ -1913,6 +1980,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "validation_passed": bool(greeting.validation_passed),
                     "validation_reasons": list(greeting.validation_reasons),
                     "greeting_reason": str(greeting.reason),
+                    "continuity_guard_applied": bool(greeting.continuity_guard_applied),
+                    "continuity_claims": dict(greeting.continuity_claims or {}),
+                    "llm_candidate_rejected": bool(greeting.llm_candidate_rejected),
                 },
             )
 

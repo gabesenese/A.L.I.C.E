@@ -69,6 +69,7 @@ class ImprovementLoop:
         )
 
     def run_audit_from_event(self, event: BehaviorEvent) -> AuditReport:
+        self._ensure_behavior_event_recorded(event)
         classification = self.classify(event)
         hypothesis = self.hypothesize(event, classification)
         patch_plan = self.plan_patch(hypothesis)
@@ -105,6 +106,15 @@ class ImprovementLoop:
         )
         return report
 
+    def _ensure_behavior_event_recorded(self, event: BehaviorEvent) -> None:
+        rows = read_behavior_events(limit=500)
+        event_id = str(event.event_id or "")
+        if not event_id:
+            return
+        if any(str(row.get("event_id") or "") == event_id for row in rows):
+            return
+        record_behavior_event(event)
+
     def build_codex_brief(self, audit_report: AuditReport) -> str:
         return build_codex_brief(audit_report)
 
@@ -129,3 +139,25 @@ class ImprovementLoop:
         rows = read_audit_reports(limit=1)
         return rows[-1] if rows else {}
 
+    def pending_status(self) -> Dict[str, Any]:
+        events = read_behavior_events(limit=500)
+        reports = read_audit_reports(limit=500)
+        audited_event_ids = {
+            str((row.get("event") or {}).get("event_id") or "")
+            for row in reports
+            if isinstance(row, dict)
+        }
+        pending_events = [
+            row
+            for row in events
+            if str(row.get("event_id") or "") not in audited_event_ids
+        ]
+        return {
+            "pending_event_count": len(pending_events),
+            "audit_report_count": len(reports),
+            "latest_event_id": str(events[-1].get("event_id") or "") if events else "",
+            "latest_report_id": str(reports[-1].get("report_id") or "")
+            if reports
+            else "",
+            "pending_event_ids": [str(row.get("event_id") or "") for row in pending_events[-10:]],
+        }

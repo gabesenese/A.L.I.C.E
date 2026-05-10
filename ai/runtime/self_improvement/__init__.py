@@ -19,6 +19,8 @@ from ai.runtime.self_improvement.approval_gate import (
     ApprovalDecision,
     requires_approval,
     assert_approval_for_source_change,
+    assert_approval_for_git_operation,
+    assert_approval_for_merge,
 )
 from ai.runtime.self_improvement.storage import (
     record_behavior_event,
@@ -44,6 +46,8 @@ __all__ = [
     "ApprovalDecision",
     "requires_approval",
     "assert_approval_for_source_change",
+    "assert_approval_for_git_operation",
+    "assert_approval_for_merge",
     "record_behavior_event",
     "read_behavior_events",
     "read_audit_reports",

@@ -51,3 +51,40 @@ def test_background_claim_is_rewritten_for_casual_turn_without_evidence():
     low = out.lower()
     assert "processing some interesting stuff in the background" not in low
     assert "i'm good" in low
+
+
+def test_operator_continue_local_turn_uses_compact_evidence_surface():
+    out = apply_response_momentum(
+        user_input="good, it was a cold day today so i just stayed home, now i am gonna work on alice for a bit",
+        response_text=(
+            "Current objective is Improve Alice into an agentic companion/operator. "
+            "It's good to hear you're staying warm and cozy at home! "
+            "I've taken a look at my core codebase (agent_loop.py). "
+            "What would you like to tackle first."
+        ),
+        intent="operator:continue",
+        route="local",
+        operator_state={
+            "active_objective": "Improve Alice into an agentic companion/operator",
+            "last_recommended_action": {
+                "action": "inspect_file",
+                "target": "ai/runtime/operator_state.py",
+                "reason": "It stores active objective, current focus, inspected files, and recommendations.",
+            },
+        },
+        project_memory={},
+        local_execution={
+            "action": "code:analyze_file",
+            "success": True,
+            "inspected_file": "ai/runtime/agent_loop.py",
+            "analysis": {"lines": 326, "classes": 5, "functions": 5},
+        },
+        next_step="inspect file ai/runtime/operator_state.py because It stores active objective, current focus, inspected files, and recommendations.",
+    )
+    low = out.lower()
+    assert "warm and cozy" not in low
+    assert "what would you like to tackle first" not in low
+    assert "i inspected ai/runtime/agent_loop.py." in low
+    assert out.count("ai/runtime/agent_loop.py") == 1
+    assert "next best move: inspect ai/runtime/operator_state.py" in low
+    assert "\n\n" in out

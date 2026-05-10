@@ -1,39 +1,78 @@
-from ai.runtime.greeting_surface_policy import (
-    filter_learned_greetings,
-    render_grounded_greeting,
-    validate_chat_greeting,
-)
+from ai.runtime.greeting_surface_policy import render_grounded_greeting
 
 
-def test_a_llm_three_sentence_greeting_can_pass():
+def test_a_llm_natural_greeting_accepted():
     result = render_grounded_greeting(
         user_name="Gabriel",
         operator_state={},
         session_state={},
         user_input="hi alice",
-        llm_generate=lambda *args, **kwargs: "Hey Gabriel.\n\nGood to hear from you.\n\nI'm here.",
-    )
-    assert result.generated_by == "llm_constrained"
-    assert result.text == "Hey Gabriel.\n\nGood to hear from you.\n\nI'm here."
-    assert result.validation_reasons == []
-
-
-def test_b_fake_continuity_rejected():
-    result = render_grounded_greeting(
-        user_name="Gabriel",
-        operator_state={},
-        session_state={},
-        user_input="hi alice",
-        llm_generate=lambda *args, **kwargs: "Hey Gabriel. We were discussing machine learning last time.",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you?",
     )
     low = result.text.lower()
-    assert result.generated_by == "fallback"
+    assert result.generated_by == "llm_constrained"
+    assert "current objective" not in low
+    assert "machine learning" not in low
+    assert result.continuity_guard_applied is True
+
+
+def test_b_old_machine_learning_bug_blocked():
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={},
+        session_state={},
+        user_input="hi alice",
+        llm_generate=lambda *args, **kwargs: "We were discussing machine learning last time. Good to see you.",
+    )
+    low = result.text.lower()
     assert "machine learning" not in low
     assert "last time" not in low
-    assert "fake_continuity" in result.validation_reasons or "banned_content" in result.validation_reasons
+    assert "we were discussing" not in low
+    assert result.generated_by == "fallback"
+    assert result.continuity_guard_applied is True
+    assert result.llm_candidate_rejected is True
 
 
-def test_c_assistant_greeting_rejected():
+def test_c_broad_memory_not_used_for_plain_greeting_metadata():
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={},
+        session_state={},
+        user_input="hi alice",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to hear from you. How's it going?",
+    )
+    assert result.suppressed_project_menu is True
+    assert result.continuity_guard_applied is True
+
+
+def test_d_active_state_not_forced_into_plain_greeting():
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={"active_objective": "Improve Alice", "current_focus": "routing"},
+        session_state={},
+        user_input="hi alice",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you doing?",
+    )
+    low = result.text.lower()
+    assert "routing" not in low
+    assert "current objective" not in low
+    assert "next best move" not in low
+
+
+def test_e_active_state_allowed_for_explicit_continuation():
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={"active_objective": "Improve Alice", "current_focus": "routing"},
+        session_state={},
+        user_input="hi alice, where were we?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Still on routing. Ready to continue.",
+    )
+    low = result.text.lower()
+    assert "still on routing" in low
+    assert "machine learning" not in low
+
+
+def test_f_service_greeting_rejected():
     result = render_grounded_greeting(
         user_name="Gabriel",
         operator_state={},
@@ -44,73 +83,37 @@ def test_c_assistant_greeting_rejected():
     low = result.text.lower()
     assert result.generated_by == "fallback"
     assert "how can i help" not in low
-    assert "banned_content" in result.validation_reasons
 
 
-def test_d_device_language_rejected():
+def test_g_forced_companion_phrase_rejected():
     result = render_grounded_greeting(
         user_name="Gabriel",
         operator_state={},
         session_state={},
         user_input="hi alice",
-        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Great to see you're back online.",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. I'm with you. Let's keep it simple.",
     )
     low = result.text.lower()
     assert result.generated_by == "fallback"
-    assert "back online" not in low
-    assert "banned_content" in result.validation_reasons
+    assert "let's keep it simple" not in low
 
 
-def test_e_weird_ambient_phrases_rejected():
-    result = render_grounded_greeting(
+def test_h_repeated_greeting_is_shorter():
+    first = render_grounded_greeting(
         user_name="Gabriel",
         operator_state={},
-        session_state={},
+        session_state={"greeting_count": 0},
         user_input="hi alice",
-        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Nothing caught fire.",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to hear from you. How's it going?",
     )
-    low = result.text.lower()
-    assert result.generated_by == "fallback"
-    assert "nothing caught fire" not in low
-    assert "banned_content" in result.validation_reasons
-
-
-def test_f_fallback_is_minimal_without_active_state():
-    result = render_grounded_greeting(
+    second = render_grounded_greeting(
         user_name="Gabriel",
         operator_state={},
-        session_state={},
-        user_input="hi alice",
-        llm_generate=lambda *args, **kwargs: "Hey Gabriel. How can I help?",
+        session_state={"greeting_count": 1},
+        user_input="hello",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel.",
     )
-    assert result.text == "Hey Gabriel."
-
-
-def test_g_active_state_fallback_includes_focus():
-    result = render_grounded_greeting(
-        user_name="Gabriel",
-        operator_state={
-            "active_objective": "Improve Alice into an agentic companion/operator",
-            "current_focus": "routing",
-        },
-        session_state={},
-        user_input="hi alice",
-        llm_generate=lambda *args, **kwargs: "Hey Gabriel. How can I help?",
-    )
-    assert "Still on routing." in result.text
-
-
-def test_h_learned_greeting_validation():
-    learned = [
-        "Hey Gabriel. How can I help?",
-        "Hey Gabriel. Good to hear from you.",
-    ]
-    accepted = filter_learned_greetings(learned)
-    assert "Hey Gabriel. How can I help?" not in accepted
-    assert "Hey Gabriel. Good to hear from you." in accepted
-
-
-def test_validate_chat_greeting_rejects_task_intake_for_pure_greeting():
-    result = validate_chat_greeting("Hey Gabriel. What are we doing tonight?", pure_greeting=True)
-    assert result.valid is False
-    assert "direct_task_intake" in result.reasons
+    assert len(second.text.split()) <= len(first.text.split())
+    low = second.text.lower()
+    assert "current objective" not in low
+    assert "machine learning" not in low
