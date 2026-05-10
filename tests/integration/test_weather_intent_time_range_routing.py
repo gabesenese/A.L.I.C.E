@@ -102,6 +102,81 @@ def test_weather_clothing_time_range_detector_ignores_non_weather_week_question(
     )
 
 
+def test_weather_which_day_coat_promotes_current_to_forecast():
+    alice = ALICE.__new__(ALICE)
+    alice._think = lambda *_args, **_kwargs: None
+
+    intent, confidence = ALICE._normalize_weather_intent_for_time_range(
+        alice,
+        user_input="which day should i wear a coat?",
+        intent="weather:current",
+        intent_confidence=0.78,
+    )
+
+    assert intent == "weather:forecast"
+    assert confidence >= 0.9
+
+
+def test_weather_what_day_jacket_promotes_general_to_forecast():
+    alice = ALICE.__new__(ALICE)
+    alice._think = lambda *_args, **_kwargs: None
+
+    intent, confidence = ALICE._normalize_weather_intent_for_time_range(
+        alice,
+        user_input="what day should i wear a jacket?",
+        intent="conversation:general",
+        intent_confidence=0.74,
+    )
+
+    assert intent == "weather:forecast"
+    assert confidence >= 0.9
+
+
+def test_weather_when_bring_umbrella_promotes_current_to_forecast():
+    alice = ALICE.__new__(ALICE)
+    alice._think = lambda *_args, **_kwargs: None
+
+    intent, confidence = ALICE._normalize_weather_intent_for_time_range(
+        alice,
+        user_input="when should i bring an umbrella?",
+        intent="weather:current",
+        intent_confidence=0.79,
+    )
+
+    assert intent == "weather:forecast"
+    assert confidence >= 0.9
+
+
+def test_weather_do_i_need_jacket_right_now_stays_current():
+    alice = ALICE.__new__(ALICE)
+    alice._think = lambda *_args, **_kwargs: None
+
+    intent, confidence = ALICE._normalize_weather_intent_for_time_range(
+        alice,
+        user_input="do i need a jacket right now?",
+        intent="weather:current",
+        intent_confidence=0.86,
+    )
+
+    assert intent == "weather:current"
+    assert confidence == 0.86
+
+
+def test_weather_which_day_non_weather_question_does_not_promote():
+    alice = ALICE.__new__(ALICE)
+    alice._think = lambda *_args, **_kwargs: None
+
+    intent, confidence = ALICE._normalize_weather_intent_for_time_range(
+        alice,
+        user_input="which day should i review my notes?",
+        intent="conversation:general",
+        intent_confidence=0.69,
+    )
+
+    assert intent == "conversation:general"
+    assert confidence == 0.69
+
+
 def test_non_weather_tomorrow_does_not_promote_clarification_intent():
     alice = ALICE.__new__(ALICE)
     alice._think = lambda *_args, **_kwargs: None
