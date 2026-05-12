@@ -50,3 +50,65 @@ def test_operator_state_analysis_surface_is_clean_and_non_repetitive():
     assert "Interpretation: this is state storage, not the routing brain." in out
     assert "let me know" not in out.lower()
 
+
+def test_agent_loop_finding_is_specific_and_not_routing():
+    out = render_operator_response(
+        user_input="inspect agent loop",
+        base_text="",
+        operator_state={
+            "last_recommended_action": {
+                "action": "inspect_file",
+                "target": "ai/runtime/response_momentum_policy.py",
+                "reason": "It shapes whether Alice advances with momentum or drifts into passive responses.",
+            }
+        },
+        local_execution={
+            "success": True,
+            "inspected_file": "ai/runtime/agent_loop.py",
+            "analysis": {"responsibility": "agent loop"},
+        },
+        next_step="",
+    )
+    assert "bounded operator loop" in out.lower()
+    assert "primary responsibility is routing" not in out.lower()
+    assert "because It" not in out
+    assert ".." not in out
+
+
+def test_long_day_ack_is_grounded_and_not_cutesy():
+    out = render_operator_response(
+        user_input="good, it was a long day, but its just monday so we are trying to stay positive, I want to work on alice for a little bit",
+        base_text="",
+        operator_state={},
+        local_execution={},
+        next_step="inspect ai/runtime/response_momentum_policy.py",
+    )
+    low = out.lower()
+    assert out.startswith("Long day. We'll keep this light.")
+    assert "cozy" not in low
+    assert "glad you're staying" not in low
+    assert "that must have been hard" not in low
+    assert "you've got this" not in low
+
+
+def test_next_move_reason_grammar_is_clean():
+    out = render_operator_response(
+        user_input="inspect",
+        base_text="",
+        operator_state={
+            "last_recommended_action": {
+                "action": "inspect_file",
+                "target": "ai/runtime/response_momentum_policy.py",
+                "reason": "It shapes whether Alice advances with momentum or drifts into passive responses.",
+            }
+        },
+        local_execution={},
+        next_step="",
+    )
+    assert (
+        "Next best move: inspect ai/runtime/response_momentum_policy.py because it shapes whether Alice advances with momentum or drifts into passive responses."
+        in out
+    )
+    assert "because It" not in out
+    assert ".." not in out
+

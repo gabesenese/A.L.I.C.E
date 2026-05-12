@@ -16,3 +16,25 @@ def test_route_arbiter_classified_as_routing():
     text = open("ai/core/routing/route_arbiter.py", "r", encoding="utf-8").read()
     responsibility = analyzer.responsibility("ai/core/routing/route_arbiter.py", text)
     assert responsibility == "routing"
+
+
+def test_agent_loop_classified_as_agent_loop():
+    analyzer = CodeAnalyzer()
+    text = """
+class AgentLoop:
+    def _select_step(self): ...
+    def _execute_safe_step(self): ...
+
+class PlanStep: ...
+class Observation: ...
+class AgentLoopResult: ...
+"""
+    responsibility = analyzer.responsibility("ai/runtime/agent_loop.py", text)
+    assert responsibility == "agent loop"
+
+
+def test_route_mentions_alone_do_not_force_routing():
+    analyzer = CodeAnalyzer()
+    text = "last_route = None\nlast_intent = None\nrouting_result = {}"
+    responsibility = analyzer.responsibility("ai/runtime/agent_loop.py", text)
+    assert responsibility != "routing"

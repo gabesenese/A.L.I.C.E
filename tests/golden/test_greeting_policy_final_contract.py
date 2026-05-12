@@ -22,6 +22,35 @@ def test_a2_generic_empty_greeting_rejected():
     assert result.text.strip().lower() != "hey gabriel! it's great to chat with you!"
 
 
+def test_a3_retry_once_after_generic_greeting():
+    call_count = {"n": 0}
+
+    def _mock(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return "Hey Gabriel! It's great to chat with you!"
+        return "Hey Gabriel. Good to see you. How are you?"
+
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        user_input="hi alice",
+        llm_generate=_mock,
+    )
+    assert call_count["n"] >= 2
+    assert "great to chat with you" not in result.text.lower()
+
+
+def test_a4_fallback_avoids_generic_empty_greeting():
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        user_input="hi alice",
+        llm_generate=lambda *args, **kwargs: "",
+    )
+    low = result.text.lower()
+    assert "great to chat with you" not in low
+    assert "nice to talk to you" not in low
+
+
 def test_b_immediate_context_reply_accepted():
     text = "sorry, i meant alice, was just testing you, my day is going good, weather is warmer today"
     result = render_grounded_greeting(

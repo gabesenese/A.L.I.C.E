@@ -42,6 +42,9 @@ from ai.runtime.anti_overclarification_policy import (
     should_answer_instead_of_clarify,
 )
 from ai.runtime.local_action_executor import LocalActionExecutor
+from ai.runtime.perception_frame import build_perception_frame
+from ai.runtime.claim_verifier import verify_response_claims
+from ai.runtime.action_bus import ActionBus, ActionRequest, ActionResult
 from ai.runtime.operator_state import (
     commit_operator_state_to_project_memory,
     sync_operator_state_with_project_memory,
@@ -119,6 +122,40 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     )
     memory_answer_verifier = MemoryAnswerVerifier()
     local_executor = LocalActionExecutor(alice)
+    action_bus = ActionBus()
+
+    def _local_action_executor_wrapper(request: ActionRequest) -> ActionResult:
+        local = local_executor.execute(
+            action=request.name,
+            query=str(request.params.get("query") or ""),
+            context=dict(request.params.get("context") or {}),
+        )
+        success = bool(local.get("success"))
+        return ActionResult(
+            action_id=request.action_id,
+            name=request.name,
+            target=str(request.target or ""),
+            success=success,
+            data={
+                "response": str(local.get("response") or ""),
+                "operator_context": dict(local.get("operator_context") or {}),
+                "local_execution": dict(local.get("local_execution") or {}),
+            },
+            error=str(local.get("error") or ""),
+            evidence=dict(local.get("local_execution") or {}),
+            verified=bool(success and local.get("local_execution")),
+        )
+
+    for _name in (
+        "inspect_file",
+        "analyze_file",
+        "list_files",
+        "project_status",
+        "next_step",
+        "self_improvement_audit",
+        "memory_preview_delete",
+    ):
+        action_bus.register(_name, _local_action_executor_wrapper)
     route_arbiter = RouteArbiter()
 
     def _normalize_path(path_text: str) -> str:
@@ -1013,6 +1050,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             operator_ctx.get("active_capability") == "code_inspection"
             and operator_ctx.get("awaiting_target")
         )
+        perception = build_perception_frame(
+            str(req.user_input or ""),
+            operator_state=state,
+            project_memory=project_state.to_dict(),
+        )
+        dominant_input = str(perception.actual_request or req.user_input or "")
         low = str(req.user_input or "").lower()
         dominant_hint = resolve_dominant_intent_hint(req.user_input)
         last_recommended_action = dict(
@@ -1020,6 +1063,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             or project_state.last_recommended_action
             or {}
         )
+
+        if perception.is_memory_rights_request:
+            topic = _extract_memory_topic(dominant_input) or _extract_memory_topic(req.user_input)
+            return RouterDecision(
+                route="tool",
+                intent="memory:delete_topic_preview",
+                confidence=0.95,
+                decision_band="execute",
+                metadata={
+                    "reason": "perception_memory_rights_request",
+                    "resolved_input": dominant_input,
+                    "memory_topic": topic,
+                    "perception_frame": perception.to_dict(),
+                },
+            )
 
         if _is_recommendation_explain_query(req.user_input) and last_recommended_action:
             return RouterDecision(
@@ -1029,8 +1087,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 decision_band="execute",
                 metadata={
                     "reason": "explain_previous_recommendation",
-                    "resolved_input": req.user_input,
+                    "resolved_input": dominant_input,
                     "operator_state": state,
+                    "perception_frame": perception.to_dict(),
                 },
             )
 
@@ -1541,6 +1600,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "error": "context_resolver_failure",
                 }
 
+        if perception.actual_request:
+            resolved_input = perception.actual_request
         nlp_result = alice.nlp.process(resolved_input)
         intent = str(getattr(nlp_result, "intent", "unknown") or "unknown")
         confidence = float(getattr(nlp_result, "intent_confidence", 0.0) or 0.0)
@@ -1664,9 +1725,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     needs_clarification=False,
                     metadata={
                         "reason": "anti_overclarification_reroute",
-                        "resolved_input": resolved_input,
-                    },
-                )
+                    "resolved_input": resolved_input,
+                    "perception_frame": perception.to_dict(),
+                },
+            )
             return RouterDecision(
                 route="clarify",
                 intent=intent,
@@ -1703,6 +1765,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 ),
                 "routing_trace": dict(modifiers.get("routing_trace") or {}),
                 "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
+                "perception_frame": perception.to_dict(),
                 **resolution_meta,
             },
         )
@@ -1900,30 +1963,41 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
             if extracted_target:
                 context_payload["target_file"] = extracted_target
-            local = local_executor.execute(
-                action=str(invocation.action or ""),
-                query=str(invocation.params.get("query") or ""),
-                context=context_payload,
+            action_result = _local_action_executor_wrapper(
+                ActionRequest(
+                    action_id=str(invocation.idempotency_key or invocation.action or "local"),
+                    name=str(invocation.action or ""),
+                    target=str(context_payload.get("target_file") or ""),
+                    params={
+                        "query": str(invocation.params.get("query") or ""),
+                        "context": context_payload,
+                    },
+                    source="routing_boundary",
+                )
             )
-            success = bool(local.get("success"))
+            success = bool(action_result.success)
             return ToolResult(
                 success=success,
                 tool_name="local_action_executor",
                 action=invocation.action,
                 data={
-                    "response": str(local.get("response") or ""),
-                    "operator_context": dict(local.get("operator_context") or {}),
-                    "local_execution": dict(local.get("local_execution") or {}),
+                    "response": str(action_result.data.get("response") or ""),
+                    "operator_context": dict(action_result.data.get("operator_context") or {}),
+                    "local_execution": dict(action_result.data.get("local_execution") or {}),
                     "close_matches": list(
-                        (local.get("operator_context") or {}).get("close_matches") or []
+                        (action_result.data.get("operator_context") or {}).get("close_matches") or []
                     ),
                 },
-                error=str(local.get("error") or ""),
+                error=str(action_result.error or ""),
                 confidence=0.9 if success else 0.3,
                 diagnostics={
                     "route": "local_executor",
-                    "operator_context": dict(local.get("operator_context") or {}),
-                    "local_execution": dict(local.get("local_execution") or {}),
+                    "operator_context": dict(action_result.data.get("operator_context") or {}),
+                    "local_execution": dict(action_result.data.get("local_execution") or {}),
+                    "action_bus": {
+                        "action_id": action_result.action_id,
+                        "verified": bool(action_result.verified),
+                    },
                 },
             )
 
@@ -2608,6 +2682,24 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 reason="empty_response",
                 confidence=0.0,
                 diagnostics={"stage": "verification"},
+            )
+
+        claim_verification = verify_response_claims(
+            response_text,
+            action_result=dict(req.tool_result.data or {}) if req.tool_result else {},
+            memory_result=dict(req.tool_result.data or {}) if req.tool_result and str(req.decision.intent or "").startswith("memory:") else {},
+            local_execution=dict((req.tool_result.diagnostics or {}).get("local_execution") or {}) if req.tool_result else {},
+            perception_frame=dict((req.decision.metadata or {}).get("perception_frame") or {}),
+        )
+        if not claim_verification.valid:
+            return VerifierResult(
+                accepted=False,
+                reason="unsupported_claims",
+                confidence=0.1,
+                diagnostics={
+                    "unsupported_claims": list(claim_verification.unsupported_claims),
+                    "reasons": list(claim_verification.reasons),
+                },
             )
 
         if req.decision.decision_band == "refuse":

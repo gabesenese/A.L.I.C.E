@@ -8,25 +8,57 @@ from typing import Any, Dict, List
 class CodeAnalyzer:
     def responsibility(self, rel: str, text: str) -> str:
         low = (rel + "\n" + text).lower()
-        has_dataclass = "dataclass" in low
-        has_state_fields = "last_route" in low or "last_intent" in low or "files_inspected" in low
-        has_update_sync = any(
-            token in low for token in ("update_", "sync_", "commit_", "to_dict", "from_dict")
+        agent_loop_markers = (
+            "class agentloop",
+            "planstep",
+            "observation",
+            "agentloopresult",
+            "_select_step",
+            "_execute_safe_step",
+            "record_success",
+            "record_failure",
+        )
+        state_management_markers = (
+            "dataclass operatorstate",
+            "update_operator_state",
+            "sync_operator_state_with_project_memory",
+            "commit_operator_state_to_project_memory",
+        )
+        next_step_markers = (
+            "candidatenextaction",
+            "nextstepdecision",
+            "def decide_next_step(",
+        )
+        response_momentum_markers = (
+            "apply_response_momentum",
+            "render_operator_response",
+            "passive markers",
+            "passive capability phrasing",
         )
         routing_logic_markers = (
+            "routearbiter",
+            "routingdecision",
+            "route scoring",
+            "candidate route scoring",
+            "select route",
+            "route arbitration",
+            "evidence contracts",
+            "plugin score_all",
+            "intent classifier",
             "return routedecision",
             "if intent ==",
             "if route ==",
-            "route scoring",
-            "candidate_actions",
-            "arbiter",
-            "select route",
             "decision_band",
         )
-        has_routing_logic = any(token in low for token in routing_logic_markers)
-        if has_dataclass and has_state_fields and has_update_sync and not has_routing_logic:
+        if any(token in low for token in agent_loop_markers):
+            return "agent loop"
+        if any(token in low for token in state_management_markers):
             return "state management"
-        if has_routing_logic:
+        if any(token in low for token in next_step_markers):
+            return "next-step policy"
+        if any(token in low for token in response_momentum_markers):
+            return "response momentum"
+        if any(token in low for token in routing_logic_markers):
             return "routing"
         if "runtime" in low or "orchestrator" in low or "pipeline" in low:
             return "runtime pipeline"

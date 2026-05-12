@@ -27,6 +27,7 @@ logger.setLevel(logging.INFO)
 # Import the proper plugin interface
 from ai.plugins.plugin_system import PluginInterface
 from ai.memory.memory_system import MemorySystem
+from ai.memory.memory_rights_service import MemoryRightsService
 
 
 class MemoryPlugin(PluginInterface):
@@ -66,6 +67,7 @@ class MemoryPlugin(PluginInterface):
             self.memory = memory_system
         else:
             self.memory = MemorySystem()
+        self.memory_rights = MemoryRightsService(self.memory)
         self.pending_memory_delete: Dict[str, Any] = {}
 
     def initialize(self) -> bool:
@@ -93,6 +95,9 @@ class MemoryPlugin(PluginInterface):
             "memory:delete_topic_confirm",
             "memory:delete_conversation",
             "memory:forget_topic",
+            "memory:show_topic",
+            "memory:delete_topic_preview",
+            "memory:suppress_topic",
             "memory:delete_all_conversation_memory",
             "memory:delete_topic_pending",
             "store_preference",
@@ -169,11 +174,33 @@ class MemoryPlugin(PluginInterface):
                 "delete_topic_confirm",
                 "delete_conversation",
                 "forget_topic",
+                "show_topic",
+                "delete_topic_preview",
+                "suppress_topic",
                 "delete_all_conversation_memory",
                 "delete_topic_pending",
             }:
                 query = str(context.get("user_input") or entities.get("query") or "").strip()
                 return self._delete_memory_flow(action=action, query=query, entities=entities, context=context)
+            elif action == "show_topic":
+                topic = self._extract_topic(str(context.get("user_input") or query or ""), entities)
+                items = self.memory_rights.show_memories(topic)
+                return {"success": True, "response": f"I found {len(items)} local memories for that topic.", "items": items, "count": len(items)}
+            elif action == "delete_topic_preview":
+                topic = self._extract_topic(str(context.get("user_input") or query or ""), entities)
+                preview = self.memory_rights.preview_topic_delete(topic).to_dict()
+                self.pending_memory_delete = {
+                    "scope": "topic",
+                    "topic": topic,
+                    "matched_memory_ids": list(preview.get("matched_ids") or []),
+                    "awaiting_confirmation": True,
+                    "requested_at": datetime.now().isoformat(),
+                }
+                return {"success": True, "response": f"I found {int(preview.get('count', 0))} local memories matching that topic. Confirm deletion?", "preview": preview, "deletion_executed": False}
+            elif action == "suppress_topic":
+                topic = self._extract_topic(str(context.get("user_input") or query or ""), entities)
+                out = self.memory_rights.suppress_topic(topic)
+                return {"success": True, "response": f"Suppressed topic '{topic}' from future recall preference.", **out}
             else:
                 return {
                     "success": False,
@@ -379,11 +406,11 @@ class MemoryPlugin(PluginInterface):
                 }
 
             if pending.get("scope") == "needs_clarification" and topic:
-                preview = self.memory.preview_memory_delete(topic)
+                preview = self.memory_rights.preview_topic_delete(topic).to_dict()
                 self.pending_memory_delete = {
                     "scope": "topic",
                     "topic": topic,
-                    "matched_memory_ids": list(preview.get("matched_memory_ids") or []),
+                    "matched_memory_ids": list(preview.get("matched_ids") or []),
                     "awaiting_confirmation": True,
                     "requested_at": datetime.now().isoformat(),
                 }
@@ -397,11 +424,9 @@ class MemoryPlugin(PluginInterface):
 
             if pending.get("awaiting_confirmation") and self._is_delete_confirmation(text):
                 topic_label = str(pending.get("topic") or "that topic").strip()
-                matched_ids = list(pending.get("matched_memory_ids") or [])
-                delete_result = self.memory.delete_memories_by_ids(matched_ids)
-                verify = self.memory.preview_memory_delete(topic_label, min_similarity=0.35, top_k=40)
-                remaining = int(verify.get("count", 0))
-                status = "cleared" if remaining == 0 else "partial"
+                delete_result = self.memory_rights.delete_topic(topic_label, confirmed=True).to_dict()
+                remaining = int(delete_result.get("remaining_count", 0))
+                status = str(delete_result.get("verification_status") or "partial")
                 self.pending_memory_delete = {}
                 limitation = (
                     "I deleted from Alice's local memory store and vector index. I cannot guarantee erasure of existing terminal/log files."
@@ -420,14 +445,15 @@ class MemoryPlugin(PluginInterface):
                     "verification_status": status,
                     "remaining_count": remaining,
                     "deletion_executed": True,
+                    "persisted": bool(delete_result.get("persisted")),
                 }
 
             if topic:
-                preview = self.memory.preview_memory_delete(topic)
+                preview = self.memory_rights.preview_topic_delete(topic).to_dict()
                 self.pending_memory_delete = {
                     "scope": "topic",
                     "topic": topic,
-                    "matched_memory_ids": list(preview.get("matched_memory_ids") or []),
+                    "matched_memory_ids": list(preview.get("matched_ids") or []),
                     "awaiting_confirmation": True,
                     "requested_at": datetime.now().isoformat(),
                 }
