@@ -13,6 +13,7 @@ import os
 import json
 import logging
 import math
+import re
 import pickle
 import importlib
 import random
@@ -847,6 +848,182 @@ class MemorySystem:
                 if memory.id == memory_id:
                     return memory
         return None
+
+    def _all_memory_buckets(self) -> List[List[MemoryEntry]]:
+        return [
+            self.episodic_memory,
+            self.semantic_memory,
+            self.procedural_memory,
+            self.document_memory,
+        ]
+
+    def delete_memory(self, memory_id: str) -> bool:
+        """Delete a memory from all stores and vector index, then persist."""
+        deleted = False
+        for bucket in self._all_memory_buckets():
+            for idx, entry in enumerate(list(bucket)):
+                if str(getattr(entry, "id", "")) == str(memory_id):
+                    del bucket[idx]
+                    deleted = True
+                    break
+        vector_deleted = bool(self.vector_store.delete(str(memory_id)))
+        deleted = bool(deleted or vector_deleted)
+        if deleted:
+            self._save_memories()
+        return deleted
+
+    def delete_memories_by_ids(self, memory_ids: List[str]) -> Dict[str, Any]:
+        """Delete a concrete set of memory ids and persist once."""
+        ids = [str(i or "").strip() for i in list(memory_ids or []) if str(i or "").strip()]
+        deleted_ids: List[str] = []
+        skipped_ids: List[str] = []
+
+        for memory_id in ids:
+            removed = False
+            for bucket in self._all_memory_buckets():
+                for idx, entry in enumerate(list(bucket)):
+                    if str(getattr(entry, "id", "")) == memory_id:
+                        del bucket[idx]
+                        removed = True
+                        break
+            vector_removed = bool(self.vector_store.delete(memory_id))
+            if removed or vector_removed:
+                deleted_ids.append(memory_id)
+            else:
+                skipped_ids.append(memory_id)
+
+        persisted = False
+        if deleted_ids:
+            self._save_memories()
+            persisted = True
+
+        return {
+            "deleted_count": len(deleted_ids),
+            "deleted_ids": deleted_ids,
+            "skipped_ids": skipped_ids,
+            "stores_updated": ["episodic", "semantic", "procedural", "document", "vector"],
+            "persisted": persisted,
+        }
+
+    def preview_memory_delete(
+        self, topic: str, *, min_similarity: float = 0.26, top_k: int = 60
+    ) -> Dict[str, Any]:
+        """Preview candidate memories for a topic deletion request."""
+        topic_text = str(topic or "").strip()
+        if not topic_text:
+            return {
+                "topic": "",
+                "matched_memory_ids": [],
+                "count": 0,
+                "snippets": [],
+                "memory_types": [],
+                "stores_affected": [],
+            }
+
+        topic_low = topic_text.lower()
+        tokens = [t for t in re.findall(r"[a-z0-9']+", topic_low) if len(t) > 1]
+        candidates = self.recall_memory_weighted(
+            query=topic_text,
+            top_k=max(5, int(top_k)),
+            min_similarity=float(min_similarity),
+        )
+
+        matched: List[Dict[str, Any]] = []
+        seen = set()
+        for row in candidates:
+            mem_id = str(row.get("id") or "").strip()
+            if not mem_id or mem_id in seen:
+                continue
+            content = str(row.get("content") or "")
+            content_low = content.lower()
+            lexical_hit = bool(tokens) and any(tok in content_low for tok in tokens)
+            similarity_hit = float(row.get("similarity", 0.0) or 0.0) >= float(
+                min_similarity
+            )
+            tag_hit = any(
+                any(tok in str(tag or "").lower() for tok in tokens)
+                for tag in list(row.get("tags") or [])
+            )
+            if not (lexical_hit or similarity_hit or tag_hit):
+                continue
+            seen.add(mem_id)
+            redacted = re.sub(r"\s+", " ", content).strip()[:90]
+            matched.append(
+                {
+                    "id": mem_id,
+                    "content": redacted,
+                    "type": str(row.get("type") or "unknown"),
+                }
+            )
+
+        # Fallback lexical scan across all memory buckets for robustness.
+        for bucket in self._all_memory_buckets():
+            for entry in list(bucket):
+                mem_id = str(getattr(entry, "id", "") or "").strip()
+                if not mem_id or mem_id in seen:
+                    continue
+                content = str(getattr(entry, "content", "") or "")
+                low = content.lower()
+                lexical_hit = bool(tokens) and any(tok in low for tok in tokens)
+                tag_hit = any(
+                    any(tok in str(tag or "").lower() for tok in tokens)
+                    for tag in list(getattr(entry, "tags", []) or [])
+                )
+                if not (lexical_hit or tag_hit):
+                    continue
+                seen.add(mem_id)
+                matched.append(
+                    {
+                        "id": mem_id,
+                        "content": re.sub(r"\s+", " ", content).strip()[:90],
+                        "type": str(getattr(entry, "memory_type", "") or "unknown"),
+                    }
+                )
+
+        return {
+            "topic": topic_text,
+            "matched_memory_ids": [m["id"] for m in matched],
+            "count": len(matched),
+            "snippets": [m["content"] for m in matched[:6]],
+            "memory_types": sorted({m["type"] for m in matched if m["type"]}),
+            "stores_affected": ["episodic", "semantic", "procedural", "document", "vector"],
+        }
+
+    def delete_memories_by_topic(
+        self, topic: str, *, dry_run: bool = False, min_similarity: float = 0.26
+    ) -> Dict[str, Any]:
+        """Delete memories matching a topic and verify remaining matches."""
+        preview = self.preview_memory_delete(
+            topic,
+            min_similarity=min_similarity,
+            top_k=80,
+        )
+        matched_ids = list(preview.get("matched_memory_ids") or [])
+        if dry_run:
+            return {
+                **preview,
+                "deleted_count": 0,
+                "deleted_ids": [],
+                "skipped_ids": [],
+                "persisted": False,
+                "verification_status": "preview_only",
+                "verification_count_after": int(preview.get("count", 0)),
+            }
+
+        result = self.delete_memories_by_ids(matched_ids)
+        verify = self.preview_memory_delete(
+            topic,
+            min_similarity=max(min_similarity, 0.35),
+            top_k=40,
+        )
+        remaining = int(verify.get("count", 0))
+        status = "cleared" if remaining == 0 else "partial"
+        return {
+            **preview,
+            **result,
+            "verification_status": status,
+            "verification_count_after": remaining,
+        }
 
     def get_context_for_llm(self, query: str, max_memories: int = 3) -> str:
         """

@@ -27,3 +27,26 @@ def test_operator_continue_response_is_compact_and_decisive():
     assert "ai/runtime/operator_state.py" in out
     assert "\n\n" in out
 
+
+def test_operator_state_analysis_surface_is_clean_and_non_repetitive():
+    out = render_operator_response(
+        user_input="inspect operator_state.py",
+        base_text="verbose fallback",
+        operator_state={
+            "last_recommended_action": {
+                "action": "inspect_file",
+                "target": "ai/memory/project_memory.py",
+                "reason": "persists objective state",
+            }
+        },
+        local_execution={
+            "success": True,
+            "inspected_file": "ai/runtime/operator_state.py",
+            "analysis": {"responsibility": "state management"},
+        },
+        next_step="inspect ai/memory/project_memory.py",
+    )
+    assert out.startswith("I inspected ai/runtime/operator_state.py.")
+    assert "Interpretation: this is state storage, not the routing brain." in out
+    assert "let me know" not in out.lower()
+

@@ -187,6 +187,9 @@ def decide_next_step(
     proj = dict(project_memory or {})
     files = list(available_files or [])
     inspected = list(files_inspected or state.get("files_inspected") or [])
+    just_inspected = str(local.get("inspected_file") or state.get("last_inspected_file") or "").strip()
+    if just_inspected and just_inspected not in inspected:
+        inspected.append(just_inspected)
     changed = list(recent_files_changed or proj.get("files_changed") or [])
     failure = str(last_failure or local.get("error") or state.get("last_failure") or proj.get("last_failure") or "")
 
@@ -305,6 +308,12 @@ def decide_next_step(
 
     if top:
         top_payload = asdict(top)
+        if just_inspected and str(top_payload.get("target") or "").strip() == just_inspected:
+            for alt in candidates[1:]:
+                if str(alt.target or "").strip() != just_inspected:
+                    top_payload = asdict(alt)
+                    top = alt
+                    break
         return NextStepDecision(
             next_recommended_action=(
                 f"Next best move: {top.action.replace('_', ' ')} {top.target} because {top.reason}"

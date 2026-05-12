@@ -27,3 +27,29 @@ def test_direct_answer_is_structured_and_not_vendor_list_only():
     assert "orchestration" in lowered
     assert "permissions" in lowered
     assert "reliability" in lowered
+
+
+def test_fictional_framework_prompt_is_grounded_not_fake_history():
+    guard = SystemDesignResponseGuard()
+    out = guard.direct_answer("what frameworks would jarvis use for agentic ai")
+    assert out is not None
+    low = out.lower()
+    assert "fictional" in low
+    assert "no real framework list" in low or "no canonical tech stack" in low
+    assert "creator has been open" not in low
+    assert "tony stark" not in low
+
+
+def test_no_api_preference_returns_local_primitives():
+    guard = SystemDesignResponseGuard()
+    out = guard.direct_answer(
+        "jarvis style architecture, no apis, local-first, unique architecture"
+    )
+    assert out is not None
+    low = out.lower()
+    assert "frameworks as textbooks, not foundations" in low
+    assert "model runtime adapter" in low
+    assert "tool/action bus" in low
+    assert "verifier" in low
+    assert "sirikit" not in low
+    assert "watson" not in low

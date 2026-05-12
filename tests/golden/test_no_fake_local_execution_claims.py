@@ -15,3 +15,17 @@ def test_no_fake_operator_continue_local_step_wording():
     low = out.lower()
     assert "i ran one safe local step: `operator:continue`" not in low
     assert "i inspected" not in low
+
+
+def test_no_deleted_claim_without_delete_evidence():
+    out = apply_response_momentum(
+        user_input="continue",
+        response_text="I deleted the file and moved on.",
+        intent="operator:continue",
+        route="local",
+        operator_state={},
+        project_memory={},
+        local_execution={"success": True},
+        next_step="",
+    )
+    assert "I deleted" not in out

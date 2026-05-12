@@ -442,6 +442,43 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         )
         return any(term in text for term in framing_terms)
 
+    def _looks_like_memory_delete_scope_request(user_input: str) -> bool:
+        low = str(user_input or "").lower()
+        return bool(
+            re.search(
+                r"\b(delete|erase|remove|forget)\b.{0,40}\b(memory|memories|conversation|convo|topic)\b",
+                low,
+            )
+        )
+
+    def _extract_memory_topic(user_input: str) -> str:
+        low = str(user_input or "").lower().strip()
+        patterns = (
+            r"(?:just\s+)?the\s+topic\s+about\s+(.+)$",
+            r"(?:memories|memory)\s+about\s+(.+)$",
+            r"forget\s+the\s+topic\s+about\s+(.+)$",
+            r"delete\s+the\s+topic\s+about\s+(.+)$",
+        )
+        for pat in patterns:
+            m = re.search(pat, low)
+            if m:
+                return str(m.group(1) or "").strip(" .,!?:;")
+        return ""
+
+    def _is_memory_delete_confirmation(user_input: str) -> bool:
+        low = str(user_input or "").lower()
+        return any(
+            cue in low
+            for cue in (
+                "yes",
+                "yes delete",
+                "delete them",
+                "delete it now",
+                "confirm delete",
+                "do it",
+            )
+        )
+
     def _looks_like_current_events_request(user_input: str) -> bool:
         detector = getattr(
             alice, "_is_freshness_sensitive_current_events_request", None
@@ -1013,6 +1050,44 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "reason": "execute_previous_recommendation",
                     "resolved_input": req.user_input,
                     "operator_state": state,
+                },
+            )
+
+        pending_memory_delete = dict(getattr(alice, "_pending_memory_delete", {}) or {})
+        if pending_memory_delete.get("scope") == "needs_clarification":
+            topic = _extract_memory_topic(req.user_input)
+            if topic:
+                return RouterDecision(
+                    route="tool",
+                    intent="memory:delete_topic",
+                    confidence=0.95,
+                    decision_band="execute",
+                    metadata={
+                        "reason": "pending_memory_delete_topic_resolved",
+                        "resolved_input": req.user_input,
+                        "memory_topic": topic,
+                    },
+                )
+        if pending_memory_delete.get("awaiting_confirmation") and _is_memory_delete_confirmation(req.user_input):
+            return RouterDecision(
+                route="tool",
+                intent="memory:delete_topic_confirm",
+                confidence=0.95,
+                decision_band="execute",
+                metadata={
+                    "reason": "pending_memory_delete_confirmed",
+                    "resolved_input": req.user_input,
+                },
+            )
+        if _looks_like_memory_delete_scope_request(req.user_input):
+            return RouterDecision(
+                route="tool",
+                intent="memory:delete_conversation",
+                confidence=0.93,
+                decision_band="execute",
+                metadata={
+                    "reason": "memory_delete_scope_request",
+                    "resolved_input": req.user_input,
                 },
             )
 
@@ -1879,6 +1954,16 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         success = bool(result.get("success", False))
         data = dict(result)
+        if str(intent or "").startswith("memory:"):
+            pending_payload = dict(data.get("memory_delete_pending") or {})
+            if pending_payload:
+                setattr(alice, "_pending_memory_delete", pending_payload)
+            elif bool(data.get("deletion_executed")):
+                setattr(alice, "_pending_memory_delete", {})
+            else:
+                plugin_pending = dict(getattr(getattr(alice.plugins, "plugins", {}).get("Memory Plugin"), "pending_memory_delete", {}) or {})
+                if plugin_pending:
+                    setattr(alice, "_pending_memory_delete", plugin_pending)
         data_error = (
             (data.get("data") or {}).get("error")
             if isinstance(data.get("data"), dict)

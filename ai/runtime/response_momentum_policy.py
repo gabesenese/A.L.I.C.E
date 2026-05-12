@@ -6,6 +6,33 @@ from ai.runtime.turn_mode_policy import classify_turn_mode
 from ai.runtime.operator_response_surface import render_operator_response
 
 
+def _has_local_evidence_for_inspection(local: Dict[str, Any]) -> bool:
+    return bool(local and local.get("success") and str(local.get("inspected_file") or "").strip())
+
+
+def _enforce_claim_evidence(text: str, local: Dict[str, Any]) -> str:
+    out = str(text or "")
+    low = out.lower()
+    if "i inspected" in low and not _has_local_evidence_for_inspection(local):
+        out = re.sub(r"\bi inspected\b", "I reviewed", out, flags=re.IGNORECASE)
+    if "i deleted" in low and not bool(local.get("deleted_file")):
+        out = re.sub(r"\bi deleted\b", "I can delete", out, flags=re.IGNORECASE)
+    if any(token in low for token in ("creator has been open", "known to have used")):
+        out = re.sub(
+            r"creator has been open[^.]*\.?",
+            "There is no verified public implementation record for that claim.",
+            out,
+            flags=re.IGNORECASE,
+        )
+        out = re.sub(
+            r"known to have used[^.]*\.?",
+            "There is no canonical implementation list for that fictional system.",
+            out,
+            flags=re.IGNORECASE,
+        )
+    return out
+
+
 def apply_response_momentum(
     *,
     user_input: str = "",
@@ -73,7 +100,10 @@ def apply_response_momentum(
     # evidence-first operator surface over concatenating LLM chatter.
     if (
         str(route or "") == "local"
-        and normalized_intent in {"operator:continue", "operator:execute_recommended_action"}
+        and (
+            normalized_intent in {"operator:continue", "operator:execute_recommended_action"}
+            or normalized_intent.startswith("code:")
+        )
         and local
     ):
         rendered = render_operator_response(
@@ -84,7 +114,7 @@ def apply_response_momentum(
             next_step=str(next_step or ""),
         )
         if rendered:
-            return rendered
+            return _enforce_claim_evidence(rendered, local)
 
     # Avoid passive generic endings.
     passive_markers = (
@@ -165,6 +195,7 @@ def apply_response_momentum(
                 elif objective:
                     next_line = f"Next best move: take one concrete step on {focus or objective}."
 
+    text = _enforce_claim_evidence(text, local)
     parts = [p for p in [lead, text, result_line, meaning, next_line] if str(p).strip()]
     merged = " ".join(parts).strip()
     return merged or text

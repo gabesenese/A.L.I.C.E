@@ -16,6 +16,7 @@ Supports commands like:
 """
 
 import logging
+import re
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
@@ -65,6 +66,7 @@ class MemoryPlugin(PluginInterface):
             self.memory = memory_system
         else:
             self.memory = MemorySystem()
+        self.pending_memory_delete: Dict[str, Any] = {}
 
     def initialize(self) -> bool:
         """Initialize the plugin"""
@@ -87,12 +89,18 @@ class MemoryPlugin(PluginInterface):
             "memory:recall",
             "memory:search",
             "memory:delete",
+            "memory:delete_topic",
+            "memory:delete_topic_confirm",
+            "memory:delete_conversation",
+            "memory:forget_topic",
+            "memory:delete_all_conversation_memory",
+            "memory:delete_topic_pending",
             "store_preference",
             "recall_memory",
             "search_memory",
             "delete_memory",
         ]
-        return intent in memory_intents
+        return intent in memory_intents or str(intent or "").startswith("memory:")
 
     def execute(
         self, intent: str, query: str, entities: Dict, context: Dict
@@ -100,7 +108,12 @@ class MemoryPlugin(PluginInterface):
         """Execute memory operation based on intent"""
         try:
             # Use the existing handle_request method
-            result = self.handle_request(intent, entities, context)
+            merged_context = dict(context or {})
+            merged_context.setdefault("user_input", str(query or ""))
+            if query:
+                entities = dict(entities or {})
+                entities.setdefault("query", str(query))
+            result = self.handle_request(intent, entities, merged_context)
 
             # Ensure result has required fields
             if "success" not in result:
@@ -150,8 +163,17 @@ class MemoryPlugin(PluginInterface):
                 return self._recall_memory(entities, context)
             elif action == "search":
                 return self._search_memory(entities, context)
-            elif action == "delete":
-                return self._delete_memory(entities, context)
+            elif action in {
+                "delete",
+                "delete_topic",
+                "delete_topic_confirm",
+                "delete_conversation",
+                "forget_topic",
+                "delete_all_conversation_memory",
+                "delete_topic_pending",
+            }:
+                query = str(context.get("user_input") or entities.get("query") or "").strip()
+                return self._delete_memory_flow(action=action, query=query, entities=entities, context=context)
             else:
                 return {
                     "success": False,
@@ -298,37 +320,142 @@ class MemoryPlugin(PluginInterface):
             logger.error(f"Error searching memory: {e}")
             return {"success": False, "message": f"Failed to search memory: {str(e)}"}
 
-    def _delete_memory(
-        self, entities: Dict[str, Any], context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Delete specific memory or preference"""
-        topic = entities.get("topic") or entities.get("about")
+    def _extract_topic(self, text: str, entities: Dict[str, Any]) -> str:
+        if entities.get("topic"):
+            return str(entities.get("topic") or "").strip()
+        low = str(text or "").lower()
+        patterns = [
+            r"(?:topic|memories|memory)\s+about\s+(.+)$",
+            r"(?:just\s+)?the\s+topic\s+about\s+(.+)$",
+            r"forget\s+the\s+topic\s+about\s+(.+)$",
+            r"delete\s+the\s+topic\s+about\s+(.+)$",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, low)
+            if m:
+                return str(m.group(1) or "").strip(" .,!?:;")
+        return ""
 
-        if not topic:
-            return {"success": False, "message": "No topic specified for deletion"}
+    @staticmethod
+    def _is_delete_confirmation(text: str) -> bool:
+        low = str(text or "").lower()
+        return any(
+            token in low
+            for token in (
+                "yes",
+                "yes delete",
+                "delete them",
+                "delete it now",
+                "confirm delete",
+                "do it",
+            )
+        )
+
+    def _delete_memory_flow(
+        self,
+        *,
+        action: str,
+        query: str,
+        entities: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        text = str(query or context.get("user_input") or "").strip()
+        topic = self._extract_topic(text, entities)
+        pending = dict(self.pending_memory_delete or {})
 
         try:
-            # Search for matching memories
-            matches = self.memory.search_memories(query=topic, limit=5)
-
-            if matches:
-                # Delete the matches (assuming memory system has delete method)
-                deleted_count = len(matches)
-
-                # Note: Actual deletion would need to be implemented in memory_system.py
-                # For now, just return success message
+            if action in {"delete_conversation", "delete_all_conversation_memory", "delete_topic_pending"} and not topic:
+                self.pending_memory_delete = {
+                    "scope": "needs_clarification",
+                    "requested_at": datetime.now().isoformat(),
+                    "original_user_input": text,
+                }
                 return {
                     "success": True,
-                    "message": f"Cleared {deleted_count} memory entries about {topic}.",
-                    "deleted_count": deleted_count,
-                }
-            else:
-                return {
-                    "success": True,
-                    "message": f"No memories found about {topic} to delete.",
-                    "deleted_count": 0,
+                    "response": "I can do that, but deletion needs a scope. Do you want the whole conversation memory deleted, or only a specific topic?",
+                    "requires_follow_up": True,
+                    "memory_delete_pending": dict(self.pending_memory_delete),
+                    "deletion_executed": False,
                 }
 
+            if pending.get("scope") == "needs_clarification" and topic:
+                preview = self.memory.preview_memory_delete(topic)
+                self.pending_memory_delete = {
+                    "scope": "topic",
+                    "topic": topic,
+                    "matched_memory_ids": list(preview.get("matched_memory_ids") or []),
+                    "awaiting_confirmation": True,
+                    "requested_at": datetime.now().isoformat(),
+                }
+                return {
+                    "success": True,
+                    "response": f"I found {int(preview.get('count', 0))} local memories matching that topic. Confirm deletion?",
+                    "requires_follow_up": True,
+                    "preview": preview,
+                    "deletion_executed": False,
+                }
+
+            if pending.get("awaiting_confirmation") and self._is_delete_confirmation(text):
+                topic_label = str(pending.get("topic") or "that topic").strip()
+                matched_ids = list(pending.get("matched_memory_ids") or [])
+                delete_result = self.memory.delete_memories_by_ids(matched_ids)
+                verify = self.memory.preview_memory_delete(topic_label, min_similarity=0.35, top_k=40)
+                remaining = int(verify.get("count", 0))
+                status = "cleared" if remaining == 0 else "partial"
+                self.pending_memory_delete = {}
+                limitation = (
+                    "I deleted from Alice's local memory store and vector index. I cannot guarantee erasure of existing terminal/log files."
+                )
+                if delete_result.get("deleted_count", 0) <= 0:
+                    return {
+                        "success": False,
+                        "response": "I could not complete a verified memory deletion. I did not claim deletion.",
+                        "deletion_executed": False,
+                        "verification_status": "failed",
+                    }
+                return {
+                    "success": True,
+                    "response": f"Deleted {int(delete_result.get('deleted_count', 0))} memories related to that topic from local memory and vector index. Verification: {status}. {limitation}",
+                    "deleted_count": int(delete_result.get("deleted_count", 0)),
+                    "verification_status": status,
+                    "remaining_count": remaining,
+                    "deletion_executed": True,
+                }
+
+            if topic:
+                preview = self.memory.preview_memory_delete(topic)
+                self.pending_memory_delete = {
+                    "scope": "topic",
+                    "topic": topic,
+                    "matched_memory_ids": list(preview.get("matched_memory_ids") or []),
+                    "awaiting_confirmation": True,
+                    "requested_at": datetime.now().isoformat(),
+                }
+                return {
+                    "success": True,
+                    "response": f"I found {int(preview.get('count', 0))} memories that appear related to that topic. Confirm delete?",
+                    "requires_follow_up": True,
+                    "preview": preview,
+                    "deletion_executed": False,
+                }
+
+            self.pending_memory_delete = {
+                "scope": "needs_clarification",
+                "requested_at": datetime.now().isoformat(),
+                "original_user_input": text,
+            }
+            return {
+                "success": True,
+                "response": "I can do that, but I need to confirm scope first: whole conversation memory or a specific topic?",
+                "requires_follow_up": True,
+                "memory_delete_pending": dict(self.pending_memory_delete),
+                "deletion_executed": False,
+            }
         except Exception as e:
             logger.error(f"Error deleting memory: {e}")
-            return {"success": False, "message": f"Failed to delete memory: {str(e)}"}
+            return {
+                "success": False,
+                "response": "I can suppress this topic from future recall, but actual deletion failed and I did not claim deletion.",
+                "error": str(e),
+                "deletion_executed": False,
+            }

@@ -7,8 +7,26 @@ from typing import Any, Dict, List
 
 class CodeAnalyzer:
     def responsibility(self, rel: str, text: str) -> str:
-        low = (rel + "\n" + text[:2000]).lower()
-        if "route" in low or "intent" in low:
+        low = (rel + "\n" + text).lower()
+        has_dataclass = "dataclass" in low
+        has_state_fields = "last_route" in low or "last_intent" in low or "files_inspected" in low
+        has_update_sync = any(
+            token in low for token in ("update_", "sync_", "commit_", "to_dict", "from_dict")
+        )
+        routing_logic_markers = (
+            "return routedecision",
+            "if intent ==",
+            "if route ==",
+            "route scoring",
+            "candidate_actions",
+            "arbiter",
+            "select route",
+            "decision_band",
+        )
+        has_routing_logic = any(token in low for token in routing_logic_markers)
+        if has_dataclass and has_state_fields and has_update_sync and not has_routing_logic:
+            return "state management"
+        if has_routing_logic:
             return "routing"
         if "runtime" in low or "orchestrator" in low or "pipeline" in low:
             return "runtime pipeline"
@@ -86,7 +104,17 @@ class CodeAnalyzer:
             )
         if stats.get("function_count", 0) >= 25:
             flags.append("god-file risk: many function responsibilities")
-        if "route=" in low and "intent=" in low:
+        has_explicit_assignment = bool(
+            re.search(r"^\s*(?:route|intent)\s*=", text, flags=re.MULTILINE)
+        )
+        decision_markers = (
+            "return routedecision",
+            "if intent ==",
+            "if route ==",
+            "candidate_actions",
+            "scoring",
+        )
+        if has_explicit_assignment or any(marker in low for marker in decision_markers):
             flags.append("contains direct hardcoded route/intent decisions")
         if "ask me to" in low:
             flags.append("passive capability phrasing detected")

@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 
 class SystemDesignResponseGuard:
+    _FICTIONAL_SYSTEM_RE = re.compile(
+        r"\b(?:fictional|imaginary)\b|\bjarvis\b|\btony\s+stark\b", re.IGNORECASE
+    )
+
+    _NO_API_RE = re.compile(
+        r"\b(?:no\s+api|no\s+apis|without\s+api|without\s+apis|local[-\s]?first|offline)\b",
+        re.IGNORECASE,
+    )
+
     def is_architecture_query(self, text: str) -> bool:
         lowered = str(text or "").lower()
         topic_hit = any(
@@ -19,10 +29,15 @@ class SystemDesignResponseGuard:
                 "how would you build",
                 "real-world ai system",
                 "fictional ai system",
+                "architecture",
+                "framework",
+                "frameworks",
+                "tech stack",
             )
         )
         return topic_hit and any(
-            k in lowered for k in ("ai", "machine learning", "ml", "assistant")
+            k in lowered
+            for k in ("ai", "machine learning", "ml", "assistant", "jarvis", "fictional")
         )
 
     def guidance_text(self) -> str:
@@ -38,6 +53,34 @@ class SystemDesignResponseGuard:
     def direct_answer(self, text: str) -> Optional[str]:
         if not self.is_architecture_query(text):
             return None
+
+        if self._FICTIONAL_SYSTEM_RE.search(str(text or "")):
+            no_api = bool(self._NO_API_RE.search(str(text or "")))
+            if no_api:
+                return (
+                    "That system is fictional, so there is no canonical tech stack.\n\n"
+                    "Use frameworks as textbooks, not foundations. For Alice, build local runtime primitives:\n"
+                    "1. Model runtime adapter\n"
+                    "2. Memory graph\n"
+                    "3. Intent router\n"
+                    "4. Agent loop\n"
+                    "5. Tool/action bus\n"
+                    "6. Verifier\n"
+                    "7. Event/state model\n"
+                    "8. Self-improvement audit loop"
+                )
+            return (
+                "That system is fictional, so there is no real framework list.\n\n"
+                "The useful translation for Alice is a modern local architecture:\n"
+                "- local model runtime\n"
+                "- memory\n"
+                "- planner/agent loop\n"
+                "- tool/action interface\n"
+                "- verifier/evaluator\n"
+                "- event bus\n"
+                "- OS sensors\n"
+                "- task/state model"
+            )
 
         return (
             "A realistic advanced assistant stack today would be designed as a system, not a list of libraries:\n\n"

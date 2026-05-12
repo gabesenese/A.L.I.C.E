@@ -54,3 +54,19 @@ def test_all_primary_files_inspected_returns_summarize_findings():
     rec = dict(decision.last_recommended_action or {})
     assert rec.get("action") == "summarize_findings"
     assert rec.get("target") == "inspected_files"
+
+
+def test_analyzed_operator_state_next_target_is_not_same_file():
+    decision = decide_next_step(
+        route="local",
+        intent="code:analyze_file",
+        operator_state={
+            "active_objective": "Improve Alice into an agentic companion/operator",
+            "files_inspected": ["ai/runtime/agent_loop.py"],
+        },
+        local_execution={"inspected_file": "ai/runtime/operator_state.py", "success": True},
+        available_files=[],
+        files_inspected=["ai/runtime/agent_loop.py"],
+    )
+    rec = dict(decision.last_recommended_action or {})
+    assert rec.get("target") != "ai/runtime/operator_state.py"

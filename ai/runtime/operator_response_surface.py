@@ -51,15 +51,14 @@ def render_operator_response(
 
     analysis = dict(local_execution.get("analysis") or {})
     if analysis:
-        lines = int(analysis.get("lines") or 0)
-        classes = int(analysis.get("classes") or 0)
-        functions = int(analysis.get("functions") or 0)
-        parts.append(
-            f"Finding: structure-level read shows {lines} lines, {classes} classes, and {functions} functions."
-        )
-        target_hint = str(next_step or "").lower()
-        if "operator_state.py" in target_hint:
-            parts.append("Interpretation: next weakness is likely state handoff and recommendation persistence.")
+        responsibility = str(analysis.get("responsibility") or "").strip()
+        if inspected.endswith("ai/runtime/operator_state.py") or inspected.endswith("ai\\runtime\\operator_state.py"):
+            parts.append(
+                "Finding: it stores active objective, current focus, inspected files, recommended actions, corrections, and design constraints."
+            )
+            parts.append("Interpretation: this is state storage, not the routing brain.")
+        elif responsibility:
+            parts.append(f"Finding: primary responsibility is {responsibility}.")
     elif str(base_text or "").strip() and not inspected:
         cleaned = re.sub(r"\s+", " ", str(base_text)).strip()
         if cleaned:

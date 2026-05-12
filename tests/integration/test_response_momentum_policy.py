@@ -88,3 +88,43 @@ def test_operator_continue_local_turn_uses_compact_evidence_surface():
     assert out.count("ai/runtime/agent_loop.py") == 1
     assert "next best move: inspect ai/runtime/operator_state.py" in low
     assert "\n\n" in out
+
+
+def test_code_analyze_file_local_turn_uses_operator_surface():
+    out = apply_response_momentum(
+        user_input="inspect operator_state.py",
+        response_text="Long generic paragraph that should be compacted.",
+        intent="code:analyze_file",
+        route="local",
+        operator_state={
+            "last_recommended_action": {
+                "action": "inspect_file",
+                "target": "ai/memory/project_memory.py",
+                "reason": "state persistence follow-up",
+            }
+        },
+        project_memory={},
+        local_execution={
+            "action": "code:analyze_file",
+            "success": True,
+            "inspected_file": "ai/runtime/operator_state.py",
+            "analysis": {"responsibility": "state management"},
+        },
+        next_step="inspect ai/memory/project_memory.py",
+    )
+    assert "I inspected ai/runtime/operator_state.py." in out
+    assert "Interpretation: this is state storage, not the routing brain." in out
+
+
+def test_no_inspected_claim_without_local_evidence():
+    out = apply_response_momentum(
+        user_input="status",
+        response_text="I inspected ai/runtime/operator_state.py and found issues.",
+        intent="operator:status",
+        route="local",
+        operator_state={},
+        project_memory={},
+        local_execution={"success": False},
+        next_step="",
+    )
+    assert "I inspected" not in out

@@ -9,7 +9,7 @@
   },
   "users": {
     "test_user": {
-      "verbosity": 0.2499999999999998,
+      "verbosity": 0.2249999999999998,
       "formality": 0.3,
       "humor": 0.4,
       "directness": 0.6,

@@ -12,6 +12,8 @@
     "current_plan": [],
     "current_step": "",
     "next_recommended_action": "",
+    "last_recommended_action": {},
+    "suggested_next_files": [],
     "user_corrections": [],
     "design_constraints": [
       "no voice for now",
@@ -27,7 +29,7 @@
     "last_patch_plan_id": "",
     "last_audit_report_id": "",
     "self_improvement_status": "",
-    "updated_at": "2026-05-07T02:26:46.303423+00:00"
+    "updated_at": "2026-05-11T03:48:08.550873+00:00"
   },
   "test_project_memory_blocker": {
     "active_objective": "",
@@ -46,6 +48,8 @@
     "current_plan": [],
     "current_step": "",
     "next_recommended_action": "",
+    "last_recommended_action": {},
+    "suggested_next_files": [],
     "user_corrections": [],
     "design_constraints": [
       "no voice for now",
@@ -61,7 +65,7 @@
     "last_patch_plan_id": "",
     "last_audit_report_id": "",
     "self_improvement_status": "",
-    "updated_at": "2026-05-07T02:26:46.319982+00:00"
+    "updated_at": "2026-05-11T03:48:08.572955+00:00"
   },
   "test_agent_loop_continue": {
     "active_objective": "Improve agentic companion operator runtime",
@@ -91,7 +95,7 @@
     "last_patch_plan_id": "",
     "last_audit_report_id": "",
     "self_improvement_status": "",
-    "updated_at": "2026-05-07T02:26:20.367962+00:00"
+    "updated_at": "2026-05-09T00:33:28.635428+00:00"
   },
   "test_agent_loop_approval": {
     "active_objective": "Improve agentic companion operator runtime",
@@ -121,7 +125,7 @@
     "last_patch_plan_id": "",
     "last_audit_report_id": "",
     "self_improvement_status": "",
-    "updated_at": "2026-05-07T02:26:20.385168+00:00"
+    "updated_at": "2026-05-09T00:33:28.654335+00:00"
   },
   "golden_objective_driven_operator": {
     "active_objective": "Improve agentic companion operator runtime",
@@ -151,7 +155,7 @@
     "last_patch_plan_id": "",
     "last_audit_report_id": "",
     "self_improvement_status": "",
-    "updated_at": "2026-05-07T02:26:49.196662+00:00"
+    "updated_at": "2026-05-09T00:34:08.530277+00:00"
   },
   "golden_project_status": {
     "active_objective": "Improve agentic companion operator runtime",
@@ -183,7 +187,7 @@
     "last_patch_plan_id": "",
     "last_audit_report_id": "",
     "self_improvement_status": "",
-    "updated_at": "2026-05-07T02:26:49.370928+00:00"
+    "updated_at": "2026-05-10T01:28:33.088252+00:00"
   },
   "default": {
     "active_objective": "Improve Alice into an agentic companion/operator",
@@ -191,13 +195,12 @@
     "last_failure": "",
     "last_success": "",
     "known_blockers": [
-      "Continue should execute one safe step toward active objective.",
-      "User requested destructive or unsafe behavior.",
-      "target_not_found"
+      "User requested destructive or unsafe behavior."
     ],
     "files_inspected": [
-      "legacy-main.py",
-      "app/main.py"
+      "ai/runtime/agent_loop.py",
+      "ai/runtime/next_step_policy.py",
+      "ai/runtime/operator_state.py"
     ],
     "files_changed": [],
     "tests_run": [],
@@ -205,6 +208,25 @@
     "current_plan": [],
     "current_step": "plan",
     "next_recommended_action": "Next best move: inspect file ai/runtime/agent_loop.py because Active objective exists; agent loop should drive next safe step.",
+    "last_recommended_action": {
+      "action": "inspect_file",
+      "target": "ai/runtime/agent_loop.py",
+      "reason": "Active objective exists; agent loop should drive next safe step.",
+      "confidence": 0.72,
+      "priority": 0.72,
+      "source": "active_objective",
+      "safety_level": "safe_read",
+      "requires_approval": false,
+      "created_at": "2026-05-12T01:36:09.740210+00:00"
+    },
+    "suggested_next_files": [
+      "ai/runtime/agent_loop.py",
+      "ai/runtime/next_step_policy.py",
+      "ai/runtime/operator_state.py",
+      "ai/runtime/response_momentum_policy.py",
+      "ai/runtime/contract_pipeline.py",
+      "ai/memory/project_memory.py"
+    ],
     "user_corrections": [],
     "design_constraints": [
       "no voice for now",
@@ -220,6 +242,154 @@
     "last_patch_plan_id": "",
     "last_audit_report_id": "",
     "self_improvement_status": "",
-    "updated_at": "2026-05-07T02:28:35.648973+00:00"
+    "updated_at": "2026-05-12T01:36:09.752420+00:00"
+  },
+  "u1": {
+    "active_objective": "",
+    "current_focus": "",
+    "last_failure": "",
+    "last_success": "",
+    "known_blockers": [],
+    "files_inspected": [],
+    "files_changed": [],
+    "tests_run": [],
+    "last_test_failure": "",
+    "current_plan": [],
+    "current_step": "",
+    "next_recommended_action": "Next best move: inspect file ai/runtime/operator_state.py because It stores active objective, current focus, inspected files, and recommendations.",
+    "last_recommended_action": {
+      "action": "inspect_file",
+      "target": "ai/runtime/operator_state.py",
+      "reason": "It stores active objective, current focus, inspected files, and recommendations.",
+      "confidence": 0.74,
+      "priority": 0.74,
+      "source": "active_objective_followup",
+      "safety_level": "safe_read",
+      "requires_approval": false,
+      "created_at": "2026-05-10T05:37:42.966234"
+    },
+    "suggested_next_files": [
+      "ai/runtime/agent_loop.py",
+      "ai/runtime/next_step_policy.py",
+      "ai/runtime/operator_state.py",
+      "ai/runtime/response_momentum_policy.py",
+      "ai/runtime/contract_pipeline.py",
+      "ai/memory/project_memory.py"
+    ],
+    "user_corrections": [],
+    "design_constraints": [
+      "no voice for now",
+      "keep foundation minimal",
+      "avoid hardcoded fallback messages",
+      "do not use fictional or external character names",
+      "prioritize routing, memory, local execution, operator loop, runtime cleanup",
+      "do not fake memory or tool or file access",
+      "greetings should be grounded and companion-like without fake continuity"
+    ],
+    "last_self_improvement_event_id": "",
+    "last_hypothesis_id": "",
+    "last_patch_plan_id": "",
+    "last_audit_report_id": "",
+    "self_improvement_status": "",
+    "updated_at": "2026-05-10T05:37:42.970248+00:00"
+  },
+  "Gabriel": {
+    "active_objective": "",
+    "current_focus": "",
+    "last_failure": "",
+    "last_success": "",
+    "known_blockers": [],
+    "files_inspected": [],
+    "files_changed": [],
+    "tests_run": [],
+    "last_test_failure": "",
+    "current_plan": [],
+    "current_step": "",
+    "next_recommended_action": "Next best move: inspect file ai/runtime/response_momentum_policy.py because It shapes whether Alice advances with momentum or drifts into passive responses.",
+    "last_recommended_action": {
+      "action": "inspect_file",
+      "target": "ai/runtime/response_momentum_policy.py",
+      "reason": "It shapes whether Alice advances with momentum or drifts into passive responses.",
+      "confidence": 0.72,
+      "priority": 0.72,
+      "source": "active_objective_followup",
+      "safety_level": "safe_read",
+      "requires_approval": false,
+      "created_at": "2026-05-12T01:36:09.730149"
+    },
+    "suggested_next_files": [
+      "ai/runtime/agent_loop.py",
+      "ai/runtime/operator_state.py",
+      "ai/runtime/response_momentum_policy.py",
+      "ai/runtime/contract_pipeline.py",
+      "ai/memory/project_memory.py"
+    ],
+    "user_corrections": [],
+    "design_constraints": [
+      "no voice for now",
+      "keep foundation minimal",
+      "avoid hardcoded fallback messages",
+      "do not use fictional or external character names",
+      "prioritize routing, memory, local execution, operator loop, runtime cleanup",
+      "do not fake memory or tool or file access",
+      "greetings should be grounded and companion-like without fake continuity"
+    ],
+    "last_self_improvement_event_id": "",
+    "last_hypothesis_id": "",
+    "last_patch_plan_id": "",
+    "last_audit_report_id": "",
+    "self_improvement_status": "",
+    "updated_at": "2026-05-12T01:36:09.731153+00:00"
+  },
+  "test_design_constraints_extract": {
+    "active_objective": "",
+    "current_focus": "",
+    "last_failure": "",
+    "last_success": "",
+    "known_blockers": [],
+    "files_inspected": [],
+    "files_changed": [],
+    "tests_run": [],
+    "last_test_failure": "",
+    "current_plan": [],
+    "current_step": "",
+    "next_recommended_action": "Next best move: inspect file ai/runtime/response_momentum_policy.py because It shapes whether Alice advances with momentum or drifts into passive responses.",
+    "last_recommended_action": {
+      "action": "inspect_file",
+      "target": "ai/runtime/response_momentum_policy.py",
+      "reason": "It shapes whether Alice advances with momentum or drifts into passive responses.",
+      "confidence": 0.72,
+      "priority": 0.72,
+      "source": "active_objective_followup",
+      "safety_level": "safe_read",
+      "requires_approval": false,
+      "created_at": "2026-05-11T03:48:08.601716"
+    },
+    "suggested_next_files": [
+      "ai/runtime/response_momentum_policy.py",
+      "ai/runtime/contract_pipeline.py",
+      "ai/memory/project_memory.py"
+    ],
+    "user_corrections": [],
+    "design_constraints": [
+      "no voice for now",
+      "keep foundation minimal",
+      "avoid hardcoded fallback messages",
+      "do not use fictional or external character names",
+      "prioritize routing, memory, local execution, operator loop, runtime cleanup",
+      "do not fake memory or tool or file access",
+      "greetings should be grounded and companion-like without fake continuity",
+      "no external APIs",
+      "local-first",
+      "unique architecture",
+      "frameworks as references only",
+      "avoid bundled-framework feel"
+    ],
+    "last_self_improvement_event_id": "",
+    "last_hypothesis_id": "",
+    "last_patch_plan_id": "",
+    "last_audit_report_id": "",
+    "self_improvement_status": "",
+    "updated_at": "2026-05-11T03:48:08.603233+00:00"
   }
 }

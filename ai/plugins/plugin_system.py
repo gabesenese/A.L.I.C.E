@@ -1298,7 +1298,7 @@ class CapabilityGraph:
         ),
         CapabilityNode(
             name="memory",
-            handles_intents={"memory:store", "memory:recall", "memory:search"},
+            handles_intents={"memory:*"},
             provides={"memory_id"},
         ),
     ]

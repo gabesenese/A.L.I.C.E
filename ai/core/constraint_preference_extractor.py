@@ -38,6 +38,23 @@ class ConstraintPreferenceExtractor:
             constraints.append("include_code")
         if "examples" in lower or "example" in lower:
             constraints.append("include_examples")
+        if re.search(
+            r"(?:\bno\s+api(?:s)?\b|\bwithout\s+api(?:s)?\b|don't\s+want\s+to\s+use\s+any\s+api(?:s)?|do\s+not\s+want\s+to\s+use\s+any\s+api(?:s)?)",
+            lower,
+        ):
+            constraints.append("no_external_apis")
+        if re.search(r"\blocal[-\s]?first\b|\boffline\b", lower):
+            constraints.append("local_first")
+        if "unique architecture" in lower or "make alice unique" in lower:
+            constraints.append("unique_architecture")
+        if "frameworks as references" in lower or "stepping stone" in lower:
+            constraints.append("frameworks_as_reference_only")
+        if "not a bunch of frameworks bundled together" in lower or "bundled framework" in lower:
+            constraints.append("avoid_bundled_framework_feel")
+        if "maximum value, minimal effort" in lower:
+            constraints.append("maximum_value_minimal_effort")
+        if "advanced engineering" in lower and "lean" in lower:
+            constraints.append("advanced_engineering_lean_implementation")
 
         max_words = None
         m = re.search(

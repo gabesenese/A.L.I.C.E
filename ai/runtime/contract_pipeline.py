@@ -30,6 +30,7 @@ from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
 from ai.memory.project_memory import load_project_state, update_project_state
 from ai.runtime.self_improvement.improvement_loop import ImprovementLoop
+from ai.core.constraint_preference_extractor import ConstraintPreferenceExtractor
 
 
 @dataclass
@@ -59,6 +60,25 @@ class ContractPipeline:
         self.memory_turn_service = MemoryTurnService()
         self.routing_failure_logger = RoutingFailureLogger()
         self._greeting_session_state_by_user: Dict[str, Dict[str, Any]] = {}
+        self.constraint_extractor = ConstraintPreferenceExtractor()
+
+    @staticmethod
+    def _normalize_design_constraints(raw_constraints: List[str]) -> List[str]:
+        mapping = {
+            "no_external_apis": "no external APIs",
+            "local_first": "local-first",
+            "unique_architecture": "unique architecture",
+            "frameworks_as_reference_only": "frameworks as references only",
+            "avoid_bundled_framework_feel": "avoid bundled-framework feel",
+            "maximum_value_minimal_effort": "maximum value, minimal effort",
+            "advanced_engineering_lean_implementation": "advanced engineering, lean implementation",
+        }
+        out: List[str] = []
+        for token in list(raw_constraints or []):
+            label = mapping.get(str(token or "").strip())
+            if label and label not in out:
+                out.append(label)
+        return out
 
     def _maybe_record_behavior_event(
         self,
@@ -479,6 +499,20 @@ class ContractPipeline:
             )
 
         stages.append(self._stage("input", "ok", {"length": len(user_input)}))
+        extracted_constraints = self.constraint_extractor.extract(user_input).get(
+            "constraints", []
+        )
+        design_constraints = self._normalize_design_constraints(
+            list(extracted_constraints or [])
+        )
+        if design_constraints:
+            try:
+                update_project_state(
+                    {"design_constraints": design_constraints},
+                    user_id=str(user_id or "default"),
+                )
+            except Exception:
+                pass
 
         user_state_snapshot = self.user_state_model.get_or_create(user_id)
         companion_state = self.companion_runtime.start_turn(
@@ -1019,6 +1053,17 @@ class ContractPipeline:
         operator_state_payload = dict(
             (decision.metadata or {}).get("operator_state") or {}
         )
+        inspected_file = str(local_exec_payload.get("inspected_file") or "").strip()
+        if inspected_file:
+            existing_inspected = list(operator_state_payload.get("files_inspected") or [])
+            if inspected_file not in existing_inspected:
+                existing_inspected.append(inspected_file)
+            operator_state_payload["files_inspected"] = existing_inspected
+            operator_state_payload["last_inspected_file"] = inspected_file
+            last_rec = dict(operator_state_payload.get("last_recommended_action") or {})
+            if str(last_rec.get("target") or "").strip() == inspected_file:
+                operator_state_payload["last_recommended_action"] = {}
+                operator_state_payload["next_recommended_action"] = ""
         next_step = decide_next_step(
             route=str(decision.route or ""),
             intent=str(decision.intent or ""),

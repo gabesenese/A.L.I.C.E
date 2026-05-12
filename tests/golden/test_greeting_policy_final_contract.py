@@ -12,6 +12,16 @@ def test_a_natural_greeting_accepted():
     assert result.generated_by == "llm_constrained"
 
 
+def test_a2_generic_empty_greeting_rejected():
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        user_input="hi alice",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel! It's great to chat with you!",
+    )
+    assert result.generated_by in {"fallback", "llm_constrained"}
+    assert result.text.strip().lower() != "hey gabriel! it's great to chat with you!"
+
+
 def test_b_immediate_context_reply_accepted():
     text = "sorry, i meant alice, was just testing you, my day is going good, weather is warmer today"
     result = render_grounded_greeting(
@@ -46,6 +56,15 @@ def test_e_soft_continuity_rejected():
         user_name="Gabriel",
         user_input="hi",
         llm_generate=lambda *args, **kwargs: "Long time no chat. Nice to connect with you.",
+    )
+    assert result.generated_by == "fallback"
+
+
+def test_e2_corporate_rejected():
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        user_input="hi",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Nice to connect with you.",
     )
     assert result.generated_by == "fallback"
 
@@ -117,3 +136,24 @@ def test_k_metadata_complete():
     assert meta.get("anti_repetition_checked") is True
     assert "time_period" in meta
     assert result.continuity_guard_applied is True
+
+
+def test_l_evening_aware_greeting_accepted():
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        user_input="hi alice",
+        local_time=datetime.fromisoformat("2026-05-10T20:28:00-04:00"),
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How's your evening going?",
+    )
+    assert result.generated_by == "llm_constrained"
+
+
+def test_m_repetition_rejected():
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        user_input="hi alice",
+        session_state={"recent_greeting_texts": ["Hey Gabriel. Good to see you. How are you?"]},
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you?",
+    )
+    assert result.generated_by == "fallback"
+    assert "repeated_candidate" in result.validation_reasons

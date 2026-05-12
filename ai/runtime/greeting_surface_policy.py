@@ -177,6 +177,8 @@ def render_grounded_greeting(
 
 def validate_chat_greeting(text: str, *, pure_greeting: bool = True) -> GreetingValidationResult:
     normalized = str(text or "").strip()
+    normalized = normalized.replace("â€™", "'").replace("’", "'")
+    normalized = re.sub(r"([A-Za-z])\?{2,}([A-Za-z])", r"\1'\2", normalized)
     if not normalized:
         return GreetingValidationResult(False, ["empty_greeting"], "")
 
@@ -317,12 +319,15 @@ def _try_constrained_llm_greeting(
     recent_block = "\n".join(f"- {item}" for item in recent_items) if recent_items else "- (none)"
     variant = greeting_count % 4
 
-    def _build_prompt(strict_retry: bool = False) -> str:
+    def _build_prompt(strict_retry: bool = False, retry_reasons: list[str] | None = None) -> str:
         retry_line = (
             "Your previous draft was too similar to a recent greeting. You must change wording and structure."
             if strict_retry
             else ""
         )
+        retry_reasons = list(retry_reasons or [])
+        if "generic_empty_greeting" in retry_reasons:
+            retry_line += " Your previous greeting was too generic. Make it warmer and more personal while still using only the current message."
         time_rules = (
             f"Current time period: {time_period}. Local time: {local_time_label or 'unknown'}.\n"
             "Do not mention morning, afternoon, evening, or night unless it matches the current time period.\n"
@@ -338,6 +343,15 @@ def _try_constrained_llm_greeting(
             "Sound warm, personal, and natural, like a familiar companion.\n"
             "React only to what Gabriel actually said in the current message.\n"
             "Use 2-4 short sentences.\n"
+            "Alice's voice:\n"
+            "- warm and approachable\n"
+            "- natural conversational flow\n"
+            "- like a knowledgeable friend\n"
+            "- casual, honest, and personal\n"
+            "- reacts to the current message only\n"
+            "- no fake memory\n"
+            "- no corporate networking language\n"
+            "- no customer-service phrasing\n"
             "Do not sound like a customer-service assistant.\n"
             "Do not force a task prompt.\n"
             f"Repeated_greeting={repeated_greeting}; greeting_count={greeting_count}; variant={variant}.\n\n"
@@ -377,7 +391,7 @@ def _try_constrained_llm_greeting(
     last_reasons: list[str] = []
     continuity_meta: dict[str, Any] = {}
     for attempt in range(2):
-        prompt = _build_prompt(strict_retry=attempt == 1)
+        prompt = _build_prompt(strict_retry=attempt == 1, retry_reasons=last_reasons if attempt == 1 else [])
         try:
             candidate = _generate(prompt)
         except Exception:
@@ -404,6 +418,7 @@ def _try_constrained_llm_greeting(
             user_input=user_input,
             time_period=time_period,
             allow_focus_reference=allow_focus_reference,
+            is_first_plain_greeting=(greeting_count == 0 and _is_pure_greeting(str(user_input or "").strip().lower())),
         )
         if not validation.valid:
             last_reasons = list(validation.reasons)
@@ -429,11 +444,14 @@ def validate_greeting_candidate(
     user_input: str,
     time_period: str,
     allow_focus_reference: bool,
+    is_first_plain_greeting: bool = False,
 ) -> GreetingValidationResult:
     validation = validate_chat_greeting(candidate, pure_greeting=True)
     if not validation.valid:
         return validation
     low = str(candidate or "").lower()
+    low = low.replace("â€™", "'").replace("’", "'")
+    low = re.sub(r"([a-z])\?{2,}([a-z])", r"\1'\2", low)
     reasons: list[str] = []
     if _has_time_period_mismatch(candidate, time_period):
         reasons.append("time_period_mismatch")
@@ -479,6 +497,51 @@ def validate_greeting_candidate(
         token in low for token in ("current focus", "current objective", "routing")
     ):
         reasons.append("project_status_in_plain_greeting")
+
+    generic_openers = (
+        "great to chat",
+        "nice to talk to you",
+        "great to chat with you",
+        "good to connect",
+        "nice to meet you",
+        "glad to chat",
+        "great to connect",
+    )
+    if any(token in low for token in generic_openers):
+        reasons.append("generic_empty_greeting")
+
+    if is_first_plain_greeting:
+        has_checkin = any(
+            phrase in low
+            for phrase in (
+                "how are you",
+                "how are you doing",
+                "how's it going",
+                "hows it going",
+                "how's your",
+                "hows your",
+                "how's everything",
+                "hows everything",
+            )
+        )
+        has_warm_presence = any(
+            phrase in low
+            for phrase in (
+                "good to see you",
+                "good to hear from you",
+                "i'm glad you're here",
+                "im glad you're here",
+                "i am glad you're here",
+                "i'm glad you are here",
+                "nice to hear from you",
+            )
+        )
+        sentence_count = str(candidate or "").count(".") + str(candidate or "").count("?") + str(candidate or "").count("!")
+        if sentence_count < 2 or sentence_count > 3:
+            reasons.append("generic_empty_greeting")
+        if not (has_checkin or has_warm_presence):
+            reasons.append("generic_empty_greeting")
+
     if reasons:
         return GreetingValidationResult(False, sorted(set(reasons)), "")
     return GreetingValidationResult(True, [], str(candidate).strip())

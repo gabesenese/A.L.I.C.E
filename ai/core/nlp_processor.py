@@ -4855,6 +4855,20 @@ class NLPProcessor:
                 return "file_operations:list", 0.95
 
         # Memory operations - user preference/recall patterns
+        if re.search(r"\bjust the topic about\b", text_lower):
+            return "memory:delete_topic", 0.9
+        if re.search(
+            r"\b(delete|erase|remove|forget)\b.{0,40}\b(memories|memory|topic|convo|conversation)\b",
+            text_lower,
+        ):
+            if re.search(
+                r"\b(about|topic about|just the topic)\b.{0,40}\b[a-z0-9']+\b",
+                text_lower,
+            ):
+                return "memory:delete_topic", 0.92
+            if re.search(r"\b(all|whole|entire)\b.{0,20}\b(conversation|memory)\b", text_lower):
+                return "memory:delete_all_conversation_memory", 0.92
+            return "memory:delete_conversation", 0.9
         # Recall: "what/do/can/could/would you remember" forms should win over store.
         if any(phrase in text_lower for phrase in _P1_MEMORY_RECALL):
             return "memory:recall", 0.95
