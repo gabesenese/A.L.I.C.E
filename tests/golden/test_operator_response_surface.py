@@ -44,7 +44,7 @@ def test_llm_generated_acknowledgement_used_and_recorded(monkeypatch, tmp_path):
     _set_store_path(monkeypatch, tmp_path)
 
     def _llm(*args, **kwargs):
-        return "Fresh start, we'll keep it focused."
+        return "Fresh start. We'll keep it focused."
 
     out = render_operator_response(
         user_input="just woke up from a nap, now i am gonna work on Alice for a bit",
@@ -64,11 +64,51 @@ def test_llm_generated_acknowledgement_used_and_recorded(monkeypatch, tmp_path):
         next_step="",
         llm_generate=_llm,
     )
-    assert out.startswith("Fresh start, we'll keep it focused.")
+    assert out.startswith("Fresh start. We'll keep it focused.")
     assert "I inspected ai/runtime/agent_loop.py." in out
     assert "bounded operator loop" in out.lower()
     loaded = lre.load_learned_response_examples(surface="operator_context_ack", limit=5)
-    assert any(ex.response_text == "Fresh start, we'll keep it focused." for ex in loaded)
+    assert any(ex.response_text == "Fresh start. We'll keep it focused." for ex in loaded)
+
+
+def test_generic_task_kickoff_rejected_then_retry_used(monkeypatch, tmp_path):
+    _set_store_path(monkeypatch, tmp_path)
+    responses = iter(
+        [
+            "Let's dive into some Alice development work together now.",
+            "Fresh start. We'll keep it focused.",
+        ]
+    )
+
+    def _llm(*args, **kwargs):
+        return next(responses)
+
+    out = render_operator_response(
+        user_input="good, just woke up from a nap and im gonna work on alice for now",
+        base_text="",
+        operator_state={
+            "last_recommended_action": {
+                "action": "inspect_file",
+                "target": "ai/runtime/response_momentum_policy.py",
+                "reason": "It shapes whether Alice advances with momentum or drifts into passive responses.",
+            }
+        },
+        local_execution={
+            "success": True,
+            "inspected_file": "ai/runtime/agent_loop.py",
+            "analysis": {"responsibility": "agent loop"},
+        },
+        next_step="",
+        llm_generate=_llm,
+    )
+    assert out.startswith("Fresh start. We'll keep it focused.")
+    assert "Let's dive into some Alice development work together now." not in out
+    loaded = lre.load_learned_response_examples(surface="operator_context_ack", limit=5)
+    assert any(ex.response_text == "Fresh start. We'll keep it focused." for ex in loaded)
+    assert all(
+        ex.response_text != "Let's dive into some Alice development work together now."
+        for ex in loaded
+    )
 
 
 def test_llm_unavailable_means_no_acknowledgement(monkeypatch, tmp_path):
@@ -98,8 +138,11 @@ def test_llm_unavailable_means_no_acknowledgement(monkeypatch, tmp_path):
 def test_invalid_acknowledgement_is_omitted_and_not_saved(monkeypatch, tmp_path):
     _set_store_path(monkeypatch, tmp_path)
 
+    calls = {"count": 0}
+
     def _llm(*args, **kwargs):
-        return "That must have been hard. How are you feeling?"
+        calls["count"] += 1
+        return "Let's work on Alice now."
 
     out = render_operator_response(
         user_input="just woke up from a nap, now i am gonna work on Alice for a bit",
@@ -114,7 +157,8 @@ def test_invalid_acknowledgement_is_omitted_and_not_saved(monkeypatch, tmp_path)
         llm_generate=_llm,
     )
     assert out.startswith("I inspected ai/runtime/agent_loop.py.")
-    assert "That must have been hard." not in out
+    assert "Let's work on Alice now." not in out
+    assert calls["count"] == 2
     loaded = lre.load_learned_response_examples(surface="operator_context_ack", limit=5)
     assert not loaded
 
@@ -125,7 +169,7 @@ def test_learned_examples_are_included_in_prompt(monkeypatch, tmp_path):
         lre.LearnedResponseExample.create(
             surface="operator_context_ack",
             context_signals=["nap", "work_session"],
-            response_text="Fresh start, we'll keep it focused.",
+            response_text="Fresh start. We'll keep it focused.",
             energy_signal="low",
             mood_signal="neutral",
             topic="Alice",
@@ -154,7 +198,7 @@ def test_learned_examples_are_included_in_prompt(monkeypatch, tmp_path):
         llm_generate=_llm,
     )
     assert "Similar accepted examples for style only" in capture["prompt"]
-    assert "Fresh start, we'll keep it focused." in capture["prompt"]
+    assert "Fresh start. We'll keep it focused." in capture["prompt"]
 
 
 def test_no_hardcoded_ack_phrases_when_llm_unavailable(monkeypatch, tmp_path):

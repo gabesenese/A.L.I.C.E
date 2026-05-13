@@ -1,10 +1,7 @@
 from pathlib import Path
 
 from ai.runtime import learned_response_examples as lre
-from ai.runtime.operator_response_surface import (
-    detect_context_signal,
-    render_operator_response,
-)
+from ai.runtime.operator_response_surface import detect_context_signal, render_operator_response
 
 
 def _set_store_path(monkeypatch, tmp_path: Path) -> None:
@@ -15,12 +12,12 @@ def _set_store_path(monkeypatch, tmp_path: Path) -> None:
     )
 
 
-def test_records_valid_learned_example(monkeypatch, tmp_path):
+def test_record_and_load_learned_example(monkeypatch, tmp_path):
     _set_store_path(monkeypatch, tmp_path)
     example = lre.LearnedResponseExample.create(
         surface="operator_context_ack",
         context_signals=["nap", "work_session"],
-        response_text="Fresh start, we'll keep it focused.",
+        response_text="Fresh start. We'll keep it focused.",
         energy_signal="low",
         mood_signal="neutral",
         topic="Alice",
@@ -28,34 +25,34 @@ def test_records_valid_learned_example(monkeypatch, tmp_path):
     )
     lre.record_learned_response_example(example)
     loaded = lre.load_learned_response_examples(surface="operator_context_ack", limit=20)
-    assert any(ex.response_text == "Fresh start, we'll keep it focused." for ex in loaded)
+    assert any(ex.response_text == "Fresh start. We'll keep it focused." for ex in loaded)
 
 
-def test_deduplicates_examples(monkeypatch, tmp_path):
+def test_dedupe_duplicate_response_text(monkeypatch, tmp_path):
     _set_store_path(monkeypatch, tmp_path)
     ex1 = lre.LearnedResponseExample.create(
         surface="operator_context_ack",
         context_signals=["nap", "work_session"],
-        response_text="Fresh start, we'll keep it focused.",
+        response_text="Fresh start. We'll keep it focused.",
     )
     ex2 = lre.LearnedResponseExample.create(
         surface="operator_context_ack",
         context_signals=["nap"],
-        response_text="Fresh start, we'll keep it focused.",
+        response_text="Fresh start. We'll keep it focused.",
     )
     lre.record_learned_response_example(ex1)
     lre.record_learned_response_example(ex2)
     loaded = lre.load_learned_response_examples(surface="operator_context_ack", limit=20)
-    assert len([ex for ex in loaded if ex.response_text == "Fresh start, we'll keep it focused."]) == 1
+    assert len([ex for ex in loaded if ex.response_text == "Fresh start. We'll keep it focused."]) == 1
 
 
-def test_finds_similar_examples(monkeypatch, tmp_path):
+def test_find_similar_prefers_overlapping_signal(monkeypatch, tmp_path):
     _set_store_path(monkeypatch, tmp_path)
     lre.record_learned_response_example(
         lre.LearnedResponseExample.create(
             surface="operator_context_ack",
             context_signals=["nap", "work_session"],
-            response_text="Fresh start, we'll keep it focused.",
+            response_text="Fresh start. We'll keep it focused.",
         )
     )
     lre.record_learned_response_example(
@@ -71,7 +68,7 @@ def test_finds_similar_examples(monkeypatch, tmp_path):
         limit=3,
     )
     assert similar
-    assert similar[0].response_text == "Fresh start, we'll keep it focused."
+    assert similar[0].response_text == "Fresh start. We'll keep it focused."
 
 
 def test_does_not_store_invalid_output(monkeypatch, tmp_path):

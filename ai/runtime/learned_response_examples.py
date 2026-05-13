@@ -15,13 +15,13 @@ class LearnedResponseExample:
     example_id: str
     surface: str
     context_signals: List[str]
-    response_text: str
-    created_at: str
     energy_signal: str = "unknown"
     mood_signal: str = "unknown"
     topic: str = ""
     user_context_summary: str = ""
+    response_text: str = ""
     accepted: bool = True
+    created_at: str = ""
     source: str = "ollama_validated"
 
     @classmethod
