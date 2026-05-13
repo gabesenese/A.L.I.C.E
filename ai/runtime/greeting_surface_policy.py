@@ -191,6 +191,10 @@ def validate_chat_greeting(text: str, *, pure_greeting: bool = True) -> Greeting
 
     banned_tokens = (
         "how can i help",
+        "what should we work on",
+        "what are we working on",
+        "what do you want to work on",
+        "what should i help with",
         "what can i do",
         "what do you need",
         "assist",

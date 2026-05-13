@@ -562,7 +562,7 @@ class ContractPipeline:
         perception_frame = dict((decision.metadata or {}).get("perception_frame") or {})
         project_state_payload = load_project_state(str(user_id or "default")).to_dict()
         operator_state_for_companion = dict((decision.metadata or {}).get("operator_state") or {})
-        companion_state = sync_from_operator_project_state(
+        companion_profile_state = sync_from_operator_project_state(
             operator_state_for_companion,
             project_state_payload,
             user_id=str(user_id or "default"),
@@ -572,17 +572,17 @@ class ContractPipeline:
                 {
                     "last_user_request": str(user_input or ""),
                     "last_actual_request": str(perception_frame.get("actual_request") or ""),
-                    "active_topic": str(perception_frame.get("topic") or companion_state.active_topic),
-                    "energy_signal": str(perception_frame.get("user_energy_signal") or companion_state.energy_signal),
-                    "mood_signal": str(perception_frame.get("user_mood_signal") or companion_state.mood_signal),
-                    "time_context": str(perception_frame.get("time_reference") or companion_state.time_context),
+                    "active_topic": str(perception_frame.get("topic") or companion_profile_state.active_topic),
+                    "energy_signal": str(perception_frame.get("user_energy_signal") or companion_profile_state.energy_signal),
+                    "mood_signal": str(perception_frame.get("user_mood_signal") or companion_profile_state.mood_signal),
+                    "time_context": str(perception_frame.get("time_reference") or companion_profile_state.time_context),
                     "user_context": {
                         "social_context": str(perception_frame.get("social_context") or ""),
                     },
                 },
                 user_id=str(user_id or "default"),
             )
-            companion_state = load_companion_state(str(user_id or "default"))
+            companion_profile_state = load_companion_state(str(user_id or "default"))
         routing_trace = dict(getattr(decision, "metadata", {}) or {}).get(
             "routing_trace"
         )
@@ -1135,8 +1135,9 @@ class ContractPipeline:
             project_memory=load_project_state(str(user_id or "default")).to_dict(),
             local_execution=local_exec_payload,
             next_step=str(next_step.next_recommended_action or ""),
+            llm_generate=getattr(self.boundaries.response, "llm_generate_fn", None),
             perception_frame=perception_frame,
-            companion_state=companion_state.to_dict(),
+            companion_state=companion_profile_state.to_dict(),
         )
         agent_loop_payload = build_agent_loop_state(
             user_input=user_input,
@@ -1340,7 +1341,7 @@ class ContractPipeline:
                 ),
                 "next_step_policy": next_step.to_dict(),
                 "perception_frame": perception_frame,
-                "companion_state": companion_state.to_dict(),
+                "companion_state": companion_profile_state.to_dict(),
                 "agent_loop": agent_loop_payload,
                 "state": {
                     "current_task": state.current_task,

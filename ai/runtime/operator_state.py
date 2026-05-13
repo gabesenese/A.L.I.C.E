@@ -33,6 +33,7 @@ class OperatorState:
     last_test_failure: str = ""
     user_corrections: List[str] = field(default_factory=list)
     design_constraints: List[str] = field(default_factory=list)
+    active_learning_topic: str = ""
     last_self_improvement_event_id: str = ""
     last_hypothesis_id: str = ""
     last_patch_plan_id: str = ""
@@ -68,6 +69,7 @@ class OperatorState:
             "last_test_failure": self.last_test_failure,
             "user_corrections": list(self.user_corrections or []),
             "design_constraints": list(self.design_constraints or []),
+            "active_learning_topic": self.active_learning_topic,
             "last_self_improvement_event_id": self.last_self_improvement_event_id,
             "last_hypothesis_id": self.last_hypothesis_id,
             "last_patch_plan_id": self.last_patch_plan_id,
@@ -104,6 +106,7 @@ class OperatorState:
             last_test_failure=str(data.get("last_test_failure") or ""),
             user_corrections=list(data.get("user_corrections") or []),
             design_constraints=list(data.get("design_constraints") or []),
+            active_learning_topic=str(data.get("active_learning_topic") or ""),
             last_self_improvement_event_id=str(
                 data.get("last_self_improvement_event_id") or ""
             ),

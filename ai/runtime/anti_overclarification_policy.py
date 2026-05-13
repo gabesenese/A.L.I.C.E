@@ -14,6 +14,11 @@ def should_answer_instead_of_clarify(
     normalized_intent = str(intent or "").lower().strip()
     state = dict(operator_state or {})
     project = dict(project_memory or {})
+    active_learning_topic = str(
+        state.get("active_learning_topic")
+        or project.get("active_learning_topic")
+        or ""
+    ).strip()
 
     if not low:
         return False
@@ -43,6 +48,20 @@ def should_answer_instead_of_clarify(
                 "improve alice",
                 "make alice more agentic",
                 "research how",
+            )
+        ):
+            return True
+        if active_learning_topic and any(
+            token in low
+            for token in (
+                "yeah give me some information",
+                "give me some information",
+                "tell me more",
+                "go deeper",
+                "explain more",
+                "give me examples",
+                "continue",
+                "keep going",
             )
         ):
             return True

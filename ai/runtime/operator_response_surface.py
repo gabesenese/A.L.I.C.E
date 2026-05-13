@@ -3,39 +3,181 @@ from __future__ import annotations
 import re
 from typing import Any, Dict
 
-
-def _brief_context_ack(user_input: str) -> str:
-    text = str(user_input or "").lower()
-    if "long day" in text:
-        return "Long day. We'll keep this light."
-    if "monday" in text and "positive" in text:
-        return "Monday test. We'll keep the pass focused."
-    if "tired" in text:
-        return "Tired session. We'll keep it tight."
-    if "going to bed" in text or "go to bed" in text:
-        return "Near bedtime. One clean pass."
-    return ""
+from ai.runtime.learned_response_examples import (
+    LearnedResponseExample,
+    find_similar_response_examples,
+    record_learned_response_example,
+)
 
 
-def _brief_context_ack_from_perception(perception_frame: Dict[str, Any], companion_state: Dict[str, Any]) -> str:
+def detect_context_signal(user_input: str, perception_frame: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    text = str(user_input or "").strip().lower()
     pf = dict(perception_frame or {})
-    cs = dict(companion_state or {})
-    social = str(pf.get("social_context") or "").lower()
-    mood = str(pf.get("user_mood_signal") or cs.get("mood_signal") or "").lower()
-    energy = str(pf.get("user_energy_signal") or cs.get("energy_signal") or "").lower()
-    time_ref = str(pf.get("time_reference") or cs.get("time_context") or "").lower()
-    if "long day" in social:
-        return "Long day. We'll keep this light."
-    if "monday" in social and "positive" in social:
-        return "Monday test. We'll keep the pass focused."
-    if mood == "tired":
-        return "Tired session. We'll keep it tight."
-    if energy == "low" and time_ref == "night":
-        return "Near bedtime. One clean pass."
-    return ""
+    signals: list[str] = []
+    energy_signal = str(pf.get("user_energy_signal") or "unknown").strip().lower() or "unknown"
+    mood_signal = str(pf.get("user_mood_signal") or "unknown").strip().lower() or "unknown"
+
+    if any(token in text for token in ("woke up from a nap", "just woke up", "nap")):
+        signals.append("nap")
+    if "long day" in text:
+        signals.append("long_day")
+    if "monday" in text:
+        signals.append("monday")
+    if "positive" in text:
+        signals.append("positive")
+    if any(token in text for token in ("tired", "exhausted", "drained")):
+        signals.append("tired")
+    if any(token in text for token in ("going to bed", "go to bed", "bed right now")):
+        signals.append("bedtime")
+    if any(token in text for token in ("work on alice", "work on a.l.i.c.e", "work on alice for", "work session")):
+        signals.append("work_session")
+
+    if energy_signal == "unknown" and any(s in signals for s in ("nap", "tired", "bedtime", "long_day")):
+        energy_signal = "low"
+    if mood_signal == "unknown":
+        if "positive" in signals:
+            mood_signal = "positive"
+        elif "tired" in signals:
+            mood_signal = "tired"
+        else:
+            mood_signal = "neutral"
+
+    topic = "Alice" if ("alice" in text or "a.l.i.c.e" in text) else ""
+    summary_parts: list[str] = []
+    if "nap" in signals:
+        summary_parts.append("user just woke up from a nap")
+    elif "long_day" in signals:
+        summary_parts.append("user had a long day")
+    elif "bedtime" in signals:
+        summary_parts.append("user is near bedtime")
+    elif "tired" in signals:
+        summary_parts.append("user is tired")
+    if "monday" in signals:
+        summary_parts.append("it is Monday")
+    if "positive" in signals:
+        summary_parts.append("user is staying positive")
+    if "work_session" in signals and topic:
+        summary_parts.append("wants a short Alice work session")
+    elif "work_session" in signals:
+        summary_parts.append("wants a short work session")
+
+    return {
+        "has_context": bool(signals),
+        "signals": signals,
+        "energy_signal": energy_signal,
+        "mood_signal": mood_signal,
+        "topic": topic,
+        "user_context_summary": ", ".join(summary_parts).strip(),
+    }
+
+
+def _examples_style_block(context_signals: list[str]) -> str:
+    examples = find_similar_response_examples(
+        context_signals=list(context_signals or []),
+        surface="operator_context_ack",
+        limit=3,
+    )
+    if not examples:
+        return "[]"
+    lines = [f'- "{ex.response_text}" | signals={list(ex.context_signals or [])}' for ex in examples]
+    return "\n".join(lines)
+
+
+def generate_context_acknowledgement(
+    context_signal: Dict[str, Any],
+    *,
+    user_input: str,
+    llm_generate=None,
+) -> str:
+    if not llm_generate:
+        return ""
+    if not bool((context_signal or {}).get("has_context")):
+        return ""
+    style_examples = _examples_style_block(list(context_signal.get("signals") or []))
+    prompt = (
+        "Write one short acknowledgement sentence for Alice before an operator/code-work response.\n\n"
+        "Use only the current user context.\n"
+        "Sound natural, calm, and focused.\n"
+        "Do not ask a question.\n"
+        "Do not sound like therapy.\n"
+        "Do not sound motivational.\n"
+        "Do not sound corporate.\n"
+        "Do not be cute, poetic, or dramatic.\n"
+        "Do not mention memory or previous conversations.\n"
+        "Do not mention files, tools, code, or internal systems.\n"
+        "Do not say how can I help.\n"
+        "Do not exceed 12 words.\n\n"
+        f"Context signals:\n{dict(context_signal or {})}\n\n"
+        f"User message:\n{str(user_input or '').strip()}\n\n"
+        "Similar accepted examples for style only:\n"
+        f"{style_examples}\n\n"
+        "Return only the acknowledgement sentence."
+    )
+    try:
+        try:
+            return str(llm_generate(prompt=prompt) or "").strip()
+        except TypeError:
+            return str(llm_generate(prompt) or "").strip()
+    except Exception:
+        return ""
+
+
+def validate_context_ack(text: str, context_signal: Dict[str, Any]) -> tuple[bool, list[str]]:
+    candidate = str(text or "").strip()
+    if not candidate:
+        return (True, [])
+    reasons: list[str] = []
+    words = [w for w in re.split(r"\s+", candidate) if w]
+    if len(words) > 12:
+        reasons.append("too_many_words")
+    low = candidate.lower()
+    banned_phrases = (
+        "how can i help",
+        "what should we work on",
+        "what do you need",
+        "you've got this",
+        "proud of you",
+        "i feel",
+        "i remember",
+        "last time",
+        "cozy",
+        "that must have been hard",
+        "your feelings are valid",
+        "i'm sorry you feel",
+        "agent_loop.py",
+        "runtime",
+        "tool",
+        "file",
+        "inspect",
+    )
+    for phrase in banned_phrases:
+        if phrase in low:
+            reasons.append(f"banned_phrase:{phrase}")
+    if "?" in candidate:
+        reasons.append("question_mark")
+    sentence_chunks = [chunk.strip() for chunk in re.split(r"[.!?]+", candidate) if chunk.strip()]
+    if len(sentence_chunks) > 1:
+        reasons.append("multiple_sentences")
+    energy = str((context_signal or {}).get("energy_signal") or "").lower()
+    signals = {str(s).lower() for s in list((context_signal or {}).get("signals") or [])}
+    if "you are tired" in low and "tired" not in signals and energy != "low":
+        reasons.append("unsupported_tired_claim")
+    return (len(reasons) == 0, reasons)
 
 
 def _extract_next_move(next_step: str, operator_state: Dict[str, Any]) -> str:
+    def _normalize_reason(raw_reason: str) -> str:
+        cleaned = re.sub(r"\.+$", "", str(raw_reason or "").strip())
+        if not cleaned:
+            return ""
+        return cleaned[0].lower() + cleaned[1:]
+
+    def _normalize_sentence(raw: str) -> str:
+        cleaned = re.sub(r"\.+$", "", str(raw or "").strip())
+        if not cleaned:
+            return ""
+        return cleaned + "."
+
     structured = dict(operator_state.get("last_recommended_action") or {})
     target = str(structured.get("target") or "").strip()
     reason = str(structured.get("reason") or "").strip()
@@ -43,17 +185,16 @@ def _extract_next_move(next_step: str, operator_state: Dict[str, Any]) -> str:
     if target:
         verb = "inspect" if action in {"inspect_file", "analyze_file", "read_file"} else action.replace("_", " ")
         if reason:
-            cleaned_reason = reason.rstrip(".")
+            cleaned_reason = _normalize_reason(reason)
             if cleaned_reason:
-                cleaned_reason = cleaned_reason[0].lower() + cleaned_reason[1:]
-            return f"Next best move: {verb} {target} because {cleaned_reason}."
-        return f"Next best move: {verb} {target}."
+                return _normalize_sentence(f"Next best move: {verb} {target} because {cleaned_reason}")
+        return _normalize_sentence(f"Next best move: {verb} {target}")
     raw = str(next_step or "").strip()
     if not raw:
         return ""
     if raw.lower().startswith("next best move:"):
-        return raw.rstrip(".") + "."
-    return f"Next best move: {raw.rstrip('.') }."
+        return _normalize_sentence(raw)
+    return _normalize_sentence(f"Next best move: {raw}")
 
 
 def render_operator_response(
@@ -63,16 +204,46 @@ def render_operator_response(
     operator_state: Dict[str, Any],
     local_execution: Dict[str, Any],
     next_step: str,
+    llm_generate=None,
     perception_frame: Dict[str, Any] | None = None,
-    companion_state: Dict[str, Any] | None = None,
 ) -> str:
     parts: list[str] = []
-    ack = _brief_context_ack_from_perception(
-        dict(perception_frame or {}),
-        dict(companion_state or {}),
-    ) or _brief_context_ack(user_input)
-    if ack:
-        parts.append(ack)
+    context_signal = detect_context_signal(user_input, dict(perception_frame or {}))
+    if bool(context_signal.get("has_context")):
+        ack = generate_context_acknowledgement(
+            context_signal,
+            user_input=user_input,
+            llm_generate=llm_generate,
+        )
+        valid, _reasons = validate_context_ack(ack, context_signal)
+        cleaned_ack = str(ack or "").strip()
+        if cleaned_ack and valid:
+            parts.append(cleaned_ack)
+            try:
+                skip_store = any(
+                    token in str(user_input or "").lower()
+                    for token in (
+                        "delete memory",
+                        "erase memory",
+                        "forget this",
+                        "privacy",
+                        "private",
+                    )
+                )
+                if not skip_store:
+                    record_learned_response_example(
+                        LearnedResponseExample.create(
+                            surface="operator_context_ack",
+                            context_signals=list(context_signal.get("signals") or []),
+                            energy_signal=str(context_signal.get("energy_signal") or "unknown"),
+                            mood_signal=str(context_signal.get("mood_signal") or "unknown"),
+                            topic=str(context_signal.get("topic") or ""),
+                            user_context_summary=str(context_signal.get("user_context_summary") or ""),
+                            response_text=cleaned_ack,
+                        )
+                    )
+            except Exception:
+                pass
 
     success = bool(local_execution.get("success"))
     inspected = str(local_execution.get("inspected_file") or "").strip()

@@ -437,6 +437,44 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return hint
         return "conversation:goal_statement"
 
+    def _extract_learning_topic(user_input: str) -> str:
+        low = str(user_input or "").lower()
+        if "agentic ai industry" in low or "industry basics" in low:
+            return "agentic AI industry basics"
+        if "agentic ai" in low:
+            return "agentic AI"
+        if "basics of" in low:
+            phrase = low.split("basics of", 1)[-1].strip(" .,!?:;")
+            return phrase or "the basics"
+        return ""
+
+    def _is_educational_followup(user_input: str) -> bool:
+        low = str(user_input or "").lower().strip()
+        return any(
+            token in low
+            for token in (
+                "yeah give me some information",
+                "give me some information",
+                "tell me more",
+                "go deeper",
+                "explain that",
+                "explain more",
+                "give examples",
+                "give me examples",
+                "what else",
+                "continue",
+                "keep going",
+            )
+        )
+
+    def safe_create_plan(planner: Any, goal: str) -> Dict[str, Any] | None:
+        if planner is None or not hasattr(planner, "create_plan"):
+            return None
+        try:
+            return planner.create_plan(goal)  # type: ignore[no-any-return]
+        except Exception:
+            return None
+
     def _looks_like_proactive_agent_design_statement(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
         if len(text) < 60:
@@ -1058,6 +1096,20 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         dominant_input = str(perception.actual_request or req.user_input or "")
         low = str(req.user_input or "").lower()
         dominant_hint = resolve_dominant_intent_hint(req.user_input)
+        active_learning_topic = str(getattr(alice, "_active_learning_topic", "") or "").strip()
+        if active_learning_topic and _is_educational_followup(req.user_input):
+            return RouterDecision(
+                route="llm",
+                intent="conversation:educational_explain",
+                confidence=0.92,
+                decision_band="execute",
+                metadata={
+                    "reason": "educational_followup_with_active_topic",
+                    "resolved_input": req.user_input,
+                    "active_learning_topic": active_learning_topic,
+                    "operator_state": state,
+                },
+            )
         last_recommended_action = dict(
             state.get("last_recommended_action")
             or project_state.last_recommended_action
@@ -1436,6 +1488,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if dominant_hint == "conversation:educational_explain":
+            topic = _extract_learning_topic(req.user_input) or active_learning_topic
+            setattr(alice, "_active_learning_topic", topic)
+            state = update_operator_state(state, {"active_learning_topic": topic} if topic else {})
+            setattr(alice, "_operator_state", state)
             return RouterDecision(
                 route="llm",
                 intent="conversation:educational_explain",
@@ -1444,11 +1500,32 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={
                     "reason": "beginner_research_explain",
                     "resolved_input": req.user_input,
+                    "active_learning_topic": topic,
                     "operator_state": state,
                 },
             )
 
         if dominant_hint == "conversation:goal_statement":
+            if any(
+                token in str(req.user_input or "").lower()
+                for token in ("learn", "basics", "teach", "information", "overview", "industry", "what is", "how does")
+            ):
+                topic = _extract_learning_topic(req.user_input) or active_learning_topic
+                setattr(alice, "_active_learning_topic", topic)
+                state = update_operator_state(state, {"active_learning_topic": topic} if topic else {})
+                setattr(alice, "_operator_state", state)
+                return RouterDecision(
+                    route="llm",
+                    intent="conversation:educational_explain",
+                    confidence=0.9,
+                    decision_band="execute",
+                    metadata={
+                        "reason": "educational_verbs_override_goal_statement",
+                        "resolved_input": req.user_input,
+                        "active_learning_topic": topic,
+                        "operator_state": state,
+                    },
+                )
             if bool(state.get("active_objective") or project_state.active_objective):
                 return RouterDecision(
                     route="local",
@@ -2339,14 +2416,32 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "conversation:educational_explain",
             "operator:research_explain",
         }:
-            text = (
-                "Start simple.\n\n"
-                "An agentic companion has four parts: memory, goals, tools, and a loop.\n\n"
-                "Memory keeps context. Goals decide what matters. Tools let it act. "
-                "The loop checks results and chooses the next move.\n\n"
-                "A chatbot waits for prompts. An agentic companion keeps the mission in view and moves it forward safely.\n\n"
-                "Next best move: build a tiny version of that loop inside Alice."
-            )
+            topic = str((req.decision.metadata or {}).get("active_learning_topic") or getattr(alice, "_active_learning_topic", "") or "").strip()
+            low_user = str(req.user_input or "").lower()
+            correction_line = ""
+            if "actually" in low_user and "industry" in low_user:
+                correction_line = "Right - you mean the industry, not Alice implementation.\n\n"
+            if topic == "agentic AI industry basics":
+                text = (
+                    f"{correction_line}"
+                    "Agentic AI is the shift from passive chatbots to systems that can plan, use tools, track state, and verify outcomes.\n\n"
+                    "At the system level, the same foundation repeats: memory, goals, tools, and a loop.\n\n"
+                    "The basics:\n"
+                    "1. LLM brain - understanding and reasoning.\n"
+                    "2. Tools - actions like files, notes, code, and calendar.\n"
+                    "3. Memory/state - remembers goals and prior results.\n"
+                    "4. Planner - breaks goals into executable steps.\n"
+                    "5. Verifier - checks claims and action outcomes.\n"
+                    "6. Guardrails - controls risk and approval boundaries.\n\n"
+                    "The industry direction is AI operators: systems that complete workflows, not just answer prompts."
+                )
+            else:
+                text = (
+                    "Got it. You want to learn the concept first.\n\n"
+                    "Agentic AI means systems that can plan, use tools, remember state, and verify actions instead of only replying like a chatbot.\n\n"
+                    "Core pieces: memory, goals, tools, and a loop.\n\n"
+                    "Memory keeps context. Goals choose what matters next. Tools perform actions. The loop observes results and updates the next move."
+                )
             return ResponseOutput(
                 text=_surface_text(
                     text,
@@ -2357,6 +2452,20 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 confidence=0.92,
                 metadata={"type": "educational_explain"},
             )
+
+        if req.decision.intent == "conversation:goal_statement":
+            plan = safe_create_plan(getattr(alice, "planner", None), req.user_input)
+            if plan:
+                return ResponseOutput(
+                    text=_surface_text(
+                        "Aligned. I captured the implementation direction and generated a concrete plan.",
+                        user_input=req.user_input,
+                        intent=req.decision.intent,
+                        route="contract_goal_statement",
+                    ),
+                    confidence=0.78,
+                    metadata={"type": "goal_statement", "plan": plan},
+                )
 
         if req.decision.intent == "freshness:current_events":
             payload = _freshness_required_payload(req.user_input)
@@ -2806,6 +2915,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         routing=CallableRoutingAdapter(route_fn=_route),
         memory=CallableMemoryAdapter(recall_fn=_recall, store_fn=_store),
         tools=CallableToolAdapter(execute_fn=_execute),
-        response=CallableResponseAdapter(generate_fn=_generate),
+        response=CallableResponseAdapter(
+            generate_fn=_generate,
+            llm_generate_fn=(
+                (lambda prompt=None, **_kwargs: str(alice.llm.chat(str(prompt or ""), use_history=False) or ""))
+                if getattr(alice, "llm", None)
+                else None
+            ),
+        ),
         verifier=CallableVerifierAdapter(verify_fn=_verify),
     )

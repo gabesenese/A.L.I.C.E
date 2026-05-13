@@ -55,6 +55,7 @@ class CallableToolAdapter(ToolBoundary):
 @dataclass
 class CallableResponseAdapter(ResponseBoundary):
     generate_fn: Callable[[ResponseRequest], ResponseOutput]
+    llm_generate_fn: Callable[..., str] | None = None
 
     def generate(self, request: ResponseRequest) -> ResponseOutput:
         return self.generate_fn(request)

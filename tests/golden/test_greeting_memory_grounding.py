@@ -313,3 +313,17 @@ def test_u_soft_continuity_still_rejected():
         llm_generate=lambda *args, **kwargs: "Hey Gabriel. Long time no chat.",
     )
     assert result.generated_by == "fallback"
+
+
+def test_v_task_intake_greeting_rejected():
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={},
+        session_state={},
+        user_input="hi alice",
+        llm_generate=lambda *args, **kwargs: "Hi. What should we work on?",
+    )
+    low = result.text.lower()
+    assert result.generated_by == "fallback"
+    assert "what should we work on" not in low
+    assert "assistant_service_language" in result.validation_reasons or "banned_content" in result.validation_reasons

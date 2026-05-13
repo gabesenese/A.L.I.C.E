@@ -43,6 +43,7 @@ def apply_response_momentum(
     project_memory: Dict[str, Any] | None = None,
     local_execution: Dict[str, Any] | None = None,
     next_step: str = "",
+    llm_generate=None,
     perception_frame: Dict[str, Any] | None = None,
     companion_state: Dict[str, Any] | None = None,
 ) -> str:
@@ -114,8 +115,8 @@ def apply_response_momentum(
             operator_state=state,
             local_execution=local,
             next_step=str(next_step or ""),
+            llm_generate=llm_generate,
             perception_frame=dict(perception_frame or {}),
-            companion_state=dict(companion_state or {}),
         )
         if rendered:
             return _enforce_claim_evidence(rendered, local)

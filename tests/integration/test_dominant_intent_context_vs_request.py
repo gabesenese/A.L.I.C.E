@@ -1,5 +1,6 @@
 from ai.core.nlp_processor import NLPProcessor
 from ai.runtime.perception_frame import build_perception_frame
+from ai.runtime.dominant_intent_resolver import resolve_dominant_intent_hint
 
 
 def test_weather_context_plus_open_notes_request_prefers_notes():
@@ -27,3 +28,10 @@ def test_actual_request_beats_casual_weather_keyword():
     )
     result = nlp.process(frame.actual_request or "weather is great today")
     assert result.intent in {"notes:query_exist", "notes:list"}
+
+
+def test_learning_language_beats_agentic_project_keyword():
+    hint = resolve_dominant_intent_hint(
+        "i wanna learn more about agentic ai and how we can create it"
+    )
+    assert hint == "conversation:educational_explain"

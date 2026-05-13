@@ -1,0 +1,82 @@
+{
+  "Gabriel": {
+    "user_id": "Gabriel",
+    "active_topic": "",
+    "active_goal": "Improve Alice into an agentic companion/operator",
+    "user_context": {
+      "social_context": ""
+    },
+    "energy_signal": "unknown",
+    "mood_signal": "unknown",
+    "time_context": "unknown",
+    "open_loops": [
+      "User requested destructive or unsafe behavior."
+    ],
+    "design_constraints": [
+      "no voice for now",
+      "keep foundation minimal",
+      "avoid hardcoded fallback messages",
+      "do not use fictional or external character names",
+      "prioritize routing, memory, local execution, operator loop, runtime cleanup",
+      "do not fake memory or tool or file access",
+      "greetings should be grounded and companion-like without fake continuity"
+    ],
+    "last_user_request": "hi alice",
+    "last_actual_request": "",
+    "last_action_name": "",
+    "last_action_result": {},
+    "next_safe_action": {
+      "action": "inspect_file",
+      "target": "ai/runtime/agent_loop.py",
+      "reason": "Active objective exists; agent loop should drive next safe step.",
+      "confidence": 0.72,
+      "priority": 0.72,
+      "source": "active_objective",
+      "safety_level": "safe_read",
+      "requires_approval": false,
+      "created_at": "2026-05-13T23:46:32.764309+00:00"
+    },
+    "privacy_flags": {},
+    "updated_at": "2026-05-13T23:47:00.530796+00:00"
+  },
+  "u1": {
+    "user_id": "u1",
+    "active_topic": "",
+    "active_goal": "Improve Alice into an agentic companion/operator",
+    "user_context": {
+      "social_context": ""
+    },
+    "energy_signal": "unknown",
+    "mood_signal": "unknown",
+    "time_context": "unknown",
+    "open_loops": [
+      "User requested destructive or unsafe behavior."
+    ],
+    "design_constraints": [
+      "no voice for now",
+      "keep foundation minimal",
+      "avoid hardcoded fallback messages",
+      "do not use fictional or external character names",
+      "prioritize routing, memory, local execution, operator loop, runtime cleanup",
+      "do not fake memory or tool or file access",
+      "greetings should be grounded and companion-like without fake continuity"
+    ],
+    "last_user_request": "give me examples",
+    "last_actual_request": "",
+    "last_action_name": "",
+    "last_action_result": {},
+    "next_safe_action": {
+      "action": "inspect_file",
+      "target": "ai/runtime/agent_loop.py",
+      "reason": "Active objective exists; agent loop should drive next safe step.",
+      "confidence": 0.72,
+      "priority": 0.72,
+      "source": "active_objective",
+      "safety_level": "safe_read",
+      "requires_approval": false,
+      "created_at": "2026-05-12T02:23:23.654040+00:00"
+    },
+    "privacy_flags": {},
+    "updated_at": "2026-05-12T02:23:23.678255+00:00"
+  }
+}
