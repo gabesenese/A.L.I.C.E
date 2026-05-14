@@ -81,3 +81,4 @@ def test_destructive_action_cannot_run_without_approval():
     assert called["value"] is False
     assert out.success is False
     assert out.error == "approval_required"
+    assert out.evidence.get("approval_required") is True

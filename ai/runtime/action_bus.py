@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Dict
 from uuid import uuid4
 
+from ai.runtime.approval_ledger import approval_matches
+
 
 @dataclass
 class ActionRequest:
@@ -37,8 +39,10 @@ class ActionResult:
 
 
 class ActionBus:
-    def __init__(self) -> None:
+    def __init__(self, approval_lookup=None, approval_consume=None) -> None:
         self._executors: Dict[str, Callable[[ActionRequest], ActionResult]] = {}
+        self._approval_lookup = approval_lookup
+        self._approval_consume = approval_consume
 
     def register(self, name: str, executor: Callable[[ActionRequest], ActionResult]) -> None:
         self._executors[str(name or "").strip()] = executor
@@ -58,8 +62,30 @@ class ActionBus:
             return bool(action_request.approved)
         return True
 
+    def _blocked_result(self, request: ActionRequest, error: str) -> ActionResult:
+        approval_required = self._action_requires_approval(request)
+        return ActionResult(
+            action_id=request.action_id,
+            name=str(request.name or "").strip(),
+            target=request.target,
+            success=False,
+            error=error,
+            evidence={
+                "source": "action_bus",
+                "approval_required": bool(approval_required),
+                "approved": False,
+                "approval_id": str(request.approval_id or ""),
+                "approval_error": error,
+                "risk_level": str(request.risk_level or "safe_read"),
+            },
+            verified=False,
+            risk_level=str(request.risk_level or "safe_read"),
+            requires_approval=bool(approval_required),
+        )
+
     def execute(self, action_request: ActionRequest) -> ActionResult:
         action_name = str(action_request.name or "").strip()
+        approval_required = self._action_requires_approval(action_request)
         if action_name not in self._executors:
             return ActionResult(
                 action_id=action_request.action_id,
@@ -69,42 +95,44 @@ class ActionBus:
                 error="unknown_action",
                 evidence={"source": "action_bus"},
                 verified=False,
-                risk_level=action_request.risk_level,
-                requires_approval=action_request.requires_approval,
+                risk_level=str(action_request.risk_level or "safe_read"),
+                requires_approval=approval_required,
             )
+
+        if approval_required:
+            if not str(action_request.approval_id or "").strip() or not bool(action_request.approved):
+                return self._blocked_result(action_request, "approval_required")
+            if not callable(self._approval_lookup):
+                return self._blocked_result(action_request, "approval_not_found")
+            record = self._approval_lookup(str(action_request.approval_id or ""))
+            if not record:
+                return self._blocked_result(action_request, "approval_not_found")
+            record_approved = bool(getattr(record, "approved", False) if not isinstance(record, dict) else record.get("approved"))
+            record_consumed = bool(getattr(record, "consumed", False) if not isinstance(record, dict) else record.get("consumed"))
+            if (not record_approved) or record_consumed:
+                return self._blocked_result(action_request, "approval_not_valid")
+            if not approval_matches(record, action_request):
+                return self._blocked_result(action_request, "approval_mismatch")
+
         if not self.can_execute(action_request):
-            approval_required = self._action_requires_approval(action_request)
-            return ActionResult(
-                action_id=action_request.action_id,
-                name=action_name,
-                target=action_request.target,
-                success=False,
-                error="approval_required",
-                evidence={
-                    "source": "action_bus",
-                    "approval_required": bool(approval_required),
-                    "approved": bool(action_request.approved),
-                    "risk_level": str(action_request.risk_level or "safe_read"),
-                },
-                verified=False,
-                risk_level=action_request.risk_level,
-                requires_approval=bool(approval_required),
-            )
+            return self._blocked_result(action_request, "approval_required")
+
         out = self._executors[action_name](action_request)
+        approval_consumed = False
+        if approval_required and callable(self._approval_consume):
+            approval_consumed = bool(self._approval_consume(str(action_request.approval_id or "")))
         out.evidence = dict(out.evidence or {})
         out.evidence.setdefault("action", action_name)
         out.evidence.setdefault("source", "action_bus")
-        out.evidence.setdefault(
-            "approval_required", bool(self._action_requires_approval(action_request))
-        )
+        out.evidence.setdefault("approval_required", bool(approval_required))
         out.evidence.setdefault("approved", bool(action_request.approved))
+        out.evidence.setdefault("approval_id", str(action_request.approval_id or ""))
         out.evidence.setdefault(
-            "risk_level", str(action_request.risk_level or "safe_read")
+            "approval_consumed", bool(approval_consumed if approval_required else True)
         )
+        out.evidence.setdefault("risk_level", str(action_request.risk_level or "safe_read"))
         out.risk_level = str(out.risk_level or action_request.risk_level or "safe_read")
-        out.requires_approval = bool(
-            out.requires_approval or self._action_requires_approval(action_request)
-        )
+        out.requires_approval = bool(out.requires_approval or approval_required)
         out.verified = bool(out.success and out.evidence)
         return out
 
