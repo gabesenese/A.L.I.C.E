@@ -27,6 +27,7 @@ from ai.runtime.pipeline.routing_failure_logger import RoutingFailureLogger
 from ai.runtime.greeting_surface_policy import render_grounded_greeting
 from ai.runtime.response_momentum_policy import apply_response_momentum
 from ai.runtime.claim_verifier import verify_response_claims
+from ai.runtime.action_bus import action_result_from_local_execution
 from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
 from ai.memory.project_memory import load_project_state, update_project_state
@@ -1141,6 +1142,13 @@ class ContractPipeline:
             companion_state=companion_profile_state.to_dict(),
         )
         tool_data_payload = dict((tool_result.data or {}) if tool_result else {})
+        standardized_action_result = dict(tool_data_payload.get("action_result") or {})
+        if not standardized_action_result and local_exec_payload:
+            standardized_action_result = action_result_from_local_execution(
+                action_name=str(local_exec_payload.get("action") or decision.intent or "inspect_file"),
+                local_execution=local_exec_payload,
+                target=str(local_exec_payload.get("inspected_file") or ""),
+            ).to_dict()
         deletion_payload = dict(
             tool_data_payload.get("deletion_result")
             or tool_data_payload.get("memory_delete")
@@ -1165,7 +1173,7 @@ class ContractPipeline:
             route=str(decision.route or ""),
             intent=str(decision.intent or ""),
             local_execution=local_exec_payload,
-            action_result=tool_data_payload,
+            action_result=standardized_action_result or tool_data_payload,
             memory_result=memory_claim_payload,
             deletion_result=deletion_payload,
             operator_state=operator_state_payload,
@@ -1373,6 +1381,7 @@ class ContractPipeline:
                     )
                     or {}
                 ),
+                "action_result": standardized_action_result,
                 "next_step_policy": next_step.to_dict(),
                 "perception_frame": perception_frame,
                 "companion_state": companion_profile_state.to_dict(),

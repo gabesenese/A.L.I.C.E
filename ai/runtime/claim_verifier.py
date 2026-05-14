@@ -80,6 +80,8 @@ def _has_action_evidence(
     action_result: Dict[str, Any],
 ) -> bool:
     low = sentence.lower()
+    action_evidence = dict(action_result.get("evidence") or {})
+    action_verified = bool(action_result.get("verified"))
     local_success = bool(local_execution.get("success"))
     inspected_file = str(local_execution.get("inspected_file") or "").strip()
     action_success = bool(action_result.get("success"))
@@ -91,6 +93,18 @@ def _has_action_evidence(
     )
 
     if "i inspected" in low:
+        if action_verified and action_result.get("success"):
+            action_inspected = str(action_evidence.get("inspected_file") or "").strip()
+            if not action_inspected:
+                return False
+            claim_target_match = re.search(r"\bi inspected\s+([a-zA-Z0-9_./\\-]+)", sentence, re.IGNORECASE)
+            if claim_target_match:
+                claimed_target = str(claim_target_match.group(1) or "").strip("`'\".,;:!?")
+                normalized_claimed = claimed_target.replace("\\", "/").lower()
+                normalized_inspected = action_inspected.replace("\\", "/").strip("`'\".,;:!?").lower()
+                if normalized_claimed and normalized_claimed != normalized_inspected:
+                    return False
+            return True
         if not (local_success and inspected_file):
             return False
         claim_target_match = re.search(r"\bi inspected\s+([a-zA-Z0-9_./\\-]+)", sentence, re.IGNORECASE)
@@ -102,11 +116,11 @@ def _has_action_evidence(
                 return False
         return True
     if "i checked" in low:
-        return bool(local_success or action_success or inspected_file)
+        return bool(local_success or action_success or inspected_file or (action_verified and action_evidence))
     if "i read" in low or "i analyzed" in low or "i analysed" in low or "i opened" in low or "i listed" in low:
-        return bool(local_success or action_success or inspected_file)
+        return bool(local_success or action_success or inspected_file or (action_verified and action_evidence))
     if "i searched" in low or "i found" in low:
-        return bool(search_evidence or local_success or action_success)
+        return bool(search_evidence or local_success or action_success or (action_verified and action_evidence))
     return True
 
 
@@ -198,6 +212,8 @@ def verify_response_claims(
 
     local = dict(local_execution or {})
     action = dict(action_result or {})
+    if isinstance(action.get("action_result"), dict):
+        action = dict(action.get("action_result") or {})
     memory = dict(memory_result or {})
     deletion = dict(deletion_result or {})
     op_state = dict(operator_state or {})

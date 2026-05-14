@@ -124,32 +124,73 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     local_executor = LocalActionExecutor(alice)
     action_bus = ActionBus()
 
+    def _normalize_action_name(name: str) -> str:
+        raw = str(name or "").strip().lower()
+        mapping = {
+            "operator:project_status": "project_status",
+            "operator:next_step": "next_step",
+            "operator:continue": "code:analyze_file",
+            "operator:execute_recommended_action": "code:analyze_file",
+            "operator:explain_recommendation": "next_step",
+            "self_improvement:audit": "self_improvement_audit",
+            "self_improvement:status": "self_improvement_audit",
+            "self_improvement:brief": "self_improvement_audit",
+            "freshness:current_events": "project_status",
+            "system:location": "project_status",
+        }
+        return mapping.get(raw, raw)
+
     def _local_action_executor_wrapper(request: ActionRequest) -> ActionResult:
+        action_name = _normalize_action_name(request.name)
         local = local_executor.execute(
-            action=request.name,
+            action=action_name,
             query=str(request.params.get("query") or ""),
             context=dict(request.params.get("context") or {}),
         )
         success = bool(local.get("success"))
+        local_execution = dict(local.get("local_execution") or {})
+        evidence = {"source": "local_action_executor"}
+        inspected_file = str(local_execution.get("inspected_file") or "").strip()
+        if action_name in {"inspect_file", "analyze_file", "read_file", "code:analyze_file", "code:read_file", "code:request"}:
+            if inspected_file:
+                evidence["inspected_file"] = inspected_file
+            if isinstance(local_execution.get("analysis"), dict):
+                evidence["analysis"] = dict(local_execution.get("analysis") or {})
+        if action_name in {"list_files", "code:list_files"}:
+            files = list(local_execution.get("files") or [])
+            evidence["files"] = files
+            evidence["count"] = int(local_execution.get("count") or len(files))
+        if action_name == "project_status":
+            pm = load_project_state("default").to_dict()
+            evidence["active_objective"] = str(pm.get("active_objective") or "")
+            evidence["current_focus"] = str(pm.get("current_focus") or "")
+            evidence["source"] = "project_memory"
         return ActionResult(
             action_id=request.action_id,
-            name=request.name,
+            name=action_name,
             target=str(request.target or ""),
             success=success,
             data={
                 "response": str(local.get("response") or ""),
                 "operator_context": dict(local.get("operator_context") or {}),
-                "local_execution": dict(local.get("local_execution") or {}),
+                "local_execution": local_execution,
             },
             error=str(local.get("error") or ""),
-            evidence=dict(local.get("local_execution") or {}),
-            verified=bool(success and local.get("local_execution")),
+            evidence=evidence,
+            verified=bool(success and len(evidence) > 1),
+            risk_level=str(request.risk_level or "safe_read"),
+            requires_approval=bool(request.requires_approval),
         )
 
     for _name in (
         "inspect_file",
         "analyze_file",
+        "read_file",
         "list_files",
+        "code:request",
+        "code:analyze_file",
+        "code:read_file",
+        "code:list_files",
         "project_status",
         "next_step",
         "self_improvement_audit",
@@ -2040,16 +2081,19 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
             if extracted_target:
                 context_payload["target_file"] = extracted_target
-            action_result = _local_action_executor_wrapper(
+            normalized_name = _normalize_action_name(str(invocation.action or ""))
+            action_result = action_bus.execute(
                 ActionRequest(
                     action_id=str(invocation.idempotency_key or invocation.action or "local"),
-                    name=str(invocation.action or ""),
+                    name=normalized_name,
                     target=str(context_payload.get("target_file") or ""),
                     params={
                         "query": str(invocation.params.get("query") or ""),
                         "context": context_payload,
                     },
                     source="routing_boundary",
+                    risk_level="safe_read",
+                    requires_approval=False,
                 )
             )
             success = bool(action_result.success)
@@ -2064,6 +2108,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "close_matches": list(
                         (action_result.data.get("operator_context") or {}).get("close_matches") or []
                     ),
+                    "action_result": action_result.to_dict(),
                 },
                 error=str(action_result.error or ""),
                 confidence=0.9 if success else 0.3,

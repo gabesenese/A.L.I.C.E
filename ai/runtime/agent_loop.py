@@ -12,6 +12,7 @@ from ai.memory.project_memory import (
     update_project_state,
 )
 from ai.runtime.next_step_policy import decide_next_step
+from ai.runtime.action_bus import action_result_from_local_execution
 from ai.runtime.operator_state import (
     commit_operator_state_to_project_memory,
     update_operator_state,
@@ -56,6 +57,7 @@ class AgentLoopResult:
     plan_steps: List[Dict[str, Any]] = field(default_factory=list)
     executed_steps: List[str] = field(default_factory=list)
     observations: List[Dict[str, Any]] = field(default_factory=list)
+    action_result: Dict[str, Any] = field(default_factory=dict)
     verification: Dict[str, Any] = field(default_factory=dict)
     next_step: str = ""
     blocked_reason: str = ""
@@ -200,6 +202,29 @@ class AgentLoop:
             "requires_approval": requires_approval,
             "blocked_reason": blocked_reason,
         }
+        action_result_payload: Dict[str, Any] = {}
+        if observations:
+            last_obs = observations[-1]
+            local_for_action = dict(last_obs.evidence.get("local_execution") or {})
+            if local_for_action:
+                action_result_payload = action_result_from_local_execution(
+                    action_name=str(step.action or ""),
+                    local_execution=local_for_action,
+                    target=str(step.target or ""),
+                ).to_dict()
+            else:
+                action_result_payload = {
+                    "action_id": f"agent_loop_{step.step_id}",
+                    "name": str(step.action or ""),
+                    "target": str(step.target or ""),
+                    "success": bool(last_obs.success),
+                    "evidence": dict(last_obs.evidence or {}),
+                    "verified": bool(last_obs.success and bool(last_obs.evidence)),
+                    "risk_level": "safe_read",
+                    "requires_approval": bool(step.requires_approval),
+                    "error": str(last_obs.error or ""),
+                    "data": {},
+                }
 
         state = update_operator_state(
             state,
@@ -232,6 +257,7 @@ class AgentLoop:
             plan_steps=[asdict(s) for s in plans],
             executed_steps=executed,
             observations=[asdict(o) for o in observations],
+            action_result=action_result_payload,
             verification=verification,
             next_step=next_step,
             blocked_reason=blocked_reason,
