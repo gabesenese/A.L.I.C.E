@@ -1,7 +1,11 @@
 from pathlib import Path
 
 from ai.runtime import learned_response_examples as lre
-from ai.runtime.operator_response_surface import render_operator_response
+from ai.runtime.operator_response_surface import (
+    render_local_execution_error_response,
+    render_operator_response,
+    strip_meta_response_artifacts,
+)
 
 
 def _set_store_path(monkeypatch, tmp_path: Path) -> None:
@@ -242,3 +246,65 @@ def test_next_move_reason_grammar_is_clean():
     )
     assert "because It" not in out
     assert ".." not in out
+
+
+def test_local_execution_error_surface_is_compact_and_no_meta_leak(monkeypatch, tmp_path):
+    _set_store_path(monkeypatch, tmp_path)
+    out = render_local_execution_error_response(
+        user_input="good, i am ready to work on alice",
+        base_text=(
+            "I'm focused and ready to support your work on me. "
+            "Ready when you are! "
+            "What would you like to start working on in our codebase today? "
+            "(Note: I've rewritten the response to sound more natural, clear, and concise while keeping the same facts.)"
+        ),
+        operator_state={},
+        local_execution={"success": False, "error": "local file target could not be resolved"},
+        next_step="inspect ai/runtime/agent_loop.py because active objective exists; agent loop should drive next safe step",
+    )
+    low = out.lower()
+    assert "i couldn't verify the local step." in low
+    assert "blocker: local file target could not be resolved" in low
+    assert "next best move: inspect ai/runtime/agent_loop.py".lower() in low
+    assert "rewritten" not in low
+    assert "same facts" not in low
+    assert "ready when you are" not in low
+    assert "what would you like" not in low
+
+
+def test_failed_local_execution_does_not_claim_inspection(monkeypatch, tmp_path):
+    _set_store_path(monkeypatch, tmp_path)
+    out = render_local_execution_error_response(
+        user_input="continue",
+        base_text="I inspected ai/runtime/agent_loop.py.",
+        operator_state={},
+        local_execution={"success": False, "error": "contract_local_execution_error"},
+        next_step="inspect ai/runtime/agent_loop.py",
+    )
+    assert "I inspected" not in out
+    assert out.startswith("I couldn't verify the local step.")
+
+
+def test_meta_artifact_sanitizer_removes_rewrite_notes():
+    out = strip_meta_response_artifacts(
+        "What would you like to start working on? (Note: I've rewritten the response to sound more natural while keeping the same facts.)"
+    )
+    low = out.lower()
+    assert "rewritten" not in low
+    assert "same facts" not in low
+    assert "(note:" not in low
+
+
+def test_passive_question_removed_when_next_step_exists(monkeypatch, tmp_path):
+    _set_store_path(monkeypatch, tmp_path)
+    out = render_operator_response(
+        user_input="continue",
+        base_text="What would you like to start working on?",
+        operator_state={},
+        local_execution={"success": True, "inspected_file": "ai/runtime/agent_loop.py", "analysis": {"responsibility": "agent loop"}},
+        next_step="inspect ai/runtime/response_momentum_policy.py",
+        llm_generate=None,
+    )
+    low = out.lower()
+    assert "what would you like to start working on" not in low
+    assert "next best move:" in low

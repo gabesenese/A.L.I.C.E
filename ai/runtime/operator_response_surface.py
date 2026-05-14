@@ -9,6 +9,46 @@ from ai.runtime.learned_response_examples import (
     record_learned_response_example,
 )
 
+_META_ARTIFACT_PATTERNS = (
+    r"\(note:\s*i['’]?ve rewritten the response[^)]*\)",
+    r"note:\s*i['’]?ve rewritten[^.\n]*\.?",
+    r"i['’]?ve rewritten the response to sound[^.\n]*\.?",
+    r"while keeping the same facts[^.\n]*\.?",
+    r"here is a rewritten version[:\s]*",
+    r"rewritten:\s*",
+    r"sure,\s*here['’]?s a more natural version[:\s]*",
+)
+_PASSIVE_OPERATOR_LINES = (
+    "what would you like to start working on",
+    "what would you like to work on",
+    "what should we work on",
+    "where should we start",
+    "ready when you are",
+    "how can i help",
+    "let me know",
+)
+
+
+def strip_meta_response_artifacts(text: str) -> str:
+    cleaned = str(text or "")
+    for pattern in _META_ARTIFACT_PATTERNS:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _suppress_passive_operator_chatter(text: str) -> str:
+    out_lines: list[str] = []
+    for line in re.split(r"\n+", str(text or "")):
+        line_clean = str(line or "").strip()
+        if not line_clean:
+            continue
+        low = line_clean.lower()
+        if any(marker in low for marker in _PASSIVE_OPERATOR_LINES):
+            continue
+        out_lines.append(line_clean)
+    return "\n".join(out_lines).strip()
+
 
 def detect_context_signal(user_input: str, perception_frame: Dict[str, Any] | None = None) -> Dict[str, Any]:
     text = str(user_input or "").strip().lower()
@@ -285,6 +325,27 @@ def _extract_next_move(next_step: str, operator_state: Dict[str, Any]) -> str:
     return _normalize_sentence(f"Next best move: {raw}")
 
 
+def render_local_execution_error_response(
+    *,
+    user_input: str,
+    base_text: str,
+    operator_state: Dict[str, Any],
+    local_execution: Dict[str, Any],
+    next_step: str,
+) -> str:
+    _ = user_input
+    _ = base_text
+    _ = operator_state
+    parts: list[str] = ["I couldn't verify the local step."]
+    error = str(local_execution.get("error") or "").strip()
+    if error:
+        parts.append(f"Blocker: {error}")
+    next_move = _extract_next_move(next_step, dict(operator_state or {}))
+    if next_move:
+        parts.append(next_move)
+    return "\n\n".join(parts).strip()
+
+
 def render_operator_response(
     *,
     user_input: str,
@@ -296,6 +357,7 @@ def render_operator_response(
     perception_frame: Dict[str, Any] | None = None,
 ) -> str:
     parts: list[str] = []
+    base_text_clean = _suppress_passive_operator_chatter(strip_meta_response_artifacts(base_text))
     context_signal = detect_context_signal(user_input, dict(perception_frame or {}))
     if bool(context_signal.get("has_context")):
         cleaned_ack, _reasons = _generate_context_ack_with_retry(
@@ -351,8 +413,8 @@ def render_operator_response(
                 )
             else:
                 parts.append(f"Finding: primary responsibility is {responsibility}.")
-    elif str(base_text or "").strip() and not inspected:
-        cleaned = re.sub(r"\s+", " ", str(base_text)).strip()
+    elif str(base_text_clean or "").strip() and not inspected:
+        cleaned = re.sub(r"\s+", " ", str(base_text_clean)).strip()
         if cleaned:
             parts.append(cleaned)
 

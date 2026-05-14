@@ -3,7 +3,11 @@ from __future__ import annotations
 import re
 from typing import Any, Dict
 from ai.runtime.turn_mode_policy import classify_turn_mode
-from ai.runtime.operator_response_surface import render_operator_response
+from ai.runtime.operator_response_surface import (
+    render_local_execution_error_response,
+    render_operator_response,
+    strip_meta_response_artifacts,
+)
 
 
 def _has_local_evidence_for_inspection(local: Dict[str, Any]) -> bool:
@@ -47,7 +51,7 @@ def apply_response_momentum(
     perception_frame: Dict[str, Any] | None = None,
     companion_state: Dict[str, Any] | None = None,
 ) -> str:
-    text = str(response_text or "").strip()
+    text = strip_meta_response_artifacts(str(response_text or "").strip())
     low = text.lower()
     if not text:
         return text
@@ -109,15 +113,25 @@ def apply_response_momentum(
         )
         and local
     ):
-        rendered = render_operator_response(
-            user_input=user_input,
-            base_text=text,
-            operator_state=state,
-            local_execution=local,
-            next_step=str(next_step or ""),
-            llm_generate=llm_generate,
-            perception_frame=dict(perception_frame or {}),
-        )
+        local_failed = (local.get("success") is False) or bool(str(local.get("error") or "").strip())
+        if local_failed:
+            rendered = render_local_execution_error_response(
+                user_input=user_input,
+                base_text=text,
+                operator_state=state,
+                local_execution=local,
+                next_step=str(next_step or ""),
+            )
+        else:
+            rendered = render_operator_response(
+                user_input=user_input,
+                base_text=text,
+                operator_state=state,
+                local_execution=local,
+                next_step=str(next_step or ""),
+                llm_generate=llm_generate,
+                perception_frame=dict(perception_frame or {}),
+            )
         if rendered:
             return _enforce_claim_evidence(rendered, local)
 
