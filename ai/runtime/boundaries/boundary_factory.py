@@ -2795,10 +2795,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         claim_verification = verify_response_claims(
             response_text,
+            route=str(req.decision.route or ""),
+            intent=str(req.decision.intent or ""),
             action_result=dict(req.tool_result.data or {}) if req.tool_result else {},
-            memory_result=dict(req.tool_result.data or {}) if req.tool_result and str(req.decision.intent or "").startswith("memory:") else {},
+            memory_result=dict(req.tool_result.data or {})
+            if req.tool_result and str(req.decision.intent or "").startswith("memory:")
+            else {},
+            deletion_result=dict((req.tool_result.data or {}).get("deletion_result") or {})
+            if req.tool_result
+            else {},
             local_execution=dict((req.tool_result.diagnostics or {}).get("local_execution") or {}) if req.tool_result else {},
-            perception_frame=dict((req.decision.metadata or {}).get("perception_frame") or {}),
+            operator_state=dict((req.decision.metadata or {}).get("operator_state") or {}),
+            project_memory={},
+            background_events=list((req.tool_result.data or {}).get("background_events") or [])
+            if req.tool_result
+            else [],
         )
         if not claim_verification.valid:
             return VerifierResult(

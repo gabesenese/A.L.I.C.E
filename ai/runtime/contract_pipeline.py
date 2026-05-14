@@ -26,6 +26,7 @@ from ai.runtime.pipeline.metadata_builder import PipelineMetadataBuilder
 from ai.runtime.pipeline.routing_failure_logger import RoutingFailureLogger
 from ai.runtime.greeting_surface_policy import render_grounded_greeting
 from ai.runtime.response_momentum_policy import apply_response_momentum
+from ai.runtime.claim_verifier import verify_response_claims
 from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
 from ai.memory.project_memory import load_project_state, update_project_state
@@ -1139,6 +1140,39 @@ class ContractPipeline:
             perception_frame=perception_frame,
             companion_state=companion_profile_state.to_dict(),
         )
+        tool_data_payload = dict((tool_result.data or {}) if tool_result else {})
+        deletion_payload = dict(
+            tool_data_payload.get("deletion_result")
+            or tool_data_payload.get("memory_delete")
+            or {}
+        )
+        memory_claim_payload = dict(
+            tool_data_payload.get("memory_result")
+            or (
+                tool_data_payload
+                if str(decision.intent or "").startswith("memory:")
+                else {}
+            )
+            or {}
+        )
+        background_events = list(
+            tool_data_payload.get("background_events")
+            or (companion_profile_state.to_dict().get("background_events") or [])
+            or []
+        )
+        claim_verification = verify_response_claims(
+            response_text,
+            route=str(decision.route or ""),
+            intent=str(decision.intent or ""),
+            local_execution=local_exec_payload,
+            action_result=tool_data_payload,
+            memory_result=memory_claim_payload,
+            deletion_result=deletion_payload,
+            operator_state=operator_state_payload,
+            project_memory=load_project_state(str(user_id or "default")).to_dict(),
+            background_events=background_events,
+        )
+        response_text = str(claim_verification.verified_text or "").strip()
         agent_loop_payload = build_agent_loop_state(
             user_input=user_input,
             route=str(decision.route or ""),
@@ -1353,6 +1387,11 @@ class ContractPipeline:
                 },
                 "latency_ms": elapsed_ms,
                 "stages": stages,
+                "claim_verifier_applied": True,
+                "claim_verifier_valid": bool(claim_verification.valid),
+                "unsupported_claims": list(claim_verification.unsupported_claims),
+                "claim_verifier_reasons": list(claim_verification.reasons),
+                "claim_verifier_evidence_used": dict(claim_verification.evidence_used),
             }
         )
         if "continuity_claims" in (respond_metadata or {}):
