@@ -13,6 +13,8 @@ class ActionRequest:
     params: Dict[str, Any] = field(default_factory=dict)
     risk_level: str = "safe_read"
     requires_approval: bool = False
+    approved: bool = False
+    approval_id: str = ""
     source: str = ""
     expected_result: str = ""
 
@@ -41,12 +43,20 @@ class ActionBus:
     def register(self, name: str, executor: Callable[[ActionRequest], ActionResult]) -> None:
         self._executors[str(name or "").strip()] = executor
 
+    @staticmethod
+    def _action_requires_approval(action_request: ActionRequest) -> bool:
+        risk = str(action_request.risk_level or "safe_read").strip().lower()
+        if bool(action_request.requires_approval):
+            return True
+        return risk in {"safe_write", "destructive", "external"}
+
     def can_execute(self, action_request: ActionRequest) -> bool:
-        if action_request.requires_approval:
+        action_name = str(action_request.name or "").strip()
+        if action_name not in self._executors:
             return False
-        if action_request.risk_level in {"destructive", "external"}:
-            return False
-        return action_request.name in self._executors
+        if self._action_requires_approval(action_request):
+            return bool(action_request.approved)
+        return True
 
     def execute(self, action_request: ActionRequest) -> ActionResult:
         action_name = str(action_request.name or "").strip()
@@ -63,23 +73,38 @@ class ActionBus:
                 requires_approval=action_request.requires_approval,
             )
         if not self.can_execute(action_request):
+            approval_required = self._action_requires_approval(action_request)
             return ActionResult(
                 action_id=action_request.action_id,
                 name=action_name,
                 target=action_request.target,
                 success=False,
                 error="approval_required",
-                evidence={"source": "action_bus", "can_execute": False},
+                evidence={
+                    "source": "action_bus",
+                    "approval_required": bool(approval_required),
+                    "approved": bool(action_request.approved),
+                    "risk_level": str(action_request.risk_level or "safe_read"),
+                },
                 verified=False,
                 risk_level=action_request.risk_level,
-                requires_approval=action_request.requires_approval,
+                requires_approval=bool(approval_required),
             )
         out = self._executors[action_name](action_request)
         out.evidence = dict(out.evidence or {})
         out.evidence.setdefault("action", action_name)
         out.evidence.setdefault("source", "action_bus")
+        out.evidence.setdefault(
+            "approval_required", bool(self._action_requires_approval(action_request))
+        )
+        out.evidence.setdefault("approved", bool(action_request.approved))
+        out.evidence.setdefault(
+            "risk_level", str(action_request.risk_level or "safe_read")
+        )
         out.risk_level = str(out.risk_level or action_request.risk_level or "safe_read")
-        out.requires_approval = bool(out.requires_approval or action_request.requires_approval)
+        out.requires_approval = bool(
+            out.requires_approval or self._action_requires_approval(action_request)
+        )
         out.verified = bool(out.success and out.evidence)
         return out
 
