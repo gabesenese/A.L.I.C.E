@@ -83,6 +83,14 @@ Broader integration/e2e suites:
 python -m pytest -q tests/integration tests/e2e
 ```
 
+Visible behavior acceptance tests:
+
+```bash
+pytest tests/acceptance/test_visible_terminal_behavior.py -q
+```
+
+These tests protect Alice's terminal-facing behavior from regressions.
+
 Small startup smoke test:
 
 ```bash
