@@ -82,6 +82,7 @@ def render_grounded_greeting(
     llm_candidate = ""
     llm_reasons: list[str] = ["llm_unavailable"]
     llm_attempt = -1
+    llm_attempt_count = 0
     allow_focus_reference = bool(continuation_requested and has_active_focus)
     resolved_local_time = local_time
     if resolved_local_time is None and str(timezone_name or "").strip():
@@ -96,7 +97,13 @@ def render_grounded_greeting(
         else ""
     )
     if llm_generate:
-        llm_candidate, llm_reasons, continuity_metadata, llm_attempt = _try_constrained_llm_greeting(
+        (
+            llm_candidate,
+            llm_reasons,
+            continuity_metadata,
+            llm_attempt,
+            llm_attempt_count,
+        ) = _try_constrained_llm_greeting(
             llm_generate=llm_generate,
             user_name=user_name,
             allow_focus_reference=allow_focus_reference,
@@ -117,7 +124,7 @@ def render_grounded_greeting(
         reason = (
             "llm_candidate_accepted"
             if llm_attempt == 0
-            else "llm_candidate_accepted_after_retry"
+            else "llm_retry_candidate_accepted"
         )
         _record_validated_greeting(
             greeting_text=rendered,
@@ -174,6 +181,7 @@ def render_grounded_greeting(
             "greeting_memory_policy": "active_state_only",
             "broad_memory_suppressed": True,
             "greeting_policy_version": "greeting_v1_final",
+            "llm_attempt_count": int(llm_attempt_count or 0),
         },
         llm_candidate_rejected=llm_candidate_rejected,
     )
@@ -303,7 +311,7 @@ def _try_constrained_llm_greeting(
     user_input: str = "",
 ) -> tuple[str, list[str], dict[str, Any], int]:
     if not llm_generate:
-        return ("", ["llm_unavailable"], {}, -1)
+        return ("", ["llm_unavailable"], {"llm_attempt_count": 0}, -1, 0)
     recent_items = [str(item).strip() for item in recent_greeting_texts if str(item or "").strip()]
     if last_greeting_text.strip():
         recent_items.append(last_greeting_text.strip())
@@ -321,17 +329,27 @@ def _try_constrained_llm_greeting(
     )
 
     def _build_initial_prompt() -> str:
+        time_line_extra = ""
+        if time_period:
+            time_line_extra = (
+                "You may lightly reflect the time of day only if it matches the provided time period.\n"
+            )
         return (
             f"You are Alice speaking to {user_name or 'Gabriel'}.\n\n"
-            "Write a natural greeting in 1-3 short sentences.\n"
+            "He just greeted you.\n"
+            "Write a natural conversational greeting in your own words.\n"
             "Use only the current user message and current time if provided.\n"
-            "Do not mention previous conversations unless explicitly grounded.\n"
+            "Do not mention previous conversations, memory, history, or things he talked about before.\n"
             "Do not mention projects, files, code, tools, objectives, or next steps for a plain greeting.\n"
             "Do not ask how you can help.\n"
             "Do not sound like customer service.\n"
+            "Do not be overly formal.\n"
             "Do not use task-intake language.\n"
             "Do not mention memory.\n"
+            "Use 2-3 short sentences.\n"
+            "It should feel like a familiar AI companion, not a support bot.\n"
             "Return only the greeting.\n\n"
+            f"{time_line_extra}"
             f"{time_line}\n"
             f"allow_focus_reference={allow_focus_reference}; current_focus={current_focus if allow_focus_reference else ''}\n"
             f"repeated_greeting={repeated_greeting}; greeting_count={greeting_count}\n\n"
@@ -357,10 +375,35 @@ def _try_constrained_llm_greeting(
             "Do not sound like customer service.\n"
             "Do not use task-intake language.\n"
             "Do not mention memory.\n"
-            "Keep it 1-3 short sentences.\n"
+            "Keep it 2-3 short sentences.\n"
             "Return only the greeting.\n\n"
             f"{time_line}\n"
             f"allow_focus_reference={allow_focus_reference}; current_focus={current_focus if allow_focus_reference else ''}\n\n"
+            "Current user message:\n"
+            f"{user_input}\n\n"
+            "Recent greetings to avoid:\n"
+            f"{recent_block}\n\n"
+            "Accepted style references (do not copy):\n"
+            f"{style_examples}\n"
+        )
+
+    def _build_strong_retry_prompt(retry_reasons: list[str]) -> str:
+        reasons_line = ", ".join(sorted(set(retry_reasons or ["invalid_output"])))
+        return (
+            f"You are Alice speaking to {user_name or 'Gabriel'}.\n\n"
+            "The previous greeting was rejected for:\n"
+            f"{reasons_line}\n\n"
+            "Your previous greeting mentioned a past topic or memory that is not grounded.\n"
+            "Do not mention previous conversations, memory, history, or last time.\n"
+            "Generate a fresh greeting based only on the current message.\n"
+            "Avoid unsupported continuity.\n"
+            "Stay warm and conversational.\n"
+            "Do not mention projects, files, code, tools, objectives, or next steps.\n"
+            "Do not ask how you can help.\n"
+            "Do not sound like customer service.\n"
+            "Use 2-3 short sentences.\n"
+            "Return only the greeting.\n\n"
+            f"{time_line}\n"
             "Current user message:\n"
             f"{user_input}\n\n"
             "Recent greetings to avoid:\n"
@@ -379,11 +422,17 @@ def _try_constrained_llm_greeting(
     continuity_meta: dict[str, Any] = {}
     max_attempts = 3
     for attempt in range(max_attempts):
-        prompt = _build_initial_prompt() if attempt == 0 else _build_retry_prompt(last_reasons)
+        if attempt == 0:
+            prompt = _build_initial_prompt()
+        elif attempt == 1:
+            prompt = _build_retry_prompt(last_reasons)
+        else:
+            prompt = _build_strong_retry_prompt(last_reasons)
         try:
             candidate = _generate(prompt)
         except Exception:
-            return ("", ["llm_error"], {}, -1)
+            continuity_meta["llm_attempt_count"] = attempt + 1
+            return ("", ["llm_error"], continuity_meta, -1, attempt + 1)
         if not candidate:
             last_reasons = ["empty_candidate"]
             continue
@@ -413,10 +462,18 @@ def _try_constrained_llm_greeting(
         if _looks_assistant_like_task_prompt(validation.cleaned_text):
             last_reasons = ["assistant_service_language"]
             continue
+        continuity_meta["llm_attempt_count"] = attempt + 1
         if attempt > 0:
             continuity_meta["repetition_retry"] = True
-        return (validation.cleaned_text, [], continuity_meta, attempt)
-    return ("", last_reasons or ["llm_candidates_rejected"], continuity_meta, -1)
+        return (validation.cleaned_text, [], continuity_meta, attempt, attempt + 1)
+    continuity_meta["llm_attempt_count"] = max_attempts
+    return (
+        "",
+        last_reasons or ["llm_candidates_rejected"],
+        continuity_meta,
+        -1,
+        max_attempts,
+    )
 
 
 def _greeting_style_examples_block(*, repeated_greeting: bool, user_input: str) -> str:
@@ -442,6 +499,7 @@ def _record_validated_greeting(*, greeting_text: str, repeated_greeting: bool, u
         return
     try:
         context_signals = ["repeated_greeting"] if repeated_greeting else ["pure_greeting"]
+        summary = "repeated greeting" if repeated_greeting else "plain greeting"
         record_learned_response_example(
             LearnedResponseExample.create(
                 surface="greeting",
@@ -450,7 +508,7 @@ def _record_validated_greeting(*, greeting_text: str, repeated_greeting: bool, u
                 energy_signal="unknown",
                 mood_signal="neutral",
                 topic="",
-                user_context_summary=str(user_input or "").strip(),
+                user_context_summary=summary,
             )
         )
     except Exception:
@@ -552,6 +610,7 @@ def validate_greeting_candidate(
                 "hows everything",
             )
         )
+        has_checkin_question = has_checkin and "?" in str(candidate or "")
         has_warm_presence = any(
             phrase in low
             for phrase in (
@@ -562,13 +621,29 @@ def validate_greeting_candidate(
                 "i am glad you're here",
                 "i'm glad you are here",
                 "nice to hear from you",
+                "i'm here",
+                "im here",
+                "i am here",
             )
         )
+        words = [w for w in str(candidate or "").split() if str(w).strip()]
+        word_count = len(words)
         sentence_count = str(candidate or "").count(".") + str(candidate or "").count("?") + str(candidate or "").count("!")
-        if sentence_count < 2 or sentence_count > 3:
-            reasons.append("generic_empty_greeting")
-        if not (has_checkin or has_warm_presence):
-            reasons.append("generic_empty_greeting")
+        normalized_low = _normalize_greeting_text(candidate)
+        underspecified_exact = normalized_low in {
+            "hey",
+            "hi",
+            "hello",
+            "hey gabriel",
+            "hi gabriel",
+            "hello gabriel",
+        }
+        has_presence_signal = has_checkin_question or has_warm_presence
+        has_min_structure = sentence_count >= 2 or (word_count >= 7 and has_checkin_question)
+        if sentence_count > 3:
+            reasons.append("too_many_sentences")
+        if underspecified_exact or not has_presence_signal or not has_min_structure:
+            reasons.append("underspecified_greeting")
 
     if reasons:
         return GreetingValidationResult(False, sorted(set(reasons)), "")
