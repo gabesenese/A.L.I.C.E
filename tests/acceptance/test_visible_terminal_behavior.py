@@ -1,11 +1,17 @@
 import re
+from pathlib import Path
 
 from ai.runtime.alice_contract_factory import build_runtime_boundaries
 from ai.runtime.contract_pipeline import ContractPipeline
 from tests.integration.test_contract_pipeline import _FakeAlice, _NlpResult
 
 
-def _build_pipeline(*, force_greeting_intent: bool = False, llm_text: str | None = None) -> ContractPipeline:
+def _build_pipeline(
+    *,
+    force_greeting_intent: bool = False,
+    llm_text: str | None = None,
+    llm_sequence: list[str] | None = None,
+) -> ContractPipeline:
     alice = _FakeAlice()
     if force_greeting_intent:
         original_process = alice.nlp.process
@@ -17,7 +23,17 @@ def _build_pipeline(*, force_greeting_intent: bool = False, llm_text: str | None
             return original_process(text)
 
         alice.nlp.process = _patched_process
-    if llm_text is not None:
+    if llm_sequence is not None:
+        responses = iter(list(llm_sequence))
+
+        def _seq_chat(*args, **kwargs):
+            try:
+                return next(responses)
+            except StopIteration:
+                return ""
+
+        alice.llm.chat = _seq_chat
+    elif llm_text is not None:
         alice.llm.chat = lambda *args, **kwargs: llm_text
     return ContractPipeline(build_runtime_boundaries(alice))
 
@@ -53,10 +69,17 @@ def _assert_metadata_present(result, *, allow_greeting_skip: bool = True) -> Non
         assert isinstance(action_result.get("success"), bool)
         assert isinstance(action_result.get("verified"), bool)
         assert str(action_result.get("risk_level") or "").strip()
+    response_generation = dict(result.metadata.get("response_generation") or {})
+    assert isinstance(response_generation.get("model_used"), bool)
+    assert str(response_generation.get("surface") or "").strip()
+    assert isinstance(response_generation.get("fallback_used"), bool)
 
 
 def test_visible_greeting_companion_like_not_task_intake():
-    pipeline = _build_pipeline(force_greeting_intent=True)
+    pipeline = _build_pipeline(
+        force_greeting_intent=True,
+        llm_text="Hey Gabriel. How's it going?",
+    )
     result = pipeline.run_turn(user_input="hi", user_id="u1", turn_number=1)
     _assert_metadata_present(result)
     assert result.metadata.get("intent") == "greeting"
@@ -183,3 +206,91 @@ def test_visible_learned_ack_does_not_block_operator_evidence():
     assert "cold day. good night to work on the core." not in low
     assert "makes sense. good time for a focused pass." not in low
     assert_no_visible_surface_regressions(result.response_text)
+
+
+def test_greeting_uses_model_not_fallback():
+    pipeline = _build_pipeline(
+        force_greeting_intent=True,
+        llm_text="Hey Gabriel. How's it going?",
+    )
+    result = pipeline.run_turn(user_input="hi", user_id="u_rg1", turn_number=1)
+    _assert_metadata_present(result)
+    assert "hey gabriel. how's it going?" in str(result.response_text or "").lower()
+    rg = dict(result.metadata.get("response_generation") or {})
+    assert rg.get("model_used") is True
+    assert rg.get("fallback_used") is False
+    greeting_meta = dict(result.metadata.get("greeting_metadata") or {})
+    assert str(greeting_meta.get("generated_by") or "") != "fallback"
+
+
+def test_invalid_greeting_retries_model_not_fallback():
+    pipeline = _build_pipeline(
+        force_greeting_intent=True,
+        llm_sequence=[
+            "Hi. What should we work on?",
+            "Hey Gabriel. How's it going?",
+        ],
+    )
+    result = pipeline.run_turn(user_input="hi", user_id="u_rg2", turn_number=1)
+    _assert_metadata_present(result)
+    assert "what should we work on" not in str(result.response_text or "").lower()
+    assert "hey gabriel. how's it going?" in str(result.response_text or "").lower()
+    rg = dict(result.metadata.get("response_generation") or {})
+    assert rg.get("fallback_used") is False
+    greeting_meta = dict(result.metadata.get("greeting_metadata") or {})
+    assert str(greeting_meta.get("generated_by") or "") in {"llm_retry", "llm"}
+
+
+def test_invalid_greeting_all_attempts_fail_without_canned_fallback():
+    pipeline = _build_pipeline(
+        force_greeting_intent=True,
+        llm_text="How can I help you today?",
+    )
+    result = pipeline.run_turn(user_input="hi", user_id="u_rg3", turn_number=1)
+    _assert_metadata_present(result)
+    low = str(result.response_text or "").lower()
+    assert "good to see you" not in low
+    assert "hi gabriel" not in low
+    greeting_meta = dict(result.metadata.get("greeting_metadata") or {})
+    assert str(greeting_meta.get("generated_by") or "") == "none"
+    assert str(result.response_text or "").strip() == ""
+    rg = dict(result.metadata.get("response_generation") or {})
+    assert rg.get("fallback_used") is False
+
+
+def test_operator_acknowledgement_uses_model():
+    pipeline = _build_pipeline(
+        llm_text="Fresh start. We'll keep it focused.",
+    )
+    result = pipeline.run_turn(
+        user_input="just woke up from a nap, now read ai/runtime/agent_loop.py",
+        user_id="u_rg4",
+        turn_number=1,
+    )
+    _assert_metadata_present(result)
+    assert "fresh start. we'll keep it focused." in str(result.response_text or "").lower()
+    rg = dict(result.metadata.get("response_generation") or {})
+    assert rg.get("model_used") is True
+    assert rg.get("fallback_used") is False
+
+
+def test_no_production_hardcoded_greeting_fallback_returns():
+    repo = Path(__file__).resolve().parents[2]
+    production_roots = [repo / "ai" / "runtime"]
+    forbidden_tokens = (
+        "_fallback_greeting",
+        "generated_by=\"fallback\"",
+        "Hey Gabriel. Good to see you. How are you?",
+        "Hi Gabriel.",
+        "Hello Gabriel.",
+    )
+    text_chunks: list[str] = []
+    for root in production_roots:
+        for path in root.rglob("*.py"):
+            try:
+                text_chunks.append(path.read_text(encoding="utf-8", errors="ignore"))
+            except Exception:
+                continue
+    corpus = "\n".join(text_chunks)
+    for token in forbidden_tokens:
+        assert token not in corpus

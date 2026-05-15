@@ -247,6 +247,90 @@ class ContractPipeline:
             "diagnostics": dict(verification.diagnostics or {}),
         }
 
+    @staticmethod
+    def _resolve_response_surface(
+        *,
+        decision_intent: str,
+        decision_route: str,
+        response_type: str,
+    ) -> str:
+        intent = str(decision_intent or "").strip().lower()
+        route = str(decision_route or "").strip().lower()
+        rtype = str(response_type or "").strip().lower()
+        if intent.endswith("greeting") or intent == "greeting" or rtype == "greeting_grounded":
+            return "greeting"
+        if "educational" in intent or "educational" in rtype or "research_explain" in intent:
+            return "educational"
+        if "approval" in rtype:
+            return "approval"
+        if rtype in {"local_execution_error", "weather_tool_fallback", "fallback"}:
+            return "error"
+        if intent.startswith("operator:") or intent.startswith("code:") or route == "local":
+            return "operator"
+        if route in {"tool", "plugin"} or rtype in {"tool_response", "local_code_request"}:
+            return "tool_result"
+        if intent.startswith("conversation:") or route in {"llm", "conversation"}:
+            return "casual"
+        return "error"
+
+    @classmethod
+    def _build_response_generation_metadata(
+        cls,
+        *,
+        decision_intent: str,
+        decision_route: str,
+        response_type: str,
+        generated_by: str,
+        respond_metadata: Dict[str, Any],
+        response_generation_details: Dict[str, Any],
+        llm_generate_fn: Any,
+        llm_model_name: str,
+        claim_verifier_applied: bool,
+    ) -> Dict[str, Any]:
+        surface = cls._resolve_response_surface(
+            decision_intent=decision_intent,
+            decision_route=decision_route,
+            response_type=response_type,
+        )
+        generated = str(generated_by or "").strip().lower()
+        operator_ack = dict(response_generation_details.get("operator_ack") or {})
+        model_used = False
+        if surface == "greeting":
+            model_used = generated in {"llm", "llm_retry"}
+        elif str(response_type or "").strip().lower() in {
+            "llm_response",
+            "educational_explain",
+            "greeting_grounded",
+        }:
+            model_used = True
+        elif surface == "operator":
+            model_used = bool(operator_ack.get("model_used"))
+        elif surface == "casual":
+            model_used = str(response_type or "").strip().lower() == "llm_response"
+
+        validation_applied = bool(
+            surface == "greeting"
+            or bool(operator_ack.get("validation_applied"))
+            or bool((respond_metadata or {}).get("validation_passed") is not None)
+        )
+        fallback_used = bool(
+            str(response_type or "").strip().lower() in {"fallback", "code_request_fallback"}
+            or bool((respond_metadata or {}).get("fallback"))
+        )
+        if surface in {"greeting", "casual", "educational", "operator"}:
+            fallback_used = False
+        model_name = str(llm_model_name or "").strip()
+        if not model_name and llm_generate_fn:
+            model_name = "alice-ollama"
+        return {
+            "model_used": bool(model_used),
+            "model_name": model_name,
+            "surface": surface,
+            "validation_applied": bool(validation_applied),
+            "claim_verifier_applied": bool(claim_verifier_applied),
+            "fallback_used": bool(fallback_used),
+        }
+
     def _build_pre_execution_state_machine(
         self,
         *,
@@ -923,6 +1007,9 @@ class ContractPipeline:
                     operator_state=op_state,
                     session_state=greeting_session,
                     user_input=user_input,
+                    llm_generate=getattr(
+                        self.boundaries.response, "llm_generate_fn", None
+                    ),
                 )
                 self._greeting_session_state_by_user[str(user_id)] = dict(
                     greeting.session_state
@@ -1128,6 +1215,7 @@ class ContractPipeline:
             operator_state_payload["suggested_next_files"] = list(next_step.suggested_next_files or [])
         if str(next_step.next_recommended_action or "").strip():
             operator_state_payload["next_recommended_action"] = str(next_step.next_recommended_action or "")
+        response_generation_details: Dict[str, Any] = {}
         response_text = apply_response_momentum(
             user_input=user_input,
             response_text=response_text,
@@ -1140,6 +1228,7 @@ class ContractPipeline:
             llm_generate=getattr(self.boundaries.response, "llm_generate_fn", None),
             perception_frame=perception_frame,
             companion_state=companion_profile_state.to_dict(),
+            response_generation_metadata=response_generation_details,
         )
         tool_data_payload = dict((tool_result.data or {}) if tool_result else {})
         standardized_action_result = dict(tool_data_payload.get("action_result") or {})
@@ -1433,6 +1522,17 @@ class ContractPipeline:
         }
         if any(greeting_policy.values()):
             metadata_payload["greeting_metadata"] = greeting_policy
+        metadata_payload["response_generation"] = self._build_response_generation_metadata(
+            decision_intent=str(decision.intent or ""),
+            decision_route=str(decision.route or ""),
+            response_type=str((respond_metadata or {}).get("type") or "response"),
+            generated_by=str((respond_metadata or {}).get("generated_by") or ""),
+            respond_metadata=dict(respond_metadata or {}),
+            response_generation_details=dict(response_generation_details or {}),
+            llm_generate_fn=getattr(self.boundaries.response, "llm_generate_fn", None),
+            llm_model_name=str(getattr(self.boundaries.response, "llm_model_name", "") or ""),
+            claim_verifier_applied=True,
+        )
         return PipelineResult(
             handled=bool(response_text),
             response_text=response_text,

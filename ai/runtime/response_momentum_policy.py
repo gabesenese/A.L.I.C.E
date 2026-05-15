@@ -50,6 +50,7 @@ def apply_response_momentum(
     llm_generate=None,
     perception_frame: Dict[str, Any] | None = None,
     companion_state: Dict[str, Any] | None = None,
+    response_generation_metadata: Dict[str, Any] | None = None,
 ) -> str:
     text = strip_meta_response_artifacts(str(response_text or "").strip())
     low = text.lower()
@@ -82,21 +83,7 @@ def apply_response_momentum(
         and bool(local)
     )
 
-    # Ban unsupported background-work claims in casual/greeting turns.
-    background_claims = (
-        "processing some interesting stuff in the background",
-        "working behind the scenes",
-        "been monitoring",
-        "been checking",
-        "i was analyzing",
-        "i inspected",
-        "i reviewed",
-    )
     if turn_mode in {"casual_companion", "greeting"}:
-        low_text = text.lower()
-        if any(token in low_text for token in background_claims):
-            text = "I'm good.\n\nStill focused."
-            low = text.lower()
         # Never inject project momentum into casual/greeting.
         return text
 
@@ -131,6 +118,7 @@ def apply_response_momentum(
                 next_step=str(next_step or ""),
                 llm_generate=llm_generate,
                 perception_frame=dict(perception_frame or {}),
+                response_metadata=response_generation_metadata,
             )
         if rendered:
             return _enforce_claim_evidence(rendered, local)

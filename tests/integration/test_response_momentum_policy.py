@@ -37,7 +37,7 @@ def test_casual_how_are_you_does_not_get_objective_or_next_step_injection():
     assert "current focus" not in low
 
 
-def test_background_claim_is_rewritten_for_casual_turn_without_evidence():
+def test_background_claim_is_not_rewritten_by_momentum_policy_for_casual_turn():
     out = apply_response_momentum(
         user_input="how are you?",
         response_text="Been processing some interesting stuff in the background.",
@@ -49,8 +49,7 @@ def test_background_claim_is_rewritten_for_casual_turn_without_evidence():
         next_step="",
     )
     low = out.lower()
-    assert "processing some interesting stuff in the background" not in low
-    assert "i'm good" in low
+    assert "processing some interesting stuff in the background" in low
 
 
 def test_operator_continue_local_turn_uses_compact_evidence_surface():

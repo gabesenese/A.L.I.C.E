@@ -241,18 +241,40 @@ def _generate_context_ack_with_retry(
     context_signal: Dict[str, Any],
     user_input: str,
     llm_generate=None,
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], Dict[str, Any]]:
+    attempt_count = 0
     first = generate_context_acknowledgement(
         context_signal,
         user_input=user_input,
         llm_generate=llm_generate,
     )
+    attempt_count += 1 if llm_generate else 0
     first_clean = str(first or "").strip()
     valid, reasons = validate_context_ack(first_clean, context_signal)
     if first_clean and valid:
-        return (first_clean, [])
+        return (
+            first_clean,
+            [],
+            {
+                "attempt_count": attempt_count,
+                "retry_used": False,
+                "model_used": True,
+                "validation_applied": True,
+                "accepted": True,
+            },
+        )
     if not llm_generate:
-        return ("", reasons)
+        return (
+            "",
+            reasons,
+            {
+                "attempt_count": 0,
+                "retry_used": False,
+                "model_used": False,
+                "validation_applied": True,
+                "accepted": False,
+            },
+        )
 
     style_examples = _examples_style_block(list(context_signal.get("signals") or []))
     stricter_prompt = (
@@ -286,11 +308,42 @@ def _generate_context_ack_with_retry(
         except TypeError:
             second = str(llm_generate(stricter_prompt) or "").strip()
     except Exception:
-        return ("", reasons)
+        return (
+            "",
+            reasons,
+            {
+                "attempt_count": attempt_count + 1,
+                "retry_used": True,
+                "model_used": True,
+                "validation_applied": True,
+                "accepted": False,
+            },
+        )
+    attempt_count += 1
     valid_second, reasons_second = validate_context_ack(second, context_signal)
     if second and valid_second:
-        return (second, [])
-    return ("", reasons_second or reasons)
+        return (
+            second,
+            [],
+            {
+                "attempt_count": attempt_count,
+                "retry_used": True,
+                "model_used": True,
+                "validation_applied": True,
+                "accepted": True,
+            },
+        )
+    return (
+        "",
+        reasons_second or reasons,
+        {
+            "attempt_count": attempt_count,
+            "retry_used": True,
+            "model_used": True,
+            "validation_applied": True,
+            "accepted": False,
+        },
+    )
 
 
 def _extract_next_move(next_step: str, operator_state: Dict[str, Any]) -> str:
@@ -355,16 +408,35 @@ def render_operator_response(
     next_step: str,
     llm_generate=None,
     perception_frame: Dict[str, Any] | None = None,
+    response_metadata: Dict[str, Any] | None = None,
 ) -> str:
     parts: list[str] = []
     base_text_clean = _suppress_passive_operator_chatter(strip_meta_response_artifacts(base_text))
     context_signal = detect_context_signal(user_input, dict(perception_frame or {}))
+    if response_metadata is not None:
+        response_metadata["operator_ack"] = {
+            "context_detected": bool(context_signal.get("has_context")),
+            "model_used": False,
+            "validation_applied": False,
+            "retry_used": False,
+            "accepted": False,
+            "attempt_count": 0,
+        }
     if bool(context_signal.get("has_context")):
-        cleaned_ack, _reasons = _generate_context_ack_with_retry(
+        cleaned_ack, _reasons, ack_meta = _generate_context_ack_with_retry(
             context_signal=context_signal,
             user_input=user_input,
             llm_generate=llm_generate,
         )
+        if response_metadata is not None:
+            response_metadata["operator_ack"] = {
+                "context_detected": True,
+                "model_used": bool(ack_meta.get("model_used")),
+                "validation_applied": bool(ack_meta.get("validation_applied")),
+                "retry_used": bool(ack_meta.get("retry_used")),
+                "accepted": bool(ack_meta.get("accepted")),
+                "attempt_count": int(ack_meta.get("attempt_count") or 0),
+            }
         if cleaned_ack:
             parts.append(cleaned_ack)
             try:

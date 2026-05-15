@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from ai.runtime import learned_response_examples as lre
+from ai.runtime.greeting_surface_policy import render_grounded_greeting
 from ai.runtime.operator_response_surface import detect_context_signal, render_operator_response
 
 
@@ -89,3 +90,16 @@ def test_does_not_store_invalid_output(monkeypatch, tmp_path):
     )
     loaded = lre.load_learned_response_examples(surface="operator_context_ack", limit=20)
     assert loaded == []
+
+
+def test_validated_greeting_is_recorded_for_style_guidance(monkeypatch, tmp_path):
+    _set_store_path(monkeypatch, tmp_path)
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        user_input="hi",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you?",
+    )
+    assert result.generated_by in {"llm", "llm_retry"}
+    loaded = lre.load_learned_response_examples(surface="greeting", limit=20)
+    assert any("good to see you" in ex.response_text.lower() for ex in loaded)
+    assert any("pure_greeting" in list(ex.context_signals or []) for ex in loaded)

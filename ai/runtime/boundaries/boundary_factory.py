@@ -46,7 +46,6 @@ from ai.runtime.perception_frame import build_perception_frame
 from ai.runtime.claim_verifier import verify_response_claims
 from ai.runtime.action_bus import ActionBus, ActionRequest, ActionResult
 from ai.runtime.operator_state import (
-    commit_operator_state_to_project_memory,
     sync_operator_state_with_project_memory,
     update_operator_state,
 )
@@ -2462,40 +2461,52 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "operator:research_explain",
         }:
             topic = str((req.decision.metadata or {}).get("active_learning_topic") or getattr(alice, "_active_learning_topic", "") or "").strip()
-            low_user = str(req.user_input or "").lower()
-            correction_line = ""
-            if "actually" in low_user and "industry" in low_user:
-                correction_line = "Right - you mean the industry, not Alice implementation.\n\n"
-            if topic == "agentic AI industry basics":
-                text = (
-                    f"{correction_line}"
-                    "Agentic AI is the shift from passive chatbots to systems that can plan, use tools, track state, and verify outcomes.\n\n"
-                    "At the system level, the same foundation repeats: memory, goals, tools, and a loop.\n\n"
-                    "The basics:\n"
-                    "1. LLM brain - understanding and reasoning.\n"
-                    "2. Tools - actions like files, notes, code, and calendar.\n"
-                    "3. Memory/state - remembers goals and prior results.\n"
-                    "4. Planner - breaks goals into executable steps.\n"
-                    "5. Verifier - checks claims and action outcomes.\n"
-                    "6. Guardrails - controls risk and approval boundaries.\n\n"
-                    "The industry direction is AI operators: systems that complete workflows, not just answer prompts."
+            educational_text = ""
+            if getattr(alice, "llm", None):
+                prompt = (
+                    "You are Alice.\n"
+                    "Give a clear educational explanation based on the user's message.\n"
+                    "Be concise, factual, and natural.\n"
+                    "Do not claim tool usage or unseen evidence.\n"
+                    "Do not mention memory or previous conversations unless explicitly grounded.\n"
+                    "Do not use customer-service phrasing.\n"
+                    "Return only the explanation.\n\n"
+                    f"Active topic hint: {topic or 'none'}\n"
+                    f"User message:\n{req.user_input}\n"
                 )
-            else:
-                text = (
-                    "Got it. You want to learn the concept first.\n\n"
-                    "Agentic AI means systems that can plan, use tools, remember state, and verify actions instead of only replying like a chatbot.\n\n"
-                    "Core pieces: memory, goals, tools, and a loop.\n\n"
-                    "Memory keeps context. Goals choose what matters next. Tools perform actions. The loop observes results and updates the next move."
+                try:
+                    educational_text = str(
+                        alice.llm.chat(prompt, use_history=True) or ""
+                    ).strip()
+                except Exception:
+                    educational_text = ""
+            if educational_text:
+                return ResponseOutput(
+                    text=_surface_text(
+                        educational_text,
+                        user_input=req.user_input,
+                        intent=req.decision.intent,
+                        route="contract_educational_explain",
+                    ),
+                    confidence=0.9,
+                    metadata={"type": "educational_explain", "generated_by": "llm"},
                 )
             return ResponseOutput(
                 text=_surface_text(
-                    text,
+                    "I couldn't generate a reliable explanation right now. Ask again and I will retry.",
                     user_input=req.user_input,
                     intent=req.decision.intent,
-                    route="contract_educational_explain",
+                    route="contract_educational_generation_error",
                 ),
-                confidence=0.92,
-                metadata={"type": "educational_explain"},
+                confidence=0.3,
+                requires_follow_up=True,
+                follow_up_question=_surface_text(
+                    "Do you want me to retry the explanation now?",
+                    user_input=req.user_input,
+                    intent=req.decision.intent,
+                    route="contract_educational_generation_error",
+                ),
+                metadata={"type": "educational_generation_error", "generated_by": "none"},
             )
 
         if req.decision.intent == "conversation:goal_statement":
@@ -2977,6 +2988,17 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 (lambda prompt=None, **_kwargs: str(alice.llm.chat(str(prompt or ""), use_history=False) or ""))
                 if getattr(alice, "llm", None)
                 else None
+            ),
+            llm_model_name=str(
+                (
+                    getattr(getattr(alice, "llm", None), "config", None)
+                    and getattr(getattr(alice, "llm", None).config, "active_model", "")
+                )
+                or (
+                    getattr(getattr(alice, "llm", None), "config", None)
+                    and getattr(getattr(alice, "llm", None).config, "model", "")
+                )
+                or ""
             ),
         ),
         verifier=CallableVerifierAdapter(verify_fn=_verify),
