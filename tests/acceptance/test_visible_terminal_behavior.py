@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 
+from ai.contracts import VerifierResult
 from ai.runtime.alice_contract_factory import build_runtime_boundaries
 from ai.runtime.contract_pipeline import ContractPipeline
 from tests.integration.test_contract_pipeline import _FakeAlice, _NlpResult
@@ -562,3 +563,47 @@ def test_visible_greeting_rejects_soft_continuity_again():
     assert "see you again" not in low
     greeting_meta = dict(result.metadata.get("greeting_metadata") or {})
     assert str(greeting_meta.get("generated_by") or "") in {"llm_retry", "llm"}
+
+
+def test_visible_concept_breakdown_request_avoids_generic_clarification_fallback():
+    pipeline = _build_pipeline(
+        llm_sequence=[
+            "Frameworks vary, but proactive companions need persistent context and event handling.",
+            "For cinematic behavior, use a loop: observe, detect change, judge relevance, and suggest action.",
+            "I can help. What exact result do you want?",
+            "I can help. What exact result do you want?",
+        ]
+    )
+    original_verify = pipeline.boundaries.verifier.verify
+
+    def _reject_breakdown_turn(req):
+        if "break this down with todays technology" in str(req.user_input or "").lower():
+            return VerifierResult(
+                accepted=False,
+                reason="unsupported_claims",
+                confidence=0.2,
+                diagnostics={},
+            )
+        return original_verify(req)
+
+    pipeline.boundaries.verifier.verify = _reject_breakdown_turn
+
+    turns = [
+        "i want to learn more about agentic or companion ai frameworks",
+        "what are some of these frameworks",
+        "which framework would a cinematic proactive companion use?",
+        "break this down with todays technology",
+    ]
+    final = None
+    for idx, text in enumerate(turns, start=1):
+        final = pipeline.run_turn(user_input=text, user_id="u_flow6", turn_number=idx)
+        _assert_metadata_present(final)
+
+    assert final is not None
+    low = str(final.response_text or "").lower()
+    assert "what exact result do you want" not in low
+    assert "background event loop" in low
+    assert "relevance filter" in low
+    assert "approval layer" in low
+    assert ".py" not in low
+    assert "ai/runtime" not in low

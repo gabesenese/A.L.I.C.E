@@ -25,7 +25,10 @@ from ai.runtime.next_step_policy import decide_next_step
 from ai.runtime.pipeline.metadata_builder import PipelineMetadataBuilder
 from ai.runtime.pipeline.routing_failure_logger import RoutingFailureLogger
 from ai.runtime.greeting_surface_policy import render_grounded_greeting, validate_chat_greeting
-from ai.runtime.operator_response_surface import normalize_response_paragraphs
+from ai.runtime.operator_response_surface import (
+    normalize_response_paragraphs,
+    strip_meta_response_artifacts,
+)
 from ai.runtime.response_momentum_policy import (
     apply_response_momentum,
     strip_passive_followup_sentences,
@@ -328,6 +331,101 @@ class ContractPipeline:
             "yo",
             "yo alice",
         }
+
+    @staticmethod
+    def is_clear_concept_breakdown_request(
+        user_input: str, active_concept_thread: Dict[str, Any] | None = None
+    ) -> bool:
+        low = str(user_input or "").lower().strip()
+        if not low:
+            return False
+        phrases = (
+            "break this down",
+            "break it down",
+            "with today's technology",
+            "with todays technology",
+            "explain the layers",
+            "go deeper",
+            "what would that look like",
+            "how would that work",
+            "what are the parts",
+            "what would we need",
+            "break",
+            "layers",
+        )
+        if any(phrase in low for phrase in phrases):
+            return True
+        has_thread = bool(
+            str((active_concept_thread or {}).get("topic") or "").strip()
+        )
+        if not has_thread:
+            return False
+        short_followup = len([w for w in low.split() if w]) <= 7
+        if short_followup and any(
+            token in low for token in ("this", "that", "it", "exactly", "deeper")
+        ):
+            return True
+        return False
+
+    @staticmethod
+    def _concept_breakdown_skeleton() -> str:
+        return (
+            "Break it into layers:\n\n"
+            "1. Model brain\n"
+            "2. Memory\n"
+            "3. Tools\n"
+            "4. Background event loop\n"
+            "5. Relevance filter\n"
+            "6. Planner\n"
+            "7. Approval layer\n"
+            "8. Notification/UI layer"
+        )
+
+    @staticmethod
+    def _contains_generic_clarification_fallback(text: str) -> bool:
+        low = str(text or "").lower()
+        blocked = (
+            "what exact result do you want",
+            "can you clarify",
+            "what would you like me to focus on",
+            "tell me more about what you mean",
+        )
+        return any(token in low for token in blocked)
+
+    def _retry_concept_refinement_breakdown(
+        self,
+        *,
+        user_input: str,
+        active_concept_thread: Dict[str, Any] | None = None,
+    ) -> str:
+        llm_generate_fn = getattr(self.boundaries.response, "llm_generate_fn", None)
+        if not llm_generate_fn:
+            return ""
+        concept = dict(active_concept_thread or {})
+        prompt = (
+            "You are Alice.\n"
+            "The user is asking to break down the active concept with today's technology.\n"
+            "Answer directly.\n"
+            "Do not ask what result they want.\n"
+            "Do not mention files or codebase unless the user asks to implement it.\n"
+            "Keep it conceptual and practical.\n"
+            "Use a layered breakdown.\n"
+            "Return only the answer text.\n\n"
+            f"Active concept thread: {concept or {'topic': 'proactive AI companion'}}\n"
+            f"User message:\n{str(user_input or '').strip()}\n"
+        )
+        try:
+            try:
+                out = str(llm_generate_fn(prompt=prompt) or "").strip()
+            except TypeError:
+                out = str(llm_generate_fn(prompt) or "").strip()
+        except Exception:
+            return ""
+        out = strip_meta_response_artifacts(out)
+        out = normalize_response_paragraphs(out)
+        if self._contains_generic_clarification_fallback(out):
+            return ""
+        return str(out or "").strip()
 
     @classmethod
     def _repair_greeting_task_intake(
@@ -1140,6 +1238,9 @@ class ContractPipeline:
             is_greeting_turn = str(getattr(decision, "intent", "") or "").endswith(
                 "greeting"
             ) or str(getattr(decision, "intent", "") or "") == "greeting"
+            active_concept_thread = dict(
+                (decision.metadata or {}).get("active_concept_thread") or {}
+            )
             verification_reason = str(verification.reason or "") if verification else ""
             verification_diag = dict(verification.diagnostics or {}) if verification else {}
             verification_reasons = [
@@ -1158,6 +1259,33 @@ class ContractPipeline:
                 verification_reason == "unsupported_claims"
                 and turn_mode_for_verification in {"educational_explain", "clarification", "casual_companion"}
             )
+            clear_concept_breakdown_request = self.is_clear_concept_breakdown_request(
+                user_input=user_input,
+                active_concept_thread=active_concept_thread,
+            )
+            is_concept_refinement_turn = (
+                str(getattr(decision, "intent", "") or "").strip().lower()
+                == "conversation:concept_refinement"
+                or turn_mode_for_verification == "concept_refinement"
+                or (
+                    bool(active_concept_thread)
+                    and clear_concept_breakdown_request
+                )
+                or (
+                    clear_concept_breakdown_request
+                    and str(getattr(decision, "route", "") or "").strip().lower()
+                    == "llm"
+                    and str(getattr(decision, "intent", "") or "")
+                    .strip()
+                    .lower()
+                    .startswith("conversation:")
+                )
+            )
+            clear_concept_breakdown = bool(
+                is_concept_refinement_turn and clear_concept_breakdown_request
+            )
+            concept_refinement_repair_applied = False
+            concept_refinement_skeleton_used = False
             if is_greeting_turn or (
                 verification
                 and str(verification.reason or "") == "unsupported_continuity_claim"
@@ -1192,6 +1320,18 @@ class ContractPipeline:
                 )
                 response_text = str(cleaned or "").strip()
                 respond_requires_follow_up = bool(not response_text)
+            elif clear_concept_breakdown:
+                retried_concept = self._retry_concept_refinement_breakdown(
+                    user_input=user_input,
+                    active_concept_thread=active_concept_thread,
+                )
+                if retried_concept:
+                    response_text = str(retried_concept or "").strip()
+                    concept_refinement_repair_applied = True
+                else:
+                    response_text = self._concept_breakdown_skeleton()
+                    concept_refinement_skeleton_used = True
+                respond_requires_follow_up = False
             else:
                 response_text = (
                     "I could not verify that result safely. "
@@ -1230,7 +1370,11 @@ class ContractPipeline:
                     "ai/runtime/contract_pipeline.py",
                 ],
             )
-            if not (can_salvage_followup_claims and response_text):
+            if not (
+                (can_salvage_followup_claims and response_text)
+                or concept_refinement_repair_applied
+                or concept_refinement_skeleton_used
+            ):
                 respond_requires_follow_up = True
             respond_metadata = {
                 **dict(respond_metadata or {}),
@@ -1239,6 +1383,12 @@ class ContractPipeline:
             if can_salvage_followup_claims and response_text:
                 respond_metadata["fallback"] = ""
                 respond_metadata["verification_rewrite"] = "removed_unsupported_followup_claims"
+            if concept_refinement_repair_applied:
+                respond_metadata["fallback"] = ""
+                respond_metadata["verification_rewrite"] = "concept_refinement_retry"
+            if concept_refinement_skeleton_used:
+                respond_metadata["fallback"] = ""
+                respond_metadata["verification_rewrite"] = "concept_refinement_skeleton"
             if is_greeting_turn or (
                 verification
                 and str(verification.reason or "") == "unsupported_continuity_claim"
@@ -1410,6 +1560,42 @@ class ContractPipeline:
             companion_state=companion_profile_state.to_dict(),
             response_generation_metadata=response_generation_details,
         )
+        concept_thread_for_fallback = dict(
+            (decision.metadata or {}).get("active_concept_thread") or {}
+        )
+        concept_refinement_turn = (
+            str(decision.intent or "").strip().lower() == "conversation:concept_refinement"
+            or bool(concept_thread_for_fallback)
+            or (
+                self.is_clear_concept_breakdown_request(
+                    user_input=user_input,
+                    active_concept_thread=concept_thread_for_fallback,
+                )
+                and str(decision.route or "").strip().lower() == "llm"
+                and str(decision.intent or "").strip().lower().startswith("conversation:")
+            )
+        )
+        clear_breakdown_request = bool(
+            concept_refinement_turn
+            and self.is_clear_concept_breakdown_request(
+                user_input=user_input,
+                active_concept_thread=concept_thread_for_fallback,
+            )
+        )
+        if clear_breakdown_request and self._contains_generic_clarification_fallback(
+            response_text
+        ):
+            retried_breakdown = self._retry_concept_refinement_breakdown(
+                user_input=user_input,
+                active_concept_thread=concept_thread_for_fallback,
+            )
+            response_text = str(
+                retried_breakdown or self._concept_breakdown_skeleton()
+            ).strip()
+            respond_metadata = {
+                **dict(respond_metadata or {}),
+                "verification_rewrite": "concept_refinement_fallback_repair",
+            }
         tool_data_payload = dict((tool_result.data or {}) if tool_result else {})
         standardized_action_result = dict(tool_data_payload.get("action_result") or {})
         if not standardized_action_result and local_exec_payload:
