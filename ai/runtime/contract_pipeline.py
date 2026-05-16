@@ -294,10 +294,26 @@ class ContractPipeline:
             "let me know",
         )
 
+    @staticmethod
+    def _greeting_soft_continuity_tokens() -> Tuple[str, ...]:
+        return (
+            "see you again",
+            "great to see you again",
+            "good to see you again",
+            "nice to see you again",
+            "back again",
+            "here again",
+        )
+
     @classmethod
     def _contains_task_intake_greeting(cls, text: str) -> bool:
         low = str(text or "").lower()
         return any(token in low for token in cls._greeting_task_intake_tokens())
+
+    @classmethod
+    def _contains_soft_continuity_greeting(cls, text: str) -> bool:
+        low = str(text or "").lower()
+        return any(token in low for token in cls._greeting_soft_continuity_tokens())
 
     @staticmethod
     def _is_pure_greeting_input(user_input: str) -> bool:
@@ -322,14 +338,20 @@ class ContractPipeline:
         llm_generate_fn: Any,
     ) -> Tuple[str, Dict[str, Any]]:
         current = str(current_text or "").strip()
-        if not cls._contains_task_intake_greeting(current):
+        has_task_intake = cls._contains_task_intake_greeting(current)
+        has_soft_continuity = cls._contains_soft_continuity_greeting(current)
+        if not has_task_intake and not has_soft_continuity:
             return current, {
                 "applied": False,
                 "retry_attempted": False,
                 "accepted": bool(current),
                 "reasons": [],
             }
-        reasons = ["task_intake_greeting", "assistant_service_language"]
+        reasons: list[str] = []
+        if has_task_intake:
+            reasons.extend(["task_intake_greeting", "assistant_service_language"])
+        if has_soft_continuity:
+            reasons.append("unsupported_soft_continuity_claim")
         if not llm_generate_fn:
             return "", {
                 "applied": True,
@@ -337,15 +359,22 @@ class ContractPipeline:
                 "accepted": False,
                 "reasons": reasons,
             }
+        reasons_line = ", ".join(dict.fromkeys(reasons))
+        extra_constraints = ""
+        if has_soft_continuity:
+            extra_constraints = (
+                "Do not say 'again', 'back again', or imply prior conversation continuity.\n"
+            )
         prompt = (
             "You are Alice speaking to Gabriel.\n\n"
             "The previous greeting was rejected for:\n"
-            "task_intake_greeting, assistant_service_language\n\n"
+            f"{reasons_line}\n\n"
             "Write a natural greeting only.\n"
             "Use only the current user message.\n"
             "Do not ask what to work on.\n"
             "Do not ask how you can help.\n"
             "Do not use task-intake language.\n"
+            f"{extra_constraints}"
             "Keep it 1-3 short sentences.\n"
             "Return only the greeting.\n\n"
             f"User message:\n{str(user_input or '').strip()}\n"
@@ -357,7 +386,11 @@ class ContractPipeline:
                 candidate = str(llm_generate_fn(prompt) or "").strip()
         except Exception:
             candidate = ""
-        if not candidate or cls._contains_task_intake_greeting(candidate):
+        if (
+            not candidate
+            or cls._contains_task_intake_greeting(candidate)
+            or cls._contains_soft_continuity_greeting(candidate)
+        ):
             return "", {
                 "applied": True,
                 "retry_attempted": True,

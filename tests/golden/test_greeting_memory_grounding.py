@@ -326,7 +326,11 @@ def test_v_task_intake_greeting_rejected():
     low = result.text.lower()
     assert result.generated_by == "none"
     assert "what should we work on" not in low
-    assert "assistant_service_language" in result.validation_reasons or "banned_content" in result.validation_reasons
+    assert (
+        "assistant_service_language" in result.validation_reasons
+        or "task_intake_greeting" in result.validation_reasons
+        or "banned_content" in result.validation_reasons
+    )
 
 
 def test_w_rejected_greeting_does_not_reuse_previous_greeting_text():
@@ -344,5 +348,162 @@ def test_w_rejected_greeting_does_not_reuse_previous_greeting_text():
     )
     assert result.generated_by == "none"
     assert result.text.strip() == ""
+
+
+def test_x_underspecified_retry_prompt_is_not_memory_specific():
+    prompts: list[str] = []
+    calls = {"n": 0}
+
+    def _llm(*args, **kwargs):
+        prompt = kwargs.get("prompt", args[0] if args else "")
+        prompts.append(str(prompt))
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "Hey Gabriel."
+        return "Hey Gabriel. Good to hear from you. How's it going?"
+
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={},
+        session_state={},
+        user_input="hi alice",
+        llm_generate=_llm,
+    )
+    assert result.generated_by == "llm_retry"
+    assert len(prompts) >= 2
+    retry_prompt = prompts[1].lower()
+    assert (
+        "too short" in retry_prompt
+        or "too empty" in retry_prompt
+        or "underspecified" in retry_prompt
+    )
+    assert "mentioned a past topic" not in retry_prompt
+
+
+def test_y_fake_continuity_retry_prompt_is_memory_specific():
+    prompts: list[str] = []
+    calls = {"n": 0}
+
+    def _llm(*args, **kwargs):
+        prompt = kwargs.get("prompt", args[0] if args else "")
+        prompts.append(str(prompt))
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "Hey! I noticed we were talking about machine learning last time."
+        return "Hey Gabriel. Good to hear from you. How's it going?"
+
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={},
+        session_state={},
+        user_input="hi alice",
+        llm_generate=_llm,
+    )
+    assert result.generated_by == "llm_retry"
+    assert len(prompts) >= 2
+    retry_prompt = prompts[1].lower()
+    assert (
+        "past topic" in retry_prompt
+        or "memory" in retry_prompt
+        or "previous conversations" in retry_prompt
+    )
+
+
+def test_z_assistant_service_retry_prompt_is_service_specific():
+    prompts: list[str] = []
+    calls = {"n": 0}
+
+    def _llm(*args, **kwargs):
+        prompt = kwargs.get("prompt", args[0] if args else "")
+        prompts.append(str(prompt))
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "Hi Gabriel, how can I help you today?"
+        return "Hey Gabriel. Good to hear from you. How's it going?"
+
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={},
+        session_state={},
+        user_input="hi alice",
+        llm_generate=_llm,
+    )
+    assert result.generated_by == "llm_retry"
+    assert len(prompts) >= 2
+    retry_prompt = prompts[1].lower()
+    assert "service assistant" in retry_prompt or "task intake" in retry_prompt
+
+
+def test_aa_repeated_greeting_retry_prompt_is_repetition_specific():
+    prompts: list[str] = []
+    calls = {"n": 0}
+
+    def _llm(*args, **kwargs):
+        prompt = kwargs.get("prompt", args[0] if args else "")
+        prompts.append(str(prompt))
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "Hey Gabriel. How's it going?"
+        return "Hey Gabriel. Good to hear from you. How are you doing?"
+
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={},
+        session_state={"recent_greeting_texts": ["Hey Gabriel. How’s it going?"]},
+        user_input="hi alice",
+        llm_generate=_llm,
+    )
+    assert result.generated_by == "llm_retry"
+    assert len(prompts) >= 2
+    retry_prompt = prompts[1].lower()
+    assert "too similar" in retry_prompt or "change wording" in retry_prompt
+
+
+def test_ab_time_mismatch_retry_prompt_is_time_specific():
+    prompts: list[str] = []
+    calls = {"n": 0}
+
+    def _llm(*args, **kwargs):
+        prompt = kwargs.get("prompt", args[0] if args else "")
+        prompts.append(str(prompt))
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "Good morning, Gabriel. How's it going?"
+        return "Hey Gabriel. Good night. How's it going?"
+
+    at_1131pm = datetime.fromisoformat("2026-05-10T23:31:00-04:00")
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={},
+        session_state={},
+        user_input="hi alice",
+        local_time=at_1131pm,
+        llm_generate=_llm,
+    )
+    assert result.generated_by == "llm_retry"
+    assert len(prompts) >= 2
+    retry_prompt = prompts[1].lower()
+    assert "wrong time of day" in retry_prompt
+
+
+def test_ac_soft_continuity_again_rejected_then_retry_accepted():
+    calls = {"n": 0}
+
+    def _llm(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "Hey Gabriel! It's great to see you again. How's your day been so far?"
+        return "Hey Gabriel. How's your day been so far?"
+
+    result = render_grounded_greeting(
+        user_name="Gabriel",
+        operator_state={},
+        session_state={},
+        user_input="hi alice",
+        llm_generate=_llm,
+    )
+    low = str(result.text or "").lower()
+    assert "see you again" not in low
+    assert result.generated_by == "llm_retry"
 
 

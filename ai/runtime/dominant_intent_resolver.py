@@ -75,9 +75,24 @@ _CODEBASE_IMPROVEMENT_PATTERNS = (
     r"\blook at the codebase\b",
     r"\binspect the project\b",
     r"\bfind an area to improve\b",
-    r"\bimprove my ai companion\b",
-    r"\bi am currently working on one\b",
     r"\bmy ai project\b",
+)
+
+_CONCEPT_REFINEMENT_PATTERNS = (
+    r"\bi don['o]?t want it to be like an assistant or chatbot\b",
+    r"\bnot (?:an )?assistant\b",
+    r"\bnot (?:a )?chatbot\b",
+    r"\bi want alice to be proactive\b",
+    r"\bi want it to be actually proactive\b",
+    r"\bactually proactive\b",
+    r"\bsomething like jarvis\b",
+    r"\blike this\b",
+    r"\bsomething like that\b",
+    r"\byes but proactive\b",
+    r"\balways running\b",
+    r"\bbackground tasks\b",
+    r"\bdetects changes\b",
+    r"\bsuggest(?:s|ions?)\b",
 )
 
 
@@ -94,6 +109,8 @@ def resolve_dominant_intent_hint(text: str) -> str:
         return "code:request"
     if any(re.search(p, low) for p in _CODEBASE_IMPROVEMENT_PATTERNS):
         return "code:request"
+    if any(re.search(p, low) for p in _CONCEPT_REFINEMENT_PATTERNS):
+        return "conversation:concept_refinement"
     educational = any(re.search(p, low) for p in _EDUCATIONAL_PATTERNS)
     implementation = any(re.search(p, low) for p in _IMPLEMENTATION_PATTERNS)
     if educational and not implementation:

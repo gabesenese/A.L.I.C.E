@@ -39,3 +39,20 @@ def test_codebase_improvement_prompt_routes_to_local_operator_path():
     )
     assert result.metadata["route"] == "local"
     assert result.metadata["intent"] in {"code:request", "operator:continue", "code:list_files"}
+
+
+def test_proactive_concept_followup_routes_to_concept_refinement():
+    alice = _FakeAlice()
+    pipeline = ContractPipeline(build_runtime_boundaries(alice))
+    first = pipeline.run_turn(
+        user_input="i dont want it to be like an assistant or chatbot",
+        user_id="u1",
+        turn_number=4,
+    )
+    second = pipeline.run_turn(
+        user_input="something like jarvis",
+        user_id="u1",
+        turn_number=5,
+    )
+    assert first.metadata["intent"] == "conversation:concept_refinement"
+    assert second.metadata["intent"] == "conversation:concept_refinement"

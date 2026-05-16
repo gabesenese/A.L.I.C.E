@@ -109,21 +109,17 @@ def requires_codebase_evidence(user_input: str, response_text: str) -> bool:
         "scanning through the repo",
         "looked through the codebase",
         "found in the codebase",
+        "in our codebase",
         "take a look at",
+        "check the repo",
+        "look at the codebase",
+        "inspect the project",
         "ai/runtime/",
         "self_learning/",
     )
     if any(marker in combined for marker in strong_markers):
         return True
-    if _CODEBASE_PATH_PATTERN.search(combined):
-        return True
-    weak_markers = ("runtime", "module", "plugin")
-    has_weak = any(marker in combined for marker in weak_markers)
-    has_scope = any(
-        marker in combined
-        for marker in ("alice", "project", "code", "codebase", "repo", "file", "files")
-    )
-    return bool(has_weak and has_scope)
+    return bool(_CODEBASE_PATH_PATTERN.search(combined))
 
 
 def _collect_verified_files(

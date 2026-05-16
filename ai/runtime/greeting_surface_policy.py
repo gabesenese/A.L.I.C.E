@@ -239,6 +239,11 @@ def validate_chat_greeting(text: str, *, pure_greeting: bool = True) -> Greeting
         "been a while",
         "welcome back",
         "good to see you again",
+        "great to see you again",
+        "see you again",
+        "nice to see you again",
+        "back again",
+        "here again",
         "nice to reconnect",
         "nice to connect with you",
     )
@@ -296,6 +301,44 @@ def _has_continuation_cue(text: str) -> bool:
     return any(cue in text for cue in cues)
 
 
+def _greeting_retry_guidance(reasons: list[str]) -> str:
+    reason_set = set(reasons or [])
+    if reason_set & {"underspecified_greeting", "generic_empty_greeting"}:
+        return (
+            "Your previous greeting was too short or too empty. Keep it natural, but give it "
+            "enough presence: 2-3 short sentences, with either a light check-in or a warm presence line."
+        )
+    if reason_set & {
+        "fake_continuity_claim",
+        "stale_memory_topic",
+        "unsupported_continuity_claim",
+    }:
+        return (
+            "Your previous greeting mentioned a past topic, memory, or conversation that is not grounded. "
+            "Do not mention previous conversations, memory, history, last time, or any old topic."
+        )
+    if reason_set & {"assistant_service_language", "banned_content"}:
+        return (
+            "Your previous greeting sounded like a service assistant or task intake. "
+            "Do not ask how you can help, what he needs, or what to work on."
+        )
+    if "repeated_candidate" in reason_set:
+        return (
+            "Your previous greeting was too similar to a recent greeting. "
+            "Change the wording, structure, and check-in."
+        )
+    if "time_period_mismatch" in reason_set:
+        return (
+            "Your previous greeting used the wrong time of day. "
+            "Only mention time of day if it matches the provided current time period."
+        )
+    if reason_set & {"too_many_sentences", "greeting_length_out_of_bounds"}:
+        return "Your previous greeting was too long. Use 2-3 short sentences."
+    if reason_set & {"empty_candidate", "llm_error"}:
+        return "Generate a fresh greeting only. Return only the greeting text."
+    return "Generate a new natural greeting that avoids the rejection reasons."
+
+
 def _try_constrained_llm_greeting(
     *,
     llm_generate: Callable[..., str],
@@ -309,7 +352,7 @@ def _try_constrained_llm_greeting(
     time_period: str = "",
     local_time_label: str = "",
     user_input: str = "",
-) -> tuple[str, list[str], dict[str, Any], int]:
+) -> tuple[str, list[str], dict[str, Any], int, int]:
     if not llm_generate:
         return ("", ["llm_unavailable"], {"llm_attempt_count": 0}, -1, 0)
     recent_items = [str(item).strip() for item in recent_greeting_texts if str(item or "").strip()]
@@ -363,10 +406,13 @@ def _try_constrained_llm_greeting(
 
     def _build_retry_prompt(retry_reasons: list[str]) -> str:
         reasons_line = ", ".join(sorted(set(retry_reasons or ["invalid_output"])))
+        guidance = _greeting_retry_guidance(retry_reasons)
         return (
             f"You are Alice speaking to {user_name or 'Gabriel'}.\n\n"
             "The previous greeting was rejected for:\n"
             f"{reasons_line}\n\n"
+            "Reason-specific correction (highest priority):\n"
+            f"{guidance}\n\n"
             "Write a new natural greeting.\n"
             "Use only the current user message and current time if provided.\n"
             "Do not mention previous conversations unless explicitly grounded.\n"
@@ -375,7 +421,7 @@ def _try_constrained_llm_greeting(
             "Do not sound like customer service.\n"
             "Do not use task-intake language.\n"
             "Do not mention memory.\n"
-            "Keep it 2-3 short sentences.\n"
+            "Keep it 1-3 short sentences.\n"
             "Return only the greeting.\n\n"
             f"{time_line}\n"
             f"allow_focus_reference={allow_focus_reference}; current_focus={current_focus if allow_focus_reference else ''}\n\n"
@@ -389,21 +435,25 @@ def _try_constrained_llm_greeting(
 
     def _build_strong_retry_prompt(retry_reasons: list[str]) -> str:
         reasons_line = ", ".join(sorted(set(retry_reasons or ["invalid_output"])))
+        guidance = _greeting_retry_guidance(retry_reasons)
         return (
             f"You are Alice speaking to {user_name or 'Gabriel'}.\n\n"
             "The previous greeting was rejected for:\n"
             f"{reasons_line}\n\n"
-            "Your previous greeting mentioned a past topic or memory that is not grounded.\n"
-            "Do not mention previous conversations, memory, history, or last time.\n"
+            "Reason-specific correction (highest priority):\n"
+            f"{guidance}\n\n"
             "Generate a fresh greeting based only on the current message.\n"
-            "Avoid unsupported continuity.\n"
-            "Stay warm and conversational.\n"
+            "Use only the current user message and current time if provided.\n"
+            "Do not mention previous conversations unless explicitly grounded.\n"
             "Do not mention projects, files, code, tools, objectives, or next steps.\n"
             "Do not ask how you can help.\n"
             "Do not sound like customer service.\n"
-            "Use 2-3 short sentences.\n"
+            "Do not use task-intake language.\n"
+            "Do not mention memory.\n"
+            "Keep it 1-3 short sentences.\n"
             "Return only the greeting.\n\n"
             f"{time_line}\n"
+            f"allow_focus_reference={allow_focus_reference}; current_focus={current_focus if allow_focus_reference else ''}\n\n"
             "Current user message:\n"
             f"{user_input}\n\n"
             "Recent greetings to avoid:\n"
@@ -509,6 +559,7 @@ def _record_validated_greeting(*, greeting_text: str, repeated_greeting: bool, u
                 mood_signal="neutral",
                 topic="",
                 user_context_summary=summary,
+                source="ollama_validated",
             )
         )
     except Exception:
@@ -551,6 +602,12 @@ def validate_greeting_candidate(
         ),
         "unsupported_soft_continuity_claim": (
             "catch up",
+            "see you again",
+            "great to see you again",
+            "good to see you again",
+            "nice to see you again",
+            "back again",
+            "here again",
         ),
         "corporate_language": (
             "nice to connect with you",

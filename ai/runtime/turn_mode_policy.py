@@ -21,6 +21,8 @@ def classify_turn_mode(
         return "greeting"
     if normalized_route == "clarify" or "clarification_needed" in normalized_intent:
         return "clarification"
+    if normalized_intent == "conversation:concept_refinement":
+        return "concept_refinement"
     if normalized_intent in {"conversation:educational_explain", "operator:research_explain"}:
         return "educational_explain"
     if normalized_intent.startswith("operator:"):
@@ -55,6 +57,14 @@ def classify_turn_mode(
         str(state.get("active_objective") or "").strip()
         or str(project.get("active_objective") or "").strip()
     )
+    has_active_concept_thread = bool(
+        str((state.get("active_concept_thread") or {}).get("topic") or "").strip()
+    )
+    if has_active_concept_thread and normalized_intent in {
+        "conversation:goal_statement",
+        "conversation:concept_refinement",
+    }:
+        return "concept_refinement"
     if has_objective and normalized_intent == "conversation:goal_statement":
         return "operator_continue"
     return "casual_companion"

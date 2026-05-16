@@ -4,6 +4,7 @@ import re
 from typing import Any, Dict
 from ai.runtime.turn_mode_policy import classify_turn_mode
 from ai.runtime.operator_response_surface import (
+    normalize_response_paragraphs,
     render_local_execution_error_response,
     render_operator_response,
     strip_meta_response_artifacts,
@@ -37,6 +38,82 @@ def _enforce_claim_evidence(text: str, local: Dict[str, Any]) -> str:
     return out
 
 
+def _is_operator_application_request(user_input: str) -> bool:
+    low = str(user_input or "").lower()
+    return any(
+        token in low
+        for token in (
+            "work on alice",
+            "work o alice",
+            "apply this to alice",
+            "implement this in alice",
+            "build this into alice",
+            "improve alice",
+            "give me a codex input",
+            "inspect",
+            "codebase",
+            "runtime",
+            "file",
+            "repo",
+            "commit",
+        )
+    )
+
+
+def _normalize_next_move_line(next_step: str) -> str:
+    raw = str(next_step or "").strip()
+    if not raw:
+        return ""
+    if not raw.lower().startswith("next best move:"):
+        raw = f"Next best move: {raw}"
+    raw = re.sub(
+        r"\bbecause\s+([A-Z])",
+        lambda m: f"because {str(m.group(1) or '').lower()}",
+        raw,
+    )
+    raw = re.sub(r"\s+", " ", raw).strip()
+    raw = re.sub(r"\.+$", "", raw) + "."
+    return raw
+
+
+def strip_passive_followup_sentences(text: str, *, mode: str) -> str:
+    mode_key = str(mode or "").strip().lower()
+    if mode_key not in {"educational_explain", "clarification", "companion_chat", "concept_refinement"}:
+        return str(text or "").strip()
+    source = str(text or "").strip()
+    if not source:
+        return ""
+    fragments = re.split(r"(?<=[.!?])\s+|\n+", source)
+    banned_tokens = (
+        "if you want",
+        "let me know",
+        "i can keep tracking this thread",
+        "keep tracking this thread",
+        "follow up next turn",
+        "i'll follow up",
+        "i can follow up",
+        "i can keep track",
+        "we can revisit",
+        "ask me if",
+        "would you like me to",
+        "do you want me to",
+        "please repeat your request in one line",
+    )
+    kept: list[str] = []
+    for frag in fragments:
+        sentence = str(frag or "").strip()
+        if not sentence:
+            continue
+        low = sentence.lower()
+        if any(token in low for token in banned_tokens):
+            continue
+        kept.append(sentence)
+    cleaned = " ".join(kept).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
+    return cleaned
+
+
 def apply_response_momentum(
     *,
     user_input: str = "",
@@ -63,29 +140,68 @@ def apply_response_momentum(
     objective = str(state.get("active_objective") or project.get("active_objective") or "").strip()
     focus = str(state.get("current_focus") or project.get("current_focus") or "").strip()
     normalized_intent = str(intent or "").strip().lower()
+    normalized_route = str(route or "").strip().lower()
+    operator_application_request = _is_operator_application_request(user_input=user_input)
     turn_mode = classify_turn_mode(
         user_input=user_input,
         intent=normalized_intent,
-        route=str(route or ""),
+        route=normalized_route,
         operator_state=state,
         project_memory=project,
     )
     momentum_turn = turn_mode in {
         "operator_status",
         "operator_continue",
-        "educational_explain",
         "code_work",
         "tool_result",
     }
-    operator_turn = normalized_intent.startswith("operator:") or momentum_turn or (
-        str(route or "") == "local"
-        and str(intent or "").startswith("code:")
-        and bool(local)
+    operator_turn = momentum_turn or (
+        normalized_intent.startswith("operator:")
+        or normalized_intent.startswith("code:")
+        or normalized_route == "local"
+        or (
+            normalized_intent == "conversation:educational_explain"
+            and operator_application_request
+        )
     )
 
-    if turn_mode in {"casual_companion", "greeting"}:
+    if turn_mode == "greeting":
         # Never inject project momentum into casual/greeting.
         return text
+    if turn_mode == "casual_companion":
+        return normalize_response_paragraphs(
+            _enforce_claim_evidence(
+                strip_passive_followup_sentences(text, mode="companion_chat"), local
+            )
+        )
+
+    if (
+        normalized_intent == "conversation:clarification_needed"
+        and normalized_route == "llm"
+    ):
+        cleaned = strip_passive_followup_sentences(text, mode="clarification")
+        if not cleaned:
+            cleaned = text
+        return normalize_response_paragraphs(_enforce_claim_evidence(cleaned, local))
+
+    if (
+        normalized_intent == "conversation:educational_explain"
+        and not operator_application_request
+    ):
+        cleaned = strip_passive_followup_sentences(text, mode="educational_explain")
+        if not cleaned:
+            cleaned = text
+        return normalize_response_paragraphs(_enforce_claim_evidence(cleaned, local))
+
+    if (
+        normalized_intent == "conversation:concept_refinement"
+        and normalized_route == "llm"
+        and not operator_application_request
+    ):
+        cleaned = strip_passive_followup_sentences(text, mode="concept_refinement")
+        if not cleaned:
+            cleaned = text
+        return normalize_response_paragraphs(_enforce_claim_evidence(cleaned, local))
 
     if not operator_turn:
         return text
@@ -121,7 +237,7 @@ def apply_response_momentum(
                 response_metadata=response_generation_metadata,
             )
         if rendered:
-            return _enforce_claim_evidence(rendered, local)
+            return normalize_response_paragraphs(_enforce_claim_evidence(rendered, local))
 
     # Avoid passive generic endings.
     passive_markers = (
@@ -136,6 +252,8 @@ def apply_response_momentum(
         "what would you like to focus on first",
         "if that sounds interesting",
         "if you want",
+        "i can keep tracking this thread",
+        "follow up next turn",
         "let me know",
     )
     for marker in passive_markers:
@@ -159,25 +277,37 @@ def apply_response_momentum(
         meaning = "That gives us grounded evidence for the next runtime move."
 
     next_line = str(next_step or "").strip()
-    allow_next_step = turn_mode in {
-        "operator_status",
-        "operator_continue",
-        "educational_explain",
-        "code_work",
-        "tool_result",
-    }
-    if next_line and allow_next_step and not next_line.lower().startswith("next"):
-        next_line = f"Next best move: {next_line}"
+    allow_next_step = (
+        operator_application_request
+        or normalized_intent.startswith("operator:")
+        or normalized_intent.startswith("code:")
+        or normalized_route == "local"
+    ) and (
+        turn_mode in {
+            "operator_status",
+            "operator_continue",
+            "code_work",
+            "tool_result",
+        }
+    )
+    if next_line and allow_next_step:
+        next_line = _normalize_next_move_line(next_line)
     elif allow_next_step and not next_line and state.get("next_recommended_action"):
-        next_line = f"Next best move: {state.get('next_recommended_action')}"
+        next_line = _normalize_next_move_line(str(state.get("next_recommended_action") or ""))
 
-    allow_objective = turn_mode in {
-        "operator_status",
-        "operator_continue",
-        "educational_explain",
-        "code_work",
-        "tool_result",
-    }
+    allow_objective = (
+        operator_application_request
+        or normalized_intent.startswith("operator:")
+        or normalized_intent.startswith("code:")
+        or normalized_route == "local"
+    ) and (
+        turn_mode in {
+            "operator_status",
+            "operator_continue",
+            "code_work",
+            "tool_result",
+        }
+    )
     if objective and allow_objective:
         lead = f"Current objective is {objective}."
         if focus:
@@ -205,4 +335,4 @@ def apply_response_momentum(
     text = _enforce_claim_evidence(text, local)
     parts = [p for p in [lead, text, result_line, meaning, next_line] if str(p).strip()]
     merged = " ".join(parts).strip()
-    return merged or text
+    return normalize_response_paragraphs(merged or text)

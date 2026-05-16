@@ -458,3 +458,107 @@ def test_visible_project_improvement_request_does_not_hallucinate_file_paths():
     assert "self_learning/contextual_awareness.py" not in low
     assert "i found in the codebase" not in low
     assert has_verified_evidence or ("i have not verified the codebase yet" in low)
+
+
+def test_visible_proactive_companion_concept_thread_flow_stays_conceptual():
+    pipeline = _build_pipeline(
+        llm_sequence=[
+            "An AI companion is different from a chatbot because it can keep context and adapt over time.",
+            "Right, then the key difference is agency: a chatbot waits, while a companion observes state and brings useful signals.",
+            "Then the core is a background loop: observe, detect change, judge importance, suggest action, and ask approval before risky actions.",
+            "Exactly, not movie magic, but architecture: persistent state, task monitors, memory, tools, and a notification layer.",
+            "Actual proactivity means triggers and relevance scoring before suggestions. (Note: I've kept the main points intact while making minor adjustments for tone and flow)",
+        ]
+    )
+    turns = [
+        "i want to learn more about ai companion",
+        "i dont want it to be like an assistant or chatbot",
+        "i want alice to be proactive, like this",
+        "something like jarvis",
+        "i want to be actually proactive",
+    ]
+    outputs: list[str] = []
+    for idx, user_text in enumerate(turns, start=1):
+        result = pipeline.run_turn(user_input=user_text, user_id="u_flow1", turn_number=idx)
+        _assert_metadata_present(result)
+        outputs.append(str(result.response_text or ""))
+
+    merged = " ".join(outputs).lower()
+    assert "(note:" not in merged
+    assert "rewritten" not in merged
+    assert "i have not verified the codebase yet" not in merged
+    assert "next best move:" not in merged
+    assert "ai/runtime" not in merged
+    assert "inspect file" not in merged
+    assert "background loop" in merged
+    assert "detect change" in merged or "detects change" in merged
+    assert "suggest action" in merged or "suggestions" in merged
+    assert "approval" in merged or "risky actions" in merged
+
+
+def test_visible_concept_refinement_does_not_trigger_codebase_grounding():
+    pipeline = _build_pipeline(
+        llm_text=(
+            "Actual proactivity means Alice needs triggers: observe events, detect change, "
+            "judge relevance, and surface a useful suggestion."
+        )
+    )
+    result = pipeline.run_turn(
+        user_input="i want to be actually proactive",
+        user_id="u_flow2",
+        turn_number=1,
+    )
+    _assert_metadata_present(result)
+    low = str(result.response_text or "").lower()
+    assert "i have not verified the codebase yet" not in low
+    assert "next best move:" not in low
+    assert "detect change" in low or "triggers" in low
+
+
+def test_visible_implementation_request_can_bridge_to_local_or_honest_unverified():
+    pipeline = _build_pipeline()
+    result = pipeline.run_turn(
+        user_input="how do we implement this in Alice?",
+        user_id="u_flow3",
+        turn_number=1,
+    )
+    _assert_metadata_present(result)
+    low = str(result.response_text or "").lower()
+    assert result.metadata.get("route") in {"local", "llm"}
+    assert (
+        result.metadata.get("route") == "local"
+        or "i have not verified the codebase yet" in low
+    )
+
+
+def test_visible_meta_artifact_stripped_from_final_output():
+    pipeline = _build_pipeline(
+        forced_intent="conversation:educational_explain",
+        llm_text="An AI companion is useful. (Note: I've kept the main points intact while making minor adjustments for tone and flow)",
+    )
+    result = pipeline.run_turn(
+        user_input="teach me about ai companions",
+        user_id="u_flow4",
+        turn_number=1,
+    )
+    _assert_metadata_present(result)
+    low = str(result.response_text or "").lower()
+    assert "(note:" not in low
+    assert "minor adjustments for tone and flow" not in low
+    assert "an ai companion is useful." in low
+
+
+def test_visible_greeting_rejects_soft_continuity_again():
+    pipeline = _build_pipeline(
+        force_greeting_intent=True,
+        llm_sequence=[
+            "Hey Gabriel! It's great to see you again. How's your day been so far?",
+            "Hey Gabriel. How's your day been so far?",
+        ],
+    )
+    result = pipeline.run_turn(user_input="hi alice", user_id="u_flow5", turn_number=1)
+    _assert_metadata_present(result)
+    low = str(result.response_text or "").lower()
+    assert "see you again" not in low
+    greeting_meta = dict(result.metadata.get("greeting_metadata") or {})
+    assert str(greeting_meta.get("generated_by") or "") in {"llm_retry", "llm"}

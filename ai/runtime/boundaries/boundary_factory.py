@@ -467,6 +467,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         hint = resolve_dominant_intent_hint(user_input)
         if hint in {
             "conversation:educational_explain",
+            "conversation:concept_refinement",
             "conversation:goal_statement",
             "operator:continue",
             "operator:next_step",
@@ -506,6 +507,103 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 "keep going",
             )
         )
+
+    def _is_implementation_or_codebase_request(user_input: str) -> bool:
+        low = str(user_input or "").lower().strip()
+        triggers = (
+            "how do we implement this in alice",
+            "check the codebase",
+            "inspect the project",
+            "give me a codex input",
+            "what file should we change",
+            "what area in the code can improve",
+            "look at the repo",
+            "check the repo",
+        )
+        return any(token in low for token in triggers)
+
+    def _is_proactive_concept_statement(user_input: str) -> bool:
+        low = str(user_input or "").lower().strip()
+        strong_signals = (
+            "not assistant",
+            "not a chatbot",
+            "not like an assistant",
+            "not like a chatbot",
+            "proactive",
+            "always running",
+            "background tasks",
+            "detect changes",
+            "detects changes",
+            "suggest actions",
+            "jarvis",
+        )
+        if any(token in low for token in strong_signals):
+            return True
+        if "ai companion" in low and any(
+            token in low
+            for token in ("agency", "always running", "background", "proactive")
+        ):
+            return True
+        return False
+
+    def _is_concept_followup_phrase(user_input: str) -> bool:
+        low = str(user_input or "").lower().strip()
+        followups = (
+            "like this",
+            "something like that",
+            "something like jarvis",
+            "i want it to be actually proactive",
+            "actually proactive",
+            "exactly",
+            "yes but proactive",
+            "not like that",
+        )
+        return any(token in low for token in followups)
+
+    def _merge_proactive_constraints(text: str, existing: list[str] | None = None) -> list[str]:
+        low = str(text or "").lower()
+        out = list(existing or [])
+        mapping = (
+            ("chatbot", "not chatbot"),
+            ("assistant", "not assistant"),
+            ("proactive", "proactive"),
+            ("always running", "always-running"),
+            ("background", "background monitoring"),
+            ("monitor", "background monitoring"),
+            ("detect", "change detection"),
+            ("suggest", "suggests actions"),
+            ("jarvis", "persistent companion"),
+        )
+        for token, label in mapping:
+            if token in low and label not in out:
+                out.append(label)
+        return out
+
+    def _update_active_concept_thread(
+        user_input: str,
+        *,
+        existing: Dict[str, Any] | None = None,
+        turn_number: int | None = None,
+    ) -> Dict[str, Any]:
+        prior = dict(existing or {})
+        constraints = _merge_proactive_constraints(
+            user_input,
+            existing=list(prior.get("constraints") or []),
+        )
+        if not constraints:
+            constraints = [
+                "not chatbot",
+                "not assistant",
+                "proactive",
+                "always-running",
+                "background monitoring",
+                "suggests actions",
+            ]
+        return {
+            "topic": "proactive AI companion",
+            "constraints": constraints,
+            "last_updated_turn": int(turn_number or 0),
+        }
 
     def safe_create_plan(planner: Any, goal: str) -> Dict[str, Any] | None:
         if planner is None or not hasattr(planner, "create_plan"):
@@ -1137,6 +1235,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         low = str(req.user_input or "").lower()
         dominant_hint = resolve_dominant_intent_hint(req.user_input)
         active_learning_topic = str(getattr(alice, "_active_learning_topic", "") or "").strip()
+        active_concept_thread = dict(getattr(alice, "_active_concept_thread", {}) or {})
+        current_turn_number = int(getattr(req, "turn_number", 0) or 0)
         if active_learning_topic and _is_educational_followup(req.user_input):
             return RouterDecision(
                 route="llm",
@@ -1147,6 +1247,50 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "reason": "educational_followup_with_active_topic",
                     "resolved_input": req.user_input,
                     "active_learning_topic": active_learning_topic,
+                    "operator_state": state,
+                },
+            )
+        if _is_implementation_or_codebase_request(req.user_input):
+            state = update_operator_state(
+                state,
+                {
+                    "active_mode": "code_inspection",
+                    "awaiting_target": True,
+                    "last_route": "local",
+                    "last_intent": "code:request",
+                },
+            )
+            setattr(alice, "_operator_state", state)
+            return RouterDecision(
+                route="local",
+                intent="code:request",
+                confidence=0.95,
+                decision_band="execute",
+                metadata={
+                    "reason": "implementation_or_codebase_request",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                    "active_concept_thread": active_concept_thread,
+                },
+            )
+        if _is_proactive_concept_statement(req.user_input) or (
+            active_concept_thread and _is_concept_followup_phrase(req.user_input)
+        ):
+            active_concept_thread = _update_active_concept_thread(
+                req.user_input,
+                existing=active_concept_thread,
+                turn_number=current_turn_number,
+            )
+            setattr(alice, "_active_concept_thread", active_concept_thread)
+            return RouterDecision(
+                route="llm",
+                intent="conversation:concept_refinement",
+                confidence=0.93,
+                decision_band="execute",
+                metadata={
+                    "reason": "active_concept_refinement",
+                    "resolved_input": req.user_input,
+                    "active_concept_thread": active_concept_thread,
                     "operator_state": state,
                 },
             )
@@ -1397,6 +1541,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     },
                 ),
             )
+            state = dict(getattr(alice, "_operator_state", {}) or {})
 
         if _looks_like_code_list_request(req.user_input):
             setattr(
@@ -1523,6 +1668,26 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={
                     "reason": "dominant_codebase_analysis_request",
                     "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
+
+        if dominant_hint == "conversation:concept_refinement":
+            active_concept_thread = _update_active_concept_thread(
+                req.user_input,
+                existing=dict(getattr(alice, "_active_concept_thread", {}) or {}),
+                turn_number=current_turn_number,
+            )
+            setattr(alice, "_active_concept_thread", active_concept_thread)
+            return RouterDecision(
+                route="llm",
+                intent="conversation:concept_refinement",
+                confidence=0.9,
+                decision_band="execute",
+                metadata={
+                    "reason": "dominant_concept_refinement",
+                    "resolved_input": req.user_input,
+                    "active_concept_thread": active_concept_thread,
                     "operator_state": state,
                 },
             )
@@ -1882,6 +2047,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 ),
                 "routing_trace": dict(modifiers.get("routing_trace") or {}),
                 "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
+                "active_concept_thread": dict(
+                    getattr(alice, "_active_concept_thread", {}) or {}
+                ),
                 "perception_frame": perception.to_dict(),
                 **resolution_meta,
             },
@@ -2495,21 +2663,46 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if req.decision.intent in {
             "conversation:educational_explain",
             "operator:research_explain",
+            "conversation:concept_refinement",
         }:
             topic = str((req.decision.metadata or {}).get("active_learning_topic") or getattr(alice, "_active_learning_topic", "") or "").strip()
+            concept_thread = dict(
+                (req.decision.metadata or {}).get("active_concept_thread")
+                or getattr(alice, "_active_concept_thread", {})
+                or {}
+            )
+            concept_topic = str(concept_thread.get("topic") or "").strip()
+            concept_constraints = list(concept_thread.get("constraints") or [])
             educational_text = ""
             if getattr(alice, "llm", None):
-                prompt = (
-                    "You are Alice.\n"
-                    "Give a clear educational explanation based on the user's message.\n"
-                    "Be concise, factual, and natural.\n"
-                    "Do not claim tool usage or unseen evidence.\n"
-                    "Do not mention memory or previous conversations unless explicitly grounded.\n"
-                    "Do not use customer-service phrasing.\n"
-                    "Return only the explanation.\n\n"
-                    f"Active topic hint: {topic or 'none'}\n"
-                    f"User message:\n{req.user_input}\n"
-                )
+                if req.decision.intent == "conversation:concept_refinement":
+                    prompt = (
+                        "You are Alice.\n"
+                        "The user is refining a concept for a proactive AI companion.\n"
+                        "Answer conceptually and directly.\n"
+                        "Carry forward the active concept context across turns.\n"
+                        "Do not ask repetitive confirmation questions.\n"
+                        "Do not claim tool usage or unseen evidence.\n"
+                        "Do not mention files, codebase paths, or repo scanning unless explicitly requested.\n"
+                        "Do not use customer-service phrasing.\n"
+                        "Return only the answer text.\n\n"
+                        f"Active concept: {concept_topic or 'proactive AI companion'}\n"
+                        f"Concept constraints: {concept_constraints or ['not chatbot', 'not assistant', 'proactive', 'always-running', 'background monitoring', 'suggests actions']}\n"
+                        "Guidance: explain proactivity as an observe -> detect change -> judge relevance -> suggest action loop, and mention approval for risky actions.\n"
+                        f"User message:\n{req.user_input}\n"
+                    )
+                else:
+                    prompt = (
+                        "You are Alice.\n"
+                        "Give a clear educational explanation based on the user's message.\n"
+                        "Be concise, factual, and natural.\n"
+                        "Do not claim tool usage or unseen evidence.\n"
+                        "Do not mention memory or previous conversations unless explicitly grounded.\n"
+                        "Do not use customer-service phrasing.\n"
+                        "Return only the explanation.\n\n"
+                        f"Active topic hint: {topic or 'none'}\n"
+                        f"User message:\n{req.user_input}\n"
+                    )
                 try:
                     educational_text = str(
                         alice.llm.chat(prompt, use_history=True) or ""
@@ -2522,10 +2715,22 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         educational_text,
                         user_input=req.user_input,
                         intent=req.decision.intent,
-                        route="contract_educational_explain",
+                        route=(
+                            "contract_concept_refinement"
+                            if req.decision.intent == "conversation:concept_refinement"
+                            else "contract_educational_explain"
+                        ),
                     ),
                     confidence=0.9,
-                    metadata={"type": "educational_explain", "generated_by": "llm"},
+                    metadata={
+                        "type": (
+                            "concept_refinement"
+                            if req.decision.intent == "conversation:concept_refinement"
+                            else "educational_explain"
+                        ),
+                        "generated_by": "llm",
+                        "active_concept_thread": concept_thread,
+                    },
                 )
             return ResponseOutput(
                 text=_surface_text(

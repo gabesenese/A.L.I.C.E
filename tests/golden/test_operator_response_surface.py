@@ -73,6 +73,7 @@ def test_llm_generated_acknowledgement_used_and_recorded(monkeypatch, tmp_path):
     assert "bounded operator loop" in out.lower()
     loaded = lre.load_learned_response_examples(surface="operator_context_ack", limit=5)
     assert any(ex.response_text == "Fresh start. We'll keep it focused." for ex in loaded)
+    assert any(ex.source == "ollama_validated" for ex in loaded if ex.response_text == "Fresh start. We'll keep it focused.")
 
 
 def test_generic_task_kickoff_rejected_then_retry_used(monkeypatch, tmp_path):
@@ -165,6 +166,65 @@ def test_invalid_acknowledgement_is_omitted_and_not_saved(monkeypatch, tmp_path)
     assert calls["count"] == 2
     loaded = lre.load_learned_response_examples(surface="operator_context_ack", limit=5)
     assert not loaded
+
+
+def test_operator_ack_metadata_tracks_model_validation(monkeypatch, tmp_path):
+    _set_store_path(monkeypatch, tmp_path)
+    metadata = {}
+
+    out = render_operator_response(
+        user_input="just woke up from a nap, now i am gonna work on Alice for a bit",
+        base_text="",
+        operator_state={},
+        local_execution={
+            "success": True,
+            "inspected_file": "ai/runtime/agent_loop.py",
+            "analysis": {"responsibility": "agent loop"},
+        },
+        next_step="inspect ai/runtime/response_momentum_policy.py",
+        llm_generate=lambda *args, **kwargs: "Fresh start. We'll keep it focused.",
+        response_metadata=metadata,
+    )
+    assert out.startswith("Fresh start. We'll keep it focused.")
+    ack = dict(metadata.get("operator_ack") or {})
+    assert ack.get("context_detected") is True
+    assert ack.get("model_used") is True
+    assert ack.get("validation_applied") is True
+    assert ack.get("accepted") is True
+    assert int(ack.get("attempt_count") or 0) >= 1
+
+
+def test_operator_ack_invalid_after_retry_is_omitted_with_metadata(monkeypatch, tmp_path):
+    _set_store_path(monkeypatch, tmp_path)
+    metadata = {}
+
+    calls = {"count": 0}
+
+    def _llm(*args, **kwargs):
+        calls["count"] += 1
+        return "Let's work on Alice now."
+
+    out = render_operator_response(
+        user_input="just woke up from a nap, now i am gonna work on Alice for a bit",
+        base_text="",
+        operator_state={},
+        local_execution={
+            "success": True,
+            "inspected_file": "ai/runtime/agent_loop.py",
+            "analysis": {"responsibility": "agent loop"},
+        },
+        next_step="inspect ai/runtime/response_momentum_policy.py",
+        llm_generate=_llm,
+        response_metadata=metadata,
+    )
+    assert out.startswith("I inspected ai/runtime/agent_loop.py.")
+    assert calls["count"] == 2
+    ack = dict(metadata.get("operator_ack") or {})
+    assert ack.get("context_detected") is True
+    assert ack.get("model_used") is True
+    assert ack.get("validation_applied") is True
+    assert ack.get("retry_used") is True
+    assert ack.get("accepted") is False
 
 
 def test_learned_examples_are_included_in_prompt(monkeypatch, tmp_path):
@@ -264,8 +324,10 @@ def test_local_execution_error_surface_is_compact_and_no_meta_leak(monkeypatch, 
     )
     low = out.lower()
     assert "i couldn't verify the local step." in low
-    assert "blocker: local file target could not be resolved" in low
+    assert "blocker: local file target could not be resolved." in low
     assert "next best move: inspect ai/runtime/agent_loop.py".lower() in low
+    assert "i couldn't verify the local step.\n\nblocker:" in low
+    assert ".\n\nnext best move:" in low
     assert "rewritten" not in low
     assert "same facts" not in low
     assert "ready when you are" not in low
@@ -285,6 +347,74 @@ def test_failed_local_execution_does_not_claim_inspection(monkeypatch, tmp_path)
     assert out.startswith("I couldn't verify the local step.")
 
 
+def test_target_not_found_failure_never_claims_inspection():
+    out = render_local_execution_error_response(
+        user_input="analyze legacy-main.py",
+        base_text="I inspected legacy-main.py.",
+        operator_state={},
+        local_execution={
+            "success": False,
+            "error": "target_not_found",
+            "requested_target": "legacy-main.py",
+        },
+        next_step="inspect ai/runtime/agent_loop.py",
+    )
+    assert "I inspected" not in out
+
+
+def test_target_not_found_error_is_humanized():
+    out = render_local_execution_error_response(
+        user_input="analyze file",
+        base_text="",
+        operator_state={},
+        local_execution={"success": False, "error": "target_not_found"},
+        next_step="inspect ai/runtime/agent_loop.py because active objective exists; agent loop should drive next safe step",
+    )
+    assert "Blocker: I could not find the requested target." in out
+    assert "target_not_found" not in out
+
+
+def test_target_not_found_with_requested_target_is_humanized():
+    out = render_local_execution_error_response(
+        user_input="analyze legacy-main.py",
+        base_text="",
+        operator_state={},
+        local_execution={
+            "success": False,
+            "error": "target_not_found",
+            "requested_target": "legacy-main.py",
+        },
+        next_step="inspect ai/runtime/agent_loop.py because active objective exists; agent loop should drive next safe step",
+    )
+    assert "Blocker: I could not find legacy-main.py." in out
+    assert "target_not_found" not in out
+
+
+def test_paragraph_breaks_preserved_for_error_and_next_move():
+    out = render_local_execution_error_response(
+        user_input="continue",
+        base_text="",
+        operator_state={},
+        local_execution={"success": False, "error": "target_not_found"},
+        next_step="inspect ai/runtime/agent_loop.py because active objective exists; agent loop should drive next safe step",
+    )
+    assert "I couldn't verify the local step.\n\nBlocker:" in out
+    assert ".\n\nNext best move:" in out
+    assert "target_not_found Next best move" not in out
+    assert "Blocker: I could not find the requested target. Next best move:" not in out
+
+
+def test_snake_case_error_default_humanized():
+    out = render_local_execution_error_response(
+        user_input="continue",
+        base_text="",
+        operator_state={},
+        local_execution={"success": False, "error": "file_read_failed"},
+        next_step="inspect ai/runtime/agent_loop.py",
+    )
+    assert "Blocker: File read failed." in out
+
+
 def test_meta_artifact_sanitizer_removes_rewrite_notes():
     out = strip_meta_response_artifacts(
         "What would you like to start working on? (Note: I've rewritten the response to sound more natural while keeping the same facts.)"
@@ -293,6 +423,16 @@ def test_meta_artifact_sanitizer_removes_rewrite_notes():
     assert "rewritten" not in low
     assert "same facts" not in low
     assert "(note:" not in low
+
+
+def test_meta_artifact_sanitizer_removes_minor_adjustments_note():
+    out = strip_meta_response_artifacts(
+        "An AI companion is useful. (Note: I've kept the main points intact while making minor adjustments for tone and flow)"
+    )
+    low = out.lower()
+    assert "minor adjustments for tone and flow" not in low
+    assert "(note:" not in low
+    assert out.strip() == "An AI companion is useful."
 
 
 def test_passive_question_removed_when_next_step_exists(monkeypatch, tmp_path):

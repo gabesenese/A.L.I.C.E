@@ -11,8 +11,12 @@ from ai.runtime.learned_response_examples import (
 
 _META_ARTIFACT_PATTERNS = (
     r"\(note:\s*i['’]?ve rewritten the response[^)]*\)",
+    r"\(note:\s*i['’]?ve kept the main points intact[^)]*\)",
     r"note:\s*i['’]?ve rewritten[^.\n]*\.?",
+    r"note:\s*i['’]?ve kept[^.\n]*\.?",
+    r"while making minor adjustments for tone and flow[^.\n]*\.?",
     r"i['’]?ve rewritten the response to sound[^.\n]*\.?",
+    r"i['’]?ve kept the main points intact[^.\n]*\.?",
     r"while keeping the same facts[^.\n]*\.?",
     r"here is a rewritten version[:\s]*",
     r"rewritten:\s*",
@@ -31,11 +35,31 @@ _PASSIVE_OPERATOR_LINES = (
 
 def strip_meta_response_artifacts(text: str) -> str:
     cleaned = str(text or "")
+    cleaned = cleaned.replace("\r\n", "\n")
     for pattern in _META_ARTIFACT_PATTERNS:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    banned_markers = (
+        "note: i've kept",
+        "note: i've rewritten",
+        "while making minor adjustments for tone and flow",
+        "while keeping the same facts",
+        "here is a rewritten version",
+        "rewritten:",
+    )
+    parts = re.split(r"(?<=[.!?])\s+|\n+", cleaned)
+    kept: list[str] = []
+    for part in parts:
+        sentence = str(part or "").strip()
+        if not sentence:
+            continue
+        low = sentence.lower()
+        if any(marker in low for marker in banned_markers):
+            continue
+        kept.append(sentence)
+    cleaned = " ".join(kept).strip()
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
     return cleaned
-
 
 def _suppress_passive_operator_chatter(text: str) -> str:
     out_lines: list[str] = []
@@ -378,6 +402,62 @@ def _extract_next_move(next_step: str, operator_state: Dict[str, Any]) -> str:
     return _normalize_sentence(f"Next best move: {raw}")
 
 
+def humanize_local_execution_error(local_execution: Dict[str, Any]) -> str:
+    payload = dict(local_execution or {})
+    error = str(payload.get("error") or "").strip()
+    if not error:
+        return "The local execution step failed before I could verify the result."
+
+    if error == "target_not_found":
+        target = str(payload.get("target") or "").strip()
+        requested_target = str(payload.get("requested_target") or "").strip()
+        if target:
+            return f"I could not find {target}."
+        if requested_target:
+            return f"I could not find {requested_target}."
+        return "I could not find the requested target."
+    if error == "approval_required":
+        return "That action needs approval before I can run it."
+    if error == "unknown_action":
+        return "I do not have a registered action for that request."
+    if error == "tool_failed":
+        return "The local tool failed before returning verified evidence."
+    if error == "contract_local_execution_error":
+        return "The local execution contract failed before I could verify the result."
+
+    token = error.lower().strip()
+    if re.fullmatch(r"[a-z0-9_]+", token):
+        readable = token.replace("_", " ").strip()
+        if not readable:
+            return "Local execution failed."
+        return readable[0].upper() + readable[1:] + "."
+
+    compact = re.sub(r"\s+", " ", str(error or "")).strip()
+    if not compact:
+        return "Local execution failed."
+    if len(compact) > 120:
+        return "Local execution failed."
+    return compact if compact.endswith(".") else (compact + ".")
+
+
+def normalize_response_paragraphs(text: str) -> str:
+    raw = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not raw.strip():
+        return ""
+    # Restore known paragraph headings when prior layers flatten whitespace.
+    raw = re.sub(r"\s+(Blocker:\s*)", r"\n\n\1", raw)
+    raw = re.sub(r"\s+(Next best move:\s*)", r"\n\n\1", raw)
+    lines = raw.split("\n")
+    cleaned_lines: list[str] = []
+    for line in lines:
+        no_tabs = str(line).replace("\t", " ")
+        compact_spaces = re.sub(r" {2,}", " ", no_tabs)
+        cleaned_lines.append(compact_spaces.rstrip())
+    normalized = "\n".join(cleaned_lines)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip()
+
+
 def render_local_execution_error_response(
     *,
     user_input: str,
@@ -388,15 +468,14 @@ def render_local_execution_error_response(
 ) -> str:
     _ = user_input
     _ = base_text
-    _ = operator_state
     parts: list[str] = ["I couldn't verify the local step."]
-    error = str(local_execution.get("error") or "").strip()
-    if error:
-        parts.append(f"Blocker: {error}")
+    humanized_error = humanize_local_execution_error(dict(local_execution or {}))
+    parts.append(f"Blocker: {humanized_error}")
     next_move = _extract_next_move(next_step, dict(operator_state or {}))
     if next_move:
         parts.append(next_move)
-    return "\n\n".join(parts).strip()
+    rendered = "\n\n".join(parts)
+    return normalize_response_paragraphs(rendered)
 
 
 def render_operator_response(
@@ -460,6 +539,7 @@ def render_operator_response(
                             topic=str(context_signal.get("topic") or ""),
                             user_context_summary=str(context_signal.get("user_context_summary") or ""),
                             response_text=cleaned_ack,
+                            source="ollama_validated",
                         )
                     )
             except Exception:
@@ -494,4 +574,5 @@ def render_operator_response(
     if next_move:
         parts.append(next_move)
     return "\n\n".join(p for p in parts if str(p).strip()).strip()
+
 
