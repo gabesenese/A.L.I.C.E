@@ -64,6 +64,22 @@ _CODEBASE_ANALYZE_PATTERNS = (
     r"\bgive me a codex input\b",
 )
 
+_CODEBASE_IMPROVEMENT_PATTERNS = (
+    r"\byou have access to alice[' ]?s code ?base\b",
+    r"\byou have access to alice code ?base\b",
+    r"\bgive me an area i can improve\b",
+    r"\bwhat area can i improve\b",
+    r"\bhow can i improve alice\b",
+    r"\bwhat should i improve in alice\b",
+    r"\bcheck the repo\b",
+    r"\blook at the codebase\b",
+    r"\binspect the project\b",
+    r"\bfind an area to improve\b",
+    r"\bimprove my ai companion\b",
+    r"\bi am currently working on one\b",
+    r"\bmy ai project\b",
+)
+
 
 def is_explicit_weather_request(text: str) -> bool:
     low = str(text or "").lower()
@@ -75,6 +91,8 @@ def resolve_dominant_intent_hint(text: str) -> str:
     if not low:
         return ""
     if any(re.search(p, low) for p in _CODEBASE_ANALYZE_PATTERNS):
+        return "code:request"
+    if any(re.search(p, low) for p in _CODEBASE_IMPROVEMENT_PATTERNS):
         return "code:request"
     educational = any(re.search(p, low) for p in _EDUCATIONAL_PATTERNS)
     implementation = any(re.search(p, low) for p in _IMPLEMENTATION_PATTERNS)

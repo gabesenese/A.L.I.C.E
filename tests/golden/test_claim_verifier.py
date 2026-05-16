@@ -13,7 +13,10 @@ def test_allows_verified_inspection():
 def test_blocks_unverified_inspection():
     out = verify_response_claims("I inspected ai/runtime/agent_loop.py.", local_execution=None)
     assert out.valid is False
-    assert "action_claim_without_evidence" in out.reasons
+    assert (
+        "action_claim_without_evidence" in out.reasons
+        or "codebase_claim_without_evidence" in out.reasons
+    )
     assert "i inspected" not in out.verified_text.lower()
 
 
@@ -64,3 +67,16 @@ def test_rewrites_unsupported_readiness_claim():
     out = verify_response_claims("I'll be ready tomorrow.", background_events=[])
     assert out.valid is False
     assert out.verified_text == "We can continue tomorrow."
+
+
+def test_blocks_unsupported_followup_tracking_claim():
+    out = verify_response_claims(
+        "If you want, I can keep tracking this thread and follow up next turn.",
+        background_events=[],
+        action_result={},
+    )
+    assert out.valid is False
+    assert "background_claim_without_evidence" in out.reasons
+    low = out.verified_text.lower()
+    assert "keep tracking this thread" not in low
+    assert "follow up next turn" not in low

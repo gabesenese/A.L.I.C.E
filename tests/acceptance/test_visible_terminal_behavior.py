@@ -9,10 +9,14 @@ from tests.integration.test_contract_pipeline import _FakeAlice, _NlpResult
 def _build_pipeline(
     *,
     force_greeting_intent: bool = False,
+    forced_intent: str | None = None,
+    seed_operator_state: dict | None = None,
     llm_text: str | None = None,
     llm_sequence: list[str] | None = None,
 ) -> ContractPipeline:
     alice = _FakeAlice()
+    if seed_operator_state:
+        alice._operator_state = dict(seed_operator_state or {})
     if force_greeting_intent:
         original_process = alice.nlp.process
 
@@ -20,9 +24,31 @@ def _build_pipeline(
             low = str(text or "").strip().lower()
             if low in {"hi", "hello", "hey"}:
                 return _NlpResult(intent="greeting", intent_confidence=0.99, keywords=["hi"])
+            if forced_intent:
+                return _NlpResult(
+                    intent=str(forced_intent),
+                    intent_confidence=0.99,
+                    keywords=["forced"],
+                )
             return original_process(text)
 
         alice.nlp.process = _patched_process
+    elif forced_intent:
+        original_process = alice.nlp.process
+
+        def _patched_process_forced(text):
+            low = str(text or "").strip().lower()
+            if force_greeting_intent and low in {"hi", "hello", "hey"}:
+                return _NlpResult(intent="greeting", intent_confidence=0.99, keywords=["hi"])
+            if forced_intent:
+                return _NlpResult(
+                    intent=str(forced_intent),
+                    intent_confidence=0.99,
+                    keywords=["forced"],
+                )
+            return original_process(text)
+
+        alice.nlp.process = _patched_process_forced
     if llm_sequence is not None:
         responses = iter(list(llm_sequence))
 
@@ -71,7 +97,10 @@ def _assert_metadata_present(result, *, allow_greeting_skip: bool = True) -> Non
         assert str(action_result.get("risk_level") or "").strip()
     response_generation = dict(result.metadata.get("response_generation") or {})
     assert isinstance(response_generation.get("model_used"), bool)
+    assert str(response_generation.get("model_name") or "").strip()
     assert str(response_generation.get("surface") or "").strip()
+    assert isinstance(response_generation.get("validation_applied"), bool)
+    assert isinstance(response_generation.get("claim_verifier_applied"), bool)
     assert isinstance(response_generation.get("fallback_used"), bool)
 
 
@@ -88,6 +117,21 @@ def test_visible_greeting_companion_like_not_task_intake():
     low = result.response_text.lower()
     assert "what should we work on" not in low
     assert "what would you like to start" not in low
+
+
+def test_visible_greeting_task_intake_is_blocked_without_fallback():
+    pipeline = _build_pipeline(
+        force_greeting_intent=True,
+        llm_text="Hi. What should we work on?",
+    )
+    result = pipeline.run_turn(user_input="hi alice", user_id="u1", turn_number=1)
+    _assert_metadata_present(result)
+    low = str(result.response_text or "").lower()
+    assert "what should we work on" not in low
+    assert "how can i help" not in low
+    assert "ready when you are" not in low
+    greeting_meta = dict(result.metadata.get("greeting_metadata") or {})
+    assert str(greeting_meta.get("generated_by") or "") != "fallback"
 
 
 def test_visible_work_on_alice_success_or_clean_blocker():
@@ -124,10 +168,17 @@ def test_visible_local_execution_failure_never_leaks_llm_chatter():
     _assert_metadata_present(result)
     local_execution = dict(result.metadata.get("local_execution") or {})
     assert local_execution.get("success") is False
-    low = result.response_text.lower()
+    text = str(result.response_text or "")
+    low = text.lower()
     assert "i couldn't verify the local step." in low
+    assert "blocker:" in low
     assert "next best move:" in low
     assert "i inspected" not in low
+    assert "target_not_found" not in low
+    assert "contract_local_execution_error" not in low
+    assert "unknown_action" not in low
+    assert "\n\nblocker:" in low
+    assert "\n\nnext best move:" in low
     assert_no_visible_surface_regressions(result.response_text)
     assert "what would you like" not in low
 
@@ -142,6 +193,7 @@ def test_visible_fake_memory_deletion_blocked():
     if result.metadata.get("claim_verifier_valid") is not False:
         assert (
             "can't confirm deletion" in low
+            or "i can delete those memories" in low
             or "could not verify that result safely" in low
         )
 
@@ -294,3 +346,115 @@ def test_no_production_hardcoded_greeting_fallback_returns():
     corpus = "\n".join(text_chunks)
     for token in forbidden_tokens:
         assert token not in corpus
+
+
+def test_visible_educational_learning_stays_clean():
+    pipeline = _build_pipeline(
+        forced_intent="conversation:educational_explain",
+        seed_operator_state={
+            "active_objective": "Improve agentic companion operator runtime",
+            "current_focus": "runtime",
+            "next_recommended_action": "inspect file ai/runtime/next_step_policy.py because It decides what Alice should do after each safe step.",
+        },
+        llm_text=(
+            "An AI companion is different from a normal chatbot because it can keep context, understand preferences, use tools, and adapt over time. "
+            "If you want, I can keep tracking this thread and follow up next turn."
+        ),
+    )
+    result = pipeline.run_turn(
+        user_input="im trying to learn more about ai companion",
+        user_id="u_rg5",
+        turn_number=1,
+    )
+    _assert_metadata_present(result)
+    assert result.metadata.get("intent") == "conversation:educational_explain"
+    low = str(result.response_text or "").lower()
+    assert "current objective" not in low
+    assert "next best move" not in low
+    assert "inspect file" not in low
+    assert "ai/runtime" not in low
+    assert "operator runtime" not in low
+    assert "if you want" not in low
+    assert "keep tracking this thread" not in low
+    assert "follow up next turn" not in low
+    assert "ai companion" in low
+
+
+def test_visible_clarification_response_not_polluted_by_operator_scaffolding():
+    pipeline = _build_pipeline(
+        forced_intent="conversation:clarification_needed",
+        seed_operator_state={
+            "active_objective": "Improve agentic companion operator runtime",
+            "current_focus": "runtime",
+            "next_recommended_action": "inspect file ai/runtime/next_step_policy.py because It decides what Alice should do after each safe step.",
+        },
+        llm_text=(
+            "I misunderstood that response path. Please repeat your request in one line and I will answer directly. "
+            "If you want, I can keep tracking this thread and follow up next turn."
+        ),
+    )
+    result = pipeline.run_turn(
+        user_input="been great, it is friday after all and i am ready to work o alice",
+        user_id="u_rg6",
+        turn_number=1,
+    )
+    _assert_metadata_present(result)
+    low = str(result.response_text or "").lower()
+    assert "current objective" not in low
+    assert "next best move" not in low
+    assert "ai/runtime" not in low
+    assert "if you want" not in low
+    assert "keep tracking this thread" not in low
+    assert "follow up next turn" not in low
+
+
+def test_visible_codebase_access_claim_requires_local_evidence_or_honest_unverified_message():
+    pipeline = _build_pipeline(
+        llm_text=(
+            "With that in mind, let me see if I can dig up some relevant info from our codebase. "
+            "Scanning through the repo, we have a few plugins and features related to proactive suggestions."
+        ),
+    )
+    result = pipeline.run_turn(
+        user_input="you have access to alice's code base, my ai project",
+        user_id="u_cb1",
+        turn_number=1,
+    )
+    _assert_metadata_present(result)
+    low = str(result.response_text or "").lower()
+    local = dict(result.metadata.get("local_execution") or {})
+    action_result = dict(result.metadata.get("action_result") or {})
+    has_local_or_action_evidence = bool(
+        local.get("success")
+        or str(local.get("inspected_file") or "").strip()
+        or (action_result.get("success") and action_result.get("verified"))
+    )
+    assert has_local_or_action_evidence or (
+        "i have not verified the codebase yet" in low
+    )
+    assert "scanning through the repo" not in low
+    assert "i looked through the codebase" not in low
+    assert "we have a few plugins" not in low
+
+
+def test_visible_project_improvement_request_does_not_hallucinate_file_paths():
+    pipeline = _build_pipeline(
+        llm_text="Take a look at self_learning/contextual_awareness.py to improve the project.",
+    )
+    result = pipeline.run_turn(
+        user_input="give me an area i can improve",
+        user_id="u_cb2",
+        turn_number=1,
+    )
+    _assert_metadata_present(result)
+    low = str(result.response_text or "").lower()
+    local = dict(result.metadata.get("local_execution") or {})
+    action_result = dict(result.metadata.get("action_result") or {})
+    has_verified_evidence = bool(
+        local.get("success")
+        or str(local.get("inspected_file") or "").strip()
+        or (action_result.get("success") and action_result.get("verified"))
+    )
+    assert "self_learning/contextual_awareness.py" not in low
+    assert "i found in the codebase" not in low
+    assert has_verified_evidence or ("i have not verified the codebase yet" in low)

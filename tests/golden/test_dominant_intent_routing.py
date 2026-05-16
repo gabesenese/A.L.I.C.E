@@ -28,3 +28,14 @@ def test_codebase_analysis_ability_routes_to_code_request():
     )
     assert result.metadata["intent"] in {"code:request", "code:list_files"}
     assert "what would you like to start with" not in result.response_text.lower()
+
+
+def test_codebase_improvement_prompt_routes_to_local_operator_path():
+    alice = _FakeAlice()
+    result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
+        user_input="give me an area i can improve",
+        user_id="u1",
+        turn_number=3,
+    )
+    assert result.metadata["route"] == "local"
+    assert result.metadata["intent"] in {"code:request", "operator:continue", "code:list_files"}

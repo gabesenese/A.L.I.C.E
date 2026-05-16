@@ -24,12 +24,17 @@ from ai.runtime.memory_turn_service import MemoryTurnService
 from ai.runtime.next_step_policy import decide_next_step
 from ai.runtime.pipeline.metadata_builder import PipelineMetadataBuilder
 from ai.runtime.pipeline.routing_failure_logger import RoutingFailureLogger
-from ai.runtime.greeting_surface_policy import render_grounded_greeting
-from ai.runtime.response_momentum_policy import apply_response_momentum
+from ai.runtime.greeting_surface_policy import render_grounded_greeting, validate_chat_greeting
+from ai.runtime.operator_response_surface import normalize_response_paragraphs
+from ai.runtime.response_momentum_policy import (
+    apply_response_momentum,
+    strip_passive_followup_sentences,
+)
 from ai.runtime.claim_verifier import verify_response_claims
 from ai.runtime.action_bus import action_result_from_local_execution
 from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
+from ai.runtime.turn_mode_policy import classify_turn_mode
 from ai.memory.project_memory import load_project_state, update_project_state
 from ai.runtime.self_improvement.improvement_loop import ImprovementLoop
 from ai.core.constraint_preference_extractor import ConstraintPreferenceExtractor
@@ -273,6 +278,107 @@ class ContractPipeline:
             return "casual"
         return "error"
 
+    @staticmethod
+    def _greeting_task_intake_tokens() -> Tuple[str, ...]:
+        return (
+            "what should we work on",
+            "what would you like to work on",
+            "what are we working on",
+            "what would you like to start",
+            "what do you want to work on",
+            "how can i help",
+            "how may i assist",
+            "what can i do",
+            "what do you need",
+            "ready when you are",
+            "let me know",
+        )
+
+    @classmethod
+    def _contains_task_intake_greeting(cls, text: str) -> bool:
+        low = str(text or "").lower()
+        return any(token in low for token in cls._greeting_task_intake_tokens())
+
+    @staticmethod
+    def _is_pure_greeting_input(user_input: str) -> bool:
+        normalized = " ".join(str(user_input or "").lower().replace(",", " ").split())
+        return normalized in {
+            "hi",
+            "hi alice",
+            "hey",
+            "hey alice",
+            "hello",
+            "hello alice",
+            "yo",
+            "yo alice",
+        }
+
+    @classmethod
+    def _repair_greeting_task_intake(
+        cls,
+        *,
+        user_input: str,
+        current_text: str,
+        llm_generate_fn: Any,
+    ) -> Tuple[str, Dict[str, Any]]:
+        current = str(current_text or "").strip()
+        if not cls._contains_task_intake_greeting(current):
+            return current, {
+                "applied": False,
+                "retry_attempted": False,
+                "accepted": bool(current),
+                "reasons": [],
+            }
+        reasons = ["task_intake_greeting", "assistant_service_language"]
+        if not llm_generate_fn:
+            return "", {
+                "applied": True,
+                "retry_attempted": False,
+                "accepted": False,
+                "reasons": reasons,
+            }
+        prompt = (
+            "You are Alice speaking to Gabriel.\n\n"
+            "The previous greeting was rejected for:\n"
+            "task_intake_greeting, assistant_service_language\n\n"
+            "Write a natural greeting only.\n"
+            "Use only the current user message.\n"
+            "Do not ask what to work on.\n"
+            "Do not ask how you can help.\n"
+            "Do not use task-intake language.\n"
+            "Keep it 1-3 short sentences.\n"
+            "Return only the greeting.\n\n"
+            f"User message:\n{str(user_input or '').strip()}\n"
+        )
+        try:
+            try:
+                candidate = str(llm_generate_fn(prompt=prompt) or "").strip()
+            except TypeError:
+                candidate = str(llm_generate_fn(prompt) or "").strip()
+        except Exception:
+            candidate = ""
+        if not candidate or cls._contains_task_intake_greeting(candidate):
+            return "", {
+                "applied": True,
+                "retry_attempted": True,
+                "accepted": False,
+                "reasons": reasons,
+            }
+        validation = validate_chat_greeting(candidate, pure_greeting=True)
+        if not validation.valid:
+            return "", {
+                "applied": True,
+                "retry_attempted": True,
+                "accepted": False,
+                "reasons": list(validation.reasons or reasons),
+            }
+        return candidate, {
+            "applied": True,
+            "retry_attempted": True,
+            "accepted": True,
+            "reasons": reasons,
+        }
+
     @classmethod
     def _build_response_generation_metadata(
         cls,
@@ -314,7 +420,7 @@ class ContractPipeline:
             or bool((respond_metadata or {}).get("validation_passed") is not None)
         )
         fallback_used = bool(
-            str(response_type or "").strip().lower() in {"fallback", "code_request_fallback"}
+            str(response_type or "").strip().lower() in {"fallback"}
             or bool((respond_metadata or {}).get("fallback"))
         )
         if surface in {"greeting", "casual", "educational", "operator"}:
@@ -322,6 +428,8 @@ class ContractPipeline:
         model_name = str(llm_model_name or "").strip()
         if not model_name and llm_generate_fn:
             model_name = "alice-ollama"
+        if not model_name:
+            model_name = "none"
         return {
             "model_used": bool(model_used),
             "model_name": model_name,
@@ -860,6 +968,8 @@ class ContractPipeline:
         respond_requires_follow_up = False
         respond_metadata: Dict[str, Any] = {}
         follow_up_question = ""
+        unshaped_response_text = ""
+        proposed_response_text = ""
 
         if bool(action_discipline.get("approval_required")):
             verification = VerifierResult(
@@ -902,6 +1012,9 @@ class ContractPipeline:
                 trace_id=trace_id,
             )
             verification = verify_phase.verification
+            proposed_response_text = str(
+                getattr(verify_phase.proposed_response, "text", "") or ""
+            ).strip()
 
             if verification is None:
                 stages.append(
@@ -950,8 +1063,9 @@ class ContractPipeline:
                     )
 
             respond_phase = self.orchestrator.respond_phase(verify_phase=verify_phase)
+            unshaped_response_text = str(respond_phase.response_text or "").strip()
             response_text = self.companion_runtime.shape_response(
-                response_text=str(respond_phase.response_text or "").strip(),
+                response_text=unshaped_response_text,
                 policy=policy,
             )
             respond_requires_follow_up = bool(respond_phase.requires_follow_up)
@@ -993,6 +1107,24 @@ class ContractPipeline:
             is_greeting_turn = str(getattr(decision, "intent", "") or "").endswith(
                 "greeting"
             ) or str(getattr(decision, "intent", "") or "") == "greeting"
+            verification_reason = str(verification.reason or "") if verification else ""
+            verification_diag = dict(verification.diagnostics or {}) if verification else {}
+            verification_reasons = [
+                str(item or "").strip()
+                for item in list(verification_diag.get("reasons") or [])
+                if str(item or "").strip()
+            ]
+            turn_mode_for_verification = classify_turn_mode(
+                user_input=user_input,
+                intent=str(getattr(decision, "intent", "") or ""),
+                route=str(getattr(decision, "route", "") or ""),
+                operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
+                project_memory=load_project_state(str(user_id or "default")).to_dict(),
+            )
+            can_salvage_followup_claims = (
+                verification_reason == "unsupported_claims"
+                and turn_mode_for_verification in {"educational_explain", "clarification", "casual_companion"}
+            )
             if is_greeting_turn or (
                 verification
                 and str(verification.reason or "") == "unsupported_continuity_claim"
@@ -1015,6 +1147,18 @@ class ContractPipeline:
                     greeting.session_state
                 )
                 response_text = str(greeting.text or "").strip()
+            elif can_salvage_followup_claims:
+                mode = (
+                    "educational_explain"
+                    if turn_mode_for_verification == "educational_explain"
+                    else ("clarification" if turn_mode_for_verification == "clarification" else "companion_chat")
+                )
+                cleaned = strip_passive_followup_sentences(
+                    str(proposed_response_text or unshaped_response_text or response_text),
+                    mode=mode,
+                )
+                response_text = str(cleaned or "").strip()
+                respond_requires_follow_up = bool(not response_text)
             else:
                 response_text = (
                     "I could not verify that result safely. "
@@ -1053,11 +1197,15 @@ class ContractPipeline:
                     "ai/runtime/contract_pipeline.py",
                 ],
             )
-            respond_requires_follow_up = True
+            if not (can_salvage_followup_claims and response_text):
+                respond_requires_follow_up = True
             respond_metadata = {
                 **dict(respond_metadata or {}),
                 "fallback": "execution_verifier_guard",
             }
+            if can_salvage_followup_claims and response_text:
+                respond_metadata["fallback"] = ""
+                respond_metadata["verification_rewrite"] = "removed_unsupported_followup_claims"
             if is_greeting_turn or (
                 verification
                 and str(verification.reason or "") == "unsupported_continuity_claim"
@@ -1104,7 +1252,6 @@ class ContractPipeline:
 
         if str((respond_metadata or {}).get("type") or "") in {
             "fallback",
-            "code_request_fallback",
         } or str((respond_metadata or {}).get("fallback") or ""):
             self._append_routing_failure(
                 trace_id=trace_id,
@@ -1259,6 +1406,7 @@ class ContractPipeline:
         )
         claim_verification = verify_response_claims(
             response_text,
+            user_input=user_input,
             route=str(decision.route or ""),
             intent=str(decision.intent or ""),
             local_execution=local_exec_payload,
@@ -1269,7 +1417,40 @@ class ContractPipeline:
             project_memory=load_project_state(str(user_id or "default")).to_dict(),
             background_events=background_events,
         )
-        response_text = str(claim_verification.verified_text or "").strip()
+        response_text = normalize_response_paragraphs(
+            str(claim_verification.verified_text or "").strip()
+        )
+        turn_mode = classify_turn_mode(
+            user_input=user_input,
+            intent=str(decision.intent or ""),
+            route=str(decision.route or ""),
+            operator_state=operator_state_payload,
+            project_memory=load_project_state(str(user_id or "default")).to_dict(),
+        )
+        if (
+            str(decision.intent or "").strip().lower() == "greeting"
+            or turn_mode == "greeting"
+            or self._is_pure_greeting_input(user_input)
+        ):
+            repaired_text, greeting_guard = self._repair_greeting_task_intake(
+                user_input=user_input,
+                current_text=response_text,
+                llm_generate_fn=getattr(self.boundaries.response, "llm_generate_fn", None),
+            )
+            if bool(greeting_guard.get("applied")):
+                respond_metadata = {
+                    **dict(respond_metadata or {}),
+                    "greeting_task_intake_guard": dict(greeting_guard or {}),
+                    "validation_passed": bool(greeting_guard.get("accepted")),
+                    "validation_reasons": list(greeting_guard.get("reasons") or []),
+                    "generated_by": (
+                        "llm_retry"
+                        if bool(greeting_guard.get("accepted"))
+                        and bool(greeting_guard.get("retry_attempted"))
+                        else str((respond_metadata or {}).get("generated_by") or "none")
+                    ),
+                }
+            response_text = str(repaired_text or "").strip()
         agent_loop_payload = build_agent_loop_state(
             user_input=user_input,
             route=str(decision.route or ""),

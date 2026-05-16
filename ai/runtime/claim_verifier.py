@@ -54,7 +54,152 @@ _BACKGROUND_CLAIM_PATTERNS = (
     re.compile(r"\bi watched\b", re.IGNORECASE),
     re.compile(r"\bi noticed while you were away\b", re.IGNORECASE),
     re.compile(r"\bi(?:'|’)ll be ready tomorrow\b", re.IGNORECASE),
+    re.compile(r"\bi can keep tracking this thread\b", re.IGNORECASE),
+    re.compile(r"\bkeep tracking this thread\b", re.IGNORECASE),
+    re.compile(r"\bi can follow up\b", re.IGNORECASE),
+    re.compile(r"\bi(?:'|’)ll follow up\b", re.IGNORECASE),
+    re.compile(r"\bi(?:'|’)ll keep track\b", re.IGNORECASE),
+    re.compile(r"\bi(?:'|’)ll keep monitoring\b", re.IGNORECASE),
 )
+_CODEBASE_SCAN_CLAIM_PATTERNS = (
+    re.compile(r"\bscanning (?:through )?the repo\b", re.IGNORECASE),
+    re.compile(r"\bi scanned the repo\b", re.IGNORECASE),
+    re.compile(r"\bi looked through the codebase\b", re.IGNORECASE),
+    re.compile(r"\bi dug through the codebase\b", re.IGNORECASE),
+    re.compile(r"\bi found in the codebase\b", re.IGNORECASE),
+    re.compile(r"\bwe have a few plugins\b", re.IGNORECASE),
+    re.compile(r"\bwe have a module\b", re.IGNORECASE),
+    re.compile(r"\btake a look at\b", re.IGNORECASE),
+)
+_CODEBASE_PATH_PATTERN = re.compile(
+    r"(?<![a-z0-9_./\\-])([a-zA-Z0-9_./\\-]+\.py)(?![a-z0-9_./\\-])",
+    re.IGNORECASE,
+)
+
+
+def _normalize_path(path: str) -> str:
+    return (
+        str(path or "")
+        .strip()
+        .strip("`'\".,;:!?")
+        .replace("\\", "/")
+        .lstrip("./")
+        .lower()
+    )
+
+
+def _extract_referenced_py_paths(text: str) -> List[str]:
+    out: List[str] = []
+    for m in _CODEBASE_PATH_PATTERN.finditer(str(text or "")):
+        p = _normalize_path(str(m.group(1) or ""))
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
+def requires_codebase_evidence(user_input: str, response_text: str) -> bool:
+    user_low = str(user_input or "").lower()
+    resp_low = str(response_text or "").lower()
+    combined = f"{user_low}\n{resp_low}"
+    strong_markers = (
+        "codebase",
+        "repo",
+        "project files",
+        "scanning the repo",
+        "scanning through the repo",
+        "looked through the codebase",
+        "found in the codebase",
+        "take a look at",
+        "ai/runtime/",
+        "self_learning/",
+    )
+    if any(marker in combined for marker in strong_markers):
+        return True
+    if _CODEBASE_PATH_PATTERN.search(combined):
+        return True
+    weak_markers = ("runtime", "module", "plugin")
+    has_weak = any(marker in combined for marker in weak_markers)
+    has_scope = any(
+        marker in combined
+        for marker in ("alice", "project", "code", "codebase", "repo", "file", "files")
+    )
+    return bool(has_weak and has_scope)
+
+
+def _collect_verified_files(
+    *,
+    local_execution: Dict[str, Any],
+    action_result: Dict[str, Any],
+) -> set[str]:
+    files: set[str] = set()
+    local_inspected = _normalize_path(str(local_execution.get("inspected_file") or ""))
+    if local_inspected:
+        files.add(local_inspected)
+    action_evidence = dict(action_result.get("evidence") or {})
+    action_inspected = _normalize_path(str(action_evidence.get("inspected_file") or ""))
+    if action_inspected:
+        files.add(action_inspected)
+    for key in ("files", "listed_files"):
+        vals = action_evidence.get(key)
+        if isinstance(vals, list):
+            for item in vals:
+                normalized = _normalize_path(str(item or ""))
+                if normalized:
+                    files.add(normalized)
+    return files
+
+
+def _has_codebase_evidence(
+    *,
+    local_execution: Dict[str, Any],
+    action_result: Dict[str, Any],
+) -> bool:
+    local_success = bool(local_execution.get("success"))
+    local_inspected = str(local_execution.get("inspected_file") or "").strip()
+    action_success_verified = bool(action_result.get("success")) and bool(
+        action_result.get("verified")
+    )
+    verified_files = _collect_verified_files(
+        local_execution=local_execution,
+        action_result=action_result,
+    )
+    return bool(local_success or local_inspected or action_success_verified or verified_files)
+
+
+def _next_safe_inspect_target(
+    *,
+    action_result: Dict[str, Any],
+    operator_state: Dict[str, Any],
+    project_memory: Dict[str, Any],
+) -> str:
+    action_evidence = dict(action_result.get("evidence") or {})
+    for source in (
+        dict(operator_state.get("last_recommended_action") or {}),
+        dict(project_memory.get("last_recommended_action") or {}),
+    ):
+        action_name = str(source.get("action") or "").strip().lower()
+        target = str(source.get("target") or "").strip()
+        if target and action_name in {"inspect_file", "analyze_file", "read_file"}:
+            return target
+    for collection in ("files", "listed_files"):
+        values = action_evidence.get(collection)
+        if isinstance(values, list):
+            for item in values:
+                target = str(item or "").strip()
+                if target:
+                    return target
+    return ""
+
+
+def _codebase_unverified_message(next_target: str = "") -> str:
+    base = (
+        "I have not verified the codebase yet, so I should inspect the project "
+        "before naming files or specific improvement areas."
+    )
+    target = str(next_target or "").strip().strip("`'\".,;:!?")
+    if not target:
+        return base
+    return f"{base}\n\nNext best move: inspect {target}."
 
 
 def _sentences(text: str) -> List[str]:
@@ -182,6 +327,7 @@ def _limitation_for_reason(reason: str) -> str:
         "mutation_claim_without_evidence": "I can't confirm deletion because no verified delete action completed.",
         "memory_claim_without_evidence": "I don't have grounded evidence for that previous topic.",
         "background_claim_without_evidence": "We can continue tomorrow.",
+        "codebase_claim_without_evidence": _codebase_unverified_message(),
     }
     return mapping.get(reason, "I couldn't verify that claim from available evidence.")
 
@@ -189,6 +335,7 @@ def _limitation_for_reason(reason: str) -> str:
 def verify_response_claims(
     response_text: str,
     *,
+    user_input: str = "",
     route: str = "",
     intent: str = "",
     local_execution: dict | None = None,
@@ -219,6 +366,38 @@ def verify_response_claims(
     op_state = dict(operator_state or {})
     project = dict(project_memory or {})
     bg_events = list(background_events or [])
+    normalized_route = str(route or "").strip().lower()
+    verified_files = _collect_verified_files(local_execution=local, action_result=action)
+    requires_codebase = requires_codebase_evidence(user_input=user_input, response_text=original)
+    has_codebase_evidence = _has_codebase_evidence(
+        local_execution=local,
+        action_result=action,
+    )
+
+    if requires_codebase and not has_codebase_evidence and normalized_route != "local":
+        next_target = _next_safe_inspect_target(
+            action_result=action,
+            operator_state=op_state,
+            project_memory=project,
+        )
+        rewritten = _codebase_unverified_message(next_target)
+        return ClaimVerificationResult(
+            valid=False,
+            original_text=original,
+            verified_text=rewritten,
+            unsupported_claims=[original],
+            reasons=["codebase_claim_without_evidence"],
+            evidence_used={
+                "route": str(route or ""),
+                "intent": str(intent or ""),
+                "codebase_evidence_required": True,
+                "local_execution_success": bool(local.get("success")),
+                "inspected_file": str(local.get("inspected_file") or ""),
+                "action_success": bool(action.get("success")),
+                "action_verified": bool(action.get("verified")),
+                "verified_file_count": len(verified_files),
+            },
+        )
 
     reasons: List[str] = []
     unsupported_claims: List[str] = []
@@ -262,11 +441,38 @@ def verify_response_claims(
                 sentence_invalid = True
                 sentence_reason = "memory_claim_without_evidence"
 
+        if (not sentence_invalid) and normalized_route != "local":
+            if any(pattern.search(sentence) for pattern in _CODEBASE_SCAN_CLAIM_PATTERNS):
+                referenced_from_scan_sentence = _extract_referenced_py_paths(sentence)
+                if (not has_codebase_evidence) or (
+                    referenced_from_scan_sentence
+                    and not all(path in verified_files for path in referenced_from_scan_sentence)
+                ):
+                    sentence_invalid = True
+                    sentence_reason = "codebase_claim_without_evidence"
+
+        if not sentence_invalid and normalized_route != "local":
+            referenced_py_paths = _extract_referenced_py_paths(sentence)
+            if referenced_py_paths:
+                if not all(path in verified_files for path in referenced_py_paths):
+                    sentence_invalid = True
+                    sentence_reason = "codebase_claim_without_evidence"
+
         if sentence_invalid:
             unsupported_claims.append(sentence)
             reasons.append(sentence_reason)
             if sentence_reason == "memory_claim_without_evidence":
                 kept_sentences.append("I don't have grounded evidence for that previous topic.")
+            elif sentence_reason == "codebase_claim_without_evidence":
+                codebase_note = _codebase_unverified_message(
+                    _next_safe_inspect_target(
+                        action_result=action,
+                        operator_state=op_state,
+                        project_memory=project,
+                    )
+                )
+                if codebase_note not in kept_sentences:
+                    kept_sentences.append(codebase_note)
             continue
 
         kept_sentences.append(sentence)

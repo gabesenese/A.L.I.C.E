@@ -2443,17 +2443,53 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     metadata={"type": "code_request"},
                 )
 
-            fallback = _surface_text(
-                "Yes, I can analyze Alice's current codebase. I will start by listing the main files and then inspect the core runtime routing paths.",
-                user_input=req.user_input,
-                intent=req.decision.intent,
-                route="contract_code_request",
-            )
+            if getattr(alice, "llm", None):
+                model_code_response = ""
+                prompt = (
+                    "You are Alice.\n"
+                    "The user asked for code-work help.\n"
+                    "Write a concise response that states the next concrete local step.\n"
+                    "Do not claim actions already completed unless they are verified in provided evidence.\n"
+                    "Do not mention memory or previous conversations unless explicitly grounded.\n"
+                    "Do not use customer-service language.\n"
+                    "Return only the response text.\n\n"
+                    f"User message:\n{req.user_input}\n"
+                )
+                try:
+                    model_code_response = str(
+                        alice.llm.chat(prompt, use_history=True) or ""
+                    ).strip()
+                except Exception:
+                    model_code_response = ""
+                if model_code_response:
+                    return ResponseOutput(
+                        text=_surface_text(
+                            model_code_response,
+                            user_input=req.user_input,
+                            intent=req.decision.intent,
+                            route="contract_code_request_generation",
+                        ),
+                        confidence=0.82,
+                        metadata={"type": "code_request"},
+                    )
+
             return ResponseOutput(
-                text=fallback,
-                confidence=0.75,
-                requires_follow_up=False,
-                metadata={"type": "code_request_fallback"},
+                text=_surface_text(
+                    "I couldn't generate a verified code-work response yet. "
+                    "Share a specific file path or action and I will retry.",
+                    user_input=req.user_input,
+                    intent=req.decision.intent,
+                    route="contract_code_request_generation_error",
+                ),
+                confidence=0.3,
+                requires_follow_up=True,
+                follow_up_question=_surface_text(
+                    "Which file path or concrete action should I take next?",
+                    user_input=req.user_input,
+                    intent=req.decision.intent,
+                    route="contract_code_request_generation_error",
+                ),
+                metadata={"type": "code_request_generation_error"},
             )
 
         if req.decision.intent in {
@@ -2851,6 +2887,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         claim_verification = verify_response_claims(
             response_text,
+            user_input=req.user_input,
             route=str(req.decision.route or ""),
             intent=str(req.decision.intent or ""),
             action_result=dict(req.tool_result.data or {}) if req.tool_result else {},
