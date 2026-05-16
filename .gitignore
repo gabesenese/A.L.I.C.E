@@ -108,3 +108,6 @@ data/feature_flags.json
 data/analytics/memory_monitor_config.json
 .gitignore
 models/ollama/Alice.Modelfile
+
+# Local architecture scratch docs not for remote
+docs/david_repo_companion_map.md

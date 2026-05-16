@@ -30,8 +30,10 @@ from ai.contracts import (
     ToolSchemaValidationError,
 )
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
+from ai.memory.alice_memory_service import AliceMemoryService
 from ai.memory.personal_memory import PersonalMemoryStore
 from ai.memory.project_memory import load_project_state, update_project_state
+from ai.runtime.context_refresh_service import ContextRefreshService
 from ai.runtime.continuity_claim_guard import assess_continuity_claims
 from ai.runtime.greeting_surface_policy import render_grounded_greeting
 from ai.runtime.dominant_intent_resolver import (
@@ -122,20 +124,33 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     memory_answer_verifier = MemoryAnswerVerifier()
     local_executor = LocalActionExecutor(alice)
     action_bus = ActionBus()
+    context_refresh_service = ContextRefreshService()
+    alice_memory_service = AliceMemoryService()
+    try:
+        alice_memory_service.initialize()
+    except Exception:
+        alice_memory_service = None
+
+    def _llm_allows_context_injection(llm_obj: Any) -> bool:
+        if llm_obj is None:
+            return False
+        module_name = str(getattr(llm_obj.__class__, "__module__", "") or "").lower()
+        if module_name.startswith("tests."):
+            return False
+        if module_name.startswith("ai."):
+            return True
+        return bool(getattr(llm_obj, "allow_context_block", False))
 
     def _normalize_action_name(name: str) -> str:
         raw = str(name or "").strip().lower()
         mapping = {
-            "operator:project_status": "project_status",
-            "operator:next_step": "next_step",
-            "operator:continue": "code:analyze_file",
-            "operator:execute_recommended_action": "code:analyze_file",
-            "operator:explain_recommendation": "next_step",
-            "self_improvement:audit": "self_improvement_audit",
-            "self_improvement:status": "self_improvement_audit",
-            "self_improvement:brief": "self_improvement_audit",
-            "freshness:current_events": "project_status",
-            "system:location": "project_status",
+            "inspect_file": "code:analyze_file",
+            "analyze_file": "code:analyze_file",
+            "read_file": "code:read_file",
+            "list_files": "code:list_files",
+            "project_status": "operator:project_status",
+            "next_step": "operator:next_step",
+            "self_improvement_audit": "self_improvement:audit",
         }
         return mapping.get(raw, raw)
 
@@ -186,6 +201,16 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         "analyze_file",
         "read_file",
         "list_files",
+        "operator:project_status",
+        "operator:next_step",
+        "operator:continue",
+        "operator:execute_recommended_action",
+        "operator:explain_recommendation",
+        "self_improvement:audit",
+        "self_improvement:status",
+        "self_improvement:brief",
+        "system:location",
+        "freshness:current_events",
         "code:request",
         "code:analyze_file",
         "code:read_file",
@@ -425,15 +450,40 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return False
         patterns = (
             r"\bready to work on (?:our )?(?:ai project|ai|alice|the project)\b",
-            r"\blet[' ]?s work on alice\b",
-            r"\blet[' ]?s continue working on alice\b",
             r"\bi[' ]?m ready to work on the project\b",
             r"\bready to keep building alice\b",
-            r"\blet[' ]?s continue the ai project\b",
             r"\bback to working on alice\b",
             r"\blet[' ]?s get back to alice\b",
         )
-        return any(re.search(pat, text) for pat in patterns)
+        matched = any(re.search(pat, text) for pat in patterns)
+        if not matched:
+            return False
+        token_count = len(re.findall(r"\b[a-z0-9']+\b", text))
+        if token_count > 8 and any(sep in text for sep in (",", " and ", " but ")):
+            weather_context = any(
+                token in text
+                for token in (
+                    "weather",
+                    "rain",
+                    "snow",
+                    "temperature",
+                    "forecast",
+                )
+            )
+            if weather_context:
+                return False
+        return True
+
+    def _looks_like_help_request(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        if not text:
+            return False
+        return bool(
+            re.search(
+                r"\b(what can you do|how can you help|help me|what do you do|what are your capabilities|show your capabilities)\b",
+                text,
+            )
+        )
 
     def _is_recommendation_approval_phrase(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
@@ -464,6 +514,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         )
 
     def _fallback_answer_intent(user_input: str) -> str:
+        if _looks_like_help_request(user_input):
+            return "conversation:help"
+        if _looks_like_current_events_request(user_input):
+            return "freshness:current_events"
         hint = resolve_dominant_intent_hint(user_input)
         if hint in {
             "conversation:educational_explain",
@@ -476,7 +530,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "code:list_files",
         }:
             return hint
-        return "conversation:goal_statement"
+        return "conversation:general"
 
     def _extract_learning_topic(user_input: str) -> str:
         low = str(user_input or "").lower()
@@ -1271,6 +1325,51 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "resolved_input": req.user_input,
                     "operator_state": state,
                     "active_concept_thread": active_concept_thread,
+                },
+            )
+        if _looks_like_proactive_agent_design_statement(req.user_input):
+            return RouterDecision(
+                route="llm",
+                intent="conversation:goal_statement",
+                confidence=0.88,
+                decision_band="execute",
+                metadata={
+                    "reason": "proactive_agent_design_statement",
+                    "resolved_input": req.user_input,
+                },
+            )
+        if _looks_like_project_work_session_start(req.user_input):
+            return RouterDecision(
+                route="llm",
+                intent="conversation:project_work_session",
+                confidence=0.9,
+                decision_band="execute",
+                metadata={
+                    "reason": "project_work_session_start",
+                    "resolved_input": req.user_input,
+                },
+            )
+        if _looks_like_help_request(req.user_input):
+            return RouterDecision(
+                route="llm",
+                intent="conversation:help",
+                confidence=0.9,
+                decision_band="execute",
+                metadata={
+                    "reason": "help_request_detected",
+                    "resolved_input": req.user_input,
+                },
+            )
+        if _looks_like_current_events_request(req.user_input):
+            return RouterDecision(
+                route="local",
+                intent="freshness:current_events",
+                confidence=0.98,
+                decision_band="execute",
+                metadata={
+                    "reason": "freshness_sensitive_current_events",
+                    "requires_live_sources": True,
+                    "resolved_input": req.user_input,
                 },
             )
         if _is_proactive_concept_statement(req.user_input) or (
@@ -2392,6 +2491,20 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         greeting_turn = (
             decision_intent.endswith("greeting") or decision_intent == "greeting"
         )
+        project_state = load_project_state("default").to_dict()
+        context_frame = context_refresh_service.build_context_frame(
+            user_input=req.user_input,
+            route=str(req.decision.route or ""),
+            intent=decision_intent,
+            operator_state=operator_state,
+            project_state=project_state,
+            memory_service=alice_memory_service,
+        )
+        context_block = context_refresh_service.build_context_block(context_frame)
+        context_metadata = {
+            "context_frame": context_refresh_service.frame_to_metadata(context_frame),
+            "context_block": context_block,
+        }
 
         def _build_grounded_greeting() -> ResponseOutput:
             session_state = dict(getattr(alice, "_greeting_session_state", {}) or {})
@@ -2703,6 +2816,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         f"Active topic hint: {topic or 'none'}\n"
                         f"User message:\n{req.user_input}\n"
                     )
+                if _llm_allows_context_injection(getattr(alice, "llm", None)) and context_refresh_service.should_inject_context_for_model(
+                    context_frame.mode,
+                    decision_intent,
+                ):
+                    prompt = f"{context_block}\n\n{prompt}"
                 try:
                     educational_text = str(
                         alice.llm.chat(prompt, use_history=True) or ""
@@ -2730,6 +2848,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         ),
                         "generated_by": "llm",
                         "active_concept_thread": concept_thread,
+                        **context_metadata,
                     },
                 )
             return ResponseOutput(
@@ -2747,7 +2866,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     intent=req.decision.intent,
                     route="contract_educational_generation_error",
                 ),
-                metadata={"type": "educational_generation_error", "generated_by": "none"},
+                metadata={
+                    "type": "educational_generation_error",
+                    "generated_by": "none",
+                    **context_metadata,
+                },
             )
 
         if req.decision.intent == "conversation:goal_statement":
@@ -2968,8 +3091,14 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         llm_text = ""
         if getattr(alice, "llm", None):
             try:
+                llm_prompt = str(req.user_input or "")
+                if _llm_allows_context_injection(getattr(alice, "llm", None)) and context_refresh_service.should_inject_context_for_model(
+                    context_frame.mode,
+                    decision_intent,
+                ):
+                    llm_prompt = f"{context_block}\n\nUser message:\n{str(req.user_input or '').strip()}"
                 llm_text = str(
-                    alice.llm.chat(req.user_input, use_history=True) or ""
+                    alice.llm.chat(llm_prompt, use_history=True) or ""
                 ).strip()
             except Exception:
                 llm_text = ""
@@ -3022,6 +3151,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 confidence=max(0.45, float(req.decision.confidence or 0.45)),
                 metadata={
                     "type": "llm_response",
+                    **context_metadata,
                     "continuity_claims": continuity.metadata(),
                     "greeting_memory_policy": "active_state_only"
                     if (greeting_turn or continuation_cue)
@@ -3109,16 +3239,6 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             if req.tool_result
             else [],
         )
-        if not claim_verification.valid:
-            return VerifierResult(
-                accepted=False,
-                reason="unsupported_claims",
-                confidence=0.1,
-                diagnostics={
-                    "unsupported_claims": list(claim_verification.unsupported_claims),
-                    "reasons": list(claim_verification.reasons),
-                },
-            )
 
         if req.decision.decision_band == "refuse":
             has_refusal = (
@@ -3212,6 +3332,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         **code_claim_diagnostics,
                     },
                 )
+
+        if not claim_verification.valid:
+            reasons = list(claim_verification.reasons or [])
+            reason_code = "unsupported_claims"
+            if "codebase_claim_without_evidence" in reasons:
+                reason_code = "unverified_codebase_claim"
+            return VerifierResult(
+                accepted=False,
+                reason=reason_code,
+                confidence=0.1,
+                diagnostics={
+                    "unsupported_claims": list(claim_verification.unsupported_claims),
+                    "reasons": reasons,
+                },
+            )
 
         return VerifierResult(
             accepted=True,

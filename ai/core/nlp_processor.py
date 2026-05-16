@@ -3643,8 +3643,35 @@ class NLPProcessor:
             # ── Reminder early override: runs BEFORE retrieval_first_parse so
             # no context-based short-query logic can shadow reminder intents. ──
             _tl = normalized_text.lower()
+            _memory_delete_intent = ""
+            if re.search(
+                r"\b(delete|erase|remove|forget)\b.{0,40}\b(memories|memory|conversation|convo|topic)\b",
+                _tl,
+            ):
+                if re.search(
+                    r"\b(about|topic about|just the topic)\b.{0,40}\b[a-z0-9']+\b",
+                    _tl,
+                ):
+                    _memory_delete_intent = "memory:delete_topic"
+                elif re.search(
+                    r"\b(all|whole|entire)\b.{0,20}\b(conversation|memory)\b",
+                    _tl,
+                ):
+                    _memory_delete_intent = "memory:delete_all_conversation_memory"
+                else:
+                    _memory_delete_intent = "memory:delete_conversation"
+            if _memory_delete_intent:
+                route = RouteDecision(
+                    intent=_memory_delete_intent,
+                    confidence=0.93,
+                    plugin="memory",
+                    action=_memory_delete_intent.split(":", 1)[1],
+                    trace={"source": "memory_delete_early_override"},
+                )
+                intent = _memory_delete_intent
+                intent_confidence = 0.93
             _reminder_intent = None
-            if any(
+            if (not _memory_delete_intent) and any(
                 phrase in _tl
                 for phrase in [
                     "remind me",
@@ -3659,20 +3686,25 @@ class NLPProcessor:
                 ]
             ):
                 _reminder_intent = "reminder:set"
-            elif any(
-                phrase in _tl
-                for phrase in [
-                    "my reminders",
-                    "what reminders",
-                    "show reminders",
-                    "list reminders",
-                    "any reminders",
-                    "upcoming reminders",
-                    "pending reminders",
-                ]
-            ) or ("reminder" in _tl and "do i have" in _tl):
+            elif (not _memory_delete_intent) and (
+                any(
+                    phrase in _tl
+                    for phrase in [
+                        "my reminders",
+                        "what reminders",
+                        "show reminders",
+                        "list reminders",
+                        "any reminders",
+                        "upcoming reminders",
+                        "pending reminders",
+                    ]
+                )
+                or ("reminder" in _tl and "do i have" in _tl)
+            ):
                 _reminder_intent = "reminder:list"
             elif (
+                (not _memory_delete_intent)
+                and
                 any(w in _tl for w in ["cancel", "delete", "remove"])
                 and "reminder" in _tl
             ):
@@ -3680,12 +3712,14 @@ class NLPProcessor:
 
             _send_followup_intent = None
             _tl_words = set(_tl.split())
-            if "send" in _tl_words and any(
+            if (not _memory_delete_intent) and "send" in _tl_words and any(
                 p in _tl_words for p in {"her", "him", "them"}
             ):
                 _send_followup_intent = "email:compose"
 
-            if _reminder_intent:
+            if _memory_delete_intent:
+                pass
+            elif _reminder_intent:
                 route = RouteDecision(
                     intent=_reminder_intent,
                     confidence=0.95,
@@ -3798,6 +3832,31 @@ class NLPProcessor:
 
         _norm = str(normalized_text or "").lower().strip()
         _prev_intent = str(self.context.last_intent or "")
+        _memory_delete_match = re.search(
+            r"\b(delete|erase|remove|forget)\b.{0,40}\b(memories|memory|conversation|convo|topic)\b",
+            _norm,
+        )
+        if _memory_delete_match:
+            intent, intent_confidence = (
+                "memory:delete_conversation",
+                max(float(intent_confidence or 0.0), 0.9),
+            )
+            if re.search(
+                r"\b(all|whole|entire)\b.{0,20}\b(conversation|memory)\b",
+                _norm,
+            ):
+                intent, intent_confidence = (
+                    "memory:delete_all_conversation_memory",
+                    max(float(intent_confidence or 0.0), 0.92),
+                )
+            elif re.search(
+                r"\b(about|topic about|just the topic)\b.{0,40}\b[a-z0-9']+\b",
+                _norm,
+            ):
+                intent, intent_confidence = (
+                    "memory:delete_topic",
+                    max(float(intent_confidence or 0.0), 0.92),
+                )
         if _norm.startswith("write this down") or _norm.startswith(
             "save this to my notes"
         ):
@@ -4557,6 +4616,24 @@ class NLPProcessor:
         ):
             intent = "weather:forecast"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+        if re.search(
+            r"\b(delete|erase|remove|forget)\b.{0,40}\b(memories|memory|conversation|convo|topic)\b",
+            _raw,
+        ):
+            intent = "memory:delete_conversation"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+            if re.search(
+                r"\b(all|whole|entire)\b.{0,20}\b(conversation|memory)\b",
+                _raw,
+            ):
+                intent = "memory:delete_all_conversation_memory"
+                intent_confidence = max(float(intent_confidence or 0.0), 0.92)
+            elif re.search(
+                r"\b(about|topic about|just the topic)\b.{0,40}\b[a-z0-9']+\b",
+                _raw,
+            ):
+                intent = "memory:delete_topic"
+                intent_confidence = max(float(intent_confidence or 0.0), 0.92)
 
         # Build result
         result = ProcessedQuery(

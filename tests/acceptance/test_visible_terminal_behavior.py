@@ -607,3 +607,53 @@ def test_visible_concept_breakdown_request_avoids_generic_clarification_fallback
     assert "approval layer" in low
     assert ".py" not in low
     assert "ai/runtime" not in low
+
+
+def test_visible_companion_core_concept_thread_carry_flow():
+    pipeline = _build_pipeline(
+        llm_sequence=[
+            "An AI companion combines reasoning, memory, and tool-use to stay useful over time.",
+            "Right, the goal is not a generic assistant pattern; it should preserve intent and act with relevance.",
+            "Agreed. The companion should proactively detect meaningful changes and suggest safe actions.",
+            "Understood. I am carrying that concept thread forward.",
+            (
+                "Breakdown with today's technology:\n"
+                "1. Model brain\n"
+                "2. Memory\n"
+                "3. Tools\n"
+                "4. Background event loop\n"
+                "5. Relevance filter\n"
+                "6. Planner\n"
+                "7. Approval layer\n"
+                "8. Notification/UI layer"
+            ),
+        ]
+    )
+    turns = [
+        "i want to learn more about ai companion",
+        "i dont want it to be like an assistant or chatbot",
+        "i want alice to be proactive",
+        "something like that",
+        "break this down with today's technology",
+    ]
+    final = None
+    for idx, text in enumerate(turns, start=1):
+        final = pipeline.run_turn(user_input=text, user_id="u_core1", turn_number=idx)
+        _assert_metadata_present(final)
+
+    assert final is not None
+    frame = dict(final.metadata.get("context_frame") or {})
+    active = dict(frame.get("active_concept_thread") or {})
+    assert str(active.get("topic") or "").lower() == "proactive ai companion"
+    low = str(final.response_text or "").lower()
+    assert "model brain" in low
+    assert "memory" in low
+    assert "tools" in low
+    assert "background event loop" in low
+    assert "relevance filter" in low
+    assert "planner" in low
+    assert "approval layer" in low
+    assert "notification/ui layer" in low
+    assert "what exact result do you want" not in low
+    assert "i have not verified the codebase yet" not in low
+    assert "current objective is" not in low

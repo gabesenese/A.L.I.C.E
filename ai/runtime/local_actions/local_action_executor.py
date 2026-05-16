@@ -177,6 +177,8 @@ class LocalActionExecutor:
             operator_context["close_matches"] = list(resolved["close_matches"])
             if not resolved["file_exists"]:
                 local_execution["error"] = "target_not_found"
+                local_execution["target"] = str(target or "")
+                local_execution["requested_target"] = str(target or "")
                 local_execution["workspace_file_count"] = len(files)
                 local_execution["close_matches"] = list(
                     resolved.get("close_matches") or []
@@ -196,7 +198,8 @@ class LocalActionExecutor:
             try:
                 text = self._read_file_text(rel)
             except Exception as exc:
-                local_execution["error"] = str(exc)
+                local_execution["error"] = "file_read_failed"
+                local_execution["target"] = rel
                 return {
                     "success": False,
                     "response": "",
@@ -459,7 +462,7 @@ class LocalActionExecutor:
         return {
             "success": False,
             "response": "",
-            "error": f"Unsupported local action: {action}",
+            "error": "Unknown local action requested.",
             "operator_context": operator_context,
-            "local_execution": local_execution,
+            "local_execution": {**local_execution, "error": "unknown_action"},
         }

@@ -105,7 +105,12 @@ def strip_passive_followup_sentences(text: str, *, mode: str) -> str:
         if not sentence:
             continue
         low = sentence.lower()
-        if any(token in low for token in banned_tokens):
+        matched_token = next((token for token in banned_tokens if token in low), "")
+        if matched_token:
+            cut_idx = low.find(matched_token)
+            preserved = sentence[:cut_idx].strip(" ,;:-")
+            if preserved:
+                kept.append(preserved)
             continue
         kept.append(sentence)
     cleaned = " ".join(kept).strip()
@@ -153,12 +158,19 @@ def apply_response_momentum(
         "operator_status",
         "operator_continue",
         "code_work",
-        "tool_result",
     }
+    tool_operator_turn = (
+        normalized_route in {"tool", "plugin"}
+        and (
+            normalized_intent.startswith("operator:")
+            or normalized_intent.startswith("code:")
+        )
+    )
     operator_turn = momentum_turn or (
         normalized_intent.startswith("operator:")
         or normalized_intent.startswith("code:")
         or normalized_route == "local"
+        or tool_operator_turn
         or (
             normalized_intent == "conversation:educational_explain"
             and operator_application_request
@@ -169,11 +181,7 @@ def apply_response_momentum(
         # Never inject project momentum into casual/greeting.
         return text
     if turn_mode == "casual_companion":
-        return normalize_response_paragraphs(
-            _enforce_claim_evidence(
-                strip_passive_followup_sentences(text, mode="companion_chat"), local
-            )
-        )
+        return normalize_response_paragraphs(_enforce_claim_evidence(text, local))
 
     if (
         normalized_intent == "conversation:clarification_needed"

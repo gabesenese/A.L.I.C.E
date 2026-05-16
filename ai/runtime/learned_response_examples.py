@@ -35,6 +35,7 @@ class LearnedResponseExample:
         mood_signal: str = "unknown",
         topic: str = "",
         user_context_summary: str = "",
+        source: str = "ollama_validated",
     ) -> "LearnedResponseExample":
         return cls(
             example_id=f"lre_{uuid4().hex[:12]}",
@@ -47,7 +48,7 @@ class LearnedResponseExample:
             response_text=str(response_text or "").strip(),
             accepted=True,
             created_at=datetime.now(timezone.utc).isoformat(),
-            source="ollama_validated",
+            source=str(source or "ollama_validated").strip() or "ollama_validated",
         )
 
 

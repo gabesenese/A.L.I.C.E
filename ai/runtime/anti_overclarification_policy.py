@@ -84,4 +84,18 @@ def should_answer_instead_of_clarify(
         str(state.get("active_objective") or "").strip()
         or str(project.get("active_objective") or "").strip()
     )
-    return has_objective and normalized_intent.startswith("conversation:")
+    if has_objective and normalized_intent in {
+        "conversation:goal_statement",
+        "conversation:educational_explain",
+    }:
+        return any(
+            token in low
+            for token in (
+                "work on alice",
+                "improve alice",
+                "continue",
+                "next step",
+                "what should we build",
+            )
+        )
+    return False

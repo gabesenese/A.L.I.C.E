@@ -10,11 +10,12 @@ def test_research_beginner_request_does_not_clarify():
         user_id="u1",
         turn_number=1,
     )
+    low = result.response_text.lower()
     assert result.metadata["intent"] != "conversation:clarification_needed"
-    assert "memory" in result.response_text.lower()
-    assert "goals" in result.response_text.lower()
-    assert "tools" in result.response_text.lower()
-    assert "loop" in result.response_text.lower()
+    assert result.metadata["intent"] == "conversation:educational_explain"
+    assert "current objective" not in low
+    assert "next best move" not in low
+    assert "inspect file" not in low
 
 
 def test_beginner_simple_explanation_is_direct():
@@ -28,7 +29,8 @@ def test_beginner_simple_explanation_is_direct():
     assert result.metadata["intent"] == "conversation:educational_explain"
     assert "which one sounds like a good starting point" not in low
     assert "what would you like to start with" not in low
-    assert "memory" in low and "goals" in low and "tools" in low and "loop" in low
+    assert "current objective" not in low
+    assert "next best move" not in low
 
 
 def test_just_give_me_something_does_not_ask_again():

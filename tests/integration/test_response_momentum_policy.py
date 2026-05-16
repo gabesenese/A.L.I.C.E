@@ -1,8 +1,9 @@
 from ai.runtime.response_momentum_policy import apply_response_momentum
 
 
-def test_momentum_rewrites_passive_beginner_question_into_next_move():
+def test_educational_explain_without_operator_request_stays_clean():
     out = apply_response_momentum(
+        user_input="i want to learn the basics",
         response_text="Which one sounds like a good starting point to you?",
         intent="conversation:educational_explain",
         route="llm",
@@ -12,8 +13,9 @@ def test_momentum_rewrites_passive_beginner_question_into_next_move():
         next_step="",
     )
     low = out.lower()
-    assert "which one sounds like a good starting point to you?" not in low
-    assert "next best move:" in low
+    assert "current objective is" not in low
+    assert "next best move:" not in low
+    assert "which one sounds like a good starting point to you?" in low
 
 
 def test_casual_how_are_you_does_not_get_objective_or_next_step_injection():

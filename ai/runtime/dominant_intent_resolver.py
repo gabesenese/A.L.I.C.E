@@ -14,6 +14,7 @@ _WEATHER_QUERY_PATTERNS = (
 
 _PROJECT_OBJECTIVE_PATTERNS = (
     r"\bready to work on alice\b",
+    r"\bready to work on (?:our )?(?:ai project|the project)\b",
     r"\bwork on alice\b",
     r"\bimprove alice\b",
     r"\bmake alice more agentic\b",

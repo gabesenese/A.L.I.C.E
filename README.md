@@ -119,6 +119,14 @@ docker compose --profile ops up --build
 2. Core runtime is under `app/` and `ai/runtime/`.
 3. Keep default-path changes focused on policy/state/verification quality.
 
+## Alice Companion Core v1
+
+- `alice-ollama` remains the response brain.
+- `ai/runtime/context_refresh_service.py` builds mode-aware context before model generation.
+- `ai/memory/alice_memory_service.py` stores local companion facts and concept-thread memory.
+- `ai/runtime/alice_turn_router.py` classifies mode/subject/tool/evidence requirements.
+- Future background proactivity can be added under a dedicated background engine layer.
+
 ## License
 
 Private project. All rights reserved.

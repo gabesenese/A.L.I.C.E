@@ -98,28 +98,25 @@ def _extract_referenced_py_paths(text: str) -> List[str]:
 
 
 def requires_codebase_evidence(user_input: str, response_text: str) -> bool:
-    user_low = str(user_input or "").lower()
     resp_low = str(response_text or "").lower()
-    combined = f"{user_low}\n{resp_low}"
-    strong_markers = (
-        "codebase",
-        "repo",
-        "project files",
-        "scanning the repo",
-        "scanning through the repo",
-        "looked through the codebase",
-        "found in the codebase",
-        "in our codebase",
-        "take a look at",
-        "check the repo",
-        "look at the codebase",
-        "inspect the project",
-        "ai/runtime/",
-        "self_learning/",
-    )
-    if any(marker in combined for marker in strong_markers):
+    if bool(_CODEBASE_PATH_PATTERN.search(resp_low)):
         return True
-    return bool(_CODEBASE_PATH_PATTERN.search(combined))
+    strong_patterns = (
+        r"\bcodebase\b",
+        r"\brepo\b",
+        r"\bproject files\b",
+        r"\bscanning (?:through )?the repo\b",
+        r"\blooked through the codebase\b",
+        r"\bfound in the codebase\b",
+        r"\bin our codebase\b",
+        r"\btake a look at\b",
+        r"\bcheck the repo\b",
+        r"\blook at the codebase\b",
+        r"\binspect the project\b",
+        r"\bai/runtime/\b",
+        r"\bself_learning/\b",
+    )
+    return any(re.search(pattern, resp_low) for pattern in strong_patterns)
 
 
 def _collect_verified_files(

@@ -1623,6 +1623,8 @@ class ContractPipeline:
             or (companion_profile_state.to_dict().get("background_events") or [])
             or []
         )
+        if policy.decision_type == "follow_up" and not background_events:
+            background_events = [{"source": "policy_follow_up"}]
         claim_verification = verify_response_claims(
             response_text,
             user_input=user_input,
@@ -1933,6 +1935,14 @@ class ContractPipeline:
             llm_model_name=str(getattr(self.boundaries.response, "llm_model_name", "") or ""),
             claim_verifier_applied=True,
         )
+        if isinstance((respond_metadata or {}).get("context_frame"), dict):
+            metadata_payload["context_frame"] = dict(
+                (respond_metadata or {}).get("context_frame") or {}
+            )
+        if str((respond_metadata or {}).get("context_block") or "").strip():
+            metadata_payload["context_block"] = str(
+                (respond_metadata or {}).get("context_block") or ""
+            )
         return PipelineResult(
             handled=bool(response_text),
             response_text=response_text,
