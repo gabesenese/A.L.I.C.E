@@ -52,10 +52,11 @@ class ProactiveAssistant:
     - Anticipates needs based on patterns
     """
 
-    def __init__(self, world_state=None, calendar_plugin=None, notes_plugin=None):
+    def __init__(self, world_state=None, calendar_plugin=None, notes_plugin=None, goal_engine=None):
         self.world_state = world_state
         self.calendar_plugin = calendar_plugin
         self.notes_plugin = notes_plugin
+        self.goal_engine = goal_engine
 
         self.reminders: Dict[str, Reminder] = {}
         self.incomplete_tasks: Dict[str, IncompleteTask] = {}
@@ -98,7 +99,8 @@ class ProactiveAssistant:
                 self._check_reminders()
                 self._check_calendar_reminders()
                 self._check_incomplete_tasks()
-                time.sleep(30)  # Check every 30 seconds
+                self._check_stale_goals()
+                time.sleep(30)
             except Exception as e:
                 logger.error(f"[ProactiveAssistant] Error in monitor loop: {e}")
                 time.sleep(60)
@@ -179,6 +181,38 @@ class ProactiveAssistant:
                     )
                 # Update last activity to avoid spam
                 task.last_activity = now
+
+    def _check_stale_goals(self):
+        """Surface goals not worked on in 3+ days."""
+        engine = self.goal_engine
+        if engine is None:
+            try:
+                from ai.goals.goal_engine import get_goal_engine
+                engine = get_goal_engine()
+            except Exception:
+                return
+        stale = engine.stale_goals(days=3.0)
+        for goal in stale[:2]:
+            if self.notification_callback:
+                self.notification_callback(
+                    f"Goal not touched in a while: '{goal.description[:60]}'",
+                    priority="low",
+                )
+
+    def get_session_summary(self) -> str:
+        """Return a session-start summary combining goals and morning briefing."""
+        parts: List[str] = []
+        try:
+            from ai.runtime.session_briefing import generate_session_briefing
+            briefing = generate_session_briefing()
+            if briefing:
+                parts.append(briefing)
+        except Exception:
+            pass
+        calendar_briefing = self.get_morning_briefing()
+        if calendar_briefing:
+            parts.append(calendar_briefing)
+        return "\n\n".join(parts)
 
     def _deliver_reminder(self, reminder: Reminder):
         """Deliver a reminder via notification callback"""
@@ -377,14 +411,21 @@ _proactive_assistant: Optional[ProactiveAssistant] = None
 
 
 def get_proactive_assistant(
-    world_state=None, calendar_plugin=None, notes_plugin=None
+    world_state=None, calendar_plugin=None, notes_plugin=None, goal_engine=None
 ) -> ProactiveAssistant:
     global _proactive_assistant
     if _proactive_assistant is None:
+        if goal_engine is None:
+            try:
+                from ai.goals.goal_engine import get_goal_engine
+                goal_engine = get_goal_engine()
+            except Exception:
+                pass
         _proactive_assistant = ProactiveAssistant(
             world_state=world_state,
             calendar_plugin=calendar_plugin,
             notes_plugin=notes_plugin,
+            goal_engine=goal_engine,
         )
     return _proactive_assistant
 

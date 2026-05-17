@@ -30,6 +30,8 @@ from ai.runtime.turn_orchestrator import TurnOrchestrator
 from ai.runtime.user_state_model import UserStateModel
 from ai.memory.project_memory import load_project_state, update_project_state
 from ai.runtime.self_improvement.improvement_loop import ImprovementLoop
+from ai.goals.goal_engine import get_goal_engine
+from ai.runtime.session_briefing import get_top_goal_for_greeting
 
 
 @dataclass
@@ -849,6 +851,10 @@ class ContractPipeline:
                 and str(verification.reason or "") == "unsupported_continuity_claim"
             ):
                 op_state = dict((decision.metadata or {}).get("operator_state") or {})
+                if not op_state.get("active_objective"):
+                    top_goal = get_top_goal_for_greeting(str(user_id or "gabriel"))
+                    if top_goal:
+                        op_state = {**op_state, "active_objective": top_goal}
                 user_name = str(getattr(user_state_snapshot, "user_name", "") or "")
                 greeting_session = dict(
                     self._greeting_session_state_by_user.get(str(user_id), {}) or {}
@@ -1186,6 +1192,18 @@ class ContractPipeline:
                 },
             )
         )
+
+        # Sync active goals and extract new goals from user input
+        try:
+            _goal_engine = get_goal_engine()
+            _goal_engine.sync_from_active_goals(list(state.active_goals or []))
+            _extracted = _goal_engine.extract_from_text(user_input)
+            if _extracted:
+                _existing = {g.description.lower() for g in _goal_engine.active()}
+                if _extracted.lower() not in _existing:
+                    _goal_engine.add(_extracted, context=user_input[:80])
+        except Exception:
+            pass
 
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         with tracer.start_as_current_span("contract_pipeline.run_turn"):

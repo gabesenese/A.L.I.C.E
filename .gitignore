@@ -108,3 +108,8 @@ data/feature_flags.json
 data/analytics/memory_monitor_config.json
 .gitignore
 models/ollama/Alice.Modelfile
+
+# Foundation runtime data
+data/identity/
+data/goals/
+data/memory_graph.json
