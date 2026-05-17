@@ -285,6 +285,7 @@ class CompanionRuntimeLoop:
         user_state: Any,
     ) -> CompanionState:
         key = str(user_id or "default").strip() or "default"
+        is_new_session = key not in self._states
         state = self._states.get(key)
         if state is None:
             state = CompanionState(identity_model=IdentityModel(user_id=key))
@@ -306,6 +307,38 @@ class CompanionRuntimeLoop:
                 list(state.memory_domains.projects) + project_hints,
                 limit=12,
             )
+
+        # On the first turn of a new session inject world model continuity so
+        # the LLM knows what was in progress without Gabriel having to recap.
+        if is_new_session or int(turn_number or 0) <= 1:
+            try:
+                wm = self.world_model.snapshot()
+                continuity: Dict[str, Any] = {}
+                current_goals = [
+                    str(g.get("goal") or g.get("text") or "")
+                    for g in list(wm.get("user", {}).get("current_goals") or [])[:4]
+                    if g.get("goal") or g.get("text")
+                ]
+                open_tasks = [
+                    str(t.get("text") or "")
+                    for t in list(wm.get("environment", {}).get("open_tasks") or [])[:3]
+                    if t.get("text")
+                ]
+                active_threads = [
+                    str(t.get("text") or "")
+                    for t in list(wm.get("alice_state", {}).get("active_threads") or [])[:3]
+                    if t.get("text")
+                ]
+                if current_goals:
+                    continuity["active_goals"] = current_goals
+                if open_tasks:
+                    continuity["open_tasks"] = open_tasks
+                if active_threads:
+                    continuity["active_threads"] = active_threads
+                if continuity:
+                    state.memory_domains.identity["session_continuity"] = continuity
+            except Exception:
+                pass
 
         return state
 

@@ -35,6 +35,7 @@ def _default_state() -> Dict[str, Any]:
         "environment": {
             "upcoming_calendar": [],
             "open_tasks": [],
+            "unread_email_count": 0,
         },
         "alice_state": {
             "last_proactive_interrupt": "",
@@ -228,6 +229,45 @@ class WorldModel:
             if str(item.get("key") or "").strip().lower() == interrupt_key:
                 return not bool(item.get("resolved"))
         return False
+
+    def update_upcoming_calendar(self, events: List[Dict[str, Any]]) -> None:
+        """Replace the upcoming calendar list with fresh data from the ambient monitor."""
+        self._state["environment"]["upcoming_calendar"] = [
+            {k: str(v or "") for k, v in dict(ev or {}).items()}
+            for ev in list(events or [])
+        ][:20]
+        self.save()
+
+    def update_unread_email_count(self, count: int) -> None:
+        self._state["environment"]["unread_email_count"] = max(0, int(count or 0))
+        self.save()
+
+    def add_open_task_if_missing(
+        self,
+        *,
+        text: str,
+        source: str = "ambient",
+        timestamp: Optional[str] = None,
+    ) -> bool:
+        """Add an open task only if no existing task matches the same text. Returns True if added."""
+        needle = str(text or "").strip().lower()
+        if not needle:
+            return False
+        for item in list(self._state["environment"].get("open_tasks") or []):
+            if needle in str(item.get("text") or "").lower():
+                return False
+        now = str(timestamp or _now_iso())
+        self._state["environment"]["open_tasks"] = _dedupe_records(
+            list(self._state["environment"].get("open_tasks") or []) + [{
+                "text": str(text or "").strip()[:180],
+                "created_at": now,
+                "source": str(source or "ambient"),
+            }],
+            key_field="text",
+            limit=40,
+        )
+        self.save()
+        return True
 
     def update_from_turn(
         self,

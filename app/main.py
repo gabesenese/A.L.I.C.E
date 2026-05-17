@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union, Callable, Iterable, 
 from app.bootstrap import create_app
 from app.runtime_modes import RuntimeModeConfig, resolve_runtime_mode
 from brain.heartbeat import Heartbeat
+from brain.ambient_monitor import AmbientMonitor
+from brain.task_scheduler import TaskScheduler
 
 app = create_app()
 
@@ -954,6 +956,11 @@ class ALICE:
             )
             self.heartbeat = Heartbeat()
             self.heartbeat.start()
+            self.ambient_monitor = AmbientMonitor()
+            self.ambient_monitor.start()
+            self.task_scheduler = TaskScheduler()
+            self.task_scheduler.register_callback(self._on_scheduled_task)
+            self.task_scheduler.start()
             self.execution_journal = get_execution_journal(
                 storage_path="data/action_journal.jsonl"
             )
@@ -9483,6 +9490,16 @@ class ALICE:
         except Exception as e:
             logger.debug(f"[ExecutiveReflection] {e}")
 
+    def _on_scheduled_task(self, task_name: str, action: str) -> str:
+        """Callback fired by TaskScheduler when a scheduled task is due."""
+        try:
+            response = self.process_input(action)
+            print(f"\nA.L.I.C.E [{task_name}]: {response}", flush=True)
+            return response
+        except Exception as exc:
+            logger.warning("[TaskScheduler] task %s failed: %s", task_name, exc)
+            return ""
+
     def process_input(self, user_input: str, use_voice: bool = False) -> str:
         """Process one user turn through the active runtime pipeline."""
         self._turn_count = getattr(self, "_turn_count", 0) + 1
@@ -12575,6 +12592,14 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if getattr(self, "heartbeat", None):
             self.heartbeat.stop()
             logger.info("[OK] Heartbeat stopped")
+
+        if getattr(self, "ambient_monitor", None):
+            self.ambient_monitor.stop()
+            logger.info("[OK] Ambient monitor stopped")
+
+        if getattr(self, "task_scheduler", None):
+            self.task_scheduler.stop()
+            logger.info("[OK] Task scheduler stopped")
 
         if hasattr(self, "execution_loop") and self.execution_loop:
             self.execution_loop.stop()
