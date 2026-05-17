@@ -1106,6 +1106,16 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
+        if low in {"this is unclear", "unclear"}:
+            return RouterDecision(
+                route="clarify",
+                intent="conversation:general",
+                confidence=0.4,
+                decision_band="clarify",
+                needs_clarification=True,
+                metadata={"reason": "explicit_unclear_low_confidence"},
+            )
+
         continue_command = bool(
             re.match(
                 r"^\s*(continue|keep going|pick up where we left off)\s*[.!?]*\s*$",
@@ -1311,6 +1321,18 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "reason": "beginner_research_explain",
                     "resolved_input": req.user_input,
                     "operator_state": state,
+                },
+            )
+
+        if _looks_like_project_work_session_start(req.user_input):
+            return RouterDecision(
+                route="llm",
+                intent="conversation:project_work_session",
+                confidence=0.9,
+                decision_band="execute",
+                metadata={
+                    "reason": "project_work_session_start",
+                    "resolved_input": req.user_input,
                 },
             )
 

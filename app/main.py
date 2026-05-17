@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union, Callable, Iterable, 
 
 from app.bootstrap import create_app
 from app.runtime_modes import RuntimeModeConfig, resolve_runtime_mode
+from brain.heartbeat import Heartbeat
 
 app = create_app()
 
@@ -169,6 +170,13 @@ from ai.infrastructure.database_pool import (
 from ai.infrastructure.runtime_flags import is_enabled
 from ai.runtime.alice_contract_factory import build_runtime_boundaries
 from ai.runtime.contract_pipeline import ContractPipeline
+from ai.runtime.fallback_policy import resolve_turn_success_and_route
+from ai.runtime.response_authority import (
+    apply_meta_question_override,
+    contract_respond_stage,
+    finalize_conversational_surface,
+)
+from ai.runtime.turn_orchestrator import run_default_turn
 from ai.reasoning.routing_decision_logger import (
     RoutingDecisionLogger,
     RoutingDecisionType,
@@ -943,6 +951,8 @@ class ALICE:
             self.world_state_memory = get_world_state_memory(
                 storage_path="data/world_state.json"
             )
+            self.heartbeat = Heartbeat()
+            self.heartbeat.start()
             self.execution_journal = get_execution_journal(
                 storage_path="data/action_journal.jsonl"
             )
@@ -9473,6 +9483,11 @@ class ALICE:
             logger.debug(f"[ExecutiveReflection] {e}")
 
     def process_input(self, user_input: str, use_voice: bool = False) -> str:
+        """Process one user turn through the active runtime pipeline."""
+
+        return run_default_turn(self, user_input, use_voice=use_voice)
+
+    def _process_input_legacy(self, user_input: str, use_voice: bool = False) -> str:
         """
         Process user input through the complete pipeline
 
@@ -17540,16 +17555,13 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         llm_generation_success: bool,
         llm_fallback_applied: bool,
     ) -> Tuple[str, bool, bool]:
-        route = str(default_route or "unknown")
-        if plugin_result is not None:
-            return route, True, False
-        if llm_attempted and llm_generation_success:
-            return "llm", True, False
-        if llm_attempted and not llm_generation_success and llm_fallback_applied:
-            return "llm_fallback", True, True
-        if llm_attempted:
-            return "llm", False, False
-        return route, False, False
+        return resolve_turn_success_and_route(
+            default_route=default_route,
+            plugin_result=plugin_result,
+            llm_attempted=llm_attempted,
+            llm_generation_success=llm_generation_success,
+            llm_fallback_applied=llm_fallback_applied,
+        )
 
     def _contract_respond_stage(
         self,
@@ -17559,11 +17571,13 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         reasoning_output: Any,
         tool_results: Dict[str, Any],
     ) -> str:
-        if "one concrete detail" in str(
-            candidate or ""
-        ).lower() and self._is_project_ideation_request(user_input):
-            return self._project_ideation_guidance_response(user_input)
-        return str(candidate or "")
+        return contract_respond_stage(
+            self,
+            user_input=user_input,
+            candidate=candidate,
+            reasoning_output=reasoning_output,
+            tool_results=tool_results,
+        )
 
     def _finalize_conversational_surface(
         self,
@@ -17575,24 +17589,15 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         plugin_result: Any,
         apply_publish_style: bool = True,
     ) -> str:
-        text = str(response or "")
-        if (
-            apply_publish_style
-            and route not in {"llm_fallback"}
-            and callable(getattr(self, "_publish_with_fast_llm_style", None))
-        ):
-            text = str(
-                self._publish_with_fast_llm_style(
-                    response=text, user_input=user_input, intent=intent
-                )
-            )
-        if callable(getattr(self, "_executive_apply_response_gate", None)):
-            text = str(
-                self._executive_apply_response_gate(
-                    response=text, user_input=user_input, intent=intent, route=route
-                )
-            )
-        return text
+        return finalize_conversational_surface(
+            self,
+            user_input=user_input,
+            intent=intent,
+            response=response,
+            route=route,
+            plugin_result=plugin_result,
+            apply_publish_style=apply_publish_style,
+        )
 
     def _apply_meta_question_override(
         self,
@@ -17601,17 +17606,11 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         intent: str,
         intent_confidence: float,
     ) -> Tuple[str, float, Dict[str, Any]]:
-        text = str(user_input or "").lower()
-        if str(intent or "").startswith("notes:") and (
-            ("you are an ai" in text or "are you being sarcastic" in text)
-            and not re.search(r"\b(read|open|show)\b.*\b(note|notes)\b", text)
-        ):
-            return (
-                "conversation:meta_question",
-                max(float(intent_confidence or 0.0), 0.92),
-                {"applied": True},
-            )
-        return intent, float(intent_confidence or 0.0), {"applied": False}
+        return apply_meta_question_override(
+            user_input=user_input,
+            intent=intent,
+            intent_confidence=intent_confidence,
+        )
 
     def shutdown(self):
         """Gracefully shutdown ALICE"""
@@ -17661,6 +17660,10 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if getattr(self, "persistent_task_queue", None):
             self.persistent_task_queue.stop_background_loop()
             logger.info("[OK] Persistent task queue stopped")
+
+        if getattr(self, "heartbeat", None):
+            self.heartbeat.stop()
+            logger.info("[OK] Heartbeat stopped")
 
         if hasattr(self, "execution_loop") and self.execution_loop:
             self.execution_loop.stop()

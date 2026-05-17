@@ -403,6 +403,17 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             )
             return float(self.config.temperature)
 
+    def _build_system_prompt(self, base_prompt: Optional[str] = None) -> str:
+        """Append current personality drift to user-facing system prompts."""
+        prompt = str(base_prompt if base_prompt is not None else self.system_prompt)
+        try:
+            from brain.personality import apply_personality_to_system_prompt
+
+            return apply_personality_to_system_prompt(prompt)
+        except Exception as exc:
+            logger.debug("Personality prompt shaping unavailable: %s", exc)
+            return prompt
+
     def chat(
         self,
         user_input: str,
@@ -427,7 +438,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
                 self._ensure_active_model_available(self._available_models)
 
             # Build message history
-            messages = [{"role": "system", "content": self.system_prompt}]
+            messages = [{"role": "system", "content": self._build_system_prompt()}]
 
             if str(mode or "").strip().lower() == "final_answer_only":
                 messages.append(
@@ -524,7 +535,7 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             if self._available_models:
                 self._ensure_active_model_available(self._available_models)
 
-            messages = [{"role": "system", "content": self.system_prompt}]
+            messages = [{"role": "system", "content": self._build_system_prompt()}]
             messages.extend(self.conversation_history[-self.config.max_history :])
             messages.append({"role": "user", "content": user_input})
 
@@ -869,7 +880,10 @@ Tone to use: {tone}
 Please phrase this naturally using the specified tone. Keep Alice's personality markers (warmth, helpfulness, honesty) but match the exact tone she specified."""
 
             messages = [
-                {"role": "system", "content": PHRASER_PROMPT},
+                {
+                    "role": "system",
+                    "content": self._build_system_prompt(PHRASER_PROMPT),
+                },
                 {"role": "user", "content": phrasing_request},
             ]
 

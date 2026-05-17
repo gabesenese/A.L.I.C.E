@@ -7,6 +7,8 @@ import re
 from typing import Any, Dict, List, Tuple
 
 from ai.contracts import RouterDecision, ToolResult, VerifierResult
+from brain.personality import PersonalityLayer
+from memory.world_model import WorldModel, get_world_model
 from ai.runtime.turn_orchestrator import (
     ExecutePhaseResult,
     RoutePhaseResult,
@@ -264,8 +266,14 @@ class CompanionRuntimeLoop:
         ),
     )
 
-    def __init__(self, policy_engine: CompanionPolicyEngine | None = None) -> None:
+    def __init__(
+        self,
+        policy_engine: CompanionPolicyEngine | None = None,
+        world_model: WorldModel | None = None,
+    ) -> None:
         self.policy_engine = policy_engine or CompanionPolicyEngine()
+        self.world_model = world_model or get_world_model()
+        self.personality_layer = PersonalityLayer(world_model=self.world_model)
         self._states: Dict[str, CompanionState] = {}
 
     def start_turn(
@@ -506,6 +514,28 @@ class CompanionRuntimeLoop:
         companion_state.memory_domains.identity = self._build_identity_snapshot(
             state=companion_state,
             user_state=None,
+        )
+        tool_success = bool(tool_result.success) if tool_result is not None else None
+        world_snapshot = self.world_model.update_from_turn(
+            user_input=user_input,
+            response_text=response_text,
+            route=str(route_decision.route or ""),
+            intent=str(route_decision.intent or ""),
+            requires_follow_up=bool(requires_follow_up),
+            tool_success=tool_success,
+        )
+        personality = self.personality_layer.update_after_turn(
+            user_input=user_input,
+            response_text=response_text,
+            conversation_topics=list(companion_state.memory_domains.projects)
+            + [str(route_decision.intent or "")],
+        )
+        world_snapshot = self.world_model.snapshot()
+        companion_state.memory_domains.identity["world_model_updated_at"] = str(
+            world_snapshot.get("updated_at") or ""
+        )
+        companion_state.memory_domains.preferences["personality"] = dict(
+            personality
         )
 
         return companion_state.memory_domains.as_dict()

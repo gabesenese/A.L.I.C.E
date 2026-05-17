@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 
 def _normalize(text: str) -> str:
@@ -85,3 +85,28 @@ class RuntimeFallbackPolicy:
             text="",
             reason="llm_rejected_empty_no_fallback_available",
         )
+
+
+def resolve_turn_success_and_route(
+    *,
+    default_route: str,
+    plugin_result: Any,
+    llm_attempted: bool,
+    llm_generation_success: bool,
+    llm_fallback_applied: bool,
+) -> Tuple[str, bool, bool]:
+    """Resolve the final route/success tuple after execution and fallback.
+
+    Kept in runtime so app/main does not own turn-outcome policy.
+    """
+
+    route = str(default_route or "unknown")
+    if plugin_result is not None:
+        return route, True, False
+    if llm_attempted and llm_generation_success:
+        return "llm", True, False
+    if llm_attempted and not llm_generation_success and llm_fallback_applied:
+        return "llm_fallback", True, True
+    if llm_attempted:
+        return "llm", False, False
+    return route, False, False

@@ -160,6 +160,8 @@ class LocalActionExecutor:
                 or self._extract_target_from_query(query)
             )
             operator_context["inferred_target_file"] = target
+            local_execution["target"] = target
+            local_execution["requested_target"] = target
             resolved = (
                 self.file_resolver.resolve_target(target, files)
                 if target

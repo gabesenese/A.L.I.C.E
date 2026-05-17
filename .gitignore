@@ -96,6 +96,7 @@ data/qa/startup_health_summary.json
 tmpclaude*
 NUL
 data/world_state.json
+data/world_model.json
 app/config/rag_indexer_config.json
 app/data/autonomy_loops.json
 app/data/feature_flags.json

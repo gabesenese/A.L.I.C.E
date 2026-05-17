@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
+import os
 import re
 from typing import Any, Dict, Optional
 
+from ai.runtime.response_authority import sanitize_internal_process_output
 from ai.contracts import (
     MemoryRequest,
     ResponseRequest,
@@ -19,6 +22,9 @@ from ai.contracts import (
     RouterDecision,
     MemoryResult,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -224,3 +230,76 @@ class TurnOrchestrator:
                 "follow_up_question": str(proposed.follow_up_question or ""),
             },
         )
+
+
+def _contract_pipeline_enabled(alice: Any) -> bool:
+    raw_disable = str(os.getenv("ALICE_DISABLE_CONTRACT_PIPELINE", "")).strip().lower()
+    if raw_disable in {"1", "true", "yes", "on"}:
+        return False
+    config = getattr(alice, "runtime_mode_config", None)
+    if config is not None and hasattr(config, "enable_contract_pipeline"):
+        return bool(getattr(config, "enable_contract_pipeline"))
+    return True
+
+
+def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> str:
+    """Default app turn entrypoint.
+
+    The active path is the contract pipeline. Legacy inline orchestration is only
+    a compatibility fallback when the pipeline is unavailable or explicitly
+    disabled for diagnostics.
+    """
+
+    if not hasattr(alice, "structured_logger") and callable(
+        getattr(alice, "_process_input_internal", None)
+    ):
+        return sanitize_internal_process_output(
+            alice, user_input=user_input, use_voice=use_voice
+        )
+
+    pipeline = getattr(alice, "contract_pipeline", None)
+    if pipeline is not None and _contract_pipeline_enabled(alice):
+        try:
+            result = pipeline.run_turn(
+                user_input=user_input,
+                user_id=str(getattr(alice, "user_name", "") or "User"),
+                turn_number=int(getattr(alice, "_turn_count", 0) or 0),
+            )
+            if result and getattr(result, "handled", False) and getattr(
+                result, "response_text", ""
+            ):
+                meta = dict(getattr(result, "metadata", {}) or {})
+                structured_logger = getattr(alice, "structured_logger", None)
+                if structured_logger is not None:
+                    try:
+                        structured_logger.info(
+                            "Canonical pipeline handled request",
+                            component="pipeline",
+                            trace_id=str(meta.get("trace_id") or ""),
+                            route=str(meta.get("route") or ""),
+                            intent=str(meta.get("intent") or ""),
+                            verification_reason=str(
+                                ((meta.get("verification") or {}).get("reason")) or ""
+                            ),
+                        )
+                    except Exception:
+                        pass
+                response = str(result.response_text or "")
+                if use_voice and getattr(alice, "speech", None):
+                    alice.speech.speak(response, blocking=False)
+                return response
+            logger.debug("[ContractPipeline] Unhandled turn; falling back to legacy")
+        except Exception as exc:
+            logger.debug("[ContractPipeline] Legacy fallback due to: %s", exc)
+
+    legacy = getattr(alice, "_process_input_legacy", None)
+    if callable(legacy):
+        return str(legacy(user_input, use_voice=use_voice) or "")
+
+    internal = getattr(alice, "_process_input_internal", None)
+    if callable(internal):
+        return sanitize_internal_process_output(
+            alice, user_input=user_input, use_voice=use_voice
+        )
+
+    raise RuntimeError("No active turn pipeline is configured.")

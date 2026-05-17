@@ -68,13 +68,20 @@ class OllamaRoleModel:
         user_prompt = (
             text if not context_blob else f"Context:\n{context_blob}\n\nTask:\n{text}"
         )
+        system_prompt = self.system_prompt
+        try:
+            from brain.personality import apply_personality_to_system_prompt
+
+            system_prompt = apply_personality_to_system_prompt(system_prompt)
+        except Exception:
+            pass
 
         resp = requests.post(
             f"{self.base_url}/api/chat",
             json={
                 "model": self.model_name,
                 "messages": [
-                    {"role": "system", "content": self.system_prompt},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 "stream": False,

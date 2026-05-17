@@ -29,6 +29,11 @@ def should_answer_instead_of_clarify(
     if "which " in low or "which one" in low:
         return False
 
+    if low in {"this is unclear", "unclear"} or re.fullmatch(
+        r"(this|that|it)\s+is\s+(unclear|ambiguous|confusing)", low
+    ):
+        return False
+
     if normalized_intent.startswith("conversation:clarification_needed"):
         if any(
             token in low
