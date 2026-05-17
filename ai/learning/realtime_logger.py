@@ -99,6 +99,10 @@ class RealtimeLearningLogger:
         # Thread safety for concurrent writes
         self.write_lock = Lock()
 
+        # Rotation counters per log file
+        self._write_counts: Dict[str, int] = {}
+        self._max_log_lines = 1000
+
         # In-memory buffer for fast access
         self.recent_errors: List[RealtimeError] = []
         self.max_buffer_size = 100
@@ -200,6 +204,11 @@ class RealtimeLearningLogger:
                     f.write(json.dumps(data) + "\n")
                     f.flush()
 
+                    key = str(log_file)
+                    self._write_counts[key] = self._write_counts.get(key, 0) + 1
+                    if self._write_counts[key] % 50 == 0:
+                        self._trim_log(log_file)
+
                     # Release lock
                     if HAS_FCNTL:
                         try:
@@ -213,6 +222,16 @@ class RealtimeLearningLogger:
                             pass
         except Exception as e:
             logger.error(f"[RealtimeLogger] Error writing to log: {e}")
+
+    def _trim_log(self, log_file: Path) -> None:
+        try:
+            lines = log_file.read_text(encoding="utf-8").splitlines()
+            if len(lines) > self._max_log_lines:
+                log_file.write_text(
+                    "\n".join(lines[-self._max_log_lines :]) + "\n", encoding="utf-8"
+                )
+        except Exception:
+            pass
 
     def _update_metrics(self, event_type: str):
         """Update learning velocity metrics"""

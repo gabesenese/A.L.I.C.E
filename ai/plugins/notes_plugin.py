@@ -1752,7 +1752,19 @@ class NotesPlugin(PluginInterface):
         self._action_token_weights: Dict[str, Dict[str, float]] = {}
         self._note_selection_weights: Dict[str, float] = {}
         self._recent_telemetry_keys: List[str] = []
+        self._telemetry_write_count = 0
+        self._eval_write_count = 0
+        self._max_telemetry_lines = 2000
         self._load_learning_state()
+
+    @staticmethod
+    def _trim_jsonl(path: Path, max_lines: int) -> None:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            if len(lines) > max_lines:
+                path.write_text("\n".join(lines[-max_lines:]) + "\n", encoding="utf-8")
+        except Exception:
+            pass
 
     def _load_learning_state(self) -> None:
         """Load note action/selection learning weights for reranking."""
@@ -2039,6 +2051,9 @@ class NotesPlugin(PluginInterface):
             }
             with open(self.telemetry_eval_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(event) + "\n")
+            self._eval_write_count += 1
+            if self._eval_write_count % 50 == 0:
+                self._trim_jsonl(self.telemetry_eval_path, self._max_telemetry_lines)
         except Exception as e:
             logger.debug(f"[NotesTelemetryEval] failed: {e}")
 
@@ -2819,6 +2834,9 @@ class NotesPlugin(PluginInterface):
             }
             with open(self.telemetry_log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
+            self._telemetry_write_count += 1
+            if self._telemetry_write_count % 50 == 0:
+                self._trim_jsonl(self.telemetry_log_path, self._max_telemetry_lines)
 
             self._recent_telemetry_keys.append(dedupe_key)
             if len(self._recent_telemetry_keys) > 100:

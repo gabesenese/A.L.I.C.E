@@ -8,10 +8,14 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
+_MAX_JOURNAL_LINES = 1000
+
+
 class ExecutionJournal:
     def __init__(self, storage_path: str = "data/action_journal.jsonl") -> None:
         self.storage_path = Path(storage_path)
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        self._write_count = 0
 
     def record(self, entry: Dict[str, Any]) -> None:
         line = dict(entry)
@@ -19,8 +23,21 @@ class ExecutionJournal:
         try:
             with open(self.storage_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(line, ensure_ascii=True) + "\n")
+            self._write_count += 1
+            if self._write_count % 50 == 0:
+                self._trim()
         except Exception:
             return
+
+    def _trim(self) -> None:
+        try:
+            lines = self.storage_path.read_text(encoding="utf-8").splitlines()
+            if len(lines) > _MAX_JOURNAL_LINES:
+                self.storage_path.write_text(
+                    "\n".join(lines[-_MAX_JOURNAL_LINES:]) + "\n", encoding="utf-8"
+                )
+        except Exception:
+            pass
 
     def recent(self, limit: int = 20) -> List[Dict[str, Any]]:
         if not self.storage_path.exists():

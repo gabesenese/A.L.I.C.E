@@ -6,6 +6,20 @@ This repository is organized around a central turn loop and contract pipeline.
 The current goal is companion-quality behavior: coherent state, disciplined actions,
 and continuity across turns.
 
+## Engineering Standard: Verified Growth
+
+Verified Growth is the permanent engineering standard for Alice. Every accepted change
+must define:
+
+1. Capability added
+2. Behavior replaced
+3. Invariant enforced
+4. Evidence produced
+5. Visible user flow improved
+6. Old code deleted or simplified where possible
+
+Reference: `docs/verified_growth.md`
+
 ## Current Runtime Model
 
 The canonical runtime path is in the contract pipeline:

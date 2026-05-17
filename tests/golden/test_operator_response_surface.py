@@ -1,29 +1,115 @@
-from ai.runtime.operator_response_surface import render_operator_response
+from ai.runtime.operator_response_surface import (
+    render_local_execution_error_response,
+    render_operator_response,
+    sanitize_operator_chatter,
+)
 
 
-def test_operator_continue_response_is_compact_and_decisive():
+def test_operator_surface_strips_service_chatter():
     out = render_operator_response(
-        user_input="good, it was a cold day today so i just stayed home, now i am gonna work on alice for a bit",
-        base_text="I've taken a look at core files and here are many options...",
-        operator_state={
-            "last_recommended_action": {
-                "action": "inspect_file",
-                "target": "ai/runtime/operator_state.py",
-                "reason": "It stores active objective, current focus, inspected files, and recommendations.",
-            }
+        user_input="continue",
+        base_text='"I am here to assist you with your Alice-related tasks today."',
+        operator_state={},
+        local_execution={
+            "success": True,
+            "analysis": {
+                "summary": "it owns the bounded operator loop: plan, act, observe, verify, and update state"
+            },
         },
+        next_step=(
+            "inspect ai/runtime/next_step_policy.py because it decides what Alice should do "
+            "after each safe step"
+        ),
+    )
+    low = out.lower()
+    assert "finding:" in low
+    assert "bounded operator loop" in low
+    assert "next best move:" in low
+    assert "assist you" not in low
+    assert "ready" not in low
+    assert "i am here to assist you" not in low
+
+
+def test_local_success_with_inspected_file():
+    out = render_operator_response(
+        user_input="continue",
+        base_text="",
+        operator_state={},
         local_execution={
             "success": True,
             "inspected_file": "ai/runtime/agent_loop.py",
-            "analysis": {"lines": 326, "classes": 5, "functions": 5},
+            "analysis": {
+                "summary": "it owns the bounded operator loop: plan, act, observe, verify, and update state"
+            },
         },
-        next_step="inspect file ai/runtime/operator_state.py because It stores active objective, current focus, inspected files, and recommendations.",
+        next_step=(
+            "inspect ai/runtime/next_step_policy.py because it decides what Alice should do "
+            "after each safe step"
+        ),
+    )
+    assert "I inspected ai/runtime/agent_loop.py." in out
+    assert "Finding:" in out
+    assert "Next best move:" in out
+
+
+def test_local_failure_does_not_use_base_text():
+    out = render_operator_response(
+        user_input="continue",
+        base_text="Sure, I can help.",
+        operator_state={},
+        local_execution={
+            "success": False,
+            "error": "target_not_found",
+            "requested_target": "legacy-main.py",
+        },
+        next_step="inspect ai/runtime/agent_loop.py",
     )
     low = out.lower()
-    assert "warm and cozy" not in low
-    assert "what would you like to tackle first" not in low
-    assert out.count("ai/runtime/agent_loop.py") == 1
-    assert "next best move:" in low
-    assert "ai/runtime/operator_state.py" in out
-    assert "\n\n" in out
+    assert "i couldn't verify the local step." in low
+    assert "blocker:" in low
+    assert "sure" not in low
+    assert "i can help" not in low
 
+
+def test_no_hardcoded_context_ack_in_operator_surface():
+    out = render_operator_response(
+        user_input="pretty good, its raining today so i want to stay at home and work on alice",
+        base_text="",
+        operator_state={},
+        local_execution={
+            "success": True,
+            "analysis": {
+                "summary": "it owns the bounded operator loop: plan, act, observe, verify, and update state"
+            },
+        },
+        next_step="inspect ai/runtime/next_step_policy.py because it decides what Alice should do after each safe step",
+    )
+    low = out.lower()
+    assert "cold day. good night to work on the core." not in low
+    assert "makes sense. good time for a focused pass." not in low
+    assert low.startswith("finding:") or low.startswith("i inspected")
+
+
+def test_sanitize_operator_chatter_removes_forbidden_assistant_phrases():
+    text = (
+        "I'm here to assist you with your Alice-related tasks today. "
+        "Finding: bounded operator loop. "
+        "What would you like to do?"
+    )
+    out = sanitize_operator_chatter(text)
+    low = out.lower()
+    assert "assist you" not in low
+    assert "what would you like" not in low
+    assert "finding: bounded operator loop." in low
+
+
+def test_local_execution_error_response_preserves_paragraph_breaks():
+    out = render_local_execution_error_response(
+        user_input="continue",
+        base_text="",
+        operator_state={},
+        local_execution={"success": False, "error": "target_not_found"},
+        next_step="inspect ai/runtime/agent_loop.py",
+    )
+    assert "I couldn't verify the local step.\n\nBlocker:" in out
+    assert ".\n\nNext best move:" in out

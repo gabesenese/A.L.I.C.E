@@ -30,6 +30,8 @@ class UsageAnalytics:
 
         self.usage_log_path = self.analytics_dir / "usage_log.jsonl"
         self.daily_stats_path = self.analytics_dir / "daily_stats.json"
+        self._usage_write_count = 0
+        self._max_usage_log_lines = 2000
 
         # In-memory cache for performance
         self.session_stats = self._init_session_stats()
@@ -101,9 +103,23 @@ class UsageAnalytics:
 
             with open(self.usage_log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(log_entry) + "\n")
+            self._usage_write_count += 1
+            if self._usage_write_count % 50 == 0:
+                self._trim_usage_log()
 
         except Exception as e:
             logger.error(f"Failed to log interaction: {e}")
+
+    def _trim_usage_log(self) -> None:
+        try:
+            lines = self.usage_log_path.read_text(encoding="utf-8").splitlines()
+            if len(lines) > self._max_usage_log_lines:
+                self.usage_log_path.write_text(
+                    "\n".join(lines[-self._max_usage_log_lines :]) + "\n",
+                    encoding="utf-8",
+                )
+        except Exception:
+            pass
 
     def get_session_stats(self) -> Dict[str, Any]:
         """Get current session statistics"""

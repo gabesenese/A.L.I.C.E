@@ -162,6 +162,7 @@ class TurnLogger:
 
     # How many tail lines to scan when back-patching an outcome
     _OUTCOME_SCAN_LINES = 200
+    _MAX_LOG_LINES = 5000
 
     def __init__(self, log_path: Optional[str] = None) -> None:
         if log_path is None:
@@ -169,6 +170,7 @@ class TurnLogger:
         self.log_path = Path(log_path).resolve()
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._write_count = 0
 
     # ------------------------------------------------------------------
     # Write
@@ -180,8 +182,21 @@ class TurnLogger:
             with self._lock:
                 with self.log_path.open("a", encoding="utf-8") as fh:
                     fh.write(json.dumps(entry.as_dict(), ensure_ascii=False) + "\n")
+                self._write_count += 1
+                if self._write_count % 100 == 0:
+                    self._trim()
         except Exception as exc:
             logger.warning("[TurnLogger] Could not write turn log: %s", exc)
+
+    def _trim(self) -> None:
+        try:
+            lines = self.log_path.read_text(encoding="utf-8").splitlines()
+            if len(lines) > self._MAX_LOG_LINES:
+                self.log_path.write_text(
+                    "\n".join(lines[-self._MAX_LOG_LINES :]) + "\n", encoding="utf-8"
+                )
+        except Exception:
+            pass
 
     def record_outcome(
         self,

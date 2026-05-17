@@ -71,6 +71,8 @@ class AdaptiveContextSelector:
 
         # Selection history: map selection_id → SelectionFeedback
         self.selection_history: Dict[str, SelectionFeedback] = {}
+        self._feedback_write_count = 0
+        self._max_feedback_lines = 5000
 
         # Load existing feedback
         self._load_feedback()
@@ -154,8 +156,23 @@ class AdaptiveContextSelector:
         try:
             with open(self.feedback_path, "a") as f:
                 f.write(json.dumps(asdict(feedback)) + "\n")
+            self._feedback_write_count += 1
+            if self._feedback_write_count % 100 == 0:
+                self._trim_feedback_log()
         except Exception as e:
             logger.error(f"Failed to save feedback: {e}")
+
+    def _trim_feedback_log(self) -> None:
+        try:
+            path = Path(self.feedback_path)
+            lines = path.read_text(encoding="utf-8").splitlines()
+            if len(lines) > self._max_feedback_lines:
+                path.write_text(
+                    "\n".join(lines[-self._max_feedback_lines :]) + "\n",
+                    encoding="utf-8",
+                )
+        except Exception:
+            pass
 
     def _get_learned_relevance_boost(self, context_type: str, intent: str) -> float:
         """Return relevance boost based on learned success patterns"""
