@@ -32,6 +32,7 @@ htmlcov/
 # IDE/editor
 .vscode/
 .idea/
+.claude/
 .ipynb_checkpoints/
 
 # OS junk
@@ -110,6 +111,7 @@ data/analytics/memory_monitor_config.json
 models/ollama/Alice.Modelfile
 
 # Foundation runtime data
+data/alice_memory/
 data/identity/
 data/goals/
 data/memory_graph.json
