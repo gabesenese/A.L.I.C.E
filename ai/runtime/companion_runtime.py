@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from ai.contracts import RouterDecision, ToolResult, VerifierResult
@@ -487,6 +490,19 @@ class CompanionRuntimeLoop:
         )
         if companion_state.last_user_state_signals:
             self._persist_emotional_signals(companion_state.last_user_state_signals)
+
+        # Layer 1 — capture explicit style corrections
+        self._capture_explicit_preference(user_input, companion_state.last_response_excerpt)
+
+        # Layer 2 — update behavioral profile
+        self._update_behavioral_profile(
+            user_input, response_text, str(route_decision.intent or "")
+        )
+
+        # Layer 3 — collect turn pair for future fine-tuning
+        quality = "verified" if (verification and verification.accepted) else "unverified"
+        self._collect_turn_pair(user_input, response_text, quality=quality)
+
         if tool_result is not None:
             companion_state.last_tool_result = self._summarize_tool_result(tool_result)
 
@@ -608,7 +624,6 @@ class CompanionRuntimeLoop:
     @staticmethod
     def _persist_emotional_signals(signals: List[str]) -> None:
         try:
-            from datetime import datetime, timezone
             from ai.identity.user_identity import load_identity, save_identity
             identity = load_identity()
             noted_at = datetime.now(timezone.utc).isoformat()
@@ -616,6 +631,75 @@ class CompanionRuntimeLoop:
                 identity.emotional_history.append({"signal": sig, "noted_at": noted_at})
             identity.emotional_history = identity.emotional_history[-10:]
             save_identity(identity)
+        except Exception:
+            pass
+
+    # Layer 1 — explicit preference capture
+    _PREFERENCE_SIGNALS: List[tuple] = [
+        (re.compile(r"\b(be more concise|too long|keep it short|shorter|less verbose|brief(er)?|stop repeating)\b", re.I), "response_length", "brief"),
+        (re.compile(r"\b(more detail|go deeper|elaborate|explain more|in depth)\b", re.I), "response_length", "detailed"),
+        (re.compile(r"\b(too formal|be casual|more casual|relax a bit)\b", re.I), "tone", "casual"),
+        (re.compile(r"\b(more formal|be professional|professional tone)\b", re.I), "tone", "formal"),
+        (re.compile(r"\b(no (bullet|list|bullets)|stop (listing|using bullets))\b", re.I), "format", "prose"),
+        (re.compile(r"\b(use (bullets|lists)|bullet points? please)\b", re.I), "format", "bullets"),
+        (re.compile(r"\b(no (emojis?|icons)|stop using emojis?)\b", re.I), "emojis", "never"),
+    ]
+    _CONFIRMATION_RE = re.compile(
+        r"\b(exactly (right|what I needed?)|perfect(,| that)?|spot on|keep (doing|that)|yes exactly|that'?s? (it|correct|perfect))\b",
+        re.I,
+    )
+
+    @staticmethod
+    def _capture_explicit_preference(user_input: str, last_response: str) -> None:
+        text = str(user_input or "").strip()
+        if not text:
+            return
+        prefs: Dict[str, str] = {}
+        for pattern, key, value in CompanionRuntimeLoop._PREFERENCE_SIGNALS:
+            if pattern.search(text):
+                prefs[key] = value
+        if not prefs:
+            return
+        try:
+            from ai.identity.user_identity import load_identity, save_identity
+            identity = load_identity()
+            identity.learned_preferences.update(prefs)
+            save_identity(identity)
+        except Exception:
+            pass
+
+    # Layer 2 — behavioral pattern update
+    @staticmethod
+    def _update_behavioral_profile(
+        user_input: str, response_text: str, intent: str
+    ) -> None:
+        try:
+            from ai.learning.user_profile_engine import get_profile_engine
+            get_profile_engine().record_interaction(
+                user_input=user_input,
+                alice_response=response_text,
+                intent=intent,
+            )
+        except Exception:
+            pass
+
+    # Layer 3 — turn pair collection for fine-tuning
+    _TRAINING_PATH = Path("data/autolearn/training_pairs.jsonl")
+
+    @staticmethod
+    def _collect_turn_pair(
+        user_input: str, response_text: str, *, quality: str
+    ) -> None:
+        try:
+            CompanionRuntimeLoop._TRAINING_PATH.parent.mkdir(parents=True, exist_ok=True)
+            record = json.dumps({
+                "input": str(user_input or "").strip()[:800],
+                "response": str(response_text or "").strip()[:1200],
+                "quality": quality,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }, ensure_ascii=False)
+            with open(CompanionRuntimeLoop._TRAINING_PATH, "a", encoding="utf-8") as f:
+                f.write(record + "\n")
         except Exception:
             pass
 

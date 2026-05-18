@@ -201,6 +201,12 @@ def _build_companion_context() -> str:
         if recent_signals:
             unique = list(dict.fromkeys(recent_signals))
             parts.append(f"Recent mood: {', '.join(unique[:3])}")
+
+        # Layer 1 — inject learned style preferences
+        prefs = dict(identity.learned_preferences or {})
+        if prefs:
+            pref_lines = "; ".join(f"{k}: {v}" for k, v in list(prefs.items())[:5])
+            parts.append(f"Style preferences (learned from feedback): {pref_lines}")
     except Exception:
         pass
 
@@ -211,6 +217,22 @@ def _build_companion_context() -> str:
         if active:
             goal_lines = "\n".join(f"  - {g.description[:70]}" for g in active)
             parts.append(f"Active goals:\n{goal_lines}")
+    except Exception:
+        pass
+
+    # Layer 2 — inject communication style from behavioral profile
+    try:
+        from ai.learning.user_profile_engine import get_profile_engine
+        style = get_profile_engine().get_communication_style()
+        hints: List[str] = []
+        if style.get("brevity", 0.5) > 0.65:
+            hints.append("keep responses concise")
+        elif style.get("brevity", 0.5) < 0.35:
+            hints.append("detailed responses are appreciated")
+        if style.get("technicality", 0.5) > 0.65:
+            hints.append("technical language is fine")
+        if hints:
+            parts.append(f"Observed style: {'; '.join(hints)}")
     except Exception:
         pass
 
