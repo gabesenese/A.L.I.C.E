@@ -19,4 +19,5 @@ def test_operator_status_injection_allowed_for_status_turn():
     low = out.lower()
     assert "current objective is" in low
     assert "current focus" in low
-    assert "next best move" in low
+    # "Next best move:" is an internal label — should not appear in user output
+    assert "next best move:" not in low

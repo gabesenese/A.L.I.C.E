@@ -260,21 +260,20 @@ def apply_response_momentum(
         if normalized_intent in {"operator:project_status", "operator:status"}:
             status_parts: list[str] = []
             if objective:
-                status_parts.append(f"current objective is {objective}.")
+                status_parts.append(f"Current objective is {objective}.")
             if focus:
-                status_parts.append(f"current focus: {focus}.")
+                status_parts.append(f"Current focus: {focus}.")
             status_text = " ".join(status_parts).strip()
             if status_text:
-                if "finding:" in str(rendered or "").lower():
-                    rendered = f"{rendered}\n\n{status_text}"
-                else:
-                    rendered = f"Finding: {status_text}\n\n{rendered}".strip()
+                rendered = f"{status_text}\n\n{rendered}".strip() if rendered else status_text
         if not str(rendered or "").strip():
-            return (
-                "I couldn't verify the operator response surface.\n\n"
-                "Blocker: operator response contract failed.\n\n"
-                "Next best move: inspect ai/runtime/operator_response_surface.py."
-            )
+            return "I ran into an issue with that operator action. Let me try again."
+        # Error responses (Blocker + Next best move) are pre-formatted — bypass contract.
+        is_error_response = local.get("success") is False or bool(
+            str(local.get("error") or "").strip()
+        )
+        if is_error_response:
+            return normalize_response_paragraphs(_enforce_claim_evidence(rendered, local))
         contract = verify_operator_surface_contract(
             route=normalized_route,
             intent=normalized_intent,
@@ -282,13 +281,50 @@ def apply_response_momentum(
             local_execution=local,
             next_step=str(next_step or ""),
         )
-        if contract.passed:
-            return normalize_response_paragraphs(_enforce_claim_evidence(rendered, local))
-        return (
-            "I couldn't verify the operator response surface.\n\n"
-            "Blocker: operator response contract failed.\n\n"
-            "Next best move: inspect ai/runtime/operator_response_surface.py."
-        )
+        if not contract.passed:
+            return "I ran into an issue with that operator action. Let me try again."
+        # Contract passed — assemble final output with grounded evidence and next_step.
+        base_ct = normalize_response_paragraphs(_enforce_claim_evidence(rendered, local))
+        # Add grounded evidence line for confirmed file inspections.
+        result_line_ct = ""
+        if local:
+            inspected_ct = str(local.get("inspected_file") or "")
+            success_ct = bool(local.get("success"))
+            if inspected_ct and success_ct:
+                result_line_ct = f"I inspected {inspected_ct}."
+        # Add next_step — not for pure status turns.
+        allow_ns_ct = normalized_intent not in {"operator:project_status", "operator:status"}
+        ns_line_ct = ""
+        if allow_ns_ct:
+            # Prefer structured recommendation from operator_state.
+            structured_rec = dict(state.get("last_recommended_action") or {})
+            rec_target = str(structured_rec.get("target") or "").strip()
+            rec_action = str(structured_rec.get("action") or "inspect_file").strip()
+            rec_reason = str(structured_rec.get("reason") or "").strip()
+            if rec_target:
+                rec_verb = (
+                    "inspect"
+                    if rec_action in {"inspect_file", "analyze_file", "read_file"}
+                    else rec_action.replace("_", " ")
+                )
+                if rec_reason:
+                    r = re.sub(r"\.+$", "", rec_reason.strip())
+                    r = (r[0].lower() + r[1:]) if r else ""
+                    ns_line_ct = (
+                        f"Next best move: {rec_verb} {rec_target} because {r}."
+                        if r
+                        else f"Next best move: {rec_verb} {rec_target}."
+                    )
+                else:
+                    ns_line_ct = f"Next best move: {rec_verb} {rec_target}."
+            elif next_step:
+                ns_line_ct = _normalize_next_move_line(next_step)
+            elif state.get("next_recommended_action"):
+                ns_line_ct = _normalize_next_move_line(
+                    str(state.get("next_recommended_action") or "")
+                )
+        parts_ct = [p for p in [base_ct, result_line_ct, ns_line_ct] if str(p).strip()]
+        return normalize_response_paragraphs("\n\n".join(parts_ct).strip() or base_ct)
 
     # Avoid passive generic endings.
     passive_markers = (

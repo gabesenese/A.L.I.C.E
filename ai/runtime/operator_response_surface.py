@@ -587,11 +587,9 @@ def render_operator_response(
             next_step=next_step,
         )
 
-    parts: list[str] = []
-    inspected = str(local.get("inspected_file") or "").strip()
-    if inspected:
-        parts.append(f"I inspected {inspected}.")
-
+    # Build a user-facing summary without internal labels or raw file paths.
+    # "Finding:", "Next best move:", and "I inspected {path}" are Alice's internal
+    # planning tokens and must never appear in user-facing output.
     analysis = dict(local.get("analysis") or {})
     summary = str(
         analysis.get("summary")
@@ -600,43 +598,48 @@ def render_operator_response(
     ).strip()
     responsibility = str(analysis.get("responsibility") or "").strip()
 
-    finding_text = ""
-    used_verified_base_text = ""
-    if inspected.endswith("ai/runtime/operator_state.py") or inspected.endswith("ai\\runtime\\operator_state.py"):
-        finding_text = "it stores active objective, current focus, inspected files, recommended actions, corrections, and design constraints."
-    elif summary:
-        finding_text = summary
-    elif responsibility:
+    # Priority 1: explicit summary from the local execution result.
+    if summary:
+        return summary.strip()
+
+    # Priority 2: responsibility label → natural sentence.
+    if responsibility:
         if responsibility == "agent loop":
-            finding_text = "it owns the bounded operator loop: plan, act, observe, verify, and update state."
+            return "Looked at the operator loop — that's where plan/act/verify runs."
+        elif responsibility == "runtime pipeline":
+            return "Looked at the runtime pipeline."
         else:
-            finding_text = f"primary responsibility is {responsibility}."
-    elif bool(base_text_is_verified):
-        cleaned_base = sanitize_operator_chatter(
-            _suppress_passive_operator_chatter(strip_meta_response_artifacts(base_text))
-        )
-        if cleaned_base:
-            used_verified_base_text = cleaned_base
+            return f"Looked at the {responsibility} layer."
 
-    if finding_text:
-        low_finding = finding_text.lower()
-        if low_finding.startswith("finding:"):
-            parts.append(finding_text)
-        else:
-            parts.append(f"Finding: {finding_text}")
-        if inspected.endswith("ai/runtime/operator_state.py") or inspected.endswith("ai\\runtime\\operator_state.py"):
-            parts.append("Interpretation: this is state storage, not the routing brain.")
-    elif used_verified_base_text:
-        low_verified = used_verified_base_text.lower()
-        if low_verified.startswith(("finding:", "blocker:", "next best move:")):
-            parts.append(used_verified_base_text)
-        else:
-            parts.append(f"Finding: {used_verified_base_text}")
+    # Priority 2.5: when a file was actually inspected successfully, skip base_text.
+    # base_text in this case is LLM-generated context that should not surface in operator output.
+    # The momentum layer will append "I inspected {file}." with grounded evidence.
+    inspected_file_evidence = str(local.get("inspected_file") or "").strip()
+    if local_success is True and inspected_file_evidence:
+        return "Working on it."
 
-    next_move = _extract_next_move(next_step, state)
-    if next_move and "next best move:" not in str(used_verified_base_text or "").lower():
-        parts.append(next_move)
+    # Strip internal planning labels that executors may append to base_text.
+    # These must not reach the contract check or the user surface.
+    # Filter line-by-line so leading labels (e.g. a response that IS "Next best move:...")
+    # are fully removed rather than partially matched.
+    _raw_lines = re.split(r"\n", str(base_text or ""))
+    _kept_lines = [
+        ln for ln in _raw_lines
+        if not re.search(r"(?i)\bnext best move\b|\bfinding:", ln)
+    ]
+    base_stripped = "\n".join(_kept_lines).strip()
 
-    return "\n\n".join(p for p in parts if str(p).strip()).strip()
+    # Priority 3: sanitized base_text — always preferred over a generic ack.
+    cleaned = sanitize_operator_chatter(
+        _suppress_passive_operator_chatter(strip_meta_response_artifacts(base_stripped))
+    )
+    if cleaned and len(cleaned) > 8:
+        return cleaned.strip()
+
+    # Priority 4: action-aware fallback when base_text was entirely internal labels.
+    action = str(local.get("action") or "")
+    if action == "code:request":
+        return "I can inspect local source code in this workspace and inspect the local workspace."
+    return "Working on it."
 
 

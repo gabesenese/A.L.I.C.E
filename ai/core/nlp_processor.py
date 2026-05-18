@@ -4549,8 +4549,28 @@ class NLPProcessor:
         if re.search(r"\bwork on alice\b", _raw) or re.search(
             r"\bnow i\b.{0,30}\bwork on\b", _raw
         ):
-            intent = "operator:continue"
-            intent_confidence = max(float(intent_confidence or 0.0), 0.88)
+            _pc = bool(re.search(
+                r"\b(hot|cold|tired|busy|outside|inside|feel|feeling|exhausted|"
+                r"hard|difficult|been a|was a|long day|rough|nice day|beautiful|"
+                r"stayed|nap|woke|morning|afternoon|evening|just got|"
+                r"going out|out for|for a drive|for a walk|for a run|heading out|"
+                r"going for a|on a drive|on a walk|step out|grabbing|errands)\b",
+                _raw,
+            ))
+            _if = bool(re.search(
+                r"\b(want to|going to|planning to|would like to|i will|gonna)\b",
+                _raw,
+            ))
+            _ts = bool(re.search(
+                r"\b(in a bit|in a while|later|soon|after i|after my|when i get back|"
+                r"when i'm back|once i|a little later|sometime today)\b",
+                _raw,
+            ))
+            if _if and _ts:
+                pass  # future-framing — not a current command
+            elif not (_pc and _if):
+                intent = "operator:continue"
+                intent_confidence = max(float(intent_confidence or 0.0), 0.88)
         if re.search(
             r"\b(which|what)\s+day\b.{0,25}\bwear\b.{0,20}\b(coat|jacket)\b",
             _raw,
@@ -5240,7 +5260,34 @@ class NLPProcessor:
         if re.search(r"\bwork on alice\b", text_lower) or re.search(
             r"\bnow i\b.{0,30}\bwork on\b", text_lower
         ):
-            return "operator:continue", 0.9
+            # Guard: don't misroute personal life-update or future-intention messages
+            # that happen to mention working on Alice.
+            # "just woke up, now i am going to work on alice" → personal update, not command
+            # "going out for a drive and want to work on alice for a bit" → same
+            _orig = str(text or "").lower()
+            _has_personal_ctx = bool(re.search(
+                r"\b(hot|cold|tired|busy|outside|inside|feel|feeling|exhausted|"
+                r"hard|difficult|been a|was a|long day|rough|nice day|beautiful|"
+                r"stayed|nap|woke|morning|afternoon|evening|just got|"
+                r"going out|out for|for a drive|for a walk|for a run|heading out|"
+                r"going for a|on a drive|on a walk|step out|grabbing|errands)\b",
+                _orig,
+            ))
+            _is_intent_framing = bool(re.search(
+                r"\b(want to|going to|planning to|would like to|i will|gonna)\b",
+                _orig,
+            ))
+            # A time-shift marker ("in a bit", "later", "soon") alongside future framing
+            # means this is a stated future intention, never a current command.
+            _time_shifted = bool(re.search(
+                r"\b(in a bit|in a while|later|soon|after i|after my|when i get back|"
+                r"when i'm back|once i|a little later|sometime today)\b",
+                _orig,
+            ))
+            if _is_intent_framing and _time_shifted:
+                pass  # fall through — treat as conversational future intent
+            elif not (_has_personal_ctx and _is_intent_framing):
+                return "operator:continue", 0.9
 
         # PHASE 1.5: Conversational guard before semantic fallback.
         # Prevent force-fitting casual chat into tool intents.

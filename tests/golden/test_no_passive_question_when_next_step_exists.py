@@ -23,6 +23,9 @@ def test_no_passive_question_when_next_step_exists():
         next_step="inspect file ai/runtime/operator_state.py because It stores active objective and next-step state.",
     )
     low = out.lower()
+    # Passive open-ended question must be stripped
     assert "what would you like to tackle first" not in low
+    # "Next best move:" is now user-facing (added by momentum after contract passes)
     assert "next best move: inspect ai/runtime/operator_state.py" in low
-
+    # Internal planning label must not appear in user-facing output
+    assert "finding:" not in low

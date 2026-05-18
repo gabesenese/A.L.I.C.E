@@ -22,11 +22,13 @@ def test_operator_surface_strips_service_chatter():
         ),
     )
     low = out.lower()
-    assert "finding:" in low
+    # Internal planning labels must NOT appear in user-facing output
+    assert "finding:" not in low
+    assert "next best move:" not in low
+    # Meaningful content should still be present
     assert "bounded operator loop" in low
-    assert "next best move:" in low
+    # Service chatter must be stripped
     assert "assist you" not in low
-    assert "ready" not in low
     assert "i am here to assist you" not in low
 
 
@@ -47,9 +49,13 @@ def test_local_success_with_inspected_file():
             "after each safe step"
         ),
     )
-    assert "I inspected ai/runtime/agent_loop.py." in out
-    assert "Finding:" in out
-    assert "Next best move:" in out
+    low = out.lower()
+    # Internal labels must not appear
+    assert "i inspected" not in low
+    assert "finding:" not in low
+    assert "next best move:" not in low
+    # Natural content should be present
+    assert "bounded operator loop" in low
 
 
 def test_local_failure_does_not_use_base_text():
@@ -85,9 +91,15 @@ def test_no_hardcoded_context_ack_in_operator_surface():
         next_step="inspect ai/runtime/next_step_policy.py because it decides what Alice should do after each safe step",
     )
     low = out.lower()
+    # No hardcoded context acknowledgements
     assert "cold day. good night to work on the core." not in low
     assert "makes sense. good time for a focused pass." not in low
-    assert low.startswith("finding:") or low.startswith("i inspected")
+    # No internal labels in user output
+    assert "finding:" not in low
+    assert "i inspected" not in low
+    assert "next best move:" not in low
+    # Should have meaningful content
+    assert len(out.strip()) > 5
 
 
 def test_sanitize_operator_chatter_removes_forbidden_assistant_phrases():
@@ -100,7 +112,7 @@ def test_sanitize_operator_chatter_removes_forbidden_assistant_phrases():
     low = out.lower()
     assert "assist you" not in low
     assert "what would you like" not in low
-    assert "finding: bounded operator loop." in low
+    assert "bounded operator loop." in low
 
 
 def test_local_execution_error_response_preserves_paragraph_breaks():

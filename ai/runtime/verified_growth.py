@@ -53,25 +53,25 @@ def verify_operator_surface_contract(
         if any(token in response_low for token in _FORBIDDEN_OPERATOR_PHRASES):
             failures.append("service_chatter_in_operator_surface")
 
-        has_required_marker = any(
-            token in response_low
-            for token in ("finding:", "i inspected", "blocker:", "next best move:")
-        )
-        if not has_required_marker:
-            failures.append("missing_operator_evidence_markers")
+        # Require some non-trivial content — internal label format is no longer enforced.
+        # "Finding:", "Next best move:", and "I inspected" are internal planning tokens
+        # and should NOT be surfaced to the user.
+        if len(response) < 8:
+            failures.append("operator_response_too_short")
 
-        if "i inspected" in response_low and not str(local.get("inspected_file") or "").strip():
-            failures.append("inspection_claim_without_evidence")
+        if "i inspected" in response_low:
+            failures.append("internal_inspection_label_in_user_output")
+
+        if "finding:" in response_low:
+            failures.append("internal_finding_label_in_user_output")
+
+        if "next best move:" in response_low:
+            failures.append("internal_next_step_label_in_user_output")
 
         local_success = local.get("success")
         if local_success is False:
             if "i inspected" in response_low or "verified" in response_low:
                 failures.append("success_claim_on_failed_local_execution")
-            if "finding:" in response_low and "blocker:" not in response_low:
-                failures.append("finding_claim_on_failed_local_execution")
-
-        if str(next_step or "").strip() and "next best move:" not in response_low:
-            failures.append("missing_next_best_move_with_recommendation")
 
     return VerifiedGrowthCheck(
         capability_added="Operator response surface contract enforcement for local/operator turns.",
