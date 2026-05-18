@@ -340,9 +340,14 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         )
         if _positive_weather.search(text):
             return True
-        # Atmospheric statements without a request verb
+        # "weather in [place]" / "weather [place]" — implicit lookup, not commentary
+        if re.search(r"\bweather\s+(?:in|for|at|near|around)\s+\w", text, re.IGNORECASE):
+            return False
+        # Atmospheric statements without a request verb — but not when the message
+        # also contains a clear work/project intent after the weather aside.
         _request_verbs = re.compile(r"\b(check|get|tell me|what is|what's|how is|how's|show|look up|fetch|pull)\b", re.IGNORECASE)
-        if "weather" in text and not _request_verbs.search(text):
+        _work_intent = re.compile(r"\b(ready to work|work on alice|work on the project|let'?s work|let'?s continue|back to alice|back to working)\b", re.IGNORECASE)
+        if "weather" in text and not _request_verbs.search(text) and not _work_intent.search(text):
             return True
         # "sun is out", "it's sunny", "sunny today", "nice day"
         if re.search(r"\b(sun is out|it'?s? sunny|sunny (?:today|out)|beautiful day|nice day(?: out)?|lovely day)\b", text, re.IGNORECASE):
@@ -980,6 +985,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     def _route(req: RouterRequest) -> RouterDecision:
         operator_ctx = dict(getattr(alice, "_operator_context", {}) or {})
         state = dict(getattr(alice, "_operator_state", {}) or {})
+        # Capture the objective set by THIS session before disk hydration overwrites it.
+        _session_objective = state.get("active_objective")
         project_state = load_project_state("default")
         state = sync_operator_state_with_project_memory(state, project_state)
         setattr(alice, "_operator_state", state)
@@ -1336,6 +1343,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if _looks_like_project_work_session_start(req.user_input):
+            # Only escalate to operator:continue when THIS session established an objective.
+            # _session_objective is captured from alice._operator_state BEFORE sync with disk,
+            # so it's only truthy if a prior turn in this session set the objective.
+            if bool(_session_objective):
+                return RouterDecision(
+                    route="local",
+                    intent="operator:continue",
+                    confidence=0.93,
+                    decision_band="execute",
+                    metadata={
+                        "reason": "project_work_session_start_with_active_objective",
+                        "resolved_input": req.user_input,
+                        "operator_state": state,
+                    },
+                )
             return RouterDecision(
                 route="llm",
                 intent="conversation:project_work_session",
@@ -1501,7 +1523,17 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         nlp_result = alice.nlp.process(resolved_input)
         intent = str(getattr(nlp_result, "intent", "unknown") or "unknown")
-        confidence = float(getattr(nlp_result, "intent_confidence", 0.0) or 0.0)
+        raw_confidence = float(getattr(nlp_result, "intent_confidence", 0.0) or 0.0)
+        # Fuse router confidence with behavioral priors + intent success history
+        try:
+            from ai.core.confidence_fusion import get_confidence_fusion
+            confidence = get_confidence_fusion().fuse(
+                router_confidence=raw_confidence,
+                intent=intent,
+                user_id=str(getattr(req, "user_id", "default") or "default"),
+            )
+        except Exception:
+            confidence = raw_confidence
         parsed_command = getattr(nlp_result, "parsed_command", {}) or {}
         modifiers = (
             parsed_command.get("modifiers", {})
@@ -2530,9 +2562,22 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
+        intent = str(req.decision.intent or "")
+        route = str(req.decision.route or "")
+        if intent.startswith("notes:"):
+            fallback_msg = "I couldn't complete that notes action. Try being more specific — for example, 'list my notes' or 'read my note about X'."
+        elif intent.startswith("weather:"):
+            fallback_msg = "I couldn't retrieve weather data. Try asking 'what's the weather in [city]?'."
+        elif route in {"tool", "plugin"}:
+            fallback_msg = f"The {intent} action didn't produce a result. Try rephrasing what you need."
+        elif route == "local":
+            fallback_msg = "I couldn't complete that inspection. Check the file name and try again."
+        else:
+            fallback_msg = "I wasn't sure how to respond to that. Could you be more specific?"
+
         return ResponseOutput(
             text=_surface_text(
-                "I could not complete that request reliably. Rephrase the desired outcome and I will retry.",
+                fallback_msg,
                 user_input=req.user_input,
                 intent=req.decision.intent,
                 route="contract_fallback",
@@ -2540,7 +2585,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             confidence=0.2,
             requires_follow_up=True,
             follow_up_question=_surface_text(
-                "Can you rephrase with the exact action you want?",
+                "What specifically would you like me to do?",
                 user_input=req.user_input,
                 intent=req.decision.intent,
                 route="contract_fallback",
