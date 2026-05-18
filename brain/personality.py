@@ -187,13 +187,47 @@ class PersonalityLayer:
         return personality_to_system_instructions(self.world_model.get_personality())
 
 
+_INTEREST_NOISE: frozenset = frozenset({
+    "able", "also", "back", "been", "bill", "body", "call", "case", "check",
+    "code", "come", "cool", "does", "done", "even", "feel", "file", "find",
+    "from", "give", "going", "good", "have", "here", "hope", "into", "just",
+    "keep", "know", "last", "late", "life", "like", "long", "look", "make",
+    "more", "most", "much", "need", "next", "none", "nothing", "once", "only",
+    "over", "part", "plan", "plus", "push", "rain", "ready", "real", "right",
+    "said", "same", "seem", "seen", "send", "show", "side", "size", "some",
+    "soon", "stay", "such", "sure", "take", "talk", "tell", "than", "that",
+    "them", "then", "they", "this", "time", "toda", "today", "very", "want",
+    "week", "well", "what", "when", "will", "with", "work", "year", "your",
+})
+
+
+def _meaningful_interests(raw: List[str], limit: int = 5) -> List[str]:
+    """Return only human-readable, non-noise interest topics."""
+    out: List[str] = []
+    seen: set = set()
+    for topic in raw:
+        t = str(topic or "").strip().lower()
+        if not t or len(t) < 5:
+            continue
+        if ":" in t:          # drop intent strings like "weather:current"
+            continue
+        if t in _INTEREST_NOISE:
+            continue
+        if t not in seen:
+            out.append(t)
+            seen.add(t)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def personality_to_system_instructions(personality: Dict[str, Any] | None) -> str:
     shaped = _as_personality(personality)
     curiosity = float(shaped["curiosity_weight"])
     directness = float(shaped["directness"])
     humor_threshold = float(shaped["humor_threshold"])
     concern = float(shaped["concern_sensitivity"])
-    interests = list(shaped.get("interests") or [])[:8]
+    interests = _meaningful_interests(list(shaped.get("interests") or []))
 
     lines = [
         "Current ALICE personality drift:",
@@ -203,11 +237,7 @@ def personality_to_system_instructions(personality: Dict[str, Any] | None) -> st
         f"- Concern sensitivity: {_describe_weight(concern, 'do not over-index on mild stress signals', 'acknowledge stress briefly when relevant', 'notice stress quickly and respond with calm, practical support')}.",
     ]
     if interests:
-        lines.append(
-            "- Recurring user interests to remember when relevant: "
-            + ", ".join(interests)
-            + "."
-        )
+        lines.append("- Topics this user cares about: " + ", ".join(interests) + ".")
     return "\n".join(lines)
 
 

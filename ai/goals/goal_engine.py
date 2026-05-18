@@ -119,6 +119,9 @@ class GoalEngine:
             key=lambda g: g.priority,
         )
 
+    def get_active_goals(self) -> List[Goal]:
+        return self.active()
+
     def top_goal(self) -> Optional[Goal]:
         goals = self.active()
         return goals[0] if goals else None

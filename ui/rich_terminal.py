@@ -189,6 +189,21 @@ class RichTerminalUI:
         opener_text = opener.format(name=self.user_name)
         return f"{opener_text} {context} {prompt}"
 
+    def _get_goal_line(self) -> str:
+        """Return a formatted goal line from the top active goal, or empty string."""
+        try:
+            from ai.goals.goal_engine import get_goal_engine
+            goal = get_goal_engine().top_goal()
+            if not goal:
+                return ""
+            desc = goal.description[:60].rstrip()
+            next_action = (goal.next_action or "").strip()[:50]
+            accent = self.colors["accent"]
+            info = self.colors["info"]
+            return f"[{accent}][ {desc} ][/{accent}]"
+        except Exception:
+            return ""
+
     def show_welcome(self):
         """Display welcome banner"""
         self.clear()
@@ -225,12 +240,11 @@ class RichTerminalUI:
         self.console.print(welcome_panel)
         self.console.print()
 
-        # Get dynamic greeting
-        greeting_text = self._get_greeting()
-        self.console.print(
-            greeting_text, style=self.colors["assistant"], justify="center"
-        )
-        self.console.print()
+        # Goal line — top active goal + next action
+        goal_line = self._get_goal_line()
+        if goal_line:
+            self.console.print(goal_line, justify="center")
+            self.console.print()
 
         # Info panel - sleek futuristic design
         current_time = datetime.now()

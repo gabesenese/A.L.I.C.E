@@ -485,6 +485,8 @@ class CompanionRuntimeLoop:
         companion_state.last_user_state_signals = self._extract_user_state_signals(
             user_input
         )
+        if companion_state.last_user_state_signals:
+            self._persist_emotional_signals(companion_state.last_user_state_signals)
         if tool_result is not None:
             companion_state.last_tool_result = self._summarize_tool_result(tool_result)
 
@@ -602,6 +604,20 @@ class CompanionRuntimeLoop:
             confidence=float(tool_result.confidence or 0.0),
             diagnostics=diagnostics,
         )
+
+    @staticmethod
+    def _persist_emotional_signals(signals: List[str]) -> None:
+        try:
+            from datetime import datetime, timezone
+            from ai.identity.user_identity import load_identity, save_identity
+            identity = load_identity()
+            noted_at = datetime.now(timezone.utc).isoformat()
+            for sig in signals:
+                identity.emotional_history.append({"signal": sig, "noted_at": noted_at})
+            identity.emotional_history = identity.emotional_history[-10:]
+            save_identity(identity)
+        except Exception:
+            pass
 
     def _extract_user_state_signals(self, user_input: str) -> List[str]:
         text = str(user_input or "").strip()

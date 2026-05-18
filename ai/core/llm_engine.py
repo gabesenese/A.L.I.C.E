@@ -162,6 +162,70 @@ class LLMConfig:
         return self._fine_tuned_model or self.model
 
 
+def _build_companion_context() -> str:
+    """Build a concise, live companion context block for the LLM system prompt.
+
+    Pulls from UserIdentity, GoalEngine, and emotional history. Each source
+    degrades independently — a missing file never blocks the rest.
+    """
+    parts: List[str] = []
+
+    try:
+        from ai.identity.user_identity import load_identity
+        from datetime import datetime, timezone, timedelta
+
+        identity = load_identity()
+        if identity.name:
+            parts.append(f"User's name: {identity.name}")
+        if identity.personality_read:
+            parts.append(f"Personality: {identity.personality_read}")
+        if identity.values:
+            parts.append(f"Values: {', '.join(identity.values[:4])}")
+        if identity.known_projects:
+            parts.append(f"Current projects: {', '.join(identity.known_projects[:3])}")
+
+        # Surface emotional signals from the past 48 h
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+        recent_signals: List[str] = []
+        for entry in identity.emotional_history:
+            try:
+                ts = datetime.fromisoformat(
+                    str(entry.get("noted_at") or "").replace("Z", "+00:00")
+                )
+                if ts >= cutoff:
+                    sig = str(entry.get("signal") or "").strip()
+                    if sig:
+                        recent_signals.append(sig)
+            except Exception:
+                pass
+        if recent_signals:
+            unique = list(dict.fromkeys(recent_signals))
+            parts.append(f"Recent mood: {', '.join(unique[:3])}")
+    except Exception:
+        pass
+
+    try:
+        from ai.goals.goal_engine import get_goal_engine
+
+        active = get_goal_engine().active()[:3]
+        if active:
+            goal_lines = "\n".join(f"  - {g.description[:70]}" for g in active)
+            parts.append(f"Active goals:\n{goal_lines}")
+    except Exception:
+        pass
+
+    if not parts:
+        return ""
+
+    return (
+        "\n\nCompanion context — you know this user well. "
+        "Never treat a session as a blank slate, never ask who they are, "
+        "never ask what they want to work on unless they seem genuinely stuck. "
+        "Weave the following in naturally; never recite it as a list:\n"
+        + "\n".join(parts)
+    )
+
+
 class LocalLLMEngine:
     """
     High-performance LLM engine with GPU support
@@ -404,11 +468,11 @@ Be a capable thinking partner - helpful, intelligent, and naturally honest."""
             return float(self.config.temperature)
 
     def _build_system_prompt(self, base_prompt: Optional[str] = None) -> str:
-        """Append current personality drift to user-facing system prompts."""
+        """Append companion context + personality drift to every system prompt."""
         prompt = str(base_prompt if base_prompt is not None else self.system_prompt)
+        prompt += _build_companion_context()
         try:
             from brain.personality import apply_personality_to_system_prompt
-
             return apply_personality_to_system_prompt(prompt)
         except Exception as exc:
             logger.debug("Personality prompt shaping unavailable: %s", exc)

@@ -22,6 +22,31 @@ async def app_lifespan(app: FastAPI):
             "startup_check", component="ollama", status="degraded", error=str(exc)
         )
 
+    # Companion services — all daemon threads, stop automatically on process exit.
+    from ai.runtime.notifier import heartbeat_output, daemon_notify
+    from brain.heartbeat import Heartbeat
+    from brain.ambient_monitor import get_ambient_monitor
+    from ai.runtime.companion_daemon import CompanionDaemon
+    from memory.world_model import get_world_model
+    from ai.goals.goal_engine import get_goal_engine
+
+    heartbeat = Heartbeat(output=heartbeat_output)
+    heartbeat.start()
+
+    daemon = CompanionDaemon(
+        world_state_memory=get_world_model(),
+        goal_system=get_goal_engine(),
+        notify_callback=daemon_notify,
+    )
+    daemon.start()
+
+    get_ambient_monitor().start()
+
+    logger.info("companion_services", status="started")
+
     yield
 
+    heartbeat.stop()
+    daemon.stop()
+    get_ambient_monitor().stop()
     logger.info("shutdown", status="ok")

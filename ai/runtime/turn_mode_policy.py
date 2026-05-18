@@ -56,5 +56,13 @@ def classify_turn_mode(
         or str(project.get("active_objective") or "").strip()
     )
     if has_objective and normalized_intent == "conversation:goal_statement":
-        return "operator_continue"
+        # Only escalate to operator_continue when the user intends to work,
+        # not just when they're discussing a topic while an objective exists.
+        _work_signals = (
+            "let's", "lets", "work on", "implement", "build", "fix", "run",
+            "next step", "continue", "keep going", "what's next", "whats next",
+            "inspect", "commit", "push", "deploy", "apply",
+        )
+        if any(sig in low for sig in _work_signals):
+            return "operator_continue"
     return "casual_companion"

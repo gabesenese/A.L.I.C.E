@@ -345,6 +345,8 @@ def apply_response_momentum(
         next_line = _normalize_next_move_line(next_line)
     elif allow_next_step and not next_line and state.get("next_recommended_action"):
         next_line = _normalize_next_move_line(str(state.get("next_recommended_action") or ""))
+    else:
+        next_line = ""
 
     allow_objective = (
         operator_application_request
@@ -366,7 +368,7 @@ def apply_response_momentum(
     else:
         lead = ""
 
-    if momentum_turn:
+    if momentum_turn and allow_next_step:
         low_merged = text.lower()
         if (
             "which one" in low_merged

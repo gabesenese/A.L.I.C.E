@@ -1,7 +1,22 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, List, Optional
+
+
+def _recent_emotional_signals(identity: Any, hours: float = 48.0) -> List[str]:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    signals: List[str] = []
+    for entry in getattr(identity, "emotional_history", []):
+        try:
+            ts = datetime.fromisoformat(
+                str(entry.get("noted_at") or "").replace("Z", "+00:00")
+            )
+            if ts >= cutoff:
+                signals.append(str(entry.get("signal") or ""))
+        except Exception:
+            pass
+    return [s for s in signals if s]
 
 
 def generate_session_briefing(user_id: str = "gabriel") -> str:
@@ -82,6 +97,13 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
             ]
             if task_lines:
                 parts.append("Open threads:\n" + "\n".join(task_lines))
+
+        # Emotional continuity — gentle follow-up on recent state signals
+        recent_emotions = _recent_emotional_signals(identity, hours=48.0)
+        if recent_emotions:
+            unique = list(dict.fromkeys(recent_emotions))  # ordered dedup
+            signals_str = ", ".join(unique[:3])
+            parts.append(f"Last session you mentioned feeling {signals_str} — how are you doing now?")
 
         return "\n\n".join(parts)
     except Exception:
