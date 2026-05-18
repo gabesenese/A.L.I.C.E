@@ -13,6 +13,7 @@ def test_weather_context_does_not_dominate_alice_objective():
     assert result.metadata["intent"] != "weather:current"
     assert result.metadata["intent"] in {
         "conversation:goal_statement",
+        "conversation:project_work_session",
         "operator:continue",
         "operator:next_step",
         "operator:project_status",

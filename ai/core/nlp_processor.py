@@ -4552,9 +4552,12 @@ class NLPProcessor:
             _pc = bool(re.search(
                 r"\b(hot|cold|tired|busy|outside|inside|feel|feeling|exhausted|"
                 r"hard|difficult|been a|was a|long day|rough|nice day|beautiful|"
-                r"stayed|nap|woke|morning|afternoon|evening|just got|"
-                r"going out|out for|for a drive|for a walk|for a run|heading out|"
-                r"going for a|on a drive|on a walk|step out|grabbing|errands)\b",
+                r"stayed|nap|woke|morning|afternoon|evening|just got)\b",
+                _raw,
+            ))
+            _going_out = bool(re.search(
+                r"\b(going out|out for|for a drive|for a walk|for a run|heading out|"
+                r"going for a|on a drive|on a walk|step out|grabbing|errands|headed out)\b",
                 _raw,
             ))
             _if = bool(re.search(
@@ -4566,9 +4569,10 @@ class NLPProcessor:
                 r"when i'm back|once i|a little later|sometime today)\b",
                 _raw,
             ))
-            if _if and _ts:
-                pass  # future-framing — not a current command
-            elif not (_pc and _if):
+            _now_work = bool(re.search(r"\bnow\b.{0,60}\bwork on\b", _raw))
+            if _if and _ts and _going_out:
+                pass  # departing + future-framing — not a current work command
+            elif (_now_work and not _going_out) or not (_pc and _if):
                 intent = "operator:continue"
                 intent_confidence = max(float(intent_confidence or 0.0), 0.88)
         if re.search(
@@ -5268,9 +5272,12 @@ class NLPProcessor:
             _has_personal_ctx = bool(re.search(
                 r"\b(hot|cold|tired|busy|outside|inside|feel|feeling|exhausted|"
                 r"hard|difficult|been a|was a|long day|rough|nice day|beautiful|"
-                r"stayed|nap|woke|morning|afternoon|evening|just got|"
-                r"going out|out for|for a drive|for a walk|for a run|heading out|"
-                r"going for a|on a drive|on a walk|step out|grabbing|errands)\b",
+                r"stayed|nap|woke|morning|afternoon|evening|just got)\b",
+                _orig,
+            ))
+            _going_out_signal = bool(re.search(
+                r"\b(going out|out for|for a drive|for a walk|for a run|heading out|"
+                r"going for a|on a drive|on a walk|step out|grabbing|errands|headed out)\b",
                 _orig,
             ))
             _is_intent_framing = bool(re.search(
@@ -5284,9 +5291,10 @@ class NLPProcessor:
                 r"when i'm back|once i|a little later|sometime today)\b",
                 _orig,
             ))
-            if _is_intent_framing and _time_shifted:
-                pass  # fall through — treat as conversational future intent
-            elif not (_has_personal_ctx and _is_intent_framing):
+            _now_work_signal = bool(re.search(r"\bnow\b.{0,60}\bwork on\b", _orig))
+            if _is_intent_framing and _time_shifted and _going_out_signal:
+                pass  # fall through — departing + future-framing, not a current command
+            elif (_now_work_signal and not _going_out_signal) or not (_has_personal_ctx and _is_intent_framing):
                 return "operator:continue", 0.9
 
         # PHASE 1.5: Conversational guard before semantic fallback.

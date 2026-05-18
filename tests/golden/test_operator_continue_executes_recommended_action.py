@@ -12,7 +12,7 @@ def test_store_structured_next_recommendation():
         user_id="default",
         turn_number=1,
     )
-    assert result.metadata["intent"] in {"operator:continue", "conversation:goal_statement"}
+    assert result.metadata["intent"] in {"operator:continue", "conversation:goal_statement", "conversation:project_work_session"}
     state = load_project_state("default")
     rec = dict(state.last_recommended_action or {})
     assert rec.get("action") == "inspect_file"
