@@ -325,18 +325,29 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
     def _looks_like_weather_commentary_without_request(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
-        if "weather" not in text:
-            return False
         if "?" in text:
             return False
-        return any(
-            marker in text
-            for marker in (
-                "don't want you to check",
-                "dont want you to check",
-                "just saying",
-            )
+        # Explicit opt-out markers
+        if any(m in text for m in ("don't want you to check", "dont want you to check", "just saying")):
+            return True
+        if "weather" not in text and not any(m in text for m in ("sun is out", "sunny out", "nice out", "beautiful out")):
+            return False
+        # Positive weather statement: "weather is/was/has been [positive adjective]"
+        _positive_weather = re.compile(
+            r"\bweather\s+(?:is|was|has been|looks?|feels?|seems?)\s+"
+            r"(?:amazing|great|nice|beautiful|perfect|lovely|gorgeous|fantastic|awesome|good|wonderful|excellent|incredible)\b",
+            re.IGNORECASE,
         )
+        if _positive_weather.search(text):
+            return True
+        # Atmospheric statements without a request verb
+        _request_verbs = re.compile(r"\b(check|get|tell me|what is|what's|how is|how's|show|look up|fetch|pull)\b", re.IGNORECASE)
+        if "weather" in text and not _request_verbs.search(text):
+            return True
+        # "sun is out", "it's sunny", "sunny today", "nice day"
+        if re.search(r"\b(sun is out|it'?s? sunny|sunny (?:today|out)|beautiful day|nice day(?: out)?|lovely day)\b", text, re.IGNORECASE):
+            return True
+        return False
 
     def _looks_like_collaborative_reasoning_statement(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
