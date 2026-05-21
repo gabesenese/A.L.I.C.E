@@ -138,9 +138,26 @@ class WorldModel:
     def get_personality(self) -> Dict[str, Any]:
         return deepcopy(self._state["alice_state"]["personality"])
 
+    # Minimum personality values that preserve companion character.
+    # Drift below these breaks the JARVIS-style presence we want.
+    _PERSONALITY_FLOORS = {
+        "humor_threshold": (None, 0.45),   # (min, max): max 0.45 keeps humor enabled
+        "curiosity_weight": (0.45, None),  # min 0.45 keeps engagement alive
+        "directness": (0.65, None),        # min 0.65 keeps responses sharp
+    }
+
     def update_personality(self, personality: Dict[str, Any]) -> None:
         current = deepcopy(DEFAULT_PERSONALITY)
         current.update(dict(personality or {}))
+        # Apply companion character floors/ceilings
+        for key, (floor, ceiling) in self._PERSONALITY_FLOORS.items():
+            if key in current:
+                val = float(current[key])
+                if floor is not None:
+                    val = max(val, floor)
+                if ceiling is not None:
+                    val = min(val, ceiling)
+                current[key] = val
         self._state["alice_state"]["personality"] = current
         self.save()
 
@@ -241,6 +258,78 @@ class WorldModel:
     def update_unread_email_count(self, count: int) -> None:
         self._state["environment"]["unread_email_count"] = max(0, int(count or 0))
         self.save()
+
+    # --- Topic confidence tracking ---
+
+    # Topics extracted per-turn from user input with mention count and confidence
+    _TOPIC_KEYWORDS = re.compile(
+        r"\b(python|javascript|typescript|rust|go|java|react|node|sql|docker|"
+        r"kubernetes|aws|azure|gcp|linux|git|api|machine learning|ml|ai|nlp|"
+        r"database|postgres|mysql|mongodb|redis|fastapi|django|flask|"
+        r"finance|health|fitness|music|gaming|reading|writing|travel|cooking)\b",
+        re.IGNORECASE,
+    )
+
+    def record_topic_mentions(self, text: str) -> None:
+        """Extract topics from text and update confidence-weighted mention counts."""
+        topics_store: Dict[str, Any] = dict(self._state.get("topic_confidence") or {})
+        now = _now_iso()
+        for match in self._TOPIC_KEYWORDS.finditer(str(text or "")):
+            topic = match.group(0).lower()
+            rec = topics_store.get(topic) or {
+                "topic": topic,
+                "count": 0,
+                "confidence": 0.0,
+                "first_seen": now,
+                "last_seen": now,
+            }
+            rec["count"] += 1
+            rec["last_seen"] = now
+            # Confidence grows with mentions, capped at 0.95; decay formula: 1 - 1/(1+count)
+            rec["confidence"] = round(min(0.95, 1.0 - 1.0 / (1.0 + rec["count"])), 3)
+            topics_store[topic] = rec
+        if topics_store:
+            # Keep only top 30 by confidence to prevent unbounded growth
+            sorted_topics = sorted(topics_store.values(), key=lambda x: x["confidence"], reverse=True)
+            self._state["topic_confidence"] = {r["topic"]: r for r in sorted_topics[:30]}
+            self.save()
+
+    def high_confidence_topics(self, min_confidence: float = 0.5) -> List[str]:
+        """Return topics with confidence >= min_confidence, sorted by confidence desc."""
+        store: Dict[str, Any] = dict(self._state.get("topic_confidence") or {})
+        return [
+            rec["topic"]
+            for rec in sorted(store.values(), key=lambda x: x["confidence"], reverse=True)
+            if float(rec.get("confidence", 0)) >= min_confidence
+        ]
+
+    # --- Data freshness contracts ---
+
+    def record_data_fetch(self, domain: str) -> None:
+        """Record that live data for `domain` was just fetched (e.g. 'weather')."""
+        fetches = dict(self._state.get("data_freshness") or {})
+        fetches[str(domain)] = _now_iso()
+        self._state["data_freshness"] = fetches
+        self.save()
+
+    def data_age_seconds(self, domain: str) -> Optional[float]:
+        """Return seconds since last fetch for `domain`, or None if never fetched."""
+        fetches = dict(self._state.get("data_freshness") or {})
+        ts = fetches.get(str(domain))
+        if not ts:
+            return None
+        try:
+            delta = datetime.now(timezone.utc) - datetime.fromisoformat(str(ts))
+            return max(0.0, delta.total_seconds())
+        except Exception:
+            return None
+
+    def is_data_stale(self, domain: str, ttl_seconds: float = 1800.0) -> bool:
+        """Return True if `domain` data is older than `ttl_seconds` or was never fetched."""
+        age = self.data_age_seconds(domain)
+        if age is None:
+            return True
+        return age > ttl_seconds
 
     def add_open_task_if_missing(
         self,
@@ -373,6 +462,15 @@ class WorldModel:
         self.save()
         return self.snapshot()
 
+    _VAGUE_INTENTION_PATTERNS = re.compile(
+        r"^(?:some(?:thing|body|where|how|times?)?|some\s+(?:stuff|things?)|"
+        r"stuff|things?|it|this|that|them|work|"
+        r"do\s+(?:some(?:thing|stuff)|some\s+(?:stuff|things?)|it|that)|"
+        r"work\s+on\s+(?:some(?:thing|stuff)|some\s+(?:stuff|things?)|it|that)|"
+        r"(?:a\s+)?few\s+things?|various\s+things?|lots?\s+of\s+things?)$",
+        re.IGNORECASE,
+    )
+
     def _extract_records(
         self,
         pattern: re.Pattern[str],
@@ -385,7 +483,9 @@ class WorldModel:
         records: List[Dict[str, Any]] = []
         for match in pattern.finditer(text):
             value = re.sub(r"\s+", " ", str(match.group(1) or "")).strip(" .,:;-")
-            if len(value) < 3:
+            if len(value) < 8:
+                continue
+            if self._VAGUE_INTENTION_PATTERNS.match(value):
                 continue
             records.append(
                 {

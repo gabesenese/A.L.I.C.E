@@ -15,6 +15,7 @@ Features:
 - Context-aware conversation tracking
 """
 
+import asyncio
 import re
 import logging
 import importlib
@@ -177,6 +178,7 @@ _NEGATION_WORDS: frozenset = frozenset(
         "wont",
         "can't",
         "cant",
+        "cannot",  # contraction expander turns "can't" → "cannot" before this check
         "stop",
         "isn't",
         "isnt",
@@ -2752,7 +2754,6 @@ class NLPProcessor:
         subject_cues = {
             "assistant",
             "fictional inventor",
-            "assistant",
             "ai",
             "technology",
             "system",
@@ -3369,6 +3370,15 @@ class NLPProcessor:
         for plugin_name, plugin_score in dynamic_scores.items():
             scores[plugin_name] = float(scores.get(plugin_name, 0.0) + plugin_score)
 
+        # Conversation override: brainstorm/discuss/think patterns are discussion turns,
+        # not weather queries. The word "brainstorm" contains "storm" but is not weather.
+        _discussion_override = {
+            "brainstorm", "discuss", "explore", "analyze", "strategize",
+            "ideate", "conceptualize", "philosophize",
+        }
+        if normalized_set & _discussion_override:
+            scores["weather"] = 0.0
+
         return scores
 
     async def aprocess(self, text: str, use_context: bool = True) -> ProcessedQuery:
@@ -3433,10 +3443,6 @@ class NLPProcessor:
             logger.debug(f"Could not load learned corrections: {e}")
 
         return {}
-
-        logger.info(
-            "[OK] NLPProcessor initialized with advanced semantic understanding"
-        )
 
     def _ensure_correction_embeddings(self) -> None:
         """Lazily build a normalised embedding matrix over all learned-correction keys."""
@@ -3795,30 +3801,6 @@ class NLPProcessor:
             normalized_text=normalized_text,
             previous_intent=str(self.context.last_intent or ""),
         )
-
-        _norm = str(normalized_text or "").lower().strip()
-        _prev_intent = str(self.context.last_intent or "")
-        if _norm.startswith("write this down") or _norm.startswith(
-            "save this to my notes"
-        ):
-            intent, intent_confidence = (
-                "notes:create",
-                max(float(intent_confidence or 0.0), 0.9),
-            )
-        if _prev_intent.startswith("notes:"):
-            if any(
-                p in _norm
-                for p in (
-                    "actually the second one",
-                    "the second one",
-                    "what is in it",
-                    "open the second one",
-                )
-            ):
-                intent, intent_confidence = (
-                    "notes:read",
-                    max(float(intent_confidence or 0.0), 0.88),
-                )
 
         self.route_coordinator.ensure_metadata(
             parsed_command=parsed_command,
@@ -4955,8 +4937,38 @@ class NLPProcessor:
             "i plan to",
             "i'm aiming to",
             "i am aiming to",
+            # Discussion / brainstorm patterns
+            "let's brainstorm",
+            "lets brainstorm",
+            "brainstorm on",
+            "brainstorm about",
+            "let's discuss",
+            "lets discuss",
+            "let us discuss",
+            "let's talk about",
+            "lets talk about",
+            "let's think through",
+            "lets think through",
+            "help me think through",
+            "talk through",
+            "think through",
+            "what do you think about",
+            "what's your take on",
+            "whats your take on",
+            "what should i work on",
+            "what should we work on",
+            "what should i focus on",
+            "what should i prioritize",
+            "where should i start",
+            "what's next",
+            "whats next",
+            "what next",
+            "i want to discuss",
+            "i want to brainstorm",
+            "i want to explore",
+            "i want to analyze",
         )
-        _note_markers = (
+        _tool_action_markers = (
             "note",
             "notes",
             "memo",
@@ -4966,9 +4978,22 @@ class NLPProcessor:
             "write down",
             "remember this",
             "save this",
+            "email",
+            "mail",
+            "calendar",
+            "event",
+            "meeting",
+            "reminder",
+            "remind",
+            "file",
+            "files",
+            "delete",
+            "remove",
+            "create",
+            "schedule",
         )
         if any(p in text_lower for p in _goal_phrases) or "ai system" in text_lower:
-            if not any(m in text_lower for m in _note_markers):
+            if not any(m in text_lower for m in _tool_action_markers):
                 return "conversation:goal_statement", 0.9
 
         # Notes intents - distinguish VERY clearly
@@ -5108,11 +5133,7 @@ class NLPProcessor:
         # Short conversational acknowledgments — catch before semantic classifier
         # e.g. "will do", "got it", "sure", "sounds good", "noted"
         _text_stripped = text_lower.strip(".,!? ")
-        if (
-            _text_stripped in _P1_CONV_ACK
-            or len(text_lower.split()) <= 3
-            and _text_stripped in _P1_CONV_ACK
-        ):
+        if _text_stripped in _P1_CONV_ACK:
             return "conversation:ack", 0.92
 
         # Thanks - check BEFORE greetings (to prevent "thanks" being matched by semantic classifier)
@@ -5144,10 +5165,9 @@ class NLPProcessor:
         # Knowledge/definition questions: "what is X?", "what are X?", "who is X?", "define X"
         # Must be before vague patterns to prevent misclassification
         if (
-            text_lower.startswith("what is ")
-            or text_lower.startswith("what are ")
-            or text_lower.startswith("who is ")
-            and len(text_lower.split()) > 2
+            (text_lower.startswith("what is ") and len(text_lower.split()) > 2)
+            or (text_lower.startswith("what are ") and len(text_lower.split()) > 2)
+            or (text_lower.startswith("who is ") and len(text_lower.split()) > 2)
             or text_lower.startswith("define ")
             or text_lower.startswith("explain ")
             or "can you explain" in text_lower
@@ -5298,20 +5318,15 @@ class NLPProcessor:
                 return "operator:continue", 0.9
 
         # PHASE 1.5: Conversational guard before semantic fallback.
-        # Prevent force-fitting casual chat into tool intents.
+        # Only fires on clearly social/greeting turns — NOT on technical questions
+        # or project-related queries, which must fall through to semantic analysis.
         _words = set(re.findall(r"\b[a-z']+\b", text_lower))
         _conversation_cues = {
-            "how",
-            "why",
-            "what",
             "hey",
             "hi",
             "hello",
-            "day",
             "feeling",
             "doing",
-            "going",
-            "think",
             "chat",
             "talk",
         }
@@ -5338,11 +5353,38 @@ class NLPProcessor:
             "list",
             "show",
         }
-        if (
-            len(_words) <= 12
-            and ("?" in text_lower or not _words.isdisjoint(_conversation_cues))
+        # Technical/project signals — never suppress routing for these
+        _project_signals = {
+            "project",
+            "alice",
+            "routing",
+            "route",
+            "fix",
+            "improve",
+            "approach",
+            "strategy",
+            "build",
+            "implement",
+            "feature",
+            "issue",
+            "bug",
+            "code",
+            "system",
+            "pipeline",
+            "nlp",
+            "work",
+            "better",
+            "companion",
+            "jarvis",
+        }
+        _is_pure_social = (
+            len(_words) <= 8
+            and not _words.isdisjoint(_conversation_cues)
             and _words.isdisjoint(_tool_cues)
-        ):
+            and _words.isdisjoint(_project_signals)
+            and "?" not in text_lower
+        )
+        if _is_pure_social:
             return "conversation:general", 0.72
 
         # PHASE 2: Fallback to semantic classification
@@ -5389,9 +5431,14 @@ class NLPProcessor:
         ):
             return "status_inquiry", 0.85
 
-        # Weather intents - CHECK EARLY before vague patterns
-        # This ensures "is that wednesday?" triggers weather:forecast, not vague_question
-        if any(phrase in text_lower for phrase in _P3_FORECAST_PHRASES):
+        # Weather intents - gate on a weather signal so day-names alone don't misfire
+        # (e.g. "I have a meeting on monday" must NOT hit weather:forecast)
+        _has_weather_signal = any(
+            w in text_lower for w in (_P3_WEATHER_WORDS | _P1_WEATHER_KEYWORDS)
+        )
+        if _has_weather_signal and any(
+            phrase in text_lower for phrase in _P3_FORECAST_PHRASES
+        ):
             return "weather:forecast", 0.8
 
         if any(word in text_lower for word in _P3_WEATHER_WORDS):
@@ -5425,7 +5472,7 @@ class NLPProcessor:
         """Extract all entities (domain-specific + general)"""
 
         # Check cache (promote to most-recently-used on hit)
-        cache_key = hash(text)
+        cache_key = text
         with self._cache_lock:
             if cache_key in self._entity_cache:
                 self._entity_cache.move_to_end(cache_key)

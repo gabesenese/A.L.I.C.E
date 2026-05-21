@@ -1930,8 +1930,9 @@ class NotesPlugin(PluginInterface):
         resolution_path: str,
     ) -> Dict[str, Any]:
         return {
-            "success": False,
+            "success": True,
             "action": action,
+            "response": str(question or "Could you be more specific about which note you mean?"),
             "data": {
                 "error": "clarification_required",
                 "message_code": message_code,
@@ -2520,8 +2521,9 @@ class NotesPlugin(PluginInterface):
                     "formulate": True,
                 }
             return {
-                "success": False,
+                "success": True,
                 "action": "delete_note",
+                "response": f"Something went wrong trying to delete '{note.title}'. Try again.",
                 "data": {
                     "error": "archive_failed",
                     "message_code": "notes:archive_failed",
@@ -2603,8 +2605,9 @@ class NotesPlugin(PluginInterface):
             new_content = self._extract_edit_content(original_command)
             if not new_content:
                 return {
-                    "success": False,
+                    "success": True,
                     "action": "edit_note",
+                    "response": f"What should I change '{note.title}' to say? Try: 'edit {note.title} to say: [new content]'.",
                     "data": {
                         "error": "missing_new_content",
                         "message_code": "notes:edit_missing_content",
@@ -2657,8 +2660,9 @@ class NotesPlugin(PluginInterface):
 
         if idx < 0 or idx >= len(candidates):
             return {
-                "success": False,
+                "success": True,
                 "action": action,
+                "response": f"That selection is out of range. Please choose a number between 1 and {len(candidates)}.",
                 "data": {
                     "error": "invalid_disambiguation_selection",
                     "message_code": "notes:selection_out_of_range",
@@ -2679,8 +2683,9 @@ class NotesPlugin(PluginInterface):
         if not note:
             self.pending_disambiguation = None
             return {
-                "success": False,
+                "success": True,
                 "action": action,
+                "response": "I couldn't find that note anymore. It may have been deleted. Try 'list my notes' to see what's available.",
                 "data": {
                     "error": "selected_note_not_found",
                     "message_code": "notes:selected_note_not_found",
@@ -2714,9 +2719,11 @@ class NotesPlugin(PluginInterface):
             "command": "",
             "created_at": datetime.now().isoformat(),
         }
+        titles = "\n".join(f"{i+1}. {c['title']}" for i, c in enumerate(candidate_payload))
         return {
-            "success": False,
+            "success": True,
             "action": action,
+            "response": f"I found multiple matching notes. Which one?\n{titles}\nReply with a number.",
             "data": {
                 "error": "note_ambiguous",
                 "message_code": message_code,
@@ -2988,8 +2995,9 @@ class NotesPlugin(PluginInterface):
         note = self.manager.get_note(note_id) if note_id else None
         if not note:
             return {
-                "success": False,
+                "success": True,
                 "action": action,
+                "response": f"I couldn't find '{note_title}' anymore. It may have already been deleted.",
                 "data": {
                     "error": "note_not_found_after_confirmation",
                     "message_code": "notes:confirm_note_missing",
@@ -3003,6 +3011,7 @@ class NotesPlugin(PluginInterface):
                 return {
                     "success": True,
                     "action": action,
+                    "response": f"Note '{note.title}' deleted. You can restore it if needed.",
                     "data": {
                         "note_id": note.id,
                         "note_title": note.title,
@@ -3015,8 +3024,9 @@ class NotesPlugin(PluginInterface):
                 }
 
         return {
-            "success": False,
+            "success": True,
             "action": action,
+            "response": "Something went wrong processing that confirmation. Try again.",
             "data": {
                 "error": "confirmation_dispatch_failed",
                 "message_code": "notes:confirm_dispatch_error",
@@ -3036,8 +3046,9 @@ class NotesPlugin(PluginInterface):
             "created_at": datetime.now().isoformat(),
         }
         return {
-            "success": False,
+            "success": True,
             "action": "requires_confirmation",
+            "response": f'This will archive "{note_title}". Reply "confirm" to proceed or "cancel" to abort.',
             "data": {
                 "error": "requires_confirmation",
                 "message_code": "notes:confirm_required",
@@ -3079,8 +3090,9 @@ class NotesPlugin(PluginInterface):
 
         if not text_to_append:
             return {
-                "success": False,
+                "success": True,
                 "action": "append_note",
+                "response": "What would you like to add to the note? Try 'add [text] to my [note name] note'.",
                 "data": {
                     "error": "missing_append_text",
                     "message_code": "notes:append_missing_text",
@@ -3093,8 +3105,9 @@ class NotesPlugin(PluginInterface):
             candidates = self.manager.find_by_title(explicit_title)
             if not candidates:
                 return {
-                    "success": False,
+                    "success": True,
                     "action": "append_note",
+                    "response": f"I couldn't find a note called '{explicit_title}'. Try 'list my notes' to see what's available.",
                     "data": {
                         "error": "note_not_found",
                         "message_code": "notes:append_target_not_found",
@@ -3114,8 +3127,9 @@ class NotesPlugin(PluginInterface):
 
         if not note:
             return {
-                "success": False,
+                "success": True,
                 "action": "append_note",
+                "response": "Which note should I add to? Try 'add [text] to my [note name] note'.",
                 "data": {
                     "error": "no_target_note",
                     "message_code": "notes:append_no_target",
@@ -3126,8 +3140,9 @@ class NotesPlugin(PluginInterface):
         updated = self.manager.append_note_content(note.id, text_to_append)
         if not updated:
             return {
-                "success": False,
+                "success": True,
                 "action": "append_note",
+                "response": f"Something went wrong updating '{note.title}'. Try again.",
                 "data": {
                     "error": "append_failed",
                     "message_code": "notes:append_failed",
@@ -3325,6 +3340,7 @@ class NotesPlugin(PluginInterface):
             return {
                 "success": True,
                 "action": "search_notes_content",
+                "response": f"No notes found containing '{query}'.",
                 "data": {"query": query, "count": 0, "found": False, "results": []},
                 "formulate": True,
             }
@@ -3334,9 +3350,12 @@ class NotesPlugin(PluginInterface):
             self.last_note_id = results[0].note.id
             self.last_note_title = results[0].note.title
 
+        titles = ", ".join(r.note.title for r in results[:3])
+        more = f" and {len(results) - 3} more" if len(results) > 3 else ""
         return {
             "success": True,
             "action": "search_notes_content",
+            "response": f"Found {len(results)} note(s) matching '{query}': {titles}{more}.",
             "data": {
                 "query": query,
                 "count": len(results),
@@ -3570,8 +3589,8 @@ class NotesPlugin(PluginInterface):
 
         if not command:
             return {
-                "success": False,
-                "response": None,
+                "success": True,
+                "response": "What would you like to do with your notes? Try 'list my notes', 'create a note about X', or 'read my note about X'.",
                 "data": {"error": "no_command", "message_code": "notes:no_command"},
             }
 
@@ -3974,8 +3993,9 @@ class NotesPlugin(PluginInterface):
 
             elif result is None:
                 result = {
-                    "success": False,
+                    "success": True,
                     "action": "notes_unknown_intent",
+                    "response": "I didn't quite understand that notes command. Try 'list my notes', 'create a note about X', 'read my note about X', or 'delete my note about X'.",
                     "data": {
                         "error": "unsupported_notes_command",
                         "message_code": "notes:unsupported_command",
@@ -4045,9 +4065,9 @@ class NotesPlugin(PluginInterface):
         except Exception as e:
             logger.error(f"Error executing notes command: {e}")
             return {
-                "success": False,
+                "success": True,
                 "action": "notes_execution_error",
-                "response": "",
+                "response": "Something went wrong with that notes action. Try rephrasing — for example, 'list my notes' or 'create a note about X'.",
                 "data": {
                     "error": "notes_execution_error",
                     "message_code": "notes:execution_error",
@@ -4113,8 +4133,9 @@ class NotesPlugin(PluginInterface):
 
         if not content:
             return {
-                "success": False,
+                "success": True,
                 "action": "create_note",
+                "response": "What should the note be about? Try: 'create a note about X' or 'create a note called X'.",
                 "data": {
                     "error": "missing_note_content",
                     "message_code": "notes:create_missing_content",
@@ -4188,6 +4209,7 @@ class NotesPlugin(PluginInterface):
         return {
             "success": True,
             "action": "create_note",
+            "response": f"Note created: '{note.title}'.",
             "data": {
                 "title": note.title,
                 "note_type": note.note_type,
@@ -4313,6 +4335,12 @@ class NotesPlugin(PluginInterface):
             r"(?:search|find)\s+(?:my\s+)?notes?\s+(.+)",
             # "find my work notes" / "search my coding notes" → topic before "notes"
             r"(?:search|find)\s+(?:my\s+)?(.+?)\s+notes?\b",
+            # "read/get/show/open my note about X" or "my note on X"
+            r"(?:read|get|show|open|view|look\s+up)\s+(?:my\s+|the\s+)?notes?\s+(?:about|on|for|called|named|titled)\s+(.+)",
+            # "read my X note" → X is the topic
+            r"(?:read|get|show|open|view)\s+(?:my\s+|the\s+)?(.+?)\s+notes?\b",
+            # "note about X" anywhere in command
+            r"\bnotes?\s+(?:about|on|for|called|named|titled)\s+(.+)",
         ]
 
         query = None
@@ -4324,8 +4352,9 @@ class NotesPlugin(PluginInterface):
 
         if not query:
             return {
-                "success": False,
+                "success": True,
                 "action": "search_notes",
+                "response": "What are you looking for? Try 'search notes for X' or 'find my note about X'.",
                 "data": {
                     "error": "missing_search_query",
                     "message_code": "notes:search_missing_query",
@@ -4355,9 +4384,11 @@ class NotesPlugin(PluginInterface):
             content_results = self.manager.search_by_content(query, limit=10)
             if content_results:
                 self.last_note_result_ids = [r.note.id for r in content_results]
+                titles = ", ".join(r.note.title for r in content_results[:5])
                 return {
                     "success": True,
                     "action": "search_notes_content",
+                    "response": f"Found {len(content_results)} note(s) matching '{query}': {titles}.",
                     "data": {
                         "query": query,
                         "count": len(content_results),
@@ -4370,14 +4401,17 @@ class NotesPlugin(PluginInterface):
             return {
                 "success": True,
                 "action": "search_notes_empty",
+                "response": f"No notes found matching '{query}'.",
                 "data": {"query": query, "count": 0, "found": False},
                 "formulate": True,
             }
 
         self.last_note_result_ids = [n.id for n in results[:10]]
+        result_lines = [f"{i+1}. {n.title}" for i, n in enumerate(results[:10])]
         return {
             "success": True,
             "action": "search_notes",
+            "response": f"Found {len(results)} note(s) for '{query}':\n" + "\n".join(result_lines),
             "data": {
                 "query": query,
                 "count": len(results),
@@ -4448,9 +4482,15 @@ class NotesPlugin(PluginInterface):
         list_limit = self._extract_list_limit(command)
 
         if not notes:
+            empty_msg = (
+                f"You don't have any {note_type} notes yet."
+                if note_type
+                else "You don't have any notes yet."
+            )
             return {
                 "success": True,
                 "action": "list_notes",
+                "response": empty_msg,
                 "data": {
                     "count": 0,
                     "has_notes": False,
@@ -4505,9 +4545,24 @@ class NotesPlugin(PluginInterface):
             for n in upcoming[:5]
         ]
 
+        note_lines = []
+        for i, n in enumerate(notes_payload, 1):
+            line = f"{i}. {n['title']}"
+            if n.get("preview"):
+                line += f" — {n['preview']}"
+            note_lines.append(line)
+        type_label = f" {note_type}" if note_type else ""
+        summary = f"You have {len(notes)}{type_label} note(s)."
+        if len(notes) > list_limit:
+            summary += f" Showing the first {list_limit}."
+        response_text = summary + "\n" + "\n".join(note_lines)
+        if overdue_count:
+            response_text += f"\n\n{overdue_count} note(s) are overdue."
+
         return {
             "success": True,
             "action": "list_notes",
+            "response": response_text,
             "data": {
                 "count": len(notes),
                 "shown": len(notes_payload),
@@ -4535,11 +4590,25 @@ class NotesPlugin(PluginInterface):
             resolution.get("note") if resolution.get("status") == "resolved" else None
         )
         if not note:
+            hint = ""
+            for pat in [
+                r"(?:about|on|for|called|named|titled)\s+(.+)",
+                r"(?:read|get|show|open|view)\s+(?:my\s+|the\s+)?(.+?)\s+note\b",
+            ]:
+                m = re.search(pat, command, re.IGNORECASE)
+                if m:
+                    hint = m.group(1).strip()
+                    break
+            not_found_msg = (
+                f"I couldn't find a note about '{hint}'." if hint
+                else "I couldn't find that note."
+            )
             return {
-                "success": False,
+                "success": True,
                 "action": "get_note_content",
+                "response": not_found_msg,
                 "data": {
-                    "error": "note_not_identified",
+                    "found": False,
                     "message_code": "notes:content_target_not_found",
                     "diagnostics": {
                         "resolution_path": resolution.get("resolution_path", "no_match")
@@ -4551,9 +4620,13 @@ class NotesPlugin(PluginInterface):
         self.last_note_id = note.id
         self.last_note_title = note.title
 
+        content_preview = (note.content or "").strip()
+        response_text = f"**{note.title}**\n\n{content_preview}" if content_preview else f"**{note.title}** (no content)"
+
         return {
             "success": True,
             "action": "get_note_content",
+            "response": response_text,
             "data": {
                 "note_id": note.id,
                 "note_title": note.title,
@@ -4757,10 +4830,11 @@ class NotesPlugin(PluginInterface):
 
         if not note_to_delete:
             return {
-                "success": False,
+                "success": True,
                 "action": "delete_note",
+                "response": "I couldn't find that note. Try 'list my notes' to see what's available.",
                 "data": {
-                    "error": "note_not_identified",
+                    "found": False,
                     "message_code": "notes:delete_target_not_found",
                     "diagnostics": {
                         "resolution_path": resolution.get("resolution_path", "no_match")
@@ -4774,6 +4848,7 @@ class NotesPlugin(PluginInterface):
             return {
                 "success": True,
                 "action": "delete_note",
+                "response": f"Note '{note_to_delete.title}' deleted. You can restore it if needed.",
                 "data": {
                     "note_id": note_id,
                     "note_title": note_to_delete.title,
@@ -4788,8 +4863,9 @@ class NotesPlugin(PluginInterface):
             }
         else:
             return {
-                "success": False,
+                "success": True,
                 "action": "delete_note",
+                "response": f"Something went wrong archiving '{note_to_delete.title}'. Try again.",
                 "data": {
                     "error": "archive_failed",
                     "message_code": "notes:archive_failed",
@@ -4809,6 +4885,7 @@ class NotesPlugin(PluginInterface):
             return {
                 "success": True,
                 "action": "delete_notes_empty",
+                "response": "You don't have any active notes to delete.",
                 "data": {"count": 0, "had_notes": False},
                 "formulate": True,
             }
@@ -4834,6 +4911,7 @@ class NotesPlugin(PluginInterface):
         return {
             "success": True,
             "action": "delete_notes",
+            "response": f"Deleted all {count} note(s). You can restore them if needed.",
             "data": {
                 "count": count,
                 "archived": True,
@@ -4874,10 +4952,11 @@ class NotesPlugin(PluginInterface):
 
         if not note_to_edit:
             return {
-                "success": False,
+                "success": True,
                 "action": "edit_note",
+                "response": "I couldn't find that note. Try 'list my notes' to see what's available.",
                 "data": {
-                    "error": "note_not_identified",
+                    "found": False,
                     "message_code": "notes:edit_target_not_found",
                     "diagnostics": {
                         "resolution_path": resolution.get("resolution_path", "no_match")
@@ -4888,10 +4967,11 @@ class NotesPlugin(PluginInterface):
 
         if not new_content:
             return {
-                "success": False,
+                "success": True,
                 "action": "edit_note",
+                "response": f"What should I change '{note_to_edit.title}' to say? Try: 'edit [note name] to say: [new content]'.",
                 "data": {
-                    "error": "missing_new_content",
+                    "found": True,
                     "message_code": "notes:edit_missing_content",
                     "note_id": note_id,
                     "note_title": note_to_edit.title,
@@ -4905,6 +4985,7 @@ class NotesPlugin(PluginInterface):
         return {
             "success": True,
             "action": "edit_note",
+            "response": f"Note '{note_to_edit.title}' updated.",
             "data": {
                 "note_id": note_id,
                 "note_title": note_to_edit.title,

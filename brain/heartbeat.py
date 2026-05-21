@@ -2,12 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 import sys
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
 from memory.world_model import WorldModel, get_world_model
+
+_VAGUE_TEXT = re.compile(
+    r"^(?:some(?:thing|body|where|how|times?)?|some\s+(?:stuff|things?)|"
+    r"stuff|things?|it|this|that|them|work|"
+    r"do\s+(?:some(?:thing|stuff)|some\s+(?:stuff|things?)|it|that)|"
+    r"work\s+on\s+(?:some(?:thing|stuff)|some\s+(?:stuff|things?)|it|that)|"
+    r"(?:a\s+)?few\s+things?|various\s+things?|lots?\s+of\s+things?)$",
+    re.IGNORECASE,
+)
 
 
 def _now() -> datetime:
@@ -134,15 +144,16 @@ class Heartbeat:
 
         for item in list(user.get("mentioned_intentions") or []):
             text = str(item.get("text") or "").strip()
-            if not text:
+            if not text or len(text) < 8 or _VAGUE_TEXT.match(text):
                 continue
             age = _age_seconds(item.get("created_at"), now)
             if age is not None and age >= self.config.stale_intention_seconds:
                 key = f"intention:{text.lower()}"
+                display = text if len(text) <= 60 else text[:57] + "..."
                 decisions.append(
                     HeartbeatDecision(
                         key=key,
-                        message=f"Checking in on this: {text}. Still something you want to move forward?",
+                        message=f"You mentioned wanting to {display} — still on your mind?",
                         reason="stale_intention",
                         priority="normal",
                         metadata={"age_seconds": age},
@@ -174,15 +185,16 @@ class Heartbeat:
 
         for item in list(env.get("open_tasks") or []):
             text = str(item.get("text") or "").strip()
-            if not text:
+            if not text or len(text) < 8 or _VAGUE_TEXT.match(text):
                 continue
             age = _age_seconds(item.get("created_at"), now)
             if age is not None and age >= self.config.stale_task_seconds:
                 key = f"task:{text.lower()}"
+                display = text if len(text) <= 60 else text[:57] + "..."
                 decisions.append(
                     HeartbeatDecision(
                         key=key,
-                        message=f"This open task has been sitting for a while: {text}.",
+                        message=f"Heads up — '{display}' has been open for over a day. Want to pick it up?",
                         reason="stale_open_task",
                         priority="normal",
                         metadata={"age_seconds": age},

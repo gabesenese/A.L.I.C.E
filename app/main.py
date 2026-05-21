@@ -2059,6 +2059,22 @@ class ALICE:
             flags=re.IGNORECASE,
         )
 
+        # Strip thinking-aloud preamble — the model narrating its own reasoning process.
+        _thinking_aloud = (
+            r"^let me think about (this|that)[.!,]?\s*",
+            r"^let me analyze (this|that)[.!,]?\s*",
+            r"^let me break (this|that) down[.!,]?\s*",
+            r"^let me work through (this|that)[.!,]?\s*",
+            r"^let me consider (this|that)[.!,]?\s*",
+            r"^let me dive into (this|that)[.!,]?\s*",
+            r"^let\x27?s? dive into (this|that|what)[^.!?\n]{0,60}[.!?]?\s*",
+            r"^from my understanding[,.]?\s*",
+            r"^from my perspective[,.]?\s*",
+            r"^ill? (try to |go ahead and )?(help|assist|address|answer|explain)[^.!?\n]{0,40}[.!]?\s*",
+        )
+        for _pat in _thinking_aloud:
+            text = re.sub(_pat, "", text, flags=re.IGNORECASE).strip()
+
         # Reject meta-assistant leakage and replace with Alice-safe fallback.
         lower = text.lower()
         if "analysis: project_ideation" in lower and "exact result" in lower:

@@ -50,17 +50,34 @@ def find_similar_response_examples(
     ]
 
 _META_ARTIFACT_PATTERNS = (
-    r"\(note:\s*i['’]?ve rewritten the response[^)]*\)",
-    r"\(note:\s*i['’]?ve kept the main points intact[^)]*\)",
-    r"note:\s*i['’]?ve rewritten[^.\n]*\.?",
-    r"note:\s*i['’]?ve kept[^.\n]*\.?",
+    r"\(note:\s*i[‘’]?ve rewritten the response[^)]*\)",
+    r"\(note:\s*i[‘’]?ve kept the main points intact[^)]*\)",
+    r"note:\s*i[‘’]?ve rewritten[^.\n]*\.?",
+    r"note:\s*i[‘’]?ve kept[^.\n]*\.?",
     r"while making minor adjustments for tone and flow[^.\n]*\.?",
-    r"i['’]?ve rewritten the response to sound[^.\n]*\.?",
-    r"i['’]?ve kept the main points intact[^.\n]*\.?",
+    r"i[‘’]?ve rewritten the response to sound[^.\n]*\.?",
+    r"i[‘’]?ve kept the main points intact[^.\n]*\.?",
     r"while keeping the same facts[^.\n]*\.?",
     r"here is a rewritten version[:\s]*",
     r"rewritten:\s*",
-    r"sure,\s*here['’]?s a more natural version[:\s]*",
+    r"sure,\s*here[‘’]?s a more natural version[:\s]*",
+)
+
+# Phrases where the model narrates its own reasoning — strip from the start of a response
+# or from any standalone sentence that is pure meta-commentary.
+_THINKING_ALOUD_PREFIXES = (
+    r"^let me think about (this|that)[.!,]?\s*",
+    r"^let me analyze (this|that)[.!,]?\s*",
+    r"^let me break (this|that) down[.!,]?\s*",
+    r"^let me work through (this|that)[.!,]?\s*",
+    r"^let me consider (this|that)[.!,]?\s*",
+    r"^let me dive into (this|that)[.!,]?\s*",
+    r"^let\x27?s? dive into (this|that|what)[^.!?\n]{0,60}[.!?]?\s*",
+    r"^from my understanding[,.]?\s*",
+    r"^from my perspective[,.]?\s*",
+    r"^so,?\s+to (answer|address|tackle) (your|that|this)[^.!?\n]{0,40}[,.]?\s*",
+    r"^to (answer|address) (your|that|this)[^.!?\n]{0,40}[,.]?\s*",
+    r"^ill? (try to |go ahead and )?(help|assist|address|answer|explain) (you |that |this )?[^.!?\n]{0,30}[.!]?\s*",
 )
 _PASSIVE_OPERATOR_LINES = (
     "what would you like to start working on",
@@ -70,6 +87,14 @@ _PASSIVE_OPERATOR_LINES = (
     "ready when you are",
     "how can i help",
     "let me know",
+)
+# Trailing wrap-up sentences that signal the LLM is summarizing rather than engaging.
+# These are stripped from the END of responses on discussion/brainstorm turns.
+_TRAILING_LECTURE_PATTERNS = re.compile(
+    r"\s*(now (it\x27?s |it is )?time to (think|consider|focus|explore|discuss)[^.!?\n]{0,80}[.!?]?"
+    r"|the key takeaway (is|here)[^.!?\n]{0,80}[.!?]?"
+    r"|in (summary|conclusion)[,\s][^.!?\n]{0,80}[.!?]?)\s*$",
+    re.IGNORECASE,
 )
 _FORBIDDEN_OPERATOR_CHATTER_MARKERS = (
     "i'm here to assist",
@@ -89,6 +114,9 @@ def strip_meta_response_artifacts(text: str) -> str:
     cleaned = cleaned.replace("\r\n", "\n")
     for pattern in _META_ARTIFACT_PATTERNS:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    # Strip thinking-aloud prefixes from the start of the whole response
+    for pattern in _THINKING_ALOUD_PREFIXES:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
     banned_markers = (
         "note: i've kept",
         "note: i've rewritten",
@@ -106,10 +134,17 @@ def strip_meta_response_artifacts(text: str) -> str:
         low = sentence.lower()
         if any(marker in low for marker in banned_markers):
             continue
+        # Drop standalone thinking-aloud sentences mid-response
+        is_pure_filler = any(
+            re.match(p, low, re.IGNORECASE) for p in _THINKING_ALOUD_PREFIXES
+        )
+        if is_pure_filler and len(kept) == 0:
+            continue
         kept.append(sentence)
     cleaned = " ".join(kept).strip()
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     cleaned = re.sub(r"\s+([,.!?])", r"\1", cleaned)
+    cleaned = _TRAILING_LECTURE_PATTERNS.sub("", cleaned).strip()
     return cleaned
 
 def _suppress_passive_operator_chatter(text: str) -> str:

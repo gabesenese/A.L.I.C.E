@@ -603,13 +603,17 @@ class WeatherPlugin(PluginInterface):
                         },
                     }
 
+                condition_str = condition or "conditions unavailable"
+                temp_str = f"{temp}°C" if temp is not None else "unknown temperature"
+                humidity_str = f", humidity {humidity}%" if humidity is not None else ""
+                wind_str = f", wind {wind} km/h" if wind is not None else ""
                 return {
                     "success": True,
                     "action": "get_current",
-                    "response": None,
+                    "response": f"It's currently {temp_str} with {condition_str} in {location_name}{humidity_str}{wind_str}.",
                     "data": {
                         "temperature": temp,
-                        "condition": condition or "conditions unavailable",
+                        "condition": condition_str,
                         "humidity": humidity,
                         "wind_speed": wind,
                         "location": location_name,
@@ -760,10 +764,19 @@ class WeatherPlugin(PluginInterface):
                     },
                 }
 
+            forecast_lines = []
+            for day in forecast[:3]:
+                date_str = str(day.get("date") or "")
+                high = day.get("high")
+                low = day.get("low")
+                cond = str(day.get("condition") or "")
+                temp_range = f"{low}–{high}°C" if low is not None and high is not None else "temps unavailable"
+                forecast_lines.append(f"{date_str}: {cond}, {temp_range}")
+            forecast_summary = "; ".join(forecast_lines) if forecast_lines else "no forecast data"
             return {
                 "success": True,
                 "action": "get_forecast",
-                "response": None,
+                "response": f"7-day forecast for {location_name}: {forecast_summary}.",
                 "data": {
                     "forecast": forecast,
                     "location": location_name,

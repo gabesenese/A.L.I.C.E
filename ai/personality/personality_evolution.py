@@ -434,3 +434,13 @@ class PersonalityEvolutionEngine:
             del self.user_traits[user_id]
             self._save_traits()
             logger.info(f"Reset personality traits for {user_id}")
+
+
+_evolution_engine: Optional["PersonalityEvolutionEngine"] = None
+
+
+def get_evolution_engine() -> "PersonalityEvolutionEngine":
+    global _evolution_engine
+    if _evolution_engine is None:
+        _evolution_engine = PersonalityEvolutionEngine()
+    return _evolution_engine

@@ -61,6 +61,13 @@ class ContractPipeline:
         self.memory_turn_service = MemoryTurnService()
         self.routing_failure_logger = RoutingFailureLogger()
         self._greeting_session_state_by_user: Dict[str, Dict[str, Any]] = {}
+        self._eval_turn_counter: int = 0
+        # Backfill historical routing failures into evaluations.jsonl at startup
+        try:
+            from ai.learning.failure_eval_converter import get_failure_eval_converter
+            get_failure_eval_converter().run()
+        except Exception:
+            pass
 
     def _maybe_record_behavior_event(
         self,
@@ -482,6 +489,24 @@ class ContractPipeline:
 
         stages.append(self._stage("input", "ok", {"length": len(user_input)}))
 
+        # Meta-query: weak spots / routing report
+        _low = user_input.lower().strip()
+        if any(phrase in _low for phrase in (
+            "weak spot", "what are your weak spots", "routing report",
+            "show me your failures", "alice report", "failure report",
+            "where are you failing", "what do you struggle",
+        )):
+            try:
+                from ai.learning.failure_eval_converter import get_failure_eval_converter
+                _report = get_failure_eval_converter().weak_spot_report()
+            except Exception as e:
+                _report = f"Could not generate report: {e}"
+            return PipelineResult(
+                handled=True,
+                response_text=f"Here's my current routing performance:\n\n```\n{_report}\n```",
+                metadata={"source": "weak_spot_report", "trace_id": trace_id, "stages": stages},
+            )
+
         user_state_snapshot = self.user_state_model.get_or_create(user_id)
         companion_state = self.companion_runtime.start_turn(
             user_id=user_id,
@@ -635,6 +660,25 @@ class ContractPipeline:
                 },
             )
         )
+
+        # Auto-refresh: if weather data is stale and policy said "respond", override to "act"
+        try:
+            from ai.runtime.automatic_data_refresh_policy import get_auto_refresh_policy
+            from memory.world_model import get_world_model
+            from ai.runtime.companion_runtime import PolicyDecision as _PD
+            _refresh_policy = get_auto_refresh_policy()
+            if _refresh_policy.should_force_refresh(
+                route=str(decision.route or ""),
+                intent=str(decision.intent or ""),
+                world_model=get_world_model(),
+            ) and policy.decision_type != "act":
+                policy = _PD(
+                    decision_type="act",
+                    reason="auto_refresh_stale_data",
+                    retry_budget=1,
+                )
+        except Exception:
+            pass
 
         execute_phase, action_discipline = (
             self.companion_runtime.execute_with_discipline(
@@ -1002,6 +1046,24 @@ class ContractPipeline:
             )
         )
 
+        # Live eval record: feed turn outcome into ConfidenceFusion success-rate data
+        try:
+            from ai.learning.failure_eval_converter import write_turn_eval
+            _turn_success = bool(turn_execution_outcome.verification_passed)
+            _last_veto = ""
+            for _s in reversed(stages):
+                if _s.get("status") in ("failed", "skipped") and _s.get("name") in ("execute", "verify"):
+                    _last_veto = str(_s.get("details", {}).get("reason") or "")
+                    break
+            write_turn_eval(
+                intent=str(decision.intent or "unknown"),
+                trace_id=trace_id,
+                success=_turn_success,
+                veto_reason=_last_veto,
+            )
+        except Exception:
+            pass
+
         memory_domains = self.companion_runtime.update_after_turn(
             companion_state=companion_state,
             user_input=user_input,
@@ -1068,6 +1130,75 @@ class ContractPipeline:
             local_execution=local_exec_payload,
             next_step=str(next_step.next_recommended_action or ""),
         )
+
+        # Clarification feedback: when a previous clarification is now resolved,
+        # record the Q&A pair to boost confidence for this intent in future turns
+        try:
+            from ai.optimization.clarification_feedback_loop import get_clarification_feedback_loop
+            cfl = get_clarification_feedback_loop()
+            cfl.tick(user_id)
+            prev_intent = str(getattr(companion_state, "last_intent", "") or "")
+            prev_type = str(getattr(companion_state, "last_route", "") or "")
+            if prev_intent == "clarify" or prev_type == "clarify":
+                # The previous turn was a clarification question; this answer resolves it
+                cfl.record_clarification(
+                    user_id=user_id,
+                    original_input=str(getattr(companion_state, "last_user_input", "") or ""),
+                    question="",  # we don't store the exact question, just the pairing
+                    answer=user_input,
+                    intent=str(decision.intent or ""),
+                )
+        except Exception:
+            pass
+
+        # Conversation style mirror: record user message and auto-derive constraints
+        try:
+            from ai.core.conversation_style_mirror import get_style_mirror
+            mirror = get_style_mirror()
+            mirror.record_user_message(user_id, user_input)
+        except Exception:
+            pass
+
+        # Apply learned style constraints (format, length) to the final response
+        try:
+            from ai.core.constraint_preference_extractor import ConstraintPreferenceExtractor
+            from ai.core.adaptive_response_style import AdaptiveResponseStyle
+            from ai.core.conversation_style_mirror import get_style_mirror
+            from ai.identity.user_identity import load_identity
+
+            per_turn = ConstraintPreferenceExtractor().extract(user_input)
+            identity = load_identity()
+            learned = dict(identity.learned_preferences or {})
+            # Auto-derived from conversation style mirror (lowest priority — overridden by explicit prefs)
+            mirror_constraints = get_style_mirror().derive_auto_constraints(user_id)
+            # Per-turn explicit > learned > mirror auto-derived
+            merged = {**mirror_constraints, **learned, **{k: v for k, v in per_turn.items() if v not in (None, "default", "normal", [])}}
+            if merged:
+                response_text = AdaptiveResponseStyle().apply_constraints(response_text, merged)
+        except Exception:
+            pass
+
+        # World-state grounding: record successful data fetches; qualify stale responses
+        try:
+            from memory.world_model import get_world_model
+            wm = get_world_model()
+            intent_str = str(decision.intent or "")
+            if tool_result and tool_result.success and intent_str.startswith("weather:"):
+                wm.record_data_fetch("weather")
+            elif intent_str.startswith("weather:") and not (tool_result and tool_result.success):
+                # Tool didn't run or failed — qualify if we have cached data with age
+                age = wm.data_age_seconds("weather")
+                if age is not None:
+                    mins = int(age / 60)
+                    if mins > 0 and response_text and "(last updated" not in response_text:
+                        response_text = f"(last updated ~{mins}m ago) {response_text}"
+                elif wm.is_data_stale("weather"):
+                    # No cached data at all and plugin failed — add a retry suggestion
+                    if response_text and "try again" not in response_text.lower():
+                        response_text += " (Weather data unavailable — try again in a moment.)"
+        except Exception:
+            pass
+
         agent_loop_payload = build_agent_loop_state(
             user_input=user_input,
             route=str(decision.route or ""),

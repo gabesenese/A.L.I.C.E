@@ -27,6 +27,69 @@ from ai.contracts import (
 logger = logging.getLogger(__name__)
 
 
+def _verification_fallback(
+    reason: str,
+    diagnostics: dict,
+    proposed_text: str,
+    intent: str = "",
+    user_id: str = "default",
+) -> str:
+    if reason == "tool_failed":
+        tool = str(diagnostics.get("tool") or "")
+        error_type = str(diagnostics.get("error") or diagnostics.get("error_type") or "")
+        try:
+            from ai.runtime.fallback_policy import get_fallback_graph, get_retry_memory
+            rm = get_retry_memory()
+            count = rm.record_failure(user_id, intent or tool, error_type)
+            # Check for escalation message first (repeated failures)
+            esc = rm.escalation_message(user_id, intent or tool, error_type)
+            if esc:
+                return esc
+            # Use the appropriate FallbackStep based on repeat count
+            fg = get_fallback_graph()
+            steps = fg.get_steps(intent or tool, error_type)
+            step_idx = rm.get_step_index(user_id, intent or tool, error_type)
+            if steps and step_idx < len(steps):
+                return steps[step_idx].message
+        except Exception:
+            pass
+        if tool and error_type:
+            return f"The {tool} action ran into an issue ({error_type}). Try rephrasing or check that the target exists."
+        if tool:
+            return f"The {tool} action didn't complete successfully. Try again or rephrase what you need."
+        return "That action didn't complete successfully. Try rephrasing or providing more detail."
+
+    if reason == "empty_response":
+        return "I wasn't able to generate a response for that. Could you be more specific about what you need?"
+
+    if reason == "unsupported_continuity_claim":
+        return "I don't have enough context to answer that confidently. Could you give me a bit more detail?"
+
+    if reason == "unverified_codebase_claim":
+        return "I don't have the file details memorized. Use 'inspect <filename>' to get accurate info about a specific file."
+
+    if reason == "unverified_weather_claim":
+        return "I don't have live weather data. Try asking 'what's the weather in [city]?' to get current conditions."
+
+    if reason == "verify_band_requires_tool_evidence":
+        return "I need to run a tool to answer that, but nothing was executed. Try asking more directly."
+
+    if reason == "refusal_missing":
+        return "I can't safely do that. Try a more specific or narrower version of the request."
+
+    if reason == "local_execution_target_not_found":
+        close = diagnostics.get("close_matches") or []
+        if close:
+            suggestion = close[0] if isinstance(close[0], str) else str(close[0])
+            return f"I couldn't find that file. Did you mean {suggestion}?"
+        return "I couldn't find that file in the workspace. Check the name and try again."
+
+    if proposed_text:
+        return proposed_text
+
+    return "I wasn't able to complete that — try rephrasing with a more specific action."
+
+
 @dataclass(frozen=True)
 class RoutePhaseResult:
     decision: RouterDecision
@@ -136,6 +199,20 @@ class TurnOrchestrator:
             if ":" in decision.intent
             else decision.intent
         )
+
+        # Resolve location for the weather plugin from operator/session context.
+        # The plugin accepts "city" or "location" keys in its context dict.
+        _location_ctx: Dict[str, str] = {}
+        if tool_name == "weather":
+            _raw_loc = (
+                str(operator_context.get("city") or "").strip()
+                or str(operator_context.get("location") or "").strip()
+                or str(operator_state.get("city") or "").strip()
+                or str(operator_state.get("location") or "").strip()
+            )
+            if _raw_loc and _raw_loc.lower() not in {"unknown", "none", ""}:
+                _location_ctx = {"city": _raw_loc, "location": _raw_loc}
+
         tool_result = self.boundaries.tools.execute(
             ToolInvocation(
                 tool_name=tool_name,
@@ -163,10 +240,53 @@ class TurnOrchestrator:
                             operator_state.get("active_objective") or ""
                         ),
                         "previous_intent": str(operator_state.get("last_intent") or ""),
+                        **_location_ctx,
                     },
                 },
             )
         )
+
+        # For known weather error codes, synthesise a direct clarifying response via
+        # the FallbackGraph instead of handing a bare failure to the LLM.
+        if (
+            tool_result is not None
+            and not tool_result.success
+            and tool_name == "weather"
+        ):
+            # error may be "weather:no_location" (full message_code) or just "no_location"
+            _raw_err = str(
+                (tool_result.data or {}).get("error")
+                or ((tool_result.data or {}).get("data") or {}).get("error")
+                or ((tool_result.data or {}).get("data") or {}).get("message_code", "")
+                or tool_result.error
+                or ""
+            ).strip()
+            # Strip plugin-name prefix so "weather:no_location" → "no_location"
+            _err = re.sub(r"^weather:", "", _raw_err, flags=re.IGNORECASE)
+            try:
+                from ai.runtime.fallback_policy import get_fallback_graph, get_retry_memory
+                _fg = get_fallback_graph()
+                _steps = _fg.get_steps("weather", _err)
+                if _steps:
+                    _rm = get_retry_memory()
+                    _idx = _rm.get_step_index("default", "weather", _err)
+                    _msg = _steps[min(_idx, len(_steps) - 1)].message
+                    tool_result = ToolResult(
+                        success=False,
+                        tool_name=tool_result.tool_name,
+                        action=tool_result.action,
+                        data={
+                            **(tool_result.data or {}),
+                            "fallback_message": _msg,
+                            "use_fallback_message": True,
+                        },
+                        error=tool_result.error,
+                        confidence=tool_result.confidence,
+                        diagnostics=tool_result.diagnostics,
+                    )
+            except Exception:
+                pass
+
         return ExecutePhaseResult(tool_result=tool_result, executed=True)
 
     def verify_phase(
@@ -211,14 +331,21 @@ class TurnOrchestrator:
         proposed = verify_phase.proposed_response
 
         if verification is not None and not verification.accepted:
-            response_text = (
-                "I could not verify that result safely. "
-                "Please rephrase the request or provide more detail."
+            _intent_for_fallback = str(
+                verify_phase.proposed_response.metadata.get("intent", "")
+                if verify_phase.proposed_response and verify_phase.proposed_response.metadata
+                else ""
+            )
+            response_text = _verification_fallback(
+                reason=str(verification.reason or ""),
+                diagnostics=dict(verification.diagnostics or {}),
+                proposed_text=str(proposed.text or "").strip() if proposed else "",
+                intent=_intent_for_fallback,
             )
             return RespondPhaseResult(
                 response_text=response_text,
                 requires_follow_up=True,
-                metadata={"fallback": "verification_guard"},
+                metadata={"fallback": "verification_guard", "reason": str(verification.reason or "")},
             )
 
         return RespondPhaseResult(

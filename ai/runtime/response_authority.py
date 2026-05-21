@@ -93,7 +93,7 @@ def finalize_conversational_surface(
     text = str(response or "")
     if (
         apply_publish_style
-        and route not in {"llm_fallback"}
+        and route not in {"llm_fallback", "contract_tool_response"}
         and callable(getattr(alice, "_publish_with_fast_llm_style", None))
     ):
         text = str(

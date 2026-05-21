@@ -76,27 +76,25 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
                 f"You have {unread} unread email{'s' if unread != 1 else ''}."
             )
 
-        # Active goals summary
-        goal_summary = engine.session_summary()
-        if goal_summary:
-            parts.append(f"Active goals:\n{goal_summary}")
+        # Active goals — top 3 only, full description
+        active = engine.active()
+        if active:
+            goal_lines = [f"  • {g.description}" for g in active[:3]]
+            parts.append("Active goals:\n" + "\n".join(goal_lines))
 
-        # Stale goals (not touched in 3+ days)
-        stale = engine.stale_goals(days=3.0)
-        if stale:
-            names = "; ".join(g.description[:50] for g in stale[:3])
-            parts.append(f"Hasn't been touched in 3+ days: {names}")
-
-        # Open tasks from world model (capped to avoid wall of text)
+        # Open tasks from world model — only those not already covered by goals
+        goal_texts = {g.description.lower() for g in active}
         open_tasks = list(snapshot.get("environment", {}).get("open_tasks") or [])
-        if open_tasks:
-            task_lines = [
-                f"  • {t['text'][:80]}"
-                for t in open_tasks[:3]
-                if t.get("text")
-            ]
-            if task_lines:
-                parts.append("Open threads:\n" + "\n".join(task_lines))
+        novel_tasks = [
+            t for t in open_tasks
+            if t.get("text") and not any(
+                goal_frag in t["text"].lower()
+                for goal_frag in goal_texts
+            )
+        ]
+        if novel_tasks:
+            task_lines = [f"  • {t['text']}" for t in novel_tasks[:2]]
+            parts.append("Open threads:\n" + "\n".join(task_lines))
 
         # Emotional continuity — gentle follow-up on recent state signals
         recent_emotions = _recent_emotional_signals(identity, hours=48.0)

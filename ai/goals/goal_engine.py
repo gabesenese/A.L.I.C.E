@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -14,6 +15,18 @@ _INTENT_PHRASES = (
     "my goal is", "i'd like to", "i would like to",
     "we should", "let's build", "let's implement", "help me build",
     "help me create", "help me implement",
+)
+
+_VAGUE_GOAL = re.compile(
+    r"^(?:know|learn|understand|build|make|do|try|work|get|have|use|see|find|"
+    r"figure\s+out|think\s+about)\s*(?:it|one|something|this|that|them|things?|"
+    r"stuff|more|better|how|what|why)?\.?$",
+    re.IGNORECASE,
+)
+
+_DANGLING_PRONOUN = re.compile(
+    r"\b(?:it|one|this|that|them|something|stuff|things?)\s*$",
+    re.IGNORECASE,
 )
 
 
@@ -33,6 +46,10 @@ class Goal:
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     last_worked_at: Optional[str] = None
+    milestones: List[Dict[str, Any]] = field(default_factory=list)
+    # Each milestone: {"id": str, "text": str, "done": bool, "completed_at": str|None}
+    dependencies: List[str] = field(default_factory=list)
+    # List of goal_ids that must be completed before this goal is "ready"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -51,6 +68,13 @@ class Goal:
             return delta.total_seconds() / 86400
         except Exception:
             return None
+
+    def progress_pct(self) -> float:
+        """Return 0.0–1.0 based on completed milestones. 0.0 if no milestones."""
+        if not self.milestones:
+            return 0.0
+        done = sum(1 for m in self.milestones if m.get("done"))
+        return round(done / len(self.milestones), 2)
 
 
 class GoalEngine:
@@ -85,15 +109,32 @@ class GoalEngine:
         priority: int = 2,
         context: str = "",
         next_action: str = "",
-    ) -> Goal:
+    ) -> Optional[Goal]:
+        desc = str(description or "").strip()
+        if len(desc) < 12 or _VAGUE_GOAL.match(desc) or _DANGLING_PRONOUN.search(desc):
+            return None
+        lower = desc.lower()
+        for g in self._goals:
+            if g.description.lower() == lower:
+                return g
         goal = Goal(
-            description=description,
+            description=desc,
             priority=priority,
             context=context,
             next_action=next_action,
         )
         self._goals.append(goal)
         self._save()
+        # Auto-decompose milestones from the description
+        try:
+            from ai.planning.action_planner import get_action_planner
+            class _Req:
+                def __init__(self, g): self.goal = g; self.plan_steps = None
+            steps = get_action_planner().decompose(_Req(desc))
+            if len(steps) > 1:
+                self.populate_milestones_from_steps(goal.goal_id, steps)
+        except Exception:
+            pass
         return goal
 
     def update(self, goal_id: str, **fields) -> Optional[Goal]:
@@ -143,13 +184,39 @@ class GoalEngine:
             if (g.days_since_worked() or 0) >= days
         ]
 
+    def get_ready_goals(self) -> List[Goal]:
+        """Return active goals whose all dependency goals are completed."""
+        completed_ids = {g.goal_id for g in self._goals if g.status == "completed"}
+        return [
+            g for g in self.active()
+            if all(dep in completed_ids for dep in g.dependencies)
+        ]
+
+    def get_blocker_goals(self, goal_id: str) -> List[Goal]:
+        """Return active goals that are blocking the given goal (incomplete dependencies)."""
+        completed_ids = {g.goal_id for g in self._goals if g.status == "completed"}
+        for g in self._goals:
+            if g.goal_id == goal_id:
+                return [
+                    b for b in self._goals
+                    if b.goal_id in g.dependencies and b.goal_id not in completed_ids
+                ]
+        return []
+
     def extract_from_text(self, text: str) -> Optional[str]:
         lower = text.lower()
         for phrase in _INTENT_PHRASES:
             if phrase in lower:
                 idx = lower.index(phrase) + len(phrase)
                 snippet = text[idx: idx + 120].strip()
-                return snippet.split(".")[0].split("?")[0].strip() or None
+                candidate = snippet.split(".")[0].split("?")[0].strip()
+                if not candidate or len(candidate) < 12:
+                    continue
+                if _VAGUE_GOAL.match(candidate):
+                    continue
+                if _DANGLING_PRONOUN.search(candidate):
+                    continue
+                return candidate
         return None
 
     def sync_from_active_goals(self, active_goals: List[str]) -> None:
@@ -163,6 +230,91 @@ class GoalEngine:
                 changed = True
         if changed:
             self._save()
+
+    def add_milestone(self, goal_id: str, text: str) -> Optional[Dict[str, Any]]:
+        """Append a milestone to the goal. Returns the milestone dict or None."""
+        text = str(text or "").strip()
+        if not text:
+            return None
+        for g in self._goals:
+            if g.goal_id == goal_id:
+                milestone = {
+                    "id": f"m_{uuid.uuid4().hex[:6]}",
+                    "text": text[:120],
+                    "done": False,
+                    "completed_at": None,
+                }
+                g.milestones.append(milestone)
+                g.updated_at = _now_iso()
+                self._save()
+                return milestone
+        return None
+
+    def complete_milestone(self, goal_id: str, milestone_id: str) -> bool:
+        """Mark a milestone as done. Returns True if found and updated."""
+        for g in self._goals:
+            if g.goal_id == goal_id:
+                for m in g.milestones:
+                    if m.get("id") == milestone_id and not m.get("done"):
+                        m["done"] = True
+                        m["completed_at"] = _now_iso()
+                        g.last_worked_at = _now_iso()
+                        g.updated_at = _now_iso()
+                        # Auto-complete goal when all milestones done
+                        if all(m2.get("done") for m2 in g.milestones):
+                            g.status = "completed"
+                        self._save()
+                        return True
+        return False
+
+    def populate_milestones_from_steps(self, goal_id: str, steps: List[str]) -> int:
+        """Populate a goal's milestones from a decomposed step list. Returns count added."""
+        added = 0
+        for g in self._goals:
+            if g.goal_id == goal_id and not g.milestones:
+                for step in steps[:8]:
+                    m = self.add_milestone(goal_id, step)
+                    if m:
+                        added += 1
+                break
+        return added
+
+    def ingest_completed_intent(self, *, intent: str, user_input: str) -> List[str]:
+        """Mark active goals as worked when a completed intent matches their next_action.
+
+        Also advances the first matching incomplete milestone.
+        Returns list of goal_ids that were advanced.
+        """
+        intent_lower = str(intent or "").lower()
+        input_lower = str(user_input or "").lower()
+        advanced: List[str] = []
+
+        for goal in self.active():
+            next_act = str(goal.next_action or "").lower().strip()
+            desc = goal.description.lower()
+
+            overlap_with_next = next_act and (
+                next_act in intent_lower
+                or intent_lower in next_act
+                or any(w in intent_lower for w in next_act.split() if len(w) > 4)
+            )
+            overlap_with_desc = any(
+                w in input_lower for w in desc.split() if len(w) > 5
+            )
+
+            if overlap_with_next or (overlap_with_desc and not next_act):
+                self.mark_worked(goal.goal_id)
+                advanced.append(goal.goal_id)
+                # Advance first incomplete milestone that matches the intent/input
+                for m in goal.milestones:
+                    if not m.get("done"):
+                        m_text = str(m.get("text") or "").lower()
+                        if any(w in m_text for w in intent_lower.split() if len(w) > 4) or \
+                           any(w in m_text for w in input_lower.split() if len(w) > 5):
+                            self.complete_milestone(goal.goal_id, m["id"])
+                        break  # only advance one milestone per turn
+
+        return advanced
 
 
 _engine: Optional[GoalEngine] = None

@@ -233,7 +233,7 @@ def personality_to_system_instructions(personality: Dict[str, Any] | None) -> st
         "Current ALICE personality drift:",
         f"- Follow-up behavior: {_describe_weight(curiosity, 'ask follow-up questions rarely; prefer completing the current answer', 'ask one useful follow-up only when it moves the task forward', 'show active curiosity and ask relevant follow-ups when useful')}.",
         f"- Directness: {_describe_weight(directness, 'use a warmer, softer tone before corrections', 'be clear and balanced', 'be direct, concise, and practical')}.",
-        f"- Humor: {_describe_weight(humor_threshold, 'light humor is acceptable when natural', 'use humor sparingly and only when the user tone is warm', 'avoid jokes unless the user clearly invites playfulness')}.",
+        f"- Humor: {_describe_weight(humor_threshold, 'dry wit and humor are welcome; lean into it when the moment calls for it', 'light humor is fine when the tone is right', 'keep responses focused; humor only when clearly invited')}.",
         f"- Concern sensitivity: {_describe_weight(concern, 'do not over-index on mild stress signals', 'acknowledge stress briefly when relevant', 'notice stress quickly and respond with calm, practical support')}.",
     ]
     if interests:

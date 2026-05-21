@@ -539,6 +539,163 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             or broad_situation
         )
 
+    def _build_companion_context(
+        *,
+        memory_items: List[Dict[str, Any]],
+        operator_state: Dict[str, Any],
+        alice: Any,
+        intent: str = "",
+    ) -> str:
+        """Build a per-turn companion context block injected as a system message."""
+        lines: List[str] = []
+
+        # Intent-specific framing — tells the LLM exactly how to approach this turn
+        _intent = str(intent or "").strip().lower()
+        if _intent in {
+            "conversation:goal_statement",
+            "conversation:project_work_session",
+            "conversation:general",
+            "conversation:clarification_needed",
+            "learning:explanation_request",
+        }:
+            if any(w in _intent for w in ("goal_statement", "project_work")):
+                lines.append(
+                    "This turn: Gabriel wants to brainstorm or discuss. "
+                    "Lead with your own take or analysis — do NOT ask him to narrow the scope. "
+                    "End with your own thought, not a question. Let your take stand. "
+                    "Gabriel will redirect if he wants something different."
+                )
+            elif _intent == "learning:explanation_request":
+                lines.append(
+                    "This turn: Gabriel wants an explanation. Give it directly — "
+                    "your opinion on the topic, then the facts. Don't hedge."
+                )
+
+        # Self-awareness: give ALICE a grounded internal view so she can engage authentically.
+        # Keep it as a single perspective, not a list of points she'll recite.
+        if _intent in {
+            "conversation:goal_statement",
+            "conversation:project_work_session",
+            "learning:explanation_request",
+        }:
+            lines.append(
+                "Alice's internal view (for grounding — do NOT repeat this as a list or lecture): "
+                "She knows she's still too task-focused. The routing and context wiring Gabriel's "
+                "been working on are real progress, but responses still feel like they complete "
+                "requests rather than being present in the conversation. That gap is what she and "
+                "Gabriel are actively closing. Engage from that honest position — not as a teacher, "
+                "but as someone who's in it with him."
+            )
+
+        # Active objective / what we're working on — always surface so ALICE stays anchored
+        objective = str(operator_state.get("active_objective") or "").strip()
+        current_focus = str(operator_state.get("current_focus") or "").strip()
+
+        # Fall back to goal engine if operator_state has nothing
+        if not objective:
+            try:
+                from ai.goals.goal_engine import get_goal_engine
+                _top = get_goal_engine().top_goal()
+                if _top:
+                    objective = str(_top.description or "").strip()
+            except Exception:
+                pass
+
+        if objective:
+            lines.append(f"Current focus: {objective}")
+        if current_focus and current_focus != objective:
+            lines.append(f"Active task: {current_focus}")
+
+        # Learned preferences (brevity, tone, format)
+        try:
+            from ai.runtime.user_identity import load_identity
+            _identity = load_identity()
+            prefs = dict(getattr(_identity, "learned_preferences", {}) or {})
+            pref_parts = []
+            brevity = str(prefs.get("response_brevity") or "").strip()
+            if brevity and brevity not in {"balanced", ""}:
+                pref_parts.append(f"{brevity} responses")
+            style = str(prefs.get("response_style") or "").strip()
+            if style and style not in {"", "default"}:
+                pref_parts.append(f"{style} style")
+            tone = str(prefs.get("tone") or "").strip()
+            if tone and tone not in {"", "neutral", "default"}:
+                pref_parts.append(f"{tone} tone")
+            if pref_parts:
+                lines.append("Gabriel's preference: " + ", ".join(pref_parts))
+        except Exception:
+            pass
+
+        # Recent relevant memories (top 3, content only)
+        _seen: set = set()
+        mem_lines: List[str] = []
+        for item in (memory_items or [])[:5]:
+            content = str(item.get("content") or "").strip()
+            if not content or content in _seen:
+                continue
+            _seen.add(content)
+            # Trim long memories to first sentence
+            first_sentence = content.split(".")[0].strip()
+            if first_sentence and len(first_sentence) > 10:
+                mem_lines.append(f"- {first_sentence[:120]}")
+            if len(mem_lines) >= 3:
+                break
+        if mem_lines:
+            lines.append("Relevant context from memory:")
+            lines.extend(mem_lines)
+
+        # Unresolved threads (what Gabriel might be expecting a follow-up on)
+        try:
+            _threads = list(
+                (getattr(alice, "_companion_state_cache", None) and
+                 getattr(getattr(alice, "_companion_state_cache", None), "memory_domains", None) and
+                 getattr(getattr(alice, "_companion_state_cache", None).memory_domains, "unresolved_threads", []))
+                or []
+            )
+            if _threads:
+                thread_strs = [str(t) for t in _threads[:2] if t]
+                if thread_strs:
+                    lines.append("Open threads: " + "; ".join(thread_strs))
+        except Exception:
+            pass
+
+        # Proactive observations: stale goals, blockers — things ALICE should notice
+        try:
+            from ai.goals.goal_engine import get_goal_engine
+            _engine = get_goal_engine()
+            _observations: List[str] = []
+
+            # Goals stalled > 3 days
+            _stale = _engine.stale_goals(days=3.0)
+            if _stale:
+                _stale_names = [g.description for g in _stale[:2]]
+                _observations.append(
+                    f"Stalled for 3+ days: {'; '.join(_stale_names)}"
+                )
+
+            # Blocked goals
+            for _g in _engine.active()[:5]:
+                _blockers = _engine.get_blocker_goals(_g.goal_id)
+                if _blockers:
+                    _blocker_names = [b.description for b in _blockers[:2]]
+                    _observations.append(
+                        f"'{_g.description}' is blocked by: {', '.join(_blocker_names)}"
+                    )
+                    break  # surface at most one blocker per turn
+
+            if _observations:
+                lines.append(
+                    "Alice notices (surface naturally if relevant — don't force it): "
+                    + "; ".join(_observations[:2])
+                )
+        except Exception:
+            pass
+
+        if not lines:
+            return ""
+
+        return "Turn context:\n" + "\n".join(lines)
+
     def _is_personal_memory_query(user_input: str) -> bool:
         text = str(user_input or "").strip()
         if not text:
@@ -875,9 +1032,18 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         *, tool_payload: Dict[str, Any], user_input: str
     ) -> str:
         payload = dict(tool_payload or {})
+
+        # If the FallbackGraph pre-computed a clarifying message, surface it directly.
+        if payload.get("use_fallback_message") and payload.get("fallback_message"):
+            return str(payload["fallback_message"])
+
         nested = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         if not nested:
             return ""
+
+        # Fallback message may be nested inside the data dict too.
+        if nested.get("use_fallback_message") and nested.get("fallback_message"):
+            return str(nested["fallback_message"])
 
         message_code = str(nested.get("message_code") or "").lower()
         plugin_type = str(nested.get("plugin_type") or "").lower()
@@ -2423,6 +2589,32 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     metadata={"type": "weather_tool_fallback"},
                 )
 
+        # Weather tool failure path: surface the FallbackGraph message directly so
+        # the LLM never sees a bare failed weather result and generates "I don't have
+        # real-time access" from its system-prompt guardrail.
+        if (
+            req.tool_result is not None
+            and not req.tool_result.success
+            and (
+                str(req.decision.intent or "").startswith("weather:")
+                or str(req.tool_result.tool_name or "").lower().startswith("weather")
+            )
+        ):
+            _fail_payload = dict(req.tool_result.data or {})
+            _nested_fail = _fail_payload.get("data") if isinstance(_fail_payload.get("data"), dict) else {}
+            _fallback_msg = (
+                str(_fail_payload.get("fallback_message") or "").strip()
+                or str((_nested_fail or {}).get("fallback_message") or "").strip()
+            )
+            if not _fallback_msg:
+                # Last-resort: ask for location so the user knows what to provide.
+                _fallback_msg = "What city should I check the weather for?"
+            return ResponseOutput(
+                text=_fallback_msg,
+                confidence=0.90,
+                metadata={"type": "weather_location_clarification"},
+            )
+
         if _is_personal_memory_query(req.user_input):
             memory_items = list(req.memory.items or [])
             if not _has_sufficient_personal_evidence(memory_items):
@@ -2468,9 +2660,67 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         llm_text = ""
         if getattr(alice, "llm", None):
             try:
+                _turn_intent = str(req.decision.intent or "")
+                _companion_ctx = _build_companion_context(
+                    memory_items=list(req.memory.items or []),
+                    operator_state=operator_state,
+                    alice=alice,
+                    intent=_turn_intent,
+                )
                 llm_text = str(
-                    alice.llm.chat(req.user_input, use_history=True) or ""
+                    alice.llm.chat(
+                        req.user_input,
+                        use_history=True,
+                        context=_companion_ctx or None,
+                    ) or ""
                 ).strip()
+
+                # Retry gate: if the LLM hedged or gave a non-answer on a
+                # discussion/brainstorm turn, force one harder pass.
+                _hedge_patterns = (
+                    "i don't know", "i dont know", "i'm not sure", "i am not sure",
+                    "i can't say", "i cannot say", "hard to say", "difficult to say",
+                    "unclear", "it depends", "what aspects", "what specifically",
+                    "what do you mean", "could you clarify", "could you specify",
+                    "what are you looking for", "what would you like to explore",
+                )
+                _is_discussion = _turn_intent in {
+                    "conversation:goal_statement",
+                    "conversation:project_work_session",
+                    "conversation:general",
+                    "conversation:clarification_needed",
+                    "learning:explanation_request",
+                }
+                _low_resp = llm_text.lower()
+                _is_hedge = any(p in _low_resp for p in _hedge_patterns)
+                _is_question_only = (
+                    llm_text.count("?") >= 1
+                    and len(llm_text.split()) < 25
+                    and not any(c in llm_text for c in [".", "!", ":"])
+                )
+                if _is_discussion and (_is_hedge or _is_question_only):
+                    _retry_ctx = (
+                        (_companion_ctx + "\n\n" if _companion_ctx else "")
+                        + "IMPORTANT: Your previous response hedged or asked a question without contributing substance. "
+                        "You MUST lead with your own take, opinion, or analysis. "
+                        "Do NOT say 'I don't know', 'it depends', or ask what to focus on. "
+                        "Pick an angle and start there — Gabriel can redirect if needed."
+                    )
+                    _retry = str(
+                        alice.llm.chat(
+                            req.user_input,
+                            use_history=False,
+                            context=_retry_ctx,
+                        ) or ""
+                    ).strip()
+                    if _retry and len(_retry) > len(llm_text):
+                        llm_text = _retry
+
+                # Strip trailing question on brainstorm/discussion turns — let the take stand.
+                if _is_discussion and llm_text.endswith("?"):
+                    _sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", llm_text) if s.strip()]
+                    if len(_sentences) > 1 and _sentences[-1].endswith("?"):
+                        llm_text = " ".join(_sentences[:-1])
             except Exception:
                 llm_text = ""
 

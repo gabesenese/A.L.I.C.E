@@ -107,6 +107,18 @@ class RouteCoordinator:
         "snow",
         "humidity",
         "wind",
+        # imperative/fetch patterns
+        "give me",
+        "get me",
+        "get the",
+        "fetch",
+        "current",
+        "right now",
+        "today",
+        "tonight",
+        "outside",
+        "look up",
+        "pull up",
     )
     _weather_domain_terms = (
         "weather",

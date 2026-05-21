@@ -216,6 +216,25 @@ class CompanionPolicyEngine:
         for marker in self._approval_terms:
             if marker in text:
                 return True, f"approval_marker:{marker}"
+        # Risk classifier gate: high-risk intents require approval
+        try:
+            from ai.infrastructure.policy import get_risk_classifier
+            rc = get_risk_classifier()
+            risk = rc.classify(intent=str(intent or ""), user_input=str(user_input or ""))
+            if risk == "high" and rc.requires_confirmation(risk):
+                return True, f"risk_classifier:high_risk:{str(intent or '').split(':')[0]}"
+        except Exception:
+            pass
+        # Reversibility gate: irreversible actions need approval even at medium risk
+        try:
+            from ai.core.reversibility_scorer import get_reversibility_scorer
+            rs = get_reversibility_scorer()
+            rev = rs.score(intent=str(intent or ""), user_input=str(user_input or ""))
+            if rev < 0.20:
+                label = rs.reversibility_label(rev)
+                return True, f"reversibility:{label}:{str(intent or '').split(':')[0]}"
+        except Exception:
+            pass
         return False, ""
 
     def is_transient_tool_error(self, tool_result: ToolResult) -> bool:
@@ -224,15 +243,35 @@ class CompanionPolicyEngine:
         error_text = f"{tool_result.error} {(tool_result.diagnostics or {}).get('error', '')}".lower()
         return any(marker in error_text for marker in self._transient_error_terms)
 
+    # Tool-domain intents that can trigger contextual reactions on follow-up
+    _tool_intent_prefixes = (
+        "weather:",
+        "notes:",
+        "email:",
+        "calendar:",
+        "system:",
+        "music:",
+        "reminder:",
+        "search:",
+    )
+
     def is_contextual_reaction(self, *, user_input: str, previous_intent: str) -> bool:
         prior_intent = str(previous_intent or "").strip().lower()
-        if not prior_intent.startswith("weather:"):
+        if not any(prior_intent.startswith(p) for p in self._tool_intent_prefixes):
             return False
 
         text = str(user_input or "").strip().lower()
         if not text:
             return False
 
+        # Gratitude / acknowledgement after any tool result
+        has_gratitude = any(
+            marker in text for marker in self._contextual_reaction_gratitude_terms
+        )
+        if has_gratitude:
+            return True
+
+        # Personal state reaction (currently only meaningful after weather)
         has_personal_state = any(
             marker in text for marker in self._contextual_reaction_state_terms
         )
@@ -416,7 +455,30 @@ class CompanionRuntimeLoop:
                     "approval_required": False,
                 }
 
+            # On failure, consult cross-plugin fallback chain
             if not self.policy_engine.is_transient_tool_error(normalized):
+                try:
+                    from ai.core.cross_plugin_fallback import get_cross_plugin_fallback_chain
+                    intent = str(route_phase.decision.intent or "")
+                    error_type = str((normalized.data or {}).get("error") or normalized.error or "")
+                    chain = get_cross_plugin_fallback_chain().get_chain(intent, error_type)
+                    if chain:
+                        diag = dict(normalized.diagnostics or {})
+                        diag["fallback_chain"] = [s.plugin for s in chain]
+                        diag["fallback_available"] = True
+                        from ai.contracts import ToolResult
+                        annotated = ToolResult(
+                            success=normalized.success,
+                            tool_name=normalized.tool_name,
+                            action=normalized.action,
+                            data=dict(normalized.data or {}),
+                            error=normalized.error,
+                            confidence=normalized.confidence,
+                            diagnostics=diag,
+                        )
+                        last_phase = ExecutePhaseResult(tool_result=annotated, executed=phase.executed)
+                except Exception:
+                    pass
                 return last_phase, {
                     "attempt_count": attempt,
                     "retried": attempt > 1,
@@ -434,11 +496,39 @@ class CompanionRuntimeLoop:
     ) -> str:
         intent = str(decision.intent or "action")
         reason = str(policy.approval_reason or "safety_check")
+        action_label = intent.split(":")[-1].replace("_", " ") if ":" in intent else intent
+
+        # Build a dry-run preview for high-risk actions
+        dry_run_preview = self._dry_run_preview(decision=decision)
+        preview_block = f"\n\nDry-run preview: {dry_run_preview}" if dry_run_preview else ""
+
         return (
-            "I can run that action, but I need explicit approval first. "
-            f"Reply with 'approve {intent}' to continue. "
-            f"(reason: {reason})"
+            f"I can {action_label}, but this action is flagged as high-risk and needs your explicit approval first.{preview_block}\n\n"
+            f"Reply with 'approve {intent}' to proceed, or rephrase if you want something different. "
+            f"(risk reason: {reason})"
         )
+
+    @staticmethod
+    def _dry_run_preview(*, decision: RouterDecision) -> str:
+        """Generate a one-line dry-run description of what the action would do."""
+        intent = str(decision.intent or "")
+        meta = dict(decision.metadata or {})
+        resolved = str(meta.get("resolved_input") or "").strip()
+
+        intent_lower = intent.lower()
+        target = str(meta.get("target_file") or "").strip() or (resolved[:60] if resolved else "")
+
+        if "delete" in intent_lower or "remove" in intent_lower:
+            return f"Would permanently delete: {target or 'the specified target'}"
+        if "send" in intent_lower or "email" in intent_lower:
+            return f"Would send a message to: {target or 'the specified recipient'}"
+        if "push" in intent_lower or "deploy" in intent_lower:
+            return f"Would push/deploy: {target or 'the current changes'}"
+        if "overwrite" in intent_lower or "write" in intent_lower:
+            return f"Would overwrite: {target or 'the specified file'}"
+        if target:
+            return f"Would execute '{intent_lower}' on: {target}"
+        return f"Would execute: {intent}"
 
     def shape_response(
         self,
@@ -502,9 +592,25 @@ class CompanionRuntimeLoop:
         # Layer 3 — collect turn pair for future fine-tuning
         quality = "verified" if (verification and verification.accepted) else "unverified"
         self._collect_turn_pair(user_input, response_text, quality=quality)
+        self._log_turn_evaluation(
+            user_input=user_input,
+            response_text=response_text,
+            intent=str(route_decision.intent or "unknown"),
+            verified=bool(verification and verification.accepted),
+        )
 
         if tool_result is not None:
             companion_state.last_tool_result = self._summarize_tool_result(tool_result)
+            # Advance any active goals whose next_action matches what was just executed
+            if tool_result.success:
+                try:
+                    from ai.goals.goal_engine import get_goal_engine
+                    get_goal_engine().ingest_completed_intent(
+                        intent=str(route_decision.intent or ""),
+                        user_input=user_input,
+                    )
+                except Exception:
+                    pass
 
         if verification and verification.accepted:
             companion_state.identity_model.continuity_score = min(
@@ -567,6 +673,12 @@ class CompanionRuntimeLoop:
             user_state=None,
         )
         tool_success = bool(tool_result.success) if tool_result is not None else None
+        # Record topic mentions for cross-session reinforcement
+        try:
+            self.world_model.record_topic_mentions(user_input)
+        except Exception:
+            pass
+
         world_snapshot = self.world_model.update_from_turn(
             user_input=user_input,
             response_text=response_text,
@@ -682,9 +794,19 @@ class CompanionRuntimeLoop:
             )
         except Exception:
             pass
+        try:
+            from ai.personality.personality_evolution import get_evolution_engine
+            get_evolution_engine().learn_from_interaction(
+                user_id="default",
+                user_input=user_input,
+                alice_response=response_text,
+            )
+        except Exception:
+            pass
 
-    # Layer 3 — turn pair collection for fine-tuning
+    # Layer 3 — turn pair collection for fine-tuning and learning evaluation
     _TRAINING_PATH = Path("data/autolearn/training_pairs.jsonl")
+    _EVAL_PATH = Path("data/evaluations/evaluations.jsonl")
 
     @staticmethod
     def _collect_turn_pair(
@@ -699,6 +821,39 @@ class CompanionRuntimeLoop:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }, ensure_ascii=False)
             with open(CompanionRuntimeLoop._TRAINING_PATH, "a", encoding="utf-8") as f:
+                f.write(record + "\n")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _log_turn_evaluation(
+        user_input: str,
+        response_text: str,
+        intent: str,
+        verified: bool,
+    ) -> None:
+        import uuid
+        try:
+            CompanionRuntimeLoop._EVAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            score = 85 if verified else 45
+            record = json.dumps({
+                "interaction_id": str(uuid.uuid4()),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "user_input": str(user_input or "").strip()[:800],
+                "alice_response": str(response_text or "").strip()[:1200],
+                "expected_data": {},
+                "overall_score": score,
+                "accuracy_score": score,
+                "completeness_score": score,
+                "naturalness_score": score,
+                "conciseness_score": score,
+                "what_worked": "verified_by_pipeline" if verified else "",
+                "what_needs_improvement": "" if verified else "verification_failed",
+                "suggested_improvement": None if verified else "Improve response quality or tool execution.",
+                "action_type": str(intent or "unknown"),
+                "alice_confidence": 0.85 if verified else 0.4,
+            }, ensure_ascii=False)
+            with open(CompanionRuntimeLoop._EVAL_PATH, "a", encoding="utf-8") as f:
                 f.write(record + "\n")
         except Exception:
             pass
