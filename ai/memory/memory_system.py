@@ -24,30 +24,10 @@ import numpy as np
 from pathlib import Path
 import hashlib
 
+from ai.memory.memory_store import MemoryEntry  # canonical definition lives in memory_store
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class MemoryEntry:
-    """Single memory entry"""
-
-    id: str
-    content: str
-    memory_type: str  # "episodic", "semantic", "procedural", "document"
-    timestamp: str
-    context: Dict[str, Any]
-    importance: float = 0.5
-    access_count: int = 0
-    last_accessed: Optional[str] = None
-    embedding: Optional[List[float]] = None
-    tags: List[str] = None
-    source_file: Optional[str] = None  # Source document path
-    chunk_index: Optional[int] = None  # For document chunks
-
-    def __post_init__(self):
-        if self.tags is None:
-            self.tags = []
 
 
 @dataclass
@@ -1100,26 +1080,6 @@ class MemorySystem:
             min_similarity=min_similarity,
         )
 
-    def get_document_info(
-        self, document_id: str = None, file_path: str = None
-    ) -> Optional[Dict]:
-        """
-        Get information about an ingested document
-
-        Args:
-            document_id: Document ID
-            file_path: Original file path
-
-        Returns:
-            Document information or None if not found
-        """
-        for file_hash, doc_info in self.document_registry.items():
-            if (document_id and doc_info["document_id"] == document_id) or (
-                file_path and doc_info["file_path"] == file_path
-            ):
-                return doc_info
-        return None
-
     def list_ingested_documents(self) -> List[Dict]:
         """
         List all ingested documents
@@ -1154,41 +1114,6 @@ class MemorySystem:
                 }
             )
         return sorted(documents, key=lambda x: x["ingestion_date"], reverse=True)
-
-    def remove_document(self, document_id: str) -> bool:
-        """
-        Remove an ingested document and all its chunks
-
-        Args:
-            document_id: Document ID to remove
-
-        Returns:
-            True if removed successfully
-        """
-        # Find document in registry
-        doc_info = None
-        file_hash_to_remove = None
-        for file_hash, info in self.document_registry.items():
-            if info["document_id"] == document_id:
-                doc_info = info
-                file_hash_to_remove = file_hash
-                break
-
-        if not doc_info:
-            return False
-
-        # Remove all chunk memories
-        removed_count = 0
-        for chunk_id in doc_info["chunk_ids"]:
-            if self._remove_memory_by_id(chunk_id):
-                removed_count += 1
-
-        # Remove from registry
-        del self.document_registry[file_hash_to_remove]
-        self._save_document_registry()
-
-        logger.info(f"Removed document {document_id} ({removed_count} chunks)")
-        return True
 
     def _remove_memory_by_id(self, memory_id: str) -> bool:
         """Remove memory by ID from all memory stores"""

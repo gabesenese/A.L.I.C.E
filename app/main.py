@@ -87,7 +87,6 @@ from ai.planning.proactive_assistant import (
 from ai.infrastructure.error_recovery import get_error_recovery
 from ai.memory.smart_context_cache import get_context_cache
 from ai.memory.adaptive_context_selector import get_context_selector
-from ai.memory.predictive_prefetcher import get_prefetcher
 from ai.memory.conversation_state import get_conversation_state_tracker
 from ai.context_resolver import get_context_resolver
 from ai.optimization.response_optimizer import get_response_optimizer
@@ -570,7 +569,6 @@ class ALICE:
             self.error_recovery = get_error_recovery()
             self.context_cache = get_context_cache()
             self.context_selector = get_context_selector()
-            self.prefetcher = get_prefetcher(self.reasoning_engine)
             self.response_optimizer = get_response_optimizer(self.reasoning_engine)
             # Point self-reflection to workspace root so code-analysis requests
             # can resolve files like app/alice.py (not only ai/*).
@@ -1063,10 +1061,8 @@ class ALICE:
                         from ai.training.synthetic_corpus_generator import (
                             SyntheticCorpusGenerator,
                         )
-                        from ai.memory.multimodal_context import MultimodalContext
 
                         self.synthetic_corpus_gen = SyntheticCorpusGenerator()
-                        self.multimodal_context = MultimodalContext()
                     if self.runtime_mode_config.enable_lab_tools:
                         from ai.lab_simulator import LabSimulator
                         from ai.red_team_tester import RedTeamTester
