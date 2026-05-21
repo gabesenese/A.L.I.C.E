@@ -4918,6 +4918,28 @@ class NLPProcessor:
         ):
             return "email:read", 0.85
 
+        # Exploration phrases: "i want to know more about X" — explicit curiosity/learning requests.
+        # Must come BEFORE goal_statement so "i want to know more about" doesn't get swallowed.
+        _exploration_phrases = (
+            "i want to know more about",
+            "i want to learn more about",
+            "want to know more about",
+            "want to learn more about",
+            "tell me more about",
+            "can you tell me more about",
+            "know more about",
+            "learn more about",
+            "i'd like to know more about",
+            "id like to know more about",
+            "explain to me what",
+            "i want to understand",
+        )
+        if any(p in text_lower for p in _exploration_phrases):
+            if not any(m in text_lower for m in (
+                "note", "notes", "reminder", "remind", "calendar", "event", "schedule",
+            )):
+                return "conversation:exploration", 0.91
+
         # Goal-statement guard: avoid routing reflective project goals into tools.
         _goal_phrases = (
             "i want to",

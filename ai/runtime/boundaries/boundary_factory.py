@@ -2672,11 +2672,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         req.user_input,
                         use_history=True,
                         context=_companion_ctx or None,
+                        intent=_turn_intent,
                     ) or ""
                 ).strip()
 
-                # Retry gate: if the LLM hedged or gave a non-answer on a
-                # discussion/brainstorm turn, force one harder pass.
+                # Retry gate: if the LLM hedged, gave a non-answer, or was too dry/short
+                # on a discussion/brainstorm turn, force one harder pass.
                 _hedge_patterns = (
                     "i don't know", "i dont know", "i'm not sure", "i am not sure",
                     "i can't say", "i cannot say", "hard to say", "difficult to say",
@@ -2686,6 +2687,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 )
                 _is_discussion = _turn_intent in {
                     "conversation:goal_statement",
+                    "conversation:exploration",
                     "conversation:project_work_session",
                     "conversation:general",
                     "conversation:clarification_needed",
@@ -2698,19 +2700,25 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     and len(llm_text.split()) < 25
                     and not any(c in llm_text for c in [".", "!", ":"])
                 )
-                if _is_discussion and (_is_hedge or _is_question_only):
+                # Detect dry/dismissive short responses: under 50 words with no follow-up
+                _is_too_short = (
+                    len(llm_text.split()) < 50
+                    and "?" not in llm_text
+                )
+                if _is_discussion and (_is_hedge or _is_question_only or _is_too_short):
                     _retry_ctx = (
                         (_companion_ctx + "\n\n" if _companion_ctx else "")
-                        + "IMPORTANT: Your previous response hedged or asked a question without contributing substance. "
-                        "You MUST lead with your own take, opinion, or analysis. "
-                        "Do NOT say 'I don't know', 'it depends', or ask what to focus on. "
-                        "Pick an angle and start there — Gabriel can redirect if needed."
+                        + "IMPORTANT: Your previous response was too brief or didn't engage with the substance of what was asked. "
+                        "You MUST lead with your own take, insight, or analysis — at least 3-4 sentences. "
+                        "Do NOT hedge, deflect, or just define terms. "
+                        "Pick an angle and develop it — Gabriel can redirect if needed."
                     )
                     _retry = str(
                         alice.llm.chat(
                             req.user_input,
                             use_history=False,
                             context=_retry_ctx,
+                            intent=_turn_intent,
                         ) or ""
                     ).strip()
                     if _retry and len(_retry) > len(llm_text):

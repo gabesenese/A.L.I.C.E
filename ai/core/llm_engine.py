@@ -162,7 +162,7 @@ class LLMConfig:
         return self._fine_tuned_model or self.model
 
 
-def _build_companion_context() -> str:
+def _build_companion_context(intent: str = "") -> str:
     """Build a concise, live companion context block for the LLM system prompt.
 
     Pulls from UserIdentity, GoalEngine, and emotional history. Each source
@@ -221,11 +221,13 @@ def _build_companion_context() -> str:
         pass
 
     # Layer 2 — inject communication style from behavioral profile
+    # Skip brevity constraint on conversation turns — the system prompt handles nuance there.
+    _is_conversation = str(intent or "").startswith("conversation:")
     try:
         from ai.learning.user_profile_engine import get_profile_engine
         style = get_profile_engine().get_communication_style()
         hints: List[str] = []
-        if style.get("brevity", 0.5) > 0.65:
+        if not _is_conversation and style.get("brevity", 0.5) > 0.65:
             hints.append("keep responses concise")
         elif style.get("brevity", 0.5) < 0.35:
             hints.append("detailed responses are appreciated")
@@ -256,13 +258,14 @@ def _build_companion_context() -> str:
         pass
 
     # Layer 3 — inject evolved personality traits
+    # On conversation turns brevity/directness hints override the system prompt — skip them.
     try:
         from ai.personality.personality_evolution import get_evolution_engine
         traits = get_evolution_engine().get_traits_for_user("default")
         trait_hints: List[str] = []
         if traits.verbosity > 0.65:
             trait_hints.append("elaborate responses are welcome")
-        elif traits.verbosity < 0.35:
+        elif not _is_conversation and traits.verbosity < 0.35:
             trait_hints.append("be brief and to the point")
         if traits.formality < 0.3:
             trait_hints.append("casual tone is preferred")
@@ -270,7 +273,7 @@ def _build_companion_context() -> str:
             trait_hints.append("formal tone is preferred")
         if traits.humor > 0.6:
             trait_hints.append("light humor is welcome")
-        if traits.directness > 0.7:
+        if not _is_conversation and traits.directness > 0.7:
             trait_hints.append("be direct and skip preamble")
         if trait_hints:
             parts.append(f"Personality calibration: {'; '.join(trait_hints)}")
@@ -530,13 +533,13 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             )
             return float(self.config.temperature)
 
-    def _build_system_prompt(self, base_prompt: Optional[str] = None) -> str:
+    def _build_system_prompt(self, base_prompt: Optional[str] = None, intent: str = "") -> str:
         """Append companion context + personality drift to every system prompt."""
         prompt = str(base_prompt if base_prompt is not None else self.system_prompt)
-        prompt += _build_companion_context()
+        prompt += _build_companion_context(intent=intent)
         try:
             from brain.personality import apply_personality_to_system_prompt
-            return apply_personality_to_system_prompt(prompt)
+            return apply_personality_to_system_prompt(prompt, intent=intent)
         except Exception as exc:
             logger.debug("Personality prompt shaping unavailable: %s", exc)
             return prompt
@@ -548,6 +551,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         temperature: Optional[float] = None,
         mode: Optional[str] = None,
         context: Optional[str] = None,
+        intent: str = "",
     ) -> str:
         """
         Send message to LLM with GPU acceleration
@@ -566,7 +570,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                 self._ensure_active_model_available(self._available_models)
 
             # Build message history
-            messages = [{"role": "system", "content": self._build_system_prompt()}]
+            messages = [{"role": "system", "content": self._build_system_prompt(intent=intent)}]
 
             # Inject companion context (memory, goals, personality) as a second system message
             if context and str(context).strip():

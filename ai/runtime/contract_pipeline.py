@@ -1159,7 +1159,9 @@ class ContractPipeline:
         except Exception:
             pass
 
-        # Apply learned style constraints (format, length) to the final response
+        # Apply learned style constraints (format, length) to the final response.
+        # Skip auto-derived length mirroring on conversation routes — the user typing short
+        # messages doesn't mean they want short answers on discussion/brainstorm turns.
         try:
             from ai.core.constraint_preference_extractor import ConstraintPreferenceExtractor
             from ai.core.adaptive_response_style import AdaptiveResponseStyle
@@ -1169,8 +1171,12 @@ class ContractPipeline:
             per_turn = ConstraintPreferenceExtractor().extract(user_input)
             identity = load_identity()
             learned = dict(identity.learned_preferences or {})
-            # Auto-derived from conversation style mirror (lowest priority — overridden by explicit prefs)
-            mirror_constraints = get_style_mirror().derive_auto_constraints(user_id)
+            _is_conversation_route = str(decision.route or "").lower() == "conversation"
+            # Auto-derived mirror constraints only apply on non-conversation routes
+            mirror_constraints = (
+                {} if _is_conversation_route
+                else get_style_mirror().derive_auto_constraints(user_id)
+            )
             # Per-turn explicit > learned > mirror auto-derived
             merged = {**mirror_constraints, **learned, **{k: v for k, v in per_turn.items() if v not in (None, "default", "normal", [])}}
             if merged:

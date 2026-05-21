@@ -129,7 +129,7 @@ class MemoryPruner:
             # Remove pruned memories from memory system
             for memory in memories_to_prune:
                 try:
-                    memory_system.remove_memory(memory["id"])
+                    memory_system._remove_memory_by_id(memory["id"])
                 except Exception as e:
                     logger.error(f"Failed to remove memory {memory['id']}: {e}")
                     stats["errors"] += 1

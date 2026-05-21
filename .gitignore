@@ -119,3 +119,4 @@ data/memory_graph.json
 
 # All runtime data — keep out of version control
 data/
+alice_foundations.md

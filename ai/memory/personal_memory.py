@@ -133,6 +133,11 @@ class PersonalMemoryStore:
                 ctx = dict(getattr(entry, "context", {}) or {})
                 ctx.update(dict(updates or {}))
                 entry.context = ctx
+                try:
+                    from ai.memory.memory_store import get_memory_store
+                    get_memory_store().update(str(entry_id), {"context": ctx})
+                except Exception:
+                    pass
                 return True
         return False
 
@@ -173,6 +178,11 @@ class PersonalMemoryStore:
                 if confidence is not None:
                     ctx["confidence"] = max(0.0, min(1.0, float(confidence)))
                 entry.context = ctx
+                try:
+                    from ai.memory.memory_store import get_memory_store
+                    get_memory_store().update(str(memory_id), {"content": entry.content, "context": ctx})
+                except Exception:
+                    pass
                 return {"updated": True, "memory_id": str(memory_id)}
         return {"updated": False, "memory_id": str(memory_id)}
 

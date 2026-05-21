@@ -221,18 +221,25 @@ def _meaningful_interests(raw: List[str], limit: int = 5) -> List[str]:
     return out
 
 
-def personality_to_system_instructions(personality: Dict[str, Any] | None) -> str:
+def personality_to_system_instructions(personality: Dict[str, Any] | None, intent: str = "") -> str:
     shaped = _as_personality(personality)
     curiosity = float(shaped["curiosity_weight"])
     directness = float(shaped["directness"])
     humor_threshold = float(shaped["humor_threshold"])
     concern = float(shaped["concern_sensitivity"])
     interests = _meaningful_interests(list(shaped.get("interests") or []))
+    _is_conversation = str(intent or "").startswith("conversation:")
 
-    lines = [
-        "Current ALICE personality drift:",
-        f"- Follow-up behavior: {_describe_weight(curiosity, 'ask follow-up questions rarely; prefer completing the current answer', 'ask one useful follow-up only when it moves the task forward', 'show active curiosity and ask relevant follow-ups when useful')}.",
-        f"- Directness: {_describe_weight(directness, 'use a warmer, softer tone before corrections', 'be clear and balanced', 'be direct, concise, and practical')}.",
+    lines = ["Current ALICE personality drift:"]
+    # On conversation turns, encourage follow-up curiosity regardless of drift value.
+    if _is_conversation:
+        lines.append("- Follow-up behavior: show active curiosity; ask one well-chosen follow-up when it moves the discussion forward.")
+    else:
+        lines.append(f"- Follow-up behavior: {_describe_weight(curiosity, 'ask follow-up questions rarely; prefer completing the current answer', 'ask one useful follow-up only when it moves the task forward', 'show active curiosity and ask relevant follow-ups when useful')}.")
+    # Skip directness-as-brevity on conversation turns — let the system prompt govern tone.
+    if not _is_conversation:
+        lines.append(f"- Directness: {_describe_weight(directness, 'use a warmer, softer tone before corrections', 'be clear and balanced', 'be direct, concise, and practical')}.")
+    lines += [
         f"- Humor: {_describe_weight(humor_threshold, 'dry wit and humor are welcome; lean into it when the moment calls for it', 'light humor is fine when the tone is right', 'keep responses focused; humor only when clearly invited')}.",
         f"- Concern sensitivity: {_describe_weight(concern, 'do not over-index on mild stress signals', 'acknowledge stress briefly when relevant', 'notice stress quickly and respond with calm, practical support')}.",
     ]
@@ -243,16 +250,19 @@ def personality_to_system_instructions(personality: Dict[str, Any] | None) -> st
 
 def build_personality_system_instructions(
     world_model: WorldModel | None = None,
+    intent: str = "",
 ) -> str:
-    return PersonalityLayer(world_model=world_model).build_system_instructions()
+    personality = PersonalityLayer(world_model=world_model).world_model.get_personality()
+    return personality_to_system_instructions(personality, intent=intent)
 
 
 def apply_personality_to_system_prompt(
     system_prompt: str,
     world_model: WorldModel | None = None,
+    intent: str = "",
 ) -> str:
     base = str(system_prompt or "").strip()
-    instructions = build_personality_system_instructions(world_model=world_model)
+    instructions = build_personality_system_instructions(world_model=world_model, intent=intent)
     if not instructions:
         return base
     return f"{base}\n\n{instructions}" if base else instructions

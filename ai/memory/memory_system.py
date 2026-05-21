@@ -614,6 +614,13 @@ class MemorySystem:
             },
         )
 
+        # Write-through: persist immediately so no memory is lost on crash
+        try:
+            from ai.memory.memory_store import get_memory_store
+            get_memory_store().add(memory)
+        except Exception as _e:
+            logger.warning(f"[Memory] SQLite write-through failed: {_e}")
+
         logger.info(f"Memory stored: {memory_type} - {content[:50]}...")
         return memory_id
 
@@ -657,6 +664,14 @@ class MemorySystem:
                 # Update access statistics
                 memory.access_count += 1
                 memory.last_accessed = datetime.now().isoformat()
+                try:
+                    from ai.memory.memory_store import get_memory_store
+                    get_memory_store().update(
+                        mem_id,
+                        {"access_count": memory.access_count, "last_accessed": memory.last_accessed},
+                    )
+                except Exception:
+                    pass
 
                 filtered_results.append(
                     {
@@ -1187,6 +1202,11 @@ class MemorySystem:
                 if memory.id == memory_id:
                     del memory_list[i]
                     self.vector_store.delete(memory_id)
+                    try:
+                        from ai.memory.memory_store import get_memory_store
+                        get_memory_store().remove(memory_id)
+                    except Exception:
+                        pass
                     return True
         return False
 
@@ -1507,98 +1527,71 @@ class MemorySystem:
         return [asdict(m) for m in paginated]
 
     def _save_memories(self):
-        """Save all memories to disk"""
+        """Bulk-sync all in-session memories to SQLite."""
         try:
-            # Save memory lists
-            memories_data = {
-                "episodic": [asdict(m) for m in self.episodic_memory],
-                "semantic": [asdict(m) for m in self.semantic_memory],
-                "procedural": [asdict(m) for m in self.procedural_memory],
-                "document": [asdict(m) for m in self.document_memory],
-            }
-
-            with open(
-                os.path.join(self.data_dir, "memories.json"), "w", encoding="utf-8"
-            ) as f:
-                json.dump(memories_data, f, indent=2)
-
-            # Save vector store
-            self.vector_store.save(os.path.join(self.data_dir, "vectors.pkl"))
-
-            # Save document registry
-            self._save_document_registry()
-
-            total_memories = (
-                len(self.episodic_memory)
-                + len(self.semantic_memory)
-                + len(self.procedural_memory)
-                + len(self.document_memory)
+            from ai.memory.memory_store import get_memory_store
+            all_entries = (
+                self.episodic_memory
+                + self.semantic_memory
+                + self.procedural_memory
+                + self.document_memory
             )
-            logger.info(f"All {total_memories} memories saved")
-
+            get_memory_store().bulk_add(all_entries)
+            self._save_document_registry()
+            logger.info(f"[Memory] Synced {len(all_entries)} memories to SQLite")
         except Exception as e:
-            logger.error(f"[ERROR] Error saving memories: {e}")
+            logger.error(f"[Memory] _save_memories failed: {e}")
 
     def _load_memories(self):
-        """Load memories from disk"""
+        """Load memories from SQLite, migrating from memories.json on first run."""
         try:
-            memories_path = os.path.join(self.data_dir, "memories.json")
-            if os.path.exists(memories_path):
-                with open(memories_path, "r", encoding="utf-8") as f:
-                    memories_data = json.load(f)
+            from ai.memory.memory_store import get_memory_store
+            from dataclasses import asdict as _asdict
 
-                # Handle both dict and list formats (backward compatibility)
-                if isinstance(memories_data, dict):
-                    self.episodic_memory = [
-                        MemoryEntry(**m) for m in memories_data.get("episodic", [])
-                    ]
-                    self.semantic_memory = [
-                        MemoryEntry(**m) for m in memories_data.get("semantic", [])
-                    ]
-                    self.procedural_memory = [
-                        MemoryEntry(**m) for m in memories_data.get("procedural", [])
-                    ]
-                    self.document_memory = [
-                        MemoryEntry(**m) for m in memories_data.get("document", [])
-                    ]
-                elif isinstance(memories_data, list):
-                    # Old format: just a list of memories, treat as episodic
-                    self.episodic_memory = [
-                        MemoryEntry(**m) if isinstance(m, dict) else m
-                        for m in memories_data
-                    ]
-                    logger.info(
-                        "[Memory] Loaded legacy format, converted to new structure"
+            store = get_memory_store()
+
+            # One-time migration: if SQLite is empty and the JSON backup exists, import it
+            if store.count() == 0:
+                json_path = os.path.join(self.data_dir, "memories.json")
+                migrated = store.migrate_from_json(json_path)
+                if migrated:
+                    logger.info(f"[Memory] First-run migration: {migrated} entries imported from JSON")
+
+            def _to_entry(e) -> MemoryEntry:
+                return MemoryEntry(**_asdict(e))
+
+            self.episodic_memory   = [_to_entry(e) for e in store.get_all("episodic")]
+            self.semantic_memory   = [_to_entry(e) for e in store.get_all("semantic")]
+            self.procedural_memory = [_to_entry(e) for e in store.get_all("procedural")]
+            self.document_memory   = [_to_entry(e) for e in store.get_all("document")]
+
+            total = (
+                len(self.episodic_memory) + len(self.semantic_memory)
+                + len(self.procedural_memory) + len(self.document_memory)
+            )
+            logger.info(
+                f"[OK] Loaded {total} memories from SQLite "
+                f"({len(self.episodic_memory)} episodic, "
+                f"{len(self.semantic_memory)} semantic, "
+                f"{len(self.procedural_memory)} procedural, "
+                f"{len(self.document_memory)} document)"
+            )
+
+            # Rebuild in-process vector index from stored embeddings
+            for mem in self.episodic_memory + self.semantic_memory + self.procedural_memory + self.document_memory:
+                if mem.embedding:
+                    self.vector_store.add(
+                        id=mem.id,
+                        vector=np.array(mem.embedding),
+                        metadata={"content": mem.content, "type": mem.memory_type,
+                                  "timestamp": mem.timestamp, "importance": mem.importance,
+                                  "tags": mem.tags or []},
                     )
-                else:
-                    logger.warning(
-                        f"[Memory] Unknown memories format: {type(memories_data)}"
-                    )
 
-                total_memories = (
-                    len(self.episodic_memory)
-                    + len(self.semantic_memory)
-                    + len(self.procedural_memory)
-                    + len(self.document_memory)
-                )
-                logger.info(
-                    f"[OK] Loaded {total_memories} memories "
-                    f"({len(self.episodic_memory)} episodic, "
-                    f"{len(self.semantic_memory)} semantic, "
-                    f"{len(self.procedural_memory)} procedural, "
-                    f"{len(self.document_memory)} document)"
-                )
-
-            # Load vector store
-            vectors_path = os.path.join(self.data_dir, "vectors.pkl")
-            if os.path.exists(vectors_path):
-                self.vector_store.load(vectors_path)
-
-            # Load document registry
             self._load_document_registry()
 
         except Exception as e:
-            logger.warning(f"[WARNING] Could not load memories: {e}")
+            logger.warning(f"[Memory] _load_memories failed: {e}")
 
     def __enter__(self):
         """Context manager enter"""

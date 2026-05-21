@@ -107,11 +107,27 @@ class MemoryConsolidator:
                     0.99,
                     max(float(getattr(anchor, "importance", 0.7) or 0.7), new_conf),
                 )
+                try:
+                    from ai.memory.memory_store import get_memory_store
+                    get_memory_store().update(
+                        str(getattr(anchor, "id", "")),
+                        {"context": anchor_ctx, "importance": anchor.importance},
+                    )
+                except Exception:
+                    pass
 
                 cand_ctx["superseded"] = True
                 cand_ctx["superseded_by"] = str(getattr(anchor, "id", ""))
                 cand_ctx["superseded_at"] = datetime.now(timezone.utc).isoformat()
                 candidate.context = cand_ctx
+                try:
+                    from ai.memory.memory_store import get_memory_store
+                    get_memory_store().update(
+                        str(getattr(candidate, "id", "")),
+                        {"context": cand_ctx},
+                    )
+                except Exception:
+                    pass
                 superseded += 1
                 merged += 1
 
