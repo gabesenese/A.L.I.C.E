@@ -404,6 +404,16 @@ _P1_MEMORY_RECALL: tuple = (
 )
 _P1_MEMORY_SEARCH_SUBJ: tuple = ("what did we", "what have we", "what did i")
 _P1_MEMORY_SEARCH_VERB: frozenset = frozenset({"talk", "discuss", "say", "tell"})
+_P1_MEMORY_HEALTH_PHRASES: tuple = (
+    "memory test",
+    "memory tests",
+    "test memory",
+    "memory health",
+    "memory diagnostic",
+    "check memory health",
+    "memory check",
+    "run the tests",
+)
 
 # Email
 _P1_EMAIL_COMPOSE_VERBS: frozenset = frozenset({"compose", "draft", "write", "send"})
@@ -3691,7 +3701,24 @@ class NLPProcessor:
             ):
                 _send_followup_intent = "email:compose"
 
-            if _reminder_intent:
+            # ── Memory health check early override: runs before plugin scoring so
+            # phrases containing "memory" (a system resource keyword) are not
+            # misrouted to system:status by the shallow plugin-score stage. ──
+            _memory_test_intent = None
+            if any(phrase in _tl for phrase in _P1_MEMORY_HEALTH_PHRASES):
+                _memory_test_intent = "memory:test"
+
+            if _memory_test_intent:
+                route = RouteDecision(
+                    intent=_memory_test_intent,
+                    confidence=0.93,
+                    plugin="memory",
+                    action="test",
+                    trace={"source": "memory_test_early_override"},
+                )
+                intent = _memory_test_intent
+                intent_confidence = 0.93
+            elif _reminder_intent:
                 route = RouteDecision(
                     intent=_reminder_intent,
                     confidence=0.95,
@@ -4824,6 +4851,10 @@ class NLPProcessor:
                 return mapped, 0.88
 
         # PHASE 1: HIGH-CONFIDENCE EXPLICIT PATTERNS (these override semantic classification)
+        # Memory health check — must come before system:status (which also matches "memory" + "health")
+        if any(phrase in text_lower for phrase in _P1_MEMORY_HEALTH_PHRASES):
+            return "memory:test", 0.93
+
         # System intents - check BEFORE time (system has "how's" pattern that could match time)
         if "system" in text_lower and any(
             word in text_lower for word in _P1_SYSTEM_STATUS

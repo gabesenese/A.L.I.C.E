@@ -56,6 +56,7 @@ from ai.plugins.plugin_system import (
 )
 from ai.plugins.file_operations_plugin import FileOperationsPlugin
 from ai.plugins.memory_plugin import MemoryPlugin
+from ai.plugins.memory_health_plugin import MemoryHealthPlugin
 from ai.plugins.document_plugin import DocumentPlugin
 from ai.plugins.calendar_plugin import CalendarPlugin
 from ai.plugins.notes_plugin import NotesPlugin
@@ -3008,6 +3009,7 @@ class ALICE:
         self.plugins.register_plugin(
             RAGIndexerPlugin(self.memory)
         )  # RAG document indexer
+        self.plugins.register_plugin(MemoryHealthPlugin())
 
         logger.info(f"[OK] Registered {len(self.plugins.plugins)} plugins")
 

@@ -87,6 +87,12 @@ class IntentRegistry:
             "safe_without_target": False,
             "tool_or_local": "tool",
         },
+        "memory:test": {
+            "route": "tool",
+            "requires_target": False,
+            "safe_without_target": True,
+            "tool_or_local": "tool",
+        },
     }
     CORE_INTENTS = set(INTENT_DEFS.keys())
 
