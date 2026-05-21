@@ -571,21 +571,22 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "your opinion on the topic, then the facts. Don't hedge."
                 )
 
-        # Self-awareness: give ALICE a grounded internal view so she can engage authentically.
-        # Keep it as a single perspective, not a list of points she'll recite.
+        # Self-awareness: live identity-grounded view from Foundation 2 persistent self.
         if _intent in {
             "conversation:goal_statement",
             "conversation:project_work_session",
             "learning:explanation_request",
         }:
-            lines.append(
-                "Alice's internal view (for grounding — do NOT repeat this as a list or lecture): "
-                "She knows she's still too task-focused. The routing and context wiring Gabriel's "
-                "been working on are real progress, but responses still feel like they complete "
-                "requests rather than being present in the conversation. That gap is what she and "
-                "Gabriel are actively closing. Engage from that honest position — not as a teacher, "
-                "but as someone who's in it with him."
-            )
+            try:
+                from ai.identity.alice_identity import build_self_block
+                _self = build_self_block(include_opinions=True, include_session=True)
+                if _self:
+                    lines.append(
+                        "Alice's internal view (for grounding — do NOT repeat this as a list): "
+                        + _self
+                    )
+            except Exception:
+                pass
 
         # Active objective / what we're working on — always surface so ALICE stays anchored
         objective = str(operator_state.get("active_objective") or "").strip()

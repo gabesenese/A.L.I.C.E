@@ -62,10 +62,13 @@ class ContractPipeline:
         self.routing_failure_logger = RoutingFailureLogger()
         self._greeting_session_state_by_user: Dict[str, Dict[str, Any]] = {}
         self._eval_turn_counter: int = 0
-        # Foundation 2 — increment session count on every startup
+        # Foundation 2 — begin session, track lifecycle
+        self._current_session_id: str = ""
         try:
             from ai.identity.alice_identity import begin_session
-            begin_session()
+            import atexit
+            self._current_session_id = begin_session()
+            atexit.register(self._close_session)
         except Exception:
             pass
         # Backfill historical routing failures into evaluations.jsonl at startup
@@ -112,8 +115,30 @@ class ContractPipeline:
                 user_id=user_id,
             )
             loop.maybe_auto_audit(event)
+            # Foundation 2 bridge — high-confidence failures become self-opinions
+            classification = loop.classify(event)
+            if (
+                float(classification.confidence or 0) >= 0.75
+                and str(classification.failure_kind or "") != "unknown"
+            ):
+                try:
+                    from ai.identity.alice_identity import record_opinion
+                    record_opinion(
+                        topic=f"my {classification.failure_kind} capability",
+                        stance=f"I have a recurring pattern here: {classification.reason}",
+                        source="improvement_loop",
+                    )
+                except Exception:
+                    pass
         except Exception:
             return
+
+    def _close_session(self) -> None:
+        try:
+            from ai.identity.alice_identity import end_session
+            end_session(self._current_session_id)
+        except Exception:
+            pass
 
     @staticmethod
     def _is_tool_route(route: str) -> bool:
@@ -1067,6 +1092,29 @@ class ContractPipeline:
                 success=_turn_success,
                 veto_reason=_last_veto,
             )
+        except Exception:
+            pass
+
+        # Foundation 2 — post-turn opinion extraction and session accumulation
+        try:
+            from ai.identity.opinion_extractor import extract_and_record_opinions
+            extract_and_record_opinions(
+                alice_response=str(response_text or ""),
+                intent=str(decision.intent or ""),
+                success=_turn_success,
+            )
+        except Exception:
+            pass
+        try:
+            from ai.identity.alice_identity import record_turn_outcome, record_confidence_sample
+            _score = 1.0 if _turn_success else 0.3
+            record_turn_outcome(
+                session_id=self._current_session_id,
+                success_score=_score,
+                intent=str(decision.intent or ""),
+                failure_kind=str(_last_veto or ""),
+            )
+            record_confidence_sample(_score)
         except Exception:
             pass
 
