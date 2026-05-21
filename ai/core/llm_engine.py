@@ -165,10 +165,19 @@ class LLMConfig:
 def _build_companion_context(intent: str = "") -> str:
     """Build a concise, live companion context block for the LLM system prompt.
 
-    Pulls from UserIdentity, GoalEngine, and emotional history. Each source
-    degrades independently — a missing file never blocks the rest.
+    Pulls from AliceIdentity, UserIdentity, GoalEngine, and emotional history.
+    Each source degrades independently — a missing file never blocks the rest.
     """
     parts: List[str] = []
+
+    # Foundation 2 — ALICE's persistent self (always first)
+    try:
+        from ai.identity.alice_identity import build_self_block
+        self_block = build_self_block()
+        if self_block:
+            parts.append(self_block)
+    except Exception:
+        pass
 
     try:
         from ai.identity.user_identity import load_identity

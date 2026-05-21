@@ -62,6 +62,12 @@ class ContractPipeline:
         self.routing_failure_logger = RoutingFailureLogger()
         self._greeting_session_state_by_user: Dict[str, Dict[str, Any]] = {}
         self._eval_turn_counter: int = 0
+        # Foundation 2 — increment session count on every startup
+        try:
+            from ai.identity.alice_identity import begin_session
+            begin_session()
+        except Exception:
+            pass
         # Backfill historical routing failures into evaluations.jsonl at startup
         try:
             from ai.learning.failure_eval_converter import get_failure_eval_converter
