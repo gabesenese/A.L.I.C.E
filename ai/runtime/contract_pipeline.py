@@ -62,6 +62,7 @@ class ContractPipeline:
         self.routing_failure_logger = RoutingFailureLogger()
         self._greeting_session_state_by_user: Dict[str, Dict[str, Any]] = {}
         self._eval_turn_counter: int = 0
+        self._briefing_sent: bool = False
         # Foundation 2 — begin session, track lifecycle
         self._current_session_id: str = ""
         try:
@@ -1273,6 +1274,47 @@ class ContractPipeline:
                         response_text += " (Weather data unavailable — try again in a moment.)"
         except Exception:
             pass
+
+        # Proactive intelligence — deliver highest-priority pending insight if one exists
+        try:
+            from ai.planning.proactive_intelligence import get_proactive_intelligence
+            _pi = get_proactive_intelligence()
+            _pending = _pi.get_pending_insights(priority_threshold=2)
+            if _pending:
+                _insight = _pending[0]
+                _insight_text = str(_insight.message or "").strip()
+                if _insight_text and response_text:
+                    response_text = response_text.rstrip() + "\n\n" + _insight_text
+                    if _insight.suggested_action:
+                        response_text += " " + str(_insight.suggested_action)
+                _insight.delivered = True
+        except Exception:
+            pass
+
+        # Foundation 4 — session briefing on the very first turn of a new session
+        if not self._briefing_sent:
+            self._briefing_sent = True
+            try:
+                from ai.runtime.session_briefing import generate_session_briefing
+                _briefing = generate_session_briefing(str(user_id or "gabriel"))
+                if _briefing:
+                    # Strip the opening salutation line (ALICE already greeted)
+                    _lines = _briefing.splitlines()
+                    _body_lines = [
+                        ln for ln in _lines
+                        if not any(
+                            ln.startswith(p) for p in (
+                                "Good morning", "Good afternoon", "Good evening"
+                            )
+                        )
+                    ]
+                    _body = "\n".join(_body_lines).strip()
+                    if _body and response_text:
+                        response_text = response_text.rstrip() + "\n\n" + _body
+                    elif _body:
+                        response_text = _body
+            except Exception:
+                pass
 
         agent_loop_payload = build_agent_loop_state(
             user_input=user_input,

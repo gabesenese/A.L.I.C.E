@@ -170,10 +170,10 @@ def _build_companion_context(intent: str = "") -> str:
     """
     parts: List[str] = []
 
-    # Foundation 2 — ALICE's persistent self (always first)
+    # Foundation 2 — ALICE's persistent self with accumulated opinions (always first)
     try:
         from ai.identity.alice_identity import build_self_block
-        self_block = build_self_block()
+        self_block = build_self_block(include_opinions=True)
         if self_block:
             parts.append(self_block)
     except Exception:

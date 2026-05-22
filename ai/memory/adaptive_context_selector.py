@@ -53,8 +53,8 @@ class AdaptiveContextSelector:
     """
 
     def __init__(self, feedback_path: str = "data/context/selection_feedback.jsonl"):
-        self.max_context_length = 2000  # Max chars to send to LLM
-        self.min_relevance = 0.3  # Minimum relevance to include
+        self.max_context_length = 4000  # Max chars to send to LLM (raised for richer recall)
+        self.min_relevance = 0.2  # Lowered threshold — surface more past context
         self.feedback_path = feedback_path
 
         # Learning state: (context_type, intent) → (successes, failures, avg_rating)
@@ -309,14 +309,14 @@ class AdaptiveContextSelector:
             if overlap > 0.2:
                 reasons.append("keyword_overlap")
 
-        # Context type priority — notes gets a strong base weight (learned over time)
+        # Context type priority — memory and conversation are highest value
         type_priority = {
-            "personalization": 0.1,  # Always include
-            "conversation": 0.3,  # High priority
-            "memory": 0.25,  # High priority
-            "capabilities": 0.1,  # Lower priority
+            "personalization": 0.15,
+            "conversation": 0.35,
+            "memory": 0.35,  # Raised: episodic memories should surface consistently
+            "capabilities": 0.1,
             "general": 0.15,
-            "notes": 0.30,  # Feature #2: notes context relevant when user asks note-related queries
+            "notes": 0.30,
         }
         score += type_priority.get(context_type, 0.1)
 
