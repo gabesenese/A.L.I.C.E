@@ -149,7 +149,7 @@ def get_attributed_goal_context(
                 best_score = score
                 best_goal = goal
 
-        if best_score < 0.12 or best_goal is None:
+        if best_score < 0.25 or best_goal is None:
             return None
 
         pct = best_goal.progress_pct()

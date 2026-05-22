@@ -661,50 +661,58 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         except Exception:
             pass
 
-        # Proactive observations: stale goals, blockers — things ALICE should notice
-        try:
-            from ai.goals.goal_engine import get_goal_engine
-            _engine = get_goal_engine()
-            _observations: List[str] = []
+        # Goal observations — only for project/code turns, not casual or tool queries
+        _project_intent = any(
+            _intent.startswith(pfx)
+            for pfx in ("code:", "file:", "plugin:", "notes:")
+        ) or _intent in (
+            "conversation:goal_statement",
+            "conversation:project_work_session",
+        )
 
-            # Goals stalled > 3 days
-            _stale = _engine.stale_goals(days=3.0)
-            if _stale:
-                _stale_names = [g.description for g in _stale[:2]]
-                _observations.append(
-                    f"Stalled for 3+ days: {'; '.join(_stale_names)}"
-                )
-
-            # Blocked goals
-            for _g in _engine.active()[:5]:
-                _blockers = _engine.get_blocker_goals(_g.goal_id)
-                if _blockers:
-                    _blocker_names = [b.description for b in _blockers[:2]]
-                    _observations.append(
-                        f"'{_g.description}' is blocked by: {', '.join(_blocker_names)}"
-                    )
-                    break  # surface at most one blocker per turn
-
-            if _observations:
-                lines.append(
-                    "Alice notices (surface naturally if relevant — don't force it): "
-                    + "; ".join(_observations[:2])
-                )
-        except Exception:
-            pass
-
-        # Goal attribution context — which active goal this turn is advancing
-        if user_input:
+        if _project_intent:
+            # Stale goals, blockers
             try:
-                from ai.goals.goal_attributor import get_attributed_goal_context
-                _goal_ctx = get_attributed_goal_context(
-                    user_input=user_input,
-                    intent=_intent,
-                )
-                if _goal_ctx:
-                    lines.append(_goal_ctx)
+                from ai.goals.goal_engine import get_goal_engine
+                _engine = get_goal_engine()
+                _observations: List[str] = []
+
+                _stale = _engine.stale_goals(days=3.0)
+                if _stale:
+                    _stale_names = [g.description for g in _stale[:2]]
+                    _observations.append(
+                        f"Stalled for 3+ days: {'; '.join(_stale_names)}"
+                    )
+
+                for _g in _engine.active()[:5]:
+                    _blockers = _engine.get_blocker_goals(_g.goal_id)
+                    if _blockers:
+                        _blocker_names = [b.description for b in _blockers[:2]]
+                        _observations.append(
+                            f"'{_g.description}' is blocked by: {', '.join(_blocker_names)}"
+                        )
+                        break
+
+                if _observations:
+                    lines.append(
+                        "Alice notices (surface naturally if relevant — don't force it): "
+                        + "; ".join(_observations[:2])
+                    )
             except Exception:
                 pass
+
+            # "Working toward:" attribution
+            if user_input:
+                try:
+                    from ai.goals.goal_attributor import get_attributed_goal_context
+                    _goal_ctx = get_attributed_goal_context(
+                        user_input=user_input,
+                        intent=_intent,
+                    )
+                    if _goal_ctx:
+                        lines.append(_goal_ctx)
+                except Exception:
+                    pass
 
         if not lines:
             return ""
