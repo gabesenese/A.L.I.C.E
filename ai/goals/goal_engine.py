@@ -82,9 +82,24 @@ class GoalEngine:
 
     def __init__(self, goals_file: Path = _GOALS_FILE):
         self._file = goals_file
+        # Foundation 3 — SQLite store (write-through; JSON kept for compatibility)
+        try:
+            from ai.goals.goal_store import get_goal_store
+            self._store = get_goal_store()
+            self._store.migrate_from_json(self._file)
+        except Exception:
+            self._store = None
         self._goals: List[Goal] = self._load()
 
     def _load(self) -> List[Goal]:
+        # Prefer SQLite; fall back to JSON
+        if self._store is not None:
+            try:
+                rows = self._store.load_goals()
+                if rows:
+                    return [Goal.from_dict(r) for r in rows]
+            except Exception:
+                pass
         if self._file.exists():
             try:
                 return [
@@ -101,6 +116,22 @@ class GoalEngine:
             json.dumps([g.to_dict() for g in self._goals], indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+        if self._store is not None:
+            try:
+                for g in self._goals:
+                    self._store.upsert_goal(g)
+            except Exception:
+                pass
+
+    def _record_event(
+        self, goal_id: str, event_type: str,
+        session_id: str = "", intent: str = "", note: str = "",
+    ) -> None:
+        if self._store is not None:
+            try:
+                self._store.record_event(goal_id, event_type, session_id, intent, note)
+            except Exception:
+                pass
 
     def add(
         self,
@@ -125,6 +156,7 @@ class GoalEngine:
         )
         self._goals.append(goal)
         self._save()
+        self._record_event(goal.goal_id, "created", note=desc[:80])
         # Auto-decompose milestones from the description
         try:
             from ai.planning.action_planner import get_action_planner
@@ -148,11 +180,15 @@ class GoalEngine:
                 return g
         return None
 
-    def mark_worked(self, goal_id: str) -> None:
+    def mark_worked(
+        self, goal_id: str, session_id: str = "", intent: str = ""
+    ) -> None:
         self.update(goal_id, last_worked_at=_now_iso())
+        self._record_event(goal_id, "worked", session_id=session_id, intent=intent)
 
-    def complete(self, goal_id: str) -> None:
+    def complete(self, goal_id: str, session_id: str = "", note: str = "") -> None:
         self.update(goal_id, status="completed")
+        self._record_event(goal_id, "completed", session_id=session_id, note=note)
 
     def active(self) -> List[Goal]:
         return sorted(
@@ -264,6 +300,7 @@ class GoalEngine:
                         if all(m2.get("done") for m2 in g.milestones):
                             g.status = "completed"
                         self._save()
+                        self._record_event(goal_id, "milestone_advanced", note=m.get("text", "")[:60])
                         return True
         return False
 

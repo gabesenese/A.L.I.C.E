@@ -545,6 +545,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         operator_state: Dict[str, Any],
         alice: Any,
         intent: str = "",
+        user_input: str = "",
     ) -> str:
         """Build a per-turn companion context block injected as a system message."""
         lines: List[str] = []
@@ -691,6 +692,19 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 )
         except Exception:
             pass
+
+        # Goal attribution context — which active goal this turn is advancing
+        if user_input:
+            try:
+                from ai.goals.goal_attributor import get_attributed_goal_context
+                _goal_ctx = get_attributed_goal_context(
+                    user_input=user_input,
+                    intent=_intent,
+                )
+                if _goal_ctx:
+                    lines.append(_goal_ctx)
+            except Exception:
+                pass
 
         if not lines:
             return ""
@@ -2667,6 +2681,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     operator_state=operator_state,
                     alice=alice,
                     intent=_turn_intent,
+                    user_input=str(req.user_input or ""),
                 )
                 llm_text = str(
                     alice.llm.chat(

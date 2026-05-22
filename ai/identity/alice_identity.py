@@ -122,6 +122,7 @@ def record_turn_outcome(
         "score_sum": 0.0,
         "failure_kinds": {},
         "intent_mix": {},
+        "goals_touched": set(),
     })
     buf["turn_count"] += 1
     buf["score_sum"] += float(success_score)
@@ -156,10 +157,12 @@ def end_session(session_id: str) -> None:
     avg_score = score_sum / turn_count if turn_count > 0 else 0.5
     failure_kinds = dict(buf.get("failure_kinds") or {})
     intent_mix = dict(buf.get("intent_mix") or {})
+    goals_touched = list(buf.get("goals_touched") or set())
 
     top_intents = sorted(intent_mix.items(), key=lambda x: -x[1])[:3]
     intent_str = ", ".join(f"{k}({v})" for k, v in top_intents) if top_intents else "none"
-    summary = f"{turn_count} turns; intents: {intent_str}; avg_score: {avg_score:.2f}"
+    goal_str = f"; goals: {len(goals_touched)}" if goals_touched else ""
+    summary = f"{turn_count} turns; intents: {intent_str}{goal_str}; avg_score: {avg_score:.2f}"
 
     try:
         from ai.identity.identity_store import get_identity_store
@@ -171,9 +174,19 @@ def end_session(session_id: str) -> None:
             avg_success_score=avg_score,
             failure_kinds=failure_kinds,
             intent_mix=intent_mix,
+            goals_touched=goals_touched,
         )
     except Exception:
         pass
+
+
+def record_goal_touched(session_id: str, goal_id: str) -> None:
+    """Record that this session touched a goal (in-memory; flushed at end_session)."""
+    if not session_id or not goal_id:
+        return
+    buf = _session_buffer.get(session_id)
+    if buf is not None:
+        buf.setdefault("goals_touched", set()).add(goal_id)
 
 
 # ------------------------------------------------------------------ opinions

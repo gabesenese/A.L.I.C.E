@@ -1118,6 +1118,21 @@ class ContractPipeline:
         except Exception:
             pass
 
+        # Foundation 3 — attribute turn to a goal, mark it worked
+        try:
+            from ai.goals.goal_attributor import attribute_turn_to_goal
+            from ai.identity.alice_identity import record_goal_touched
+            _attributed_gid = attribute_turn_to_goal(
+                user_input=user_input,
+                alice_response=str(response_text or ""),
+                intent=str(decision.intent or ""),
+                session_id=self._current_session_id,
+            )
+            if _attributed_gid:
+                record_goal_touched(self._current_session_id, _attributed_gid)
+        except Exception:
+            pass
+
         memory_domains = self.companion_runtime.update_after_turn(
             companion_state=companion_state,
             user_input=user_input,

@@ -64,7 +64,8 @@ class IdentityStore:
                     turn_count        INTEGER DEFAULT 0,
                     avg_success_score REAL DEFAULT 0.5,
                     failure_kinds     TEXT DEFAULT '{}',
-                    intent_mix        TEXT DEFAULT '{}'
+                    intent_mix        TEXT DEFAULT '{}',
+                    goals_touched     TEXT DEFAULT '[]'
                 );
                 CREATE INDEX IF NOT EXISTS idx_sessions_started
                     ON alice_sessions (started_at DESC);
@@ -125,12 +126,13 @@ class IdentityStore:
         avg_success_score: float,
         failure_kinds: Dict[str, int],
         intent_mix: Dict[str, int],
+        goals_touched: Optional[List[str]] = None,
     ) -> None:
         with _lock, self._conn() as conn:
             conn.execute(
                 """UPDATE alice_sessions
                    SET ended_at=?, summary=?, turn_count=?, avg_success_score=?,
-                       failure_kinds=?, intent_mix=?
+                       failure_kinds=?, intent_mix=?, goals_touched=?
                    WHERE session_id=?""",
                 (
                     ended_at,
@@ -139,6 +141,7 @@ class IdentityStore:
                     avg_success_score,
                     json.dumps(failure_kinds),
                     json.dumps(intent_mix),
+                    json.dumps(list(goals_touched or [])),
                     session_id,
                 ),
             )
