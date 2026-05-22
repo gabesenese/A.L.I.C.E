@@ -1080,33 +1080,32 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return ""
 
         if "forecast" in message_code or isinstance(nested.get("forecast"), list):
-            forecast_payload = {
-                "forecast": list(nested.get("forecast") or []),
-                "location": str(nested.get("location") or ""),
-                "user_input": str(user_input or ""),
-            }
-            if hasattr(alice, "_alice_direct_phrase"):
-                try:
-                    phrased = str(
-                        alice._alice_direct_phrase("weather_forecast", forecast_payload)
-                        or ""
-                    ).strip()
-                    if phrased:
-                        return phrased
-                except Exception:
-                    pass
+            forecast_days = list(nested.get("forecast") or [])
+            if not forecast_days:
+                return ""
 
-            if forecast_payload["forecast"]:
-                first_day = dict(forecast_payload["forecast"][0] or {})
-                cond = str(first_day.get("condition") or "conditions unavailable")
-                high = first_day.get("high")
-                low = first_day.get("low")
-                location = forecast_payload["location"]
-                loc = f" in {location}" if location else ""
-                if high is not None and low is not None:
-                    return f"Forecast{loc}: {cond}, {low}° to {high}°C."
-                return f"Forecast{loc}: {cond}."
-            return ""
+            from datetime import date as _date, timedelta as _td
+            _today = _date.today()
+            _day_labels = {
+                _today.isoformat(): "today",
+                (_today + _td(days=1)).isoformat(): "tomorrow",
+                (_today + _td(days=2)).isoformat(): (_today + _td(days=2)).strftime("%A"),
+                (_today + _td(days=3)).isoformat(): (_today + _td(days=3)).strftime("%A"),
+            }
+
+            parts = []
+            for day in forecast_days[:3]:
+                date_str = str(day.get("date") or "")
+                label = _day_labels.get(date_str, date_str)
+                high = day.get("high")
+                cond = str(day.get("condition") or "")
+                temp = f", up to {round(high)}°C" if high is not None else ""
+                if label and cond:
+                    parts.append(f"{label.capitalize()}: {cond}{temp}")
+
+            if not parts:
+                return ""
+            return ". ".join(parts) + "."
 
         report_payload = {
             "temperature": nested.get("temperature"),
