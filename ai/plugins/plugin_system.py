@@ -604,13 +604,10 @@ class WeatherPlugin(PluginInterface):
                     }
 
                 condition_str = condition or "conditions unavailable"
-                temp_str = f"{temp}°C" if temp is not None else "unknown temperature"
-                humidity_str = f", humidity {humidity}%" if humidity is not None else ""
-                wind_str = f", wind {wind} km/h" if wind is not None else ""
                 return {
                     "success": True,
                     "action": "get_current",
-                    "response": f"It's currently {temp_str} with {condition_str} in {location_name}{humidity_str}{wind_str}.",
+                    "response": "",  # formatted by boundary_factory
                     "data": {
                         "temperature": temp,
                         "condition": condition_str,

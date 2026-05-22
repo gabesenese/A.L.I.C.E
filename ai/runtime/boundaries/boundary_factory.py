@@ -1126,10 +1126,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         temp = report_payload["temperature"]
         cond = str(report_payload["condition"] or "conditions unavailable")
         location = str(report_payload["location"] or "")
+        wind = report_payload.get("wind_speed")
         loc = f" in {location}" if location else ""
-        if temp is not None:
-            return f"It's currently around {temp}°C with {cond}{loc}."
-        return f"Current weather{loc}: {cond}."
+        temp_str = f"{round(temp)}°C" if temp is not None else None
+        wind_str = f", {round(wind)} km/h wind" if wind and float(wind) >= 15 else ""
+        if temp_str:
+            return f"{temp_str}, {cond}{wind_str}{loc}."
+        return f"{cond}{loc}."
 
     def _surface_text(
         text: str,
@@ -2565,6 +2568,24 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         )
                 except Exception:
                     pass
+
+                # For conversational tool intents, let the LLM answer naturally
+                # using the tool data as context rather than surfacing raw data.
+                _intent_str = str(req.decision.intent or "")
+                _conversational_tool = _intent_str.startswith("weather:")
+                if _conversational_tool and getattr(alice, "llm", None):
+                    try:
+                        _llm_ans = str(alice.llm.chat(
+                            req.user_input,
+                            use_history=True,
+                            context=f"Data retrieved: {tool_response}",
+                            intent=_intent_str,
+                        ) or "").strip()
+                        if _llm_ans:
+                            tool_response = _llm_ans
+                    except Exception:
+                        pass
+
                 return ResponseOutput(
                     text=_surface_text(
                         tool_response,
