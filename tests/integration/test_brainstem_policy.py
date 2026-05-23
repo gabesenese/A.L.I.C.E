@@ -17,7 +17,8 @@ from unittest.mock import MagicMock
 
 
 from ai.core.interaction_policy import InteractionPolicy, PolicySettings
-from ai.core.nlp_processor import Perception, PerceptionResult, FollowUpResolver
+from ai.core.perception import Perception, PerceptionResult
+from ai.core.followup_resolver import FollowUpResolver
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────

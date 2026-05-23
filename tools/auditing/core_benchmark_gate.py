@@ -24,12 +24,13 @@ _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-# Force UTF-8 stdout/stderr so Unicode symbols print on Windows cp1252 consoles
-import io as _io
-if hasattr(sys.stdout, "buffer"):
-    sys.stdout = _io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-if hasattr(sys.stderr, "buffer"):
-    sys.stderr = _io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+def _force_utf8_stdio() -> None:
+    """Force UTF-8 on Windows cp1252 consoles. Call only when running as a script."""
+    import io
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "buffer"):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 DEFAULT_BENCHMARK_PATH = Path("data/benchmarks/core_100_scenarios.json")
 DEFAULT_SCORECARD_PATH = Path("data/benchmarks/scorecard_latest.json")
@@ -617,4 +618,5 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 if __name__ == "__main__":
+    _force_utf8_stdio()
     raise SystemExit(main())

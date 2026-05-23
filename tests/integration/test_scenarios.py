@@ -21,7 +21,6 @@ import sys
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.main import ALICE
 from ai.infrastructure.metrics_collector import MetricsCollector
 
 logging.basicConfig(level=logging.WARNING)  # Reduce noise
@@ -67,7 +66,7 @@ class ScenarioRunner:
         self.scenarios_file = scenarios_file or Path("data/test_scenarios.json")
         self.scenarios: List[TestScenario] = []
         self.results: List[TestResult] = []
-        self.alice: Optional[ALICE] = None
+        self.alice: Optional[Any] = None
         self.metrics = MetricsCollector()
 
     def load_scenarios(self) -> int:
@@ -451,6 +450,7 @@ class ScenarioRunner:
         try:
             # Initialize A.L.I.C.E. if needed
             if not self.alice:
+                from app.main import ALICE  # lazy — avoids create_app() at collection time
                 self.alice = ALICE(
                     voice_enabled=False, user_name="TestUser", debug=False
                 )
