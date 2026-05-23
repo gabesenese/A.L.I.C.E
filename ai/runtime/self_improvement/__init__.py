@@ -1,4 +1,7 @@
-from ai.runtime.self_improvement.behavior_event import BehaviorEvent, create_behavior_event
+from ai.runtime.self_improvement.behavior_event import (
+    BehaviorEvent,
+    create_behavior_event,
+)
 from ai.runtime.self_improvement.failure_classifier import (
     FailureClassification,
     classify_failure,

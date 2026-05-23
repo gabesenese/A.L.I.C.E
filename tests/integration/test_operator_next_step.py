@@ -14,7 +14,9 @@ def test_next_step_from_durable_state_is_grounded():
             "last_failure": "routing misroute in next-step handling",
             "files_inspected": ["ai/runtime/contract_pipeline.py"],
         },
-        project_memory={"active_objective": "Improve agentic companion operator runtime"},
+        project_memory={
+            "active_objective": "Improve agentic companion operator runtime"
+        },
         local_execution={},
         available_files=[
             "ai/core/routing/route_arbiter.py",
@@ -40,7 +42,10 @@ def test_response_momentum_includes_next_move_without_passive_closer():
             "current_focus": "routing",
         },
         project_memory={},
-        local_execution={"action": "code:analyze_file", "inspected_file": "ai/core/routing/route_arbiter.py"},
+        local_execution={
+            "action": "code:analyze_file",
+            "inspected_file": "ai/core/routing/route_arbiter.py",
+        },
         next_step="Inspect ai/core/routing/evidence_contracts.py for missing slot scoring.",
     )
     low = text.lower()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List
 
 from memory.world_model import DEFAULT_PERSONALITY, WorldModel, get_world_model
 
@@ -91,7 +91,9 @@ def _as_personality(payload: Dict[str, Any] | None) -> Dict[str, Any]:
     return personality
 
 
-def _topic_candidates(text: str, extra_topics: Iterable[str] | None = None) -> List[str]:
+def _topic_candidates(
+    text: str, extra_topics: Iterable[str] | None = None
+) -> List[str]:
     terms: List[str] = []
     for raw in list(extra_topics or []):
         cleaned = str(raw or "").strip().lower()
@@ -187,18 +189,100 @@ class PersonalityLayer:
         return personality_to_system_instructions(self.world_model.get_personality())
 
 
-_INTEREST_NOISE: frozenset = frozenset({
-    "able", "also", "back", "been", "bill", "body", "call", "case", "check",
-    "code", "come", "cool", "does", "done", "even", "feel", "file", "find",
-    "from", "give", "going", "good", "have", "here", "hope", "into", "just",
-    "keep", "know", "last", "late", "life", "like", "long", "look", "make",
-    "more", "most", "much", "need", "next", "none", "nothing", "once", "only",
-    "over", "part", "plan", "plus", "push", "rain", "ready", "real", "right",
-    "said", "same", "seem", "seen", "send", "show", "side", "size", "some",
-    "soon", "stay", "such", "sure", "take", "talk", "tell", "than", "that",
-    "them", "then", "they", "this", "time", "toda", "today", "very", "want",
-    "week", "well", "what", "when", "will", "with", "work", "year", "your",
-})
+_INTEREST_NOISE: frozenset = frozenset(
+    {
+        "able",
+        "also",
+        "back",
+        "been",
+        "bill",
+        "body",
+        "call",
+        "case",
+        "check",
+        "code",
+        "come",
+        "cool",
+        "does",
+        "done",
+        "even",
+        "feel",
+        "file",
+        "find",
+        "from",
+        "give",
+        "going",
+        "good",
+        "have",
+        "here",
+        "hope",
+        "into",
+        "just",
+        "keep",
+        "know",
+        "last",
+        "late",
+        "life",
+        "like",
+        "long",
+        "look",
+        "make",
+        "more",
+        "most",
+        "much",
+        "need",
+        "next",
+        "none",
+        "nothing",
+        "once",
+        "only",
+        "over",
+        "part",
+        "plan",
+        "plus",
+        "push",
+        "rain",
+        "ready",
+        "real",
+        "right",
+        "said",
+        "same",
+        "seem",
+        "seen",
+        "send",
+        "show",
+        "side",
+        "size",
+        "some",
+        "soon",
+        "stay",
+        "such",
+        "sure",
+        "take",
+        "talk",
+        "tell",
+        "than",
+        "that",
+        "them",
+        "then",
+        "they",
+        "this",
+        "time",
+        "toda",
+        "today",
+        "very",
+        "want",
+        "week",
+        "well",
+        "what",
+        "when",
+        "will",
+        "with",
+        "work",
+        "year",
+        "your",
+    }
+)
 
 
 def _meaningful_interests(raw: List[str], limit: int = 5) -> List[str]:
@@ -209,7 +293,7 @@ def _meaningful_interests(raw: List[str], limit: int = 5) -> List[str]:
         t = str(topic or "").strip().lower()
         if not t or len(t) < 5:
             continue
-        if ":" in t:          # drop intent strings like "weather:current"
+        if ":" in t:  # drop intent strings like "weather:current"
             continue
         if t in _INTEREST_NOISE:
             continue
@@ -221,7 +305,9 @@ def _meaningful_interests(raw: List[str], limit: int = 5) -> List[str]:
     return out
 
 
-def personality_to_system_instructions(personality: Dict[str, Any] | None, intent: str = "") -> str:
+def personality_to_system_instructions(
+    personality: Dict[str, Any] | None, intent: str = ""
+) -> str:
     shaped = _as_personality(personality)
     curiosity = float(shaped["curiosity_weight"])
     directness = float(shaped["directness"])
@@ -233,12 +319,18 @@ def personality_to_system_instructions(personality: Dict[str, Any] | None, inten
     lines = ["Current ALICE personality drift:"]
     # On conversation turns, encourage follow-up curiosity regardless of drift value.
     if _is_conversation:
-        lines.append("- Follow-up behavior: show active curiosity; ask one well-chosen follow-up when it moves the discussion forward.")
+        lines.append(
+            "- Follow-up behavior: show active curiosity; ask one well-chosen follow-up when it moves the discussion forward."
+        )
     else:
-        lines.append(f"- Follow-up behavior: {_describe_weight(curiosity, 'ask follow-up questions rarely; prefer completing the current answer', 'ask one useful follow-up only when it moves the task forward', 'show active curiosity and ask relevant follow-ups when useful')}.")
+        lines.append(
+            f"- Follow-up behavior: {_describe_weight(curiosity, 'ask follow-up questions rarely; prefer completing the current answer', 'ask one useful follow-up only when it moves the task forward', 'show active curiosity and ask relevant follow-ups when useful')}."
+        )
     # Skip directness-as-brevity on conversation turns — let the system prompt govern tone.
     if not _is_conversation:
-        lines.append(f"- Directness: {_describe_weight(directness, 'use a warmer, softer tone before corrections', 'be clear and balanced', 'be direct, concise, and practical')}.")
+        lines.append(
+            f"- Directness: {_describe_weight(directness, 'use a warmer, softer tone before corrections', 'be clear and balanced', 'be direct, concise, and practical')}."
+        )
     lines += [
         f"- Humor: {_describe_weight(humor_threshold, 'dry wit and humor are welcome; lean into it when the moment calls for it', 'light humor is fine when the tone is right', 'keep responses focused; humor only when clearly invited')}.",
         f"- Concern sensitivity: {_describe_weight(concern, 'do not over-index on mild stress signals', 'acknowledge stress briefly when relevant', 'notice stress quickly and respond with calm, practical support')}.",
@@ -252,7 +344,9 @@ def build_personality_system_instructions(
     world_model: WorldModel | None = None,
     intent: str = "",
 ) -> str:
-    personality = PersonalityLayer(world_model=world_model).world_model.get_personality()
+    personality = PersonalityLayer(
+        world_model=world_model
+    ).world_model.get_personality()
     return personality_to_system_instructions(personality, intent=intent)
 
 
@@ -262,7 +356,9 @@ def apply_personality_to_system_prompt(
     intent: str = "",
 ) -> str:
     base = str(system_prompt or "").strip()
-    instructions = build_personality_system_instructions(world_model=world_model, intent=intent)
+    instructions = build_personality_system_instructions(
+        world_model=world_model, intent=intent
+    )
     if not instructions:
         return base
     return f"{base}\n\n{instructions}" if base else instructions

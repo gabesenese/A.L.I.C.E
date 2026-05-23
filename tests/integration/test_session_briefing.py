@@ -1,4 +1,5 @@
 """Tests for the expanded session briefing and companion_runtime session continuity."""
+
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -12,20 +13,27 @@ def test_briefing_includes_unread_email_count(tmp_path, monkeypatch):
     monkeypatch.setattr("memory.world_model._world_model", model)
 
     from ai.identity.user_identity import UserIdentity
+
     monkeypatch.setattr(
         "ai.runtime.session_briefing.generate_session_briefing.__globals__['load_identity']",
         lambda uid: UserIdentity(user_id=uid, name="Gabriel"),
         raising=False,
     )
 
-    with patch("ai.identity.user_identity.load_identity") as mock_id, \
-         patch("ai.goals.goal_engine.get_goal_engine") as mock_ge, \
-         patch("memory.world_model.get_world_model", return_value=model):
+    with (
+        patch("ai.identity.user_identity.load_identity") as mock_id,
+        patch("ai.goals.goal_engine.get_goal_engine") as mock_ge,
+        patch("memory.world_model.get_world_model", return_value=model),
+    ):
         mock_id.return_value = type("I", (), {"name": "Gabriel"})()
-        mock_engine = type("E", (), {
-            "session_summary": lambda self: "",
-            "stale_goals": lambda self, days=3.0: [],
-        })()
+        mock_engine = type(
+            "E",
+            (),
+            {
+                "session_summary": lambda self: "",
+                "stale_goals": lambda self, days=3.0: [],
+            },
+        )()
         mock_ge.return_value = mock_engine
 
         briefing = generate_session_briefing("gabriel")
@@ -35,22 +43,36 @@ def test_briefing_includes_unread_email_count(tmp_path, monkeypatch):
 
 def test_briefing_includes_calendar_events(tmp_path):
     model = WorldModel(tmp_path / "world_model.json")
-    model.update_upcoming_calendar([{
-        "title": "Sprint planning",
-        "start": datetime.now(timezone.utc).replace(hour=10, minute=0).isoformat(),
-        "end": datetime.now(timezone.utc).replace(hour=11, minute=0).isoformat(),
-        "location": "",
-        "all_day": "False",
-    }])
+    model.update_upcoming_calendar(
+        [
+            {
+                "title": "Sprint planning",
+                "start": datetime.now(timezone.utc)
+                .replace(hour=10, minute=0)
+                .isoformat(),
+                "end": datetime.now(timezone.utc)
+                .replace(hour=11, minute=0)
+                .isoformat(),
+                "location": "",
+                "all_day": "False",
+            }
+        ]
+    )
 
-    with patch("ai.identity.user_identity.load_identity") as mock_id, \
-         patch("ai.goals.goal_engine.get_goal_engine") as mock_ge, \
-         patch("memory.world_model.get_world_model", return_value=model):
+    with (
+        patch("ai.identity.user_identity.load_identity") as mock_id,
+        patch("ai.goals.goal_engine.get_goal_engine") as mock_ge,
+        patch("memory.world_model.get_world_model", return_value=model),
+    ):
         mock_id.return_value = type("I", (), {"name": "Gabriel"})()
-        mock_engine = type("E", (), {
-            "session_summary": lambda self: "",
-            "stale_goals": lambda self, days=3.0: [],
-        })()
+        mock_engine = type(
+            "E",
+            (),
+            {
+                "session_summary": lambda self: "",
+                "stale_goals": lambda self, days=3.0: [],
+            },
+        )()
         mock_ge.return_value = mock_engine
 
         briefing = generate_session_briefing("gabriel")
@@ -59,7 +81,6 @@ def test_briefing_includes_calendar_events(tmp_path):
 
 
 def test_session_continuity_injected_on_first_turn(tmp_path):
-    from ai.contracts import RouterDecision
     from ai.runtime.companion_runtime import CompanionRuntimeLoop
 
     model = WorldModel(tmp_path / "world_model.json")
@@ -79,7 +100,11 @@ def test_session_continuity_injected_on_first_turn(tmp_path):
 
     identity = state.memory_domains.identity
     continuity = identity.get("session_continuity") or {}
-    assert "open_tasks" in continuity or "active_goals" in continuity or "active_threads" in continuity
+    assert (
+        "open_tasks" in continuity
+        or "active_goals" in continuity
+        or "active_threads" in continuity
+    )
 
 
 def test_session_continuity_not_reinjected_on_subsequent_turns(tmp_path):

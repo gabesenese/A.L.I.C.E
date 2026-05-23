@@ -90,6 +90,7 @@ def save_alice_identity(identity: AliceIdentity) -> None:
 
 # ------------------------------------------------------------------ session lifecycle
 
+
 def begin_session() -> str:
     """Start a new session: increment count, insert SQLite row, return session_id."""
     global _current_session_id
@@ -103,6 +104,7 @@ def begin_session() -> str:
 
     try:
         from ai.identity.identity_store import get_identity_store
+
         get_identity_store().begin_session(session_id, _now_iso())
     except Exception:
         pass
@@ -117,17 +119,22 @@ def record_turn_outcome(
     failure_kind: str,
 ) -> None:
     """Accumulate per-turn data in-memory; flushed at end_session."""
-    buf = _session_buffer.setdefault(session_id, {
-        "turn_count": 0,
-        "score_sum": 0.0,
-        "failure_kinds": {},
-        "intent_mix": {},
-        "goals_touched": set(),
-    })
+    buf = _session_buffer.setdefault(
+        session_id,
+        {
+            "turn_count": 0,
+            "score_sum": 0.0,
+            "failure_kinds": {},
+            "intent_mix": {},
+            "goals_touched": set(),
+        },
+    )
     buf["turn_count"] += 1
     buf["score_sum"] += float(success_score)
     if failure_kind:
-        buf["failure_kinds"][failure_kind] = buf["failure_kinds"].get(failure_kind, 0) + 1
+        buf["failure_kinds"][failure_kind] = (
+            buf["failure_kinds"].get(failure_kind, 0) + 1
+        )
     if intent:
         short = str(intent).split(":")[0]
         buf["intent_mix"][short] = buf["intent_mix"].get(short, 0) + 1
@@ -160,12 +167,15 @@ def end_session(session_id: str) -> None:
     goals_touched = list(buf.get("goals_touched") or set())
 
     top_intents = sorted(intent_mix.items(), key=lambda x: -x[1])[:3]
-    intent_str = ", ".join(f"{k}({v})" for k, v in top_intents) if top_intents else "none"
+    intent_str = (
+        ", ".join(f"{k}({v})" for k, v in top_intents) if top_intents else "none"
+    )
     goal_str = f"; goals: {len(goals_touched)}" if goals_touched else ""
     summary = f"{turn_count} turns; intents: {intent_str}{goal_str}; avg_score: {avg_score:.2f}"
 
     try:
         from ai.identity.identity_store import get_identity_store
+
         get_identity_store().end_session(
             session_id=session_id,
             ended_at=_now_iso(),
@@ -191,16 +201,19 @@ def record_goal_touched(session_id: str, goal_id: str) -> None:
 
 # ------------------------------------------------------------------ opinions
 
+
 def record_opinion(topic: str, stance: str, source: str = "auto") -> None:
     """Record or update ALICE's stance on a topic. Persists to SQLite immediately."""
     try:
         from ai.identity.identity_store import get_identity_store
+
         get_identity_store().upsert_opinion(topic, stance, source)
     except Exception:
         pass
 
 
 # ------------------------------------------------------------------ self-block
+
 
 def build_self_block(
     identity: Optional[AliceIdentity] = None,
@@ -227,6 +240,7 @@ def build_self_block(
     if include_session:
         try:
             from ai.identity.identity_store import get_identity_store
+
             last = get_identity_store().get_last_session()
             if last and last.get("ended_at"):
                 ended = last["ended_at"]
@@ -250,6 +264,7 @@ def build_self_block(
     if include_opinions:
         try:
             from ai.identity.identity_store import get_identity_store
+
             opinions = get_identity_store().get_top_opinions(n=4)
             if opinions:
                 parts = []

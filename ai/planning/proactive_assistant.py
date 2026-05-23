@@ -52,7 +52,13 @@ class ProactiveAssistant:
     - Anticipates needs based on patterns
     """
 
-    def __init__(self, world_state=None, calendar_plugin=None, notes_plugin=None, goal_engine=None):
+    def __init__(
+        self,
+        world_state=None,
+        calendar_plugin=None,
+        notes_plugin=None,
+        goal_engine=None,
+    ):
         self.world_state = world_state
         self.calendar_plugin = calendar_plugin
         self.notes_plugin = notes_plugin
@@ -188,6 +194,7 @@ class ProactiveAssistant:
         if engine is None:
             try:
                 from ai.goals.goal_engine import get_goal_engine
+
                 engine = get_goal_engine()
             except Exception:
                 return
@@ -204,6 +211,7 @@ class ProactiveAssistant:
         parts: List[str] = []
         try:
             from ai.runtime.session_briefing import generate_session_briefing
+
             briefing = generate_session_briefing()
             if briefing:
                 parts.append(briefing)
@@ -418,6 +426,7 @@ def get_proactive_assistant(
         if goal_engine is None:
             try:
                 from ai.goals.goal_engine import get_goal_engine
+
                 goal_engine = get_goal_engine()
             except Exception:
                 pass

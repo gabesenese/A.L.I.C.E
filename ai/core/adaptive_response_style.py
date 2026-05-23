@@ -23,8 +23,12 @@ _FILLER_PATTERNS = [
     re.compile(r"\bIn conclusion[,:]?\s*", re.IGNORECASE),
     re.compile(r"\bTo conclude[,:]?\s*", re.IGNORECASE),
     re.compile(r"\bHope (?:this|that) helps[.!]?\s*$", re.IGNORECASE),
-    re.compile(r"\bLet me know if you (?:have|need) (?:any|more)[^.]*[.!]?\s*$", re.IGNORECASE),
-    re.compile(r"\bDo you (?:have|need) any (?:other|more) questions[?!]?\s*$", re.IGNORECASE),
+    re.compile(
+        r"\bLet me know if you (?:have|need) (?:any|more)[^.]*[.!]?\s*$", re.IGNORECASE
+    ),
+    re.compile(
+        r"\bDo you (?:have|need) any (?:other|more) questions[?!]?\s*$", re.IGNORECASE
+    ),
 ]
 
 

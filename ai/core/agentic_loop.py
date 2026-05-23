@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from ai.core.foundation_layers import FoundationLayers
 from ai.core.live_state_service import LiveStateService, get_live_state_service

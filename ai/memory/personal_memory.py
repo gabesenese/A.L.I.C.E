@@ -135,6 +135,7 @@ class PersonalMemoryStore:
                 entry.context = ctx
                 try:
                     from ai.memory.memory_store import get_memory_store
+
                     get_memory_store().update(str(entry_id), {"context": ctx})
                 except Exception:
                     pass
@@ -180,7 +181,10 @@ class PersonalMemoryStore:
                 entry.context = ctx
                 try:
                     from ai.memory.memory_store import get_memory_store
-                    get_memory_store().update(str(memory_id), {"content": entry.content, "context": ctx})
+
+                    get_memory_store().update(
+                        str(memory_id), {"content": entry.content, "context": ctx}
+                    )
                 except Exception:
                     pass
                 return {"updated": True, "memory_id": str(memory_id)}

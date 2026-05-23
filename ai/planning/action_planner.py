@@ -50,7 +50,14 @@ class ActionPlanner:
 
         # Fall back to simple "and/then" splitting, trying longest separators first
         lowered = goal.lower()
-        for sep in (" and then ", " then ", " and also ", " and "," next ", " finally "):
+        for sep in (
+            " and then ",
+            " then ",
+            " and also ",
+            " and ",
+            " next ",
+            " finally ",
+        ):
             if sep in lowered:
                 split_parts = [part.strip() for part in goal.split(sep) if part.strip()]
                 if len(split_parts) > 1:

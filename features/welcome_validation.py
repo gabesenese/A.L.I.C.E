@@ -45,7 +45,9 @@ _BANNED_TOKENS = (
 )
 
 
-def validate_startup_greeting(text: str, *, require_name_placeholder: bool = False) -> List[str]:
+def validate_startup_greeting(
+    text: str, *, require_name_placeholder: bool = False
+) -> List[str]:
     reasons: List[str] = []
     raw = str(text or "")
     low = raw.lower()
@@ -69,7 +71,9 @@ def validate_startup_greeting(text: str, *, require_name_placeholder: bool = Fal
     return reasons
 
 
-def is_valid_startup_greeting(text: str, *, require_name_placeholder: bool = False) -> bool:
+def is_valid_startup_greeting(
+    text: str, *, require_name_placeholder: bool = False
+) -> bool:
     return not validate_startup_greeting(
         text, require_name_placeholder=require_name_placeholder
     )

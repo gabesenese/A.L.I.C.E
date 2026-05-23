@@ -36,11 +36,11 @@ def _prompt_for_period(period: str, per_period: int) -> str:
         "- no project-specific claims\n- no depressing/dark jokes\n"
         "- no motivational-coach language\n- no productivity consultant jargon\n\n"
         "Good examples:\n"
-        "\"Morning, {name}.\\n\\nWe have a plan. Allegedly.\"\n"
-        "\"Afternoon, {name}.\\n\\nStill time for a clean win.\"\n"
-        "\"Evening, {name}.\\n\\nBack for round two.\"\n"
-        "\"Night session, {name}.\\n\\nBold choice. Let's make it worth it.\"\n"
-        "\"Late night, {name}.\\n\\nLet's keep this clever, not chaotic.\"\n\n"
+        '"Morning, {name}.\\n\\nWe have a plan. Allegedly."\n'
+        '"Afternoon, {name}.\\n\\nStill time for a clean win."\n'
+        '"Evening, {name}.\\n\\nBack for round two."\n'
+        '"Night session, {name}.\\n\\nBold choice. Let\'s make it worth it."\n'
+        '"Late night, {name}.\\n\\nLet\'s keep this clever, not chaotic."\n\n'
         "Return JSON only:\n"
         "{\n"
         '  "period": "...",\n'
@@ -121,7 +121,9 @@ def generate_candidates(
         greetings = parsed.get("greetings") if isinstance(parsed, dict) else []
         if not isinstance(greetings, list):
             greetings = []
-        output["periods"][p] = _validate_candidates([str(g) for g in greetings[:per_period]])
+        output["periods"][p] = _validate_candidates(
+            [str(g) for g in greetings[:per_period]]
+        )
     return output
 
 

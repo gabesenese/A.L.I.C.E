@@ -4,6 +4,7 @@ Runs every 5 minutes by default. Never writes to stdout. All sources degrade
 gracefully: if a plugin is unauthenticated or unavailable the poll is skipped
 silently so a missing Google token never crashes startup.
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class AmbientConfig:
-    interval_seconds: float = 300.0       # poll every 5 minutes
-    warmup_seconds: float = 30.0          # delay before first tick so startup isn't blocked
+    interval_seconds: float = 300.0  # poll every 5 minutes
+    warmup_seconds: float = 30.0  # delay before first tick so startup isn't blocked
     calendar_lookahead_hours: float = 24.0
     stale_goal_days: float = 3.0
 
@@ -62,7 +63,10 @@ class AmbientMonitor:
                 daemon=True,
             )
             self._thread.start()
-            logger.info("[AmbientMonitor] started (interval=%.0fs)", self.config.interval_seconds)
+            logger.info(
+                "[AmbientMonitor] started (interval=%.0fs)",
+                self.config.interval_seconds,
+            )
 
     def stop(self) -> None:
         thread = None
@@ -97,6 +101,7 @@ class AmbientMonitor:
     def _poll_calendar(self) -> Dict[str, Any]:
         try:
             from ai.plugins.calendar_plugin import CalendarPlugin, GOOGLE_AVAILABLE  # noqa: PLC0415
+
             if not GOOGLE_AVAILABLE:
                 return {"skipped": "google_unavailable"}
 
@@ -124,13 +129,15 @@ class AmbientMonitor:
             for item in items:
                 start_raw = item["start"].get("dateTime", item["start"].get("date", ""))
                 end_raw = item["end"].get("dateTime", item["end"].get("date", ""))
-                events.append({
-                    "title": str(item.get("summary") or "Untitled"),
-                    "start": start_raw,
-                    "end": end_raw,
-                    "location": str(item.get("location") or ""),
-                    "all_day": "T" not in start_raw,
-                })
+                events.append(
+                    {
+                        "title": str(item.get("summary") or "Untitled"),
+                        "start": start_raw,
+                        "end": end_raw,
+                        "location": str(item.get("location") or ""),
+                        "all_day": "T" not in start_raw,
+                    }
+                )
 
             self.world_model.update_upcoming_calendar(events)
             logger.debug("[AmbientMonitor] calendar: %d events", len(events))
@@ -142,6 +149,7 @@ class AmbientMonitor:
     def _poll_email(self) -> Dict[str, Any]:
         try:
             from ai.plugins.email_plugin import GmailPlugin, GMAIL_AVAILABLE  # noqa: PLC0415
+
             if not GMAIL_AVAILABLE:
                 return {"skipped": "gmail_unavailable"}
 
@@ -160,6 +168,7 @@ class AmbientMonitor:
     def _poll_goals(self) -> Dict[str, Any]:
         try:
             from ai.goals.goal_engine import get_goal_engine  # noqa: PLC0415
+
             engine = get_goal_engine()
             stale = engine.stale_goals(days=self.config.stale_goal_days)
             if stale:

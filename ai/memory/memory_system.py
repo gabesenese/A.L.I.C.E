@@ -24,7 +24,9 @@ import numpy as np
 from pathlib import Path
 import hashlib
 
-from ai.memory.memory_store import MemoryEntry  # canonical definition lives in memory_store
+from ai.memory.memory_store import (
+    MemoryEntry,
+)  # canonical definition lives in memory_store
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -597,6 +599,7 @@ class MemorySystem:
         # Write-through: persist immediately so no memory is lost on crash
         try:
             from ai.memory.memory_store import get_memory_store
+
             get_memory_store().add(memory)
         except Exception as _e:
             logger.warning(f"[Memory] SQLite write-through failed: {_e}")
@@ -646,9 +649,13 @@ class MemorySystem:
                 memory.last_accessed = datetime.now().isoformat()
                 try:
                     from ai.memory.memory_store import get_memory_store
+
                     get_memory_store().update(
                         mem_id,
-                        {"access_count": memory.access_count, "last_accessed": memory.last_accessed},
+                        {
+                            "access_count": memory.access_count,
+                            "last_accessed": memory.last_accessed,
+                        },
                     )
                 except Exception:
                     pass
@@ -856,6 +863,7 @@ class MemorySystem:
 
         try:
             from ai.memory.retrieval_budget import get_retrieval_budget
+
             budget = get_retrieval_budget()
             selected = budget.select(candidates)
             return budget.format_context(selected)
@@ -1128,6 +1136,7 @@ class MemorySystem:
                     self.vector_store.delete(memory_id)
                     try:
                         from ai.memory.memory_store import get_memory_store
+
                         get_memory_store().remove(memory_id)
                     except Exception:
                         pass
@@ -1454,6 +1463,7 @@ class MemorySystem:
         """Bulk-sync all in-session memories to SQLite."""
         try:
             from ai.memory.memory_store import get_memory_store
+
             all_entries = (
                 self.episodic_memory
                 + self.semantic_memory
@@ -1479,19 +1489,23 @@ class MemorySystem:
                 json_path = os.path.join(self.data_dir, "memories.json")
                 migrated = store.migrate_from_json(json_path)
                 if migrated:
-                    logger.info(f"[Memory] First-run migration: {migrated} entries imported from JSON")
+                    logger.info(
+                        f"[Memory] First-run migration: {migrated} entries imported from JSON"
+                    )
 
             def _to_entry(e) -> MemoryEntry:
                 return MemoryEntry(**_asdict(e))
 
-            self.episodic_memory   = [_to_entry(e) for e in store.get_all("episodic")]
-            self.semantic_memory   = [_to_entry(e) for e in store.get_all("semantic")]
+            self.episodic_memory = [_to_entry(e) for e in store.get_all("episodic")]
+            self.semantic_memory = [_to_entry(e) for e in store.get_all("semantic")]
             self.procedural_memory = [_to_entry(e) for e in store.get_all("procedural")]
-            self.document_memory   = [_to_entry(e) for e in store.get_all("document")]
+            self.document_memory = [_to_entry(e) for e in store.get_all("document")]
 
             total = (
-                len(self.episodic_memory) + len(self.semantic_memory)
-                + len(self.procedural_memory) + len(self.document_memory)
+                len(self.episodic_memory)
+                + len(self.semantic_memory)
+                + len(self.procedural_memory)
+                + len(self.document_memory)
             )
             logger.info(
                 f"[OK] Loaded {total} memories from SQLite "
@@ -1502,14 +1516,23 @@ class MemorySystem:
             )
 
             # Rebuild in-process vector index from stored embeddings
-            for mem in self.episodic_memory + self.semantic_memory + self.procedural_memory + self.document_memory:
+            for mem in (
+                self.episodic_memory
+                + self.semantic_memory
+                + self.procedural_memory
+                + self.document_memory
+            ):
                 if mem.embedding:
                     self.vector_store.add(
                         id=mem.id,
                         vector=np.array(mem.embedding),
-                        metadata={"content": mem.content, "type": mem.memory_type,
-                                  "timestamp": mem.timestamp, "importance": mem.importance,
-                                  "tags": mem.tags or []},
+                        metadata={
+                            "content": mem.content,
+                            "type": mem.memory_type,
+                            "timestamp": mem.timestamp,
+                            "importance": mem.importance,
+                            "tags": mem.tags or [],
+                        },
                     )
 
             self._load_document_registry()

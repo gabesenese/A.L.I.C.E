@@ -53,7 +53,9 @@ class AdaptiveContextSelector:
     """
 
     def __init__(self, feedback_path: str = "data/context/selection_feedback.jsonl"):
-        self.max_context_length = 4000  # Max chars to send to LLM (raised for richer recall)
+        self.max_context_length = (
+            4000  # Max chars to send to LLM (raised for richer recall)
+        )
         self.min_relevance = 0.2  # Lowered threshold — surface more past context
         self.feedback_path = feedback_path
 

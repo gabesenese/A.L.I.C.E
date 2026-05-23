@@ -11,10 +11,19 @@ from typing import Any, Dict, List, Optional
 _GOALS_FILE = Path("data/goals/goal_stack.json")
 
 _INTENT_PHRASES = (
-    "i want to", "i need to", "i'm trying to", "im trying to",
-    "my goal is", "i'd like to", "i would like to",
-    "we should", "let's build", "let's implement", "help me build",
-    "help me create", "help me implement",
+    "i want to",
+    "i need to",
+    "i'm trying to",
+    "im trying to",
+    "my goal is",
+    "i'd like to",
+    "i would like to",
+    "we should",
+    "let's build",
+    "let's implement",
+    "help me build",
+    "help me create",
+    "help me implement",
 )
 
 _VAGUE_GOAL = re.compile(
@@ -85,6 +94,7 @@ class GoalEngine:
         # Foundation 3 — SQLite store (write-through; JSON kept for compatibility)
         try:
             from ai.goals.goal_store import get_goal_store
+
             self._store = get_goal_store()
             self._store.migrate_from_json(self._file)
         except Exception:
@@ -113,7 +123,9 @@ class GoalEngine:
     def _save(self) -> None:
         self._file.parent.mkdir(parents=True, exist_ok=True)
         self._file.write_text(
-            json.dumps([g.to_dict() for g in self._goals], indent=2, ensure_ascii=False),
+            json.dumps(
+                [g.to_dict() for g in self._goals], indent=2, ensure_ascii=False
+            ),
             encoding="utf-8",
         )
         if self._store is not None:
@@ -124,8 +136,12 @@ class GoalEngine:
                 pass
 
     def _record_event(
-        self, goal_id: str, event_type: str,
-        session_id: str = "", intent: str = "", note: str = "",
+        self,
+        goal_id: str,
+        event_type: str,
+        session_id: str = "",
+        intent: str = "",
+        note: str = "",
     ) -> None:
         if self._store is not None:
             try:
@@ -160,8 +176,12 @@ class GoalEngine:
         # Auto-decompose milestones from the description
         try:
             from ai.planning.action_planner import get_action_planner
+
             class _Req:
-                def __init__(self, g): self.goal = g; self.plan_steps = None
+                def __init__(self, g):
+                    self.goal = g
+                    self.plan_steps = None
+
             steps = get_action_planner().decompose(_Req(desc))
             if len(steps) > 1:
                 self.populate_milestones_from_steps(goal.goal_id, steps)
@@ -180,9 +200,7 @@ class GoalEngine:
                 return g
         return None
 
-    def mark_worked(
-        self, goal_id: str, session_id: str = "", intent: str = ""
-    ) -> None:
+    def mark_worked(self, goal_id: str, session_id: str = "", intent: str = "") -> None:
         self.update(goal_id, last_worked_at=_now_iso())
         self._record_event(goal_id, "worked", session_id=session_id, intent=intent)
 
@@ -215,16 +233,14 @@ class GoalEngine:
         return "\n".join(lines)
 
     def stale_goals(self, days: float = 3.0) -> List[Goal]:
-        return [
-            g for g in self.active()
-            if (g.days_since_worked() or 0) >= days
-        ]
+        return [g for g in self.active() if (g.days_since_worked() or 0) >= days]
 
     def get_ready_goals(self) -> List[Goal]:
         """Return active goals whose all dependency goals are completed."""
         completed_ids = {g.goal_id for g in self._goals if g.status == "completed"}
         return [
-            g for g in self.active()
+            g
+            for g in self.active()
             if all(dep in completed_ids for dep in g.dependencies)
         ]
 
@@ -234,7 +250,8 @@ class GoalEngine:
         for g in self._goals:
             if g.goal_id == goal_id:
                 return [
-                    b for b in self._goals
+                    b
+                    for b in self._goals
                     if b.goal_id in g.dependencies and b.goal_id not in completed_ids
                 ]
         return []
@@ -244,7 +261,7 @@ class GoalEngine:
         for phrase in _INTENT_PHRASES:
             if phrase in lower:
                 idx = lower.index(phrase) + len(phrase)
-                snippet = text[idx: idx + 120].strip()
+                snippet = text[idx : idx + 120].strip()
                 candidate = snippet.split(".")[0].split("?")[0].strip()
                 if not candidate or len(candidate) < 12:
                     continue
@@ -304,7 +321,9 @@ class GoalEngine:
                         if all(m2.get("done") for m2 in g.milestones):
                             g.status = "completed"
                         self._save()
-                        self._record_event(goal_id, "milestone_advanced", note=m.get("text", "")[:60])
+                        self._record_event(
+                            goal_id, "milestone_advanced", note=m.get("text", "")[:60]
+                        )
                         return True
         return False
 
@@ -350,8 +369,11 @@ class GoalEngine:
                 for m in goal.milestones:
                     if not m.get("done"):
                         m_text = str(m.get("text") or "").lower()
-                        if any(w in m_text for w in intent_lower.split() if len(w) > 4) or \
-                           any(w in m_text for w in input_lower.split() if len(w) > 5):
+                        if any(
+                            w in m_text for w in intent_lower.split() if len(w) > 4
+                        ) or any(
+                            w in m_text for w in input_lower.split() if len(w) > 5
+                        ):
                             self.complete_milestone(goal.goal_id, m["id"])
                         break  # only advance one milestone per turn
 

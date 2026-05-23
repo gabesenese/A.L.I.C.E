@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 
 class EvidenceContracts:
@@ -64,7 +64,13 @@ class EvidenceContracts:
 
         destructive = any(
             token in low
-            for token in ("delete all", "wipe", "format disk", "drop database", "bypass security")
+            for token in (
+                "delete all",
+                "wipe",
+                "format disk",
+                "drop database",
+                "bypass security",
+            )
         )
         if destructive:
             result.update(
@@ -83,7 +89,11 @@ class EvidenceContracts:
             if action in {"write", "delete"}:
                 result["requires_approval"] = True
             if action != "list" and not cls.has_explicit_file_target(text):
-                reroute = "code:list_files" if cls.FILE_LIST_PATTERN.search(text) else "code:request"
+                reroute = (
+                    "code:list_files"
+                    if cls.FILE_LIST_PATTERN.search(text)
+                    else "code:request"
+                )
                 result.update(
                     {
                         "accepted": False,
@@ -170,7 +180,11 @@ class EvidenceContracts:
             "self_improvement:status",
             "self_improvement:brief",
         }:
-            has_state = bool(active_objective or state.get("current_focus") or proj.get("current_focus"))
+            has_state = bool(
+                active_objective
+                or state.get("current_focus")
+                or proj.get("current_focus")
+            )
             if not has_state:
                 result.update(
                     {
@@ -183,7 +197,9 @@ class EvidenceContracts:
                 )
             else:
                 result["evidence_score"] = 0.86
-            if normalized == "operator:continue" and not cls.CONTINUATION_SIGNAL.search(text):
+            if normalized == "operator:continue" and not cls.CONTINUATION_SIGNAL.search(
+                text
+            ):
                 result["evidence_score"] = 0.72
             if normalized.startswith("self_improvement:"):
                 result["evidence_score"] = 0.84

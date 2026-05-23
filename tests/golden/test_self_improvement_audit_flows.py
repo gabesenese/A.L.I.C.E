@@ -20,7 +20,10 @@ def test_greeting_failure_classification_and_audit_flow():
     assert "ai/runtime/greeting_surface_policy.py" in classification.likely_files
 
     hypothesis = build_hypothesis(event, classification)
-    assert "overcorrected" in hypothesis.hypothesis.lower() or "presence" in hypothesis.hypothesis.lower()
+    assert (
+        "overcorrected" in hypothesis.hypothesis.lower()
+        or "presence" in hypothesis.hypothesis.lower()
+    )
 
     patch_plan = build_patch_plan(hypothesis)
     assert patch_plan.requires_approval is True
@@ -28,7 +31,9 @@ def test_greeting_failure_classification_and_audit_flow():
     assert "tests/golden/test_greeting_memory_grounding.py" in patch_plan.tests_to_add
 
     evaluation = build_evaluation_plan(patch_plan)
-    assert "pytest tests/golden/test_greeting_memory_grounding.py" in evaluation.commands
+    assert (
+        "pytest tests/golden/test_greeting_memory_grounding.py" in evaluation.commands
+    )
     assert "pytest" in evaluation.commands
 
     report = build_audit_report(
@@ -40,4 +45,3 @@ def test_greeting_failure_classification_and_audit_flow():
     )
     assert report.approval_required is True
     assert "Failure classified as greeting_tone" in report.recommendation
-

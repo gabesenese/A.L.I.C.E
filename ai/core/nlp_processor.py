@@ -22,8 +22,7 @@ import importlib
 import json
 from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-import math
+from datetime import datetime
 from collections import OrderedDict, defaultdict, deque, Counter
 from pathlib import Path
 import threading
@@ -153,8 +152,7 @@ except ImportError:
         "[WARN] Tier foundation modules unavailable. Running base NLP stack."
     )
 
-from ai.core.perception import Perception, PerceptionResult
-from ai.core.followup_resolver import FollowUpResolver, FollowUpResult
+from ai.core.followup_resolver import FollowUpResolver
 from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
 from ai.core.goal_recognizer import get_goal_recognizer
 from ai.core.foundation_layers import FoundationLayers
@@ -3383,8 +3381,14 @@ class NLPProcessor:
         # Conversation override: brainstorm/discuss/think patterns are discussion turns,
         # not weather queries. The word "brainstorm" contains "storm" but is not weather.
         _discussion_override = {
-            "brainstorm", "discuss", "explore", "analyze", "strategize",
-            "ideate", "conceptualize", "philosophize",
+            "brainstorm",
+            "discuss",
+            "explore",
+            "analyze",
+            "strategize",
+            "ideate",
+            "conceptualize",
+            "philosophize",
         }
         if normalized_set & _discussion_override:
             scores["weather"] = 0.0
@@ -3466,8 +3470,6 @@ class NLPProcessor:
         ):
             return
         try:
-            import numpy as np
-
             keys = list(self.learned_corrections.keys())
             embs = classifier._model.encode(keys, normalize_embeddings=True)
             self._correction_keys = keys
@@ -4558,26 +4560,34 @@ class NLPProcessor:
         if re.search(r"\bwork on alice\b", _raw) or re.search(
             r"\bnow i\b.{0,30}\bwork on\b", _raw
         ):
-            _pc = bool(re.search(
-                r"\b(hot|cold|tired|busy|outside|inside|feel|feeling|exhausted|"
-                r"hard|difficult|been a|was a|long day|rough|nice day|beautiful|"
-                r"stayed|nap|woke|morning|afternoon|evening|just got)\b",
-                _raw,
-            ))
-            _going_out = bool(re.search(
-                r"\b(going out|out for|for a drive|for a walk|for a run|heading out|"
-                r"going for a|on a drive|on a walk|step out|grabbing|errands|headed out)\b",
-                _raw,
-            ))
-            _if = bool(re.search(
-                r"\b(want to|going to|planning to|would like to|i will|gonna)\b",
-                _raw,
-            ))
-            _ts = bool(re.search(
-                r"\b(in a bit|in a while|later|soon|after i|after my|when i get back|"
-                r"when i'm back|once i|a little later|sometime today)\b",
-                _raw,
-            ))
+            _pc = bool(
+                re.search(
+                    r"\b(hot|cold|tired|busy|outside|inside|feel|feeling|exhausted|"
+                    r"hard|difficult|been a|was a|long day|rough|nice day|beautiful|"
+                    r"stayed|nap|woke|morning|afternoon|evening|just got)\b",
+                    _raw,
+                )
+            )
+            _going_out = bool(
+                re.search(
+                    r"\b(going out|out for|for a drive|for a walk|for a run|heading out|"
+                    r"going for a|on a drive|on a walk|step out|grabbing|errands|headed out)\b",
+                    _raw,
+                )
+            )
+            _if = bool(
+                re.search(
+                    r"\b(want to|going to|planning to|would like to|i will|gonna)\b",
+                    _raw,
+                )
+            )
+            _ts = bool(
+                re.search(
+                    r"\b(in a bit|in a while|later|soon|after i|after my|when i get back|"
+                    r"when i'm back|once i|a little later|sometime today)\b",
+                    _raw,
+                )
+            )
             _now_work = bool(re.search(r"\bnow\b.{0,60}\bwork on\b", _raw))
             if _if and _ts and _going_out:
                 pass  # departing + future-framing — not a current work command
@@ -4751,7 +4761,8 @@ class NLPProcessor:
 
         logger.debug("[THOUGHT_TRACE] %s", trace.compact())
 
-        import pathlib, json as _json
+        import pathlib
+        import json as _json
 
         _log_dir = pathlib.Path("data") / "analytics"
         try:
@@ -4966,9 +4977,18 @@ class NLPProcessor:
             "i want to understand",
         )
         if any(p in text_lower for p in _exploration_phrases):
-            if not any(m in text_lower for m in (
-                "note", "notes", "reminder", "remind", "calendar", "event", "schedule",
-            )):
+            if not any(
+                m in text_lower
+                for m in (
+                    "note",
+                    "notes",
+                    "reminder",
+                    "remind",
+                    "calendar",
+                    "event",
+                    "schedule",
+                )
+            ):
                 return "conversation:exploration", 0.91
 
         # Goal-statement guard: avoid routing reflective project goals into tools.
@@ -5342,32 +5362,42 @@ class NLPProcessor:
             # "just woke up, now i am going to work on alice" → personal update, not command
             # "going out for a drive and want to work on alice for a bit" → same
             _orig = str(text or "").lower()
-            _has_personal_ctx = bool(re.search(
-                r"\b(hot|cold|tired|busy|outside|inside|feel|feeling|exhausted|"
-                r"hard|difficult|been a|was a|long day|rough|nice day|beautiful|"
-                r"stayed|nap|woke|morning|afternoon|evening|just got)\b",
-                _orig,
-            ))
-            _going_out_signal = bool(re.search(
-                r"\b(going out|out for|for a drive|for a walk|for a run|heading out|"
-                r"going for a|on a drive|on a walk|step out|grabbing|errands|headed out)\b",
-                _orig,
-            ))
-            _is_intent_framing = bool(re.search(
-                r"\b(want to|going to|planning to|would like to|i will|gonna)\b",
-                _orig,
-            ))
+            _has_personal_ctx = bool(
+                re.search(
+                    r"\b(hot|cold|tired|busy|outside|inside|feel|feeling|exhausted|"
+                    r"hard|difficult|been a|was a|long day|rough|nice day|beautiful|"
+                    r"stayed|nap|woke|morning|afternoon|evening|just got)\b",
+                    _orig,
+                )
+            )
+            _going_out_signal = bool(
+                re.search(
+                    r"\b(going out|out for|for a drive|for a walk|for a run|heading out|"
+                    r"going for a|on a drive|on a walk|step out|grabbing|errands|headed out)\b",
+                    _orig,
+                )
+            )
+            _is_intent_framing = bool(
+                re.search(
+                    r"\b(want to|going to|planning to|would like to|i will|gonna)\b",
+                    _orig,
+                )
+            )
             # A time-shift marker ("in a bit", "later", "soon") alongside future framing
             # means this is a stated future intention, never a current command.
-            _time_shifted = bool(re.search(
-                r"\b(in a bit|in a while|later|soon|after i|after my|when i get back|"
-                r"when i'm back|once i|a little later|sometime today)\b",
-                _orig,
-            ))
+            _time_shifted = bool(
+                re.search(
+                    r"\b(in a bit|in a while|later|soon|after i|after my|when i get back|"
+                    r"when i'm back|once i|a little later|sometime today)\b",
+                    _orig,
+                )
+            )
             _now_work_signal = bool(re.search(r"\bnow\b.{0,60}\bwork on\b", _orig))
             if _is_intent_framing and _time_shifted and _going_out_signal:
                 pass  # fall through — departing + future-framing, not a current command
-            elif (_now_work_signal and not _going_out_signal) or not (_has_personal_ctx and _is_intent_framing):
+            elif (_now_work_signal and not _going_out_signal) or not (
+                _has_personal_ctx and _is_intent_framing
+            ):
                 return "operator:continue", 0.9
 
         # PHASE 1.5: Conversational guard before semantic fallback.
@@ -5446,7 +5476,9 @@ class NLPProcessor:
         if semantic_classifier:
             try:
                 # Raised threshold to avoid over-eager semantic force-fit.
-                result = semantic_classifier.get_plugin_action(intent_text, threshold=0.58)
+                result = semantic_classifier.get_plugin_action(
+                    intent_text, threshold=0.58
+                )
                 if result and result.get("confidence", 0) >= 0.68:
                     # Map plugin:action to intent
                     plugin = result.get("plugin", "")

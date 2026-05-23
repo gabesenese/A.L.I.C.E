@@ -12,15 +12,15 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path("data/memory/alice.db")
 
-LEVEL_RAW = 0    # Individual episodic memories
-LEVEL_DAY = 1    # Day summaries  (compressed from raw)
-LEVEL_WEEK = 2   # Week summaries (compressed from day)
+LEVEL_RAW = 0  # Individual episodic memories
+LEVEL_DAY = 1  # Day summaries  (compressed from raw)
+LEVEL_WEEK = 2  # Week summaries (compressed from day)
 LEVEL_TOPIC = 3  # Topic summaries (compressed from week)
 
 # Compress when count at this level exceeds the threshold
 _THRESHOLDS = {
-    LEVEL_RAW:  200,
-    LEVEL_DAY:  30,
+    LEVEL_RAW: 200,
+    LEVEL_DAY: 30,
     LEVEL_WEEK: 8,
 }
 
@@ -58,7 +58,7 @@ class HierarchicalCompressor:
         with self._conn() as conn:
             for col, defn in [
                 ("memory_level", "INTEGER DEFAULT 0"),
-                ("parent_id",    "TEXT"),
+                ("parent_id", "TEXT"),
             ]:
                 try:
                     conn.execute(f"ALTER TABLE memories ADD COLUMN {col} {defn}")
@@ -119,7 +119,9 @@ class HierarchicalCompressor:
 
     def _summarise(self, entries: List[Dict], label: str) -> str:
         """Build a plain-text summary from a group of entries."""
-        unique = list(dict.fromkeys(e["content"] for e in entries if e.get("content")))[:10]
+        unique = list(dict.fromkeys(e["content"] for e in entries if e.get("content")))[
+            :10
+        ]
         snippets = " | ".join(c[:80] for c in unique)
         return f"[{label}] {len(entries)} memories: {snippets}"
 
@@ -141,9 +143,14 @@ class HierarchicalCompressor:
                 VALUES (?, ?, 'semantic', ?, ?, ?, '["summary"]', ?)
                 """,
                 (
-                    mid, content, now,
-                    json.dumps({"compressed_from": source_ids, "compression_level": level}),
-                    round(importance, 4), level,
+                    mid,
+                    content,
+                    now,
+                    json.dumps(
+                        {"compressed_from": source_ids, "compression_level": level}
+                    ),
+                    round(importance, 4),
+                    level,
                 ),
             )
             if source_ids:
@@ -180,7 +187,9 @@ class HierarchicalCompressor:
                     continue
                 avg_imp = sum(e["importance"] for e in group) / len(group)
                 summary = self._summarise(group, day)
-                self._write_summary(summary, LEVEL_DAY, [e["id"] for e in group], avg_imp)
+                self._write_summary(
+                    summary, LEVEL_DAY, [e["id"] for e in group], avg_imp
+                )
                 created += 1
 
         elif level == LEVEL_DAY:
@@ -192,19 +201,25 @@ class HierarchicalCompressor:
                     continue
                 avg_imp = sum(e["importance"] for e in group) / len(group)
                 summary = self._summarise(group, f"Week {week}")
-                self._write_summary(summary, LEVEL_WEEK, [e["id"] for e in group], avg_imp)
+                self._write_summary(
+                    summary, LEVEL_WEEK, [e["id"] for e in group], avg_imp
+                )
                 created += 1
 
         elif level == LEVEL_WEEK:
             avg_imp = sum(e["importance"] for e in entries) / len(entries)
             summary = self._summarise(entries, "Long-term")
-            self._write_summary(summary, LEVEL_TOPIC, [e["id"] for e in entries], avg_imp)
+            self._write_summary(
+                summary, LEVEL_TOPIC, [e["id"] for e in entries], avg_imp
+            )
             created = 1
 
         if created:
             logger.info(
                 "[HierarchicalCompressor] Level %d: created %d summaries from %d entries",
-                level, created, len(entries),
+                level,
+                created,
+                len(entries),
             )
         return created
 

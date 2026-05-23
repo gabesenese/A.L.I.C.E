@@ -1,7 +1,7 @@
 """Tests for TaskScheduler — verifies scheduling logic and callback firing."""
+
 from datetime import datetime
 
-import pytest
 
 from brain.task_scheduler import ScheduledTask, TaskScheduler
 
@@ -54,7 +54,7 @@ def test_weekday_task_only_fires_on_correct_day(tmp_path):
         action="weekly_review",
         schedule="weekday@MON@09:00",
     )
-    monday = datetime(2026, 5, 18, 9, 0)   # 2026-05-18 is a Monday
+    monday = datetime(2026, 5, 18, 9, 0)  # 2026-05-18 is a Monday
     tuesday = datetime(2026, 5, 19, 9, 0)
     assert task.is_due(monday) is True
     assert task.is_due(tuesday) is False
@@ -87,7 +87,9 @@ def test_default_daily_briefing_task_seeded_as_disabled(tmp_path):
 def test_task_persists_across_reload(tmp_path):
     path = tmp_path / "tasks.json"
     s1 = TaskScheduler(tasks_file=path)
-    s1.add_task(ScheduledTask(name="persist_me", action="wake_up", schedule="daily@07:00"))
+    s1.add_task(
+        ScheduledTask(name="persist_me", action="wake_up", schedule="daily@07:00")
+    )
 
     s2 = TaskScheduler(tasks_file=path)
     assert "persist_me" in s2._tasks

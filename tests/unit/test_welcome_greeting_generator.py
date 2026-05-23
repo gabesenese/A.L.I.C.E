@@ -7,7 +7,11 @@ from tools import generate_welcome_greetings as gen
 
 
 def test_generator_handles_ollama_unavailable(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(gen, "_ollama_generate", lambda **kwargs: (_ for _ in ()).throw(URLError("down")))
+    monkeypatch.setattr(
+        gen,
+        "_ollama_generate",
+        lambda **kwargs: (_ for _ in ()).throw(URLError("down")),
+    )
     out = tmp_path / "candidates.json"
     approved = tmp_path / "approved.json"
     code = gen.main(

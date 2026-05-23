@@ -302,9 +302,15 @@ class SQLiteMemoryStore(MemoryStore):
                     chunk_index   INTEGER
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_type ON memories(memory_type)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_ts   ON memories(timestamp DESC)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_imp  ON memories(importance DESC)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_mem_type ON memories(memory_type)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_mem_ts   ON memories(timestamp DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_mem_imp  ON memories(importance DESC)"
+            )
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -335,9 +341,20 @@ class SQLiteMemoryStore(MemoryStore):
 
     @staticmethod
     def _unpack(row: tuple) -> MemoryEntry:
-        (id_, content, memory_type, timestamp, context,
-         importance, access_count, last_accessed,
-         embedding_blob, tags, source_file, chunk_index) = row
+        (
+            id_,
+            content,
+            memory_type,
+            timestamp,
+            context,
+            importance,
+            access_count,
+            last_accessed,
+            embedding_blob,
+            tags,
+            source_file,
+            chunk_index,
+        ) = row
         emb = pickle.loads(embedding_blob).tolist() if embedding_blob else None
         return MemoryEntry(
             id=id_,
@@ -424,7 +441,9 @@ class SQLiteMemoryStore(MemoryStore):
             query = np.array(embedding).reshape(1, -1)
             scored = []
             for mem in candidates:
-                sim = cosine_similarity(query, np.array(mem.embedding).reshape(1, -1))[0][0]
+                sim = cosine_similarity(query, np.array(mem.embedding).reshape(1, -1))[
+                    0
+                ][0]
                 if sim >= threshold:
                     scored.append((mem, sim))
             scored.sort(key=lambda x: x[1], reverse=True)
@@ -444,7 +463,15 @@ class SQLiteMemoryStore(MemoryStore):
             return False
 
     def update(self, memory_id: str, updates: Dict[str, Any]) -> bool:
-        _allowed = {"content", "importance", "access_count", "last_accessed", "tags", "context", "embedding"}
+        _allowed = {
+            "content",
+            "importance",
+            "access_count",
+            "last_accessed",
+            "tags",
+            "context",
+            "embedding",
+        }
         filtered = {k: v for k, v in updates.items() if k in _allowed}
         if not filtered:
             return False
@@ -457,12 +484,18 @@ class SQLiteMemoryStore(MemoryStore):
                 elif k == "context":
                     params.append(json.dumps(v or {}))
                 elif k == "embedding":
-                    params.append(pickle.dumps(np.array(v, dtype=np.float32)) if v is not None else None)
+                    params.append(
+                        pickle.dumps(np.array(v, dtype=np.float32))
+                        if v is not None
+                        else None
+                    )
                 else:
                     params.append(v)
             params.append(memory_id)
             with self._conn() as conn:
-                conn.execute(f"UPDATE memories SET {', '.join(clauses)} WHERE id = ?", params)
+                conn.execute(
+                    f"UPDATE memories SET {', '.join(clauses)} WHERE id = ?", params
+                )
                 conn.commit()
             return True
         except Exception as e:
@@ -473,7 +506,8 @@ class SQLiteMemoryStore(MemoryStore):
         with self._conn() as conn:
             if memory_type:
                 return conn.execute(
-                    "SELECT COUNT(*) FROM memories WHERE memory_type = ?", (memory_type,)
+                    "SELECT COUNT(*) FROM memories WHERE memory_type = ?",
+                    (memory_type,),
                 ).fetchone()[0]
             return conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
 
@@ -494,7 +528,9 @@ class SQLiteMemoryStore(MemoryStore):
                     except Exception:
                         pass
             count = self.bulk_add(entries)
-            logger.info(f"[SQLiteMemoryStore] Migrated {count} entries from {json_path}")
+            logger.info(
+                f"[SQLiteMemoryStore] Migrated {count} entries from {json_path}"
+            )
             return count
         except Exception as e:
             logger.error(f"[SQLiteMemoryStore] Migration failed: {e}")

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import re
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List
 
 
 _CLAIM_PATTERNS = (

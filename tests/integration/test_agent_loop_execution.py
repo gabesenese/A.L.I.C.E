@@ -16,8 +16,15 @@ def test_agent_loop_continue_uses_last_recommended_target_priority():
             "suggested_next_files": ["ai/runtime/turn_orchestrator.py"],
         },
         project_memory={},
-        routing_result={"route": "local", "intent": "operator:continue", "local_execution": {}},
-        available_files=["ai/runtime/turn_orchestrator.py", "ai/runtime/contract_pipeline.py"],
+        routing_result={
+            "route": "local",
+            "intent": "operator:continue",
+            "local_execution": {},
+        },
+        available_files=[
+            "ai/runtime/turn_orchestrator.py",
+            "ai/runtime/contract_pipeline.py",
+        ],
         max_steps=1,
         user_id="default",
     )
@@ -51,5 +58,7 @@ def test_inspected_file_is_recorded_before_next_step_decision():
         user_id="default",
     )
     # After inspecting agent_loop.py, next recommendation should move forward.
-    assert "ai/runtime/agent_loop.py" in [o.get("inspected_file") for o in result.observations]
+    assert "ai/runtime/agent_loop.py" in [
+        o.get("inspected_file") for o in result.observations
+    ]
     assert "ai/runtime/agent_loop.py" not in str(result.next_step or "").lower()

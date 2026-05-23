@@ -4,7 +4,7 @@ import logging
 import time
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union, Callable, Iterable, Sequence
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.bootstrap import create_app
 from app.runtime_modes import RuntimeModeConfig, resolve_runtime_mode
@@ -15,16 +15,9 @@ from brain.task_scheduler import TaskScheduler
 app = create_app()
 
 
-from ai.planning.goal_from_llm import get_goal_from_llm, GoalJSON
-from ai.infrastructure.policy import get_policy_decision, PolicyDecision
-from ai.infrastructure.rbac import get_rbac_engine, AccessRequest
+from ai.infrastructure.rbac import get_rbac_engine
 from ai.infrastructure.approval_ledger import get_approval_ledger
 from ai.roadmap import get_roadmap_completion_stack
-from ai.optimization.runtime_thresholds import (
-    get_tool_path_confidence,
-    get_goal_path_confidence,
-    get_ask_threshold,
-)
 from ai.integration.git_manager import get_git_manager
 from ai.integration.build_runner import get_build_runner
 from ai.integration.operator_workflow import OperatorWorkflowOrchestrator
@@ -64,25 +57,20 @@ from ai.plugins.maps_plugin import MapsPlugin
 from ai.planning.task_executor import TaskExecutor
 
 # New anticipatory AI systems
-from ai.infrastructure.event_bus import get_event_bus, EventType, EventPriority
-from ai.infrastructure.system_state import get_state_tracker, SystemStatus
+from ai.infrastructure.event_bus import get_event_bus, EventPriority
+from ai.infrastructure.system_state import get_state_tracker
 from ai.infrastructure.observers import get_observer_manager
 from ai.learning.pattern_learner import get_pattern_learner
 from ai.optimization.system_monitor import get_system_monitor
 from ai.planning.task_planner import get_planner
-from ai.planning.plan_executor import initialize_executor, get_executor
+from ai.planning.plan_executor import initialize_executor
 from ai.planning.planner import ReasoningPlanner
 from ai.planning.task import PersistentTaskQueue, Task, TaskStatus as QueueTaskStatus
 from ai.core.reasoning_engine import (
     get_reasoning_engine,
-    WorldEntity,
-    EntityKind,
-    ActiveGoal as ReasoningActiveGoal,
 )
 from ai.planning.proactive_assistant import (
     get_proactive_assistant,
-    parse_reminder_time,
-    make_reminder_id,
 )
 from ai.infrastructure.error_recovery import get_error_recovery
 from ai.memory.smart_context_cache import get_context_cache
@@ -94,12 +82,11 @@ from ai.learning.self_reflection import get_self_reflection
 from ai.learning.learning_engine import get_learning_engine
 from ai.core.conversational_engine import (
     get_conversational_engine,
-    ConversationalContext,
 )
-from ai.core.llm_gateway import get_llm_gateway, LLMGateway
+from ai.core.llm_gateway import get_llm_gateway
 from ai.core.llm_policy import LLMCallType
 from ai.core.response_self_critic import get_response_self_critic
-from ai.core.executive_controller import get_executive_controller, ExecutiveDecision
+from ai.core.executive_controller import get_executive_controller
 from ai.core.reflection_engine import get_reflection_engine
 from ai.core.response_planner import get_response_planner
 from ai.core.goal_tracker import get_goal_tracker
@@ -125,7 +112,7 @@ from ai.core.semantic_memory_index import SemanticMemoryIndex
 from ai.core.memory_consolidator import MemoryConsolidator
 from ai.core.cross_session_pattern_detector import CrossSessionPatternDetector
 from ai.core.system_design_response_guard import SystemDesignResponseGuard
-from ai.core.unified_action_engine import ActionRequest, get_unified_action_engine
+from ai.core.unified_action_engine import get_unified_action_engine
 from ai.core.entity_registry import get_entity_registry
 from ai.core.turn_state_assembler import TurnStateAssembler
 from ai.core.turn_state_diff import generate_turn_diff
@@ -155,7 +142,6 @@ from ai.memory.memory_pruner import get_memory_pruner
 # Production Infrastructure
 from ai.infrastructure.cache_manager import get_cache_manager, initialize_cache
 from ai.infrastructure.metrics_collector import (
-    get_metrics_collector,
     initialize_metrics,
 )
 from ai.infrastructure.structured_logging import (
@@ -164,7 +150,6 @@ from ai.infrastructure.structured_logging import (
 )
 from ai.infrastructure.task_queue import get_task_queue, initialize_task_queue
 from ai.infrastructure.database_pool import (
-    get_connection_pool,
     initialize_database,
     DatabaseConfig,
     DatabaseType,
@@ -181,7 +166,6 @@ from ai.runtime.response_authority import (
 from ai.runtime.turn_orchestrator import run_default_turn
 from ai.reasoning.routing_decision_logger import (
     RoutingDecisionLogger,
-    RoutingDecisionType,
 )
 
 # ===== 10 TIER IMPROVEMENTS (LAZY IMPORT UNDER QUARANTINE FLAGS) =====
@@ -196,7 +180,7 @@ from ai.core.interaction_policy import InteractionPolicy
 from ai.learning.learning_engine import get_nlp_error_logger
 
 # Area 1-8: advanced intelligence components (merged into existing modules)
-from ai.core.intent_classifier import get_bayesian_router, IntentCandidate
+from ai.core.intent_classifier import get_bayesian_router
 from ai.memory.context_graph import get_world_graph
 from ai.core.interaction_policy import get_knob_bandit
 from ai.memory.memory_system import get_memory_replay
@@ -1940,7 +1924,7 @@ class ALICE:
         # Example: Debugging logic
         if "debug" in user_input.lower() or "error" in user_input.lower():
             reasoning_chain.append("User needs debugging help")
-            reasoning_chain.append(f"Looking for error patterns in context")
+            reasoning_chain.append("Looking for error patterns in context")
 
             # Alice would apply her debugging rules here
             reasoning_chain.append("Analyzing recent conversation for code context")
@@ -3999,11 +3983,11 @@ class ALICE:
         ]
         if any(word in user_input.lower() for word in code_keywords):
             codebase_summary = self.self_reflection.get_codebase_summary()
-            reflection_context = f"CRITICAL: You ARE A.L.I.C.E, an AI system with read-only access to your own codebase. "
+            reflection_context = "CRITICAL: You ARE A.L.I.C.E, an AI system with read-only access to your own codebase. "
             reflection_context += f"Your codebase is at {codebase_summary['base_path']} with {codebase_summary['total_files']} Python files. "
-            reflection_context += f"You can read files, analyze code, search, and suggest improvements through the self_reflection system. "
-            reflection_context += f"When asked about code access, confirm you have it and offer to read/analyze files. "
-            reflection_context += f"You are NOT a generic LLM - you are A.L.I.C.E with self-reflection capabilities!"
+            reflection_context += "You can read files, analyze code, search, and suggest improvements through the self_reflection system. "
+            reflection_context += "When asked about code access, confirm you have it and offer to read/analyze files. "
+            reflection_context += "You are NOT a generic LLM - you are A.L.I.C.E with self-reflection capabilities!"
             context_parts.insert(
                 1, reflection_context
             )  # After goal, before personalization
@@ -6760,7 +6744,7 @@ class ALICE:
         if structured:
             return structured
 
-        domain = self._infer_learning_domain(user_input)
+        self._infer_learning_domain(user_input)
         composed = self._deterministic_knowledge_fallback(user_input, intent)
         if composed:
             return composed
@@ -7859,7 +7843,7 @@ class ALICE:
                         if analysis.get("dependencies"):
                             result += f"- Dependencies: {', '.join(analysis['dependencies'][:5])}\n"
                         if suggestions:
-                            result += f"\n **Suggestions**:\n" + "\n".join(
+                            result += "\n **Suggestions**:\n" + "\n".join(
                                 f"- {s}" for s in suggestions[:5]
                             )
                         self.last_code_file = None  # Clear after use
@@ -7999,7 +7983,7 @@ class ALICE:
                             from ai.core.fact_checker import get_fact_checker
 
                             analyzer = get_code_analyzer()
-                            fact_checker = get_fact_checker()
+                            get_fact_checker()
 
                             # Analyze the Python code with AST parsing
                             analysis = analyzer.analyze_python_code(code_file.content)
@@ -8061,7 +8045,7 @@ class ALICE:
                                 # Code quality metrics
                                 metrics = analysis.get("metrics", {})
                                 if metrics:
-                                    result += f"**Metrics**:\n"
+                                    result += "**Metrics**:\n"
                                     result += f"- Code quality score: {analysis.get('quality_score', 0.0):.2f}/1.0\n"
                                     result += f"- Average complexity: {metrics.get('avg_complexity', 0):.1f}\n"
                                     result += f"- Documentation ratio: {metrics.get('doc_ratio', 0):.0%}\n"
@@ -8073,7 +8057,7 @@ class ALICE:
                                 # Improvement suggestions
                                 suggestions = analyzer.suggest_improvements(analysis)
                                 if suggestions:
-                                    result += f"\n**Suggestions**:\n"
+                                    result += "\n**Suggestions**:\n"
                                     for suggestion in suggestions[:3]:
                                         result += f"- {suggestion}\n"
 
@@ -8151,7 +8135,7 @@ class ALICE:
                         f"- Dependencies: {', '.join(analysis['dependencies'][:5])}\n"
                     )
                 if suggestions:
-                    result += f"\n **Suggestions**:\n" + "\n".join(
+                    result += "\n **Suggestions**:\n" + "\n".join(
                         f"- {s}" for s in suggestions[:5]
                     )
                 return result
@@ -8239,7 +8223,7 @@ class ALICE:
                 return "Training system not initialized."
 
             format_match = re.search(r"(jsonl|json|txt)", input_lower)
-            format_type = format_match.group(1) if format_match else "jsonl"
+            format_match.group(1) if format_match else "jsonl"
 
             # Export from learning engine
             if getattr(self, "learning_engine", None):
@@ -9323,7 +9307,7 @@ class ALICE:
         fallback_action: str,
     ) -> str:
         """Build executive-gate fallback responses without inline hardcoded branches."""
-        normalized_intent = str(intent or "").lower().strip()
+        str(intent or "").lower().strip()
         _failure_recovery = dict(
             (getattr(self, "_internal_reasoning_state", {}) or {}).get(
                 "failure_recovery", {}
@@ -10537,7 +10521,7 @@ class ALICE:
             memory_stats = self.memory.get_statistics()
             print(f"   Total Memories: {memory_stats['total_memories']}")
             if self.privacy_mode:
-                print(f"   Episodic memory storage is DISABLED")
+                print("   Episodic memory storage is DISABLED")
 
             # LLM Gateway Statistics
             if hasattr(self, "llm_gateway") and self.llm_gateway:
@@ -10626,7 +10610,7 @@ class ALICE:
                     print(
                         f"   Learned Greetings: {len(self.conversational_engine.learned_greetings) if self.conversational_engine.learned_greetings else 0}"
                     )
-                print(f"   Status: Active")
+                print("   Status: Active")
 
         elif cmd == "/analyze-learning":
             from ai.learning.learning_insights import LearningInsights
@@ -10736,7 +10720,7 @@ class ALICE:
                             print(f"   • {rel_type.replace('_', ' ').title()}: {count}")
 
                     if stats["recent_relationships"]:
-                        print(f"\nRecent relationships:")
+                        print("\nRecent relationships:")
                         for rel in stats["recent_relationships"][:5]:
                             source = rel["source_entity"].title()
                             target = rel["target_entity"].title()
@@ -11187,7 +11171,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             else:
                 # Policy denied - use simple farewell
                 return f"Take care, {name}!"
-        except Exception as e:
+        except Exception:
             # Ultimate fallback
             return f"Take care, {name}!"
 
@@ -11378,7 +11362,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         parts = command.split(" ", 1)
         correction_type = parts[1] if len(parts) > 1 else ""
 
-        print(f"\n Correction Mode")
+        print("\n Correction Mode")
         print("=" * 50)
         print(f"Last input: {last_user_input}")
         print(f"Last response: {last_response[:200]}...")
@@ -11502,7 +11486,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         except ValueError:
             rating = None
 
-        print(f"\n Feedback Mode")
+        print("\n Feedback Mode")
         print("=" * 50)
         print(f"Last input: {last_user_input}")
         print(f"Last response: {last_response[:200]}...")
@@ -11539,7 +11523,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
     def _handle_learning_stats_command(self):
         """Handle learning statistics command"""
-        print(f"\n Active Learning Statistics")
+        print("\n Active Learning Statistics")
         print("=" * 50)
 
         try:
@@ -11570,7 +11554,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
     def _handle_realtime_status_command(self):
         """Handle real-time learning status command"""
-        print(f"\n Continuous Learning Status")
+        print("\n Continuous Learning Status")
         print("=" * 50)
 
         try:
@@ -11585,7 +11569,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             status = self.continuous_learning.get_status()
             velocity = self.realtime_logger.get_learning_velocity()
 
-            print(f"Learning Loop:")
+            print("Learning Loop:")
             print(f"   Running: {'Yes' if status['running'] else 'No'}")
             print(f"   Paused: {'Yes' if status['paused'] else 'No'}")
             print(f"   Check Interval: {status['check_interval_hours']} hours")
@@ -11595,7 +11579,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                 f"   Total Corrections Applied: {status['total_corrections_applied']}"
             )
 
-            print(f"\nLearning Velocity:")
+            print("\nLearning Velocity:")
             print(f"   Total Errors: {velocity['total_errors']}")
             print(f"   Total Successes: {velocity['total_successes']}")
             print(f"   Success Rate: {velocity['success_rate']:.1%}")
@@ -11609,7 +11593,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
             recent_errors = self.realtime_logger.get_recent_errors(count=5)
             if recent_errors:
-                print(f"\n   Recent Errors:")
+                print("\n   Recent Errors:")
                 for err in recent_errors[-3:]:
                     print(f"      [{err['error_type']}] {err['user_input'][:50]}...")
 
@@ -11623,7 +11607,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
     def _handle_formulation_status_command(self):
         """Handle formulation learning status command"""
-        print(f"\n Response Formulation Learning")
+        print("\n Response Formulation Learning")
         print("=" * 50)
 
         try:
@@ -11633,7 +11617,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
             stats = self.response_formulator.get_stats()
 
-            print(f"Learning Progress:")
+            print("Learning Progress:")
             print(f"   Total Templates: {stats['total_templates']}")
             print(f"   Independent Actions: {stats['independent_actions']}")
             print(f"   Progress: {stats['learning_progress']}")
@@ -11646,7 +11630,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                 )
                 print(f"   Independence Rate: {independence_rate:.1f}%")
 
-                print(f"\nActions Alice Can Formulate Independently:")
+                print("\nActions Alice Can Formulate Independently:")
                 for action in list(self.response_formulator.independent_actions)[:10]:
                     print(f"   - {action}")
                 if len(self.response_formulator.independent_actions) > 10:
@@ -11654,7 +11638,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                     print(f"   ... and {remaining} more")
 
             if stats["total_templates"] > stats["independent_actions"]:
-                print(f"\nStill Learning:")
+                print("\nStill Learning:")
                 learning_actions = (
                     set(self.response_formulator.templates.keys())
                     - self.response_formulator.independent_actions
@@ -11678,7 +11662,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
     def _handle_autolearn_command(self, command: str):
         """Handle automated learning audit command"""
-        print(f"\n Automated Learning Audit Report")
+        print("\n Automated Learning Audit Report")
         print("=" * 70)
 
         try:
@@ -11693,7 +11677,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                 try:
                     days = int(parts[1])
                 except ValueError:
-                    print(f"[WARNING] Invalid days parameter, using default: 7")
+                    print("[WARNING] Invalid days parameter, using default: 7")
 
             # Get performance report
             report = self.autolearn.get_performance_report(days=days)
@@ -11705,7 +11689,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             # Display overall statistics
             overall = report["overall_stats"]
             print(f"\n Period: Last {report['period_days']} days")
-            print(f"\nOverall Performance:")
+            print("\nOverall Performance:")
             print(f"   Total Evaluations: {overall['total']}")
             print(f"   Average Score: {overall['average_score']}/100")
             print(f"   Passing Rate: {overall['passing_rate']}% (score >= 85)")
@@ -11717,14 +11701,14 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
             # AutoLearn statistics
             autolearn_stats = report["autolearn_stats"]
-            print(f"\nAutoLearn Activity:")
+            print("\nAutoLearn Activity:")
             print(f"   Cycles Run: {autolearn_stats['cycles_run']}")
             print(f"   Total Improvements: {autolearn_stats['total_improvements']}")
             print(f"   Last Run: {autolearn_stats['last_run'] or 'Never'}")
 
             # Performance by action type
             if overall.get("by_action"):
-                print(f"\nPerformance by Action Type:")
+                print("\nPerformance by Action Type:")
                 sorted_actions = sorted(
                     overall["by_action"].items(),
                     key=lambda x: x[1]["avg_score"],
@@ -11741,7 +11725,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             # Problem areas
             problem_areas = report.get("problem_areas", {})
             if problem_areas:
-                print(f"\nProblem Areas (score < 70):")
+                print("\nProblem Areas (score < 70):")
                 sorted_problems = sorted(
                     problem_areas.items(), key=lambda x: x[1]["avg_score"]
                 )
@@ -11753,14 +11737,14 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                     # Show example failure
                     if data.get("examples"):
                         example = data["examples"][0]
-                        print(f"      Example Issue:")
+                        print("      Example Issue:")
                         print(f"         Input: {example['input'][:60]}...")
                         print(f"         Response: {example['response'][:60]}...")
                         print(f"         Score: {example['score']}/100")
                         print(f"         Issue: {example['issue'][:80]}...")
 
             # Recommendation
-            print(f"\nRecommendation:")
+            print("\nRecommendation:")
             print(f"   {report['recommendation']}")
 
             print("\n" + "=" * 70)

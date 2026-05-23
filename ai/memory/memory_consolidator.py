@@ -109,6 +109,7 @@ class MemoryConsolidator:
                 )
                 try:
                     from ai.memory.memory_store import get_memory_store
+
                     get_memory_store().update(
                         str(getattr(anchor, "id", "")),
                         {"context": anchor_ctx, "importance": anchor.importance},
@@ -122,6 +123,7 @@ class MemoryConsolidator:
                 candidate.context = cand_ctx
                 try:
                     from ai.memory.memory_store import get_memory_store
+
                     get_memory_store().update(
                         str(getattr(candidate, "id", "")),
                         {"context": cand_ctx},

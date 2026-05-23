@@ -4,7 +4,11 @@ import re
 from pathlib import Path
 from typing import Any, Dict
 
-from ai.memory.project_memory import get_next_context_summary, load_project_state, update_project_state
+from ai.memory.project_memory import (
+    get_next_context_summary,
+    load_project_state,
+    update_project_state,
+)
 from ai.runtime.agent_loop import AgentLoop
 from ai.runtime.next_step_policy import decide_next_step
 from ai.runtime.self_improvement.improvement_loop import ImprovementLoop
@@ -358,8 +362,12 @@ class LocalActionExecutor:
             if action == "operator:explain_recommendation":
                 target = str(last_recommended_action.get("target") or "")
                 reason = str(last_recommended_action.get("reason") or "")
-                source = str(last_recommended_action.get("source") or "next_step_policy")
-                action_name = str(last_recommended_action.get("action") or "inspect_file")
+                source = str(
+                    last_recommended_action.get("source") or "next_step_policy"
+                )
+                action_name = str(
+                    last_recommended_action.get("action") or "inspect_file"
+                )
                 if not target:
                     text = "I do not have a stored recommendation yet. I can produce one from the active objective."
                 else:
@@ -376,10 +384,15 @@ class LocalActionExecutor:
                     "local_execution": local_execution,
                 }
 
-            if action in {"operator:continue", "operator:execute_recommended_action"} and last_recommended_action:
+            if (
+                action in {"operator:continue", "operator:execute_recommended_action"}
+                and last_recommended_action
+            ):
                 target = str(last_recommended_action.get("target") or "")
                 planned_action = str(last_recommended_action.get("action") or "")
-                requires_approval = bool(last_recommended_action.get("requires_approval"))
+                requires_approval = bool(
+                    last_recommended_action.get("requires_approval")
+                )
                 if requires_approval:
                     local_execution["success"] = True
                     return {
@@ -388,7 +401,11 @@ class LocalActionExecutor:
                         "operator_context": operator_context,
                         "local_execution": local_execution,
                     }
-                if target and planned_action in {"inspect_file", "analyze_file", "read_file"}:
+                if target and planned_action in {
+                    "inspect_file",
+                    "analyze_file",
+                    "read_file",
+                }:
                     analyze_result = self.execute(
                         action="code:analyze_file",
                         query=target,
@@ -407,7 +424,11 @@ class LocalActionExecutor:
                 local_execution=local_execution,
                 available_files=files,
                 files_inspected=list(operator_state.get("files_inspected") or []),
-                last_failure=str(operator_state.get("last_failure") or project_state.get("last_failure") or ""),
+                last_failure=str(
+                    operator_state.get("last_failure")
+                    or project_state.get("last_failure")
+                    or ""
+                ),
             )
             if action == "operator:next_step":
                 update_project_state(
@@ -430,7 +451,9 @@ class LocalActionExecutor:
                     "operator_context": operator_context,
                     "local_execution": {
                         **local_execution,
-                        "suggested_next_files": list(decision.suggested_next_files or []),
+                        "suggested_next_files": list(
+                            decision.suggested_next_files or []
+                        ),
                     },
                 }
 
@@ -453,7 +476,11 @@ class LocalActionExecutor:
             return {
                 "success": True,
                 "response": loop_result.next_step
-                or ("Blocked: " + loop_result.blocked_reason if loop_result.blocked_reason else "Continue executed one safe step."),
+                or (
+                    "Blocked: " + loop_result.blocked_reason
+                    if loop_result.blocked_reason
+                    else "Continue executed one safe step."
+                ),
                 "operator_context": operator_context,
                 "local_execution": local_execution,
             }

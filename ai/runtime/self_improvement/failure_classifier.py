@@ -48,7 +48,10 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
         layer = lyr
         signals.append(sig)
 
-    if any(s in text for s in ("wrong route", "misroute", "clarify", "intent", "file_operations")):
+    if any(
+        s in text
+        for s in ("wrong route", "misroute", "clarify", "intent", "file_operations")
+    ):
         set_class(
             "routing",
             [
@@ -75,7 +78,15 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
             "memory",
             "memory_keywords",
         )
-    elif any(s in text for s in ("machine learning last time", "unsupported claim", "last time", "we were discussing")):
+    elif any(
+        s in text
+        for s in (
+            "machine learning last time",
+            "unsupported claim",
+            "last time",
+            "we were discussing",
+        )
+    ):
         set_class(
             "continuity_claim",
             [
@@ -87,7 +98,9 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
             "response_guard",
             "continuity_keywords",
         )
-    elif any(s in text for s in ("greeting", "dry", "assistant-like", "forced", "bland")):
+    elif any(
+        s in text for s in ("greeting", "dry", "assistant-like", "forced", "bland")
+    ):
         set_class(
             "greeting_tone",
             [
@@ -99,7 +112,15 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
             "surface_policy",
             "greeting_keywords",
         )
-    elif any(s in text for s in ("target not found", "could not find file", "analyze file", "list files")):
+    elif any(
+        s in text
+        for s in (
+            "target not found",
+            "could not find file",
+            "analyze file",
+            "list files",
+        )
+    ):
         set_class(
             "local_execution",
             [
@@ -158,7 +179,9 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
             "tests",
             "test_failure_keywords",
         )
-    elif any(s in text for s in ("project state", "objective not set", "what are we fixing")):
+    elif any(
+        s in text for s in ("project state", "objective not set", "what are we fixing")
+    ):
         set_class(
             "project_state",
             [
@@ -171,7 +194,9 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
             "state",
             "project_state_keywords",
         )
-    elif any(s in text for s in ("traceback", "exception", "attributeerror", "runtimeerror")):
+    elif any(
+        s in text for s in ("traceback", "exception", "attributeerror", "runtimeerror")
+    ):
         tb = str(event.evidence.get("traceback") or "")
         tb_files = re.findall(r"([a-zA-Z0-9_/\\.-]+\.py)", tb)
         set_class(

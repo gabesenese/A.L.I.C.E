@@ -33,4 +33,3 @@ def test_codex_brief_contains_targets_tests_acceptance_and_constraints():
     assert "Acceptance criteria:" in brief
     assert "Do not use fictional assistant or external character names" in brief
     assert "Source-code changes require explicit approval" in brief
-

@@ -19,7 +19,9 @@ def should_answer_instead_of_clarify(
         return False
 
     # Keep clarification for explicit missing-file operations.
-    if re.search(r"\bread a file\b", low) and not re.search(r"\b[a-z0-9_./\\-]+\.[a-z0-9]{1,8}\b", low):
+    if re.search(r"\bread a file\b", low) and not re.search(
+        r"\b[a-z0-9_./\\-]+\.[a-z0-9]{1,8}\b", low
+    ):
         return False
 
     risky = ("delete", "drop database", "format disk", "wipe", "bypass security")

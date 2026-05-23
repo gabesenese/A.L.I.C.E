@@ -14,7 +14,6 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from uuid import uuid4
 
 _DB_PATH = Path("data/memory/alice.db")
 _lock = threading.Lock()

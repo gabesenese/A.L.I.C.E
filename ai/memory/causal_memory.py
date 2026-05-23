@@ -98,11 +98,23 @@ class CausalMemory:
                     (id, cause_id, effect_id, chain_type, confidence, description, detected_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (cid, cause_id, effect_id, chain_type, round(confidence, 4), description, now),
+                (
+                    cid,
+                    cause_id,
+                    effect_id,
+                    chain_type,
+                    round(confidence, 4),
+                    description,
+                    now,
+                ),
             )
             conn.commit()
         logger.debug(
-            "[CausalMemory] %s → %s (%s, conf=%.2f)", cause_id, effect_id, chain_type, confidence
+            "[CausalMemory] %s → %s (%s, conf=%.2f)",
+            cause_id,
+            effect_id,
+            chain_type,
+            confidence,
         )
         return cid
 
@@ -114,7 +126,8 @@ class CausalMemory:
     ) -> str:
         """Record an inferred causal link based on temporal proximity."""
         return self.record(
-            earlier_id, later_id,
+            earlier_id,
+            later_id,
             chain_type="inferred",
             confidence=confidence,
             description="temporal_proximity",
@@ -133,7 +146,12 @@ class CausalMemory:
                 (cause_id,),
             ).fetchall()
         return [
-            {"effect_id": r[0], "chain_type": r[1], "confidence": r[2], "description": r[3]}
+            {
+                "effect_id": r[0],
+                "chain_type": r[1],
+                "confidence": r[2],
+                "description": r[3],
+            }
             for r in rows
         ]
 
@@ -146,13 +164,18 @@ class CausalMemory:
                 (effect_id,),
             ).fetchall()
         return [
-            {"cause_id": r[0], "chain_type": r[1], "confidence": r[2], "description": r[3]}
+            {
+                "cause_id": r[0],
+                "chain_type": r[1],
+                "confidence": r[2],
+                "description": r[3],
+            }
             for r in rows
         ]
 
     def get_chain_context(self, memory_id: str) -> str:
         """One-line causal context for a memory (causes + effects), for LLM injection."""
-        causes  = self.get_causes(memory_id)
+        causes = self.get_causes(memory_id)
         effects = self.get_effects(memory_id)
         parts: List[str] = []
         if causes:
@@ -181,8 +204,8 @@ class CausalMemory:
             if not m:
                 continue
             marker = m.group(0).lower()
-            pivot  = m.start()
-            after  = sent[pivot + len(m.group(0)):].strip()
+            pivot = m.start()
+            after = sent[pivot + len(m.group(0)) :].strip()
             before = sent[:pivot].strip()
 
             if marker in _EFFECT_FIRST_MARKERS:

@@ -1,2 +1,1 @@
 """Companion memory package."""
-

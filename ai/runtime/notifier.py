@@ -1,4 +1,5 @@
 """Windows toast notification surface. Zero new dependencies."""
+
 from __future__ import annotations
 
 import base64
@@ -41,7 +42,14 @@ def toast(title: str, body: str) -> None:
     )
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     subprocess.Popen(
-        ["powershell", "-WindowStyle", "Hidden", "-NonInteractive", "-EncodedCommand", encoded],
+        [
+            "powershell",
+            "-WindowStyle",
+            "Hidden",
+            "-NonInteractive",
+            "-EncodedCommand",
+            encoded,
+        ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         creationflags=0x08000000,  # CREATE_NO_WINDOW

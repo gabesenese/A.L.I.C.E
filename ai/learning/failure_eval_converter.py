@@ -8,6 +8,7 @@ Score mapping (ConfidenceFusion counts score >= 70 as success):
   - Known failure vetoes   → 10–45  (failure)
   - Turn success           → 80     (success)
 """
+
 from __future__ import annotations
 
 import json
@@ -21,14 +22,14 @@ _WATERMARK_PATH = Path("data/evaluations/.watermark")
 
 # Map veto_reason → overall_score (all < 70 so they register as failures)
 _VETO_SCORES: Dict[str, int] = {
-    "user_reported_misroute":            10,
-    "verification_failed":               15,
-    "tool_route_vetoed":                 25,
-    "local_execution_target_not_found":  30,
-    "fallback_response_used":            35,
-    "no_explicit_file_target":           40,
-    "route_clarify":                     45,
-    "local_execution_error":             30,
+    "user_reported_misroute": 10,
+    "verification_failed": 15,
+    "tool_route_vetoed": 25,
+    "local_execution_target_not_found": 30,
+    "fallback_response_used": 35,
+    "no_explicit_file_target": 40,
+    "route_clarify": 45,
+    "local_execution_error": 30,
 }
 _DEFAULT_FAILURE_SCORE = 40
 _SUCCESS_SCORE = 80
@@ -52,8 +53,10 @@ def write_turn_eval(
     """
     try:
         _EVAL_PATH.parent.mkdir(parents=True, exist_ok=True)
-        score = _SUCCESS_SCORE if success else _VETO_SCORES.get(
-            str(veto_reason or ""), _DEFAULT_FAILURE_SCORE
+        score = (
+            _SUCCESS_SCORE
+            if success
+            else _VETO_SCORES.get(str(veto_reason or ""), _DEFAULT_FAILURE_SCORE)
         )
         record = {
             "trace_id": str(trace_id or ""),
@@ -117,9 +120,7 @@ class FailureEvalConverter:
                         "overall_score": score,
                         "veto_reason": veto,
                         "source": "routing_failure_backfill",
-                        "timestamp": str(
-                            rec.get("timestamp") or _now_iso()
-                        ),
+                        "timestamp": str(rec.get("timestamp") or _now_iso()),
                     }
                     fh.write(json.dumps(eval_rec) + "\n")
                     converted += 1
@@ -156,6 +157,7 @@ class FailureEvalConverter:
             return "No evaluation data yet. Run converter first."
 
         from collections import defaultdict
+
         totals: Dict[str, int] = defaultdict(int)
         failures: Dict[str, int] = defaultdict(int)
 
@@ -192,9 +194,7 @@ class FailureEvalConverter:
             "-" * 52,
         ]
         for intent, total, fail, rate in rows[:top_n]:
-            lines_out.append(
-                f"{intent:<30} {total:>6} {fail:>6} {rate * 100:>5.0f}%"
-            )
+            lines_out.append(f"{intent:<30} {total:>6} {fail:>6} {rate * 100:>5.0f}%")
         lines_out.append(f"\nTotal eval records: {sum(totals.values())}")
         return "\n".join(lines_out)
 

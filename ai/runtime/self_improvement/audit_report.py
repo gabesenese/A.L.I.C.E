@@ -61,4 +61,3 @@ def build_audit_report(
         risk_level=risk_level,
         generated_at=_now_iso(),
     )
-

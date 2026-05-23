@@ -69,7 +69,9 @@ def _suggestion_from_failure(
     low = str(failure or "").lower()
     candidates: List[CandidateNextAction] = []
 
-    def add_file(action: str, path: str, reason: str, source: str, confidence: float) -> None:
+    def add_file(
+        action: str, path: str, reason: str, source: str, confidence: float
+    ) -> None:
         if path in files_inspected and "blocker" not in reason.lower():
             return
         if path in available_files or _file_exists(path):
@@ -99,7 +101,9 @@ def _suggestion_from_failure(
             "failure_signal",
             0.8,
         )
-    if any(token in low for token in ("routing", "misroute", "clarification", "intent")):
+    if any(
+        token in low for token in ("routing", "misroute", "clarification", "intent")
+    ):
         for path in (
             "ai/core/routing/route_arbiter.py",
             "ai/core/routing/evidence_contracts.py",
@@ -147,7 +151,11 @@ def _suggestion_from_failure(
             0.88,
         )
     if any(token in low for token in ("startup", "shutdown", "lifecycle")):
-        for path in ("app/main.py", "app/runtime_modes.py", "ai/runtime/lifecycle_manager.py"):
+        for path in (
+            "app/main.py",
+            "app/runtime_modes.py",
+            "ai/runtime/lifecycle_manager.py",
+        ):
             add_file(
                 "inspect_file",
                 path,
@@ -156,7 +164,10 @@ def _suggestion_from_failure(
                 0.81,
             )
     if any(token in low for token in ("passive", "generic", "momentum")):
-        for path in ("ai/runtime/response_momentum_policy.py", "ai/runtime/response_adapter.py"):
+        for path in (
+            "ai/runtime/response_momentum_policy.py",
+            "ai/runtime/response_adapter.py",
+        ):
             add_file(
                 "inspect_file",
                 path,
@@ -183,12 +194,18 @@ def decide_next_step(
 ) -> NextStepDecision:
     state = dict(operator_state or {})
     local = dict(local_execution or {})
-    mem = dict(memory_recall or {})
+    dict(memory_recall or {})
     proj = dict(project_memory or {})
     files = list(available_files or [])
     inspected = list(files_inspected or state.get("files_inspected") or [])
     changed = list(recent_files_changed or proj.get("files_changed") or [])
-    failure = str(last_failure or local.get("error") or state.get("last_failure") or proj.get("last_failure") or "")
+    failure = str(
+        last_failure
+        or local.get("error")
+        or state.get("last_failure")
+        or proj.get("last_failure")
+        or ""
+    )
 
     candidates: List[CandidateNextAction] = []
     candidates.extend(
@@ -197,7 +214,9 @@ def decide_next_step(
         )
     )
 
-    active_objective = str(state.get("active_objective") or proj.get("active_objective") or "")
+    active_objective = str(
+        state.get("active_objective") or proj.get("active_objective") or ""
+    )
     if active_objective and not candidates:
         inspected_set = {str(p or "").lower() for p in inspected}
         if "ai/runtime/agent_loop.py" not in inspected_set:

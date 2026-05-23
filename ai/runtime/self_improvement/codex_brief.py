@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 
 from ai.runtime.self_improvement.audit_report import AuditReport
 
@@ -12,7 +12,11 @@ def _list_lines(items: List[str]) -> str:
 
 
 def build_codex_brief(audit_report: AuditReport) -> str:
-    report = audit_report.to_dict() if hasattr(audit_report, "to_dict") else dict(audit_report or {})
+    report = (
+        audit_report.to_dict()
+        if hasattr(audit_report, "to_dict")
+        else dict(audit_report or {})
+    )
     event = dict(report.get("event") or {})
     classification = dict(report.get("classification") or {})
     hypothesis = dict(report.get("hypothesis") or {})
@@ -42,4 +46,3 @@ def build_codex_brief(audit_report: AuditReport) -> str:
         "- Preserve and extend tests.\n"
         "- Source-code changes require explicit approval before application.\n"
     )
-

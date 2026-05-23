@@ -193,13 +193,14 @@ class RichTerminalUI:
         """Return a formatted goal line from the top active goal, or empty string."""
         try:
             from ai.goals.goal_engine import get_goal_engine
+
             goal = get_goal_engine().top_goal()
             if not goal:
                 return ""
             desc = goal.description[:60].rstrip()
-            next_action = (goal.next_action or "").strip()[:50]
+            (goal.next_action or "").strip()[:50]
             accent = self.colors["accent"]
-            info = self.colors["info"]
+            self.colors["info"]
             return f"[{accent}][ {desc} ][/{accent}]"
         except Exception:
             return ""

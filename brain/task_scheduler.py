@@ -10,12 +10,13 @@ Schedule formats:
   "interval@Xmin"            — fires every X minutes
   "weekday@MON@HH:MM"        — fires on a specific weekday (MON-SUN) at HH:MM
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import threading
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -26,8 +27,13 @@ _TASKS_FILE = Path("data/scheduled_tasks.json")
 _CHECK_INTERVAL = 60.0  # seconds between schedule checks
 
 _WEEKDAY_MAP = {
-    "MON": 0, "TUE": 1, "WED": 2, "THU": 3,
-    "FRI": 4, "SAT": 5, "SUN": 6,
+    "MON": 0,
+    "TUE": 1,
+    "WED": 2,
+    "THU": 3,
+    "FRI": 4,
+    "SAT": 5,
+    "SUN": 6,
 }
 
 
@@ -42,10 +48,10 @@ def _local_now() -> datetime:
 @dataclass
 class ScheduledTask:
     name: str
-    action: str           # injected as user input to the pipeline
-    schedule: str         # "daily@HH:MM" | "interval@Xmin" | "weekday@DAY@HH:MM"
+    action: str  # injected as user input to the pipeline
+    schedule: str  # "daily@HH:MM" | "interval@Xmin" | "weekday@DAY@HH:MM"
     enabled: bool = True
-    last_run: str = ""    # ISO timestamp of last execution
+    last_run: str = ""  # ISO timestamp of last execution
     description: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -213,7 +219,9 @@ class TaskScheduler:
                 if task.is_due(now):
                     self._fire(task)
             except Exception as exc:
-                logger.debug("[TaskScheduler] error checking task %s: %s", task.name, exc)
+                logger.debug(
+                    "[TaskScheduler] error checking task %s: %s", task.name, exc
+                )
 
     def _fire(self, task: ScheduledTask) -> None:
         logger.info("[TaskScheduler] firing task: %s", task.name)
@@ -227,9 +235,13 @@ class TaskScheduler:
         try:
             result = self._callback(task.name, task.action)
             if result:
-                logger.debug("[TaskScheduler] task %s response: %.120s", task.name, result)
+                logger.debug(
+                    "[TaskScheduler] task %s response: %.120s", task.name, result
+                )
         except Exception as exc:
-            logger.warning("[TaskScheduler] task %s execution failed: %s", task.name, exc)
+            logger.warning(
+                "[TaskScheduler] task %s execution failed: %s", task.name, exc
+            )
 
     # ----------------------------------------------------------------- persist
 

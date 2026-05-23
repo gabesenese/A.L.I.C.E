@@ -13,7 +13,15 @@ _EMOTIONAL_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
-_HIGH_VALUE_TAGS = {"goal", "decision", "milestone", "fact", "preference", "health", "relationship"}
+_HIGH_VALUE_TAGS = {
+    "goal",
+    "decision",
+    "milestone",
+    "fact",
+    "preference",
+    "health",
+    "relationship",
+}
 
 _SOURCE_SCORES = {
     "system_verified": 0.95,
@@ -59,18 +67,20 @@ class MemoryScorer:
     def score(self, entry: Any) -> float:
         w = self._WEIGHTS
         raw = (
-            w["recency"]   * self._recency(entry)
-            + w["access"]  * self._access(entry)
-            + w["base"]    * self._base(entry)
+            w["recency"] * self._recency(entry)
+            + w["access"] * self._access(entry)
+            + w["base"] * self._base(entry)
             + w["emotional"] * self._emotional(entry)
             + w["tag_value"] * self._tag_value(entry)
-            + w["source"]  * self._source(entry)
+            + w["source"] * self._source(entry)
         )
         return min(1.0, max(0.0, raw))
 
     def batch_score(self, entries: List[Any]) -> Dict[str, float]:
         if entries:
-            max_ac = max((int(getattr(e, "access_count", 0)) for e in entries), default=1)
+            max_ac = max(
+                (int(getattr(e, "access_count", 0)) for e in entries), default=1
+            )
             with self._lock:
                 self._max_access = max(self._max_access, max_ac, 1)
         return {getattr(e, "id", str(i)): self.score(e) for i, e in enumerate(entries)}

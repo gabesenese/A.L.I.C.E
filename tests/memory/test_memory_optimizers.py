@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-import math
 import sqlite3
 import tempfile
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 
 
 # ---------------------------------------------------------------------------
 # Minimal stub for MemoryEntry-like objects (avoids importing heavy deps)
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _Entry:
@@ -57,9 +55,11 @@ def _near_vec(base: List[float], noise: float = 0.05) -> List[float]:
 # 1. MemoryScorer
 # ---------------------------------------------------------------------------
 
+
 class TestMemoryScorer:
     def setup_method(self):
         from ai.memory.memory_scorer import MemoryScorer
+
         self.scorer = MemoryScorer(decay_hours=168.0)
 
     def test_score_in_range(self):
@@ -68,27 +68,27 @@ class TestMemoryScorer:
         assert 0.0 <= score <= 1.0
 
     def test_higher_access_scores_higher(self):
-        e_low  = _Entry(id="a", content="x", importance=0.5, access_count=0)
+        e_low = _Entry(id="a", content="x", importance=0.5, access_count=0)
         e_high = _Entry(id="b", content="x", importance=0.5, access_count=50)
         # Normalise together so max_access is shared
         scores = self.scorer.batch_score([e_low, e_high])
         assert scores["b"] > scores["a"]
 
     def test_emotional_content_boosts_score(self):
-        e_plain    = _Entry(id="a", content="I went to the store")
+        e_plain = _Entry(id="a", content="I went to the store")
         e_emotional = _Entry(id="b", content="I feel anxious and overwhelmed today")
-        s_plain    = self.scorer.score(e_plain)
+        s_plain = self.scorer.score(e_plain)
         s_emotional = self.scorer.score(e_emotional)
         assert s_emotional > s_plain
 
     def test_high_value_tags_boost_score(self):
-        e_no_tag  = _Entry(id="a", content="x", tags=[])
-        e_tag     = _Entry(id="b", content="x", tags=["goal", "milestone"])
+        e_no_tag = _Entry(id="a", content="x", tags=[])
+        e_tag = _Entry(id="b", content="x", tags=["goal", "milestone"])
         assert self.scorer.score(e_tag) > self.scorer.score(e_no_tag)
 
     def test_source_reliability(self):
         e_good = _Entry(id="a", content="x", context={"source": "system_verified"})
-        e_bad  = _Entry(id="b", content="x", context={"source": "ambient"})
+        e_bad = _Entry(id="b", content="x", context={"source": "ambient"})
         assert self.scorer.score(e_good) > self.scorer.score(e_bad)
 
     def test_batch_score_returns_all_ids(self):
@@ -101,9 +101,11 @@ class TestMemoryScorer:
 # 2. SemanticDeduplicator
 # ---------------------------------------------------------------------------
 
+
 class TestSemanticDeduplicator:
     def setup_method(self):
         from ai.memory.semantic_dedup import SemanticDeduplicator
+
         self.dedup = SemanticDeduplicator(threshold=0.82)
 
     def test_no_duplicates_unchanged(self):
@@ -119,26 +121,45 @@ class TestSemanticDeduplicator:
         base = _vec(99)
         entries = [
             _Entry(id="orig", content="alpha", embedding=base, importance=0.8),
-            _Entry(id="dup",  content="alpha duplicate", embedding=_near_vec(base, 0.01), importance=0.3),
+            _Entry(
+                id="dup",
+                content="alpha duplicate",
+                embedding=_near_vec(base, 0.01),
+                importance=0.3,
+            ),
         ]
         result, pairs = self.dedup.deduplicate(entries)
         assert len(result) == 1
         assert len(pairs) == 1
         kept_id, removed_id = pairs[0]
-        assert kept_id == "orig"   # higher importance kept
+        assert kept_id == "orig"  # higher importance kept
         assert removed_id == "dup"
 
     def test_access_counts_merged(self):
         base = _vec(7)
-        e1 = _Entry(id="a", content="x", embedding=base, importance=0.9, access_count=10)
-        e2 = _Entry(id="b", content="x", embedding=_near_vec(base, 0.01), importance=0.1, access_count=5)
+        e1 = _Entry(
+            id="a", content="x", embedding=base, importance=0.9, access_count=10
+        )
+        e2 = _Entry(
+            id="b",
+            content="x",
+            embedding=_near_vec(base, 0.01),
+            importance=0.1,
+            access_count=5,
+        )
         result, _ = self.dedup.deduplicate([e1, e2])
         assert result[0].access_count == 15
 
     def test_tag_union(self):
         base = _vec(11)
         e1 = _Entry(id="a", content="x", embedding=base, importance=0.9, tags=["goal"])
-        e2 = _Entry(id="b", content="x", embedding=_near_vec(base, 0.01), importance=0.1, tags=["milestone"])
+        e2 = _Entry(
+            id="b",
+            content="x",
+            embedding=_near_vec(base, 0.01),
+            importance=0.1,
+            tags=["milestone"],
+        )
         result, _ = self.dedup.deduplicate([e1, e2])
         assert "goal" in result[0].tags
         assert "milestone" in result[0].tags
@@ -154,14 +175,17 @@ class TestSemanticDeduplicator:
 # 3. MemoryQuarantine
 # ---------------------------------------------------------------------------
 
+
 class TestMemoryQuarantine:
     def setup_method(self):
         self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         from ai.memory.memory_quarantine import MemoryQuarantine
+
         self.q = MemoryQuarantine(db_path=Path(self._tmp.name), ttl_days=0.001)
 
     def teardown_method(self):
         import os
+
         try:
             os.unlink(self._tmp.name)
         except OSError:
@@ -184,7 +208,7 @@ class TestMemoryQuarantine:
 
     def test_auto_quarantine_by_score(self):
         entries = [_Entry(id="low", content="x"), _Entry(id="high", content="y")]
-        scores  = {"low": 0.05, "high": 0.90}
+        scores = {"low": 0.05, "high": 0.90}
         quarantined = self.q.auto_quarantine_by_score(entries, scores, threshold=0.15)
         assert "low" in quarantined
         assert "high" not in quarantined
@@ -205,6 +229,7 @@ class TestMemoryQuarantine:
 # ---------------------------------------------------------------------------
 # 4. HierarchicalCompressor
 # ---------------------------------------------------------------------------
+
 
 class TestHierarchicalCompressor:
     def setup_method(self):
@@ -233,12 +258,14 @@ class TestHierarchicalCompressor:
         conn.close()
 
         from ai.memory.hierarchical_compressor import HierarchicalCompressor, LEVEL_RAW
+
         self.compressor = HierarchicalCompressor(db_path=db)
         self.LEVEL_RAW = LEVEL_RAW
         self._db = db
 
     def teardown_method(self):
         import os
+
         try:
             os.unlink(self._tmp.name)
         except OSError:
@@ -269,7 +296,7 @@ class TestHierarchicalCompressor:
     def test_below_threshold_no_compression(self):
         # Only 2 entries — well below threshold of 200
         tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        db  = Path(tmp.name)
+        db = Path(tmp.name)
         conn = sqlite3.connect(str(db))
         conn.execute("""
             CREATE TABLE memories (
@@ -281,14 +308,18 @@ class TestHierarchicalCompressor:
                 source_file TEXT, chunk_index INTEGER
             )
         """)
-        conn.execute("INSERT INTO memories (id, content, memory_type, timestamp) VALUES ('x','c','episodic','2026-01-01T00:00:00')")
+        conn.execute(
+            "INSERT INTO memories (id, content, memory_type, timestamp) VALUES ('x','c','episodic','2026-01-01T00:00:00')"
+        )
         conn.commit()
         conn.close()
 
         from ai.memory.hierarchical_compressor import HierarchicalCompressor, LEVEL_RAW
+
         c = HierarchicalCompressor(db_path=db)
         assert c.compress_level(LEVEL_RAW) == 0
         import os
+
         try:
             os.unlink(tmp.name)
         except OSError:
@@ -299,15 +330,20 @@ class TestHierarchicalCompressor:
 # 5. RetrievalBudget
 # ---------------------------------------------------------------------------
 
+
 class TestRetrievalBudget:
     def setup_method(self):
         from ai.memory.retrieval_budget import RetrievalBudget
+
         self.budget = RetrievalBudget(total_chars=100)
 
     def _mem(self, mid: str, content: str, mtype: str = "episodic", score: float = 0.5):
         return {
-            "id": mid, "content": content, "memory_type": mtype,
-            "weighted_score": score, "timestamp": "2026-01-01",
+            "id": mid,
+            "content": content,
+            "memory_type": mtype,
+            "weighted_score": score,
+            "timestamp": "2026-01-01",
         }
 
     def test_respects_char_budget(self):
@@ -318,7 +354,7 @@ class TestRetrievalBudget:
 
     def test_higher_priority_type_preferred(self):
         proc = self._mem("p", "x" * 40, mtype="procedural", score=0.5)
-        epis = self._mem("e", "x" * 40, mtype="episodic",   score=0.5)
+        epis = self._mem("e", "x" * 40, mtype="episodic", score=0.5)
         selected = self.budget.select([epis, proc])
         # procedural should come first
         assert selected[0]["id"] == "p"
@@ -344,6 +380,7 @@ class TestRetrievalBudget:
 # 6. ContradictionDetector
 # ---------------------------------------------------------------------------
 
+
 class TestContradictionDetector:
     def setup_method(self):
         self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -362,11 +399,13 @@ class TestContradictionDetector:
         conn.close()
 
         from ai.memory.contradiction_detector import ContradictionDetector
+
         self.det = ContradictionDetector(db_path=db)
         self._db = db
 
     def teardown_method(self):
         import os
+
         try:
             os.unlink(self._tmp.name)
         except OSError:
@@ -386,7 +425,7 @@ class TestContradictionDetector:
         ea = self._entry("a", "The user is happy", base)
         eb = self._entry("b", "The user is happy too", _near_vec(base, 0.001))
         # This may or may not hit the _SIM_HIGH cap — just ensure no crash
-        result = self.det.check_pair(ea, eb)
+        self.det.check_pair(ea, eb)
         # result is None or float; both acceptable
 
     def test_record_stores_pair(self):
@@ -412,14 +451,17 @@ class TestContradictionDetector:
 # 7. CausalMemory
 # ---------------------------------------------------------------------------
 
+
 class TestCausalMemory:
     def setup_method(self):
         self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         from ai.memory.causal_memory import CausalMemory
+
         self.cm = CausalMemory(db_path=Path(self._tmp.name))
 
     def teardown_method(self):
         import os
+
         try:
             os.unlink(self._tmp.name)
         except OSError:
@@ -472,9 +514,11 @@ class TestCausalMemory:
 # 8. MaintenanceScheduler
 # ---------------------------------------------------------------------------
 
+
 class TestMaintenanceScheduler:
     def setup_method(self):
         from ai.memory.maintenance_scheduler import MaintenanceScheduler
+
         self.sched = MaintenanceScheduler()
 
     def teardown_method(self):
@@ -482,7 +526,9 @@ class TestMaintenanceScheduler:
 
     def test_register_and_run_now(self):
         called = []
-        self.sched.register("test_task", lambda: called.append(1), interval_seconds=9999)
+        self.sched.register(
+            "test_task", lambda: called.append(1), interval_seconds=9999
+        )
         self.sched.start()
         ok = self.sched.run_now("test_task")
         assert ok
@@ -501,6 +547,7 @@ class TestMaintenanceScheduler:
     def test_task_error_increments_error_count(self):
         def _boom():
             raise RuntimeError("intentional failure")
+
         self.sched.register("bad_task", _boom, interval_seconds=9999)
         self.sched.start()
         self.sched.run_now("bad_task")
@@ -517,12 +564,12 @@ class TestMaintenanceScheduler:
 # Integration: retrieval budget wired into memory_system.get_context_for_llm
 # ---------------------------------------------------------------------------
 
+
 class TestContextForLlmBudget:
     """Verify that get_context_for_llm respects the budget cap."""
 
     def test_context_length_bounded(self):
-        from ai.memory.retrieval_budget import RetrievalBudget, get_retrieval_budget
-        from unittest.mock import patch
+        from ai.memory.retrieval_budget import RetrievalBudget
 
         budget = RetrievalBudget(total_chars=200)
 
@@ -537,7 +584,9 @@ class TestContextForLlmBudget:
             for i in range(10)
         ]
 
-        with patch("ai.memory.retrieval_budget.get_retrieval_budget", return_value=budget):
+        with patch(
+            "ai.memory.retrieval_budget.get_retrieval_budget", return_value=budget
+        ):
             selected = budget.select(big_candidates)
             ctx = budget.format_context(selected)
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
@@ -89,8 +89,8 @@ class RuntimeFallbackPolicy:
 
 @dataclass
 class FallbackStep:
-    action: str        # "clarify", "retry_with_location", "use_llm", "escalate"
-    message: str       # Human-readable recovery suggestion for the user
+    action: str  # "clarify", "retry_with_location", "use_llm", "escalate"
+    message: str  # Human-readable recovery suggestion for the user
     requires_user: bool = False  # Whether user input is needed before retrying
 
 
@@ -103,37 +103,81 @@ class FallbackGraph:
     # (intent_prefix, error_type) → [FallbackStep, ...]
     _GRAPH: Dict[tuple, List[FallbackStep]] = {
         ("weather", "no_location"): [
-            FallbackStep("clarify_location", "What city should I check the weather for?", requires_user=True),
+            FallbackStep(
+                "clarify_location",
+                "What city should I check the weather for?",
+                requires_user=True,
+            ),
         ],
         ("weather", "unknown_location"): [
-            FallbackStep("clarify_location", "I couldn't find that location. Could you try a nearby city?", requires_user=True),
+            FallbackStep(
+                "clarify_location",
+                "I couldn't find that location. Could you try a nearby city?",
+                requires_user=True,
+            ),
         ],
         ("weather", "timeout"): [
-            FallbackStep("retry", "Weather service timed out — retrying.", requires_user=False),
-            FallbackStep("escalate", "Weather service is unreachable right now. Try again in a moment.", requires_user=False),
+            FallbackStep(
+                "retry", "Weather service timed out — retrying.", requires_user=False
+            ),
+            FallbackStep(
+                "escalate",
+                "Weather service is unreachable right now. Try again in a moment.",
+                requires_user=False,
+            ),
         ],
         ("weather", "connection_error"): [
-            FallbackStep("escalate", "Can't reach the weather service. Check your connection.", requires_user=False),
+            FallbackStep(
+                "escalate",
+                "Can't reach the weather service. Check your connection.",
+                requires_user=False,
+            ),
         ],
         ("weather", "fetch_failed"): [
             FallbackStep("retry", "Retrying weather fetch.", requires_user=False),
-            FallbackStep("escalate", "Weather data isn't available right now.", requires_user=False),
+            FallbackStep(
+                "escalate",
+                "Weather data isn't available right now.",
+                requires_user=False,
+            ),
         ],
         ("notes", "not_found"): [
-            FallbackStep("clarify_title", "Which note did you mean? You can say 'list notes' to see them all.", requires_user=True),
+            FallbackStep(
+                "clarify_title",
+                "Which note did you mean? You can say 'list notes' to see them all.",
+                requires_user=True,
+            ),
         ],
         ("notes", "ambiguous"): [
-            FallbackStep("clarify_title", "A few notes match that — which one did you mean?", requires_user=True),
+            FallbackStep(
+                "clarify_title",
+                "A few notes match that — which one did you mean?",
+                requires_user=True,
+            ),
         ],
         ("local", "target_not_found"): [
-            FallbackStep("suggest_alternatives", "That file wasn't found. Try 'list files' to see what's available.", requires_user=True),
+            FallbackStep(
+                "suggest_alternatives",
+                "That file wasn't found. Try 'list files' to see what's available.",
+                requires_user=True,
+            ),
         ],
         ("default", "timeout"): [
-            FallbackStep("retry", "Request timed out — retrying once.", requires_user=False),
-            FallbackStep("escalate", "That's taking too long. Try rephrasing.", requires_user=False),
+            FallbackStep(
+                "retry", "Request timed out — retrying once.", requires_user=False
+            ),
+            FallbackStep(
+                "escalate",
+                "That's taking too long. Try rephrasing.",
+                requires_user=False,
+            ),
         ],
         ("default", "tool_failed"): [
-            FallbackStep("use_llm", "Falling back to language model response.", requires_user=False),
+            FallbackStep(
+                "use_llm",
+                "Falling back to language model response.",
+                requires_user=False,
+            ),
         ],
     }
 
@@ -153,7 +197,11 @@ class FallbackGraph:
             return list(steps)
 
         # Global default
-        return list(self._GRAPH.get(("default", err), self._GRAPH.get(("default", "tool_failed"), [])))
+        return list(
+            self._GRAPH.get(
+                ("default", err), self._GRAPH.get(("default", "tool_failed"), [])
+            )
+        )
 
     def first_user_message(self, intent: str, error_type: str) -> Optional[str]:
         """Return the first recovery message for immediate user display, or None."""
@@ -217,7 +265,9 @@ class RetryMemory:
         # Escalate step index with repeat failures
         return min(rec.count - 1, 2)
 
-    def escalation_message(self, user_id: str, intent: str, error_type: str) -> Optional[str]:
+    def escalation_message(
+        self, user_id: str, intent: str, error_type: str
+    ) -> Optional[str]:
         """Return an escalation message if failures have persisted beyond the fallback graph."""
         key = self._key(user_id, intent, error_type)
         rec = self._failures.get(key)

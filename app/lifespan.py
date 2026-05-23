@@ -53,6 +53,7 @@ async def app_lifespan(app: FastAPI):
     # Foundation 2 — close session on graceful shutdown
     try:
         from ai.identity import alice_identity as _ai
+
         if _ai._current_session_id:
             _ai.end_session(_ai._current_session_id)
     except Exception:

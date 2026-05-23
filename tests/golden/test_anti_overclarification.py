@@ -58,4 +58,8 @@ def test_clarification_still_allowed_for_missing_file_target():
         user_id="u1",
         turn_number=5,
     )
-    assert result.metadata["intent"] in {"code:request", "code:list_files", "file_operations:read"}
+    assert result.metadata["intent"] in {
+        "code:request",
+        "code:list_files",
+        "file_operations:read",
+    }

@@ -173,6 +173,7 @@ def _build_companion_context(intent: str = "") -> str:
     # Foundation 2 — ALICE's persistent self with accumulated opinions (always first)
     try:
         from ai.identity.alice_identity import build_self_block
+
         self_block = build_self_block(include_opinions=True)
         if self_block:
             parts.append(self_block)
@@ -234,6 +235,7 @@ def _build_companion_context(intent: str = "") -> str:
     _is_conversation = str(intent or "").startswith("conversation:")
     try:
         from ai.learning.user_profile_engine import get_profile_engine
+
         style = get_profile_engine().get_communication_style()
         hints: List[str] = []
         if not _is_conversation and style.get("brevity", 0.5) > 0.65:
@@ -250,6 +252,7 @@ def _build_companion_context(intent: str = "") -> str:
     # Layer 2a — cross-session topic interests (high-confidence only)
     try:
         from memory.world_model import get_world_model
+
         topics = get_world_model().high_confidence_topics(min_confidence=0.5)
         if topics:
             parts.append(f"Known interests/topics: {', '.join(topics[:6])}")
@@ -259,10 +262,15 @@ def _build_companion_context(intent: str = "") -> str:
     # Layer 2b — stale data domains warning
     try:
         from memory.world_model import get_world_model
+
         wm = get_world_model()
-        stale_domains = [d for d in ("weather",) if wm.is_data_stale(d, ttl_seconds=1800.0)]
+        stale_domains = [
+            d for d in ("weather",) if wm.is_data_stale(d, ttl_seconds=1800.0)
+        ]
         if stale_domains:
-            parts.append(f"Stale data domains (offer to refresh if relevant): {', '.join(stale_domains)}")
+            parts.append(
+                f"Stale data domains (offer to refresh if relevant): {', '.join(stale_domains)}"
+            )
     except Exception:
         pass
 
@@ -270,6 +278,7 @@ def _build_companion_context(intent: str = "") -> str:
     # On conversation turns brevity/directness hints override the system prompt — skip them.
     try:
         from ai.personality.personality_evolution import get_evolution_engine
+
         traits = get_evolution_engine().get_traits_for_user("default")
         trait_hints: List[str] = []
         if traits.verbosity > 0.65:
@@ -296,8 +305,7 @@ def _build_companion_context(intent: str = "") -> str:
         "\n\nCompanion context — you know this user well. "
         "Never ask who they are. "
         "Use this context to respond naturally — never recite it as a list, never say 'based on our history' or 'you mentioned previously'. "
-        "Just let it inform your tone and relevance:\n"
-        + "\n".join(parts)
+        "Just let it inform your tone and relevance:\n" + "\n".join(parts)
     )
 
 
@@ -542,12 +550,15 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             )
             return float(self.config.temperature)
 
-    def _build_system_prompt(self, base_prompt: Optional[str] = None, intent: str = "") -> str:
+    def _build_system_prompt(
+        self, base_prompt: Optional[str] = None, intent: str = ""
+    ) -> str:
         """Append companion context + personality drift to every system prompt."""
         prompt = str(base_prompt if base_prompt is not None else self.system_prompt)
         prompt += _build_companion_context(intent=intent)
         try:
             from brain.personality import apply_personality_to_system_prompt
+
             return apply_personality_to_system_prompt(prompt, intent=intent)
         except Exception as exc:
             logger.debug("Personality prompt shaping unavailable: %s", exc)
@@ -579,7 +590,9 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                 self._ensure_active_model_available(self._available_models)
 
             # Build message history
-            messages = [{"role": "system", "content": self._build_system_prompt(intent=intent)}]
+            messages = [
+                {"role": "system", "content": self._build_system_prompt(intent=intent)}
+            ]
 
             # Inject companion context (memory, goals, personality) as a second system message
             if context and str(context).strip():

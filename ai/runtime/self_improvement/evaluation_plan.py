@@ -53,4 +53,3 @@ def build_evaluation_plan(patch_plan: PatchPlan) -> EvaluationPlan:
         success_criteria=success,
         regression_checks=regression,
     )
-

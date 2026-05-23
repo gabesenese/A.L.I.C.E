@@ -32,7 +32,9 @@ class MemoryQuarantine:
 
     LOW_SCORE_THRESHOLD = 0.18
 
-    def __init__(self, db_path: Path = _DB_PATH, ttl_days: float = _DEFAULT_TTL_DAYS) -> None:
+    def __init__(
+        self, db_path: Path = _DB_PATH, ttl_days: float = _DEFAULT_TTL_DAYS
+    ) -> None:
         self.db_path = db_path
         self.ttl_days = ttl_days
         self._init_schema()
@@ -57,8 +59,12 @@ class MemoryQuarantine:
                     released       INTEGER DEFAULT 0
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_q_mid ON quarantine(memory_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_q_exp ON quarantine(expires_at)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_q_mid ON quarantine(memory_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_q_exp ON quarantine(expires_at)"
+            )
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -85,7 +91,9 @@ class MemoryQuarantine:
                 (qid, memory_id, reason, score, now.isoformat(), expires.isoformat()),
             )
             conn.commit()
-        logger.info("[Quarantine] %s quarantined: %s (score=%s)", memory_id, reason, score)
+        logger.info(
+            "[Quarantine] %s quarantined: %s (score=%s)", memory_id, reason, score
+        )
         return qid
 
     def release(self, memory_id: str) -> bool:
@@ -120,7 +128,16 @@ class MemoryQuarantine:
                     "FROM quarantine WHERE released=0 AND expires_at > ? ORDER BY quarantined_at DESC",
                     (now,),
                 ).fetchall()
-        cols = ["id", "memory_id", "reason", "score", "quarantined_at", "expires_at", "reviewed", "released"]
+        cols = [
+            "id",
+            "memory_id",
+            "reason",
+            "score",
+            "quarantined_at",
+            "expires_at",
+            "reviewed",
+            "released",
+        ]
         return [dict(zip(cols, row)) for row in rows]
 
     def purge_expired(self) -> int:
@@ -134,9 +151,15 @@ class MemoryQuarantine:
             expired_ids = [r[0] for r in expired_rows]
             if expired_ids:
                 placeholders = ",".join("?" * len(expired_ids))
-                conn.execute(f"DELETE FROM quarantine WHERE memory_id IN ({placeholders})", expired_ids)
+                conn.execute(
+                    f"DELETE FROM quarantine WHERE memory_id IN ({placeholders})",
+                    expired_ids,
+                )
                 try:
-                    conn.execute(f"DELETE FROM memories WHERE id IN ({placeholders})", expired_ids)
+                    conn.execute(
+                        f"DELETE FROM memories WHERE id IN ({placeholders})",
+                        expired_ids,
+                    )
                 except sqlite3.OperationalError:
                     pass  # memories table may not exist in isolated test DBs
                 conn.commit()

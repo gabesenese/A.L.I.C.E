@@ -5,9 +5,15 @@ from typing import Any, Dict
 
 from ai.memory.project_memory import record_improvement_audit, update_project_state
 from ai.runtime.self_improvement.audit_report import AuditReport, build_audit_report
-from ai.runtime.self_improvement.behavior_event import BehaviorEvent, create_behavior_event
+from ai.runtime.self_improvement.behavior_event import (
+    BehaviorEvent,
+    create_behavior_event,
+)
 from ai.runtime.self_improvement.codex_brief import build_codex_brief
-from ai.runtime.self_improvement.evaluation_plan import EvaluationPlan, build_evaluation_plan
+from ai.runtime.self_improvement.evaluation_plan import (
+    EvaluationPlan,
+    build_evaluation_plan,
+)
 from ai.runtime.self_improvement.failure_classifier import (
     FailureClassification,
     classify_failure,
@@ -121,7 +127,11 @@ class ImprovementLoop:
     def record_outcome(self, outcome: Dict[str, Any]) -> None:
         summary = dict(outcome or {})
         update_project_state(
-            {"last_success": str(summary.get("result") or "self_improvement_outcome_recorded")},
+            {
+                "last_success": str(
+                    summary.get("result") or "self_improvement_outcome_recorded"
+                )
+            },
             user_id=self.user_id,
         )
 
@@ -159,5 +169,7 @@ class ImprovementLoop:
             "latest_report_id": str(reports[-1].get("report_id") or "")
             if reports
             else "",
-            "pending_event_ids": [str(row.get("event_id") or "") for row in pending_events[-10:]],
+            "pending_event_ids": [
+                str(row.get("event_id") or "") for row in pending_events[-10:]
+            ],
         }

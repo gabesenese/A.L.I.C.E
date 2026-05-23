@@ -8,8 +8,8 @@ ConfidenceFusion._behavioral_prior().
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, List
 
 
 @dataclass
@@ -25,7 +25,7 @@ class ClarificationRecord:
 class ClarificationFeedbackLoop:
     """Session-scoped store of clarification Q&A with confidence boost decay."""
 
-    _DECAY_TURNS = 10   # boost halves every N turns
+    _DECAY_TURNS = 10  # boost halves every N turns
     _MAX_BOOST = 0.15
     _MIN_BOOST = 0.02
 

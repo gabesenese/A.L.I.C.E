@@ -7,14 +7,14 @@ The pipeline walks the chain until one succeeds, recording which depth was neede
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 @dataclass
 class FallbackPlugin:
-    plugin: str                 # plugin name to try
-    action_override: str = ""   # if set, replace the action with this value
-    note: str = ""              # why this fallback exists
+    plugin: str  # plugin name to try
+    action_override: str = ""  # if set, replace the action with this value
+    note: str = ""  # why this fallback exists
 
 
 # (intent_prefix, error_type) → ordered alternatives
@@ -31,11 +31,17 @@ _CHAIN: Dict[Tuple[str, str], List[FallbackPlugin]] = {
     ],
     # Notes not found → offer search by content instead of title
     ("notes", "not_found"): [
-        FallbackPlugin("notes", action_override="notes:search_by_content", note="fallback_to_content_search"),
+        FallbackPlugin(
+            "notes",
+            action_override="notes:search_by_content",
+            note="fallback_to_content_search",
+        ),
     ],
     # Local file not found → try listing files to help user
     ("local", "target_not_found"): [
-        FallbackPlugin("local", action_override="code:list_files", note="list_to_help_find"),
+        FallbackPlugin(
+            "local", action_override="code:list_files", note="list_to_help_find"
+        ),
     ],
     # Default catch-all
     ("default", "timeout"): [
@@ -68,7 +74,9 @@ class CrossPluginFallbackChain:
         if steps:
             return list(steps)
 
-        return list(_CHAIN.get(("default", err), _CHAIN.get(("default", "timeout"), [])))
+        return list(
+            _CHAIN.get(("default", err), _CHAIN.get(("default", "timeout"), []))
+        )
 
     def resolve_action(self, step: FallbackPlugin, original_action: str) -> str:
         return str(step.action_override or original_action)

@@ -219,15 +219,22 @@ class CompanionPolicyEngine:
         # Risk classifier gate: high-risk intents require approval
         try:
             from ai.infrastructure.policy import get_risk_classifier
+
             rc = get_risk_classifier()
-            risk = rc.classify(intent=str(intent or ""), user_input=str(user_input or ""))
+            risk = rc.classify(
+                intent=str(intent or ""), user_input=str(user_input or "")
+            )
             if risk == "high" and rc.requires_confirmation(risk):
-                return True, f"risk_classifier:high_risk:{str(intent or '').split(':')[0]}"
+                return (
+                    True,
+                    f"risk_classifier:high_risk:{str(intent or '').split(':')[0]}",
+                )
         except Exception:
             pass
         # Reversibility gate: irreversible actions need approval even at medium risk
         try:
             from ai.core.reversibility_scorer import get_reversibility_scorer
+
             rs = get_reversibility_scorer()
             rev = rs.score(intent=str(intent or ""), user_input=str(user_input or ""))
             if rev < 0.20:
@@ -291,7 +298,13 @@ class CompanionRuntimeLoop:
     )
     _user_state_signal_patterns = (
         # Require first-person context so weather descriptions don't trigger these
-        ("cold", re.compile(r"\b(?:i'?m|i\s+feel(?:ing)?|feeling)\s+(?:\w+\s+)?(cold|chilly|freezing)\b", re.IGNORECASE)),
+        (
+            "cold",
+            re.compile(
+                r"\b(?:i'?m|i\s+feel(?:ing)?|feeling)\s+(?:\w+\s+)?(cold|chilly|freezing)\b",
+                re.IGNORECASE,
+            ),
+        ),
         (
             "sick",
             re.compile(
@@ -302,13 +315,19 @@ class CompanionRuntimeLoop:
         ),
         (
             "tired",
-            re.compile(r"\b(?:i'?m|i\s+feel(?:ing)?|feeling)\s+(?:\w+\s+)?(tired|exhausted|drained|burned out)\b"
-                       r"|\b(burned out|drained)\b", re.IGNORECASE),
+            re.compile(
+                r"\b(?:i'?m|i\s+feel(?:ing)?|feeling)\s+(?:\w+\s+)?(tired|exhausted|drained|burned out)\b"
+                r"|\b(burned out|drained)\b",
+                re.IGNORECASE,
+            ),
         ),
         (
             "stressed",
-            re.compile(r"\b(?:i'?m|i\s+feel(?:ing)?|feeling)\s+(?:\w+\s+)?(stressed|anxious|overwhelmed)\b"
-                       r"|\b(panic(?:king)?)\b", re.IGNORECASE),
+            re.compile(
+                r"\b(?:i'?m|i\s+feel(?:ing)?|feeling)\s+(?:\w+\s+)?(stressed|anxious|overwhelmed)\b"
+                r"|\b(panic(?:king)?)\b",
+                re.IGNORECASE,
+            ),
         ),
     )
 
@@ -325,6 +344,7 @@ class CompanionRuntimeLoop:
         # Start background memory maintenance (non-blocking daemon thread)
         try:
             from ai.memory.maintenance_scheduler import start_maintenance_scheduler
+
             start_maintenance_scheduler()
         except Exception:
             pass
@@ -379,7 +399,9 @@ class CompanionRuntimeLoop:
                 ]
                 active_threads = [
                     str(t.get("text") or "")
-                    for t in list(wm.get("alice_state", {}).get("active_threads") or [])[:3]
+                    for t in list(
+                        wm.get("alice_state", {}).get("active_threads") or []
+                    )[:3]
                     if t.get("text")
                 ]
                 if current_goals:
@@ -469,15 +491,23 @@ class CompanionRuntimeLoop:
             # On failure, consult cross-plugin fallback chain
             if not self.policy_engine.is_transient_tool_error(normalized):
                 try:
-                    from ai.core.cross_plugin_fallback import get_cross_plugin_fallback_chain
+                    from ai.core.cross_plugin_fallback import (
+                        get_cross_plugin_fallback_chain,
+                    )
+
                     intent = str(route_phase.decision.intent or "")
-                    error_type = str((normalized.data or {}).get("error") or normalized.error or "")
-                    chain = get_cross_plugin_fallback_chain().get_chain(intent, error_type)
+                    error_type = str(
+                        (normalized.data or {}).get("error") or normalized.error or ""
+                    )
+                    chain = get_cross_plugin_fallback_chain().get_chain(
+                        intent, error_type
+                    )
                     if chain:
                         diag = dict(normalized.diagnostics or {})
                         diag["fallback_chain"] = [s.plugin for s in chain]
                         diag["fallback_available"] = True
                         from ai.contracts import ToolResult
+
                         annotated = ToolResult(
                             success=normalized.success,
                             tool_name=normalized.tool_name,
@@ -487,7 +517,9 @@ class CompanionRuntimeLoop:
                             confidence=normalized.confidence,
                             diagnostics=diag,
                         )
-                        last_phase = ExecutePhaseResult(tool_result=annotated, executed=phase.executed)
+                        last_phase = ExecutePhaseResult(
+                            tool_result=annotated, executed=phase.executed
+                        )
                 except Exception:
                     pass
                 return last_phase, {
@@ -507,11 +539,15 @@ class CompanionRuntimeLoop:
     ) -> str:
         intent = str(decision.intent or "action")
         reason = str(policy.approval_reason or "safety_check")
-        action_label = intent.split(":")[-1].replace("_", " ") if ":" in intent else intent
+        action_label = (
+            intent.split(":")[-1].replace("_", " ") if ":" in intent else intent
+        )
 
         # Build a dry-run preview for high-risk actions
         dry_run_preview = self._dry_run_preview(decision=decision)
-        preview_block = f"\n\nDry-run preview: {dry_run_preview}" if dry_run_preview else ""
+        preview_block = (
+            f"\n\nDry-run preview: {dry_run_preview}" if dry_run_preview else ""
+        )
 
         return (
             f"I can {action_label}, but this action is flagged as high-risk and needs your explicit approval first.{preview_block}\n\n"
@@ -527,7 +563,9 @@ class CompanionRuntimeLoop:
         resolved = str(meta.get("resolved_input") or "").strip()
 
         intent_lower = intent.lower()
-        target = str(meta.get("target_file") or "").strip() or (resolved[:60] if resolved else "")
+        target = str(meta.get("target_file") or "").strip() or (
+            resolved[:60] if resolved else ""
+        )
 
         if "delete" in intent_lower or "remove" in intent_lower:
             return f"Would permanently delete: {target or 'the specified target'}"
@@ -593,7 +631,9 @@ class CompanionRuntimeLoop:
             self._persist_emotional_signals(companion_state.last_user_state_signals)
 
         # Layer 1 — capture explicit style corrections
-        self._capture_explicit_preference(user_input, companion_state.last_response_excerpt)
+        self._capture_explicit_preference(
+            user_input, companion_state.last_response_excerpt
+        )
 
         # Layer 2 — update behavioral profile
         self._update_behavioral_profile(
@@ -601,7 +641,9 @@ class CompanionRuntimeLoop:
         )
 
         # Layer 3 — collect turn pair for future fine-tuning
-        quality = "verified" if (verification and verification.accepted) else "unverified"
+        quality = (
+            "verified" if (verification and verification.accepted) else "unverified"
+        )
         self._collect_turn_pair(user_input, response_text, quality=quality)
         self._log_turn_evaluation(
             user_input=user_input,
@@ -616,6 +658,7 @@ class CompanionRuntimeLoop:
             if tool_result.success:
                 try:
                     from ai.goals.goal_engine import get_goal_engine
+
                     get_goal_engine().ingest_completed_intent(
                         intent=str(route_decision.intent or ""),
                         user_input=user_input,
@@ -708,9 +751,7 @@ class CompanionRuntimeLoop:
         companion_state.memory_domains.identity["world_model_updated_at"] = str(
             world_snapshot.get("updated_at") or ""
         )
-        companion_state.memory_domains.preferences["personality"] = dict(
-            personality
-        )
+        companion_state.memory_domains.preferences["personality"] = dict(personality)
 
         return companion_state.memory_domains.as_dict()
 
@@ -748,6 +789,7 @@ class CompanionRuntimeLoop:
     def _persist_emotional_signals(signals: List[str]) -> None:
         try:
             from ai.identity.user_identity import load_identity, save_identity
+
             identity = load_identity()
             noted_at = datetime.now(timezone.utc).isoformat()
             for sig in signals:
@@ -759,13 +801,48 @@ class CompanionRuntimeLoop:
 
     # Layer 1 — explicit preference capture
     _PREFERENCE_SIGNALS: List[tuple] = [
-        (re.compile(r"\b(be more concise|too long|keep it short|shorter|less verbose|brief(er)?|stop repeating)\b", re.I), "response_length", "brief"),
-        (re.compile(r"\b(more detail|go deeper|elaborate|explain more|in depth)\b", re.I), "response_length", "detailed"),
-        (re.compile(r"\b(too formal|be casual|more casual|relax a bit)\b", re.I), "tone", "casual"),
-        (re.compile(r"\b(more formal|be professional|professional tone)\b", re.I), "tone", "formal"),
-        (re.compile(r"\b(no (bullet|list|bullets)|stop (listing|using bullets))\b", re.I), "format", "prose"),
-        (re.compile(r"\b(use (bullets|lists)|bullet points? please)\b", re.I), "format", "bullets"),
-        (re.compile(r"\b(no (emojis?|icons)|stop using emojis?)\b", re.I), "emojis", "never"),
+        (
+            re.compile(
+                r"\b(be more concise|too long|keep it short|shorter|less verbose|brief(er)?|stop repeating)\b",
+                re.I,
+            ),
+            "response_length",
+            "brief",
+        ),
+        (
+            re.compile(
+                r"\b(more detail|go deeper|elaborate|explain more|in depth)\b", re.I
+            ),
+            "response_length",
+            "detailed",
+        ),
+        (
+            re.compile(r"\b(too formal|be casual|more casual|relax a bit)\b", re.I),
+            "tone",
+            "casual",
+        ),
+        (
+            re.compile(r"\b(more formal|be professional|professional tone)\b", re.I),
+            "tone",
+            "formal",
+        ),
+        (
+            re.compile(
+                r"\b(no (bullet|list|bullets)|stop (listing|using bullets))\b", re.I
+            ),
+            "format",
+            "prose",
+        ),
+        (
+            re.compile(r"\b(use (bullets|lists)|bullet points? please)\b", re.I),
+            "format",
+            "bullets",
+        ),
+        (
+            re.compile(r"\b(no (emojis?|icons)|stop using emojis?)\b", re.I),
+            "emojis",
+            "never",
+        ),
     ]
     _CONFIRMATION_RE = re.compile(
         r"\b(exactly (right|what I needed?)|perfect(,| that)?|spot on|keep (doing|that)|yes exactly|that'?s? (it|correct|perfect))\b",
@@ -785,6 +862,7 @@ class CompanionRuntimeLoop:
             return
         try:
             from ai.identity.user_identity import load_identity, save_identity
+
             identity = load_identity()
             identity.learned_preferences.update(prefs)
             save_identity(identity)
@@ -798,6 +876,7 @@ class CompanionRuntimeLoop:
     ) -> None:
         try:
             from ai.learning.user_profile_engine import get_profile_engine
+
             get_profile_engine().record_interaction(
                 user_input=user_input,
                 alice_response=response_text,
@@ -807,6 +886,7 @@ class CompanionRuntimeLoop:
             pass
         try:
             from ai.personality.personality_evolution import get_evolution_engine
+
             get_evolution_engine().learn_from_interaction(
                 user_id="default",
                 user_input=user_input,
@@ -824,13 +904,18 @@ class CompanionRuntimeLoop:
         user_input: str, response_text: str, *, quality: str
     ) -> None:
         try:
-            CompanionRuntimeLoop._TRAINING_PATH.parent.mkdir(parents=True, exist_ok=True)
-            record = json.dumps({
-                "input": str(user_input or "").strip()[:800],
-                "response": str(response_text or "").strip()[:1200],
-                "quality": quality,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }, ensure_ascii=False)
+            CompanionRuntimeLoop._TRAINING_PATH.parent.mkdir(
+                parents=True, exist_ok=True
+            )
+            record = json.dumps(
+                {
+                    "input": str(user_input or "").strip()[:800],
+                    "response": str(response_text or "").strip()[:1200],
+                    "quality": quality,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+                ensure_ascii=False,
+            )
             with open(CompanionRuntimeLoop._TRAINING_PATH, "a", encoding="utf-8") as f:
                 f.write(record + "\n")
         except Exception:
@@ -844,26 +929,32 @@ class CompanionRuntimeLoop:
         verified: bool,
     ) -> None:
         import uuid
+
         try:
             CompanionRuntimeLoop._EVAL_PATH.parent.mkdir(parents=True, exist_ok=True)
             score = 85 if verified else 45
-            record = json.dumps({
-                "interaction_id": str(uuid.uuid4()),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "user_input": str(user_input or "").strip()[:800],
-                "alice_response": str(response_text or "").strip()[:1200],
-                "expected_data": {},
-                "overall_score": score,
-                "accuracy_score": score,
-                "completeness_score": score,
-                "naturalness_score": score,
-                "conciseness_score": score,
-                "what_worked": "verified_by_pipeline" if verified else "",
-                "what_needs_improvement": "" if verified else "verification_failed",
-                "suggested_improvement": None if verified else "Improve response quality or tool execution.",
-                "action_type": str(intent or "unknown"),
-                "alice_confidence": 0.85 if verified else 0.4,
-            }, ensure_ascii=False)
+            record = json.dumps(
+                {
+                    "interaction_id": str(uuid.uuid4()),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "user_input": str(user_input or "").strip()[:800],
+                    "alice_response": str(response_text or "").strip()[:1200],
+                    "expected_data": {},
+                    "overall_score": score,
+                    "accuracy_score": score,
+                    "completeness_score": score,
+                    "naturalness_score": score,
+                    "conciseness_score": score,
+                    "what_worked": "verified_by_pipeline" if verified else "",
+                    "what_needs_improvement": "" if verified else "verification_failed",
+                    "suggested_improvement": None
+                    if verified
+                    else "Improve response quality or tool execution.",
+                    "action_type": str(intent or "unknown"),
+                    "alice_confidence": 0.85 if verified else 0.4,
+                },
+                ensure_ascii=False,
+            )
             with open(CompanionRuntimeLoop._EVAL_PATH, "a", encoding="utf-8") as f:
                 f.write(record + "\n")
         except Exception:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 _QUESTION_RE = re.compile(r"\?")
@@ -19,9 +19,9 @@ _SENTENCE_RE = re.compile(r"[.!?]+")
 class ConversationStyleMirror:
     """Per-session message-length tracker with auto-constraint derivation."""
 
-    _WINDOW = 5          # number of recent messages to consider
-    _BRIEF_THRESHOLD = 15   # avg user words below this → apply brief constraint
-    _TERSE_THRESHOLD = 8    # avg user words below this → apply very brief constraint
+    _WINDOW = 5  # number of recent messages to consider
+    _BRIEF_THRESHOLD = 15  # avg user words below this → apply brief constraint
+    _TERSE_THRESHOLD = 8  # avg user words below this → apply very brief constraint
     _MULTI_Q_THRESHOLD = 2  # questions per message above this → prefer bullets
 
     def __init__(self) -> None:
@@ -69,7 +69,11 @@ class ConversationStyleMirror:
             return {}
         avg_words = sum(w for w, _ in history) / len(history)
         avg_q = sum(q for _, q in history) / len(history)
-        return {"avg_words": round(avg_words, 1), "avg_questions": round(avg_q, 2), "samples": len(history)}
+        return {
+            "avg_words": round(avg_words, 1),
+            "avg_questions": round(avg_q, 2),
+            "samples": len(history),
+        }
 
 
 _mirror: ConversationStyleMirror | None = None

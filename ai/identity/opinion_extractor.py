@@ -12,8 +12,15 @@ from typing import List, Tuple
 
 # Intents that don't produce useful opinions — skip extraction
 _SKIP_INTENTS = {
-    "weather", "greeting", "notes", "calendar", "email",
-    "search", "maps", "document", "unknown",
+    "weather",
+    "greeting",
+    "notes",
+    "calendar",
+    "email",
+    "search",
+    "maps",
+    "document",
+    "unknown",
 }
 
 _OPINION_PATTERNS = [
@@ -104,6 +111,7 @@ def extract_and_record_opinions(
 
     try:
         from ai.identity.alice_identity import record_opinion
+
         for topic, stance in pairs:
             record_opinion(topic, stance, source="auto")
     except Exception:

@@ -1,4 +1,8 @@
-from ai.memory.project_memory import ProjectMemoryState, load_project_state, save_project_state
+from ai.memory.project_memory import (
+    ProjectMemoryState,
+    load_project_state,
+    save_project_state,
+)
 from ai.runtime.alice_contract_factory import build_runtime_boundaries
 from ai.runtime.contract_pipeline import ContractPipeline
 from tests.integration.test_contract_pipeline import _FakeAlice
@@ -6,13 +10,22 @@ from tests.integration.test_contract_pipeline import _FakeAlice
 
 def test_store_structured_next_recommendation():
     alice = _FakeAlice()
-    save_project_state(ProjectMemoryState(active_objective="Improve Alice into an agentic companion/operator"), user_id="default")
+    save_project_state(
+        ProjectMemoryState(
+            active_objective="Improve Alice into an agentic companion/operator"
+        ),
+        user_id="default",
+    )
     result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(
         user_input="good, let's work on alice",
         user_id="default",
         turn_number=1,
     )
-    assert result.metadata["intent"] in {"operator:continue", "conversation:goal_statement", "conversation:project_work_session"}
+    assert result.metadata["intent"] in {
+        "operator:continue",
+        "conversation:goal_statement",
+        "conversation:project_work_session",
+    }
     state = load_project_state("default")
     rec = dict(state.last_recommended_action or {})
     assert rec.get("action") == "inspect_file"

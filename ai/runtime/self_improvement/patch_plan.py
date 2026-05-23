@@ -119,4 +119,3 @@ def build_patch_plan(
         requires_approval=True,
         can_auto_apply=False,
     )
-

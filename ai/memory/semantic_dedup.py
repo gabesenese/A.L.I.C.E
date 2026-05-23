@@ -96,9 +96,8 @@ class SemanticDeduplicator:
 
                 # Absorb access count from loser
                 try:
-                    keeper.access_count = (
-                        int(getattr(keeper, "access_count", 0))
-                        + int(getattr(loser, "access_count", 0))
+                    keeper.access_count = int(getattr(keeper, "access_count", 0)) + int(
+                        getattr(loser, "access_count", 0)
                     )
                 except AttributeError:
                     pass
@@ -114,7 +113,10 @@ class SemanticDeduplicator:
                 to_remove.add(loser_id)
                 merged_pairs.append((keeper_id, loser_id))
                 logger.debug(
-                    "[SemanticDedup] merged %s → %s (sim=%.3f)", loser_id, keeper_id, sim
+                    "[SemanticDedup] merged %s → %s (sim=%.3f)",
+                    loser_id,
+                    keeper_id,
+                    sim,
                 )
 
         deduped = [e for e in entries if getattr(e, "id", None) not in to_remove]
@@ -122,7 +124,8 @@ class SemanticDeduplicator:
         if merged_pairs:
             logger.info(
                 "[SemanticDedup] %d duplicates merged, %d entries remaining",
-                len(merged_pairs), len(deduped),
+                len(merged_pairs),
+                len(deduped),
             )
         return deduped, merged_pairs
 

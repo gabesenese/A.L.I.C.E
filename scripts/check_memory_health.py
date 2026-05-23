@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Suppress noisy startup logs
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 import logging
+
 logging.disable(logging.WARNING)
 
 
@@ -34,7 +35,7 @@ def _reset(db_path: str, data_dir: str):
     sm._memory_store = None
 
     store = SQLiteMemoryStore(db_path=db_path)
-    sm._memory_store = store                   # must be set BEFORE MemorySystem()
+    sm._memory_store = store  # must be set BEFORE MemorySystem()
     system = MemorySystem(data_dir=data_dir)
     sys_mod._memory_system = system
 
@@ -48,7 +49,7 @@ def _check(label: str, ok: bool) -> bool:
 
 
 def run() -> int:
-    tmp     = tempfile.mkdtemp(prefix="alice_health_")
+    tmp = tempfile.mkdtemp(prefix="alice_health_")
     db_path = str(Path(tmp) / "health.db")
     mem_dir = str(Path(tmp) / "memory")
     os.makedirs(mem_dir, exist_ok=True)
@@ -68,78 +69,102 @@ def run() -> int:
         )
         store2, _ = _reset(db_path, mem_dir)
         row = store2.get_by_id(mid)
-        results.append(_check(
-            'write-through: "Gabriel runs 5km daily" survived restart',
-            row is not None and "5km" in (row.content or ""),
-        ))
+        results.append(
+            _check(
+                'write-through: "Gabriel runs 5km daily" survived restart',
+                row is not None and "5km" in (row.content or ""),
+            )
+        )
 
         # ── 2. Forget ─────────────────────────────────────────────────────
         from ai.memory.personal_memory import PersonalMemoryStore
+
         store, system = _reset(db_path, mem_dir)
         pms = PersonalMemoryStore(system)
         fid = pms.store_structured_memory(
             "Gabriel prefers tea",
-            domain="health", kind="preference", scope="personal",
-            confidence=0.9, source="health_check",
+            domain="health",
+            kind="preference",
+            scope="personal",
+            confidence=0.9,
+            source="health_check",
         )
         pms.forget_recent_memory(domain="health", kind="preference")
         store2, _ = _reset(db_path, mem_dir)
         row = store2.get_by_id(fid)
-        results.append(_check(
-            "forget: invalid=True flag survived restart",
-            row is not None and bool((row.context or {}).get("invalid")),
-        ))
+        results.append(
+            _check(
+                "forget: invalid=True flag survived restart",
+                row is not None and bool((row.context or {}).get("invalid")),
+            )
+        )
 
         # ── 3. Update ─────────────────────────────────────────────────────
         store, system = _reset(db_path, mem_dir)
         pms = PersonalMemoryStore(system)
         uid = pms.store_structured_memory(
             "Gabriel wakes at 7am",
-            domain="routine", kind="habit", scope="personal",
-            confidence=0.7, source="health_check",
+            domain="routine",
+            kind="habit",
+            scope="personal",
+            confidence=0.7,
+            source="health_check",
         )
         pms.update_memory(uid, "Gabriel wakes at 6am", confidence=0.95)
         store2, _ = _reset(db_path, mem_dir)
         row = store2.get_by_id(uid)
-        results.append(_check(
-            'update: corrected content "Gabriel wakes at 6am" survived restart',
-            row is not None
-            and "6am" in (row.content or "")
-            and bool((row.context or {}).get("corrected")),
-        ))
+        results.append(
+            _check(
+                'update: corrected content "Gabriel wakes at 6am" survived restart',
+                row is not None
+                and "6am" in (row.content or "")
+                and bool((row.context or {}).get("corrected")),
+            )
+        )
 
         # ── 4. Consolidation ──────────────────────────────────────────────
         store, system = _reset(db_path, mem_dir)
         pms = PersonalMemoryStore(system)
         pms.store_structured_memory(
             "Gabriel runs 5km every morning",
-            domain="fitness", kind="habit", scope="personal",
-            confidence=0.7, source="health_check",
+            domain="fitness",
+            kind="habit",
+            scope="personal",
+            confidence=0.7,
+            source="health_check",
         )
         pms.store_structured_memory(
             "Gabriel runs 5km every morning routinely",
-            domain="fitness", kind="habit", scope="personal",
-            confidence=0.8, source="health_check",
+            domain="fitness",
+            kind="habit",
+            scope="personal",
+            confidence=0.8,
+            source="health_check",
         )
         store2, _ = _reset(db_path, mem_dir)
         superseded = sum(
-            1 for r in store2.get_all("episodic")
+            1
+            for r in store2.get_all("episodic")
             if (r.context or {}).get("superseded") is True
         )
-        results.append(_check(
-            f"consolidate: superseded flag persisted ({superseded} entries marked)",
-            superseded >= 1,
-        ))
+        results.append(
+            _check(
+                f"consolidate: superseded flag persisted ({superseded} entries marked)",
+                superseded >= 1,
+            )
+        )
 
         # ── 5. Remove ─────────────────────────────────────────────────────
         store, system = _reset(db_path, mem_dir)
         rmid = system.store_memory("Temporary delete me", memory_type="episodic")
         system._remove_memory_by_id(rmid)
         store2, _ = _reset(db_path, mem_dir)
-        results.append(_check(
-            "remove: hard-deleted memory absent after restart",
-            store2.get_by_id(rmid) is None,
-        ))
+        results.append(
+            _check(
+                "remove: hard-deleted memory absent after restart",
+                store2.get_by_id(rmid) is None,
+            )
+        )
 
         # ── 6. Access count ───────────────────────────────────────────────
         store, system = _reset(db_path, mem_dir)
@@ -153,14 +178,18 @@ def run() -> int:
         store2, _ = _reset(db_path, mem_dir)
         row = store2.get_by_id(acid)
         cnt = row.access_count if row else 0
-        results.append(_check(
-            f"access_count: {cnt} recall(s) accumulated in SQLite (expected >=1)",
-            cnt >= 1,
-        ))
+        results.append(
+            _check(
+                f"access_count: {cnt} recall(s) accumulated in SQLite (expected >=1)",
+                cnt >= 1,
+            )
+        )
 
     except Exception as exc:
         print(f"\n  [ERROR] Unexpected failure: {exc}")
-        import traceback; traceback.print_exc()
+        import traceback
+
+        traceback.print_exc()
         results.append(False)
 
     finally:
@@ -168,7 +197,7 @@ def run() -> int:
 
     print("-" * 50)
     passed = sum(bool(r) for r in results)
-    total  = len(results)
+    total = len(results)
     if passed == total:
         print(f"  All checks passed: {passed}/{total}\n")
     else:

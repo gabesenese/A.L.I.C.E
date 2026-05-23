@@ -38,10 +38,16 @@ class RouteArbiter:
             else 0.0
         )
         safe_usefulness_bonus = 0.1 if candidate.route in {"local", "tool"} else 0.02
-        continuation_bonus = 0.08 if continuation_used and candidate.intent.startswith("operator:") else 0.0
+        continuation_bonus = (
+            0.08
+            if continuation_used and candidate.intent.startswith("operator:")
+            else 0.0
+        )
         missing_target_penalty = 0.22 if "file_target" in missing_slots else 0.0
         clarification_penalty = 0.16 if candidate.route == "clarify" else 0.0
-        destructive_action_penalty = 0.4 if bool(evidence.get("unsafe_action_vetoed")) else 0.0
+        destructive_action_penalty = (
+            0.4 if bool(evidence.get("unsafe_action_vetoed")) else 0.0
+        )
 
         return (
             confidence
@@ -71,7 +77,10 @@ class RouteArbiter:
         state = dict(operator_state or {})
         project = dict(project_memory or {})
         objective = str(
-            active_objective or state.get("active_objective") or project.get("active_objective") or ""
+            active_objective
+            or state.get("active_objective")
+            or project.get("active_objective")
+            or ""
         )
         continuation_used = bool(
             continuation_context
@@ -137,23 +146,38 @@ class RouteArbiter:
             )
             if not bool(evidence.get("accepted")):
                 rejected_reasons.append(
-                    {"intent": candidate.intent, "reason": str(evidence.get("reason") or "contract_reject")}
+                    {
+                        "intent": candidate.intent,
+                        "reason": str(evidence.get("reason") or "contract_reject"),
+                    }
                 )
 
-        scored = sorted(candidate_scores, key=lambda row: float(row["score"]), reverse=True)
+        scored = sorted(
+            candidate_scores, key=lambda row: float(row["score"]), reverse=True
+        )
         selected = None
         for row in scored:
             if row.get("accepted_by_contract"):
                 selected = row
                 break
         if selected is None:
-            fallback_evidence = trace.evidence_contract_results[-1] if trace.evidence_contract_results else {}
-            reroute_intent = str(fallback_evidence.get("reroute_intent") or "conversation:general")
+            fallback_evidence = (
+                trace.evidence_contract_results[-1]
+                if trace.evidence_contract_results
+                else {}
+            )
+            reroute_intent = str(
+                fallback_evidence.get("reroute_intent") or "conversation:general"
+            )
             selected = {
-                "route": "local" if reroute_intent.startswith(("code:", "operator:")) else "llm",
+                "route": "local"
+                if reroute_intent.startswith(("code:", "operator:"))
+                else "llm",
                 "intent": reroute_intent,
                 "score": 0.0,
-                "reason": str(fallback_evidence.get("reason") or "fallback_no_candidates"),
+                "reason": str(
+                    fallback_evidence.get("reason") or "fallback_no_candidates"
+                ),
                 "confidence": 0.0,
                 "accepted_by_contract": True,
             }
@@ -162,7 +186,14 @@ class RouteArbiter:
         selected_route = str(selected.get("route") or "llm")
         if selected_route == "clarify":
             # Clarify should be last resort.
-            best_non_clarify = next((row for row in scored if row.get("route") != "clarify" and row.get("accepted_by_contract")), None)
+            best_non_clarify = next(
+                (
+                    row
+                    for row in scored
+                    if row.get("route") != "clarify" and row.get("accepted_by_contract")
+                ),
+                None,
+            )
             if best_non_clarify:
                 clarification_avoided = True
                 selected = best_non_clarify
@@ -193,7 +224,8 @@ class RouteArbiter:
             (
                 row
                 for row in trace.evidence_contract_results
-                if str(row.get("intent") or row.get("candidate") or "") == selected_intent
+                if str(row.get("intent") or row.get("candidate") or "")
+                == selected_intent
                 or str(row.get("candidate") or "") == selected_intent
             ),
             {},

@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-_EXAMPLES_PATH = Path(__file__).parent.parent.parent / "data" / "learned_response_examples.jsonl"
+_EXAMPLES_PATH = (
+    Path(__file__).parent.parent.parent / "data" / "learned_response_examples.jsonl"
+)
 _examples_cache: list[dict] | None = None
 
 
@@ -37,7 +39,9 @@ def find_similar_response_examples(
             continue
         if not bool(ex.get("accepted", True)):
             continue
-        ex_signals = set(str(s).lower().strip() for s in (ex.get("context_signals") or []))
+        ex_signals = set(
+            str(s).lower().strip() for s in (ex.get("context_signals") or [])
+        )
         overlap = len(signal_set & ex_signals)
         results.append((overlap, ex))
     results.sort(key=lambda t: t[0], reverse=True)
@@ -48,6 +52,7 @@ def find_similar_response_examples(
         )
         for _, ex in results[:limit]
     ]
+
 
 _META_ARTIFACT_PATTERNS = (
     r"\(note:\s*i[‘’]?ve rewritten the response[^)]*\)",
@@ -147,6 +152,7 @@ def strip_meta_response_artifacts(text: str) -> str:
     cleaned = _TRAILING_LECTURE_PATTERNS.sub("", cleaned).strip()
     return cleaned
 
+
 def _suppress_passive_operator_chatter(text: str) -> str:
     out_lines: list[str] = []
     for line in re.split(r"\n+", str(text or "")):
@@ -180,12 +186,18 @@ def sanitize_operator_chatter(text: str) -> str:
     return cleaned
 
 
-def detect_context_signal(user_input: str, perception_frame: Dict[str, Any] | None = None) -> Dict[str, Any]:
+def detect_context_signal(
+    user_input: str, perception_frame: Dict[str, Any] | None = None
+) -> Dict[str, Any]:
     text = str(user_input or "").strip().lower()
     pf = dict(perception_frame or {})
     signals: list[str] = []
-    energy_signal = str(pf.get("user_energy_signal") or "unknown").strip().lower() or "unknown"
-    mood_signal = str(pf.get("user_mood_signal") or "unknown").strip().lower() or "unknown"
+    energy_signal = (
+        str(pf.get("user_energy_signal") or "unknown").strip().lower() or "unknown"
+    )
+    mood_signal = (
+        str(pf.get("user_mood_signal") or "unknown").strip().lower() or "unknown"
+    )
 
     if any(token in text for token in ("woke up from a nap", "just woke up", "nap")):
         signals.append("nap")
@@ -199,10 +211,20 @@ def detect_context_signal(user_input: str, perception_frame: Dict[str, Any] | No
         signals.append("tired")
     if any(token in text for token in ("going to bed", "go to bed", "bed right now")):
         signals.append("bedtime")
-    if any(token in text for token in ("work on alice", "work on a.l.i.c.e", "work on alice for", "work session")):
+    if any(
+        token in text
+        for token in (
+            "work on alice",
+            "work on a.l.i.c.e",
+            "work on alice for",
+            "work session",
+        )
+    ):
         signals.append("work_session")
 
-    if energy_signal == "unknown" and any(s in signals for s in ("nap", "tired", "bedtime", "long_day")):
+    if energy_signal == "unknown" and any(
+        s in signals for s in ("nap", "tired", "bedtime", "long_day")
+    ):
         energy_signal = "low"
     if mood_signal == "unknown":
         if "positive" in signals:
@@ -249,7 +271,10 @@ def _examples_style_block(context_signals: list[str]) -> str:
     )
     if not examples:
         return "[]"
-    lines = [f'- "{ex.response_text}" | signals={list(ex.context_signals or [])}' for ex in examples]
+    lines = [
+        f'- "{ex.response_text}" | signals={list(ex.context_signals or [])}'
+        for ex in examples
+    ]
     return "\n".join(lines)
 
 
@@ -295,7 +320,9 @@ def generate_context_acknowledgement(
         return ""
 
 
-def validate_context_ack(text: str, context_signal: Dict[str, Any]) -> tuple[bool, list[str]]:
+def validate_context_ack(
+    text: str, context_signal: Dict[str, Any]
+) -> tuple[bool, list[str]]:
     candidate = str(text or "").strip()
     if not candidate:
         return (True, [])
@@ -349,7 +376,10 @@ def validate_context_ack(text: str, context_signal: Dict[str, Any]) -> tuple[boo
     if "?" in candidate:
         reasons.append("contains_question")
     energy = str((context_signal or {}).get("energy_signal") or "").lower()
-    signals = {str(s).lower().strip() for s in list((context_signal or {}).get("signals") or [])}
+    signals = {
+        str(s).lower().strip()
+        for s in list((context_signal or {}).get("signals") or [])
+    }
     if "you are tired" in low and "tired" not in signals and energy != "low":
         reasons.append("ungrounded_context_ack")
     grounding_map = {
@@ -494,11 +524,17 @@ def _extract_next_move(next_step: str, operator_state: Dict[str, Any]) -> str:
     reason = str(structured.get("reason") or "").strip()
     action = str(structured.get("action") or "inspect_file").strip()
     if target:
-        verb = "inspect" if action in {"inspect_file", "analyze_file", "read_file"} else action.replace("_", " ")
+        verb = (
+            "inspect"
+            if action in {"inspect_file", "analyze_file", "read_file"}
+            else action.replace("_", " ")
+        )
         if reason:
             cleaned_reason = _normalize_reason(reason)
             if cleaned_reason:
-                return _normalize_sentence(f"Next best move: {verb} {target} because {cleaned_reason}")
+                return _normalize_sentence(
+                    f"Next best move: {verb} {target} because {cleaned_reason}"
+                )
         return _normalize_sentence(f"Next best move: {verb} {target}")
     raw = str(next_step or "").strip()
     if not raw:
@@ -626,11 +662,7 @@ def render_operator_response(
     # "Finding:", "Next best move:", and "I inspected {path}" are Alice's internal
     # planning tokens and must never appear in user-facing output.
     analysis = dict(local.get("analysis") or {})
-    summary = str(
-        analysis.get("summary")
-        or local.get("summary")
-        or ""
-    ).strip()
+    summary = str(analysis.get("summary") or local.get("summary") or "").strip()
     responsibility = str(analysis.get("responsibility") or "").strip()
 
     # Priority 1: explicit summary from the local execution result.
@@ -659,7 +691,8 @@ def render_operator_response(
     # are fully removed rather than partially matched.
     _raw_lines = re.split(r"\n", str(base_text or ""))
     _kept_lines = [
-        ln for ln in _raw_lines
+        ln
+        for ln in _raw_lines
         if not re.search(r"(?i)\bnext best move\b|\bfinding:", ln)
     ]
     base_stripped = "\n".join(_kept_lines).strip()
@@ -676,5 +709,3 @@ def render_operator_response(
     if action == "code:request":
         return "I can inspect local source code in this workspace and inspect the local workspace."
     return "Working on it."
-
-

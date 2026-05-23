@@ -36,11 +36,14 @@ def _verification_fallback(
 ) -> str:
     if reason == "tool_failed":
         tool = str(diagnostics.get("tool") or "")
-        error_type = str(diagnostics.get("error") or diagnostics.get("error_type") or "")
+        error_type = str(
+            diagnostics.get("error") or diagnostics.get("error_type") or ""
+        )
         try:
             from ai.runtime.fallback_policy import get_fallback_graph, get_retry_memory
+
             rm = get_retry_memory()
-            count = rm.record_failure(user_id, intent or tool, error_type)
+            rm.record_failure(user_id, intent or tool, error_type)
             # Check for escalation message first (repeated failures)
             esc = rm.escalation_message(user_id, intent or tool, error_type)
             if esc:
@@ -82,12 +85,16 @@ def _verification_fallback(
         if close:
             suggestion = close[0] if isinstance(close[0], str) else str(close[0])
             return f"I couldn't find that file. Did you mean {suggestion}?"
-        return "I couldn't find that file in the workspace. Check the name and try again."
+        return (
+            "I couldn't find that file in the workspace. Check the name and try again."
+        )
 
     if proposed_text:
         return proposed_text
 
-    return "I wasn't able to complete that — try rephrasing with a more specific action."
+    return (
+        "I wasn't able to complete that — try rephrasing with a more specific action."
+    )
 
 
 @dataclass(frozen=True)
@@ -264,7 +271,11 @@ class TurnOrchestrator:
             # Strip plugin-name prefix so "weather:no_location" → "no_location"
             _err = re.sub(r"^weather:", "", _raw_err, flags=re.IGNORECASE)
             try:
-                from ai.runtime.fallback_policy import get_fallback_graph, get_retry_memory
+                from ai.runtime.fallback_policy import (
+                    get_fallback_graph,
+                    get_retry_memory,
+                )
+
                 _fg = get_fallback_graph()
                 _steps = _fg.get_steps("weather", _err)
                 if _steps:
@@ -333,7 +344,8 @@ class TurnOrchestrator:
         if verification is not None and not verification.accepted:
             _intent_for_fallback = str(
                 verify_phase.proposed_response.metadata.get("intent", "")
-                if verify_phase.proposed_response and verify_phase.proposed_response.metadata
+                if verify_phase.proposed_response
+                and verify_phase.proposed_response.metadata
                 else ""
             )
             response_text = _verification_fallback(
@@ -345,7 +357,10 @@ class TurnOrchestrator:
             return RespondPhaseResult(
                 response_text=response_text,
                 requires_follow_up=True,
-                metadata={"fallback": "verification_guard", "reason": str(verification.reason or "")},
+                metadata={
+                    "fallback": "verification_guard",
+                    "reason": str(verification.reason or ""),
+                },
             )
 
         return RespondPhaseResult(
@@ -392,8 +407,10 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
                 user_id=str(getattr(alice, "user_name", "") or "User"),
                 turn_number=int(getattr(alice, "_turn_count", 0) or 0),
             )
-            if result and getattr(result, "handled", False) and getattr(
-                result, "response_text", ""
+            if (
+                result
+                and getattr(result, "handled", False)
+                and getattr(result, "response_text", "")
             ):
                 meta = dict(getattr(result, "metadata", {}) or {})
                 structured_logger = getattr(alice, "structured_logger", None)

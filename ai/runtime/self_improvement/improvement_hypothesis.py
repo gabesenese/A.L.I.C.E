@@ -122,4 +122,3 @@ def build_hypothesis(
         risks=risks,
         confidence=float(classification.confidence or 0.5),
     )
-

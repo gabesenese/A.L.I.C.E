@@ -11,9 +11,9 @@ _DEFAULT_BUDGET_CHARS = 3_500
 # Higher-quality memory types get more of the budget.
 _TYPE_PRIORITY: Dict[str, float] = {
     "procedural": 1.00,
-    "semantic":   0.85,
-    "document":   0.70,
-    "episodic":   0.60,
+    "semantic": 0.85,
+    "document": 0.70,
+    "episodic": 0.60,
 }
 
 
@@ -56,6 +56,7 @@ class RetrievalBudget:
         Returns a list ordered by priority, total content length ≤ total_chars.
         Always includes at least one memory (truncated if necessary).
         """
+
         def _priority(m: Dict[str, Any]) -> float:
             mtype = str(m.get("memory_type") or m.get("type") or "episodic")
             type_w = self._type_priority.get(mtype, 0.5)
@@ -92,7 +93,10 @@ class RetrievalBudget:
             used = self.total_chars - remaining
             logger.debug(
                 "[RetrievalBudget] %d/%d memories selected, %d/%d chars used",
-                len(selected), len(candidates), used, self.total_chars,
+                len(selected),
+                len(candidates),
+                used,
+                self.total_chars,
             )
         return selected
 

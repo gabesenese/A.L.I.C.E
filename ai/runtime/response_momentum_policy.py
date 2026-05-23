@@ -12,7 +12,11 @@ from ai.runtime.verified_growth import verify_operator_surface_contract
 
 
 def _has_local_evidence_for_inspection(local: Dict[str, Any]) -> bool:
-    return bool(local and local.get("success") and str(local.get("inspected_file") or "").strip())
+    return bool(
+        local
+        and local.get("success")
+        and str(local.get("inspected_file") or "").strip()
+    )
 
 
 def _enforce_claim_evidence(text: str, local: Dict[str, Any]) -> str:
@@ -91,7 +95,12 @@ def _is_explicitly_verified_operator_text(text: str) -> bool:
 
 def strip_passive_followup_sentences(text: str, *, mode: str) -> str:
     mode_key = str(mode or "").strip().lower()
-    if mode_key not in {"educational_explain", "clarification", "companion_chat", "concept_refinement"}:
+    if mode_key not in {
+        "educational_explain",
+        "clarification",
+        "companion_chat",
+        "concept_refinement",
+    }:
         return str(text or "").strip()
     source = str(text or "").strip()
     if not source:
@@ -156,11 +165,17 @@ def apply_response_momentum(
     state = dict(operator_state or {})
     project = dict(project_memory or {})
     local = dict(local_execution or {})
-    objective = str(state.get("active_objective") or project.get("active_objective") or "").strip()
-    focus = str(state.get("current_focus") or project.get("current_focus") or "").strip()
+    objective = str(
+        state.get("active_objective") or project.get("active_objective") or ""
+    ).strip()
+    focus = str(
+        state.get("current_focus") or project.get("current_focus") or ""
+    ).strip()
     normalized_intent = str(intent or "").strip().lower()
     normalized_route = str(route or "").strip().lower()
-    operator_application_request = _is_operator_application_request(user_input=user_input)
+    operator_application_request = _is_operator_application_request(
+        user_input=user_input
+    )
     turn_mode = classify_turn_mode(
         user_input=user_input,
         intent=normalized_intent,
@@ -173,12 +188,9 @@ def apply_response_momentum(
         "operator_continue",
         "code_work",
     }
-    tool_operator_turn = (
-        normalized_route in {"tool", "plugin"}
-        and (
-            normalized_intent.startswith("operator:")
-            or normalized_intent.startswith("code:")
-        )
+    tool_operator_turn = normalized_route in {"tool", "plugin"} and (
+        normalized_intent.startswith("operator:")
+        or normalized_intent.startswith("code:")
     )
     operator_turn = momentum_turn or (
         normalized_intent.startswith("operator:")
@@ -223,7 +235,9 @@ def apply_response_momentum(
     ):
         cleaned = strip_passive_followup_sentences(text, mode="educational_explain")
         if not cleaned and objective:
-            cleaned = _normalize_next_move_line(f"take one concrete step on {focus or objective}")
+            cleaned = _normalize_next_move_line(
+                f"take one concrete step on {focus or objective}"
+            )
         elif not cleaned:
             cleaned = text
         return normalize_response_paragraphs(_enforce_claim_evidence(cleaned, local))
@@ -242,8 +256,7 @@ def apply_response_momentum(
         return text
 
     operator_contract_turn = (
-        normalized_route == "local"
-        or normalized_intent.startswith("operator:")
+        normalized_route == "local" or normalized_intent.startswith("operator:")
     )
     if operator_contract_turn:
         rendered = render_operator_response(
@@ -265,7 +278,9 @@ def apply_response_momentum(
                 status_parts.append(f"Current focus: {focus}.")
             status_text = " ".join(status_parts).strip()
             if status_text:
-                rendered = f"{status_text}\n\n{rendered}".strip() if rendered else status_text
+                rendered = (
+                    f"{status_text}\n\n{rendered}".strip() if rendered else status_text
+                )
         if not str(rendered or "").strip():
             return "I ran into an issue with that operator action. Let me try again."
         # Error responses (Blocker + Next best move) are pre-formatted — bypass contract.
@@ -273,7 +288,9 @@ def apply_response_momentum(
             str(local.get("error") or "").strip()
         )
         if is_error_response:
-            return normalize_response_paragraphs(_enforce_claim_evidence(rendered, local))
+            return normalize_response_paragraphs(
+                _enforce_claim_evidence(rendered, local)
+            )
         contract = verify_operator_surface_contract(
             route=normalized_route,
             intent=normalized_intent,
@@ -284,7 +301,9 @@ def apply_response_momentum(
         if not contract.passed:
             return "I ran into an issue with that operator action. Let me try again."
         # Contract passed — assemble final output with grounded evidence and next_step.
-        base_ct = normalize_response_paragraphs(_enforce_claim_evidence(rendered, local))
+        base_ct = normalize_response_paragraphs(
+            _enforce_claim_evidence(rendered, local)
+        )
         # Add grounded evidence line for confirmed file inspections.
         result_line_ct = ""
         if local:
@@ -293,7 +312,10 @@ def apply_response_momentum(
             if inspected_ct and success_ct:
                 result_line_ct = f"I inspected {inspected_ct}."
         # Add next_step — not for pure status turns.
-        allow_ns_ct = normalized_intent not in {"operator:project_status", "operator:status"}
+        allow_ns_ct = normalized_intent not in {
+            "operator:project_status",
+            "operator:status",
+        }
         ns_line_ct = ""
         if allow_ns_ct:
             # Prefer structured recommendation from operator_state.
@@ -353,7 +375,9 @@ def apply_response_momentum(
         inspected = str(local.get("inspected_file") or "")
         success = bool(local.get("success"))
         if inspected and success:
-            result_line = f"I inspected `{inspected}` through `{action or 'local execution'}`."
+            result_line = (
+                f"I inspected `{inspected}` through `{action or 'local execution'}`."
+            )
         elif action and action.startswith("code:") and success:
             result_line = f"I ran one safe local step: `{action}`."
 
@@ -370,7 +394,8 @@ def apply_response_momentum(
         or normalized_intent.startswith("code:")
         or normalized_route == "local"
     ) and (
-        turn_mode in {
+        turn_mode
+        in {
             "operator_status",
             "operator_continue",
             "code_work",
@@ -380,7 +405,9 @@ def apply_response_momentum(
     if next_line and allow_next_step:
         next_line = _normalize_next_move_line(next_line)
     elif allow_next_step and not next_line and state.get("next_recommended_action"):
-        next_line = _normalize_next_move_line(str(state.get("next_recommended_action") or ""))
+        next_line = _normalize_next_move_line(
+            str(state.get("next_recommended_action") or "")
+        )
     else:
         next_line = ""
 
@@ -390,7 +417,8 @@ def apply_response_momentum(
         or normalized_intent.startswith("code:")
         or normalized_route == "local"
     ) and (
-        turn_mode in {
+        turn_mode
+        in {
             "operator_status",
             "operator_continue",
             "code_work",
@@ -413,7 +441,11 @@ def apply_response_momentum(
         ):
             text = re.sub(r"\s*\?\s*$", ".", text).strip()
             if not next_line:
-                if "agentic" in low_merged or "companion" in low_merged or "beginner" in low_merged:
+                if (
+                    "agentic" in low_merged
+                    or "companion" in low_merged
+                    or "beginner" in low_merged
+                ):
                     next_line = (
                         "Next best move: start with memory, goals, tools, and the loop; "
                         "then implement the loop first in Alice."

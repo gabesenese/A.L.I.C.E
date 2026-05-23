@@ -68,6 +68,7 @@ class ContractPipeline:
         try:
             from ai.identity.alice_identity import begin_session
             import atexit
+
             self._current_session_id = begin_session()
             atexit.register(self._close_session)
         except Exception:
@@ -75,6 +76,7 @@ class ContractPipeline:
         # Backfill historical routing failures into evaluations.jsonl at startup
         try:
             from ai.learning.failure_eval_converter import get_failure_eval_converter
+
             get_failure_eval_converter().run()
         except Exception:
             pass
@@ -124,6 +126,7 @@ class ContractPipeline:
             ):
                 try:
                     from ai.identity.alice_identity import record_opinion
+
                     record_opinion(
                         topic=f"my {classification.failure_kind} capability",
                         stance=f"I have a recurring pattern here: {classification.reason}",
@@ -137,6 +140,7 @@ class ContractPipeline:
     def _close_session(self) -> None:
         try:
             from ai.identity.alice_identity import end_session
+
             end_session(self._current_session_id)
         except Exception:
             pass
@@ -523,20 +527,35 @@ class ContractPipeline:
 
         # Meta-query: weak spots / routing report
         _low = user_input.lower().strip()
-        if any(phrase in _low for phrase in (
-            "weak spot", "what are your weak spots", "routing report",
-            "show me your failures", "alice report", "failure report",
-            "where are you failing", "what do you struggle",
-        )):
+        if any(
+            phrase in _low
+            for phrase in (
+                "weak spot",
+                "what are your weak spots",
+                "routing report",
+                "show me your failures",
+                "alice report",
+                "failure report",
+                "where are you failing",
+                "what do you struggle",
+            )
+        ):
             try:
-                from ai.learning.failure_eval_converter import get_failure_eval_converter
+                from ai.learning.failure_eval_converter import (
+                    get_failure_eval_converter,
+                )
+
                 _report = get_failure_eval_converter().weak_spot_report()
             except Exception as e:
                 _report = f"Could not generate report: {e}"
             return PipelineResult(
                 handled=True,
                 response_text=f"Here's my current routing performance:\n\n```\n{_report}\n```",
-                metadata={"source": "weak_spot_report", "trace_id": trace_id, "stages": stages},
+                metadata={
+                    "source": "weak_spot_report",
+                    "trace_id": trace_id,
+                    "stages": stages,
+                },
             )
 
         user_state_snapshot = self.user_state_model.get_or_create(user_id)
@@ -698,12 +717,16 @@ class ContractPipeline:
             from ai.runtime.automatic_data_refresh_policy import get_auto_refresh_policy
             from memory.world_model import get_world_model
             from ai.runtime.companion_runtime import PolicyDecision as _PD
+
             _refresh_policy = get_auto_refresh_policy()
-            if _refresh_policy.should_force_refresh(
-                route=str(decision.route or ""),
-                intent=str(decision.intent or ""),
-                world_model=get_world_model(),
-            ) and policy.decision_type != "act":
+            if (
+                _refresh_policy.should_force_refresh(
+                    route=str(decision.route or ""),
+                    intent=str(decision.intent or ""),
+                    world_model=get_world_model(),
+                )
+                and policy.decision_type != "act"
+            ):
                 policy = _PD(
                     decision_type="act",
                     reason="auto_refresh_stale_data",
@@ -919,9 +942,10 @@ class ContractPipeline:
         )
 
         if not turn_execution_outcome.verification_passed:
-            is_greeting_turn = str(getattr(decision, "intent", "") or "").endswith(
-                "greeting"
-            ) or str(getattr(decision, "intent", "") or "") == "greeting"
+            is_greeting_turn = (
+                str(getattr(decision, "intent", "") or "").endswith("greeting")
+                or str(getattr(decision, "intent", "") or "") == "greeting"
+            )
             if is_greeting_turn or (
                 verification
                 and str(verification.reason or "") == "unsupported_continuity_claim"
@@ -996,9 +1020,7 @@ class ContractPipeline:
                     {
                         "greeting_memory_policy": "active_state_only",
                         "broad_memory_suppressed": True,
-                        "active_objective_used": bool(
-                            greeting.active_objective_used
-                        ),
+                        "active_objective_used": bool(greeting.active_objective_used),
                         "greeting_style": str(greeting.greeting_style),
                         "suppressed_project_menu": bool(
                             greeting.suppressed_project_menu
@@ -1012,7 +1034,9 @@ class ContractPipeline:
                         ),
                         "validation_passed": bool(greeting.validation_passed),
                         "validation_reasons": list(greeting.validation_reasons),
-                        "continuity_guard_applied": bool(greeting.continuity_guard_applied),
+                        "continuity_guard_applied": bool(
+                            greeting.continuity_guard_applied
+                        ),
                         "continuity_claims": dict(greeting.continuity_claims or {}),
                         "llm_candidate_rejected": bool(greeting.llm_candidate_rejected),
                     }
@@ -1081,10 +1105,14 @@ class ContractPipeline:
         # Live eval record: feed turn outcome into ConfidenceFusion success-rate data
         try:
             from ai.learning.failure_eval_converter import write_turn_eval
+
             _turn_success = bool(turn_execution_outcome.verification_passed)
             _last_veto = ""
             for _s in reversed(stages):
-                if _s.get("status") in ("failed", "skipped") and _s.get("name") in ("execute", "verify"):
+                if _s.get("status") in ("failed", "skipped") and _s.get("name") in (
+                    "execute",
+                    "verify",
+                ):
                     _last_veto = str(_s.get("details", {}).get("reason") or "")
                     break
             write_turn_eval(
@@ -1099,6 +1127,7 @@ class ContractPipeline:
         # Foundation 2 — post-turn opinion extraction and session accumulation
         try:
             from ai.identity.opinion_extractor import extract_and_record_opinions
+
             extract_and_record_opinions(
                 alice_response=str(response_text or ""),
                 intent=str(decision.intent or ""),
@@ -1107,7 +1136,11 @@ class ContractPipeline:
         except Exception:
             pass
         try:
-            from ai.identity.alice_identity import record_turn_outcome, record_confidence_sample
+            from ai.identity.alice_identity import (
+                record_turn_outcome,
+                record_confidence_sample,
+            )
+
             _score = 1.0 if _turn_success else 0.3
             record_turn_outcome(
                 session_id=self._current_session_id,
@@ -1123,6 +1156,7 @@ class ContractPipeline:
         try:
             from ai.goals.goal_attributor import attribute_turn_to_goal
             from ai.identity.alice_identity import record_goal_touched
+
             _attributed_gid = attribute_turn_to_goal(
                 user_input=user_input,
                 alice_response=str(response_text or ""),
@@ -1170,26 +1204,41 @@ class ContractPipeline:
             last_failure=str(local_exec_payload.get("error") or ""),
         )
         stored_recommended_action = dict(next_step.last_recommended_action or {})
-        if stored_recommended_action and not stored_recommended_action.get("created_at"):
+        if stored_recommended_action and not stored_recommended_action.get(
+            "created_at"
+        ):
             stored_recommended_action["created_at"] = datetime.utcnow().isoformat()
-        if stored_recommended_action or str(next_step.next_recommended_action or "").strip():
+        if (
+            stored_recommended_action
+            or str(next_step.next_recommended_action or "").strip()
+        ):
             try:
                 update_project_state(
                     {
-                        "next_recommended_action": str(next_step.next_recommended_action or ""),
+                        "next_recommended_action": str(
+                            next_step.next_recommended_action or ""
+                        ),
                         "last_recommended_action": stored_recommended_action,
-                        "suggested_next_files": list(next_step.suggested_next_files or []),
+                        "suggested_next_files": list(
+                            next_step.suggested_next_files or []
+                        ),
                     },
                     user_id=str(user_id or "default"),
                 )
             except Exception:
                 pass
         if stored_recommended_action:
-            operator_state_payload["last_recommended_action"] = stored_recommended_action
+            operator_state_payload["last_recommended_action"] = (
+                stored_recommended_action
+            )
         if next_step.suggested_next_files:
-            operator_state_payload["suggested_next_files"] = list(next_step.suggested_next_files or [])
+            operator_state_payload["suggested_next_files"] = list(
+                next_step.suggested_next_files or []
+            )
         if str(next_step.next_recommended_action or "").strip():
-            operator_state_payload["next_recommended_action"] = str(next_step.next_recommended_action or "")
+            operator_state_payload["next_recommended_action"] = str(
+                next_step.next_recommended_action or ""
+            )
         response_text = apply_response_momentum(
             user_input=user_input,
             response_text=response_text,
@@ -1204,7 +1253,10 @@ class ContractPipeline:
         # Clarification feedback: when a previous clarification is now resolved,
         # record the Q&A pair to boost confidence for this intent in future turns
         try:
-            from ai.optimization.clarification_feedback_loop import get_clarification_feedback_loop
+            from ai.optimization.clarification_feedback_loop import (
+                get_clarification_feedback_loop,
+            )
+
             cfl = get_clarification_feedback_loop()
             cfl.tick(user_id)
             prev_intent = str(getattr(companion_state, "last_intent", "") or "")
@@ -1213,7 +1265,9 @@ class ContractPipeline:
                 # The previous turn was a clarification question; this answer resolves it
                 cfl.record_clarification(
                     user_id=user_id,
-                    original_input=str(getattr(companion_state, "last_user_input", "") or ""),
+                    original_input=str(
+                        getattr(companion_state, "last_user_input", "") or ""
+                    ),
                     question="",  # we don't store the exact question, just the pairing
                     answer=user_input,
                     intent=str(decision.intent or ""),
@@ -1224,6 +1278,7 @@ class ContractPipeline:
         # Conversation style mirror: record user message and auto-derive constraints
         try:
             from ai.core.conversation_style_mirror import get_style_mirror
+
             mirror = get_style_mirror()
             mirror.record_user_message(user_id, user_input)
         except Exception:
@@ -1233,7 +1288,9 @@ class ContractPipeline:
         # Skip auto-derived length mirroring on conversation routes — the user typing short
         # messages doesn't mean they want short answers on discussion/brainstorm turns.
         try:
-            from ai.core.constraint_preference_extractor import ConstraintPreferenceExtractor
+            from ai.core.constraint_preference_extractor import (
+                ConstraintPreferenceExtractor,
+            )
             from ai.core.adaptive_response_style import AdaptiveResponseStyle
             from ai.core.conversation_style_mirror import get_style_mirror
             from ai.identity.user_identity import load_identity
@@ -1244,40 +1301,65 @@ class ContractPipeline:
             _is_conversation_route = str(decision.route or "").lower() == "conversation"
             # Auto-derived mirror constraints only apply on non-conversation routes
             mirror_constraints = (
-                {} if _is_conversation_route
+                {}
+                if _is_conversation_route
                 else get_style_mirror().derive_auto_constraints(user_id)
             )
             # Per-turn explicit > learned > mirror auto-derived
-            merged = {**mirror_constraints, **learned, **{k: v for k, v in per_turn.items() if v not in (None, "default", "normal", [])}}
+            merged = {
+                **mirror_constraints,
+                **learned,
+                **{
+                    k: v
+                    for k, v in per_turn.items()
+                    if v not in (None, "default", "normal", [])
+                },
+            }
             if merged:
-                response_text = AdaptiveResponseStyle().apply_constraints(response_text, merged)
+                response_text = AdaptiveResponseStyle().apply_constraints(
+                    response_text, merged
+                )
         except Exception:
             pass
 
         # World-state grounding: record successful data fetches; qualify stale responses
         try:
             from memory.world_model import get_world_model
+
             wm = get_world_model()
             intent_str = str(decision.intent or "")
-            if tool_result and tool_result.success and intent_str.startswith("weather:"):
+            if (
+                tool_result
+                and tool_result.success
+                and intent_str.startswith("weather:")
+            ):
                 wm.record_data_fetch("weather")
-            elif intent_str.startswith("weather:") and not (tool_result and tool_result.success):
+            elif intent_str.startswith("weather:") and not (
+                tool_result and tool_result.success
+            ):
                 # Tool didn't run or failed — qualify if we have cached data with age
                 age = wm.data_age_seconds("weather")
                 if age is not None:
                     mins = int(age / 60)
-                    if mins > 0 and response_text and "(last updated" not in response_text:
+                    if (
+                        mins > 0
+                        and response_text
+                        and "(last updated" not in response_text
+                    ):
                         response_text = f"(last updated ~{mins}m ago) {response_text}"
                 elif wm.is_data_stale("weather"):
                     # No cached data at all and plugin failed — add a retry suggestion
                     if response_text and "try again" not in response_text.lower():
-                        response_text += " (Weather data unavailable — try again in a moment.)"
+                        response_text += (
+                            " (Weather data unavailable — try again in a moment.)"
+                        )
         except Exception:
             pass
 
         # Proactive intelligence — deliver highest-priority pending insight if one exists
         try:
             from ai.planning.proactive_intelligence import get_proactive_intelligence
+
             _pi = get_proactive_intelligence()
             _pending = _pi.get_pending_insights(priority_threshold=2)
             if _pending:
@@ -1296,16 +1378,17 @@ class ContractPipeline:
             self._briefing_sent = True
             try:
                 from ai.runtime.session_briefing import generate_session_briefing
+
                 _briefing = generate_session_briefing(str(user_id or "gabriel"))
                 if _briefing:
                     # Strip the opening salutation line (ALICE already greeted)
                     _lines = _briefing.splitlines()
                     _body_lines = [
-                        ln for ln in _lines
+                        ln
+                        for ln in _lines
                         if not any(
-                            ln.startswith(p) for p in (
-                                "Good morning", "Good afternoon", "Good evening"
-                            )
+                            ln.startswith(p)
+                            for p in ("Good morning", "Good afternoon", "Good evening")
                         )
                     ]
                     _body = "\n".join(_body_lines).strip()
@@ -1560,15 +1643,21 @@ class ContractPipeline:
             "suppressed_project_menu": bool(
                 (respond_metadata or {}).get("suppressed_project_menu")
             ),
-            "repeated_greeting": bool((respond_metadata or {}).get("repeated_greeting")),
+            "repeated_greeting": bool(
+                (respond_metadata or {}).get("repeated_greeting")
+            ),
             "generated_by": str((respond_metadata or {}).get("generated_by") or ""),
             "warmth_level": str((respond_metadata or {}).get("warmth_level") or ""),
             "companion_tone": bool((respond_metadata or {}).get("companion_tone")),
             "assistant_like_prompt_suppressed": bool(
                 (respond_metadata or {}).get("assistant_like_prompt_suppressed")
             ),
-            "validation_passed": bool((respond_metadata or {}).get("validation_passed", True)),
-            "validation_reasons": list((respond_metadata or {}).get("validation_reasons") or []),
+            "validation_passed": bool(
+                (respond_metadata or {}).get("validation_passed", True)
+            ),
+            "validation_reasons": list(
+                (respond_metadata or {}).get("validation_reasons") or []
+            ),
         }
         if any(greeting_policy.values()):
             metadata_payload["greeting_metadata"] = greeting_policy

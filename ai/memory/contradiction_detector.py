@@ -22,7 +22,7 @@ _NEGATION_RE = re.compile(
 
 # A pair is a contradiction candidate when similarity is in this range:
 # too-low → unrelated; too-high → exact duplicate (handled by dedup)
-_SIM_LOW  = 0.60
+_SIM_LOW = 0.60
 _SIM_HIGH = 0.95
 _MIN_CONFIDENCE = 0.45
 
@@ -166,8 +166,11 @@ class ContradictionDetector:
             ).fetchall()
         return [
             {
-                "id": r[0], "memory_a_id": r[1], "memory_b_id": r[2],
-                "confidence": r[3], "detected_at": r[4],
+                "id": r[0],
+                "memory_a_id": r[1],
+                "memory_b_id": r[2],
+                "confidence": r[3],
+                "detected_at": r[4],
             }
             for r in rows
         ]

@@ -36,11 +36,11 @@ class MaintenanceScheduler:
     """
 
     _DEFAULT_INTERVALS: Dict[str, float] = {
-        "score_refresh":        1_800,   # 30 min
-        "semantic_dedup":       7_200,   # 2 h
-        "quarantine_purge":    21_600,   # 6 h
-        "contradiction_scan":   3_600,   # 1 h
-        "hierarchical_compress": 14_400, # 4 h
+        "score_refresh": 1_800,  # 30 min
+        "semantic_dedup": 7_200,  # 2 h
+        "quarantine_purge": 21_600,  # 6 h
+        "contradiction_scan": 3_600,  # 1 h
+        "hierarchical_compress": 14_400,  # 4 h
     }
 
     _TICK = 60  # seconds between due-task checks
@@ -91,9 +91,9 @@ class MaintenanceScheduler:
         with self._lock:
             return {
                 name: {
-                    "last_run":        t.last_run.isoformat() if t.last_run else None,
-                    "run_count":       t.run_count,
-                    "error_count":     t.error_count,
+                    "last_run": t.last_run.isoformat() if t.last_run else None,
+                    "run_count": t.run_count,
+                    "error_count": t.error_count,
                     "interval_seconds": t.interval,
                 }
                 for name, t in self._tasks.items()
@@ -114,7 +114,8 @@ class MaintenanceScheduler:
         now = datetime.now(timezone.utc)
         with self._lock:
             due = [
-                t for t in self._tasks.values()
+                t
+                for t in self._tasks.values()
                 if t.last_run is None
                 or (now - t.last_run).total_seconds() >= t.interval
             ]
@@ -130,14 +131,17 @@ class MaintenanceScheduler:
                 task.run_count += 1
             logger.debug(
                 "[MaintenanceScheduler] %s completed (run #%d)",
-                task.name, task.run_count,
+                task.name,
+                task.run_count,
             )
         except Exception as exc:
             with self._lock:
                 task.error_count += 1
             logger.warning(
                 "[MaintenanceScheduler] %s failed (error #%d): %s",
-                task.name, task.error_count, exc,
+                task.name,
+                task.error_count,
+                exc,
             )
 
     # ------------------------------------------------------------------
@@ -156,8 +160,10 @@ class MaintenanceScheduler:
             scorer = get_memory_scorer()
             store = get_memory_store()
             all_entries = (
-                ms.episodic_memory + ms.semantic_memory
-                + ms.procedural_memory + ms.document_memory
+                ms.episodic_memory
+                + ms.semantic_memory
+                + ms.procedural_memory
+                + ms.document_memory
             )
             scores = scorer.batch_score(all_entries)
             for entry in all_entries:
@@ -210,7 +216,9 @@ class MaintenanceScheduler:
             candidates = (ms.episodic_memory + ms.semantic_memory)[:200]
             found = detector.scan(candidates)
             if found:
-                logger.info("[contradiction_scan] %d contradictions detected", len(found))
+                logger.info(
+                    "[contradiction_scan] %d contradictions detected", len(found)
+                )
 
         def _hierarchical_compress() -> None:
             from ai.memory.hierarchical_compressor import get_compressor
@@ -219,11 +227,17 @@ class MaintenanceScheduler:
             if result:
                 logger.info("[hierarchical_compress] %s", result)
 
-        self.register("score_refresh",        _score_refresh,        ivs["score_refresh"])
-        self.register("semantic_dedup",       _semantic_dedup,       ivs["semantic_dedup"])
-        self.register("quarantine_purge",     _quarantine_purge,     ivs["quarantine_purge"])
-        self.register("contradiction_scan",   _contradiction_scan,   ivs["contradiction_scan"])
-        self.register("hierarchical_compress",_hierarchical_compress,ivs["hierarchical_compress"])
+        self.register("score_refresh", _score_refresh, ivs["score_refresh"])
+        self.register("semantic_dedup", _semantic_dedup, ivs["semantic_dedup"])
+        self.register("quarantine_purge", _quarantine_purge, ivs["quarantine_purge"])
+        self.register(
+            "contradiction_scan", _contradiction_scan, ivs["contradiction_scan"]
+        )
+        self.register(
+            "hierarchical_compress",
+            _hierarchical_compress,
+            ivs["hierarchical_compress"],
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 """Tests for AmbientMonitor — verifies world model writes without real API calls."""
+
 from datetime import datetime, timezone
 
 from brain.ambient_monitor import AmbientMonitor, AmbientConfig
@@ -9,8 +10,10 @@ def _clock():
     return datetime.now(timezone.utc)
 
 
-def test_ambient_monitor_poll_goals_writes_stale_task_to_world_model(tmp_path, monkeypatch):
-    from ai.goals.goal_engine import GoalEngine, Goal
+def test_ambient_monitor_poll_goals_writes_stale_task_to_world_model(
+    tmp_path, monkeypatch
+):
+    from ai.goals.goal_engine import GoalEngine
 
     engine = GoalEngine(goals_file=tmp_path / "goals.json")
     engine.add("finish the routing refactor", priority=1)
@@ -28,12 +31,14 @@ def test_ambient_monitor_poll_goals_writes_stale_task_to_world_model(tmp_path, m
     )
 
     # Patch get_goal_engine to return our controlled engine
-    import brain.ambient_monitor as am_mod
     import ai.goals.goal_engine as ge_mod
+
     monkeypatch.setattr(ge_mod, "get_goal_engine", lambda: engine)
 
     model = WorldModel(tmp_path / "world_model.json")
-    monitor = AmbientMonitor(world_model=model, config=AmbientConfig(stale_goal_days=1.0))
+    monitor = AmbientMonitor(
+        world_model=model, config=AmbientConfig(stale_goal_days=1.0)
+    )
     result = monitor.run_once()
 
     assert result["goals"].get("stale_count", 0) >= 1
@@ -45,8 +50,20 @@ def test_ambient_monitor_poll_goals_writes_stale_task_to_world_model(tmp_path, m
 def test_ambient_monitor_update_upcoming_calendar(tmp_path):
     model = WorldModel(tmp_path / "world_model.json")
     events = [
-        {"title": "Stand-up", "start": "2026-05-18T09:00:00+00:00", "end": "2026-05-18T09:30:00+00:00", "location": "", "all_day": False},
-        {"title": "Review", "start": "2026-05-18T14:00:00+00:00", "end": "2026-05-18T15:00:00+00:00", "location": "", "all_day": False},
+        {
+            "title": "Stand-up",
+            "start": "2026-05-18T09:00:00+00:00",
+            "end": "2026-05-18T09:30:00+00:00",
+            "location": "",
+            "all_day": False,
+        },
+        {
+            "title": "Review",
+            "start": "2026-05-18T14:00:00+00:00",
+            "end": "2026-05-18T15:00:00+00:00",
+            "location": "",
+            "all_day": False,
+        },
     ]
     model.update_upcoming_calendar(events)
     snapshot = model.snapshot()

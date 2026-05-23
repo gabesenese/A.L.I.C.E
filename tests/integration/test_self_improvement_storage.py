@@ -22,4 +22,3 @@ def test_behavior_event_saved_to_jsonl(monkeypatch, tmp_path):
     assert rows
     assert rows[-1]["failure_kind"] == "greeting_tone"
     assert get_data_path("behavior_events.jsonl").exists()
-

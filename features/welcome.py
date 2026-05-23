@@ -12,7 +12,6 @@ from pathlib import Path
 
 from features.welcome_validation import (
     is_valid_startup_greeting,
-    validate_startup_greeting,
 )
 
 _GREETING_MESSAGES = {

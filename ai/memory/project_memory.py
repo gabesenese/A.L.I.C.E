@@ -158,7 +158,10 @@ def update_project_state(
 
 
 def record_failure(
-    kind: str, detail: str, evidence: Dict[str, Any] | None = None, user_id: str = "default"
+    kind: str,
+    detail: str,
+    evidence: Dict[str, Any] | None = None,
+    user_id: str = "default",
 ) -> ProjectMemoryState:
     payload = {
         "last_failure": f"{kind}: {detail}".strip(": "),
@@ -172,7 +175,10 @@ def record_failure(
 
 
 def record_success(
-    kind: str, detail: str, evidence: Dict[str, Any] | None = None, user_id: str = "default"
+    kind: str,
+    detail: str,
+    evidence: Dict[str, Any] | None = None,
+    user_id: str = "default",
 ) -> ProjectMemoryState:
     msg = f"{kind}: {detail}".strip(": ")
     if evidence:
@@ -204,7 +210,9 @@ def record_test_run(
 
 
 def record_user_correction(text: str, user_id: str = "default") -> ProjectMemoryState:
-    return update_project_state({"user_corrections": [str(text or "")]}, user_id=user_id)
+    return update_project_state(
+        {"user_corrections": [str(text or "")]}, user_id=user_id
+    )
 
 
 def get_next_context_summary(user_id: str = "default") -> Dict[str, Any]:
@@ -215,7 +223,9 @@ def get_next_context_summary(user_id: str = "default") -> Dict[str, Any]:
         "last_failure": state.last_failure,
         "last_success": state.last_success,
         "known_blockers": list(state.known_blockers or [])[:5],
-        "last_inspected_file": (state.files_inspected[-1] if state.files_inspected else ""),
+        "last_inspected_file": (
+            state.files_inspected[-1] if state.files_inspected else ""
+        ),
         "next_recommended_action": state.next_recommended_action,
         "last_recommended_action": dict(state.last_recommended_action or {}),
         "last_self_improvement_event_id": state.last_self_improvement_event_id,

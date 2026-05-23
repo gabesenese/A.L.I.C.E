@@ -18,7 +18,7 @@ _INTENT_DOMAIN_MAP = {
 
 # TTL per domain in seconds
 _DOMAIN_TTL: dict[str, float] = {
-    "weather": 1800.0,   # 30 min
+    "weather": 1800.0,  # 30 min
     "forecast": 3600.0,  # 1 hr
 }
 
