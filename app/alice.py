@@ -19,9 +19,15 @@ warnings.filterwarnings("ignore")
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
-# Set minimal logging
+# Set minimal logging — ERROR only so internal INFO/WARNING never reach the UI
 logging.basicConfig(level=logging.ERROR, format="%(message)s")
-for logger_name in ["tensorflow", "torch", "sentence_transformers", "transformers"]:
+for logger_name in [
+    "tensorflow", "torch", "sentence_transformers", "transformers",
+    "googleapiclient", "googleapiclient.discovery_cache",
+    "google.auth", "google.auth.transport",
+    "ai.memory", "ai.plugins", "ai.core", "ai.runtime",
+    "ai.memory.maintenance_scheduler",
+]:
     logging.getLogger(logger_name).setLevel(logging.ERROR)
 
 # Ensure project root is on sys.path when running as a script

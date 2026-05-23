@@ -31,7 +31,13 @@ class _FallbackLoggerAdapter(logging.LoggerAdapter):
 
 
 def configure_logging(log_level: str = "INFO") -> None:
-    """Configure root logging level. Called once at app startup."""
+    """Configure root logging level. Called once at app startup.
+
+    No-ops if logging is already configured — this lets alice.py set ERROR
+    level first and have it respected when create_app() runs on import.
+    """
+    if logging.root.handlers:
+        return  # already configured by the caller (e.g. alice.py) — don't override
     level = getattr(logging, str(log_level or "INFO").upper(), logging.INFO)
     logging.basicConfig(
         level=level,
