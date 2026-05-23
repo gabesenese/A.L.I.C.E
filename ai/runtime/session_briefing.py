@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional
+from typing import Any, List
 
 
 def _recent_emotional_signals(identity: Any, hours: float = 48.0) -> List[str]:
@@ -33,6 +33,7 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
     identity = None
     try:
         from ai.identity.user_identity import load_identity
+
         identity = load_identity(user_id)
         name = identity.name if identity.name else user_id.capitalize()
     except Exception:
@@ -52,6 +53,7 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
     wm = None
     try:
         from memory.world_model import get_world_model
+
         wm = get_world_model()
         snapshot = wm.snapshot()
     except Exception:
@@ -73,7 +75,9 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
                             time_str = "All day"
                         else:
                             time_str = start_dt.strftime("%H:%M")
-                        today_lines.append(f"  • {ev.get('title', 'Event')} at {time_str}")
+                        today_lines.append(
+                            f"  • {ev.get('title', 'Event')} at {time_str}"
+                        )
                 except (ValueError, AttributeError):
                     continue
             if today_lines:
@@ -86,9 +90,7 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
         unread = int(snapshot.get("environment", {}).get("unread_email_count") or 0)
         email_age = wm.data_age_seconds("email") if wm is not None else None
         if unread and email_age is not None and email_age < 7200:
-            parts.append(
-                f"You have {unread} unread email{'s' if unread != 1 else ''}."
-            )
+            parts.append(f"You have {unread} unread email{'s' if unread != 1 else ''}.")
     except Exception:
         pass
 
@@ -96,6 +98,7 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
     active: list = []
     try:
         from ai.goals.goal_engine import get_goal_engine
+
         engine = get_goal_engine()
         active = engine.active()
         if active:
@@ -117,7 +120,8 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
         goal_texts = {g.description.lower() for g in active}
         open_tasks = list(snapshot.get("environment", {}).get("open_tasks") or [])
         novel_tasks = [
-            t for t in open_tasks
+            t
+            for t in open_tasks
             if t.get("text")
             and t.get("source") in _GOOD_TASK_SOURCES
             and not any(goal_frag in t["text"].lower() for goal_frag in goal_texts)
@@ -135,7 +139,9 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
             if recent_emotions:
                 unique = list(dict.fromkeys(recent_emotions))  # ordered dedup
                 signals_str = ", ".join(unique[:3])
-                parts.append(f"Last session you mentioned feeling {signals_str} — how are you doing now?")
+                parts.append(
+                    f"Last session you mentioned feeling {signals_str} — how are you doing now?"
+                )
     except Exception:
         pass
 

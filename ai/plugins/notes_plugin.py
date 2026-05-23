@@ -1932,7 +1932,9 @@ class NotesPlugin(PluginInterface):
         return {
             "success": False,
             "action": action,
-            "response": str(question or "Could you be more specific about which note you mean?"),
+            "response": str(
+                question or "Could you be more specific about which note you mean?"
+            ),
             "data": {
                 "error": "clarification_required",
                 "message_code": message_code,
@@ -2719,7 +2721,9 @@ class NotesPlugin(PluginInterface):
             "command": "",
             "created_at": datetime.now().isoformat(),
         }
-        titles = "\n".join(f"{i+1}. {c['title']}" for i, c in enumerate(candidate_payload))
+        titles = "\n".join(
+            f"{i + 1}. {c['title']}" for i, c in enumerate(candidate_payload)
+        )
         return {
             "success": False,
             "action": action,
@@ -3683,8 +3687,12 @@ class NotesPlugin(PluginInterface):
             # Guard: exclude list-style "read my notes" and existence queries "notes open?"
             elif (
                 result is None
-                and not re.search(r"\bread\s+(?:me\s+)?(?:my|all|the|your)\s+notes?\b", command_lower)
-                and not re.search(r"\bnotes?\s+open\b|\bhave.*notes?\s+open\b", command_lower)
+                and not re.search(
+                    r"\bread\s+(?:me\s+)?(?:my|all|the|your)\s+notes?\b", command_lower
+                )
+                and not re.search(
+                    r"\bnotes?\s+open\b|\bhave.*notes?\s+open\b", command_lower
+                )
                 and (
                     any(
                         word in command_lower
@@ -3815,8 +3823,13 @@ class NotesPlugin(PluginInterface):
                         word in command_lower
                         for word in ["list", "show", "all notes", "my notes"]
                     )
-                    or re.search(r"\bread\s+(?:me\s+)?(?:my|all|the|your)\s+notes?\b", command_lower)
-                    or re.search(r"\bnotes?\s+open\b|\bhave.*notes?\s+open\b", command_lower)
+                    or re.search(
+                        r"\bread\s+(?:me\s+)?(?:my|all|the|your)\s+notes?\b",
+                        command_lower,
+                    )
+                    or re.search(
+                        r"\bnotes?\s+open\b|\bhave.*notes?\s+open\b", command_lower
+                    )
                     or re.search(
                         r"(?:do|did)\s+(?:i|we|you)\s+(?:not\s+)?have.*notes?",
                         command_lower,
@@ -4412,11 +4425,12 @@ class NotesPlugin(PluginInterface):
             }
 
         self.last_note_result_ids = [n.id for n in results[:10]]
-        result_lines = [f"{i+1}. {n.title}" for i, n in enumerate(results[:10])]
+        result_lines = [f"{i + 1}. {n.title}" for i, n in enumerate(results[:10])]
         return {
             "success": True,
             "action": "search_notes",
-            "response": f"Found {len(results)} note(s) for '{query}':\n" + "\n".join(result_lines),
+            "response": f"Found {len(results)} note(s) for '{query}':\n"
+            + "\n".join(result_lines),
             "data": {
                 "query": query,
                 "count": len(results),
@@ -4605,7 +4619,8 @@ class NotesPlugin(PluginInterface):
                     hint = m.group(1).strip()
                     break
             not_found_msg = (
-                f"I couldn't find a note about '{hint}'." if hint
+                f"I couldn't find a note about '{hint}'."
+                if hint
                 else "I couldn't find that note."
             )
             return {
@@ -4626,7 +4641,11 @@ class NotesPlugin(PluginInterface):
         self.last_note_title = note.title
 
         content_preview = (note.content or "").strip()
-        response_text = f"**{note.title}**\n\n{content_preview}" if content_preview else f"**{note.title}** (no content)"
+        response_text = (
+            f"**{note.title}**\n\n{content_preview}"
+            if content_preview
+            else f"**{note.title}** (no content)"
+        )
 
         return {
             "success": True,

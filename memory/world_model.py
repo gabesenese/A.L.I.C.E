@@ -50,12 +50,18 @@ def _default_state() -> Dict[str, Any]:
     }
 
 
-def _dedupe_records(records: List[Dict[str, Any]], *, key_field: str, limit: int) -> List[Dict[str, Any]]:
+def _dedupe_records(
+    records: List[Dict[str, Any]], *, key_field: str, limit: int
+) -> List[Dict[str, Any]]:
     seen = set()
     out: List[Dict[str, Any]] = []
     for raw in records:
         item = dict(raw or {})
-        key = str(item.get(key_field) or item.get("text") or item.get("goal") or "").strip().lower()
+        key = (
+            str(item.get(key_field) or item.get("text") or item.get("goal") or "")
+            .strip()
+            .lower()
+        )
         if not key or key in seen:
             continue
         seen.add(key)
@@ -129,7 +135,9 @@ class WorldModel:
     def save(self) -> None:
         self._state["updated_at"] = _now_iso()
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(json.dumps(self._state, indent=2, sort_keys=True), encoding="utf-8")
+        tmp.write_text(
+            json.dumps(self._state, indent=2, sort_keys=True), encoding="utf-8"
+        )
         tmp.replace(self.path)
 
     def snapshot(self) -> Dict[str, Any]:
@@ -141,9 +149,9 @@ class WorldModel:
     # Minimum personality values that preserve companion character.
     # Drift below these breaks the JARVIS-style presence we want.
     _PERSONALITY_FLOORS = {
-        "humor_threshold": (None, None),   # (min, max): uncapped — default 0.5
+        "humor_threshold": (None, None),  # (min, max): uncapped — default 0.5
         "curiosity_weight": (0.45, None),  # min 0.45 keeps engagement alive
-        "directness": (0.45, None),        # min 0.45 — default is 0.6, floor below default
+        "directness": (0.45, None),  # min 0.45 — default is 0.6, floor below default
     }
 
     def update_personality(self, personality: Dict[str, Any]) -> None:
@@ -175,7 +183,9 @@ class WorldModel:
         self.save()
 
     def set_last_proactive_interrupt(self, timestamp: Optional[str] = None) -> None:
-        self._state["alice_state"]["last_proactive_interrupt"] = str(timestamp or _now_iso())
+        self._state["alice_state"]["last_proactive_interrupt"] = str(
+            timestamp or _now_iso()
+        )
         self.save()
 
     def mark_thread_resolved(self, text: str) -> None:
@@ -293,8 +303,12 @@ class WorldModel:
             topics_store[topic] = rec
         if topics_store:
             # Keep only top 30 by confidence to prevent unbounded growth
-            sorted_topics = sorted(topics_store.values(), key=lambda x: x["confidence"], reverse=True)
-            self._state["topic_confidence"] = {r["topic"]: r for r in sorted_topics[:30]}
+            sorted_topics = sorted(
+                topics_store.values(), key=lambda x: x["confidence"], reverse=True
+            )
+            self._state["topic_confidence"] = {
+                r["topic"]: r for r in sorted_topics[:30]
+            }
             self.save()
 
     def high_confidence_topics(self, min_confidence: float = 0.5) -> List[str]:
@@ -302,7 +316,9 @@ class WorldModel:
         store: Dict[str, Any] = dict(self._state.get("topic_confidence") or {})
         return [
             rec["topic"]
-            for rec in sorted(store.values(), key=lambda x: x["confidence"], reverse=True)
+            for rec in sorted(
+                store.values(), key=lambda x: x["confidence"], reverse=True
+            )
             if float(rec.get("confidence", 0)) >= min_confidence
         ]
 
@@ -350,11 +366,14 @@ class WorldModel:
                 return False
         now = str(timestamp or _now_iso())
         self._state["environment"]["open_tasks"] = _dedupe_records(
-            list(self._state["environment"].get("open_tasks") or []) + [{
-                "text": str(text or "").strip()[:180],
-                "created_at": now,
-                "source": str(source or "ambient"),
-            }],
+            list(self._state["environment"].get("open_tasks") or [])
+            + [
+                {
+                    "text": str(text or "").strip()[:180],
+                    "created_at": now,
+                    "source": str(source or "ambient"),
+                }
+            ],
             key_field="text",
             limit=40,
         )

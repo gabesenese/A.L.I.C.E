@@ -43,7 +43,6 @@ from ai.runtime.anti_overclarification_policy import (
 )
 from ai.runtime.local_action_executor import LocalActionExecutor
 from ai.runtime.operator_state import (
-    commit_operator_state_to_project_memory,
     sync_operator_state_with_project_memory,
     update_operator_state,
 )
@@ -328,17 +327,41 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if "?" in text:
             return False
         # Explicit opt-out markers
-        if any(m in text for m in ("don't want you to check", "dont want you to check", "just saying")):
+        if any(
+            m in text
+            for m in (
+                "don't want you to check",
+                "dont want you to check",
+                "just saying",
+            )
+        ):
             return True
-        if "weather" not in text and not any(m in text for m in ("sun is out", "sunny out", "nice out", "beautiful out")):
+        if "weather" not in text and not any(
+            m in text for m in ("sun is out", "sunny out", "nice out", "beautiful out")
+        ):
             return False
         # Don't flag personal reactions / gratitude as commentary — let the
         # pre-tool veto handle those (they need route="tool" to trigger the veto).
-        _gratitude = ("thanks", "thank you", "appreciate it", "good to know", "letting me know")
+        _gratitude = (
+            "thanks",
+            "thank you",
+            "appreciate it",
+            "good to know",
+            "letting me know",
+        )
         if any(m in text for m in _gratitude):
             return False
-        _personal_state = ("got a cold", "i got sick", "feel sick", "not feeling well",
-                           "under the weather", "i'm sick", "i feel", "i got", "i'm tired")
+        _personal_state = (
+            "got a cold",
+            "i got sick",
+            "feel sick",
+            "not feeling well",
+            "under the weather",
+            "i'm sick",
+            "i feel",
+            "i got",
+            "i'm tired",
+        )
         if any(m in text for m in _personal_state):
             return False
         # Positive weather statement: "weather is/was/has been [positive adjective]"
@@ -350,17 +373,33 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if _positive_weather.search(text):
             return True
         # "weather in [place]" / "weather [place]" — implicit lookup, not commentary
-        if re.search(r"\bweather\s+(?:in|for|at|near|around)\s+\w", text, re.IGNORECASE):
+        if re.search(
+            r"\bweather\s+(?:in|for|at|near|around)\s+\w", text, re.IGNORECASE
+        ):
             return False
         # Atmospheric statements without a request verb — require at least 5 words
         # to avoid catching short lookup inputs like "weather nested" or "weather boston".
-        _request_verbs = re.compile(r"\b(can|could|should|will|would|is|are|do|does|check|get|tell me|what is|what's|how is|how's|show|look up|fetch|pull)\b", re.IGNORECASE)
-        _work_intent = re.compile(r"\b(ready to work|work on alice|work on the project|let'?s work|let'?s continue|back to alice|back to working)\b", re.IGNORECASE)
-        if "weather" in text and not _request_verbs.search(text) and not _work_intent.search(text):
+        _request_verbs = re.compile(
+            r"\b(can|could|should|will|would|is|are|do|does|check|get|tell me|what is|what's|how is|how's|show|look up|fetch|pull)\b",
+            re.IGNORECASE,
+        )
+        _work_intent = re.compile(
+            r"\b(ready to work|work on alice|work on the project|let'?s work|let'?s continue|back to alice|back to working)\b",
+            re.IGNORECASE,
+        )
+        if (
+            "weather" in text
+            and not _request_verbs.search(text)
+            and not _work_intent.search(text)
+        ):
             if len(text.split()) >= 5:
                 return True
         # "sun is out", "it's sunny", "sunny today", "nice day"
-        if re.search(r"\b(sun is out|it'?s? sunny|sunny (?:today|out)|beautiful day|nice day(?: out)?|lovely day)\b", text, re.IGNORECASE):
+        if re.search(
+            r"\b(sun is out|it'?s? sunny|sunny (?:today|out)|beautiful day|nice day(?: out)?|lovely day)\b",
+            text,
+            re.IGNORECASE,
+        ):
             return True
         return False
 
@@ -590,6 +629,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         }:
             try:
                 from ai.identity.alice_identity import build_self_block
+
                 _self = build_self_block(include_opinions=True, include_session=True)
                 if _self:
                     lines.append(
@@ -607,6 +647,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if not objective:
             try:
                 from ai.goals.goal_engine import get_goal_engine
+
                 _top = get_goal_engine().top_goal()
                 if _top:
                     objective = str(_top.description or "").strip()
@@ -621,6 +662,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         # Learned preferences (brevity, tone, format)
         try:
             from ai.runtime.user_identity import load_identity
+
             _identity = load_identity()
             prefs = dict(getattr(_identity, "learned_preferences", {}) or {})
             pref_parts = []
@@ -659,9 +701,19 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         # Unresolved threads (what Gabriel might be expecting a follow-up on)
         try:
             _threads = list(
-                (getattr(alice, "_companion_state_cache", None) and
-                 getattr(getattr(alice, "_companion_state_cache", None), "memory_domains", None) and
-                 getattr(getattr(alice, "_companion_state_cache", None).memory_domains, "unresolved_threads", []))
+                (
+                    getattr(alice, "_companion_state_cache", None)
+                    and getattr(
+                        getattr(alice, "_companion_state_cache", None),
+                        "memory_domains",
+                        None,
+                    )
+                    and getattr(
+                        getattr(alice, "_companion_state_cache", None).memory_domains,
+                        "unresolved_threads",
+                        [],
+                    )
+                )
                 or []
             )
             if _threads:
@@ -673,8 +725,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         # Goal observations — only for project/code turns, not casual or tool queries
         _project_intent = any(
-            _intent.startswith(pfx)
-            for pfx in ("code:", "file:", "plugin:", "notes:")
+            _intent.startswith(pfx) for pfx in ("code:", "file:", "plugin:", "notes:")
         ) or _intent in (
             "conversation:goal_statement",
             "conversation:project_work_session",
@@ -684,6 +735,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             # Stale goals, blockers
             try:
                 from ai.goals.goal_engine import get_goal_engine
+
                 _engine = get_goal_engine()
                 _observations: List[str] = []
 
@@ -715,6 +767,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             if user_input:
                 try:
                     from ai.goals.goal_attributor import get_attributed_goal_context
+
                     _goal_ctx = get_attributed_goal_context(
                         user_input=user_input,
                         intent=_intent,
@@ -1095,12 +1148,17 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 return ""
 
             from datetime import date as _date, timedelta as _td
+
             _today = _date.today()
             _day_labels = {
                 _today.isoformat(): "today",
                 (_today + _td(days=1)).isoformat(): "tomorrow",
-                (_today + _td(days=2)).isoformat(): (_today + _td(days=2)).strftime("%A"),
-                (_today + _td(days=3)).isoformat(): (_today + _td(days=3)).strftime("%A"),
+                (_today + _td(days=2)).isoformat(): (_today + _td(days=2)).strftime(
+                    "%A"
+                ),
+                (_today + _td(days=3)).isoformat(): (_today + _td(days=3)).strftime(
+                    "%A"
+                ),
             }
 
             parts = []
@@ -1216,7 +1274,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
-        if _is_recommendation_approval_phrase(req.user_input) and last_recommended_action:
+        if (
+            _is_recommendation_approval_phrase(req.user_input)
+            and last_recommended_action
+        ):
             requires_approval = bool(last_recommended_action.get("requires_approval"))
             intent = (
                 "operator:continue"
@@ -1248,9 +1309,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
         ):
             intent = (
-                "operator:next_step"
-                if "next" in low
-                else "operator:project_status"
+                "operator:next_step" if "next" in low else "operator:project_status"
             )
             return RouterDecision(
                 route="local",
@@ -1341,7 +1400,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 low,
             )
         )
-        if continue_command and bool(state.get("active_objective") or project_state.active_objective):
+        if continue_command and bool(
+            state.get("active_objective") or project_state.active_objective
+        ):
             return RouterDecision(
                 route="local",
                 intent="operator:continue",
@@ -1728,6 +1789,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         # Fuse router confidence with behavioral priors + intent success history
         try:
             from ai.core.confidence_fusion import get_confidence_fusion
+
             confidence = get_confidence_fusion().fuse(
                 router_confidence=raw_confidence,
                 intent=intent,
@@ -1749,7 +1811,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if (
             intent.startswith("weather:")
             and not is_explicit_weather_request(req.user_input)
-            and dominant_hint in {"conversation:goal_statement", "conversation:educational_explain"}
+            and dominant_hint
+            in {"conversation:goal_statement", "conversation:educational_explain"}
         ):
             intent = dominant_hint
             route = "llm"
@@ -1844,7 +1907,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 reroute_intent = _fallback_answer_intent(req.user_input)
                 reroute_route = (
                     "local"
-                    if reroute_intent.startswith("operator:") or reroute_intent.startswith("code:")
+                    if reroute_intent.startswith("operator:")
+                    or reroute_intent.startswith("code:")
                     else "llm"
                 )
                 return RouterDecision(
@@ -2220,7 +2284,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 session_state=session_state,
                 user_input=req.user_input,
                 llm_generate=(
-                    (lambda prompt=None, **_kwargs: str(alice.llm.chat(str(prompt or ""), use_history=False) or ""))
+                    (
+                        lambda prompt=None, **_kwargs: str(
+                            alice.llm.chat(str(prompt or ""), use_history=False) or ""
+                        )
+                    )
                     if getattr(alice, "llm", None)
                     else None
                 ),
@@ -2569,7 +2637,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         )
                         update_project_state(
                             {
-                                "last_success": str(req.decision.intent or "local_success"),
+                                "last_success": str(
+                                    req.decision.intent or "local_success"
+                                ),
                                 "last_failure": "",
                                 "current_step": "observe_result",
                                 "files_inspected": [inspected] if inspected else [],
@@ -2585,12 +2655,15 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 _conversational_tool = _intent_str.startswith("weather:")
                 if _conversational_tool and getattr(alice, "llm", None):
                     try:
-                        _llm_ans = str(alice.llm.chat(
-                            req.user_input,
-                            use_history=True,
-                            context=f"Data retrieved: {tool_response}",
-                            intent=_intent_str,
-                        ) or "").strip()
+                        _llm_ans = str(
+                            alice.llm.chat(
+                                req.user_input,
+                                use_history=True,
+                                context=f"Data retrieved: {tool_response}",
+                                intent=_intent_str,
+                            )
+                            or ""
+                        ).strip()
                         if _llm_ans:
                             tool_response = _llm_ans
                     except Exception:
@@ -2654,7 +2727,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
         ):
             _fail_payload = dict(req.tool_result.data or {})
-            _nested_fail = _fail_payload.get("data") if isinstance(_fail_payload.get("data"), dict) else {}
+            _nested_fail = (
+                _fail_payload.get("data")
+                if isinstance(_fail_payload.get("data"), dict)
+                else {}
+            )
             _fallback_msg = (
                 str(_fail_payload.get("fallback_message") or "").strip()
                 or str((_nested_fail or {}).get("fallback_message") or "").strip()
@@ -2728,7 +2805,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                             use_history=True,
                             context=_companion_ctx or None,
                             intent=_turn_intent,
-                        ) or ""
+                        )
+                        or ""
                     ).strip()
                 except TypeError:
                     llm_text = str(
@@ -2738,11 +2816,23 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 # Retry gate: if the LLM hedged, gave a non-answer, or was too dry/short
                 # on a discussion/brainstorm turn, force one harder pass.
                 _hedge_patterns = (
-                    "i don't know", "i dont know", "i'm not sure", "i am not sure",
-                    "i can't say", "i cannot say", "hard to say", "difficult to say",
-                    "unclear", "it depends", "what aspects", "what specifically",
-                    "what do you mean", "could you clarify", "could you specify",
-                    "what are you looking for", "what would you like to explore",
+                    "i don't know",
+                    "i dont know",
+                    "i'm not sure",
+                    "i am not sure",
+                    "i can't say",
+                    "i cannot say",
+                    "hard to say",
+                    "difficult to say",
+                    "unclear",
+                    "it depends",
+                    "what aspects",
+                    "what specifically",
+                    "what do you mean",
+                    "could you clarify",
+                    "could you specify",
+                    "what are you looking for",
+                    "what would you like to explore",
                 )
                 _is_discussion = _turn_intent in {
                     "conversation:goal_statement",
@@ -2760,10 +2850,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     and not any(c in llm_text for c in [".", "!", ":"])
                 )
                 # Detect dry/dismissive short responses: under 50 words with no follow-up
-                _is_too_short = (
-                    len(llm_text.split()) < 50
-                    and "?" not in llm_text
-                )
+                _is_too_short = len(llm_text.split()) < 50 and "?" not in llm_text
                 if _is_discussion and (_is_hedge or _is_question_only or _is_too_short):
                     _retry_ctx = (
                         (_companion_ctx + "\n\n" if _companion_ctx else "")
@@ -2779,7 +2866,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                                 use_history=False,
                                 context=_retry_ctx,
                                 intent=_turn_intent,
-                            ) or ""
+                            )
+                            or ""
                         ).strip()
                     except TypeError:
                         _retry = str(
@@ -2790,7 +2878,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
                 # Strip trailing question on brainstorm/discussion turns — let the take stand.
                 if _is_discussion and llm_text.endswith("?"):
-                    _sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", llm_text) if s.strip()]
+                    _sentences = [
+                        s.strip()
+                        for s in re.split(r"(?<=[.!?])\s+", llm_text)
+                        if s.strip()
+                    ]
                     if len(_sentences) > 1 and _sentences[-1].endswith("?"):
                         llm_text = " ".join(_sentences[:-1])
             except Exception:
@@ -2806,12 +2898,20 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             low_input = str(req.user_input or "").lower()
             continuation_cue = any(
                 cue in low_input
-                for cue in ("continue", "pick up", "where were we", "what's next", "whats next")
+                for cue in (
+                    "continue",
+                    "pick up",
+                    "where were we",
+                    "what's next",
+                    "whats next",
+                )
             )
             if bool(continuity.unsupported_continuity_claim) and (
                 greeting_turn or continuation_cue
             ):
-                session_state = dict(getattr(alice, "_greeting_session_state", {}) or {})
+                session_state = dict(
+                    getattr(alice, "_greeting_session_state", {}) or {}
+                )
                 user_name = str(getattr(alice, "user_name", "") or "")
                 greeting = render_grounded_greeting(
                     user_name=user_name,
@@ -2819,7 +2919,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     session_state=session_state,
                     user_input=req.user_input,
                     llm_generate=(
-                        (lambda prompt=None, **_kwargs: str(alice.llm.chat(str(prompt or ""), use_history=False) or ""))
+                        (
+                            lambda prompt=None, **_kwargs: str(
+                                alice.llm.chat(str(prompt or ""), use_history=False)
+                                or ""
+                            )
+                        )
                         if getattr(alice, "llm", None)
                         else None
                     ),
@@ -2849,37 +2954,67 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     if (greeting_turn or continuation_cue)
                     else "",
                     "broad_memory_suppressed": bool(greeting_turn or continuation_cue),
-                    "active_objective_used": bool(
-                        greeting.active_objective_used
+                    "active_objective_used": bool(greeting.active_objective_used)
+                    if (
+                        bool(continuity.unsupported_continuity_claim)
+                        and (greeting_turn or continuation_cue)
                     )
-                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else False,
                     "greeting_style": str(greeting.greeting_style)
-                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    if (
+                        bool(continuity.unsupported_continuity_claim)
+                        and (greeting_turn or continuation_cue)
+                    )
                     else "",
                     "suppressed_project_menu": bool(greeting.suppressed_project_menu)
-                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    if (
+                        bool(continuity.unsupported_continuity_claim)
+                        and (greeting_turn or continuation_cue)
+                    )
                     else False,
                     "repeated_greeting": bool(greeting.repeated_greeting)
-                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    if (
+                        bool(continuity.unsupported_continuity_claim)
+                        and (greeting_turn or continuation_cue)
+                    )
                     else False,
                     "generated_by": str(greeting.generated_by)
-                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    if (
+                        bool(continuity.unsupported_continuity_claim)
+                        and (greeting_turn or continuation_cue)
+                    )
                     else "",
                     "warmth_level": str(greeting.warmth_level)
-                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    if (
+                        bool(continuity.unsupported_continuity_claim)
+                        and (greeting_turn or continuation_cue)
+                    )
                     else "",
                     "companion_tone": bool(greeting.companion_tone)
-                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    if (
+                        bool(continuity.unsupported_continuity_claim)
+                        and (greeting_turn or continuation_cue)
+                    )
                     else False,
-                    "assistant_like_prompt_suppressed": bool(greeting.assistant_like_prompt_suppressed)
-                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    "assistant_like_prompt_suppressed": bool(
+                        greeting.assistant_like_prompt_suppressed
+                    )
+                    if (
+                        bool(continuity.unsupported_continuity_claim)
+                        and (greeting_turn or continuation_cue)
+                    )
                     else False,
                     "validation_passed": bool(greeting.validation_passed)
-                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    if (
+                        bool(continuity.unsupported_continuity_claim)
+                        and (greeting_turn or continuation_cue)
+                    )
                     else True,
                     "validation_reasons": list(greeting.validation_reasons)
-                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
+                    if (
+                        bool(continuity.unsupported_continuity_claim)
+                        and (greeting_turn or continuation_cue)
+                    )
                     else [],
                 },
             )
@@ -2895,7 +3030,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         elif route == "local":
             fallback_msg = "I couldn't complete that inspection. Check the file name and try again."
         else:
-            fallback_msg = "I wasn't sure how to respond to that. Could you be more specific?"
+            fallback_msg = (
+                "I wasn't sure how to respond to that. Could you be more specific?"
+            )
 
         return ResponseOutput(
             text=_surface_text(

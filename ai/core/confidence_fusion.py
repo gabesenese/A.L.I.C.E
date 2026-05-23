@@ -61,6 +61,7 @@ class ConfidenceFusion:
         base: Optional[float] = None
         try:
             from ai.learning.user_profile_engine import get_profile_engine
+
             priors: Dict[str, float] = get_profile_engine().get_intent_priors()
             if priors:
                 intent_prefix = str(intent or "").split(":")[0].lower()
@@ -79,8 +80,13 @@ class ConfidenceFusion:
 
         # Apply clarification feedback boost on top
         try:
-            from ai.optimization.clarification_feedback_loop import get_clarification_feedback_loop
-            boost = get_clarification_feedback_loop().get_confidence_boost(user_id, intent)
+            from ai.optimization.clarification_feedback_loop import (
+                get_clarification_feedback_loop,
+            )
+
+            boost = get_clarification_feedback_loop().get_confidence_boost(
+                user_id, intent
+            )
             if boost > 0:
                 base = min(1.0, (base or 0.5) + boost)
         except Exception:
@@ -94,6 +100,7 @@ class ConfidenceFusion:
         try:
             import json
             from pathlib import Path
+
             eval_path = Path("data/evaluations/evaluations.jsonl")
             if not eval_path.exists():
                 return None
