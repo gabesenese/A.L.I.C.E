@@ -3680,8 +3680,11 @@ class NotesPlugin(PluginInterface):
                 result = self._summarize_note_content(command)
 
             # Read/show full note content
+            # Guard: exclude list-style "read my notes" and existence queries "notes open?"
             elif (
                 result is None
+                and not re.search(r"\bread\s+(?:me\s+)?(?:my|all|the|your)\s+notes?\b", command_lower)
+                and not re.search(r"\bnotes?\s+open\b|\bhave.*notes?\s+open\b", command_lower)
                 and (
                     any(
                         word in command_lower
@@ -3812,6 +3815,8 @@ class NotesPlugin(PluginInterface):
                         word in command_lower
                         for word in ["list", "show", "all notes", "my notes"]
                     )
+                    or re.search(r"\bread\s+(?:me\s+)?(?:my|all|the|your)\s+notes?\b", command_lower)
+                    or re.search(r"\bnotes?\s+open\b|\bhave.*notes?\s+open\b", command_lower)
                     or re.search(
                         r"(?:do|did)\s+(?:i|we|you)\s+(?:not\s+)?have.*notes?",
                         command_lower,

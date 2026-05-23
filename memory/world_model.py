@@ -415,16 +415,6 @@ class WorldModel:
             source="open_task_signal",
             field="text",
         )
-        if requires_follow_up and text:
-            new_tasks.append(
-                {
-                    "text": text[:180],
-                    "created_at": now,
-                    "source": "follow_up_required",
-                    "route": str(route or ""),
-                    "intent": str(intent or ""),
-                }
-            )
         for item in new_intentions:
             new_tasks.append(
                 {

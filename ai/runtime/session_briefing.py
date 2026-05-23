@@ -32,7 +32,8 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
 
         identity = load_identity(user_id)
         engine = get_goal_engine()
-        snapshot = get_world_model().snapshot()
+        wm = get_world_model()
+        snapshot = wm.snapshot()
         now = datetime.now(timezone.utc)
 
         parts: list[str] = []
@@ -69,28 +70,36 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
             if today_lines:
                 parts.append("Today's schedule:\n" + "\n".join(today_lines))
 
-        # Unread email count
+        # Unread email count — only if data was fetched recently (within 2 hours)
         unread = int(snapshot.get("environment", {}).get("unread_email_count") or 0)
-        if unread:
+        email_age = wm.data_age_seconds("email")
+        if unread and email_age is not None and email_age < 7200:
             parts.append(
                 f"You have {unread} unread email{'s' if unread != 1 else ''}."
             )
 
-        # Active goals — top 3 only, full description
+        # Active goals — top 3, deduplicated by first significant word
         active = engine.active()
         if active:
-            goal_lines = [f"  • {g.description}" for g in active[:3]]
+            seen_prefixes: set[str] = set()
+            deduped: list = []
+            for g in active:
+                prefix = " ".join(g.description.lower().split()[:3])
+                if prefix not in seen_prefixes:
+                    seen_prefixes.add(prefix)
+                    deduped.append(g)
+            goal_lines = [f"  • {g.description}" for g in deduped[:3]]
             parts.append("Active goals:\n" + "\n".join(goal_lines))
 
-        # Open tasks from world model — only those not already covered by goals
+        # Open tasks — only from explicit task/intention sources, not raw conversation
+        _GOOD_TASK_SOURCES = {"open_task_signal", "ambient", "intention_unresolved"}
         goal_texts = {g.description.lower() for g in active}
         open_tasks = list(snapshot.get("environment", {}).get("open_tasks") or [])
         novel_tasks = [
             t for t in open_tasks
-            if t.get("text") and not any(
-                goal_frag in t["text"].lower()
-                for goal_frag in goal_texts
-            )
+            if t.get("text")
+            and t.get("source") in _GOOD_TASK_SOURCES
+            and not any(goal_frag in t["text"].lower() for goal_frag in goal_texts)
         ]
         if novel_tasks:
             task_lines = [f"  • {t['text']}" for t in novel_tasks[:2]]

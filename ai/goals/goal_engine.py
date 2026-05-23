@@ -259,7 +259,11 @@ class GoalEngine:
         existing = {g.description.lower() for g in self._goals}
         changed = False
         for desc in active_goals:
-            if desc and desc.lower() not in existing:
+            if not desc or len(desc) < 12:
+                continue
+            if _VAGUE_GOAL.match(desc) or _DANGLING_PRONOUN.search(desc):
+                continue
+            if desc.lower() not in existing:
                 goal = Goal(description=desc, priority=2)
                 self._goals.append(goal)
                 existing.add(desc.lower())
