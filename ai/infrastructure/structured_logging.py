@@ -31,6 +31,7 @@ class StructuredLogger:
         self.logger = logging.getLogger(name)
         self.logger.setLevel(getattr(logging, log_level.upper()))
         self.logger.handlers.clear()  # Remove existing handlers
+        self.logger.propagate = False  # prevent double-output via root propagation
 
         self.enable_json = enable_json
         self.context = threading.local()  # Thread-local context
@@ -223,10 +224,13 @@ _loggers = {}
 def get_structured_logger(
     name: str = "alice", log_level: str = "INFO", log_file: Optional[str] = None
 ) -> StructuredLogger:
-    """Get or create structured logger instance"""
+    """Get or create structured logger instance (file-only by default)."""
     if name not in _loggers:
         _loggers[name] = StructuredLogger(
-            name=name, log_level=log_level, log_file=log_file or f"logs/{name}.json"
+            name=name,
+            log_level=log_level,
+            log_file=log_file or f"logs/{name}.json",
+            enable_console=False,
         )
     return _loggers[name]
 
@@ -253,6 +257,22 @@ def configure_logging(
                 enable_console=enable_console,
                 enable_json=enable_json,
             )
+        else:
+            # Update existing instance: strip or add console handlers to match enable_console
+            inst = _loggers[name]
+            inst.logger.handlers = [
+                h for h in inst.logger.handlers if isinstance(h, logging.FileHandler)
+            ]
+            if enable_console:
+                ch = logging.StreamHandler(sys.stdout)
+                ch.setFormatter(
+                    JSONFormatter()
+                    if enable_json
+                    else logging.Formatter(
+                        "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+                    )
+                )
+                inst.logger.addHandler(ch)
         return _loggers[name]
 
     root_logger = _make(

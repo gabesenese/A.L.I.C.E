@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, List
+
+_PROCESS_START = time.monotonic()  # seconds since this process started
 
 
 def _recent_emotional_signals(identity: Any, hours: float = 48.0) -> List[str]:
@@ -85,11 +88,17 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
     except Exception:
         pass
 
-    # Unread email count — only if data was fetched recently (within 2 hours)
+    # Unread email count — only show if fetched during THIS session (not a previous run)
     try:
         unread = int(snapshot.get("environment", {}).get("unread_email_count") or 0)
         email_age = wm.data_age_seconds("email") if wm is not None else None
-        if unread and email_age is not None and email_age < 7200:
+        process_uptime = time.monotonic() - _PROCESS_START
+        if (
+            unread
+            and email_age is not None
+            and email_age < 7200
+            and email_age <= process_uptime + 120  # within 2-min buffer of process start
+        ):
             parts.append(f"You have {unread} unread email{'s' if unread != 1 else ''}.")
     except Exception:
         pass

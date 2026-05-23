@@ -241,7 +241,7 @@ class ALICE:
             level="DEBUG" if debug else "INFO",
             enable_json=not debug,
             log_dir="logs",
-            enable_console=debug,  # console output only in debug mode
+            enable_console=False,  # structured logs always go to files; thinking steps use _think()
         )
         self.structured_logger = get_structured_logger("alice")
         self.structured_logger.info(
@@ -7011,7 +7011,7 @@ class ALICE:
                 user_name=user_name,
                 asked_how=asked_how,
             )
-            if learned:
+            if learned and not self._greeting_is_time_inappropriate(learned):
                 return learned
             greeting = self._get_greeting()
             return greeting or "Hi. What should we work on?"
@@ -7531,6 +7531,28 @@ class ALICE:
             or (token.startswith("ali") and token.endswith("ce"))
             for token in tokens
         )
+
+    _NIGHT_GREETING_PHRASES = frozenset(
+        [
+            "up late",
+            "late again",
+            "still awake",
+            "night shift",
+            "quiet hours",
+            "late night",
+            "night session",
+            "late session",
+        ]
+    )
+
+    def _greeting_is_time_inappropriate(self, text: str) -> bool:
+        """Return True if a learned greeting is time-inappropriate for the current hour."""
+        hour = datetime.now().hour
+        low = text.lower()
+        # 6 AM – 8 PM: reject night/late phrases
+        if 6 <= hour < 20:
+            return any(phrase in low for phrase in self._NIGHT_GREETING_PHRASES)
+        return False
 
     def _learned_greeting_response(
         self,
