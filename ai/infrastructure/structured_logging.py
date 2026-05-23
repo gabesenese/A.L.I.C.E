@@ -232,24 +232,38 @@ def get_structured_logger(
 
 
 def configure_logging(
-    level: str = "INFO", enable_json: bool = True, log_dir: str = "logs"
+    level: str = "INFO",
+    enable_json: bool = True,
+    log_dir: str = "logs",
+    enable_console: bool = False,
 ):
-    """Configure global logging settings"""
-    # Create log directory
+    """Configure global logging settings.
+
+    enable_console=False (default) keeps all output in log files only,
+    which is correct for the production Rich UI. Pass True only in debug mode.
+    """
     Path(log_dir).mkdir(exist_ok=True)
 
-    # Configure root logger
-    root_logger = get_structured_logger(
-        name="alice",
-        log_level=level,
-        log_file=f"{log_dir}/alice.json" if enable_json else f"{log_dir}/alice.log",
-    )
+    def _make(name: str, lvl: str, log_file: str) -> StructuredLogger:
+        if name not in _loggers:
+            _loggers[name] = StructuredLogger(
+                name=name,
+                log_level=lvl,
+                log_file=log_file,
+                enable_console=enable_console,
+                enable_json=enable_json,
+            )
+        return _loggers[name]
 
-    # Component-specific loggers
-    get_structured_logger("alice.nlp", level, f"{log_dir}/nlp.json")
-    get_structured_logger("alice.llm", level, f"{log_dir}/llm.json")
-    get_structured_logger("alice.plugins", level, f"{log_dir}/plugins.json")
-    get_structured_logger("alice.learning", level, f"{log_dir}/learning.json")
-    get_structured_logger("alice.errors", "WARNING", f"{log_dir}/errors.json")
+    root_logger = _make(
+        "alice",
+        level,
+        f"{log_dir}/alice.json" if enable_json else f"{log_dir}/alice.log",
+    )
+    _make("alice.nlp", level, f"{log_dir}/nlp.json")
+    _make("alice.llm", level, f"{log_dir}/llm.json")
+    _make("alice.plugins", level, f"{log_dir}/plugins.json")
+    _make("alice.learning", level, f"{log_dir}/learning.json")
+    _make("alice.errors", "WARNING", f"{log_dir}/errors.json")
 
     return root_logger

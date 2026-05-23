@@ -58,12 +58,15 @@ def start_alice_rich(
     ui = RichTerminalUI(user_name)
     ui.show_loading("Initializing A.L.I.C.E systems")
 
-    # Initialize ALICE with stdout suppressed (unless debug, so thinking is visible)
+    # Initialize ALICE with stdout+stderr suppressed (unless debug)
+    # Suppressing stderr catches tqdm progress bars and model LOAD REPORTs
     import io
 
     old_stdout = sys.stdout
+    old_stderr = sys.stderr
     if not debug:
         sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
 
     try:
         alice = ALICE(
@@ -76,6 +79,7 @@ def start_alice_rich(
         )
         if not debug:
             sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
         ui.clear()
         ui.show_welcome()
@@ -126,6 +130,7 @@ def start_alice_rich(
 
     except Exception as e:
         sys.stdout = old_stdout
+        sys.stderr = old_stderr
         ui.print_error(f"Error starting A.L.I.C.E: {e}")
         ui.print_info("\nFor detailed error logs, run: python main.py")
 

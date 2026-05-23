@@ -239,8 +239,9 @@ class ALICE:
         # 0.1: Structured Logging System
         configure_logging(
             level="DEBUG" if debug else "INFO",
-            enable_json=not debug,  # Use JSON in production, human-readable in debug
+            enable_json=not debug,
             log_dir="logs",
+            enable_console=debug,  # console output only in debug mode
         )
         self.structured_logger = get_structured_logger("alice")
         self.structured_logger.info(
