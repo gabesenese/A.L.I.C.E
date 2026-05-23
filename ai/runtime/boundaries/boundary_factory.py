@@ -332,6 +332,15 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return True
         if "weather" not in text and not any(m in text for m in ("sun is out", "sunny out", "nice out", "beautiful out")):
             return False
+        # Don't flag personal reactions / gratitude as commentary — let the
+        # pre-tool veto handle those (they need route="tool" to trigger the veto).
+        _gratitude = ("thanks", "thank you", "appreciate it", "good to know", "letting me know")
+        if any(m in text for m in _gratitude):
+            return False
+        _personal_state = ("got a cold", "i got sick", "feel sick", "not feeling well",
+                           "under the weather", "i'm sick", "i feel", "i got", "i'm tired")
+        if any(m in text for m in _personal_state):
+            return False
         # Positive weather statement: "weather is/was/has been [positive adjective]"
         _positive_weather = re.compile(
             r"\bweather\s+(?:is|was|has been|looks?|feels?|seems?)\s+"
@@ -343,12 +352,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         # "weather in [place]" / "weather [place]" — implicit lookup, not commentary
         if re.search(r"\bweather\s+(?:in|for|at|near|around)\s+\w", text, re.IGNORECASE):
             return False
-        # Atmospheric statements without a request verb — but not when the message
-        # also contains a clear work/project intent after the weather aside.
-        _request_verbs = re.compile(r"\b(check|get|tell me|what is|what's|how is|how's|show|look up|fetch|pull)\b", re.IGNORECASE)
+        # Atmospheric statements without a request verb — require at least 5 words
+        # to avoid catching short lookup inputs like "weather nested" or "weather boston".
+        _request_verbs = re.compile(r"\b(can|could|should|will|would|is|are|do|does|check|get|tell me|what is|what's|how is|how's|show|look up|fetch|pull)\b", re.IGNORECASE)
         _work_intent = re.compile(r"\b(ready to work|work on alice|work on the project|let'?s work|let'?s continue|back to alice|back to working)\b", re.IGNORECASE)
         if "weather" in text and not _request_verbs.search(text) and not _work_intent.search(text):
-            return True
+            if len(text.split()) >= 5:
+                return True
         # "sun is out", "it's sunny", "sunny today", "nice day"
         if re.search(r"\b(sun is out|it'?s? sunny|sunny (?:today|out)|beautiful day|nice day(?: out)?|lovely day)\b", text, re.IGNORECASE):
             return True
@@ -2711,14 +2721,19 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     intent=_turn_intent,
                     user_input=str(req.user_input or ""),
                 )
-                llm_text = str(
-                    alice.llm.chat(
-                        req.user_input,
-                        use_history=True,
-                        context=_companion_ctx or None,
-                        intent=_turn_intent,
-                    ) or ""
-                ).strip()
+                try:
+                    llm_text = str(
+                        alice.llm.chat(
+                            req.user_input,
+                            use_history=True,
+                            context=_companion_ctx or None,
+                            intent=_turn_intent,
+                        ) or ""
+                    ).strip()
+                except TypeError:
+                    llm_text = str(
+                        alice.llm.chat(req.user_input, use_history=True) or ""
+                    ).strip()
 
                 # Retry gate: if the LLM hedged, gave a non-answer, or was too dry/short
                 # on a discussion/brainstorm turn, force one harder pass.
@@ -2757,14 +2772,19 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "Do NOT hedge, deflect, or just define terms. "
                         "Pick an angle and develop it — Gabriel can redirect if needed."
                     )
-                    _retry = str(
-                        alice.llm.chat(
-                            req.user_input,
-                            use_history=False,
-                            context=_retry_ctx,
-                            intent=_turn_intent,
-                        ) or ""
-                    ).strip()
+                    try:
+                        _retry = str(
+                            alice.llm.chat(
+                                req.user_input,
+                                use_history=False,
+                                context=_retry_ctx,
+                                intent=_turn_intent,
+                            ) or ""
+                        ).strip()
+                    except TypeError:
+                        _retry = str(
+                            alice.llm.chat(req.user_input, use_history=False) or ""
+                        ).strip()
                     if _retry and len(_retry) > len(llm_text):
                         llm_text = _retry
 

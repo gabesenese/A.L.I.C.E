@@ -1930,7 +1930,7 @@ class NotesPlugin(PluginInterface):
         resolution_path: str,
     ) -> Dict[str, Any]:
         return {
-            "success": True,
+            "success": False,
             "action": action,
             "response": str(question or "Could you be more specific about which note you mean?"),
             "data": {
@@ -2721,7 +2721,7 @@ class NotesPlugin(PluginInterface):
         }
         titles = "\n".join(f"{i+1}. {c['title']}" for i, c in enumerate(candidate_payload))
         return {
-            "success": True,
+            "success": False,
             "action": action,
             "response": f"I found multiple matching notes. Which one?\n{titles}\nReply with a number.",
             "data": {
@@ -3127,7 +3127,7 @@ class NotesPlugin(PluginInterface):
 
         if not note:
             return {
-                "success": True,
+                "success": False,
                 "action": "append_note",
                 "response": "Which note should I add to? Try 'add [text] to my [note name] note'.",
                 "data": {

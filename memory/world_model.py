@@ -141,9 +141,9 @@ class WorldModel:
     # Minimum personality values that preserve companion character.
     # Drift below these breaks the JARVIS-style presence we want.
     _PERSONALITY_FLOORS = {
-        "humor_threshold": (None, 0.45),   # (min, max): max 0.45 keeps humor enabled
+        "humor_threshold": (None, None),   # (min, max): uncapped — default 0.5
         "curiosity_weight": (0.45, None),  # min 0.45 keeps engagement alive
-        "directness": (0.65, None),        # min 0.65 keeps responses sharp
+        "directness": (0.45, None),        # min 0.45 — default is 0.6, floor below default
     }
 
     def update_personality(self, personality: Dict[str, Any]) -> None:
@@ -257,6 +257,9 @@ class WorldModel:
 
     def update_unread_email_count(self, count: int) -> None:
         self._state["environment"]["unread_email_count"] = max(0, int(count or 0))
+        fetches = dict(self._state.get("data_freshness") or {})
+        fetches["email"] = _now_iso()
+        self._state["data_freshness"] = fetches
         self.save()
 
     # --- Topic confidence tracking ---

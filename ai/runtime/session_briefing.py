@@ -24,32 +24,41 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
 
     Reads from: identity layer, goal engine, world model (calendar events,
     unread email, open tasks). Gracefully degrades if any source is unavailable.
+    Each section is isolated so one failure doesn't suppress the rest.
     """
+    parts: list[str] = []
+    now = datetime.now(timezone.utc)
+
+    # --- Identity / greeting ---
+    identity = None
     try:
         from ai.identity.user_identity import load_identity
-        from ai.goals.goal_engine import get_goal_engine
-        from memory.world_model import get_world_model
-
         identity = load_identity(user_id)
-        engine = get_goal_engine()
+        name = identity.name if identity.name else user_id.capitalize()
+    except Exception:
+        name = user_id.capitalize()
+
+    hour = now.hour
+    if hour < 12:
+        salutation = "Good morning"
+    elif hour < 18:
+        salutation = "Good afternoon"
+    else:
+        salutation = "Good evening"
+    parts.append(f"{salutation}, {name}.")
+
+    # --- World model (calendar, email, tasks) ---
+    snapshot: dict = {}
+    wm = None
+    try:
+        from memory.world_model import get_world_model
         wm = get_world_model()
         snapshot = wm.snapshot()
-        now = datetime.now(timezone.utc)
+    except Exception:
+        pass
 
-        parts: list[str] = []
-
-        # Time-aware greeting
-        name = (identity.name if identity.name else user_id.capitalize())
-        hour = now.hour
-        if hour < 12:
-            salutation = "Good morning"
-        elif hour < 18:
-            salutation = "Good afternoon"
-        else:
-            salutation = "Good evening"
-        parts.append(f"{salutation}, {name}.")
-
-        # Calendar: events in the world model (populated by AmbientMonitor)
+    # Calendar: events in the world model (populated by AmbientMonitor)
+    try:
         upcoming = list(snapshot.get("environment", {}).get("upcoming_calendar") or [])
         if upcoming:
             today_lines: list[str] = []
@@ -69,16 +78,25 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
                     continue
             if today_lines:
                 parts.append("Today's schedule:\n" + "\n".join(today_lines))
+    except Exception:
+        pass
 
-        # Unread email count — only if data was fetched recently (within 2 hours)
+    # Unread email count — only if data was fetched recently (within 2 hours)
+    try:
         unread = int(snapshot.get("environment", {}).get("unread_email_count") or 0)
-        email_age = wm.data_age_seconds("email")
+        email_age = wm.data_age_seconds("email") if wm is not None else None
         if unread and email_age is not None and email_age < 7200:
             parts.append(
                 f"You have {unread} unread email{'s' if unread != 1 else ''}."
             )
+    except Exception:
+        pass
 
-        # Active goals — top 3, deduplicated by first significant word
+    # --- Goals ---
+    active: list = []
+    try:
+        from ai.goals.goal_engine import get_goal_engine
+        engine = get_goal_engine()
         active = engine.active()
         if active:
             seen_prefixes: set[str] = set()
@@ -90,8 +108,11 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
                     deduped.append(g)
             goal_lines = [f"  • {g.description}" for g in deduped[:3]]
             parts.append("Active goals:\n" + "\n".join(goal_lines))
+    except Exception:
+        pass
 
-        # Open tasks — only from explicit task/intention sources, not raw conversation
+    # Open tasks — only from explicit task/intention sources, not raw conversation
+    try:
         _GOOD_TASK_SOURCES = {"open_task_signal", "ambient", "intention_unresolved"}
         goal_texts = {g.description.lower() for g in active}
         open_tasks = list(snapshot.get("environment", {}).get("open_tasks") or [])
@@ -104,17 +125,21 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
         if novel_tasks:
             task_lines = [f"  • {t['text']}" for t in novel_tasks[:2]]
             parts.append("Open threads:\n" + "\n".join(task_lines))
-
-        # Emotional continuity — gentle follow-up on recent state signals
-        recent_emotions = _recent_emotional_signals(identity, hours=48.0)
-        if recent_emotions:
-            unique = list(dict.fromkeys(recent_emotions))  # ordered dedup
-            signals_str = ", ".join(unique[:3])
-            parts.append(f"Last session you mentioned feeling {signals_str} — how are you doing now?")
-
-        return "\n\n".join(parts)
     except Exception:
-        return ""
+        pass
+
+    # Emotional continuity — gentle follow-up on recent state signals
+    try:
+        if identity is not None:
+            recent_emotions = _recent_emotional_signals(identity, hours=48.0)
+            if recent_emotions:
+                unique = list(dict.fromkeys(recent_emotions))  # ordered dedup
+                signals_str = ", ".join(unique[:3])
+                parts.append(f"Last session you mentioned feeling {signals_str} — how are you doing now?")
+    except Exception:
+        pass
+
+    return "\n\n".join(parts)
 
 
 def get_top_goal_for_greeting(user_id: str = "gabriel") -> str:

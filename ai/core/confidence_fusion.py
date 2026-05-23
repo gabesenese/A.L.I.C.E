@@ -64,8 +64,16 @@ class ConfidenceFusion:
             priors: Dict[str, float] = get_profile_engine().get_intent_priors()
             if priors:
                 intent_prefix = str(intent or "").split(":")[0].lower()
-                raw = float(priors.get(intent_prefix, priors.get(intent, 0.5)))
-                base = max(0.0, min(1.0, raw))
+                raw_val = priors.get(intent_prefix, priors.get(intent))
+                if raw_val is not None:
+                    # Only apply prior when we have actual usage data for this intent.
+                    # Normalize raw frequency [0,1] to confidence [0.5,1.0].
+                    # Raw priors are usage-frequency ratios (e.g. 0.017 for weather).
+                    # Treating them as confidence scores would heavily penalize rare but
+                    # valid intents. Instead we map 0→0.5 (neutral) and higher→boosted.
+                    raw = float(raw_val)
+                    normalized = min(1.0, 0.5 + raw * 3.0)
+                    base = max(0.0, min(1.0, normalized))
         except Exception:
             pass
 
