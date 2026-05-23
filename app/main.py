@@ -50,6 +50,7 @@ from ai.plugins.plugin_system import (
 from ai.plugins.file_operations_plugin import FileOperationsPlugin
 from ai.plugins.memory_plugin import MemoryPlugin
 from ai.plugins.memory_health_plugin import MemoryHealthPlugin
+from ai.plugins.system_plugin import SystemPlugin
 from ai.plugins.document_plugin import DocumentPlugin
 from ai.plugins.calendar_plugin import CalendarPlugin
 from ai.plugins.notes_plugin import NotesPlugin
@@ -218,9 +219,12 @@ class ALICE:
         self.debug = debug
         self.privacy_mode = privacy_mode
         self.llm_policy = llm_policy
+        self.llm_model = llm_model
         self.user_name = user_name
         self.strict_no_llm = llm_policy == "strict"
         self.running = False
+        from datetime import timezone as _tz
+        self._start_time = datetime.now(_tz.utc)
         logger.info("Runtime mode: %s", self.runtime_mode)
         skipped_optional = []
         for key, enabled in vars(self.runtime_mode_config).items():
@@ -2991,6 +2995,7 @@ class ALICE:
             RAGIndexerPlugin(self.memory)
         )  # RAG document indexer
         self.plugins.register_plugin(MemoryHealthPlugin())
+        self.plugins.register_plugin(SystemPlugin())
 
         logger.info(f"[OK] Registered {len(self.plugins.plugins)} plugins")
 
@@ -10442,6 +10447,137 @@ class ALICE:
             print("\n\nExiting voice mode...")
             self.speech.stop_listening()
 
+    def _print_sitrep(self) -> None:
+        """Jarvis-style situational report for /status."""
+        from datetime import datetime, timezone, timedelta
+        import subprocess, os as _os
+
+        now = datetime.now(timezone.utc)
+        local_now = datetime.now()
+        width = 52
+        bar = "─" * width
+
+        print(f"\n  SITUATION REPORT — {local_now.strftime('%H:%M')}")
+        print(f"  {bar}")
+
+        # System resources
+        try:
+            from ai.plugins.system_plugin import SystemPlugin
+            snap = SystemPlugin().get_snapshot()
+            if snap:
+                cpu = snap.get("cpu_percent", 0)
+                ram_used = snap.get("ram_used_gb", 0)
+                ram_total = snap.get("ram_total_gb", 0)
+                disk_free = snap.get("disk_free_gb", 0)
+                print(f"  System:   CPU {cpu:.0f}% · RAM {ram_used:.1f}/{ram_total:.1f} GB · Disk {disk_free:.0f} GB free")
+            else:
+                print("  System:   (psutil unavailable)")
+        except Exception:
+            print("  System:   (unavailable)")
+
+        # Git status
+        try:
+            result = subprocess.run(
+                ["git", "status", "--short", "--branch"],
+                capture_output=True, text=True, timeout=3,
+                cwd=_os.getcwd(),
+            )
+            if result.returncode == 0:
+                lines = result.stdout.strip().splitlines()
+                branch_line = lines[0].replace("## ", "").split("...")[0] if lines else "unknown"
+                changes = len([l for l in lines[1:] if l.strip()])
+                git_str = f"{branch_line} ({changes} change{'s' if changes != 1 else ''})" if changes else f"{branch_line} (clean)"
+                print(f"  Git:      {git_str}")
+        except Exception:
+            pass
+
+        # Calendar events today
+        try:
+            from memory.world_model import get_world_model
+            wm = get_world_model()
+            snap_wm = wm.snapshot()
+            upcoming = list((snap_wm.get("environment") or {}).get("upcoming_calendar") or [])
+            today_events = []
+            for ev in upcoming[:8]:
+                start_raw = str(ev.get("start") or "")
+                if not start_raw:
+                    continue
+                try:
+                    start_dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+                    if start_dt.date() == now.date():
+                        if ev.get("all_day"):
+                            time_str = "all-day"
+                        else:
+                            time_str = start_dt.strftime("%H:%M")
+                        today_events.append(f"{ev.get('title', 'Event')} at {time_str}")
+                except Exception:
+                    continue
+            if today_events:
+                print(f"  Calendar: {today_events[0]}")
+                for extra in today_events[1:3]:
+                    print(f"            {extra}")
+            else:
+                print("  Calendar: No events today")
+        except Exception:
+            print("  Calendar: (unavailable)")
+
+        # Active goals
+        try:
+            from ai.goals.goal_engine import get_goal_engine
+            engine = get_goal_engine()
+            goals = engine.active()
+            if goals:
+                seen: set = set()
+                deduped = []
+                for g in goals:
+                    key = " ".join(g.description.lower().split()[:4])
+                    if key not in seen:
+                        seen.add(key)
+                        deduped.append(g)
+                goal_strs = [g.description for g in deduped[:3]]
+                print(f"  Goals:    • {goal_strs[0]}")
+                for gs in goal_strs[1:]:
+                    print(f"            • {gs}")
+            else:
+                print("  Goals:    (none active)")
+        except Exception:
+            print("  Goals:    (unavailable)")
+
+        # Open tasks
+        try:
+            _GOOD_TASK_SOURCES = {"open_task_signal", "ambient", "intention_unresolved"}
+            from memory.world_model import get_world_model as _gwm
+            _snap_wm = _gwm().snapshot()
+            open_tasks = list((_snap_wm.get("environment") or {}).get("open_tasks") or [])
+            novel = [t for t in open_tasks if t.get("text") and t.get("source") in _GOOD_TASK_SOURCES]
+            if novel:
+                print(f"  Tasks:    • {novel[0]['text']}")
+                for t in novel[1:2]:
+                    print(f"            • {t['text']}")
+            else:
+                print("  Tasks:    (none open)")
+        except Exception:
+            print("  Tasks:    (none open)")
+
+        # ALICE runtime
+        try:
+            model_name = self.llm_model if hasattr(self, "llm_model") else "unknown"
+            mem_stats = self.memory.get_statistics()
+            total_mem = mem_stats.get("total_memories", "?")
+            uptime_s = (datetime.now(timezone.utc) - self._start_time).total_seconds() if hasattr(self, "_start_time") else None
+            if uptime_s is not None:
+                m, s = divmod(int(uptime_s), 60)
+                h, m = divmod(m, 60)
+                uptime_str = f"{h}h {m}m" if h else f"{m}m {s}s"
+            else:
+                uptime_str = "unknown"
+            privacy_tag = " · privacy-mode" if getattr(self, "privacy_mode", False) else ""
+            print(f"  ALICE:    {model_name} · {total_mem} memories · uptime {uptime_str}{privacy_tag}")
+        except Exception:
+            print("  ALICE:    (unavailable)")
+
+        print(f"  {bar}\n")
+
     def _handle_command(self, command: str):
         """Handle system commands"""
         cmd = command.lower().strip()
@@ -10454,9 +10590,7 @@ class ALICE:
             print("   /clear             - Clear conversation history")
             print("   /memory            - Show memory system statistics")
             print("   /plugins           - List all available plugins")
-            print(
-                "   /status            - Show system status, gateway stats, and LLM usage"
-            )
+            print("   /status            - Jarvis-style situational report (system, git, goals, calendar)")
             print("   /location [City]   - Set or view your location")
             print("   /save              - Save current state manually")
             print("   /summary           - Get conversation summary")
@@ -10531,109 +10665,7 @@ class ALICE:
                 print(f"   {status} {plugin['name']}: {plugin['description']}")
 
         elif cmd == "/status":
-            print("\n[STATUS] System Status:")
-            status = self.context.get_system_status()
-            print(f"   LLM Model: {status.get('llm_model', 'N/A')}")
-            print(
-                f"   Voice: {'Enabled' if status.get('voice_enabled') else 'Disabled'}"
-            )
-            print(f"   Privacy Mode: {'Enabled' if self.privacy_mode else 'Disabled'}")
-            print(f"   Plugins: {len(self.plugins.plugins)}")
-            print(f"   Capabilities: {len(status.get('capabilities', []))}")
-
-            memory_stats = self.memory.get_statistics()
-            print(f"   Total Memories: {memory_stats['total_memories']}")
-            if self.privacy_mode:
-                print("   Episodic memory storage is DISABLED")
-
-            # LLM Gateway Statistics
-            if hasattr(self, "llm_gateway") and self.llm_gateway:
-                print("\n LLM Gateway Statistics:")
-                gateway_stats = self.llm_gateway.get_statistics()
-                print(f"   Total Requests: {gateway_stats['total_requests']}")
-
-                # Advanced breakdown
-                print(
-                    f"   Self Handlers: {gateway_stats['self_handlers']} ({gateway_stats.get('self_handler_percentage', 0)}%)"
-                )
-                print(
-                    f"   Pattern Hits: {gateway_stats['pattern_hits']} ({gateway_stats.get('pattern_hit_percentage', 0)}%)"
-                )
-                print(
-                    f"   Tool Calls: {gateway_stats['tool_calls']} ({gateway_stats.get('tool_call_percentage', 0)}%)"
-                )
-                print(
-                    f"   RAG Lookups: {gateway_stats['rag_lookups']} ({gateway_stats.get('rag_lookup_percentage', 0)}%)"
-                )
-                print(
-                    f"   Formatter Usage: {gateway_stats['formatter_calls']} ({gateway_stats.get('formatter_percentage', 0)}%)"
-                )
-                print(
-                    f"   LLM Fallback: {gateway_stats['llm_calls']} ({gateway_stats.get('llm_fallback_percentage', 0)}%)"
-                )
-                print(
-                    f"   Multi-LLM Router: {'Enabled' if gateway_stats.get('multi_llm_enabled') else 'Disabled'}"
-                )
-                print(
-                    f"   Strict Generation Router: {'Enabled' if gateway_stats.get('strict_generation_router') else 'Disabled'}"
-                )
-                print(
-                    f"   Multi-LLM Calls: {gateway_stats.get('multi_router_calls', 0)} ({gateway_stats.get('multi_router_percentage', 0)}%)"
-                )
-                print(
-                    f"   Policy Denials: {gateway_stats['policy_denials']} ({gateway_stats.get('denial_percentage', 0)}%)"
-                )
-
-                model_roles = gateway_stats.get("model_roles", {}) or {}
-                if model_roles:
-                    print("\n   Model Roles:")
-                    for role, model in sorted(model_roles.items()):
-                        print(f"      {role}: {model}")
-
-                runtime_status = gateway_stats.get("model_runtime_status", {}) or {}
-                if runtime_status:
-                    print("\n   Model Runtime:")
-                    print(
-                        f"      all_roles_ready: {runtime_status.get('all_roles_ready')}"
-                    )
-                    role_health = runtime_status.get("role_health", {}) or {}
-                    for role, is_ready in sorted(role_health.items()):
-                        print(f"      {role}_ready: {is_ready}")
-                    if runtime_status.get("health_error"):
-                        print(
-                            f"      health_error: {runtime_status.get('health_error')}"
-                        )
-
-                last_route = gateway_stats.get("last_route", {}) or {}
-                if last_route:
-                    print("\n   Last Route:")
-                    print(f"      source: {last_route.get('source', 'n/a')}")
-                    print(f"      call_type: {last_route.get('call_type', 'n/a')}")
-                    if last_route.get("role"):
-                        print(f"      role: {last_route.get('role')}")
-                    print(f"      model: {last_route.get('model', 'n/a')}")
-
-                if gateway_stats["by_type"]:
-                    print("\n   By Call Type:")
-                    for cal_type, count in sorted(
-                        gateway_stats["by_type"].items(),
-                        key=lambda x: x[1],
-                        reverse=True,
-                    ):
-                        print(f"      {cal_type}: {count}")
-
-            # Conversational Engine Statistics
-            if hasattr(self, "conversational_engine") and self.conversational_engine:
-                print("\n Conversational Engine:")
-                if hasattr(self.conversational_engine, "pattern_count"):
-                    print(
-                        f"   Learned Patterns: {self.conversational_engine.pattern_count}"
-                    )
-                if hasattr(self.conversational_engine, "learned_greetings"):
-                    print(
-                        f"   Learned Greetings: {len(self.conversational_engine.learned_greetings) if self.conversational_engine.learned_greetings else 0}"
-                    )
-                print("   Status: Active")
+            self._print_sitrep()
 
         elif cmd == "/analyze-learning":
             from ai.learning.learning_insights import LearningInsights

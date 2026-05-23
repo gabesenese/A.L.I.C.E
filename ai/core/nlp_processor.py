@@ -362,11 +362,16 @@ def is_casual_weather_context(text: str, actionable_clause: str) -> bool:
 
 # ── PHASE 1 pattern sets ──────────────────────────────────────────────────────
 # System
-_P1_SYSTEM_STATUS: frozenset = frozenset({"status", "doing", "health", "how"})
-_P1_SYSTEM_RESOURCES: frozenset = frozenset({"cpu", "memory", "disk", "battery", "gpu"})
+_P1_SYSTEM_STATUS: frozenset = frozenset({"status", "doing", "health", "how", "report", "info"})
+_P1_SYSTEM_RESOURCES: frozenset = frozenset({"cpu", "memory", "ram", "disk", "battery", "gpu", "processes", "ports", "network"})
 _P1_SYSTEM_RESOURCE_VERBS: frozenset = frozenset(
-    {"usage", "available", "how much", "low", "check", "is"}
+    {"usage", "available", "how much", "low", "check", "is", "running", "listening", "open"}
 )
+_P1_SYSTEM_DIRECT: frozenset = frozenset({
+    "system status", "system report", "system info", "system health",
+    "what's running", "what is running", "open ports", "running processes",
+    "resource usage", "show processes", "list processes",
+})
 
 # File operations
 _P1_FILE_CREATE: frozenset = frozenset({"create", "make", "new"})
@@ -4867,6 +4872,8 @@ class NLPProcessor:
             return "memory:test", 0.93
 
         # System intents - check BEFORE time (system has "how's" pattern that could match time)
+        if any(phrase in text_lower for phrase in _P1_SYSTEM_DIRECT):
+            return "system:status", 0.95
         if "system" in text_lower and any(
             word in text_lower for word in _P1_SYSTEM_STATUS
         ):

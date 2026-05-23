@@ -83,6 +83,7 @@ class AmbientMonitor:
         results["calendar"] = self._poll_calendar()
         results["email"] = self._poll_email()
         results["goals"] = self._poll_goals()
+        results["system"] = self._poll_system()
         return results
 
     # ------------------------------------------------------------------ loop
@@ -183,6 +184,21 @@ class AmbientMonitor:
             return {"stale_count": len(stale)}
         except Exception as exc:
             logger.debug("[AmbientMonitor] goal poll skipped: %s", exc)
+            return {"skipped": str(exc)}
+
+
+    def _poll_system(self) -> Dict[str, Any]:
+        try:
+            from ai.plugins.system_plugin import SystemPlugin  # noqa: PLC0415
+
+            snap = SystemPlugin().get_snapshot()
+            if snap:
+                self.world_model._state["environment"]["system_health"] = snap
+                self.world_model.save()
+            logger.debug("[AmbientMonitor] system: cpu=%.0f%%", snap.get("cpu_percent", 0))
+            return snap
+        except Exception as exc:
+            logger.debug("[AmbientMonitor] system poll skipped: %s", exc)
             return {"skipped": str(exc)}
 
 
