@@ -18,6 +18,8 @@ import warnings
 warnings.filterwarnings("ignore")
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TQDM_DISABLE"] = "1"  # silence tqdm progress bars (sentence_transformers, etc.)
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"  # silence HuggingFace load reports
 
 # Set minimal logging — ERROR only so internal INFO/WARNING never reach the UI
 logging.basicConfig(level=logging.ERROR, format="%(message)s")
