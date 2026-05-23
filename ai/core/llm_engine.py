@@ -162,7 +162,7 @@ class LLMConfig:
         return self._fine_tuned_model or self.model
 
 
-def _build_companion_context(intent: str = "") -> str:
+def _build_companion_context(intent: str = "", user_query: str = "") -> str:
     """Build a concise, live companion context block for the LLM system prompt.
 
     Pulls from AliceIdentity, UserIdentity, GoalEngine, and emotional history.
@@ -297,6 +297,36 @@ def _build_companion_context(intent: str = "") -> str:
             parts.append(f"Personality calibration: {'; '.join(trait_hints)}")
     except Exception:
         pass
+
+    # Trusted advisor injection — match stored opinions to the current query
+    if user_query:
+        try:
+            from ai.identity.identity_store import get_identity_store
+
+            all_opinions = get_identity_store().get_top_opinions(n=10)
+            q_lower = user_query.lower()
+            q_tokens = set(w for w in q_lower.split() if len(w) > 3)
+            matched = []
+            for op in all_opinions:
+                topic_tokens = set(op["topic"].lower().split())
+                if q_tokens & topic_tokens:
+                    matched.append(op)
+                    if len(matched) >= 2:
+                        break
+            if matched:
+                advisor_lines = []
+                for op in matched:
+                    stance = str(op["stance"] or "")[:120]
+                    count = int(op.get("evidence_count") or 1)
+                    strength = "strongly" if count >= 3 else "think"
+                    advisor_lines.append(f"  • You {strength} that {stance}")
+                parts.append(
+                    "Trusted advisor — you have a view on what Gabriel is asking about. "
+                    "Lead with it once, clearly, then respect his call:\n"
+                    + "\n".join(advisor_lines)
+                )
+        except Exception:
+            pass
 
     if not parts:
         return ""
@@ -551,11 +581,11 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             return float(self.config.temperature)
 
     def _build_system_prompt(
-        self, base_prompt: Optional[str] = None, intent: str = ""
+        self, base_prompt: Optional[str] = None, intent: str = "", user_query: str = ""
     ) -> str:
         """Append companion context + personality drift to every system prompt."""
         prompt = str(base_prompt if base_prompt is not None else self.system_prompt)
-        prompt += _build_companion_context(intent=intent)
+        prompt += _build_companion_context(intent=intent, user_query=user_query)
         try:
             from brain.personality import apply_personality_to_system_prompt
 
@@ -591,7 +621,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
 
             # Build message history
             messages = [
-                {"role": "system", "content": self._build_system_prompt(intent=intent)}
+                {"role": "system", "content": self._build_system_prompt(intent=intent, user_query=user_input)}
             ]
 
             # Inject companion context (memory, goals, personality) as a second system message

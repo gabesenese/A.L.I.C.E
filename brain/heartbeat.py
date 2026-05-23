@@ -60,6 +60,9 @@ class HeartbeatConfig:
     checkin_gap_seconds: float = 90 * 60
     active_recent_seconds: float = 2 * 60 * 60
     stale_task_seconds: float = 24 * 60 * 60
+    meeting_warning_seconds: float = 15 * 60   # alert when meeting is within 15 min
+    cpu_critical_pct: float = 90.0             # alert if CPU sustained above this
+    ram_critical_pct: float = 90.0             # alert if RAM above this
 
 
 class Heartbeat:
@@ -129,6 +132,8 @@ class Heartbeat:
                 )
                 if decision.reason == "general_checkin_due":
                     self.world_model.set_last_checkin(self.clock().isoformat())
+                if decision.priority == "high":
+                    self._send_toast(decision)
                 emitted.append(decision)
                 break
             self._last_decisions = emitted
@@ -200,6 +205,58 @@ class Heartbeat:
                     )
                 )
 
+        # Imminent calendar meetings
+        for event in list(env.get("upcoming_calendar") or []):
+            title = str(event.get("title") or "Meeting").strip()
+            start_raw = str(event.get("start") or "")
+            if not start_raw or str(event.get("all_day") or "").lower() == "true":
+                continue
+            start_dt = _parse_time(start_raw)
+            if start_dt is None:
+                continue
+            secs_until = (start_dt - now).total_seconds()
+            if 0 < secs_until <= self.config.meeting_warning_seconds:
+                mins = int(secs_until // 60) + 1
+                key = f"meeting:{title.lower()}:{start_raw}"
+                decisions.append(
+                    HeartbeatDecision(
+                        key=key,
+                        message=f"Heads up — {title!r} starts in {mins} minute{'s' if mins != 1 else ''}.",
+                        reason="imminent_meeting",
+                        priority="high",
+                        metadata={"title": title, "start": start_raw, "secs_until": secs_until},
+                    )
+                )
+
+        # System health — critical thresholds
+        system_health = dict(env.get("system_health") or {})
+        if system_health:
+            cpu = float(system_health.get("cpu_percent") or 0)
+            ram = float(system_health.get("ram_percent") or 0)
+            if cpu >= self.config.cpu_critical_pct:
+                decisions.append(
+                    HeartbeatDecision(
+                        key=f"sys:cpu_critical:{int(cpu)}",
+                        message=f"System alert: CPU at {cpu:.0f}% — something may be running hot.",
+                        reason="cpu_critical",
+                        priority="high",
+                        metadata={"cpu_percent": cpu},
+                    )
+                )
+            elif ram >= self.config.ram_critical_pct:
+                ram_gb = float(system_health.get("ram_used_gb") or 0)
+                decisions.append(
+                    HeartbeatDecision(
+                        key=f"sys:ram_critical:{int(ram)}",
+                        message=f"System alert: RAM at {ram:.0f}% ({ram_gb:.1f} GB used) — memory is running low.",
+                        reason="ram_critical",
+                        priority="high",
+                        metadata={"ram_percent": ram},
+                    )
+                )
+
+        # Sort: high-priority first
+        decisions.sort(key=lambda d: 0 if d.priority == "high" else (1 if d.priority == "normal" else 2))
         return decisions
 
     def status(self) -> Dict[str, Any]:
@@ -241,3 +298,11 @@ class Heartbeat:
     @staticmethod
     def _stdout_output(text: str) -> None:
         print(text, file=sys.stdout, flush=True)
+
+    @staticmethod
+    def _send_toast(decision: "HeartbeatDecision") -> None:
+        try:
+            from ai.notifications.desktop_notifier import send_notification
+            send_notification(title="A.L.I.C.E", body=decision.message)
+        except Exception:
+            pass
