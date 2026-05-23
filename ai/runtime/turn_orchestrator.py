@@ -399,6 +399,33 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
             alice, user_input=user_input, use_voice=use_voice
         )
 
+    # Tool chaining — compound queries execute multiple plugins before the pipeline
+    plugin_manager = getattr(alice, "plugins", None)
+    if plugin_manager is not None:
+        try:
+            from ai.runtime.tool_chain import detect_chain, execute_chain
+
+            chain_intents = detect_chain(query=user_input, primary_intent="")
+            if chain_intents:
+                entities: dict = {}
+                ctx: dict = {
+                    "user_id": str(getattr(alice, "user_name", "") or "User"),
+                    "turn_number": int(getattr(alice, "_turn_count", 0) or 0),
+                }
+                chain_response = execute_chain(
+                    intents=chain_intents,
+                    query=user_input,
+                    entities=entities,
+                    context=ctx,
+                    plugin_manager=plugin_manager,
+                )
+                if chain_response:
+                    if use_voice and getattr(alice, "speech", None):
+                        alice.speech.speak(chain_response, blocking=False)
+                    return chain_response
+        except Exception:
+            pass
+
     pipeline = getattr(alice, "contract_pipeline", None)
     if pipeline is not None and _contract_pipeline_enabled(alice):
         try:
