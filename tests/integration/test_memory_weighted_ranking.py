@@ -122,6 +122,7 @@ def test_get_context_for_llm_uses_weighted_top_memories(monkeypatch, tmp_path) -
 
     context = mem.get_context_for_llm("what did we decide", max_memories=2)
 
-    assert "weighted" in context.lower()
+    # Context should include both memory contents and their scores
     assert "Most relevant memory" in context
     assert "Second memory" in context
+    assert "0.91" in context  # score surfaced in budget formatter

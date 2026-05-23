@@ -290,21 +290,25 @@ class CompanionRuntimeLoop:
         re.IGNORECASE,
     )
     _user_state_signal_patterns = (
-        ("cold", re.compile(r"\b(cold|chilly|freezing)\b", re.IGNORECASE)),
+        # Require first-person context so weather descriptions don't trigger these
+        ("cold", re.compile(r"\b(?:i'?m|i\s+feel(?:ing)?|feeling)\s+(?:\w+\s+)?(cold|chilly|freezing)\b", re.IGNORECASE)),
         (
             "sick",
             re.compile(
-                r"\b(sick|ill|under the weather|not feeling well|flu|fever)\b",
+                r"\b(?:i'?m|i\s+feel(?:ing)?|feeling)\s+(?:\w+\s+)?(?:sick|ill|not\s+well)\b"
+                r"|\b(?:under the weather|not feeling well|flu|fever)\b",
                 re.IGNORECASE,
             ),
         ),
         (
             "tired",
-            re.compile(r"\b(tired|exhausted|drained|burned out)\b", re.IGNORECASE),
+            re.compile(r"\b(?:i'?m|i\s+feel(?:ing)?|feeling)\s+(?:\w+\s+)?(tired|exhausted|drained|burned out)\b"
+                       r"|\b(burned out|drained)\b", re.IGNORECASE),
         ),
         (
             "stressed",
-            re.compile(r"\b(stressed|anxious|overwhelmed|panic)\b", re.IGNORECASE),
+            re.compile(r"\b(?:i'?m|i\s+feel(?:ing)?|feeling)\s+(?:\w+\s+)?(stressed|anxious|overwhelmed)\b"
+                       r"|\b(panic(?:king)?)\b", re.IGNORECASE),
         ),
     )
 
@@ -317,6 +321,13 @@ class CompanionRuntimeLoop:
         self.world_model = world_model or get_world_model()
         self.personality_layer = PersonalityLayer(world_model=self.world_model)
         self._states: Dict[str, CompanionState] = {}
+
+        # Start background memory maintenance (non-blocking daemon thread)
+        try:
+            from ai.memory.maintenance_scheduler import start_maintenance_scheduler
+            start_maintenance_scheduler()
+        except Exception:
+            pass
 
     def start_turn(
         self,

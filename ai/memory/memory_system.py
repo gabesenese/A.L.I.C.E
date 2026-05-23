@@ -845,30 +845,29 @@ class MemorySystem:
 
     def get_context_for_llm(self, query: str, max_memories: int = 3) -> str:
         """
-        Get relevant context from memory for LLM (RAG)
+        Get relevant context from memory for LLM (RAG).
 
-        Args:
-            query: User query
-            max_memories: Maximum number of memories to include
-
-        Returns:
-            Formatted context string
+        Uses RetrievalBudget to enforce a character cap so the context block
+        never floods the LLM prompt regardless of max_memories.
         """
-        # Recall and rank relevant memories with weighted scoring.
-        memories = self.recall_memory_weighted(query, top_k=max_memories)
-
-        if not memories:
+        candidates = self.recall_memory_weighted(query, top_k=max_memories * 2)
+        if not candidates:
             return ""
 
-        # Format as context
-        context_parts = ["Relevant information from memory (weighted):"]
-        for i, mem in enumerate(memories, 1):
-            ws = float(mem.get("weighted_score", 0.0))
-            context_parts.append(
-                f"{i}. {mem['content']} (score {ws:.2f}, from {mem['timestamp'][:10]})"
-            )
-
-        return "\n".join(context_parts)
+        try:
+            from ai.memory.retrieval_budget import get_retrieval_budget
+            budget = get_retrieval_budget()
+            selected = budget.select(candidates)
+            return budget.format_context(selected)
+        except Exception:
+            # Fallback to legacy formatting if budget module unavailable
+            parts = ["Relevant information from memory (weighted):"]
+            for i, mem in enumerate(candidates[:max_memories], 1):
+                ws = float(mem.get("weighted_score", 0.0))
+                parts.append(
+                    f"{i}. {mem['content']} (score {ws:.2f}, from {mem['timestamp'][:10]})"
+                )
+            return "\n".join(parts)
 
     def ingest_document(
         self, file_path: str, importance: float = 0.7, tags: Optional[List[str]] = None
