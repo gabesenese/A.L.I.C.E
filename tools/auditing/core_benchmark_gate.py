@@ -13,10 +13,16 @@ import argparse
 import json
 import math
 import statistics
+import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+# Ensure project root is on sys.path when run as a script
+_project_root = Path(__file__).resolve().parents[2]
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 DEFAULT_BENCHMARK_PATH = Path("data/benchmarks/core_100_scenarios.json")
 DEFAULT_SCORECARD_PATH = Path("data/benchmarks/scorecard_latest.json")
@@ -208,7 +214,7 @@ def _p95(values: Sequence[float]) -> float:
 
 
 def score_benchmark(benchmark_path: Path) -> Dict[str, Any]:
-    from test_scenarios import ScenarioRunner
+    from tests.integration.test_scenarios import ScenarioRunner
 
     if not benchmark_path.exists():
         raise ValueError(f"Benchmark file not found: {benchmark_path}")

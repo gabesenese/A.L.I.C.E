@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
@@ -16,6 +17,11 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set
+
+# Ensure project root is on sys.path when run as a script
+_project_root = Path(__file__).resolve().parents[2]
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 from tools.auditing.learning_data_qa_gate import evaluate_gate
 from tools.auditing.training_data_auditor import LearningDataQAAuditor

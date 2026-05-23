@@ -30,6 +30,16 @@ class _FallbackLoggerAdapter(logging.LoggerAdapter):
         return msg, kwargs
 
 
+def configure_logging(log_level: str = "INFO") -> None:
+    """Configure root logging level. Called once at app startup."""
+    level = getattr(logging, str(log_level or "INFO").upper(), logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+    logging.getLogger().setLevel(level)
+
+
 def get_logger(name: str = "alice"):
     """Get a structured logger if available, otherwise stdlib logger adapter."""
     try:

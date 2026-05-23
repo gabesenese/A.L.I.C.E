@@ -175,7 +175,7 @@ from ai.foundation_integration import FoundationIntegration
 from tools.auditing.startup_doctor import StartupDoctor
 
 # NLP perception & policy layer
-from ai.core.nlp_processor import Perception
+from ai.core.perception import Perception
 from ai.core.interaction_policy import InteractionPolicy
 from ai.learning.learning_engine import get_nlp_error_logger
 
