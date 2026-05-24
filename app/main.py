@@ -10448,7 +10448,7 @@ class ALICE:
             self.speech.stop_listening()
 
     def _print_sitrep(self) -> None:
-        """Jarvis-style situational report for /status."""
+        """Situational report for /status."""
         from datetime import datetime, timezone, timedelta
         import subprocess, os as _os
 
@@ -10590,7 +10590,7 @@ class ALICE:
             print("   /clear             - Clear conversation history")
             print("   /memory            - Show memory system statistics")
             print("   /plugins           - List all available plugins")
-            print("   /status            - Jarvis-style situational report (system, git, goals, calendar)")
+            print("   /status            - Situational report (system, git, goals, calendar)")
             print("   /location [City]   - Set or view your location")
             print("   /save              - Save current state manually")
             print("   /summary           - Get conversation summary")

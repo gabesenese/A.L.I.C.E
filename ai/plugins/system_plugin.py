@@ -1,5 +1,5 @@
 """
-System Monitoring Plugin for A.L.I.C.E — Jarvis-style situational awareness.
+System Monitoring Plugin for A.L.I.C.E — real-time system health and status.
 
 Handles intents: system:status, system:processes, system:resources
 Triggered by:

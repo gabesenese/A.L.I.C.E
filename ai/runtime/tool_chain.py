@@ -1,5 +1,5 @@
 """
-Tool chaining engine for A.L.I.C.E — Jarvis-style multi-tool execution.
+Tool chaining engine for A.L.I.C.E — compound multi-tool execution.
 
 Detects compound queries (e.g. "schedule and emails", "system status and goals")
 and executes multiple plugins in a single turn, merging their responses into one
