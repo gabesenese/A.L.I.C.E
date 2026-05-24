@@ -86,24 +86,13 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
         pass
 
     # Email count intentionally excluded from session briefing — ask ALICE directly.
+    # Goals intentionally excluded — they are in the LLM system prompt and should not
+    # be printed as a response widget. Ask "what are my goals?" for explicit retrieval.
 
-    # --- Goals ---
     active: list = []
     try:
         from ai.goals.goal_engine import get_goal_engine
-
-        engine = get_goal_engine()
-        active = engine.active()
-        if active:
-            seen_prefixes: set[str] = set()
-            deduped: list = []
-            for g in active:
-                prefix = " ".join(g.description.lower().split()[:3])
-                if prefix not in seen_prefixes:
-                    seen_prefixes.add(prefix)
-                    deduped.append(g)
-            goal_lines = [f"  • {g.description}" for g in deduped[:3]]
-            parts.append("Active goals:\n" + "\n".join(goal_lines))
+        active = list(get_goal_engine().active())
     except Exception:
         pass
 

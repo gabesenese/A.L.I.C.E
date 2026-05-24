@@ -2286,7 +2286,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 llm_generate=(
                     (
                         lambda prompt=None, **_kwargs: str(
-                            alice.llm.chat(str(prompt or ""), use_history=False) or ""
+                            alice.llm.chat(str(prompt or ""), intent="greeting", use_history=False) or ""
                         )
                     )
                     if getattr(alice, "llm", None)

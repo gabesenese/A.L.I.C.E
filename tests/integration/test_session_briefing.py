@@ -76,6 +76,37 @@ def test_briefing_includes_calendar_events(tmp_path):
     assert "Sprint planning" in briefing
 
 
+def test_briefing_does_not_include_goals(tmp_path):
+    """Goals must never appear in the session briefing as a rendered widget.
+    They live silently in the LLM system prompt — not as response output."""
+    model = WorldModel(tmp_path / "world_model.json")
+
+    class FakeGoal:
+        description = "finish the routing refactor"
+
+    with (
+        patch("ai.identity.user_identity.load_identity") as mock_id,
+        patch("ai.goals.goal_engine.get_goal_engine") as mock_ge,
+        patch("memory.world_model.get_world_model", return_value=model),
+    ):
+        mock_id.return_value = type("I", (), {"name": "Gabriel"})()
+        mock_engine = type(
+            "E",
+            (),
+            {
+                "session_summary": lambda self: "",
+                "stale_goals": lambda self, days=3.0: [],
+                "active": lambda self: [FakeGoal()],
+            },
+        )()
+        mock_ge.return_value = mock_engine
+
+        briefing = generate_session_briefing("gabriel")
+
+    assert "Active goals" not in briefing
+    assert "routing refactor" not in briefing
+
+
 def test_session_continuity_injected_on_first_turn(tmp_path):
     from ai.runtime.companion_runtime import CompanionRuntimeLoop
 

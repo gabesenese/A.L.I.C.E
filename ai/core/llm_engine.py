@@ -220,15 +220,18 @@ def _build_companion_context(intent: str = "", user_query: str = "") -> str:
     except Exception:
         pass
 
-    try:
-        from ai.goals.goal_engine import get_goal_engine
+    _intent_str = str(intent or "")
+    _is_greeting = _intent_str == "greeting" or _intent_str.endswith("greeting")
+    if not _is_greeting:
+        try:
+            from ai.goals.goal_engine import get_goal_engine
 
-        active = get_goal_engine().active()[:3]
-        if active:
-            goal_lines = "\n".join(f"  - {g.description[:70]}" for g in active)
-            parts.append(f"Active goals:\n{goal_lines}")
-    except Exception:
-        pass
+            active = get_goal_engine().active()[:3]
+            if active:
+                goal_lines = "\n".join(f"  - {g.description[:70]}" for g in active)
+                parts.append(f"Active goals:\n{goal_lines}")
+        except Exception:
+            pass
 
     # Layer 2 — inject communication style from behavioral profile
     # Skip brevity constraint on conversation turns — the system prompt handles nuance there.

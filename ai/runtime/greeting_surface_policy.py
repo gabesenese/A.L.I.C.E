@@ -602,5 +602,15 @@ def _looks_assistant_like_task_prompt(text: str) -> bool:
         "help with anything",
         "anything you need",
         "let me know what you need",
+        "what's the first thing",
+        "whats the first thing",
+        "first thing you need",
+        "get off your plate",
+        "off your plate",
+        "what do you want to tackle",
+        "what do you want to work on",
+        "what are we working on",
+        "where do you want to start",
+        "what should we focus on",
     )
     return any(token in low for token in triggers)
