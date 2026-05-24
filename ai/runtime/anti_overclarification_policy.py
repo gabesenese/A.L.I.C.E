@@ -68,8 +68,17 @@ def should_answer_instead_of_clarify(
     ):
         return True
 
+    # Conversational intents are never worth clarifying — just answer.
+    # "What do you think?", "tell me more", "why?" etc. should always go to LLM.
+    if normalized_intent.startswith("conversation:"):
+        return True
+
     has_objective = bool(
         str(state.get("active_objective") or "").strip()
         or str(project.get("active_objective") or "").strip()
     )
-    return has_objective and normalized_intent.startswith("conversation:")
+    # For short social inputs (≤4 tokens) during an active session, prefer answering.
+    if has_objective and len(low.split()) <= 4:
+        return True
+
+    return False
