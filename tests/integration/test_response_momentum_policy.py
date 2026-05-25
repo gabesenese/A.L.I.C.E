@@ -15,7 +15,9 @@ def test_momentum_rewrites_passive_beginner_question_into_next_move():
     )
     low = out.lower()
     assert "which one sounds like a good starting point to you?" not in low
-    assert "next best move:" in low
+    # Natural action language — no "Next best move:" label
+    assert "next best move:" not in low
+    assert "take one concrete step" in low
 
 
 def test_casual_how_are_you_does_not_get_objective_or_next_step_injection():
@@ -86,7 +88,9 @@ def test_operator_continue_local_turn_uses_compact_evidence_surface():
     low = out.lower()
     assert "warm and cozy" not in low
     assert "what would you like to tackle first" not in low
-    assert "i inspected ai/runtime/agent_loop.py." in low
-    assert out.count("ai/runtime/agent_loop.py") == 1
-    assert "next best move: inspect ai/runtime/operator_state.py" in low
+    # "I inspected X." narration is removed — action results speak through the base text
+    assert "i inspected ai/runtime/agent_loop.py." not in low
+    # Natural next-step hint — no label, just the file pointer
+    assert "next best move:" not in low
+    assert "operator_state.py" in low
     assert "\n\n" in out

@@ -326,7 +326,7 @@ def decide_next_step(
         top_payload = asdict(top)
         return NextStepDecision(
             next_recommended_action=(
-                f"Next best move: {top.action.replace('_', ' ')} {top.target} because {top.reason}"
+                f"{top.action.replace('_', ' ')} {top.target} because {top.reason}"
             ).strip(),
             last_recommended_action={
                 **top_payload,

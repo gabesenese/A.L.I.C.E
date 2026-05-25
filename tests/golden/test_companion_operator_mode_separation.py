@@ -37,4 +37,7 @@ def test_continue_turn_can_include_next_move():
         turn_number=2,
     )
     low = result.response_text.lower()
-    assert "next best move" in low
+    # Natural next-step pointer should appear without the "Next best move:" label
+    assert "next best move" not in low
+    # Some file hint should appear in the response (exact file depends on project state)
+    assert ".py" in low

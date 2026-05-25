@@ -80,6 +80,26 @@ def _normalize_next_move_line(next_step: str) -> str:
     return raw
 
 
+def _format_next_step_natural(raw: str) -> str:
+    """Render a next-step hint as natural language — no 'Next best move:' label."""
+    s = re.sub(r"^next best move:\s*", "", str(raw or "").strip(), flags=re.IGNORECASE)
+    s = re.sub(r"^(inspect|analyze|read|review|look at)\s+", "", s, flags=re.IGNORECASE)
+    s = s.strip()
+    if not s:
+        return ""
+    parts = re.split(r"\s+because\s+", s, maxsplit=1, flags=re.IGNORECASE)
+    target = parts[0].strip().rstrip(".")
+    reason = parts[1].strip().rstrip(".") if len(parts) > 1 else ""
+    _is_file = "/" in target or "\\" in target or "." in target.split("/")[-1]
+    if _is_file and reason:
+        r = reason[0].lower() + reason[1:] if reason else ""
+        return f"`{target}` — {r}."
+    if _is_file:
+        return f"`{target}` is worth looking at next."
+    full = (target + (f" because {reason}" if reason else "")).strip().rstrip(".")
+    return (full[0].upper() + full[1:] if full else full) + "."
+
+
 def _is_explicitly_verified_operator_text(text: str) -> bool:
     low = str(text or "").lower()
     trusted_markers = (
@@ -235,9 +255,7 @@ def apply_response_momentum(
     ):
         cleaned = strip_passive_followup_sentences(text, mode="educational_explain")
         if not cleaned and objective:
-            cleaned = _normalize_next_move_line(
-                f"take one concrete step on {focus or objective}"
-            )
+            cleaned = f"Take one concrete step on {focus or objective}."
         elif not cleaned:
             cleaned = text
         return normalize_response_paragraphs(_enforce_claim_evidence(cleaned, local))
@@ -300,52 +318,31 @@ def apply_response_momentum(
         )
         if not contract.passed:
             return "I ran into an issue with that operator action. Let me try again."
-        # Contract passed — assemble final output with grounded evidence and next_step.
+        # Contract passed — assemble final output.
         base_ct = normalize_response_paragraphs(
             _enforce_claim_evidence(rendered, local)
         )
-        # Add grounded evidence line for confirmed file inspections.
-        result_line_ct = ""
-        if local:
-            inspected_ct = str(local.get("inspected_file") or "")
-            success_ct = bool(local.get("success"))
-            if inspected_ct and success_ct:
-                result_line_ct = f"I inspected {inspected_ct}."
-        # Add next_step — not for pure status turns.
+        # Add next_step hint — not for pure status turns.
         allow_ns_ct = normalized_intent not in {
             "operator:project_status",
             "operator:status",
         }
         ns_line_ct = ""
         if allow_ns_ct:
-            # Prefer structured recommendation from operator_state.
             structured_rec = dict(state.get("last_recommended_action") or {})
             rec_target = str(structured_rec.get("target") or "").strip()
-            rec_action = str(structured_rec.get("action") or "inspect_file").strip()
             rec_reason = str(structured_rec.get("reason") or "").strip()
             if rec_target:
-                rec_verb = (
-                    "inspect"
-                    if rec_action in {"inspect_file", "analyze_file", "read_file"}
-                    else rec_action.replace("_", " ")
+                ns_line_ct = _format_next_step_natural(
+                    f"{rec_target} because {rec_reason}" if rec_reason else rec_target
                 )
-                if rec_reason:
-                    r = re.sub(r"\.+$", "", rec_reason.strip())
-                    r = (r[0].lower() + r[1:]) if r else ""
-                    ns_line_ct = (
-                        f"Next best move: {rec_verb} {rec_target} because {r}."
-                        if r
-                        else f"Next best move: {rec_verb} {rec_target}."
-                    )
-                else:
-                    ns_line_ct = f"Next best move: {rec_verb} {rec_target}."
             elif next_step:
-                ns_line_ct = _normalize_next_move_line(next_step)
+                ns_line_ct = _format_next_step_natural(next_step)
             elif state.get("next_recommended_action"):
-                ns_line_ct = _normalize_next_move_line(
+                ns_line_ct = _format_next_step_natural(
                     str(state.get("next_recommended_action") or "")
                 )
-        parts_ct = [p for p in [base_ct, result_line_ct, ns_line_ct] if str(p).strip()]
+        parts_ct = [p for p in [base_ct, ns_line_ct] if str(p).strip()]
         return normalize_response_paragraphs("\n\n".join(parts_ct).strip() or base_ct)
 
     # Avoid passive generic endings.
@@ -369,23 +366,9 @@ def apply_response_momentum(
         if marker in low:
             text = text.replace(marker, "").strip()
 
-    result_line = ""
-    if local:
-        action = str(local.get("action") or "")
-        inspected = str(local.get("inspected_file") or "")
-        success = bool(local.get("success"))
-        if inspected and success:
-            result_line = (
-                f"I inspected `{inspected}` through `{action or 'local execution'}`."
-            )
-        elif action and action.startswith("code:") and success:
-            result_line = f"I ran one safe local step: `{action}`."
-
-    meaning = ""
+    blocker = ""
     if str(local.get("error") or ""):
-        meaning = f"That surfaced a blocker: {local.get('error')}."
-    elif result_line:
-        meaning = "That gives us grounded evidence for the next runtime move."
+        blocker = f"Ran into a blocker: {local.get('error')}."
 
     next_line = str(next_step or "").strip()
     allow_next_step = (
@@ -403,9 +386,9 @@ def apply_response_momentum(
         }
     )
     if next_line and allow_next_step:
-        next_line = _normalize_next_move_line(next_line)
+        next_line = _format_next_step_natural(next_line)
     elif allow_next_step and not next_line and state.get("next_recommended_action"):
-        next_line = _normalize_next_move_line(
+        next_line = _format_next_step_natural(
             str(state.get("next_recommended_action") or "")
         )
     else:
@@ -447,13 +430,13 @@ def apply_response_momentum(
                     or "beginner" in low_merged
                 ):
                     next_line = (
-                        "Next best move: start with memory, goals, tools, and the loop; "
+                        "Start with memory, goals, tools, and the loop — "
                         "then implement the loop first in Alice."
                     )
                 elif objective:
-                    next_line = f"Next best move: take one concrete step on {focus or objective}."
+                    next_line = f"Take one concrete step on {focus or objective}."
 
     text = _enforce_claim_evidence(text, local)
-    parts = [p for p in [lead, text, result_line, meaning, next_line] if str(p).strip()]
+    parts = [p for p in [lead, text, blocker, next_line] if str(p).strip()]
     merged = " ".join(parts).strip()
     return normalize_response_paragraphs(merged or text)

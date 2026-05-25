@@ -27,7 +27,11 @@ def test_next_step_from_durable_state_is_grounded():
         last_failure="routing misroute in next-step handling",
     )
     payload = decision.to_dict()
-    assert "next best move" in payload["next_recommended_action"].lower()
+    # next_recommended_action is raw action text — no "Next best move:" label now
+    assert payload["next_recommended_action"]
+    assert "route_arbiter.py" in payload["next_recommended_action"].lower() or any(
+        "route_arbiter.py" in f for f in payload["suggested_next_files"]
+    )
     assert payload["candidate_actions"]
     assert any("route_arbiter.py" in f for f in payload["suggested_next_files"])
 
@@ -49,7 +53,9 @@ def test_response_momentum_includes_next_move_without_passive_closer():
         next_step="Inspect ai/core/routing/evidence_contracts.py for missing slot scoring.",
     )
     low = text.lower()
-    assert "next best move" in low
+    # Natural next-step pointer should appear without the "Next best move:" label
+    assert "next best move" not in low
+    assert "evidence_contracts.py" in low
     assert "let me know if you need anything else" not in low
 
 
