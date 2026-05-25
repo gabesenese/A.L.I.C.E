@@ -2510,29 +2510,6 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"type": "code_request_fallback"},
             )
 
-        if req.decision.intent in {
-            "conversation:educational_explain",
-            "operator:research_explain",
-        }:
-            text = (
-                "Start simple.\n\n"
-                "An agentic companion has four parts: memory, goals, tools, and a loop.\n\n"
-                "Memory keeps context. Goals decide what matters. Tools let it act. "
-                "The loop checks results and chooses the next move.\n\n"
-                "A chatbot waits for prompts. An agentic companion keeps the mission in view and moves it forward safely.\n\n"
-                "Next best move: build a tiny version of that loop inside Alice."
-            )
-            return ResponseOutput(
-                text=_surface_text(
-                    text,
-                    user_input=req.user_input,
-                    intent=req.decision.intent,
-                    route="contract_educational_explain",
-                ),
-                confidence=0.92,
-                metadata={"type": "educational_explain"},
-            )
-
         if req.decision.intent == "freshness:current_events":
             payload = _freshness_required_payload(req.user_input)
             follow_up_question = _surface_text(
