@@ -1065,15 +1065,29 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             from datetime import date as _date, timedelta as _td
 
             _today = _date.today()
-            _day_labels = {
-                _today.isoformat(): "today",
-                (_today + _td(days=1)).isoformat(): "tomorrow",
-                (_today + _td(days=2)).isoformat(): (_today + _td(days=2)).strftime("%A"),
-                (_today + _td(days=3)).isoformat(): (_today + _td(days=3)).strftime("%A"),
-            }
+            _day_labels = {"today": "today", "tomorrow": "tomorrow"}
+            for _i in range(8):
+                _d = _today + _td(days=_i)
+                if _i == 0:
+                    _day_labels[_d.isoformat()] = "today"
+                elif _i == 1:
+                    _day_labels[_d.isoformat()] = "tomorrow"
+                else:
+                    _day_labels[_d.isoformat()] = _d.strftime("%A")
+
+            # Weekend filter: only show Saturday (5) and Sunday (6)
+            if "weekend" in user_input.lower():
+                def _is_weekend(d: dict) -> bool:
+                    try:
+                        return _date.fromisoformat(str(d.get("date") or "")).weekday() in (5, 6)
+                    except Exception:
+                        return False
+                day_slice = [d for d in forecast_days if _is_weekend(d)]
+            else:
+                day_slice = forecast_days[:3]
 
             parts = []
-            for day in forecast_days[:3]:
+            for day in day_slice:
                 date_str = str(day.get("date") or "")
                 label = _day_labels.get(date_str, date_str)
                 high = day.get("high")
