@@ -115,7 +115,7 @@ def run_nightly_training():
                         if line.strip():
                             try:
                                 training_logs.append(json.loads(line))
-                            except:
+                            except Exception:
                                 pass
 
                 if training_logs:

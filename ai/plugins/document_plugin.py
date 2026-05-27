@@ -434,16 +434,3 @@ class DocumentPlugin(PluginInterface):
         return any(indicator in query for indicator in question_indicators) or any(
             keyword in query for keyword in knowledge_keywords
         )
-        """Check if query is a question that might be answered from documents"""
-        question_indicators = [
-            "what is",
-            "how to",
-            "tell me about",
-            "explain",
-            "describe",
-        ]
-
-    def shutdown(self):
-        """Shutdown the plugin"""
-        # No cleanup needed for document plugin
-        pass

@@ -147,7 +147,7 @@ class ConnectionPool:
                 if conn and self.config.db_type == DatabaseType.POSTGRESQL:
                     try:
                         self.pool.putconn(conn, close=True)
-                    except:
+                    except Exception:
                         pass
 
                 if attempt < retries - 1:
@@ -210,7 +210,7 @@ class ConnectionPool:
         try:
             result = self.execute_query("SELECT 1 as health", fetch=True)
             return len(result) > 0 and result[0].get("health") == 1
-        except:
+        except Exception:
             return False
 
     def get_stats(self) -> Dict[str, Any]:
@@ -276,7 +276,7 @@ class SQLitePool:
             for conn in list(self.available) + list(self.in_use):
                 try:
                     conn.close()
-                except:
+                except Exception:
                     pass
             self.available.clear()
             self.in_use.clear()

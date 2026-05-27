@@ -145,7 +145,7 @@ Respond with just a number 1-5 and brief reason."""
     # Try to extract score
     try:
         score = float(audit[0]) if audit and audit[0].isdigit() else 3.0
-    except:
+    except Exception:
         score = 3.0
 
     print(f"score: {score}/5")
@@ -158,124 +158,6 @@ Respond with just a number 1-5 and brief reason."""
         if score >= 3.0
         else "negative",
     }
-
-
-def main():
-    """Run the learning cycle"""
-
-    print("\n" + "=" * 70)
-    print("A.L.I.C.E. SIMPLE LEARNING CYCLE")
-    print("=" * 70)
-
-    # Check Ollama is running
-    print("\n[1/4] Checking Ollama...")
-    try:
-        response = requests.get("http://localhost:11434/api/tags", timeout=5)
-        if response.status_code == 200:
-            models = response.json().get("models", [])
-            print("  [OK] Ollama running")
-            print(f"  [OK] Available models: {len(models)}")
-        else:
-            print("  [ERROR] Ollama not responding")
-            return False
-    except Exception as e:
-        print(f"  [ERROR] Cannot connect to Ollama: {e}")
-        return False
-
-    # Generate test queries
-    print("\n[2/4] Generating test queries...")
-    domains = ["weather", "code", "conversation"]
-    all_queries = []
-
-    for domain in domains:
-        queries = generate_test_queries(domain, count=2)
-        all_queries.extend([(q, domain) for q in queries])
-
-    if not all_queries:
-        print("  [ERROR] No queries generated")
-        return False
-
-    print(f"  Total: {len(all_queries)} test queries")
-
-    # Process queries and grade
-    print("\n[3/4] Processing queries...")
-    results = []
-
-    for i, (query, domain) in enumerate(all_queries, 1):
-        print(f"\n  [{i}/{len(all_queries)}] Domain: {domain}")
-
-        # Get answer
-        answer = ask_alice(query)
-        if not answer:
-            print("    [ERROR] No response")
-            continue
-
-        # Grade it
-        grade = grade_response(query, answer, domain)
-
-        results.append(
-            {
-                "query": query,
-                "domain": domain,
-                "answer": answer,
-                "score": grade["score"],
-                "grade": grade["grade"],
-                "timestamp": datetime.now().isoformat(),
-            }
-        )
-
-    # Store results
-    print("\n[4/4] Storing feedback...")
-    feedback_file = Path("data/training/audit_feedback.jsonl")
-    feedback_file.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(feedback_file, "a") as f:
-        for result in results:
-            f.write(
-                json.dumps(
-                    {
-                        "query": result["query"],
-                        "domain": result["domain"],
-                        "score": result["score"],
-                        "signal_type": result["grade"],
-                        "timestamp": result["timestamp"],
-                    }
-                )
-                + "\n"
-            )
-
-    print(f"  [OK] Stored {len(results)} feedback signals")
-
-    # Summary
-    print("\n" + "=" * 70)
-    print("LEARNING CYCLE SUMMARY")
-    print("=" * 70)
-
-    positive = len([r for r in results if r["grade"] == "positive"])
-    improvement = len([r for r in results if r["grade"] == "improvement"])
-    negative = len([r for r in results if r["grade"] == "negative"])
-
-    print("\nResults:")
-    print(f"  [+] Positive:     {positive}")
-    print(f"  [*] Improvement:  {improvement}")
-    print(f"  [-] Negative:     {negative}")
-
-    if results:
-        avg_score = sum(r["score"] for r in results) / len(results)
-        print(f"\n  Average Score: {avg_score:.2f}/5.0")
-
-        if avg_score >= 3.5:
-            print("\n  Status: [OK] Alice is responding well!")
-        else:
-            print("\n  Status: [WARN] Alice needs more training")
-
-    print("\nNext steps:")
-    print("  1. Check progress: python scripts/simple_learning.py --progress")
-    print("  2. Run again: python scripts/simple_learning.py")
-    print("  3. Continuous learning: python scripts/simple_learning.py --continuous")
-    print()
-
-    return True
 
 
 def load_feedback():

@@ -35,7 +35,7 @@ def monitor_metrics():
         for line in f:
             try:
                 sessions.append(json.loads(line))
-            except:
+            except Exception:
                 pass
 
     if not sessions:
@@ -72,7 +72,7 @@ def monitor_feedback():
         for line in f:
             try:
                 feedback.append(json.loads(line))
-            except:
+            except Exception:
                 pass
 
     if not feedback:
@@ -128,7 +128,7 @@ def monitor_datasets():
             print(f"  Examples: {count}")
             print(f"  Priority-weighted: {weighted:.2f}")
 
-        except:
+        except Exception:
             pass
 
 

@@ -289,7 +289,7 @@ class CacheManager:
                 info = self.redis_client.info("stats")
                 stats["redis_keys"] = self.redis_client.dbsize()
                 stats["redis_memory"] = info.get("used_memory_human", "unknown")
-            except:
+            except Exception:
                 pass
 
         return stats

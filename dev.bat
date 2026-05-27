@@ -290,6 +290,14 @@ echo.
 echo   ruff check . --fix --unsafe-fixes --exit-zero
 echo.
 ruff check . --fix --unsafe-fixes --exit-zero
+echo.
+echo   ruff format .
+echo.
+ruff format .
+echo.
+echo   ── remaining issues ──────────────────────────────────────
+echo.
+ruff check .
 pause
 goto quality_menu
 

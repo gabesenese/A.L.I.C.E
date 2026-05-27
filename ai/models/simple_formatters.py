@@ -237,7 +237,7 @@ class WeatherFormatter(SimpleFormatter):
                         day_label = f"Today ({day_of_week})"
                     else:
                         day_label = day_of_week
-                except:
+                except Exception:
                     day_label = date_str
 
             # Get weather icon
@@ -292,7 +292,7 @@ class WeatherFormatter(SimpleFormatter):
                     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
                     # Format: "Monday, February 9"
                     day_name = date_obj.strftime("%A, %B %d").replace(" 0", " ")
-                except:
+                except Exception:
                     day_name = date_str
 
         if day_name and high is not None and low is not None:

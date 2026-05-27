@@ -305,7 +305,7 @@ class TaskQueue:
             try:
                 result = AsyncResult(task_id, app=self.celery_app)
                 return result.state
-            except:
+            except Exception:
                 return None
         return None
 

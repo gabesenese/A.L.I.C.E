@@ -73,7 +73,7 @@ def get_terminal_width():
     """Get terminal width safely"""
     try:
         return shutil.get_terminal_size().columns
-    except:
+    except Exception:
         return 80  # Default width
 
 

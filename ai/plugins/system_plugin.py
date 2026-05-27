@@ -246,7 +246,7 @@ class SystemPlugin(PluginInterface):
                 return None
             lines = result.stdout.strip().splitlines()
             branch_line = lines[0] if lines else ""
-            changes = len([l for l in lines[1:] if l.strip()])
+            changes = len([ln for ln in lines[1:] if ln.strip()])
             branch = branch_line.replace("## ", "").split("...")[0]
             if changes:
                 return f"{branch} ({changes} uncommitted change{'s' if changes != 1 else ''})"

@@ -223,7 +223,7 @@ class ConversationalEngine:
                         "thank" in ex.user_input.lower() for ex in examples
                     )
                     return has_thanks_patterns
-                except:
+                except Exception:
                     pass
             return False
 
@@ -380,7 +380,7 @@ class ConversationalEngine:
                                 thanks_responses.append(ex.assistant_response)
                     if thanks_responses:
                         return self._pick_non_repeating(thanks_responses)
-                except:
+                except Exception:
                     pass
 
         # ACK — short built-in responses, never need LLM

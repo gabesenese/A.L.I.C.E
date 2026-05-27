@@ -403,7 +403,7 @@ class ProactiveAssistant:
                 ]
                 if overdue:
                     suggestions.append(f"You have {len(overdue)} overdue note(s)")
-            except:
+            except Exception:
                 pass
 
         # Check for incomplete tasks

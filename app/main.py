@@ -1522,7 +1522,7 @@ class ALICE:
         # Step 2: Check Alice's memory for relevant information
         try:
             relevant_memories = self.memory.recall_relevant(user_input, top_k=3)
-        except:
+        except Exception:
             relevant_memories = []
 
         # Step 3: Knowledge questions - Alice might need to query her knowledge tool
@@ -10449,8 +10449,9 @@ class ALICE:
 
     def _print_sitrep(self) -> None:
         """Situational report for /status."""
-        from datetime import datetime, timezone, timedelta
-        import subprocess, os as _os
+        from datetime import datetime, timezone
+        import subprocess
+        import os as _os
 
         now = datetime.now(timezone.utc)
         local_now = datetime.now()
@@ -10485,7 +10486,7 @@ class ALICE:
             if result.returncode == 0:
                 lines = result.stdout.strip().splitlines()
                 branch_line = lines[0].replace("## ", "").split("...")[0] if lines else "unknown"
-                changes = len([l for l in lines[1:] if l.strip()])
+                changes = len([ln for ln in lines[1:] if ln.strip()])
                 git_str = f"{branch_line} ({changes} change{'s' if changes != 1 else ''})" if changes else f"{branch_line} (clean)"
                 print(f"  Git:      {git_str}")
         except Exception:
@@ -11195,7 +11196,7 @@ Generate only the greeting (1 sentence), no other text. Be friendly and offer to
                         return self.conversational_engine._pick_non_repeating(
                             farewell_responses
                         )
-            except:
+            except Exception:
                 pass
 
         # Fallback to Gateway for natural farewell generation

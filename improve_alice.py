@@ -382,7 +382,7 @@ class ContinuousImprovementPipeline:
             # Format: [1/16] nlp_001: Description...
             parts = line.split("]", 1)[1].strip().split(":", 1)
             return parts[0].strip()
-        except:
+        except Exception:
             return None
 
     def _extract_failure_details(self, line: str, full_content: str) -> Dict[str, Any]:
@@ -391,8 +391,8 @@ class ContinuousImprovementPipeline:
 
         # Look for intent mismatch in next lines
         lines = full_content.split("\n")
-        for i, l in enumerate(lines):
-            if scenario_id in l and "✗ FAIL" in l:
+        for i, ln in enumerate(lines):
+            if scenario_id in ln and "✗ FAIL" in ln:
                 # Check next few lines for error details
                 if i + 1 < len(lines):
                     error_line = lines[i + 1].strip()

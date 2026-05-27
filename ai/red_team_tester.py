@@ -264,7 +264,7 @@ class RedTeamTester:
         for i in range(iterations):
             try:
                 handler_func(f"iteration {i}")
-            except:
+            except Exception:
                 pass
 
             if i % 10 == 0:

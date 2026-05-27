@@ -350,9 +350,9 @@ class TestFormatterStrategy:
         lines = s.render_notes_list(notes, count=10, shown=10, header="Notes")
         # One line per note (no preview lines in compact mode)
         content_lines = [
-            l
-            for l in lines
-            if l.startswith(("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9."))
+            ln
+            for ln in lines
+            if ln.startswith(("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9."))
         ]
         assert len(content_lines) == 9  # lines 1-9
 
@@ -367,7 +367,7 @@ class TestFormatterStrategy:
         ]
         s = DetailedNotesListStrategy()
         lines = s.render_notes_list(notes, count=1, shown=1, header="Notes")
-        assert any("First paragraph" in l for l in lines)
+        assert any("First paragraph" in ln for ln in lines)
 
     def test_formatter_uses_strategy_for_list_action(self):
         # 10 notes → compact rendering expected

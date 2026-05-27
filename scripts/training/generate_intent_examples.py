@@ -120,13 +120,13 @@ def _generate_examples(intent: str, description: str, count: int, model: str) ->
     if not raw:
         return []
 
-    lines = [l.strip().lstrip("•-*0123456789.) ") for l in raw.splitlines()]
+    lines = [ln.strip().lstrip("•-*0123456789.) ") for ln in raw.splitlines()]
     # Filter: must be at least 5 chars, not a header or meta line
     results = [
-        l
-        for l in lines
-        if len(l) >= 5
-        and not l.lower().startswith(("here are", "sure", "of course", "note:"))
+        ln
+        for ln in lines
+        if len(ln) >= 5
+        and not ln.lower().startswith(("here are", "sure", "of course", "note:"))
     ]
     return results[:count]
 

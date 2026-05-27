@@ -6,7 +6,7 @@ Handles memory serialization and deserialization
 import pickle
 import json
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from ai.memory.memory_store import MemoryEntry
 import logging
 

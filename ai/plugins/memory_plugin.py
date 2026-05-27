@@ -238,7 +238,7 @@ class MemoryPlugin(PluginInterface):
                         "memories": [],
                         "count": 0,
                     }
-            except:
+            except Exception:
                 return {"success": False, "message": "Unable to recall memories"}
 
         try:

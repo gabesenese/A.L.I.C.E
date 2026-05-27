@@ -508,7 +508,7 @@ class SelfReflectionSystem:
             docstring = ast.get_docstring(tree)
             if docstring:
                 # Get first meaningful line
-                lines = [l.strip() for l in docstring.split("\n") if l.strip()]
+                lines = [ln.strip() for ln in docstring.split("\n") if ln.strip()]
                 if lines:
                     return lines[0][:100]
 

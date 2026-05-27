@@ -330,7 +330,7 @@ class SystemStateAPI:
             process = psutil.Process(os.getpid())
             health["cpu_percent"] = process.cpu_percent()
             health["memory_percent"] = process.memory_percent()
-        except:
+        except Exception:
             pass
 
         return health

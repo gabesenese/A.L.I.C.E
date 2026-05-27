@@ -100,9 +100,9 @@ class MemoryHealthPlugin(PluginInterface):
     def _parse_output(output: str) -> tuple:
         """Return (passed, total, result_lines) from health check stdout."""
         lines = [
-            l.strip() for l in output.splitlines() if "[PASS]" in l or "[FAIL]" in l
+            ln.strip() for ln in output.splitlines() if "[PASS]" in ln or "[FAIL]" in ln
         ]
-        passed = sum(1 for l in lines if "[PASS]" in l)
+        passed = sum(1 for ln in lines if "[PASS]" in ln)
         return passed, len(lines), lines
 
     @staticmethod

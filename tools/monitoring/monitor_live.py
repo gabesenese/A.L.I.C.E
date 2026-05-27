@@ -46,7 +46,7 @@ class PerformanceMonitor:
                     domain = entry.get("domain")
                     if domain:
                         metrics[domain] = entry
-                except:
+                except Exception:
                     pass
 
         return metrics
@@ -69,7 +69,7 @@ class PerformanceMonitor:
                         if domain not in feedback_by_domain:
                             feedback_by_domain[domain] = []
                         feedback_by_domain[domain].append(entry)
-                except:
+                except Exception:
                     pass
 
         return feedback_by_domain

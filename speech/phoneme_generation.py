@@ -71,9 +71,6 @@ def process_file(filename):
                         )
                         segment_audio.export(phoneme_file, format="wav")
 
-            # Print progress bar
-            pbar.update(1)
-
         except Exception as e:
             print(f"Failed to process {filename}: {e}")
 
