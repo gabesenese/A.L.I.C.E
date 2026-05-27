@@ -2429,25 +2429,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 except Exception:
                     pass
 
-                # For conversational tool intents, let the LLM answer naturally
-                # using the tool data as context rather than surfacing raw data.
-                _intent_str = str(req.decision.intent or "")
-                _conversational_tool = _intent_str.startswith("weather:")
-                if _conversational_tool and getattr(alice, "llm", None):
-                    try:
-                        _llm_ans = str(
-                            alice.llm.chat(
-                                req.user_input,
-                                use_history=True,
-                                context=f"Data retrieved: {tool_response}",
-                                intent=_intent_str,
-                            )
-                            or ""
-                        ).strip()
-                        if _llm_ans:
-                            tool_response = _llm_ans
-                    except Exception:
-                        pass
+                # Weather responses use the formatted tool string directly —
+                # LLM paraphrasing introduced wrong day labels and fabricated
+                # meteorological details not present in the data.
 
                 return ResponseOutput(
                     text=_surface_text(
