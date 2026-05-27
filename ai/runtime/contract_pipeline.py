@@ -867,6 +867,7 @@ class ContractPipeline:
                 str(getattr(decision, "intent", "") or "").endswith("greeting")
                 or str(getattr(decision, "intent", "") or "") == "greeting"
             )
+            is_conversational_turn = str(getattr(decision, "intent", "") or "").startswith("conversation:")
             if is_greeting_turn or (verification and str(verification.reason or "") == "unsupported_continuity_claim"):
                 op_state = dict((decision.metadata or {}).get("operator_state") or {})
                 if not op_state.get("active_objective"):
@@ -883,6 +884,8 @@ class ContractPipeline:
                 )
                 self._greeting_session_state_by_user[str(user_id)] = dict(greeting.session_state)
                 response_text = str(greeting.text or "").strip()
+            elif is_conversational_turn and response_text:
+                pass  # keep the LLM's response — verification errors don't apply to casual conversation
             else:
                 response_text = (
                     "I could not verify that result safely. Please rephrase the request or provide more detail."
