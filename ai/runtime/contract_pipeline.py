@@ -34,6 +34,21 @@ from ai.goals.goal_engine import get_goal_engine
 from ai.runtime.session_briefing import get_top_goal_for_greeting
 
 
+def _get_greeting_llm_generate():
+    """Return a callable for LLM greeting generation, or None if unavailable."""
+    try:
+        from ai.core.llm_gateway import get_llm_gateway
+
+        gw = get_llm_gateway()
+
+        def _gen(prompt: str) -> str:
+            return str(gw.llm.generate(prompt=prompt, temperature=0.9) or "").strip()
+
+        return _gen
+    except Exception:
+        return None
+
+
 @dataclass
 class PipelineResult:
     handled: bool
@@ -881,6 +896,7 @@ class ContractPipeline:
                     operator_state=op_state,
                     session_state=greeting_session,
                     user_input=user_input,
+                    llm_generate=_get_greeting_llm_generate(),
                 )
                 self._greeting_session_state_by_user[str(user_id)] = dict(greeting.session_state)
                 response_text = str(greeting.text or "").strip()
