@@ -67,9 +67,7 @@ class AutonomousExecutionLoop:
             return
 
         self.state = ExecutionLoopState.RUNNING
-        self.thread = threading.Thread(
-            target=self._execution_loop, name="AutonomousExecutionLoop", daemon=True
-        )
+        self.thread = threading.Thread(target=self._execution_loop, name="AutonomousExecutionLoop", daemon=True)
         self.thread.start()
 
         logger.info("Autonomous execution loop started")
@@ -169,18 +167,14 @@ class AutonomousExecutionLoop:
                 # Update goal based on result
                 if result.get("success"):
                     if hasattr(self.goal_system, "complete_current_step"):
-                        self.goal_system.complete_current_step(
-                            goal_id, result=result.get("output")
-                        )
+                        self.goal_system.complete_current_step(goal_id, result=result.get("output"))
                     self.execution_count += 1
                     self.last_execution = time.time()
 
                     logger.info(f"Step completed: {next_step.description}")
                 else:
                     # Step failed - mark as failed and move on
-                    error_message = str(
-                        result.get("error", "Unknown error") or "Unknown error"
-                    )
+                    error_message = str(result.get("error", "Unknown error") or "Unknown error")
                     failed_recorded = False
 
                     if hasattr(self.goal_system, "fail_current_step"):
@@ -192,9 +186,7 @@ class AutonomousExecutionLoop:
                                 )
                             )
                         except Exception as e:
-                            logger.error(
-                                f"Failed to mark current step failed for goal {goal_id}: {e}"
-                            )
+                            logger.error(f"Failed to mark current step failed for goal {goal_id}: {e}")
 
                     if not failed_recorded and hasattr(self.goal_system, "fail_step"):
                         step_id = str(getattr(next_step, "step_id", "") or "").strip()
@@ -203,9 +195,7 @@ class AutonomousExecutionLoop:
                                 self.goal_system.fail_step(step_id, error=error_message)
                                 failed_recorded = True
                             except Exception as e:
-                                logger.error(
-                                    f"Fallback fail_step failed for goal {goal_id}: {e}"
-                                )
+                                logger.error(f"Fallback fail_step failed for goal {goal_id}: {e}")
 
                     if not failed_recorded and hasattr(goal, "fail_step"):
                         step_id = str(getattr(next_step, "step_id", "") or "").strip()
@@ -241,30 +231,18 @@ class AutonomousExecutionLoop:
         """Resolve autonomous step type from explicit metadata or description hints."""
         allowed = {"research", "analyze", "implement", "test", "verify", "report"}
 
-        explicit = (
-            str(getattr(step, "step_type", "") or getattr(step, "type", "") or "")
-            .strip()
-            .lower()
-        )
+        explicit = str(getattr(step, "step_type", "") or getattr(step, "type", "") or "").strip().lower()
         if explicit in allowed:
             return explicit
 
         description = str(getattr(step, "description", "") or "").strip().lower()
-        if any(
-            token in description
-            for token in ("research", "investigate", "explore", "gather")
-        ):
+        if any(token in description for token in ("research", "investigate", "explore", "gather")):
             return "research"
         if any(token in description for token in ("analy", "inspect", "review")):
             return "analyze"
-        if any(
-            token in description for token in ("test", "verify", "validate", "check")
-        ):
+        if any(token in description for token in ("test", "verify", "validate", "check")):
             return "test"
-        if any(
-            token in description
-            for token in ("report", "summar", "notify", "communicat")
-        ):
+        if any(token in description for token in ("report", "summar", "notify", "communicat")):
             return "report"
         return "implement"
 
@@ -284,9 +262,7 @@ class AutonomousExecutionLoop:
 _execution_loop = None
 
 
-def get_execution_loop(
-    autonomous_agent=None, goal_system=None, check_interval: int = 30
-) -> AutonomousExecutionLoop:
+def get_execution_loop(autonomous_agent=None, goal_system=None, check_interval: int = 30) -> AutonomousExecutionLoop:
     """Get or create global execution loop"""
     global _execution_loop
     if _execution_loop is None:

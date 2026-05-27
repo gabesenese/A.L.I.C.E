@@ -21,9 +21,7 @@ class FeedbackSignal(Enum):
     EXPLICIT_NO = "explicit_no"  # "That didn't work"
     IMPLICIT_REPEAT = "implicit_repeat"  # User asks same thing again = implicit no
     IMPLICIT_FOLLOWUP = "implicit_followup"  # User asks related thing = implicit yes
-    IMPLICIT_ABANDON = (
-        "implicit_abandon"  # User abandons line of questioning = implicit no
-    )
+    IMPLICIT_ABANDON = "implicit_abandon"  # User abandons line of questioning = implicit no
     NEUTRAL = "neutral"  # No clear signal
 
 
@@ -104,9 +102,7 @@ class GoalAlignmentTracker:
         self.alignment_stats["total_interactions"] += 1
         self.last_user_input = user_input
 
-        logger.info(
-            f"[Alignment] Recorded turn {self.turn_count}: goal='{goal}' via {routing_path}"
-        )
+        logger.info(f"[Alignment] Recorded turn {self.turn_count}: goal='{goal}' via {routing_path}")
 
         return entry
 
@@ -141,10 +137,7 @@ class GoalAlignmentTracker:
         self.alignment_stats["explicit_signal_count"] += 1
 
         level = "helpful ✓" if helpful else "not helpful ✗"
-        logger.info(
-            f"[Alignment] Explicit feedback: {level} "
-            f"(satisfaction={satisfaction_score})"
-        )
+        logger.info(f"[Alignment] Explicit feedback: {level} (satisfaction={satisfaction_score})")
 
     def infer_implicit_feedback(self, new_user_input: str) -> None:
         """
@@ -233,10 +226,7 @@ class GoalAlignmentTracker:
             return True
 
         # Check for common related questions after code/explanation
-        if any(
-            phrase in new_lower
-            for phrase in ["how does", "why does", "what makes", "explain that"]
-        ):
+        if any(phrase in new_lower for phrase in ["how does", "why does", "what makes", "explain that"]):
             return True
 
         return False
@@ -271,9 +261,7 @@ class GoalAlignmentTracker:
             "routing_path": routing_path,
             "total_uses": len(path_entries),
             "successful": helpful_count,
-            "effectiveness_rate": (
-                helpful_count / len(path_entries) if path_entries else 0.0
-            ),
+            "effectiveness_rate": (helpful_count / len(path_entries) if path_entries else 0.0),
         }
 
     def get_problem_areas(self) -> List[Dict[str, Any]]:
@@ -314,14 +302,10 @@ class GoalAlignmentTracker:
         return {
             **self.alignment_stats,
             "overall_success_rate": helpful / total if total > 0 else 0.0,
-            "feedback_rate": (
-                self.alignment_stats["feedback_received"] / total if total > 0 else 0.0
-            ),
+            "feedback_rate": (self.alignment_stats["feedback_received"] / total if total > 0 else 0.0),
         }
 
     def get_recent_feedback(self, n: int = 5) -> List[AlignmentEntry]:
         """Get most recent entries with feedback."""
-        with_feedback = [
-            e for e in self.entries if e.feedback_signal != FeedbackSignal.NEUTRAL
-        ]
+        with_feedback = [e for e in self.entries if e.feedback_signal != FeedbackSignal.NEUTRAL]
         return with_feedback[-n:]

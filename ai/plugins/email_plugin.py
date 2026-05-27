@@ -47,8 +47,7 @@ class GmailPlugin:
         """Authenticate with Gmail API using OAuth2"""
         if not GMAIL_AVAILABLE:
             logger.warning(
-                "[WARNING] Gmail dependencies not available. "
-                "Install requirements-integrations.txt to enable Gmail."
+                "[WARNING] Gmail dependencies not available. Install requirements-integrations.txt to enable Gmail."
             )
             return
 
@@ -72,12 +71,8 @@ class GmailPlugin:
 
             if not self.creds:
                 if not os.path.exists(creds_path):
-                    logger.warning(
-                        "[WARNING] Gmail credentials not found. Run setup first."
-                    )
-                    logger.info(
-                        "Get credentials from: https://console.cloud.google.com/apis/credentials"
-                    )
+                    logger.warning("[WARNING] Gmail credentials not found. Run setup first.")
+                    logger.info("Get credentials from: https://console.cloud.google.com/apis/credentials")
                     return
 
                 try:
@@ -109,10 +104,7 @@ class GmailPlugin:
 
         try:
             results = (
-                self.service.users()
-                .messages()
-                .list(userId="me", labelIds=["INBOX"], maxResults=max_results)
-                .execute()
+                self.service.users().messages().list(userId="me", labelIds=["INBOX"], maxResults=max_results).execute()
             )
 
             messages = results.get("messages", [])
@@ -134,16 +126,12 @@ class GmailPlugin:
                 headers = msg_data.get("payload", {}).get("headers", [])
                 email_info = {
                     "id": msg["id"],
-                    "from": next(
-                        (h["value"] for h in headers if h["name"] == "From"), "Unknown"
-                    ),
+                    "from": next((h["value"] for h in headers if h["name"] == "From"), "Unknown"),
                     "subject": next(
                         (h["value"] for h in headers if h["name"] == "Subject"),
                         "No Subject",
                     ),
-                    "date": next(
-                        (h["value"] for h in headers if h["name"] == "Date"), "Unknown"
-                    ),
+                    "date": next((h["value"] for h in headers if h["name"] == "Date"), "Unknown"),
                     "unread": "UNREAD" in msg_data.get("labelIds", []),
                 }
                 emails.append(email_info)
@@ -159,12 +147,7 @@ class GmailPlugin:
             return None
 
         try:
-            msg = (
-                self.service.users()
-                .messages()
-                .get(userId="me", id=email_id, format="full")
-                .execute()
-            )
+            msg = self.service.users().messages().get(userId="me", id=email_id, format="full").execute()
 
             payload = msg.get("payload", {})
             parts = payload.get("parts", [])
@@ -195,12 +178,7 @@ class GmailPlugin:
             return []
 
         try:
-            results = (
-                self.service.users()
-                .messages()
-                .list(userId="me", q=query, maxResults=max_results)
-                .execute()
-            )
+            results = self.service.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
 
             messages = results.get("messages", [])
             emails = []
@@ -221,16 +199,12 @@ class GmailPlugin:
                 headers = msg_data.get("payload", {}).get("headers", [])
                 email_info = {
                     "id": msg["id"],
-                    "from": next(
-                        (h["value"] for h in headers if h["name"] == "From"), "Unknown"
-                    ),
+                    "from": next((h["value"] for h in headers if h["name"] == "From"), "Unknown"),
                     "subject": next(
                         (h["value"] for h in headers if h["name"] == "Subject"),
                         "No Subject",
                     ),
-                    "date": next(
-                        (h["value"] for h in headers if h["name"] == "Date"), "Unknown"
-                    ),
+                    "date": next((h["value"] for h in headers if h["name"] == "Date"), "Unknown"),
                 }
                 emails.append(email_info)
 
@@ -251,9 +225,7 @@ class GmailPlugin:
 
             raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
 
-            self.service.users().messages().send(
-                userId="me", body={"raw": raw}
-            ).execute()
+            self.service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
             logger.info(f"[OK] Email sent to {to}")
             return True
@@ -281,9 +253,7 @@ class GmailPlugin:
             return False
 
         try:
-            self.service.users().messages().modify(
-                userId="me", id=email_id, body={"addLabelIds": ["UNREAD"]}
-            ).execute()
+            self.service.users().messages().modify(userId="me", id=email_id, body={"addLabelIds": ["UNREAD"]}).execute()
             return True
         except Exception as e:
             logger.error(f"[ERROR] Failed to mark as unread: {e}")
@@ -351,12 +321,7 @@ class GmailPlugin:
             return 0
 
         try:
-            results = (
-                self.service.users()
-                .messages()
-                .list(userId="me", labelIds=["INBOX", "UNREAD"])
-                .execute()
-            )
+            results = self.service.users().messages().list(userId="me", labelIds=["INBOX", "UNREAD"]).execute()
             return results.get("resultSizeEstimate", 0)
         except Exception as e:
             logger.error(f"[ERROR] Failed to get unread count: {e}")
@@ -392,15 +357,9 @@ class GmailPlugin:
             )
 
             headers = original.get("payload", {}).get("headers", [])
-            original_from = next(
-                (h["value"] for h in headers if h["name"] == "From"), ""
-            )
-            original_subject = next(
-                (h["value"] for h in headers if h["name"] == "Subject"), ""
-            )
-            message_id = next(
-                (h["value"] for h in headers if h["name"] == "Message-ID"), ""
-            )
+            original_from = next((h["value"] for h in headers if h["name"] == "From"), "")
+            original_subject = next((h["value"] for h in headers if h["name"] == "Subject"), "")
+            message_id = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
 
             # Extract email from "Name <email>" format
             import re
@@ -409,11 +368,7 @@ class GmailPlugin:
             to_email = email_match.group(1) if email_match else original_from
 
             # Create reply
-            subject = (
-                f"Re: {original_subject}"
-                if not original_subject.startswith("Re:")
-                else original_subject
-            )
+            subject = f"Re: {original_subject}" if not original_subject.startswith("Re:") else original_subject
 
             message = MIMEText(reply_body)
             message["to"] = to_email

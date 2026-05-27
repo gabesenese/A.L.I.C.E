@@ -20,15 +20,11 @@ class FoundationIntegration:
 
     def __init__(self, llm_generator=None, phrasing_learner=None):
         # Initialize new foundation systems
-        self.response_engine = ResponseVarianceEngine(
-            llm_generator=llm_generator, phrasing_learner=phrasing_learner
-        )
+        self.response_engine = ResponseVarianceEngine(llm_generator=llm_generator, phrasing_learner=phrasing_learner)
         self.personality_engine = PersonalityEvolutionEngine()
         self.context_graph = ContextGraph()
 
-        logger.info(
-            "Foundation systems initialized: ResponseVariance, Personality, ContextGraph"
-        )
+        logger.info("Foundation systems initialized: ResponseVariance, Personality, ContextGraph")
 
     def process_interaction(
         self,
@@ -52,9 +48,7 @@ class FoundationIntegration:
             Dict containing response and metadata
         """
         # 1. Record interaction in context graph
-        conversation_history = self.context_graph.get_conversation_history(
-            user_id=user_id, limit=10
-        )
+        conversation_history = self.context_graph.get_conversation_history(user_id=user_id, limit=10)
 
         # 2. Get user's personality traits
         personality = self.personality_engine.get_traits_for_user(user_id)
@@ -140,16 +134,12 @@ class FoundationIntegration:
 
     def get_recent_topics(self, user_id: str, limit: int = 5) -> List[str]:
         """Get recent conversation topics for this user"""
-        entities = self.context_graph.get_recent_entities(
-            entity_type="topic", limit=limit
-        )
+        entities = self.context_graph.get_recent_entities(entity_type="topic", limit=limit)
         return [e.value for e in entities]
 
     def get_recent_locations(self, user_id: str, limit: int = 3) -> List[str]:
         """Get recent locations mentioned"""
-        entities = self.context_graph.get_recent_entities(
-            entity_type="location", limit=limit
-        )
+        entities = self.context_graph.get_recent_entities(entity_type="location", limit=limit)
         return [e.value for e in entities]
 
     def query_context(self, query: str) -> Dict[str, Any]:
@@ -161,10 +151,7 @@ class FoundationIntegration:
         return {
             "context_graph": self.context_graph.get_statistics(),
             "personality_users": len(self.personality_engine.user_traits),
-            "response_history": sum(
-                len(history)
-                for history in self.response_engine.response_history.values()
-            ),
+            "response_history": sum(len(history) for history in self.response_engine.response_history.values()),
         }
 
     def maintenance(self):

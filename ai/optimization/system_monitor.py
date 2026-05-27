@@ -61,9 +61,7 @@ class SystemMonitor:
             return
 
         self._monitoring = True
-        self._monitor_thread = threading.Thread(
-            target=self._monitor_loop, daemon=True, name="system_monitor"
-        )
+        self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True, name="system_monitor")
         self._monitor_thread.start()
         logger.info("System monitoring started")
 
@@ -99,9 +97,7 @@ class SystemMonitor:
         try:
             current_pids = set()
 
-            for proc in psutil.process_iter(
-                ["pid", "name", "status", "cpu_percent", "memory_info"]
-            ):
+            for proc in psutil.process_iter(["pid", "name", "status", "cpu_percent", "memory_info"]):
                 try:
                     pinfo = proc.info
                     pid = pinfo["pid"]
@@ -115,11 +111,7 @@ class SystemMonitor:
 
                     # New process detected
                     if pid not in self._known_processes:
-                        memory_mb = (
-                            pinfo["memory_info"].rss / (1024 * 1024)
-                            if pinfo.get("memory_info")
-                            else 0
-                        )
+                        memory_mb = pinfo["memory_info"].rss / (1024 * 1024) if pinfo.get("memory_info") else 0
 
                         proc_info = ProcessInfo(
                             pid=pid,
@@ -166,9 +158,7 @@ class SystemMonitor:
                             "type": "app_closed",
                             "app": proc_info.name,
                             "pid": pid,
-                            "uptime": (
-                                datetime.now() - proc_info.started_at
-                            ).total_seconds(),
+                            "uptime": (datetime.now() - proc_info.started_at).total_seconds(),
                         },
                         priority=EventPriority.LOW,
                         source="system_monitor",

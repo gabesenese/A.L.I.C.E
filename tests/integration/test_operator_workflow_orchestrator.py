@@ -153,9 +153,7 @@ class _GitWriteCommitFail(_GitWriteOK):
 
 
 def test_operator_workflow_success_with_tests():
-    wf = OperatorWorkflowOrchestrator(_GitOK(), _BuildOK()).run_repo_health_workflow(
-        include_tests=True
-    )
+    wf = OperatorWorkflowOrchestrator(_GitOK(), _BuildOK()).run_repo_health_workflow(include_tests=True)
     assert wf.success is True
     rendered = wf.render()
     assert "python_tests" in rendered
@@ -163,9 +161,7 @@ def test_operator_workflow_success_with_tests():
 
 
 def test_operator_workflow_failure_on_build_step():
-    wf = OperatorWorkflowOrchestrator(_GitOK(), _BuildFail()).run_repo_health_workflow(
-        include_tests=False
-    )
+    wf = OperatorWorkflowOrchestrator(_GitOK(), _BuildFail()).run_repo_health_workflow(include_tests=False)
     assert wf.success is False
     rendered = wf.render()
     assert "python_build_check" in rendered
@@ -173,18 +169,14 @@ def test_operator_workflow_failure_on_build_step():
 
 
 def test_controlled_commit_workflow_success():
-    wf = OperatorWorkflowOrchestrator(
-        _GitWriteOK(), _BuildOK()
-    ).run_controlled_commit_workflow("checkpoint")
+    wf = OperatorWorkflowOrchestrator(_GitWriteOK(), _BuildOK()).run_controlled_commit_workflow("checkpoint")
     assert wf.success is True
     assert wf.rollback_attempted is False
     assert "commit created successfully" in wf.summary
 
 
 def test_controlled_commit_workflow_rolls_back_on_commit_failure():
-    wf = OperatorWorkflowOrchestrator(
-        _GitWriteCommitFail(), _BuildOK()
-    ).run_controlled_commit_workflow("checkpoint")
+    wf = OperatorWorkflowOrchestrator(_GitWriteCommitFail(), _BuildOK()).run_controlled_commit_workflow("checkpoint")
     assert wf.success is False
     assert wf.rollback_attempted is True
     assert wf.rollback_success is True
@@ -192,8 +184,6 @@ def test_controlled_commit_workflow_rolls_back_on_commit_failure():
 
 def test_repo_health_workflow_recovers_from_transient_build_failure():
     flaky = _BuildFlaky()
-    wf = OperatorWorkflowOrchestrator(_GitOK(), flaky).run_repo_health_workflow(
-        include_tests=False
-    )
+    wf = OperatorWorkflowOrchestrator(_GitOK(), flaky).run_repo_health_workflow(include_tests=False)
     assert wf.success is True
     assert flaky.calls >= 2

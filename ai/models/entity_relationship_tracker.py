@@ -282,9 +282,7 @@ class EntityRelationshipTracker:
             try:
                 with open(self.entities_file, "r", encoding="utf-8") as f:
                     entities_data = json.load(f)
-                self.entities = {
-                    name: Entity.from_dict(data) for name, data in entities_data.items()
-                }
+                self.entities = {name: Entity.from_dict(data) for name, data in entities_data.items()}
                 logger.info(f" Loaded {len(self.entities)} entities")
             except Exception as e:
                 logger.error(f"Error loading entities: {e}")
@@ -294,9 +292,7 @@ class EntityRelationshipTracker:
             try:
                 with open(self.relationships_file, "r", encoding="utf-8") as f:
                     relationships_data = json.load(f)
-                self.relationships = [
-                    EntityRelationship.from_dict(data) for data in relationships_data
-                ]
+                self.relationships = [EntityRelationship.from_dict(data) for data in relationships_data]
                 logger.info(f" Loaded {len(self.relationships)} relationships")
             except Exception as e:
                 logger.error(f"Error loading relationships: {e}")
@@ -305,16 +301,12 @@ class EntityRelationshipTracker:
         """Save entities and relationships to storage"""
         try:
             # Save entities
-            entities_data = {
-                name: entity.to_dict() for name, entity in self.entities.items()
-            }
+            entities_data = {name: entity.to_dict() for name, entity in self.entities.items()}
             with open(self.entities_file, "w", encoding="utf-8") as f:
                 json.dump(entities_data, f, indent=2, ensure_ascii=False)
 
             # Save relationships
-            relationships_data = [
-                relationship.to_dict() for relationship in self.relationships
-            ]
+            relationships_data = [relationship.to_dict() for relationship in self.relationships]
             with open(self.relationships_file, "w", encoding="utf-8") as f:
                 json.dump(relationships_data, f, indent=2, ensure_ascii=False)
 
@@ -393,13 +385,9 @@ class EntityRelationshipTracker:
             self.relationships.append(relationship)
 
         self._save_data()
-        logger.info(
-            f"Added relationship: {source} {relationship_type} {target} (confidence: {confidence:.2f})"
-        )
+        logger.info(f"Added relationship: {source} {relationship_type} {target} (confidence: {confidence:.2f})")
 
-    def _find_relationship(
-        self, source: str, target: str, relationship_type: str
-    ) -> Optional[EntityRelationship]:
+    def _find_relationship(self, source: str, target: str, relationship_type: str) -> Optional[EntityRelationship]:
         """Find existing relationship"""
         source_lower = source.lower()
         target_lower = target.lower()
@@ -431,10 +419,8 @@ class EntityRelationshipTracker:
                         if (
                             len(source) > 2
                             and len(target) > 2
-                            and source
-                            not in ["the", "and", "or", "but", "my", "his", "her"]
-                            and target
-                            not in ["the", "and", "or", "but", "my", "his", "her"]
+                            and source not in ["the", "and", "or", "but", "my", "his", "her"]
+                            and target not in ["the", "and", "or", "but", "my", "his", "her"]
                         ):
                             relationship = EntityRelationship(
                                 source_entity=source,
@@ -468,20 +454,12 @@ class EntityRelationshipTracker:
         """Get all relationships for an entity"""
         entity_lower = entity_name.lower()
         return [
-            rel
-            for rel in self.relationships
-            if rel.source_entity == entity_lower or rel.target_entity == entity_lower
+            rel for rel in self.relationships if rel.source_entity == entity_lower or rel.target_entity == entity_lower
         ]
 
-    def get_relationships_by_type(
-        self, relationship_type: str
-    ) -> List[EntityRelationship]:
+    def get_relationships_by_type(self, relationship_type: str) -> List[EntityRelationship]:
         """Get all relationships of a specific type"""
-        return [
-            rel
-            for rel in self.relationships
-            if rel.relationship_type == relationship_type
-        ]
+        return [rel for rel in self.relationships if rel.relationship_type == relationship_type]
 
     def find_path_between_entities(
         self, source: str, target: str, max_depth: int = 3
@@ -538,9 +516,7 @@ class EntityRelationshipTracker:
         dfs(source_lower, target_lower, [], 0)
         return paths
 
-    def get_entity_network(
-        self, entity_name: str, max_depth: int = 2
-    ) -> Dict[str, Any]:
+    def get_entity_network(self, entity_name: str, max_depth: int = 2) -> Dict[str, Any]:
         """Get entity network (entities connected within max_depth)"""
         entity_lower = entity_name.lower()
         visited = set()
@@ -562,11 +538,7 @@ class EntityRelationshipTracker:
                     network["relationships"].append(rel.to_dict())
 
                     # Explore connected entity
-                    next_entity = (
-                        rel.target_entity
-                        if rel.source_entity == current
-                        else rel.source_entity
-                    )
+                    next_entity = rel.target_entity if rel.source_entity == current else rel.source_entity
                     explore(next_entity, depth + 1)
 
         explore(entity_lower, 0)
@@ -604,9 +576,7 @@ class EntityRelationshipTracker:
 
     def _get_recent_relationships(self, limit: int) -> List[Dict[str, Any]]:
         """Get most recent relationships"""
-        sorted_relationships = sorted(
-            self.relationships, key=lambda x: x.timestamp, reverse=True
-        )
+        sorted_relationships = sorted(self.relationships, key=lambda x: x.timestamp, reverse=True)
         return [rel.to_dict() for rel in sorted_relationships[:limit]]
 
     def query_relationships(self, query: str) -> List[EntityRelationship]:

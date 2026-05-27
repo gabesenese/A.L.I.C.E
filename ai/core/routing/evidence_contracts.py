@@ -9,9 +9,7 @@ class EvidenceContracts:
         r"\b(?:what files|show files|show me files|list files|which files|what files does alice have|what files can you inspect)\b",
         re.IGNORECASE,
     )
-    FILE_TARGET_PATTERN = re.compile(
-        r"\b[a-z0-9_./\\-]+\.[a-z0-9]{1,8}\b", re.IGNORECASE
-    )
+    FILE_TARGET_PATTERN = re.compile(r"\b[a-z0-9_./\\-]+\.[a-z0-9]{1,8}\b", re.IGNORECASE)
     NOTES_SIGNAL = re.compile(r"\b(note|notes|notepad)\b", re.IGNORECASE)
     WEATHER_SIGNAL = re.compile(
         r"\b(weather|forecast|rain|snow|temperature|wind|humidity|coat|umbrella)\b",
@@ -45,9 +43,7 @@ class EvidenceContracts:
         low = text.lower()
         state = dict(operator_state or {})
         proj = dict(project_memory or {})
-        active_objective = str(
-            state.get("active_objective") or proj.get("active_objective") or ""
-        ).strip()
+        active_objective = str(state.get("active_objective") or proj.get("active_objective") or "").strip()
 
         result = {
             "intent": normalized,
@@ -89,11 +85,7 @@ class EvidenceContracts:
             if action in {"write", "delete"}:
                 result["requires_approval"] = True
             if action != "list" and not cls.has_explicit_file_target(text):
-                reroute = (
-                    "code:list_files"
-                    if cls.FILE_LIST_PATTERN.search(text)
-                    else "code:request"
-                )
+                reroute = "code:list_files" if cls.FILE_LIST_PATTERN.search(text) else "code:request"
                 result.update(
                     {
                         "accepted": False,
@@ -180,11 +172,7 @@ class EvidenceContracts:
             "self_improvement:status",
             "self_improvement:brief",
         }:
-            has_state = bool(
-                active_objective
-                or state.get("current_focus")
-                or proj.get("current_focus")
-            )
+            has_state = bool(active_objective or state.get("current_focus") or proj.get("current_focus"))
             if not has_state:
                 result.update(
                     {
@@ -197,9 +185,7 @@ class EvidenceContracts:
                 )
             else:
                 result["evidence_score"] = 0.86
-            if normalized == "operator:continue" and not cls.CONTINUATION_SIGNAL.search(
-                text
-            ):
+            if normalized == "operator:continue" and not cls.CONTINUATION_SIGNAL.search(text):
                 result["evidence_score"] = 0.72
             if normalized.startswith("self_improvement:"):
                 result["evidence_score"] = 0.84

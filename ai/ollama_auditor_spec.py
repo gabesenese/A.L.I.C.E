@@ -193,9 +193,7 @@ def get_domain_dimensions(domain: str) -> Dict[ScoringDimension, DimensionRubric
     return AUDIT_DIMENSIONS.get(domain, {})
 
 
-def score_dimension(
-    dimension: ScoringDimension, rubric: DimensionRubric, score: int
-) -> Tuple[int, str]:
+def score_dimension(dimension: ScoringDimension, rubric: DimensionRubric, score: int) -> Tuple[int, str]:
     """
     Get indicator text for a given score
     Returns: (score, indicator_text)

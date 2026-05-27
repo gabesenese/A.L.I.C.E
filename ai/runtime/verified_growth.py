@@ -81,9 +81,7 @@ def verify_operator_surface_contract(
             "route": str(route or ""),
             "intent": str(intent or ""),
             "local_success": local.get("success"),
-            "has_inspected_file_evidence": bool(
-                str(local.get("inspected_file") or "").strip()
-            ),
+            "has_inspected_file_evidence": bool(str(local.get("inspected_file") or "").strip()),
             "next_step_present": bool(str(next_step or "").strip()),
         },
         visible_flow="Operator turns now return Finding/Blocker/Next-best-move output without service chatter.",

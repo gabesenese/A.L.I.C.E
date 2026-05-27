@@ -191,9 +191,7 @@ from ai.learning.pattern_miner import get_habit_miner, get_htn_planner, HTNMetho
 from ai.infrastructure.metrics_collector import get_adaptive_controller
 
 # Logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -224,6 +222,7 @@ class ALICE:
         self.strict_no_llm = llm_policy == "strict"
         self.running = False
         from datetime import timezone as _tz
+
         self._start_time = datetime.now(_tz.utc)
         logger.info("Runtime mode: %s", self.runtime_mode)
         skipped_optional = []
@@ -231,9 +230,7 @@ class ALICE:
             if key.startswith("enable_") and not enabled:
                 skipped_optional.append(key.replace("enable_", ""))
         if skipped_optional:
-            logger.info(
-                "Skipped optional systems: %s", ", ".join(sorted(skipped_optional))
-            )
+            logger.info("Skipped optional systems: %s", ", ".join(sorted(skipped_optional)))
 
         # ===== PRODUCTION INFRASTRUCTURE INITIALIZATION =====
         logger.info("=" * 80)
@@ -248,15 +245,11 @@ class ALICE:
             enable_console=False,  # structured logs always go to files; thinking steps use _think()
         )
         self.structured_logger = get_structured_logger("alice")
-        self.structured_logger.info(
-            "Structured logging initialized", component="infrastructure"
-        )
+        self.structured_logger.info("Structured logging initialized", component="infrastructure")
 
         # 0.2: Redis Cache Manager
         try:
-            self.cache = initialize_cache(
-                redis_host="localhost", redis_port=6379, default_ttl=3600
-            )
+            self.cache = initialize_cache(redis_host="localhost", redis_port=6379, default_ttl=3600)
             cache_stats = self.cache.get_stats()
             self.structured_logger.info(
                 f"Cache initialized: {cache_stats['backend']}",
@@ -264,16 +257,12 @@ class ALICE:
                 backend=cache_stats["backend"],
             )
         except Exception as e:
-            self.structured_logger.warning(
-                f"Cache initialization failed: {e}, using fallback", component="cache"
-            )
+            self.structured_logger.warning(f"Cache initialization failed: {e}, using fallback", component="cache")
             self.cache = get_cache_manager()  # Fallback to in-memory
 
         # 0.3: Prometheus Metrics Collector
         self.metrics = initialize_metrics(enable_prometheus=True)
-        self.structured_logger.info(
-            "Metrics collector initialized", component="metrics"
-        )
+        self.structured_logger.info("Metrics collector initialized", component="metrics")
 
         # 0.4: Async Task Queue
         try:
@@ -289,9 +278,7 @@ class ALICE:
                 workers=queue_stats["workers"],
             )
         except Exception as e:
-            self.structured_logger.warning(
-                f"Task queue initialization failed: {e}", component="task_queue"
-            )
+            self.structured_logger.warning(f"Task queue initialization failed: {e}", component="task_queue")
             self.task_queue = get_task_queue()  # Fallback to thread pool
 
         # 0.5: Database Connection Pool (optional - for future PostgreSQL migration)
@@ -303,18 +290,12 @@ class ALICE:
                 max_connections=10,
             )
             self.db_pool = initialize_database(db_config)
-            self.structured_logger.info(
-                "Database pool initialized", component="database"
-            )
+            self.structured_logger.info("Database pool initialized", component="database")
         except Exception as e:
-            self.structured_logger.warning(
-                f"Database pool initialization failed: {e}", component="database"
-            )
+            self.structured_logger.warning(f"Database pool initialization failed: {e}", component="database")
             self.db_pool = None
 
-        self.structured_logger.info(
-            "Production infrastructure ready", component="infrastructure"
-        )
+        self.structured_logger.info("Production infrastructure ready", component="infrastructure")
 
         # ===== END PRODUCTION INFRASTRUCTURE =====
 
@@ -413,17 +394,13 @@ class ALICE:
         self._last_routed_confidence = 0.0
 
         logger.info("=" * 80)
-        logger.info(
-            "Initializing A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity"
-        )
+        logger.info("Initializing A.L.I.C.E - Advanced Linguistic Intelligence Computer Entity")
         logger.info("=" * 80)
 
         # Initialize components
         try:
             # Set up logging context for this session
-            self.structured_logger.set_context(
-                user=user_name, session_id=f"{time.time()}"
-            )
+            self.structured_logger.set_context(user=user_name, session_id=f"{time.time()}")
 
             # 1. NLP Processor
             logger.info("Loading NLP processor...")
@@ -450,21 +427,15 @@ class ALICE:
                 # Seed cost matrix from stored NLP error log so the router
                 # benefits from past correction history on every startup.
                 try:
-                    _drained = self.bayesian_router.drain_for_cost_update(
-                        "memory/nlp_errors.jsonl"
-                    )
+                    _drained = self.bayesian_router.drain_for_cost_update("memory/nlp_errors.jsonl")
                     if _drained:
                         logger.info(
                             "[BayesianRouter] Seeded cost matrix from %d error log entries",
                             _drained,
                         )
                 except Exception as _drain_err:
-                    logger.debug(
-                        "BayesianRouter cost-matrix seeding skipped: %s", _drain_err
-                    )
-                self.world_graph = get_world_graph(
-                    persistence_path="memory/world_graph.json"
-                )
+                    logger.debug("BayesianRouter cost-matrix seeding skipped: %s", _drain_err)
+                self.world_graph = get_world_graph(persistence_path="memory/world_graph.json")
                 self.knob_bandit = get_knob_bandit()
                 self.memory_replay = get_memory_replay()
                 self.self_debugger = get_self_debugger()
@@ -473,9 +444,7 @@ class ALICE:
                 self.adaptive_controller = get_adaptive_controller()
                 self.htn_planner = get_htn_planner()
             except Exception as _adv_err:
-                logger.warning(
-                    "Advanced components init failed (non-fatal): %s", _adv_err
-                )
+                logger.warning("Advanced components init failed (non-fatal): %s", _adv_err)
                 for _attr in (
                     "bayesian_router",
                     "world_graph",
@@ -543,9 +512,7 @@ class ALICE:
                     reflection_engine=self.reflection_engine,
                     response_quality_tracker=self.response_quality_tracker,
                     executive_controller=self.executive_controller,
-                    conversation_state_tracker=getattr(
-                        self, "conversation_state_tracker", None
-                    ),
+                    conversation_state_tracker=getattr(self, "conversation_state_tracker", None),
                     response_planner=self.response_planner,
                     tick_interval_seconds=5.0,
                     reasoning_importance_threshold=0.74,
@@ -562,15 +529,11 @@ class ALICE:
             # Point self-reflection to workspace root so code-analysis requests
             # can resolve files like app/alice.py (not only ai/*).
             self.self_reflection = get_self_reflection(PROJECT_ROOT)
-            logger.info(
-                "[OK] Reasoning engine initialized - unified entity/goal/verification tracking"
-            )
+            logger.info("[OK] Reasoning engine initialized - unified entity/goal/verification tracking")
 
             # 2.9. Unified Learning Engine - collect and learn from interactions
             self.learning_engine = get_learning_engine()
-            logger.info(
-                "[OK] Learning engine initialized - A.L.I.C.E will learn from your interactions"
-            )
+            logger.info("[OK] Learning engine initialized - A.L.I.C.E will learn from your interactions")
 
             # 2.9.1. Real-time Continuous Learning System
             self.realtime_logger = None
@@ -586,18 +549,14 @@ class ALICE:
                     check_interval_hours=6,
                     auto_start=True,
                 )
-                logger.info(
-                    "[OK] Continuous learning active - Alice learns 24/7 from real-time errors"
-                )
+                logger.info("[OK] Continuous learning active - Alice learns 24/7 from real-time errors")
 
             # 2.9.2. Failure taxonomy for retraining signal
             try:
                 from ai.core.failure_taxonomy import get_failure_taxonomy
 
                 self.failure_taxonomy = get_failure_taxonomy()
-                logger.info(
-                    "[OK] Failure taxonomy ready - failed turns will be classified for retraining"
-                )
+                logger.info("[OK] Failure taxonomy ready - failed turns will be classified for retraining")
             except ImportError:
                 self.failure_taxonomy = None
 
@@ -609,18 +568,12 @@ class ALICE:
             self.conversational_engine = get_conversational_engine(
                 memory_system=self.memory, world_state=self.reasoning_engine
             )
-            logger.info(
-                "[OK] Conversational engine initialized - A.L.I.C.E thinks independently"
-            )
+            logger.info("[OK] Conversational engine initialized - A.L.I.C.E thinks independently")
 
             # 3.6. Phrasing Learner - Progressive independence from Ollama
             logger.info("Loading phrasing learner...")
-            self.phrasing_learner = PhrasingLearner(
-                storage_path="data/learned_phrasings.jsonl"
-            )
-            logger.info(
-                "[OK] Phrasing learner ready - Alice will learn from Ollama and become independent"
-            )
+            self.phrasing_learner = PhrasingLearner(storage_path="data/learned_phrasings.jsonl")
+            logger.info("[OK] Phrasing learner ready - Alice will learn from Ollama and become independent")
 
             # 3.7. Knowledge Engine - Alice's own intelligence and learning
             logger.info("Initializing knowledge engine...")
@@ -636,22 +589,14 @@ class ALICE:
             logger.info("Initializing conversation context manager...")
             from ai.memory.conversation_context import get_context_manager
 
-            self.conversation_context = get_context_manager(
-                max_turns=50, context_window=10
-            )
+            self.conversation_context = get_context_manager(max_turns=50, context_window=10)
             logger.info(
                 "[OK] Conversation context manager ready - Alice can now track 'it', 'that', and conversation flow"
             )
-            self.conversation_state_tracker = get_conversation_state_tracker(
-                max_chain=8, max_depth=5
-            )
-            logger.info(
-                "[OK] Conversation state tracker ready - topic/goal/depth/question-chain tracking enabled"
-            )
+            self.conversation_state_tracker = get_conversation_state_tracker(max_chain=8, max_depth=5)
+            logger.info("[OK] Conversation state tracker ready - topic/goal/depth/question-chain tracking enabled")
             if getattr(self, "cognitive_orchestrator", None) is not None:
-                self.cognitive_orchestrator.conversation_state_tracker = (
-                    self.conversation_state_tracker
-                )
+                self.cognitive_orchestrator.conversation_state_tracker = self.conversation_state_tracker
 
             # 3.9. User Profile Engine - Deep user modeling and preference learning
             logger.info("Initializing user profile engine...")
@@ -675,9 +620,7 @@ class ALICE:
             if active_goals:
                 logger.info(f"Resuming {len(active_goals)} goals from previous session")
                 for goal in active_goals[:3]:
-                    logger.info(
-                        f"  - {goal.title} ({int(goal.progress * 100)}% complete)"
-                    )
+                    logger.info(f"  - {goal.title} ({int(goal.progress * 100)}% complete)")
 
             # 3.11. Proactive Intelligence Loop - Background monitoring and insights
             self.proactive_intelligence = None
@@ -687,18 +630,14 @@ class ALICE:
                     get_proactive_intelligence,
                 )
 
-                self.proactive_intelligence = get_proactive_intelligence(
-                    check_interval=60
-                )
+                self.proactive_intelligence = get_proactive_intelligence(check_interval=60)
                 self.proactive_intelligence.inject_dependencies(
                     goal_system=self.goal_system,
                     profile_engine=self.user_profile,
                     context_manager=self.conversation_context,
                 )
                 self.proactive_intelligence.start()
-                logger.info(
-                    "[OK] Proactive intelligence active - Alice will monitor and help proactively"
-                )
+                logger.info("[OK] Proactive intelligence active - Alice will monitor and help proactively")
 
             # 3.12. Autonomous Agent System - Multi-step goal execution
             self.autonomous_agent = None
@@ -718,16 +657,12 @@ class ALICE:
                 self.execution_loop = AutonomousExecutionLoop(
                     goal_system=self.goal_system, autonomous_agent=self.autonomous_agent
                 )
-                logger.info(
-                    "[OK] Autonomous agent ready - Alice can work on multi-step goals independently"
-                )
+                logger.info("[OK] Autonomous agent ready - Alice can work on multi-step goals independently")
 
             # 3.13. Capability Registry - Alice knows what she can do (in code, not prompts)
             logger.info("Initializing capability registry...")
             self._init_capabilities_registry()
-            logger.info(
-                "[OK] Capability registry ready - Alice knows her own capabilities"
-            )
+            logger.info("[OK] Capability registry ready - Alice knows her own capabilities")
 
             # 4. LLM Engine
             logger.info("🧠 Loading LLM engine...")
@@ -752,9 +687,7 @@ class ALICE:
             except Exception as e:
                 logger.error(f"[ERROR] Foundation systems initialization failed: {e}")
                 self.foundations = None
-                self.structured_logger.error(
-                    f"Foundation systems failed: {e}", component="foundations"
-                )
+                self.structured_logger.error(f"Foundation systems failed: {e}", component="foundations")
 
             # 4.0.5. ===== 10 TIER IMPROVEMENTS INITIALIZATION =====
             if self.runtime_mode_config.enable_advanced_tiers:
@@ -764,9 +697,7 @@ class ALICE:
                     if is_enabled("session_summarizer"):
                         from ai.memory.session_summarizer import SessionSummarizer
 
-                        self.session_summarizer = SessionSummarizer(
-                            summarize_every_n_turns=5
-                        )
+                        self.session_summarizer = SessionSummarizer(summarize_every_n_turns=5)
 
                     logger.info("  - Tier 1: Initializing capability constraints...")
                     if is_enabled("capability_constraints"):
@@ -833,19 +764,13 @@ class ALICE:
                         component="tier_improvements",
                         active_systems=10,
                     )
-                    logger.info(
-                        "[OK] All 10 Tier Improvements active - advanced capabilities enabled"
-                    )
+                    logger.info("[OK] All 10 Tier Improvements active - advanced capabilities enabled")
                 except Exception as e:
-                    logger.error(
-                        f"[ERROR] Tier improvements initialization failed: {e}"
-                    )
+                    logger.error(f"[ERROR] Tier improvements initialization failed: {e}")
                     import traceback
 
                     traceback.print_exc()
-                    self.structured_logger.error(
-                        f"Tier improvements failed: {e}", component="tier_improvements"
-                    )
+                    self.structured_logger.error(f"Tier improvements failed: {e}", component="tier_improvements")
                     # Don't fail startup if improvements fail - these are enhancements
             # ===== END 10 TIER IMPROVEMENTS =====
 
@@ -855,9 +780,7 @@ class ALICE:
 
             # 4.1. LLM Gateway - Single entry point for all LLM calls
             logger.info(" Initializing LLM Gateway with policy enforcement...")
-            self.llm_gateway = get_llm_gateway(
-                llm_engine=self.llm, learning_engine=self.learning_engine
-            )
+            self.llm_gateway = get_llm_gateway(llm_engine=self.llm, learning_engine=self.learning_engine)
             logger.info("[OK] LLM Gateway active - all calls now policy-gated")
 
             # 4.1.0 Contract Runtime Boundaries and Pipeline
@@ -903,9 +826,7 @@ class ALICE:
                     response_formulator=self.response_formulator,
                     realtime_logger=self.realtime_logger,
                 )
-                logger.info(
-                    "[OK] Async evaluator ready - user experience won't be blocked"
-                )
+                logger.info("[OK] Async evaluator ready - user experience won't be blocked")
                 self.autolearn = get_autolearn(
                     ollama_evaluator=self.ollama_evaluator,
                     learning_engine=self.learning_engine,
@@ -914,9 +835,7 @@ class ALICE:
                     check_interval_hours=6,
                     auto_start=True,
                 )
-                logger.info(
-                    "[OK] AutoLearn active - Alice will improve every 6 hours automatically"
-                )
+                logger.info("[OK] AutoLearn active - Alice will improve every 6 hours automatically")
 
             # 4.2. Configure LLM Policy based on startup flag
             if self.llm_policy != "default":
@@ -925,13 +844,9 @@ class ALICE:
 
                 if self.llm_policy == "minimal":
                     configure_minimal_policy()
-                    logger.info(
-                        "[OK] Minimal policy active - patterns-first, LLM only for generation"
-                    )
+                    logger.info("[OK] Minimal policy active - patterns-first, LLM only for generation")
                 elif self.llm_policy == "strict":
-                    logger.info(
-                        "[OK] Strict policy active - deterministic phrasing for open-ended responses"
-                    )
+                    logger.info("[OK] Strict policy active - deterministic phrasing for open-ended responses")
                     configure_minimal_policy()
 
             # 4.3. Runtime safety and verification guards
@@ -939,9 +854,7 @@ class ALICE:
             self.action_engine = get_unified_action_engine()
             self.approval_ledger = get_approval_ledger()
             self.roadmap_stack = get_roadmap_completion_stack()
-            self.world_state_memory = get_world_state_memory(
-                storage_path="data/world_state.json"
-            )
+            self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
             self.heartbeat = Heartbeat()
             self.heartbeat.start()
             self.ambient_monitor = AmbientMonitor()
@@ -949,37 +862,27 @@ class ALICE:
             self.task_scheduler = TaskScheduler()
             self.task_scheduler.register_callback(self._on_scheduled_task)
             self.task_scheduler.start()
-            self.execution_journal = get_execution_journal(
-                storage_path="data/action_journal.jsonl"
-            )
-            self.entity_registry = get_entity_registry(
-                storage_path="data/entity_registry.json"
-            )
+            self.execution_journal = get_execution_journal(storage_path="data/action_journal.jsonl")
+            self.entity_registry = get_entity_registry(storage_path="data/entity_registry.json")
             self.turn_state_assembler = TurnStateAssembler(self.world_state_memory)
             self.goal_recognizer = get_goal_recognizer()
             self.turn_routing_policy = get_turn_routing_policy()
             self.live_state_service = get_live_state_service()
             self.execution_verifier = get_execution_verifier()
-            self.autonomy_manager = get_bounded_autonomy_manager(
-                storage_path="data/autonomy_loops.json"
-            )
+            self.autonomy_manager = get_bounded_autonomy_manager(storage_path="data/autonomy_loops.json")
             self.autonomy_dispatcher = TinyAutonomyDispatcher()
             self._autonomy_medium_ask_history = {}
             self._init_bounded_autonomy_loops()
             if getattr(self, "cognitive_orchestrator", None):
                 try:
-                    self.action_engine.bind_simulation_callback(
-                        self.cognitive_orchestrator.simulate_before_action
-                    )
+                    self.action_engine.bind_simulation_callback(self.cognitive_orchestrator.simulate_before_action)
                 except Exception:
                     pass
             logger.info("[OK] RBAC and unified action guards active")
 
             # 4.5. Conversation Summarizer (now uses gateway for policy enforcement)
             logger.info("Loading conversation summarizer...")
-            self.summarizer = ConversationSummarizer(
-                llm_engine=self.llm, llm_gateway=self.llm_gateway
-            )
+            self.summarizer = ConversationSummarizer(llm_engine=self.llm, llm_gateway=self.llm_gateway)
 
             # 4.6. Entity Relationship Tracker
             logger.info("Loading entity relationship tracker...")
@@ -1002,9 +905,7 @@ class ALICE:
             # 6.1. Operator integrations
             self.git_manager = get_git_manager(PROJECT_ROOT)
             self.build_runner = get_build_runner(PROJECT_ROOT)
-            self.operator_workflow = OperatorWorkflowOrchestrator(
-                self.git_manager, self.build_runner
-            )
+            self.operator_workflow = OperatorWorkflowOrchestrator(self.git_manager, self.build_runner)
 
             # 7. Speech Engine (optional)
             self.speech = None
@@ -1012,9 +913,7 @@ class ALICE:
                 logger.info("Loading speech engine...")
                 from speech.speech_engine import SpeechEngine, SpeechConfig
 
-                speech_config = SpeechConfig(
-                    wake_words=["alice", "hey alice", "ok alice"]
-                )
+                speech_config = SpeechConfig(wake_words=["alice", "hey alice", "ok alice"])
                 self.speech = SpeechEngine(speech_config)
 
             # 8. Gmail Plugin
@@ -1036,16 +935,11 @@ class ALICE:
             self.multimodal_context = None
             self.lab_simulator = None
             self.red_team_tester = None
-            if (
-                self.runtime_mode_config.enable_lab_tools
-                or self.runtime_mode_config.enable_training
-            ):
+            if self.runtime_mode_config.enable_lab_tools or self.runtime_mode_config.enable_training:
                 logger.info("Initializing advanced learning systems...")
                 try:
                     self.pattern_miner = PatternMiner()
-                    logger.info(
-                        "[OK] Pattern miner ready - will detect learnable patterns"
-                    )
+                    logger.info("[OK] Pattern miner ready - will detect learnable patterns")
                     if self.runtime_mode_config.enable_training:
                         from ai.training.synthetic_corpus_generator import (
                             SyntheticCorpusGenerator,
@@ -1059,15 +953,10 @@ class ALICE:
                         self.lab_simulator = LabSimulator()
                         self.red_team_tester = RedTeamTester()
                 except Exception as e:
-                    logger.warning(
-                        f"[WARNING] Advanced learning systems initialization partial: {e}"
-                    )
+                    logger.warning(f"[WARNING] Advanced learning systems initialization partial: {e}")
 
             # 9.5. Event-driven architecture
-            if (
-                self.runtime_mode_config.enable_proactive_loops
-                or self.runtime_mode_config.enable_advanced_tiers
-            ):
+            if self.runtime_mode_config.enable_proactive_loops or self.runtime_mode_config.enable_advanced_tiers:
                 logger.info("Initializing event-driven systems...")
                 self.event_bus = get_event_bus()
                 self.state_tracker = get_state_tracker()
@@ -1082,17 +971,11 @@ class ALICE:
                     memory_system=self.memory,
                 )
                 self.reasoning_planner = ReasoningPlanner()
-                self.persistent_task_queue = PersistentTaskQueue(
-                    "data/planning/runtime_tasks.json"
-                )
-                self.persistent_task_queue.register_handler(
-                    "execute_plan", self._execute_plan_queue_task
-                )
+                self.persistent_task_queue = PersistentTaskQueue("data/planning/runtime_tasks.json")
+                self.persistent_task_queue.register_handler("execute_plan", self._execute_plan_queue_task)
                 self.persistent_task_queue.start_background_loop(tick_seconds=0.2)
                 self.observer_manager = get_observer_manager()
-                self.observer_manager.set_notification_callback(
-                    self._handle_observer_notification
-                )
+                self.observer_manager.set_notification_callback(self._handle_observer_notification)
                 self.observer_manager.start_all()
                 calendar_plugin = None
                 notes_plugin = None
@@ -1106,9 +989,7 @@ class ALICE:
                     calendar_plugin=calendar_plugin,
                     notes_plugin=notes_plugin,
                 )
-                self.proactive_assistant.set_notification_callback(
-                    self._handle_observer_notification
-                )
+                self.proactive_assistant.set_notification_callback(self._handle_observer_notification)
                 self.proactive_assistant.start()
 
             # 10. Analytics and Memory Management
@@ -1124,9 +1005,7 @@ class ALICE:
 
                 self.usage_analytics = get_usage_analytics()
                 self.memory_growth_monitor = get_memory_growth_monitor()
-                self.bg_embedding_generator = get_bg_embedding_generator(
-                    embedding_manager=get_embedding_manager()
-                )
+                self.bg_embedding_generator = get_bg_embedding_generator(embedding_manager=get_embedding_manager())
                 self.bg_embedding_generator.start()
 
             logger.info("=" * 80)
@@ -1137,9 +1016,7 @@ class ALICE:
             self._run_startup_doctor()
 
             # Store system capabilities in context
-            self.context.update_system_status(
-                "capabilities", self.plugins.get_capabilities()
-            )
+            self.context.update_system_status("capabilities", self.plugins.get_capabilities())
             self.context.update_system_status("voice_enabled", voice_enabled)
             self.context.update_system_status("llm_model", llm_model)
 
@@ -1191,9 +1068,7 @@ class ALICE:
                 ],
             },
             "email_access": {
-                "available": self.gmail is not None
-                if hasattr(self, "gmail")
-                else False,
+                "available": self.gmail is not None if hasattr(self, "gmail") else False,
                 "type": "read-write",
                 "provider": "Gmail",
                 "operations": ["read", "send", "search", "delete", "compose"],
@@ -1359,11 +1234,7 @@ class ALICE:
         try:
             if getattr(self, "knob_bandit", None) is not None:
                 _sentiment_label = getattr(self, "_last_sentiment", None) or "neutral"
-                _topic = (
-                    self.conversation_topics[-1]
-                    if getattr(self, "conversation_topics", None)
-                    else ""
-                )
+                _topic = self.conversation_topics[-1] if getattr(self, "conversation_topics", None) else ""
                 _key, _knobs = self.knob_bandit.propose(
                     intent=intent,
                     sentiment=_sentiment_label,
@@ -1442,9 +1313,7 @@ class ALICE:
 
         if plugin_data:
             # Alice analyzes plugin data in context of user's question
-            return self._formulate_from_plugin_data(
-                user_input, intent, entities, plugin_data
-            )
+            return self._formulate_from_plugin_data(user_input, intent, entities, plugin_data)
         # Step 0.5: Self-analysis requests - Alice should read her own code and formulate real insights
         input_lower = user_input.lower()
         if self._is_location_query(user_input):
@@ -1482,9 +1351,7 @@ class ALICE:
 
         # Step 1: Check if Alice can answer from her own knowledge
         # Alice's knowledge engine - learns from every interaction
-        can_answer, confidence = self.knowledge_engine.can_answer_independently(
-            user_input, intent
-        )
+        can_answer, confidence = self.knowledge_engine.can_answer_independently(user_input, intent)
         if can_answer and confidence > 0.7:
             # Alice knows this! Answer from her own knowledge
             return {
@@ -1538,9 +1405,7 @@ class ALICE:
             reasoning_chain = self._apply_reasoning(user_input, entities, context)
             return {
                 "type": "reasoning_result",
-                "conclusion": reasoning_chain[-1]
-                if reasoning_chain
-                else "Analysis complete",
+                "conclusion": reasoning_chain[-1] if reasoning_chain else "Analysis complete",
                 "reasoning": reasoning_chain,
                 "confidence": 0.8,
             }
@@ -1709,23 +1574,14 @@ class ALICE:
                     }
 
             # User asking about specific conditions (rain, snow, etc.)
-            elif any(
-                word in input_lower
-                for word in ["rain", "snow", "storm", "sunny", "cloud"]
-            ):
+            elif any(word in input_lower for word in ["rain", "snow", "storm", "sunny", "cloud"]):
                 # Check if question word suggests yes/no answer
-                is_question = any(
-                    word in input_lower for word in ["will", "is", "going to", "gonna"]
-                )
+                is_question = any(word in input_lower for word in ["will", "is", "going to", "gonna"])
 
                 if is_question:
                     # Alice provides yes/no answer with reasoning
                     if "rain" in input_lower:
-                        will_rain = (
-                            "rain" in condition
-                            or "drizzle" in condition
-                            or "shower" in condition
-                        )
+                        will_rain = "rain" in condition or "drizzle" in condition or "shower" in condition
                         return {
                             "type": "weather_prediction",
                             "answer": "yes" if will_rain else "no",
@@ -1776,11 +1632,7 @@ class ALICE:
                 }
             if weather_error == "unknown_location":
                 _bad_location = plugin_data.get("location")
-                _msg = (
-                    f"unknown location: {_bad_location}"
-                    if _bad_location
-                    else "unknown location"
-                )
+                _msg = f"unknown location: {_bad_location}" if _bad_location else "unknown location"
                 return {
                     "type": "operation_failure",
                     "operation": "weather_lookup",
@@ -1832,14 +1684,8 @@ class ALICE:
             "set_priority",
             "set_category",
         }
-        _action_from_data = plugin_data.get(
-            "action", plugin_data.get("operation", "unknown")
-        )
-        if (
-            intent.startswith("note")
-            or intent.startswith("file")
-            or _action_from_data in _NOTE_ACTIONS
-        ):
+        _action_from_data = plugin_data.get("action", plugin_data.get("operation", "unknown"))
+        if intent.startswith("note") or intent.startswith("file") or _action_from_data in _NOTE_ACTIONS:
             action = _action_from_data
             success = plugin_data.get("success", False)
 
@@ -1909,9 +1755,7 @@ class ALICE:
         # Generic plugin response - Alice provides what she can
         return {"type": "plugin_result", "data": plugin_data, "confidence": 0.7}
 
-    def _apply_reasoning(
-        self, user_input: str, entities: Dict[str, Any], context: Any
-    ) -> list:
+    def _apply_reasoning(self, user_input: str, entities: Dict[str, Any], context: Any) -> list:
         """
         Alice's reasoning logic (coded, not delegated to LLM).
         Returns chain of reasoning steps.
@@ -2032,9 +1876,7 @@ class ALICE:
         # Normalize shell quoting while preserving paragraph structure.
         text = text.strip().strip('"').strip("'")
         text = text.replace("\r\n", "\n").replace("\r", "\n")
-        text = "\n".join(
-            re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")
-        ).strip()
+        text = "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")).strip()
         text = re.sub(r"\n{3,}", "\n\n", text)
 
         # Remove common filler/over-softening prefixes.
@@ -2122,9 +1964,7 @@ class ALICE:
 
         return text or "I need one more detail to answer correctly."
 
-    def _alice_direct_phrase(
-        self, response_type: str, alice_response: Dict[str, Any]
-    ) -> Optional[str]:
+    def _alice_direct_phrase(self, response_type: str, alice_response: Dict[str, Any]) -> Optional[str]:
         """
         Alice phrases structured/factual responses entirely on her own.
         Returns None only for truly open-ended types that benefit from Ollama.
@@ -2155,10 +1995,7 @@ class ALICE:
             count = alice_response.get("note_count", len(notes))
             if not notes:
                 return "You don't have any notes yet."
-            titles = [
-                n.get("title", "Untitled") if isinstance(n, dict) else str(n)
-                for n in notes[:10]
-            ]
+            titles = [n.get("title", "Untitled") if isinstance(n, dict) else str(n) for n in notes[:10]]
             has_more = alice_response.get("has_more", False)
             lines = [f"**You have {count} note{'s' if count != 1 else ''}:**", ""]
             for i, t in enumerate(titles, 1):
@@ -2175,11 +2012,7 @@ class ALICE:
             tag_line = f"\n---\n*Tags: {', '.join(tags)}*" if tags else ""
             # Don't repeat the title as body — if a note's content was never
             # filled in and equals its title, show a polite empty-note message.
-            body = (
-                content_body
-                if content_body and content_body.strip() != title.strip()
-                else ""
-            )
+            body = content_body if content_body and content_body.strip() != title.strip() else ""
             if not body:
                 return f"{header.strip()}\n\n*(This note has no content yet.)*".strip()
             return f"{header}\n{body}{tag_line}".strip()
@@ -2195,49 +2028,26 @@ class ALICE:
                     lines.append("\n**Key points:**")
                     for pt in summary["key_points"][:5]:
                         lines.append(f"- {pt}")
-                return (
-                    "\n".join(lines)
-                    if len(lines) > 2
-                    else f"Summary of **{title}** — no structured data available."
-                )
+                return "\n".join(lines) if len(lines) > 2 else f"Summary of **{title}** — no structured data available."
             return f"**{title}:** {summary}"
 
         if response_type == "operation_success":
-            op = (
-                str(alice_response.get("operation") or "operation")
-                .replace("_", " ")
-                .strip()
-            )
-            details = (
-                alice_response.get("details", {})
-                if isinstance(alice_response.get("details", {}), dict)
-                else {}
-            )
-            subject = str(
-                details.get("note_title")
-                or details.get("title")
-                or details.get("name")
-                or ""
-            ).strip()
+            op = str(alice_response.get("operation") or "operation").replace("_", " ").strip()
+            details = alice_response.get("details", {}) if isinstance(alice_response.get("details", {}), dict) else {}
+            subject = str(details.get("note_title") or details.get("title") or details.get("name") or "").strip()
             if subject:
                 return f"Done: {op} for '{subject}'."
             return f"Done: {op}."
 
         if response_type == "operation_failure":
-            op = (
-                str(alice_response.get("operation") or "operation")
-                .replace("_", " ")
-                .strip()
-            )
+            op = str(alice_response.get("operation") or "operation").replace("_", " ").strip()
             err = str(alice_response.get("error") or "").strip()
             if err:
                 return f"I couldn't complete {op}: {err}."
             return f"I couldn't complete {op}."
 
         if response_type == "knowledge_answer":
-            answer = str(
-                alice_response.get("answer") or alice_response.get("content") or ""
-            ).strip()
+            answer = str(alice_response.get("answer") or alice_response.get("content") or "").strip()
             if answer:
                 return self._clamp_final_response(
                     answer,
@@ -2315,11 +2125,7 @@ class ALICE:
             return str(value or "").strip().lower() in _unknown_condition_tokens
 
         def _display_condition(value, *, title_case: bool = False) -> str:
-            text = (
-                "conditions unavailable"
-                if _is_unknown_condition(value)
-                else str(value).strip()
-            )
+            text = "conditions unavailable" if _is_unknown_condition(value) else str(value).strip()
             return text.title() if title_case else text
 
         if response_type == "weather_report":
@@ -2338,31 +2144,19 @@ class ALICE:
                     if temp is not None
                     else f"Still **{cond_cap}**{loc_str}."
                 )
-            return (
-                f"**{temp_str}** {cond_cap}{loc_str}."
-                if temp is not None
-                else f"**{cond_cap}**{loc_str}."
-            )
+            return f"**{temp_str}** {cond_cap}{loc_str}." if temp is not None else f"**{cond_cap}**{loc_str}."
 
         if response_type == "weather_advice":
             raw_temp = alice_response.get("temperature")
-            condition_raw = (
-                str(alice_response.get("condition", "") or "").lower().strip()
-            )
+            condition_raw = str(alice_response.get("condition", "") or "").lower().strip()
             location = str(alice_response.get("location", "") or "").strip()
-            item = (
-                str(alice_response.get("clothing_item", "jacket") or "jacket")
-                .lower()
-                .strip()
-            )
+            item = str(alice_response.get("clothing_item", "jacket") or "jacket").lower().strip()
             rainy = alice_response.get("rainy")
             force_yes_no = bool(alice_response.get("force_yes_no"))
             is_forecast = bool(alice_response.get("is_forecast"))
             question_text = str(alice_response.get("user_question", "") or "").lower()
             scope_phrase = ""
-            if is_forecast and any(
-                k in question_text for k in ("this week", "next week", "week")
-            ):
+            if is_forecast and any(k in question_text for k in ("this week", "next week", "week")):
                 scope_phrase = " this week"
 
             # Normalize frequent condition typos from upstream providers.
@@ -2387,8 +2181,7 @@ class ALICE:
                 return f"an {it}" if it[:1] in {"a", "e", "i", "o", "u"} else f"a {it}"
 
             rainy_by_condition = any(
-                w in condition
-                for w in ["rain", "drizzle", "drizzl", "shower", "storm", "thunder"]
+                w in condition for w in ["rain", "drizzle", "drizzl", "shower", "storm", "thunder"]
             )
             if rainy is None:
                 rainy = rainy_by_condition
@@ -2404,9 +2197,7 @@ class ALICE:
                 if item == "umbrella":
                     return bool(rainy), (
                         f"{condition} is expected" if condition else "rain is expected"
-                    ) if rainy else (
-                        f"it is {condition}" if condition else "rain is not expected"
-                    )
+                    ) if rainy else (f"it is {condition}" if condition else "rain is not expected")
 
                 threshold = {
                     "coat": 10.0,
@@ -2421,9 +2212,7 @@ class ALICE:
                 }.get(item, 14.0)
 
                 if temp_val is None:
-                    return True, (
-                        f"it is {condition}" if condition else "conditions look cool"
-                    )
+                    return True, (f"it is {condition}" if condition else "conditions look cool")
                 return temp_val <= threshold, f"it is about {_format_temp(temp_val)}°C"
 
             should_bring, reason = _recommendation()
@@ -2432,9 +2221,7 @@ class ALICE:
 
             if force_yes_no:
                 if should_bring:
-                    return (
-                        f"Yes, bring {item_text}{scope_phrase} because {reason}{place}."
-                    )
+                    return f"Yes, bring {item_text}{scope_phrase} because {reason}{place}."
                 return f"No, you likely do not need {item_text}{scope_phrase} because {reason}{place}."
 
             if should_bring:
@@ -2444,11 +2231,7 @@ class ALICE:
         if response_type == "weather_prediction":
             answer = alice_response.get("answer", "").capitalize()
             condition = _display_condition(alice_response.get("condition", ""))
-            return (
-                f"{answer}. Current condition: {condition}."
-                if condition
-                else f"{answer}."
-            )
+            return f"{answer}. Current condition: {condition}." if condition else f"{answer}."
 
         if response_type == "weather_forecast":
             from datetime import datetime as _dt, timedelta as _td
@@ -2479,11 +2262,7 @@ class ALICE:
             def _day_label(d) -> str:
                 is_today = d == today
                 is_tmr = d == today + _td(days=1)
-                return (
-                    "Today"
-                    if is_today
-                    else ("Tomorrow" if is_tmr else d.strftime("%A"))
-                )
+                return "Today" if is_today else ("Tomorrow" if is_tmr else d.strftime("%A"))
 
             def _fmt_table_row(d, day: dict) -> str:
                 label = _day_label(d)
@@ -2491,9 +2270,7 @@ class ALICE:
                 low = day.get("low")
                 cond = _display_condition(day.get("condition"), title_case=True)
                 temp = (
-                    f"{_format_temp(low)}° to {_format_temp(high)}°C"
-                    if (high is not None and low is not None)
-                    else "—"
+                    f"{_format_temp(low)}° to {_format_temp(high)}°C" if (high is not None and low is not None) else "—"
                 )
                 return f"| {label} | {cond} | {temp} |"
 
@@ -2507,9 +2284,7 @@ class ALICE:
                         d = _dt.strptime(day.get("date", ""), "%Y-%m-%d").date()
                         if d.weekday() == target_wd:
                             high, low = day.get("high"), day.get("low")
-                            cond = _display_condition(
-                                day.get("condition"), title_case=True
-                            )
+                            cond = _display_condition(day.get("condition"), title_case=True)
                             temp = (
                                 f"{_format_temp(low)}° to {_format_temp(high)}°C"
                                 if (high is not None and low is not None)
@@ -2553,9 +2328,7 @@ class ALICE:
                             if (high is not None and low is not None)
                             else ""
                         )
-                        return (
-                            f"**Tomorrow{loc_str}** {cond}{', ' + temp if temp else ''}"
-                        )
+                        return f"**Tomorrow{loc_str}** {cond}{', ' + temp if temp else ''}"
 
             # ── Full 7-day table ─────────────────────────────────────────────
             lines = [
@@ -2570,11 +2343,7 @@ class ALICE:
                     lines.append(_fmt_table_row(d, day))
                 except Exception:
                     pass
-            return (
-                "\n".join(lines)
-                if len(lines) > 4
-                else f"Forecast{loc_str} available but couldn't be formatted."
-            )
+            return "\n".join(lines) if len(lines) > 4 else f"Forecast{loc_str} available but couldn't be formatted."
 
         # ── Capability ───────────────────────────────────────────────────────
         if response_type == "capability_answer":
@@ -2630,9 +2399,7 @@ class ALICE:
 
         if response_type == "code_summaries":
             items = list(alice_response.get("items") or [])
-            total_files = int(
-                alice_response.get("total_files", len(items)) or len(items)
-            )
+            total_files = int(alice_response.get("total_files", len(items)) or len(items))
 
             lines = [f" **File Summaries** ({total_files} files):", ""]
             for item in items[:25]:
@@ -2652,18 +2419,12 @@ class ALICE:
             )
             if _source_text and self._is_answerability_direct_question(_source_text):
                 return self._answerability_gate_fallback_response(_source_text)
-            options = [
-                str(x).strip()
-                for x in list(alice_response.get("options") or [])[:3]
-                if str(x).strip()
-            ]
-            pronouns = [
-                str(x).strip()
-                for x in list(alice_response.get("pronouns") or [])[:2]
-                if str(x).strip()
-            ]
+            options = [str(x).strip() for x in list(alice_response.get("options") or [])[:3] if str(x).strip()]
+            pronouns = [str(x).strip() for x in list(alice_response.get("pronouns") or [])[:2] if str(x).strip()]
             if options:
-                return f"Do you mean {', '.join(options[:-1]) + ' or ' + options[-1] if len(options) > 1 else options[0]}?"
+                return (
+                    f"Do you mean {', '.join(options[:-1]) + ' or ' + options[-1] if len(options) > 1 else options[0]}?"
+                )
             if pronouns:
                 return f"What does '{pronouns[0]}' refer to in your request?"
             return "Please clarify the exact outcome you want so I can route this correctly."
@@ -2722,14 +2483,10 @@ class ALICE:
             if response_type == "reasoning_result":
                 return str(alice_response.get("conclusion") or "Reasoning complete.")
             if response_type == "operation_success":
-                op = str(alice_response.get("operation") or "operation").replace(
-                    "_", " "
-                )
+                op = str(alice_response.get("operation") or "operation").replace("_", " ")
                 return f"Completed: {op}."
             if response_type == "operation_failure":
-                op = str(alice_response.get("operation") or "operation").replace(
-                    "_", " "
-                )
+                op = str(alice_response.get("operation") or "operation").replace("_", " ")
                 err = str(alice_response.get("error") or "").strip()
                 return f"Failed: {op}. {err}".strip()
             if response_type == "clarification_prompt":
@@ -2746,35 +2503,23 @@ class ALICE:
 
         # ── Step 3: Open-ended — Alice asks Ollama for phrasing help ─────────
         # Ollama is a teacher here, not a speaker. Alice learns from the reply.
-        logger.info(
-            f"[ALICE] Asking Ollama to help phrase '{response_type}' (Alice will learn from this)"
-        )
+        logger.info(f"[ALICE] Asking Ollama to help phrase '{response_type}' (Alice will learn from this)")
 
         # Build a concise prompt from the structured content so Ollama can help
         # Alice phrasing it naturally — she provides the facts, Ollama provides fluency.
         if response_type == "knowledge_answer":
             question = alice_response.get("question", "")
             intent = alice_response.get("intent", "")
-            entities_known = [
-                e
-                for e in self.knowledge_engine.entities.values()
-                if e.name.lower() in question.lower()
-            ]
+            entities_known = [e for e in self.knowledge_engine.entities.values() if e.name.lower() in question.lower()]
             relationships: list = []
             for ent in entities_known:
-                relationships.extend(
-                    self.knowledge_engine.get_relationships_for_entity(ent.name)
-                )
+                relationships.extend(self.knowledge_engine.get_relationships_for_entity(ent.name))
             if entities_known:
-                entity_info = ", ".join(
-                    [f"{e.name} ({e.type})" for e in entities_known[:3]]
-                )
+                entity_info = ", ".join([f"{e.name} ({e.type})" for e in entities_known[:3]])
                 content_str = f"From my knowledge: {entity_info}"
                 if relationships:
                     rel = relationships[0]
-                    content_str += (
-                        f". {rel['subject']} {rel['predicate']} {rel['object']}"
-                    )
+                    content_str += f". {rel['subject']} {rel['predicate']} {rel['object']}"
             else:
                 topic = intent.split(":")[0] if ":" in intent else intent
                 content_str = f"Based on what I've learned about {topic}, I can help with: {question}"
@@ -2786,11 +2531,7 @@ class ALICE:
         elif response_type == "operation_success":
             op = alice_response.get("operation", "operation")
             details = alice_response.get("details", {})
-            title = (
-                (details.get("note_title") or details.get("title", ""))
-                if isinstance(details, dict)
-                else ""
-            )
+            title = (details.get("note_title") or details.get("title", "")) if isinstance(details, dict) else ""
             title_str = f" '{title}'" if title else ""
             user_q = alice_response.get("user_question", "")
             content_str = (
@@ -2802,11 +2543,7 @@ class ALICE:
             op = alice_response.get("operation", "that")
             error = alice_response.get("error", "")
             user_q = alice_response.get("user_question", "")
-            error_str = (
-                f" Reason: {error}"
-                if error and error not in ("Operation failed", "unknown")
-                else ""
-            )
+            error_str = f" Reason: {error}" if error and error not in ("Operation failed", "unknown") else ""
             content_str = (
                 f"Action failed: {op.replace('_', ' ')}.{error_str} "
                 f"User asked: '{user_q}'. Explain this briefly and naturally, and offer to help in one sentence."
@@ -2822,11 +2559,7 @@ class ALICE:
             force_yes_no = bool(alice_response.get("force_yes_no"))
             user_q = alice_response.get("user_question", "")
             loc_str = f" in {location}" if location else ""
-            temp_str = (
-                f"{round(raw_temp)}°C{loc_str}"
-                if raw_temp is not None
-                else f"unknown temperature{loc_str}"
-            )
+            temp_str = f"{round(raw_temp)}°C{loc_str}" if raw_temp is not None else f"unknown temperature{loc_str}"
             if rainy is False:
                 content_str = (
                     f"Current weather: {temp_str}, {condition}. "
@@ -2838,28 +2571,14 @@ class ALICE:
                     f"User asked: '{user_q}'. Give a short, direct answer about whether to bring/wear '{item}'."
                 )
             if force_yes_no:
-                content_str += (
-                    " Start with exactly 'Yes,' or 'No,' and then one brief reason."
-                )
+                content_str += " Start with exactly 'Yes,' or 'No,' and then one brief reason."
 
         elif response_type == "clarification_prompt":
             payload = {
                 "reason": str(alice_response.get("reason") or "").strip().lower(),
-                "options": [
-                    str(x).strip()
-                    for x in list(alice_response.get("options") or [])[:5]
-                    if str(x).strip()
-                ],
-                "details": [
-                    str(x).strip()
-                    for x in list(alice_response.get("details") or [])[:3]
-                    if str(x).strip()
-                ],
-                "pronouns": [
-                    str(x).strip()
-                    for x in list(alice_response.get("pronouns") or [])[:3]
-                    if str(x).strip()
-                ],
+                "options": [str(x).strip() for x in list(alice_response.get("options") or [])[:5] if str(x).strip()],
+                "details": [str(x).strip() for x in list(alice_response.get("details") or [])[:3] if str(x).strip()],
+                "pronouns": [str(x).strip() for x in list(alice_response.get("pronouns") or [])[:3] if str(x).strip()],
                 "user_input": user_input,
             }
             content_str = (
@@ -2874,11 +2593,7 @@ class ALICE:
         thought_content = alice_response
 
         try:
-            phrase_call_type = (
-                LLMCallType.PHRASE_MICRO
-                if len(content_str) <= 160
-                else LLMCallType.PHRASE_STRUCTURED
-            )
+            phrase_call_type = LLMCallType.PHRASE_MICRO if len(content_str) <= 160 else LLMCallType.PHRASE_STRUCTURED
             phrasing_context = {
                 "alice_thought": content_str,
                 "structured_payload": content_str,
@@ -2911,40 +2626,26 @@ class ALICE:
                     user_input=user_input,
                 )
                 _thought_for_learning = _teacher_thought or thought_content
-                _teacher_source = (
-                    "ollama_teacher_low_complexity"
-                    if _teacher_thought is not None
-                    else "ollama_teacher"
-                )
+                _teacher_source = "ollama_teacher_low_complexity" if _teacher_thought is not None else "ollama_teacher"
                 self.phrasing_learner.record_phrasing(
                     alice_thought=_thought_for_learning,
                     ollama_phrasing=natural_response,
                     context={
                         "tone": tone,
-                        "intent": context.current_intent
-                        if hasattr(context, "current_intent")
-                        else "unknown",
+                        "intent": context.current_intent if hasattr(context, "current_intent") else "unknown",
                         "user_input": user_input,
                         "response_type": str(response_type or ""),
                         "source": _teacher_source,
                     },
                 )
                 if self.phrasing_learner.can_phrase_myself(_thought_for_learning, tone):
-                    self._think(
-                        f"Alice learned '{response_type}' — can now phrase independently!"
-                    )
+                    self._think(f"Alice learned '{response_type}' — can now phrase independently!")
                 # Prepend an empathy phrase when the interaction policy asks for it
                 # (applies only to open-ended/conversational Ollama-assisted responses).
                 _pol = getattr(self, "_last_policy", None)
                 if _pol is not None and getattr(_pol, "add_empathy_prefix", False):
-                    _mood = getattr(
-                        getattr(self, "_last_perception", None), "inferred_mood", ""
-                    )
-                    _pfx = (
-                        "I'm sorry to hear that — "
-                        if _mood == "frustrated"
-                        else "Of course — "
-                    )
+                    _mood = getattr(getattr(self, "_last_perception", None), "inferred_mood", "")
+                    _pfx = "I'm sorry to hear that — " if _mood == "frustrated" else "Of course — "
                     natural_response = _pfx + natural_response
                 return self._clamp_final_response(
                     natural_response,
@@ -2954,9 +2655,7 @@ class ALICE:
                     user_input=user_input,
                 )
             else:
-                logger.warning(
-                    "[ALICE] Ollama phrasing failed — using Alice's direct fallback"
-                )
+                logger.warning("[ALICE] Ollama phrasing failed — using Alice's direct fallback")
                 return self._clamp_final_response(
                     content_str,
                     tone=tone,
@@ -2984,16 +2683,12 @@ class ALICE:
         self.plugins.register_plugin(MapsPlugin())
         self.plugins.register_plugin(TimePlugin())
         self.plugins.register_plugin(FileOperationsPlugin())
-        self.plugins.register_plugin(
-            MemoryPlugin(self.memory)
-        )  # Pass existing memory system
+        self.plugins.register_plugin(MemoryPlugin(self.memory))  # Pass existing memory system
         self.plugins.register_plugin(SystemControlPlugin())
         self.plugins.register_plugin(WebSearchPlugin())
         self.plugins.register_plugin(DocumentPlugin())
         self.plugins.register_plugin(CalendarPlugin())
-        self.plugins.register_plugin(
-            RAGIndexerPlugin(self.memory)
-        )  # RAG document indexer
+        self.plugins.register_plugin(RAGIndexerPlugin(self.memory))  # RAG document indexer
         self.plugins.register_plugin(MemoryHealthPlugin())
         self.plugins.register_plugin(SystemPlugin())
 
@@ -3035,9 +2730,7 @@ class ALICE:
             {
                 "day": datetime.now().strftime("%A"),
                 "hour": datetime.now().hour,
-                "system_state": self.state_tracker.get_status().value
-                if self.state_tracker
-                else "unknown",
+                "system_state": self.state_tracker.get_status().value if self.state_tracker else "unknown",
             }
         )
 
@@ -3056,12 +2749,8 @@ class ALICE:
 
         # Get context
         context = {
-            "system_state": self.state_tracker.get_status().value
-            if self.state_tracker
-            else "unknown",
-            "running_apps": self.system_monitor.get_running_apps()
-            if self.system_monitor
-            else [],
+            "system_state": self.state_tracker.get_status().value if self.state_tracker else "unknown",
+            "running_apps": self.system_monitor.get_running_apps() if self.system_monitor else [],
         }
 
         # Get suggestions
@@ -3143,9 +2832,7 @@ class ALICE:
             if not sec_intent:
                 continue
             try:
-                result = self.plugins.execute_for_intent(
-                    sec_intent, sec_text, entities, context_summary
-                )
+                result = self.plugins.execute_for_intent(sec_intent, sec_text, entities, context_summary)
                 outcomes.append(
                     {
                         "intent": sec_intent,
@@ -3161,12 +2848,7 @@ class ALICE:
         """Apply user preference constraints and adaptive verbosity formatting."""
         if not response:
             return response
-        prefs = dict(
-            (getattr(self, "_internal_reasoning_state", {}) or {}).get(
-                "response_preferences", {}
-            )
-            or {}
-        )
+        prefs = dict((getattr(self, "_internal_reasoning_state", {}) or {}).get("response_preferences", {}) or {})
         if self.adaptive_response_style:
             try:
                 return self.adaptive_response_style.apply_constraints(response, prefs)
@@ -3215,11 +2897,7 @@ class ALICE:
         intent_l = (intent or "").lower()
 
         if intent_l.startswith("weather"):
-            plugin_data = (
-                (plugin_result or {}).get("data", {})
-                if isinstance(plugin_result, dict)
-                else {}
-            )
+            plugin_data = (plugin_result or {}).get("data", {}) if isinstance(plugin_result, dict) else {}
             err = str(plugin_data.get("error") or "").lower()
             if err == "no_location":
                 return "I need your city to check weather. Tell me your city, or set it with /location <City>."
@@ -3236,9 +2914,9 @@ class ALICE:
             return "I couldn't fetch weather right now. Tell me your city, or set it with /location <City>."
 
         if intent_l == "conversation:goal_statement":
-            routed = self._deterministic_knowledge_fallback(
+            routed = self._deterministic_knowledge_fallback(user_input, intent) or self._native_conceptual_answer(
                 user_input, intent
-            ) or self._native_conceptual_answer(user_input, intent)
+            )
             if routed:
                 return routed
         return "I misunderstood that response path. Please repeat your request in one line and I will answer directly."
@@ -3269,25 +2947,15 @@ class ALICE:
                 return direct
 
         if self.causal_inference_engine and any(
-            k in lowered
-            for k in ("why did", "root cause", "cause of", "why is this failing")
+            k in lowered for k in ("why did", "root cause", "cause of", "why is this failing")
         ):
             analysis = self.causal_inference_engine.infer(text)
             causes = analysis.get("likely_causes", [])
             checks = analysis.get("recommended_checks", [])
-            return (
-                "Likely causes:\n- "
-                + "\n- ".join(causes)
-                + "\n\nNext checks:\n- "
-                + "\n- ".join(checks)
-            )
+            return "Likely causes:\n- " + "\n- ".join(causes) + "\n\nNext checks:\n- " + "\n- ".join(checks)
 
-        if self.hypothetical_scenario_generator and any(
-            k in lowered for k in ("what if", "scenario", "hypothetical")
-        ):
-            scenarios = self.hypothetical_scenario_generator.generate(
-                text, max_scenarios=3
-            )
+        if self.hypothetical_scenario_generator and any(k in lowered for k in ("what if", "scenario", "hypothetical")):
+            scenarios = self.hypothetical_scenario_generator.generate(text, max_scenarios=3)
             if scenarios:
                 lines = ["Hypothetical outcomes:"]
                 for sc in scenarios:
@@ -3357,9 +3025,7 @@ class ALICE:
                 return result.render()
 
             self.pending_operator_actions.pop(approval_id, None)
-            return (
-                f"Approved {approval_id}, but no executable action payload was found."
-            )
+            return f"Approved {approval_id}, but no executable action payload was found."
 
         if any(
             k in lowered
@@ -3372,9 +3038,7 @@ class ALICE:
         ):
             if not getattr(self, "operator_workflow", None):
                 return "Operator workflow is not initialized."
-            include_tests = any(
-                k in lowered for k in ("with tests", "and tests", "full")
-            )
+            include_tests = any(k in lowered for k in ("with tests", "and tests", "full"))
             if getattr(self, "roadmap_stack", None):
 
                 def _branch_handler(_step, _state):
@@ -3399,9 +3063,7 @@ class ALICE:
                     {"name": "build", "tool": "py_build", "depends_on": ["status"]},
                 ]
                 if include_tests:
-                    steps.append(
-                        {"name": "tests", "tool": "py_tests", "depends_on": ["build"]}
-                    )
+                    steps.append({"name": "tests", "tool": "py_tests", "depends_on": ["build"]})
 
                 handlers = {
                     "git_branch": _branch_handler,
@@ -3411,11 +3073,7 @@ class ALICE:
                 }
                 chain_results = self.roadmap_stack.chain_engine.run(steps, handlers)
                 failed = next(
-                    (
-                        r
-                        for r in chain_results
-                        if not r.get("success", False) and not r.get("skipped", False)
-                    ),
+                    (r for r in chain_results if not r.get("success", False) and not r.get("skipped", False)),
                     None,
                 )
                 if failed:
@@ -3426,9 +3084,7 @@ class ALICE:
                     )
                     self._internal_reasoning_state["operator_replan"] = replan
 
-            wf = self.operator_workflow.run_repo_health_workflow(
-                include_tests=include_tests
-            )
+            wf = self.operator_workflow.run_repo_health_workflow(include_tests=include_tests)
             return wf.render()
 
         if lowered.startswith("git "):
@@ -3489,10 +3145,7 @@ class ALICE:
                 f"Reply with: operator approve {req.approval_id}"
             )
 
-        if any(
-            k in lowered
-            for k in ("run tests", "run test suite", "pytest", "test project")
-        ):
+        if any(k in lowered for k in ("run tests", "run test suite", "pytest", "test project")):
             if not getattr(self, "build_runner", None):
                 return "Build runner is not initialized."
             test_res = self.build_runner.run_python_tests()
@@ -3502,10 +3155,7 @@ class ALICE:
                 return body or "Tests passed."
             return f"Tests failed (exit={test_res.exit_code}):\n{body}"
 
-        if any(
-            k in lowered
-            for k in ("run build", "build project", "build check", "compile project")
-        ):
+        if any(k in lowered for k in ("run build", "build project", "build check", "compile project")):
             if not getattr(self, "build_runner", None):
                 return "Build runner is not initialized."
             build_res = self.build_runner.run_python_build()
@@ -3554,9 +3204,7 @@ class ALICE:
         lines.append(
             f"1) Intent: {rs.get('user_intent', 'unknown')} (confidence={float(rs.get('confidence', 0.0)):.2f})"
         )
-        lines.append(
-            f"2) Plausibility: {float(rs.get('intent_plausibility', 1.0)):.2f}"
-        )
+        lines.append(f"2) Plausibility: {float(rs.get('intent_plausibility', 1.0)):.2f}")
         candidates = rs.get("intent_candidates", []) or []
         if candidates:
             ranked_intents = sorted(
@@ -3588,9 +3236,7 @@ class ALICE:
             )
         if rs.get("reasoning_planner", {}):
             rp = rs.get("reasoning_planner", {}) or {}
-            lines.append(
-                f"6) Plan: id={rp.get('plan_id', 'n/a')} critical_path={rp.get('critical_path', 'n/a')}"
-            )
+            lines.append(f"6) Plan: id={rp.get('plan_id', 'n/a')} critical_path={rp.get('critical_path', 'n/a')}")
         if rs.get("learning_decision"):
             lines.append(f"7) Learning decision: {rs.get('learning_decision')}")
         return "\n".join(lines)
@@ -3625,9 +3271,7 @@ class ALICE:
             entities["topic"] = topic
         entities.setdefault("query", text)
 
-        self._think(
-            f"Reasoning goal detected → planning study flow for: {entities.get('topic', 'topic')}"
-        )
+        self._think(f"Reasoning goal detected → planning study flow for: {entities.get('topic', 'topic')}")
         return "learning:study_topic", entities
 
     def _explicit_study_template_request(self, user_input: str) -> bool:
@@ -3660,14 +3304,10 @@ class ALICE:
             all_results=all_results,
         )
         self._internal_reasoning_state["task_verification"] = report.to_dict()
-        self._think(
-            f"Task verification -> accepted={report.accepted} confidence={report.confidence:.2f}"
-        )
+        self._think(f"Task verification -> accepted={report.accepted} confidence={report.confidence:.2f}")
         return bool(report.accepted)
 
-    def _normalize_entities_for_planning(
-        self, entities: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _normalize_entities_for_planning(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Convert NLP entities into planner-safe primitive values."""
 
         def _normalize(value: Any) -> Any:
@@ -3706,9 +3346,7 @@ class ALICE:
             normalized_entities[str(key)] = _normalize(raw_value)
         return normalized_entities
 
-    def _use_planner_executor(
-        self, intent: str, entities: Dict[str, Any], query: str
-    ) -> Optional[str]:
+    def _use_planner_executor(self, intent: str, entities: Dict[str, Any], query: str) -> Optional[str]:
         """
         Use task planner and executor for complex tasks
 
@@ -3731,17 +3369,13 @@ class ALICE:
             "study_topic",
         )
 
-        if not any(
-            normalized_intent.startswith(prefix) for prefix in plannable_prefixes
-        ):
+        if not any(normalized_intent.startswith(prefix) for prefix in plannable_prefixes):
             return None
 
         # Conversational help/goal turns should stay in fast lane unless there is
         # an explicit tutorial intent or a concrete action cue.
         if normalized_intent in ("conversation:help", "conversation:goal_statement"):
-            if not self._explicit_study_template_request(
-                query
-            ) and not self._has_explicit_action_cue(query):
+            if not self._explicit_study_template_request(query) and not self._has_explicit_action_cue(query):
                 return None
 
         if intent in (
@@ -3764,9 +3398,7 @@ class ALICE:
                 self._internal_reasoning_state["reasoning_planner"] = {
                     "task_id": reasoning_task.task_id,
                     "plan_id": reasoning_plan.plan_id,
-                    "critical_path": self.reasoning_planner.estimate_critical_path(
-                        reasoning_plan
-                    ),
+                    "critical_path": self.reasoning_planner.estimate_critical_path(reasoning_plan),
                     "trace": self.reasoning_planner.debug_trace_view(reasoning_plan),
                 }
 
@@ -3774,17 +3406,13 @@ class ALICE:
                     kind="execute_plan",
                     payload={
                         "intent": intent,
-                        "entities": self._normalize_entities_for_planning(
-                            entities or {}
-                        ),
+                        "entities": self._normalize_entities_for_planning(entities or {}),
                     },
                     priority=2,
                     max_attempts=2,
                 )
 
-                queue_result = self._await_queue_task_result(
-                    queued_task.task_id, timeout_seconds=4.0
-                )
+                queue_result = self._await_queue_task_result(queued_task.task_id, timeout_seconds=4.0)
                 if queue_result and queue_result.get("success"):
                     all_results = queue_result.get("all_results", {}) or {}
                     if not self._verify_planned_execution_payload(
@@ -3792,9 +3420,7 @@ class ALICE:
                         result=queue_result.get("result"),
                         all_results=all_results,
                     ):
-                        logger.warning(
-                            "Queued planner result failed verification; falling back"
-                        )
+                        logger.warning("Queued planner result failed verification; falling back")
                         return None
                     if intent in ("study_topic", "learning:study_topic"):
                         explain = all_results.get(1, "")
@@ -3818,9 +3444,7 @@ class ALICE:
             # Create execution plan
             context = {
                 "user_prefs": vars(self.context.user_prefs),
-                "system_state": self.state_tracker.get_status().value
-                if self.state_tracker
-                else "unknown",
+                "system_state": self.state_tracker.get_status().value if self.state_tracker else "unknown",
             }
 
             plan = self.planner.create_plan(intent, entities, context)
@@ -3885,9 +3509,7 @@ class ALICE:
         entities = self._normalize_entities_for_planning(payload.get("entities") or {})
         context = {
             "user_prefs": vars(self.context.user_prefs),
-            "system_state": self.state_tracker.get_status().value
-            if self.state_tracker
-            else "unknown",
+            "system_state": self.state_tracker.get_status().value if self.state_tracker else "unknown",
         }
 
         plan = self.planner.create_plan(intent, entities, context)
@@ -3896,9 +3518,7 @@ class ALICE:
 
         result = self.plan_executor.execute(plan)
         if not result.get("success"):
-            raise RuntimeError(
-                str(result.get("error") or "Unknown plan execution failure")
-            )
+            raise RuntimeError(str(result.get("error") or "Unknown plan execution failure"))
 
         return {
             "success": True,
@@ -3907,9 +3527,7 @@ class ALICE:
             "all_results": result.get("all_results", {}),
         }
 
-    def _await_queue_task_result(
-        self, task_id: str, timeout_seconds: float = 4.0
-    ) -> Optional[Dict[str, Any]]:
+    def _await_queue_task_result(self, task_id: str, timeout_seconds: float = 4.0) -> Optional[Dict[str, Any]]:
         """Wait briefly for a queued task to finish and return normalized result."""
         if not self.persistent_task_queue:
             return None
@@ -3933,9 +3551,7 @@ class ALICE:
             time.sleep(0.05)
         return None
 
-    def _build_llm_context(
-        self, user_input: str, intent: str = "", entities: Dict = None, goal_res=None
-    ) -> str:
+    def _build_llm_context(self, user_input: str, intent: str = "", entities: Dict = None, goal_res=None) -> str:
         """Build enhanced context for LLM with smart caching and adaptive selection"""
         # Check cache first
         cached = self.context_cache.get(user_input, intent or "", entities or {})
@@ -3948,11 +3564,7 @@ class ALICE:
         context_types = []
 
         # 0. ACTIVE GOAL - only when this turn is task-directed
-        if (
-            goal_res
-            and goal_res.goal
-            and self._should_attach_goal_context(user_input, intent)
-        ):
+        if goal_res and goal_res.goal and self._should_attach_goal_context(user_input, intent):
             goal = goal_res.goal
             goal_context = f"ACTIVE GOAL: The user is trying to {goal.description}. "
             goal_context += f"Intent: {goal.intent}. "
@@ -3963,7 +3575,9 @@ class ALICE:
                     for k, v in list(goal.entities.items())[:3]
                 )
                 goal_context += f"Entities: {goal_ents}. "
-            goal_context += "Use this goal to understand ambiguous inputs and guide your response to help complete this goal."
+            goal_context += (
+                "Use this goal to understand ambiguous inputs and guide your response to help complete this goal."
+            )
             context_parts.insert(0, goal_context)  # Put goal first - highest priority
             context_types.insert(0, "goal")
             self._think(f"Goal context → {goal.description[:50]}...")
@@ -3989,14 +3603,14 @@ class ALICE:
         ]
         if any(word in user_input.lower() for word in code_keywords):
             codebase_summary = self.self_reflection.get_codebase_summary()
-            reflection_context = "CRITICAL: You ARE A.L.I.C.E, an AI system with read-only access to your own codebase. "
+            reflection_context = (
+                "CRITICAL: You ARE A.L.I.C.E, an AI system with read-only access to your own codebase. "
+            )
             reflection_context += f"Your codebase is at {codebase_summary['base_path']} with {codebase_summary['total_files']} Python files. "
             reflection_context += "You can read files, analyze code, search, and suggest improvements through the self_reflection system. "
             reflection_context += "When asked about code access, confirm you have it and offer to read/analyze files. "
             reflection_context += "You are NOT a generic LLM - you are A.L.I.C.E with self-reflection capabilities!"
-            context_parts.insert(
-                1, reflection_context
-            )  # After goal, before personalization
+            context_parts.insert(1, reflection_context)  # After goal, before personalization
             context_types.insert(1, "self_reflection")
             self._think("Self-reflection context added")
 
@@ -4008,32 +3622,24 @@ class ALICE:
             )
             or str(intent or "").startswith("weather:")
         )
-        _live_state = (
-            getattr(self, "live_state_service", None) or get_live_state_service()
-        )
+        _live_state = getattr(self, "live_state_service", None) or get_live_state_service()
         weather_snapshot = _live_state.freshest_weather_snapshot(
             reasoning_engine=getattr(self, "reasoning_engine", None),
             world_state_memory=getattr(self, "world_state_memory", None),
         )
-        if (
-            weather_relevant
-            and weather_snapshot
-            and isinstance(weather_snapshot.get("data"), dict)
-        ):
+        if weather_relevant and weather_snapshot and isinstance(weather_snapshot.get("data"), dict):
             wd = weather_snapshot.get("data", {})
             weather_context = (
                 f"RECENT WEATHER: In {wd.get('location', 'your area')}, "
                 f"it's {wd.get('temperature')}°C with {wd.get('condition')}. "
             )
+            weather_context += f"Humidity: {wd.get('humidity')}%, Wind: {wd.get('wind_speed')} km/h. "
             weather_context += (
-                f"Humidity: {wd.get('humidity')}%, Wind: {wd.get('wind_speed')} km/h. "
+                "Use this when answering questions about going outside, clothing, or weather-related decisions."
             )
-            weather_context += "Use this when answering questions about going outside, clothing, or weather-related decisions."
             context_parts.append(weather_context)
             context_types.append("recent_weather")
-            self._think(
-                f"Recent weather data included in context (source={weather_snapshot.get('source', 'unknown')})"
-            )
+            self._think(f"Recent weather data included in context (source={weather_snapshot.get('source', 'unknown')})")
 
         # 1. Personalization
         personalization = self.context.get_personalization_context()
@@ -4041,27 +3647,20 @@ class ALICE:
             context_parts.append(personalization)
             context_types.append("personalization")
 
-        if (
-            self.system_design_response_guard
-            and self.system_design_response_guard.is_architecture_query(user_input)
-        ):
+        if self.system_design_response_guard and self.system_design_response_guard.is_architecture_query(user_input):
             context_parts.append(self.system_design_response_guard.guidance_text())
             context_types.append("architecture_policy")
 
         # 1.1 Episodic + semantic recall to preserve continuity on long sessions.
         if self.episodic_memory_engine:
             try:
-                episodic_hits = self.episodic_memory_engine.recall_similar(
-                    user_input, limit=2
-                )
+                episodic_hits = self.episodic_memory_engine.recall_similar(user_input, limit=2)
                 if episodic_hits:
                     snippets = [
                         f"- {item.get('intent', 'unknown')}: {str(item.get('user_input', ''))[:90]}"
                         for item in episodic_hits
                     ]
-                    context_parts.append(
-                        "Relevant prior episodes:\n" + "\n".join(snippets)
-                    )
+                    context_parts.append("Relevant prior episodes:\n" + "\n".join(snippets))
                     context_types.append("episodic")
             except Exception:
                 pass
@@ -4070,9 +3669,7 @@ class ALICE:
                 semantic_hits = self.semantic_memory_index.search(user_input, limit=2)
                 if semantic_hits:
                     snippets = [f"- {item.get('text', '')}" for item in semantic_hits]
-                    context_parts.append(
-                        "Semantic memory matches:\n" + "\n".join(snippets)
-                    )
+                    context_parts.append("Semantic memory matches:\n" + "\n".join(snippets))
                     context_types.append("semantic")
             except Exception:
                 pass
@@ -4121,17 +3718,10 @@ class ALICE:
                     _lines.append(f"- plan: {' | '.join(str(p) for p in _plan[:4])}")
                 _scores = _rs.get("decision_scores", {}) or {}
                 if _scores:
-                    _top = sorted(_scores.items(), key=lambda kv: kv[1], reverse=True)[
-                        :4
-                    ]
-                    _lines.append(
-                        "- decision_scores: "
-                        + ", ".join(f"{k}={float(v):.2f}" for k, v in _top)
-                    )
+                    _top = sorted(_scores.items(), key=lambda kv: kv[1], reverse=True)[:4]
+                    _lines.append("- decision_scores: " + ", ".join(f"{k}={float(v):.2f}" for k, v in _top))
                 if _rs.get("learning_decision"):
-                    _lines.append(
-                        f"- learning_decision: {_rs.get('learning_decision')}"
-                    )
+                    _lines.append(f"- learning_decision: {_rs.get('learning_decision')}")
                 _runtime_controls = _rs.get("runtime_controls", {}) or {}
                 if _runtime_controls:
                     _lines.append(
@@ -4151,9 +3741,7 @@ class ALICE:
                 pass
 
         # 3a. Response plan injection (structure constraints for LLM)
-        _rp_data = (getattr(self, "_internal_reasoning_state", {}) or {}).get(
-            "response_plan", {}
-        )
+        _rp_data = (getattr(self, "_internal_reasoning_state", {}) or {}).get("response_plan", {})
         if _rp_data:
             try:
                 _rp_lines = [
@@ -4163,19 +3751,13 @@ class ALICE:
                 ]
                 _outline = _rp_data.get("outline", []) or []
                 if _outline:
-                    _rp_lines.append(
-                        f"- outline: {' -> '.join(str(o) for o in _outline[:4])}"
-                    )
+                    _rp_lines.append(f"- outline: {' -> '.join(str(o) for o in _outline[:4])}")
                 _rp_constraints = _rp_data.get("constraints", []) or []
                 if _rp_constraints:
-                    _rp_lines.append(
-                        f"- constraints: {'; '.join(str(c) for c in _rp_constraints[:4])}"
-                    )
+                    _rp_lines.append(f"- constraints: {'; '.join(str(c) for c in _rp_constraints[:4])}")
                 _rp_sections = _rp_data.get("required_sections", []) or []
                 if _rp_sections:
-                    _rp_lines.append(
-                        f"- required_sections: {'; '.join(str(s) for s in _rp_sections[:5])}"
-                    )
+                    _rp_lines.append(f"- required_sections: {'; '.join(str(s) for s in _rp_sections[:5])}")
                 _rp_depth = int(_rp_data.get("plan_depth", 1) or 1)
                 _rp_lines.append(f"- plan_depth: {_rp_depth}")
                 _goal_ctx = _rp_data.get("goal_context", "")
@@ -4190,9 +3772,7 @@ class ALICE:
                 pass
 
         # 3ab. User response preferences / constraints extracted from utterance
-        _prefs = (getattr(self, "_internal_reasoning_state", {}) or {}).get(
-            "response_preferences", {}
-        ) or {}
+        _prefs = (getattr(self, "_internal_reasoning_state", {}) or {}).get("response_preferences", {}) or {}
         if _prefs:
             try:
                 _plines = [
@@ -4202,9 +3782,7 @@ class ALICE:
                 ]
                 _constraints = _prefs.get("constraints", []) or []
                 if _constraints:
-                    _plines.append(
-                        f"- constraints: {', '.join(str(c) for c in _constraints[:5])}"
-                    )
+                    _plines.append(f"- constraints: {', '.join(str(c) for c in _constraints[:5])}")
                 if _prefs.get("max_words"):
                     _plines.append(f"- max_words: {int(_prefs.get('max_words'))}")
                 context_parts.append("\n".join(_plines))
@@ -4264,9 +3842,9 @@ class ALICE:
             "thanks",
             "status_inquiry",
         }
-        _should_fetch_memory = (
-            not _is_conversational_turn and len(user_input.split()) >= 3
-        ) or any(trigger in user_input.lower() for trigger in _memory_trigger_words)
+        _should_fetch_memory = (not _is_conversational_turn and len(user_input.split()) >= 3) or any(
+            trigger in user_input.lower() for trigger in _memory_trigger_words
+        )
         if _should_fetch_memory:
             try:
                 _weighted_memories = self.memory.recall_memory_weighted(
@@ -4279,15 +3857,11 @@ class ALICE:
                     for _i, _m in enumerate(_weighted_memories, 1):
                         _ts = str(_m.get("timestamp", ""))[:10]
                         _ws = float(_m.get("weighted_score", 0.0))
-                        _lines.append(
-                            f"{_i}. {_m.get('content', '')} (score {_ws:.2f}, from {_ts})"
-                        )
+                        _lines.append(f"{_i}. {_m.get('content', '')} (score {_ws:.2f}, from {_ts})")
                     context_parts.append("\n".join(_lines))
                     context_types.append("memory")
             except Exception:
-                memory_context = self.memory.get_context_for_llm(
-                    user_input, max_memories=5
-                )
+                memory_context = self.memory.get_context_for_llm(user_input, max_memories=5)
                 if memory_context:
                     context_parts.append(memory_context)
                     context_types.append("memory")
@@ -4296,9 +3870,7 @@ class ALICE:
         if intent and any(cap in intent for cap in ["note", "email", "calendar"]):
             capabilities = self.plugins.get_capabilities()
             if capabilities:
-                context_parts.append(
-                    f"Available capabilities: {', '.join(capabilities[:10])}"
-                )
+                context_parts.append(f"Available capabilities: {', '.join(capabilities[:10])}")
                 context_types.append("capabilities")
 
         # 8. Notes context injection (Feature #2) — surface relevant note snippets
@@ -4318,21 +3890,15 @@ class ALICE:
         ]
         if any(w in user_input.lower() for w in _notes_trigger_words):
             try:
-                notes_plugin = getattr(self.plugins, "_plugin_instances", {}).get(
-                    "notes"
-                )
+                notes_plugin = getattr(self.plugins, "_plugin_instances", {}).get("notes")
                 if notes_plugin is None:
                     # Try iterating over registered plugins
                     for _p in getattr(self.plugins, "plugins", None) or []:
                         if hasattr(_p, "get_note_context_snippet"):
                             notes_plugin = _p
                             break
-                if notes_plugin is not None and hasattr(
-                    notes_plugin, "get_note_context_snippet"
-                ):
-                    notes_snippet = notes_plugin.get_note_context_snippet(
-                        user_input, max_chars=500
-                    )
+                if notes_plugin is not None and hasattr(notes_plugin, "get_note_context_snippet"):
+                    notes_snippet = notes_plugin.get_note_context_snippet(user_input, max_chars=500)
                     if notes_snippet:
                         context_parts.append(notes_snippet)
                         context_types.append("notes")
@@ -4340,9 +3906,7 @@ class ALICE:
             except Exception as _ne:
                 import logging as _log
 
-                _log.getLogger(__name__).debug(
-                    f"Notes context injection skipped: {_ne}"
-                )
+                _log.getLogger(__name__).debug(f"Notes context injection skipped: {_ne}")
 
         # Adaptive selection - only include relevant context
         if self.context_selector and context_parts:
@@ -4392,17 +3956,12 @@ class ALICE:
             return self._clamp_final_response(
                 response,
                 tone="professional and precise",
-                response_type="knowledge_answer"
-                if "question" in str(intent or "")
-                else "general_response",
+                response_type="knowledge_answer" if "question" in str(intent or "") else "general_response",
                 route="self_critique_pass",
                 user_input=user_input,
             )
 
-        self._think(
-            "Self-critique failed -> regenerating once "
-            f"({', '.join(critique.fail_reasons[:3])})"
-        )
+        self._think(f"Self-critique failed -> regenerating once ({', '.join(critique.fail_reasons[:3])})")
 
         if not getattr(self, "llm_gateway", None):
             return response
@@ -4428,9 +3987,7 @@ class ALICE:
                     "structured_payload": regen_prompt,
                     "intent": intent,
                     "entities": entities or {},
-                    "goal": goal_res.goal
-                    if (goal_res and getattr(goal_res, "goal", None))
-                    else None,
+                    "goal": goal_res.goal if (goal_res and getattr(goal_res, "goal", None)) else None,
                     "self_critique": critique.fail_reasons,
                 },
             )
@@ -4449,9 +4006,7 @@ class ALICE:
                     response=revised,
                     memory_snapshot=memory_snapshot,
                 )
-                if critique2.passed or len(critique2.fail_reasons) < len(
-                    critique.fail_reasons
-                ):
+                if critique2.passed or len(critique2.fail_reasons) < len(critique.fail_reasons):
                     return revised
         except Exception as e:
             logger.debug(f"Self-critique regeneration failed: {e}")
@@ -4616,9 +4171,7 @@ class ALICE:
         if any(str(intent or "").startswith(prefix) for prefix in tool_domains):
             return False
 
-        conceptual_turn = self._is_rich_conceptual_request(
-            text
-        ) or self._is_conceptual_build_architecture_prompt(text)
+        conceptual_turn = self._is_rich_conceptual_request(text) or self._is_conceptual_build_architecture_prompt(text)
         if conceptual_turn:
             return True
 
@@ -4674,9 +4227,7 @@ class ALICE:
 
         # Conceptual/build prompts stay conversational even when they contain
         # words like "create" or "build".
-        if self._is_rich_conceptual_request(
-            user_input
-        ) or self._is_conceptual_build_architecture_prompt(user_input):
+        if self._is_rich_conceptual_request(user_input) or self._is_conceptual_build_architecture_prompt(user_input):
             return "conversational_intelligence", "rich_conceptual_fast_lane"
 
         if has_explicit_action_cue:
@@ -4733,9 +4284,7 @@ class ALICE:
             return False
 
         text = user_input.lower().strip()
-        if self._is_rich_conceptual_request(
-            text
-        ) or self._is_conceptual_build_architecture_prompt(text):
+        if self._is_rich_conceptual_request(text) or self._is_conceptual_build_architecture_prompt(text):
             return False
 
         action_pattern = (
@@ -4793,9 +4342,7 @@ class ALICE:
         if any(normalized_intent.startswith(prefix) for prefix in tool_domains):
             return False
 
-        explicit_action = bool(
-            self._has_explicit_action_cue(user_input_processed or user_input)
-        )
+        explicit_action = bool(self._has_explicit_action_cue(user_input_processed or user_input))
         if explicit_action:
             return False
 
@@ -4889,14 +4436,9 @@ class ALICE:
                 f"User request: {llm_input}"
             )
 
-        if (
-            goal_res
-            and goal_res.goal
-            and self._should_attach_goal_context(llm_input, intent)
-        ):
+        if goal_res and goal_res.goal and self._should_attach_goal_context(llm_input, intent):
             goal_note = (
-                f"\n[Context: Help the user move toward this goal while staying natural: "
-                f"{goal_res.goal.description}]"
+                f"\n[Context: Help the user move toward this goal while staying natural: {goal_res.goal.description}]"
             )
             lane_prompt = lane_prompt + goal_note
 
@@ -5032,9 +4574,7 @@ class ALICE:
             return True
         return bool(re.search(r"[,;:\-]\s*$", value))
 
-    def _sanitize_fast_lane_response(
-        self, *, response: str, user_input: str, intent: str
-    ) -> str:
+    def _sanitize_fast_lane_response(self, *, response: str, user_input: str, intent: str) -> str:
         """Strip meta/hallucinated assistant chatter from fast-lane replies."""
         text = str(response or "").strip()
         if not text:
@@ -5078,14 +4618,10 @@ class ALICE:
             normalized = line.strip()
             if not normalized:
                 continue
-            if any(
-                re.search(pattern, normalized, flags=re.IGNORECASE)
-                for pattern in blocked_patterns
-            ):
+            if any(re.search(pattern, normalized, flags=re.IGNORECASE) for pattern in blocked_patterns):
                 continue
             if not memory_request and any(
-                re.search(pattern, normalized, flags=re.IGNORECASE)
-                for pattern in memory_leak_patterns
+                re.search(pattern, normalized, flags=re.IGNORECASE) for pattern in memory_leak_patterns
             ):
                 continue
             filtered_lines.append(normalized)
@@ -5127,16 +4663,11 @@ class ALICE:
                 r"\bwhat\s+exact\s+result\s+do\s+you\s+want\b",
                 r"\bcan\s+you\s+clarify\b",
             )
-            _sentences = [
-                s.strip() for s in re.split(r"(?<=[.!?])\s+", out) if s.strip()
-            ]
+            _sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", out) if s.strip()]
             _filtered_sentences = []
             for sentence in _sentences:
                 low_sentence = sentence.lower()
-                if any(
-                    re.search(pattern, low_sentence, flags=re.IGNORECASE)
-                    for pattern in _dead_end_patterns
-                ):
+                if any(re.search(pattern, low_sentence, flags=re.IGNORECASE) for pattern in _dead_end_patterns):
                     continue
                 _filtered_sentences.append(sentence)
             out = " ".join(_filtered_sentences).strip() if _filtered_sentences else ""
@@ -5150,10 +4681,7 @@ class ALICE:
                 r"\bwhat\s+do\s+you\s+want\b",
             )
             _out_low = out.lower()
-            _has_dead_end = any(
-                re.search(pattern, _out_low, flags=re.IGNORECASE)
-                for pattern in _dead_end_patterns
-            )
+            _has_dead_end = any(re.search(pattern, _out_low, flags=re.IGNORECASE) for pattern in _dead_end_patterns)
             _has_options_signal = (
                 "," in out
                 or " you could " in _out_low
@@ -5162,19 +4690,10 @@ class ALICE:
                 or "or" in _out_low
             )
 
-            if (
-                _has_meta_leak
-                or _has_dead_end
-                or not _has_options_signal
-                or len(out) < 70
-            ):
+            if _has_meta_leak or _has_dead_end or not _has_options_signal or len(out) < 70:
                 out = self._project_ideation_guidance_response(user_input)
             elif "?" not in out:
-                out = (
-                    out.rstrip(". ")
-                    + " "
-                    + self._project_ideation_narrowing_question(user_input)
-                )
+                out = out.rstrip(". ") + " " + self._project_ideation_narrowing_question(user_input)
         elif _has_meta_leak:
             out = ""
 
@@ -5228,9 +4747,7 @@ class ALICE:
             f"Draft reply: {base}"
         )
         try:
-            polished = self.llm.chat(
-                rewrite_prompt, use_history=False, temperature=0.35
-            )
+            polished = self.llm.chat(rewrite_prompt, use_history=False, temperature=0.35)
             polished_text = str(polished or "").strip()
             if polished_text:
                 return self._clamp_final_response(
@@ -5272,9 +4789,7 @@ class ALICE:
         if not has_task:
             return False
 
-        has_build_verb = bool(
-            re.search(r"\b(create|created|build|built|make|made)\b", text)
-        )
+        has_build_verb = bool(re.search(r"\b(create|created|build|built|make|made)\b", text))
 
         has_constraint = any(
             cue in text
@@ -5445,9 +4960,7 @@ class ALICE:
         out_entities = dict(entities or {})
         out_entities.setdefault("help_mode", "opener")
         if normalized_intent != "conversation:help_opener":
-            self._think(
-                f"Help opener recognized: {normalized_intent or 'unknown'} -> conversation:help_opener"
-            )
+            self._think(f"Help opener recognized: {normalized_intent or 'unknown'} -> conversation:help_opener")
         return (
             "conversation:help_opener",
             out_entities,
@@ -5460,9 +4973,7 @@ class ALICE:
         if self._is_beginner_explanation_request(text):
             return "Absolutely. I can explain step by step at beginner level. Tell me the topic you want first, and I will keep it simple."
         if "project" in text and "ai" in text:
-            return (
-                "Of course. What part of your AI project do you want help with first?"
-            )
+            return "Of course. What part of your AI project do you want help with first?"
         if "project" in text:
             return "Of course. What part of your project do you want help with first?"
         return "Of course. What exact part do you want help with first?"
@@ -5470,9 +4981,7 @@ class ALICE:
     def _arm_help_narrowing_slot(self, user_input: str, prompt_response: str) -> None:
         """Store a pending narrowing slot for short follow-up answers."""
         text = str(user_input or "").lower()
-        parent_topic = (
-            "ai_project" if ("project" in text and "ai" in text) else "project"
-        )
+        parent_topic = "ai_project" if ("project" in text and "ai" in text) else "project"
         slot_state = {
             "active": True,
             "type": "narrowing",
@@ -5601,9 +5110,7 @@ class ALICE:
             return "Sure. Tell me what you want me to search for, and I will do a quick lookup."
         return "Tell me whether you want an explanation, a direct action, or a quick search."
 
-    def _clear_pending_conversation_slot_state(
-        self, selected_reference: str = ""
-    ) -> None:
+    def _clear_pending_conversation_slot_state(self, selected_reference: str = "") -> None:
         self._pending_conversation_slot = {}
         if getattr(self, "nlp", None) and getattr(self.nlp, "context", None):
             self.nlp.context.pending_clarification = {}
@@ -5612,27 +5119,21 @@ class ALICE:
                 self.conversation_state_tracker.clear_pending_followup_slot()
                 self.conversation_state_tracker.clear_pending_clarification()
                 if selected_reference:
-                    self.conversation_state_tracker.set_selected_object_reference(
-                        selected_reference
-                    )
+                    self.conversation_state_tracker.set_selected_object_reference(selected_reference)
             except Exception:
                 pass
         if getattr(self, "world_state_memory", None):
             try:
                 self.world_state_memory.clear_pending_clarification()
                 if selected_reference:
-                    self.world_state_memory.set_selected_object_reference(
-                        selected_reference
-                    )
+                    self.world_state_memory.set_selected_object_reference(selected_reference)
             except Exception:
                 pass
 
     def _resolve_quick_search_from_clarification(self, query: str) -> str:
         q = str(query or "").strip()
         if not q:
-            return (
-                "Tell me what you want me to search for, and I will do a quick lookup."
-            )
+            return "Tell me what you want me to search for, and I will do a quick lookup."
 
         plugin_result = None
         if getattr(self, "plugins", None):
@@ -5647,9 +5148,7 @@ class ALICE:
                 plugin_result = None
 
         if isinstance(plugin_result, dict) and plugin_result.get("success"):
-            return str(
-                plugin_result.get("response") or f"I'll search the web for '{q}'."
-            )
+            return str(plugin_result.get("response") or f"I'll search the web for '{q}'.")
         return f"I'll run a quick search for '{q}'."
 
     def _extract_goal_statement_signal(self, user_input: str) -> Dict[str, Any]:
@@ -5764,9 +5263,7 @@ class ALICE:
             return "Do you want to focus first on memory, tool-use, or conversational quality?"
         if domain == "python":
             return "Do you want a CLI prototype, a web app, or an automation workflow?"
-        return (
-            "Do you want a beginner scope, a practical build, or an advanced version?"
-        )
+        return "Do you want a beginner scope, a practical build, or an advanced version?"
 
     def _project_ideation_guidance_response(self, user_input: str) -> str:
         """Build deterministic forward-moving ideation response when fast-lane output is too generic."""
@@ -5833,28 +5330,17 @@ class ALICE:
 
         options_text = self._format_compact_list(picked)
         question = self._project_ideation_narrowing_question(user_input)
-        return (
-            f"Good. {domain_label} is a strong place to start. "
-            f"You could build {options_text}. {question}"
-        )
+        return f"Good. {domain_label} is a strong place to start. You could build {options_text}. {question}"
 
-    def _goal_statement_alignment_response(
-        self, user_input: str, signal: Dict[str, Any]
-    ) -> str:
+    def _goal_statement_alignment_response(self, user_input: str, signal: Dict[str, Any]) -> str:
         """Return an alignment-style response for strategic project declarations."""
         signal = signal or self._extract_goal_statement_signal(user_input)
         declared_goal = str((signal or {}).get("goal") or user_input or "").strip()
         if not declared_goal:
             declared_goal = "shift toward agent behavior"
 
-        project_direction = str(
-            (signal or {}).get("project_direction") or "agentic_autonomy"
-        )
-        markers = [
-            str(m).lower().strip()
-            for m in list((signal or {}).get("markers") or [])
-            if str(m).strip()
-        ]
+        project_direction = str((signal or {}).get("project_direction") or "agentic_autonomy")
+        markers = [str(m).lower().strip() for m in list((signal or {}).get("markers") or []) if str(m).strip()]
         marker_set = set(markers)
 
         priorities: List[str] = []
@@ -5903,13 +5389,9 @@ class ALICE:
                 recommendations.append(value)
 
         if "chatbot" in marker_set or project_direction == "non_chatbot_behavior":
-            _add_rec(
-                "Route declarative goal statements to strategy mode instead of clarification prompts."
-            )
+            _add_rec("Route declarative goal statements to strategy mode instead of clarification prompts.")
 
-        _add_rec(
-            "Persist declared project direction into conversation and goal state for continuity."
-        )
+        _add_rec("Persist declared project direction into conversation and goal state for continuity.")
 
         if (
             marker_set.intersection(
@@ -5924,9 +5406,7 @@ class ALICE:
             )
             or project_direction == "agentic_autonomy"
         ):
-            _add_rec(
-                "Add planner-first checkpoints for autonomy work: plan, execute, verify, and recover."
-            )
+            _add_rec("Add planner-first checkpoints for autonomy work: plan, execute, verify, and recover.")
 
         if marker_set.intersection({"architecture", "orchestration", "vision"}):
             _add_rec(
@@ -5934,17 +5414,11 @@ class ALICE:
             )
 
         if marker_set.intersection({"task persistence", "state", "memory"}):
-            _add_rec(
-                "Track long-running objectives with persistent task state and resumable execution context."
-            )
+            _add_rec("Track long-running objectives with persistent task state and resumable execution context.")
 
-        _add_rec(
-            "Prefer alignment + implementation recommendations when no immediate tool action is requested."
-        )
+        _add_rec("Prefer alignment + implementation recommendations when no immediate tool action is requested.")
 
-        recommendation_lines = [
-            f"{idx}. {item}" for idx, item in enumerate(recommendations[:4], start=1)
-        ]
+        recommendation_lines = [f"{idx}. {item}" for idx, item in enumerate(recommendations[:4], start=1)]
 
         return (
             f"Aligned. I understand the direction: {declared_goal}. "
@@ -5976,9 +5450,7 @@ class ALICE:
 
         enriched_entities = dict(entities or {})
         goal_text = str((signal or {}).get("goal") or "").strip()
-        signal_confidence = float(
-            (signal or {}).get("confidence") or (0.86 if project_ideation else 0.84)
-        )
+        signal_confidence = float((signal or {}).get("confidence") or (0.86 if project_ideation else 0.84))
         if goal_text:
             enriched_entities.setdefault("goal", goal_text)
             enriched_entities.setdefault("user_goal", goal_text)
@@ -5987,12 +5459,8 @@ class ALICE:
             enriched_entities.setdefault("goal", str(user_input or "").strip())
             enriched_entities.setdefault("user_goal", str(user_input or "").strip())
             enriched_entities.setdefault("objective", str(user_input or "").strip())
-        enriched_entities["project_direction"] = str(
-            (signal or {}).get("project_direction") or "agentic_autonomy"
-        )
-        enriched_entities["goal_statement_markers"] = list(
-            (signal or {}).get("markers") or []
-        )
+        enriched_entities["project_direction"] = str((signal or {}).get("project_direction") or "agentic_autonomy")
+        enriched_entities["goal_statement_markers"] = list((signal or {}).get("markers") or [])
         if project_ideation:
             domain = self._extract_project_ideation_domain(user_input)
             if domain:
@@ -6027,9 +5495,7 @@ class ALICE:
             )
 
         if normalized_intent != "conversation:goal_statement":
-            self._think(
-                f"Goal declaration recognized: {normalized_intent or 'unknown'} -> conversation:goal_statement"
-            )
+            self._think(f"Goal declaration recognized: {normalized_intent or 'unknown'} -> conversation:goal_statement")
         return (
             "conversation:goal_statement",
             enriched_entities,
@@ -6041,32 +5507,20 @@ class ALICE:
         base = goal_from_any(raw_goal).to_dict()
 
         if isinstance(raw_goal, dict):
-            description = str(
-                raw_goal.get("description") or raw_goal.get("title") or ""
-            ).strip()
+            description = str(raw_goal.get("description") or raw_goal.get("title") or "").strip()
             intent = str(raw_goal.get("intent") or raw_goal.get("kind") or "").strip()
             entities = dict(raw_goal.get("entities") or raw_goal.get("context") or {})
             progress = float(raw_goal.get("progress") or 0.0)
             next_action = str(raw_goal.get("next_action") or "").strip()
         else:
-            description = str(
-                getattr(raw_goal, "description", "")
-                or getattr(raw_goal, "title", "")
-                or ""
-            ).strip()
+            description = str(getattr(raw_goal, "description", "") or getattr(raw_goal, "title", "") or "").strip()
             intent = str(
                 getattr(raw_goal, "intent", "")
                 or getattr(raw_goal, "kind", "")
-                or getattr(getattr(raw_goal, "metadata", {}), "get", lambda *_: "")(
-                    "intent"
-                )
+                or getattr(getattr(raw_goal, "metadata", {}), "get", lambda *_: "")("intent")
                 or ""
             ).strip()
-            entities = dict(
-                getattr(raw_goal, "entities", {})
-                or getattr(raw_goal, "context", {})
-                or {}
-            )
+            entities = dict(getattr(raw_goal, "entities", {}) or getattr(raw_goal, "context", {}) or {})
             progress = float(getattr(raw_goal, "progress", 0.0) or 0.0)
             next_action = str(getattr(raw_goal, "next_action", "") or "").strip()
 
@@ -6212,9 +5666,7 @@ class ALICE:
             return f"{values[0]} and {values[1]}"
         return f"{', '.join(values[:-1])}, and {values[-1]}"
 
-    def _rotate_fallback_options(
-        self, key: str, items: List[str], take: int = 1
-    ) -> List[str]:
+    def _rotate_fallback_options(self, key: str, items: List[str], take: int = 1) -> List[str]:
         """Return a rotating, non-repeating slice for fallback phrasing variety."""
         values = [str(x).strip() for x in list(items or []) if str(x).strip()]
         if not values:
@@ -6387,8 +5839,7 @@ class ALICE:
             return False
 
         asks_algorithms = bool(
-            re.search(r"\b(which|what)\s+algorithms?\b", text)
-            or re.search(r"\bbest\s+algorithms?\b", text)
+            re.search(r"\b(which|what)\s+algorithms?\b", text) or re.search(r"\bbest\s+algorithms?\b", text)
         )
         targets_agent = any(cue in text for cue in ("ai agent", "agent", "assistant"))
         return asks_algorithms and targets_agent
@@ -6520,9 +5971,7 @@ class ALICE:
         if not text or self._has_explicit_action_cue(text):
             return False
 
-        learning_mode = str(intent or "").startswith("conversation:") or str(
-            intent or ""
-        ).startswith("learning:")
+        learning_mode = str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")
         if not learning_mode:
             return False
 
@@ -6558,14 +6007,9 @@ class ALICE:
             "headlines",
             "situation",
         )
-        return bool(
-            any(cue in text for cue in freshness_cues)
-            and any(subject in text for subject in world_subjects)
-        )
+        return bool(any(cue in text for cue in freshness_cues) and any(subject in text for subject in world_subjects))
 
-    def _structured_teaching_mode_response(
-        self, user_input: str, intent: str
-    ) -> Optional[str]:
+    def _structured_teaching_mode_response(self, user_input: str, intent: str) -> Optional[str]:
         if not self._is_structured_teaching_request(user_input, intent):
             return None
 
@@ -6588,9 +6032,7 @@ class ALICE:
         project = list(blueprint.get("project") or [])[:3]
 
         if not foundations:
-            foundations = (
-                focuses[:2] or terms[:2] or ["core concepts", "key terminology"]
-            )
+            foundations = focuses[:2] or terms[:2] or ["core concepts", "key terminology"]
         if not methods:
             methods = focuses[:2] or ["worked examples", "comparative trade-offs"]
         if not project:
@@ -6599,11 +6041,7 @@ class ALICE:
                 "verify outcome with a small test",
             ]
 
-        first_exercise = (
-            focuses[0]
-            if focuses
-            else (terms[0] if terms else "a small practical example")
-        )
+        first_exercise = focuses[0] if focuses else (terms[0] if terms else "a small practical example")
         answer = (
             f"Topic: {domain_label}.\n"
             "Learning outline:\n"
@@ -6626,9 +6064,7 @@ class ALICE:
             user_input,
         )
 
-    def _best_learned_recovery_response(
-        self, user_input: str, intent: str
-    ) -> Optional[str]:
+    def _best_learned_recovery_response(self, user_input: str, intent: str) -> Optional[str]:
         """Return the most relevant learned response for this recovery turn when available."""
         engine = getattr(self, "knowledge_engine", None)
         if engine is None or not hasattr(engine, "learned_responses"):
@@ -6705,39 +6141,19 @@ class ALICE:
             methods = list(blueprint.get("methods") or [])[:3]
             project_steps = list(blueprint.get("project") or [])[:3]
             if foundations:
-                sentences.append(
-                    "Start with foundations like "
-                    + self._format_compact_list(foundations)
-                    + "."
-                )
+                sentences.append("Start with foundations like " + self._format_compact_list(foundations) + ".")
             if methods:
-                sentences.append(
-                    "Then practice methods such as "
-                    + self._format_compact_list(methods)
-                    + "."
-                )
+                sentences.append("Then practice methods such as " + self._format_compact_list(methods) + ".")
             if project_steps:
-                sentences.append(
-                    "For implementation, prioritize "
-                    + self._format_compact_list(project_steps)
-                    + "."
-                )
+                sentences.append("For implementation, prioritize " + self._format_compact_list(project_steps) + ".")
         elif focuses:
-            sentences.append(
-                "A practical starting path is to focus on "
-                + self._format_compact_list(focuses[:3])
-                + "."
-            )
+            sentences.append("A practical starting path is to focus on " + self._format_compact_list(focuses[:3]) + ".")
         elif terms:
             sentences.append(
-                "We can start by breaking this into clear steps around "
-                + self._format_compact_list(terms[:4])
-                + "."
+                "We can start by breaking this into clear steps around " + self._format_compact_list(terms[:4]) + "."
             )
         else:
-            sentences.append(
-                "We can map this into clear phases: scope, architecture, implementation, and validation."
-            )
+            sentences.append("We can map this into clear phases: scope, architecture, implementation, and validation.")
 
         return " ".join(s for s in sentences if s).strip()
 
@@ -6767,17 +6183,14 @@ class ALICE:
             user_input,
         )
 
-    def _deterministic_knowledge_fallback(
-        self, user_input: str, intent: str
-    ) -> Optional[str]:
+    def _deterministic_knowledge_fallback(self, user_input: str, intent: str) -> Optional[str]:
         """Build non-LLM first-pass answers from inferred domain structure rather than fixed canned replies."""
         text = str(user_input or "").lower().strip()
         if not text or self._has_explicit_action_cue(text):
             return None
 
         if "framework" in text and any(
-            k in text
-            for k in ("agentic ai", "agentic", "existing framework", "frameworks")
+            k in text for k in ("agentic ai", "agentic", "existing framework", "frameworks")
         ):
             return (
                 "For practical frameworks, start with LangGraph and LangChain for orchestration, "
@@ -6800,9 +6213,7 @@ class ALICE:
         if self._is_structured_teaching_request(text, intent):
             return None
 
-        in_learning_mode = str(intent or "").startswith("conversation:") or str(
-            intent or ""
-        ).startswith("learning:")
+        in_learning_mode = str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")
         if not in_learning_mode:
             return None
 
@@ -6862,13 +6273,7 @@ class ALICE:
         method_topics = list(blueprint.get("methods") or [])[:3]
         project_topics = list(blueprint.get("project") or [])[:3]
 
-        method_lead = (
-            "move to"
-            if any(
-                k in text for k in ("algorithm", "algorithms", "method", "technique")
-            )
-            else "add"
-        )
+        method_lead = "move to" if any(k in text for k in ("algorithm", "algorithms", "method", "technique")) else "add"
         openers = [
             f"Great topic. For {domain_label}, start with {self._format_compact_list(start_topics)}.",
             f"Good direction. In {domain_label}, begin with {self._format_compact_list(start_topics)}.",
@@ -6878,24 +6283,18 @@ class ALICE:
         response = opener[0] if opener else openers[0]
 
         if method_topics:
-            response += (
-                f" Then {method_lead} {self._format_compact_list(method_topics)}."
-            )
+            response += f" Then {method_lead} {self._format_compact_list(method_topics)}."
         if project_topics:
             response += f" For your AI project, prioritize {self._format_compact_list(project_topics)}."
 
         branch_options = self._fallback_branch_options(domain, focuses)
-        branch_pick = self._rotate_fallback_options(
-            f"{domain}:branch", branch_options, take=2
-        )
+        branch_pick = self._rotate_fallback_options(f"{domain}:branch", branch_options, take=2)
         closing_templates = [
             "Pick one and I will map a 20-minute learning sprint.",
             "Tell me which branch you want first and I will give focused exercises.",
             "Choose one branch and I will turn it into a practical mini-roadmap.",
         ]
-        closing = self._rotate_fallback_options(
-            f"{domain}:closing", closing_templates, take=1
-        )
+        closing = self._rotate_fallback_options(f"{domain}:closing", closing_templates, take=1)
         closing_text = closing[0] if closing else closing_templates[0]
         if terms:
             tail_terms = [t for t in terms[:3] if t not in {"nlp", "ai", "project"}]
@@ -6940,10 +6339,7 @@ class ALICE:
         if sum(1 for m in conceptual_markers if m in text) < 2 and not rich_conceptual:
             return None
 
-        if not (
-            str(intent or "").startswith("conversation:")
-            or str(intent or "").startswith("learning:")
-        ):
+        if not (str(intent or "").startswith("conversation:") or str(intent or "").startswith("learning:")):
             return None
 
         return (
@@ -6999,11 +6395,7 @@ class ALICE:
         if normalized == "conversation:help_opener":
             return self._native_help_opener_response(user_input)
         if normalized == "greeting":
-            user_name = (
-                getattr(self.context.user_prefs, "name", "")
-                if getattr(self, "context", None)
-                else ""
-            )
+            user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
             asked_how = bool(
                 re.search(
                     r"\bhow\s+(are\s+you|is\s+it\s+going)\b",
@@ -7035,9 +6427,7 @@ class ALICE:
         has_explicit_action_cue: bool,
     ) -> Dict[str, Any]:
         """Block LLM when a direct low-risk native response is sufficient."""
-        structured_teaching = self._structured_teaching_mode_response(
-            user_input, intent
-        )
+        structured_teaching = self._structured_teaching_mode_response(user_input, intent)
         if structured_teaching:
             return {
                 "block_llm": True,
@@ -7151,9 +6541,7 @@ class ALICE:
         if not raw_tokens or not cand_tokens:
             return raw
 
-        overlap = len(set(raw_tokens).intersection(cand_tokens)) / max(
-            1, len(set(raw_tokens))
-        )
+        overlap = len(set(raw_tokens).intersection(cand_tokens)) / max(1, len(set(raw_tokens)))
         if overlap < 0.62:
             return raw
 
@@ -7210,9 +6598,7 @@ class ALICE:
             out.append(t)
         return out[:14]
 
-    def _semantic_fidelity_check(
-        self, *, user_input: str, response: str, intent: str
-    ) -> Dict[str, Any]:
+    def _semantic_fidelity_check(self, *, user_input: str, response: str, intent: str) -> Dict[str, Any]:
         """Check whether the final answer preserves user meaning before publish."""
         normalized_intent = str(intent or "").lower().strip()
         if normalized_intent in {
@@ -7233,16 +6619,10 @@ class ALICE:
 
         # Generalized critical-term logic: high-information anchors are terms
         # with strong semantic payload, not topic-specific names.
-        critical_terms = [
-            t
-            for t in anchors
-            if len(t) >= 6 or t.endswith("tion") or t.endswith("ment")
-        ][:8]
+        critical_terms = [t for t in anchors if len(t) >= 6 or t.endswith("tion") or t.endswith("ment")][:8]
         missing_critical = [t for t in critical_terms if t not in resp_low]
         off_topic_terms = [
-            t
-            for t in ("polymorphism", "interface", "inheritance", "class")
-            if t in resp_low and t not in user_low
+            t for t in ("polymorphism", "interface", "inheritance", "class") if t in resp_low and t not in user_low
         ]
 
         if off_topic_terms:
@@ -7272,9 +6652,7 @@ class ALICE:
     def _native_conceptual_fallback(self, user_input: str) -> Optional[str]:
         """Native conceptual answer mode for broad architecture questions."""
         text = str(user_input or "").lower()
-        if "foundation" in text and any(
-            k in text for k in ("assistant", "system", "architecture", "real world")
-        ):
+        if "foundation" in text and any(k in text for k in ("assistant", "system", "architecture", "real world")):
             return (
                 "A practical assistant system should be built on understanding, memory, planning, execution, verification, "
                 "and bounded autonomy, with clear safety and escalation rules."
@@ -7361,9 +6739,7 @@ class ALICE:
         if self.phrasing_learner:
             try:
                 if self.phrasing_learner.can_phrase_myself(wake_thought, "friendly"):
-                    learned = self.phrasing_learner.phrase_myself(
-                        wake_thought, "friendly"
-                    )
+                    learned = self.phrasing_learner.phrase_myself(wake_thought, "friendly")
                     if learned:
                         return learned
             except Exception:
@@ -7522,18 +6898,12 @@ class ALICE:
             return False
 
         has_greeting = any(token in greeting_words for token in tokens)
-        has_alice_typo = any(
-            token.startswith("ali") and token.endswith("ce") for token in tokens
-        )
+        has_alice_typo = any(token.startswith("ali") and token.endswith("ce") for token in tokens)
         if not has_greeting:
-            return bool(
-                has_alice_typo and any(token in greeting_words for token in tokens)
-            )
+            return bool(has_alice_typo and any(token in greeting_words for token in tokens))
 
         return all(
-            token in greeting_words
-            or token in polite_words
-            or (token.startswith("ali") and token.endswith("ce"))
+            token in greeting_words or token in polite_words or (token.startswith("ali") and token.endswith("ce"))
             for token in tokens
         )
 
@@ -7593,12 +6963,8 @@ class ALICE:
                 },
             }
             try:
-                if self.phrasing_learner.can_phrase_myself(
-                    greeting_thought, "friendly"
-                ):
-                    return self.phrasing_learner.phrase_myself(
-                        greeting_thought, "friendly"
-                    )
+                if self.phrasing_learner.can_phrase_myself(greeting_thought, "friendly"):
+                    return self.phrasing_learner.phrase_myself(greeting_thought, "friendly")
             except Exception:
                 pass
 
@@ -7660,28 +7026,16 @@ class ALICE:
             "it",
             "its",
         }
-        a = set(
-            w.lower()
-            for w in user_input.split()
-            if len(w) > 2 and w.lower() not in stop
-        )
-        b = set(
-            w.lower()
-            for w in goal_description.split()
-            if len(w) > 2 and w.lower() not in stop
-        )
+        a = set(w.lower() for w in user_input.split() if len(w) > 2 and w.lower() not in stop)
+        b = set(w.lower() for w in goal_description.split() if len(w) > 2 and w.lower() not in stop)
 
         if not a or not b:
             return False  # Don't reuse if either has no meaningful words
 
         overlap = len(a & b) / len(a)
-        return (
-            overlap >= 0.3
-        )  # Increased threshold from 0.15 to 0.3 for better topic detection
+        return overlap >= 0.3  # Increased threshold from 0.15 to 0.3 for better topic detection
 
-    def _handle_code_request(
-        self, user_input: str, entities: Dict = None
-    ) -> Optional[str]:
+    def _handle_code_request(self, user_input: str, entities: Dict = None) -> Optional[str]:
         """Handle requests to read/analyze code - flexible and intelligent with smart follow-up"""
         input_lower = user_input.lower()
         entities = entities or {}
@@ -7775,9 +7129,7 @@ class ALICE:
         _ctx_action = self.code_context.get("last_action")
         _ctx_ts = self.code_context.get("timestamp")
         _ctx_fresh = bool(
-            _ctx_ts
-            and isinstance(_ctx_ts, datetime)
-            and (datetime.now() - _ctx_ts).total_seconds() <= 180
+            _ctx_ts and isinstance(_ctx_ts, datetime) and (datetime.now() - _ctx_ts).total_seconds() <= 180
         )
         _followup_text = input_lower.strip().rstrip("?!.,")
         _is_code_list_followup = bool(
@@ -7786,11 +7138,7 @@ class ALICE:
                 _followup_text,
             )
         )
-        if (
-            _ctx_action in ("code_access_confirmed", "code_list_offered")
-            and _ctx_fresh
-            and _is_code_list_followup
-        ):
+        if _ctx_action in ("code_access_confirmed", "code_list_offered") and _ctx_fresh and _is_code_list_followup:
             files = self.self_reflection.list_codebase()
             file_paths = [f["path"] for f in files]
             self.code_context["last_files_shown"] = file_paths
@@ -7821,14 +7169,10 @@ class ALICE:
                 ]
             ):
                 files = self.code_context["last_files_shown"]
-                logger.info(
-                    f"[SmartFollow] Detected summary request for {len(files)} files"
-                )
+                logger.info(f"[SmartFollow] Detected summary request for {len(files)} files")
 
                 # Generate summaries using advanced batch processing
-                summaries = self.self_reflection.batch_summarize_files(
-                    files, parallel=True
-                )
+                summaries = self.self_reflection.batch_summarize_files(files, parallel=True)
 
                 # Update context
                 self.code_context["last_action"] = "summary"
@@ -7852,28 +7196,21 @@ class ALICE:
                 if "analyze" in input_lower or input_lower in ("analyze it",):
                     analysis = self.self_reflection.analyze_file_advanced(file_path)
                     if "error" not in analysis:
-                        suggestions = self.self_reflection.get_improvement_suggestions(
-                            file_path
-                        )
+                        suggestions = self.self_reflection.get_improvement_suggestions(file_path)
                         result = f" **Analysis of {analysis['name']}**:\n"
                         result += f"- Lines: {analysis['lines']}\n"
                         result += f"- Type: {analysis['module_type']}\n"
                         if analysis.get("purpose"):
                             result += f"- Purpose: {analysis['purpose']}\n"
                         if analysis.get("classes"):
-                            class_names = [
-                                c["name"] if isinstance(c, dict) else c
-                                for c in analysis["classes"][:5]
-                            ]
+                            class_names = [c["name"] if isinstance(c, dict) else c for c in analysis["classes"][:5]]
                             result += f"- Classes: {', '.join(class_names)}\n"
                         if analysis.get("functions"):
                             result += f"- Functions: {', '.join(analysis['functions'][:10])}\n"
                         if analysis.get("dependencies"):
                             result += f"- Dependencies: {', '.join(analysis['dependencies'][:5])}\n"
                         if suggestions:
-                            result += "\n **Suggestions**:\n" + "\n".join(
-                                f"- {s}" for s in suggestions[:5]
-                            )
+                            result += "\n **Suggestions**:\n" + "\n".join(f"- {s}" for s in suggestions[:5])
                         self.last_code_file = None  # Clear after use
                         return result
                 else:
@@ -8031,33 +7368,23 @@ class ALICE:
                                         args_str = ", ".join(func["args"])
                                         result += f"- `{func['name']}({args_str})` - {func['lines']} lines"
                                         if func.get("docstring"):
-                                            doc_preview = func["docstring"].split("\n")[
-                                                0
-                                            ][:80]
+                                            doc_preview = func["docstring"].split("\n")[0][:80]
                                             result += f": {doc_preview}"
-                                        result += (
-                                            f" (complexity: {func['complexity']})\n"
-                                        )
+                                        result += f" (complexity: {func['complexity']})\n"
                                     if len(analysis["functions"]) > 10:
                                         result += f"  ... and {len(analysis['functions']) - 10} more\n"
                                     result += "\n"
 
                                 # Classes
                                 if analysis.get("classes"):
-                                    result += (
-                                        f"**Classes** ({len(analysis['classes'])}):\n"
-                                    )
+                                    result += f"**Classes** ({len(analysis['classes'])}):\n"
                                     for cls in analysis["classes"][:5]:
                                         result += f"- `{cls['name']}`"
                                         if cls.get("bases"):
-                                            result += (
-                                                f" (extends {', '.join(cls['bases'])})"
-                                            )
+                                            result += f" (extends {', '.join(cls['bases'])})"
                                         result += f" - {cls['method_count']} methods\n"
                                         if cls.get("docstring"):
-                                            doc_preview = cls["docstring"].split("\n")[
-                                                0
-                                            ][:80]
+                                            doc_preview = cls["docstring"].split("\n")[0][:80]
                                             result += f"  {doc_preview}\n"
                                     if len(analysis["classes"]) > 5:
                                         result += f"  ... and {len(analysis['classes']) - 5} more\n"
@@ -8093,11 +7420,7 @@ class ALICE:
                             else:
                                 # Fall back to self-reflection summary when the
                                 # rich analyzer cannot fully parse a valid file.
-                                fallback_summary = (
-                                    self.self_reflection.generate_file_summary(
-                                        code_file.path
-                                    )
-                                )
+                                fallback_summary = self.self_reflection.generate_file_summary(code_file.path)
                                 if fallback_summary:
                                     return fallback_summary
                                 return f"`{code_file.path}` - {code_file.lines} lines, {code_file.module_type}"
@@ -8106,11 +7429,7 @@ class ALICE:
                             logger.error(f"Error in code analysis: {e}")
                             # Fallback: use self-reflection summary before giving up.
                             try:
-                                fallback_summary = (
-                                    self.self_reflection.generate_file_summary(
-                                        code_file.path
-                                    )
-                                )
+                                fallback_summary = self.self_reflection.generate_file_summary(code_file.path)
                                 if fallback_summary:
                                     return fallback_summary
                             except Exception:
@@ -8131,41 +7450,28 @@ class ALICE:
             file_path = py_file_match.group(1).strip("'\"")
             # Try direct path first
             analysis = self.self_reflection.analyze_file_advanced(file_path)
-            if (
-                "error" in analysis
-                and not file_path.startswith("ai/")
-                and not file_path.startswith("ai\\")
-            ):
+            if "error" in analysis and not file_path.startswith("ai/") and not file_path.startswith("ai\\"):
                 # Try with ai/ prefix
                 analysis = self.self_reflection.analyze_file_advanced(f"ai/{file_path}")
                 if "error" not in analysis:
                     file_path = f"ai/{file_path}"
 
             if "error" not in analysis:
-                suggestions = self.self_reflection.get_improvement_suggestions(
-                    file_path
-                )
+                suggestions = self.self_reflection.get_improvement_suggestions(file_path)
                 result = f" **Analysis of {analysis['name']}**:\n"
                 result += f"- Lines: {analysis['lines']}\n"
                 result += f"- Type: {analysis['module_type']}\n"
                 if analysis.get("purpose"):
                     result += f"- Purpose: {analysis['purpose']}\n"
                 if analysis.get("classes"):
-                    class_names = [
-                        c["name"] if isinstance(c, dict) else c
-                        for c in analysis["classes"][:5]
-                    ]
+                    class_names = [c["name"] if isinstance(c, dict) else c for c in analysis["classes"][:5]]
                     result += f"- Classes: {', '.join(class_names)}\n"
                 if analysis.get("functions"):
                     result += f"- Functions: {', '.join(analysis['functions'][:10])}\n"
                 if analysis.get("dependencies"):
-                    result += (
-                        f"- Dependencies: {', '.join(analysis['dependencies'][:5])}\n"
-                    )
+                    result += f"- Dependencies: {', '.join(analysis['dependencies'][:5])}\n"
                 if suggestions:
-                    result += "\n **Suggestions**:\n" + "\n".join(
-                        f"- {s}" for s in suggestions[:5]
-                    )
+                    result += "\n **Suggestions**:\n" + "\n".join(f"- {s}" for s in suggestions[:5])
                 return result
             # Analysis failed - show alternatives
             files = self.self_reflection.list_codebase()
@@ -8175,10 +7481,7 @@ class ALICE:
             return result
 
         # List codebase
-        if any(
-            word in input_lower
-            for word in ["list files", "show files", "what files", "codebase"]
-        ):
+        if any(word in input_lower for word in ["list files", "show files", "what files", "codebase"]):
             files = self.self_reflection.list_codebase()
 
             # Store context
@@ -8188,9 +7491,7 @@ class ALICE:
             self.code_context["timestamp"] = datetime.now()
             self.code_context["file_count"] = len(files)
 
-            return _render_codebase_listing(
-                files, heading="Codebase Structure", limit=20
-            )
+            return _render_codebase_listing(files, heading="Codebase Structure", limit=20)
 
         # Search code
         if "search code" in input_lower or "find in code" in input_lower:
@@ -8259,9 +7560,7 @@ class ALICE:
                 if training_data:
                     export_path = "data/training/training_data.jsonl"
                     return f"[OK] {len(training_data)} examples available for export to: `{export_path}`\n\nYou can use this file to train A.L.I.C.E with Ollama's fine-tuning tools."
-            return (
-                "No training data to export yet. Keep using A.L.I.C.E to collect data!"
-            )
+            return "No training data to export yet. Keep using A.L.I.C.E to collect data!"
 
         # Prepare training data
         if "prepare training" in input_lower or "ready to train" in input_lower:
@@ -8364,12 +7663,8 @@ class ALICE:
                 break
 
         if mentioned_time_range:
-            self._think(
-                f"Detected weather time-range follow-up: {mentioned_time_range} (intent was {intent})"
-            )
-            _live_state = (
-                getattr(self, "live_state_service", None) or get_live_state_service()
-            )
+            self._think(f"Detected weather time-range follow-up: {mentioned_time_range} (intent was {intent})")
+            _live_state = getattr(self, "live_state_service", None) or get_live_state_service()
             forecast_data = _live_state.latest_weather_forecast(
                 reasoning_engine=getattr(self, "reasoning_engine", None),
                 world_state_memory=getattr(self, "world_state_memory", None),
@@ -8393,23 +7688,15 @@ class ALICE:
             from ai.models.simple_formatters import WeatherFormatter
 
             try:
-                result = WeatherFormatter.format(
-                    forecast_data, entities={"TIME_RANGE": [mentioned_time_range]}
-                )
+                result = WeatherFormatter.format(forecast_data, entities={"TIME_RANGE": [mentioned_time_range]})
                 if result:
                     rain_reply = _rain_outlook_reply(mentioned_time_range, result)
                     if rain_reply:
-                        self._think(
-                            f"Rain outlook reply generated for '{mentioned_time_range}'"
-                        )
-                        logger.info(
-                            f"Weather follow-up (rain outlook) → {rain_reply[:60]}..."
-                        )
+                        self._think(f"Rain outlook reply generated for '{mentioned_time_range}'")
+                        logger.info(f"Weather follow-up (rain outlook) → {rain_reply[:60]}...")
                         return rain_reply
                     self._think(f"Forecast formatter returned: {result[:60]}...")
-                    logger.info(
-                        f"Weather follow-up (stored, time-range) → {result[:60]}..."
-                    )
+                    logger.info(f"Weather follow-up (stored, time-range) → {result[:60]}...")
                     return result
                 forecast_days = list((forecast_data or {}).get("forecast") or [])
                 if forecast_days:
@@ -8420,9 +7707,7 @@ class ALICE:
                     )
                     rain_reply = _rain_outlook_reply(mentioned_time_range, line)
                     return rain_reply or line
-                self._think(
-                    f"Formatter returned None for time-range '{mentioned_time_range}'"
-                )
+                self._think(f"Formatter returned None for time-range '{mentioned_time_range}'")
                 return None
             except Exception as e:
                 logger.error(
@@ -8440,12 +7725,8 @@ class ALICE:
                 break
 
         if mentioned_day:
-            self._think(
-                f"Detected weekday mention: {mentioned_day} (intent was {intent})"
-            )
-            _live_state = (
-                getattr(self, "live_state_service", None) or get_live_state_service()
-            )
+            self._think(f"Detected weekday mention: {mentioned_day} (intent was {intent})")
+            _live_state = getattr(self, "live_state_service", None) or get_live_state_service()
             forecast_data = _live_state.latest_weather_forecast(
                 reasoning_engine=getattr(self, "reasoning_engine", None),
                 world_state_memory=getattr(self, "world_state_memory", None),
@@ -8458,8 +7739,7 @@ class ALICE:
                     return None
             if not forecast_data:
                 self._think(
-                    f"No stored forecast snapshot for '{mentioned_day}' follow-up yet; "
-                    "continuing with forecast routing"
+                    f"No stored forecast snapshot for '{mentioned_day}' follow-up yet; continuing with forecast routing"
                 )
                 return None
             self._think(
@@ -8469,18 +7749,12 @@ class ALICE:
             from ai.models.simple_formatters import WeatherFormatter
 
             try:
-                result = WeatherFormatter.format(
-                    forecast_data, entities={"TIME_RANGE": [mentioned_day]}
-                )
+                result = WeatherFormatter.format(forecast_data, entities={"TIME_RANGE": [mentioned_day]})
                 if result:
                     rain_reply = _rain_outlook_reply(mentioned_day, result)
                     if rain_reply:
-                        self._think(
-                            f"Rain outlook reply generated for '{mentioned_day}'"
-                        )
-                        logger.info(
-                            f"Weather follow-up (rain outlook) → {rain_reply[:60]}..."
-                        )
+                        self._think(f"Rain outlook reply generated for '{mentioned_day}'")
+                        logger.info(f"Weather follow-up (rain outlook) → {rain_reply[:60]}...")
                         return rain_reply
                     self._think(f"Forecast formatter returned: {result[:60]}...")
                     logger.info(f"Weather follow-up (stored) → {result[:60]}...")
@@ -8489,9 +7763,7 @@ class ALICE:
                     self._think(f"Formatter returned None for {mentioned_day}")
                     return None
             except Exception as e:
-                logger.error(
-                    f"Error formatting forecast for {mentioned_day}: {e}", exc_info=True
-                )
+                logger.error(f"Error formatting forecast for {mentioned_day}: {e}", exc_info=True)
                 self._think(f"Error formatting forecast: {e}")
                 return None
 
@@ -8524,13 +7796,8 @@ class ALICE:
         ]
         weather_question_indicators = clothing_items + weather_condition_indicators
 
-        if any(
-            re.search(r"\b" + re.escape(kw) + r"\b", input_lower)
-            for kw in weather_question_indicators
-        ):
-            _live_state = (
-                getattr(self, "live_state_service", None) or get_live_state_service()
-            )
+        if any(re.search(r"\b" + re.escape(kw) + r"\b", input_lower) for kw in weather_question_indicators):
+            _live_state = getattr(self, "live_state_service", None) or get_live_state_service()
             weather_snapshot = _live_state.freshest_weather_snapshot(
                 reasoning_engine=getattr(self, "reasoning_engine", None),
                 world_state_memory=getattr(self, "world_state_memory", None),
@@ -8546,11 +7813,7 @@ class ALICE:
 
             # Forecast entities do not carry a scalar temperature. Derive a
             # representative value from the first available day.
-            if (
-                temp is None
-                and isinstance(wd.get("forecast"), list)
-                and wd.get("forecast")
-            ):
+            if temp is None and isinstance(wd.get("forecast"), list) and wd.get("forecast"):
                 d0 = wd["forecast"][0]
                 low = d0.get("low")
                 high = d0.get("high")
@@ -8566,18 +7829,10 @@ class ALICE:
                 is_follow_up = last_turn.get("intent", "").startswith("weather")
 
             # ── Umbrella — condition-driven, not temperature-driven ───────────
-            if any(
-                re.search(r"\b" + re.escape(alias) + r"\b", input_lower)
-                for alias in umbrella_aliases
-            ):
-                rainy = any(
-                    w in condition for w in ["rain", "drizzle", "shower", "storm"]
-                )
+            if any(re.search(r"\b" + re.escape(alias) + r"\b", input_lower) for alias in umbrella_aliases):
+                rainy = any(w in condition for w in ["rain", "drizzle", "shower", "storm"])
                 _adv_loc = "" if is_follow_up else location
-                force_yes_no = bool(
-                    re.search(r"\b(should|do|does|is|am|are)\b", input_lower)
-                    or "or no" in input_lower
-                )
+                force_yes_no = bool(re.search(r"\b(should|do|does|is|am|are)\b", input_lower) or "or no" in input_lower)
                 if rainy:
                     return self._generate_natural_response(
                         {
@@ -8651,17 +7906,11 @@ class ALICE:
                     rank_b = _warmth_rank.get(opt_b, 2)
                     # below 15°C → pick the warmer item; at/above 15°C → pick the lighter item
                     recommended = (
-                        (opt_a if rank_a >= rank_b else opt_b)
-                        if temp < 15
-                        else (opt_a if rank_a <= rank_b else opt_b)
+                        (opt_a if rank_a >= rank_b else opt_b) if temp < 15 else (opt_a if rank_a <= rank_b else opt_b)
                     )
                 else:
                     recommended = next(
-                        (
-                            label
-                            for word, label in _item_words.items()
-                            if word in input_lower
-                        ),
+                        (label for word, label in _item_words.items() if word in input_lower),
                         "jacket",
                     )
                 return self._generate_natural_response(
@@ -8672,8 +7921,7 @@ class ALICE:
                         "location": "" if is_follow_up else location,
                         "clothing_item": recommended,
                         "force_yes_no": bool(
-                            re.search(r"\b(should|do|does|is|am|are)\b", input_lower)
-                            or "or no" in input_lower
+                            re.search(r"\b(should|do|does|is|am|are)\b", input_lower) or "or no" in input_lower
                         ),
                         "user_question": user_input,
                     },
@@ -8761,15 +8009,11 @@ class ALICE:
         )
         if any(cue in text for cue in time_range_cues):
             if hasattr(self, "_think"):
-                self._think(
-                    f"Weather time-range cue detected → promoting {intent!r} to 'weather:forecast'"
-                )
+                self._think(f"Weather time-range cue detected → promoting {intent!r} to 'weather:forecast'")
             return "weather:forecast", max(float(intent_confidence or 0.0), 0.9)
         if self._is_weather_clothing_time_range_request(text):
             if hasattr(self, "_think"):
-                self._think(
-                    f"Weather clothing day-selection detected -> promoting {intent!r} to 'weather:forecast'"
-                )
+                self._think(f"Weather clothing day-selection detected -> promoting {intent!r} to 'weather:forecast'")
             return "weather:forecast", max(float(intent_confidence or 0.0), 0.9)
 
         return intent, float(intent_confidence or 0.0)
@@ -8800,16 +8044,10 @@ class ALICE:
             "precipitation",
             "precip",
         )
-        return any(
-            re.search(r"\b" + re.escape(term) + r"\b", text) for term in weather_terms
-        )
+        return any(re.search(r"\b" + re.escape(term) + r"\b", text) for term in weather_terms)
 
-    def _resolved_reference_is_weather(
-        self, entities: Optional[Dict[str, Any]]
-    ) -> bool:
-        resolved_reference = (
-            str((entities or {}).get("resolved_reference") or "").strip().lower()
-        )
+    def _resolved_reference_is_weather(self, entities: Optional[Dict[str, Any]]) -> bool:
+        resolved_reference = str((entities or {}).get("resolved_reference") or "").strip().lower()
         if not resolved_reference:
             return False
         weather_markers = (
@@ -8827,9 +8065,7 @@ class ALICE:
         )
         return any(marker in resolved_reference for marker in weather_markers)
 
-    def _recent_weather_domain_active(
-        self, followup_meta: Optional[Dict[str, Any]] = None
-    ) -> bool:
+    def _recent_weather_domain_active(self, followup_meta: Optional[Dict[str, Any]] = None) -> bool:
         if isinstance(followup_meta, dict):
             domain = str(followup_meta.get("domain") or "").strip().lower()
             if domain == "weather":
@@ -8837,17 +8073,11 @@ class ALICE:
         if str(getattr(self, "last_intent", "") or "").startswith("weather:"):
             return True
         recent_topics = list(getattr(self, "conversation_topics", []) or [])
-        return any(
-            str(topic or "").startswith("weather:") for topic in recent_topics[-3:]
-        )
+        return any(str(topic or "").startswith("weather:") for topic in recent_topics[-3:])
 
-    def _select_weather_intent_from_signals(
-        self, user_input: str, entities: Optional[Dict[str, Any]]
-    ) -> str:
+    def _select_weather_intent_from_signals(self, user_input: str, entities: Optional[Dict[str, Any]]) -> str:
         text = str(user_input or "").lower()
-        resolved_reference = str(
-            (entities or {}).get("resolved_reference") or ""
-        ).lower()
+        resolved_reference = str((entities or {}).get("resolved_reference") or "").lower()
         forecast_cues = (
             "forecast",
             "tomorrow",
@@ -8869,10 +8099,7 @@ class ALICE:
             "saturday",
             "sunday",
         )
-        if (
-            any(cue in text for cue in forecast_cues)
-            or "forecast" in resolved_reference
-        ):
+        if any(cue in text for cue in forecast_cues) or "forecast" in resolved_reference:
             return "weather:forecast"
         return "weather:current"
 
@@ -8950,9 +8177,7 @@ class ALICE:
             },
         )
 
-    def _prune_confidence_candidates(
-        self, user_input: str, scores: Dict[str, Any]
-    ) -> Dict[str, float]:
+    def _prune_confidence_candidates(self, user_input: str, scores: Dict[str, Any]) -> Dict[str, float]:
         """Remove low-relevance intent candidates before surfacing uncertainty options."""
         parsed: Dict[str, float] = {}
         for key, value in dict(scores or {}).items():
@@ -9004,9 +8229,7 @@ class ALICE:
         )
         return any(m in low for m in markers)
 
-    def _is_understandable_informational_goal(
-        self, user_input: str, intent: str
-    ) -> bool:
+    def _is_understandable_informational_goal(self, user_input: str, intent: str) -> bool:
         """Return True when the request is broad but already understandable and safe to answer."""
         text = str(user_input or "").lower().strip()
         if not text:
@@ -9062,9 +8285,7 @@ class ALICE:
         ambiguity_terms = {"something", "anything", "stuff", "idk"}
 
         has_question_term = bool(tokens & question_terms)
-        is_question = ("?" in text) or bool(
-            re.match(r"^\s*(what|which|how|why)\b", text)
-        )
+        is_question = ("?" in text) or bool(re.match(r"^\s*(what|which|how|why)\b", text))
         has_domain_content = bool(tokens & domain_terms)
         has_ambiguity_markers = bool(tokens & ambiguity_terms)
 
@@ -9073,12 +8294,7 @@ class ALICE:
         ):
             return True
 
-        return bool(
-            has_question_term
-            and is_question
-            and has_domain_content
-            and not has_ambiguity_markers
-        )
+        return bool(has_question_term and is_question and has_domain_content and not has_ambiguity_markers)
 
     def _answerability_gate_fallback_response(self, user_input: str) -> str:
         """Provide a concise direct fallback when answerable questions lose content after sanitization."""
@@ -9122,8 +8338,7 @@ class ALICE:
         in_answerable_scope = (
             normalized_intent.startswith("conversation:")
             or normalized_intent.startswith("learning:")
-            or normalized_intent
-            in {"question", "study_topic", "greeting", "thanks", "status_inquiry"}
+            or normalized_intent in {"question", "study_topic", "greeting", "thanks", "status_inquiry"}
         )
         if not in_answerable_scope:
             return False
@@ -9138,9 +8353,7 @@ class ALICE:
             return True
         return False
 
-    def _should_force_failure_recovery_answer(
-        self, user_input: str, intent: str
-    ) -> bool:
+    def _should_force_failure_recovery_answer(self, user_input: str, intent: str) -> bool:
         """Enforce direct fallback answers for understood informational goals on execution failure."""
         if not self._is_understandable_informational_goal(user_input, intent):
             return False
@@ -9154,9 +8367,7 @@ class ALICE:
             return True
         return confidence >= 0.55
 
-    def _record_failure_recovery_state(
-        self, *, reason: str, response: str, task_understood: bool
-    ) -> None:
+    def _record_failure_recovery_state(self, *, reason: str, response: str, task_understood: bool) -> None:
         if not isinstance(getattr(self, "_internal_reasoning_state", None), dict):
             self._internal_reasoning_state = {}
         self._internal_reasoning_state["failure_recovery"] = {
@@ -9164,25 +8375,15 @@ class ALICE:
             "task_understood": bool(task_understood),
             "avoid_clarification": bool(task_understood),
         }
-        self._internal_reasoning_state["failure_recovery_response"] = str(
-            response or ""
-        )
+        self._internal_reasoning_state["failure_recovery_response"] = str(response or "")
 
-    def _safe_llm_failure_response(
-        self, *, user_input: str, intent: str, llm_response: Any
-    ) -> str:
+    def _safe_llm_failure_response(self, *, user_input: str, intent: str, llm_response: Any) -> str:
         """Convert execution failures into resilient responses without conflating with ambiguity."""
-        force_direct_recovery = self._should_force_failure_recovery_answer(
-            user_input, intent
-        )
+        force_direct_recovery = self._should_force_failure_recovery_answer(user_input, intent)
         state = dict(getattr(self, "_internal_reasoning_state", {}) or {})
-        strategy = str(
-            (state.get("response_plan", {}) or {}).get("strategy") or ""
-        ).lower()
+        strategy = str((state.get("response_plan", {}) or {}).get("strategy") or "").lower()
 
-        if strategy == "answer_directly" and callable(
-            getattr(self, "_retry_llm_answer_after_failure", None)
-        ):
+        if strategy == "answer_directly" and callable(getattr(self, "_retry_llm_answer_after_failure", None)):
             retried = self._retry_llm_answer_after_failure(
                 user_input=user_input, intent=intent, llm_response=llm_response
             )
@@ -9192,9 +8393,7 @@ class ALICE:
                     response=str(retried),
                     task_understood=True,
                 )
-                self._internal_reasoning_state["fallback_taxonomy"] = {
-                    "reason": "llm_failed_after_answer_directly"
-                }
+                self._internal_reasoning_state["fallback_taxonomy"] = {"reason": "llm_failed_after_answer_directly"}
                 return str(retried)
 
         deterministic = self._deterministic_knowledge_fallback(user_input, intent)
@@ -9223,15 +8422,9 @@ class ALICE:
             return conceptual
 
         if isinstance(llm_response, dict):
-            raw = str(
-                llm_response.get("response") or llm_response.get("error") or ""
-            ).strip()
+            raw = str(llm_response.get("response") or llm_response.get("error") or "").strip()
         else:
-            raw = str(
-                getattr(llm_response, "response", "")
-                or getattr(llm_response, "error", "")
-                or ""
-            ).strip()
+            raw = str(getattr(llm_response, "response", "") or getattr(llm_response, "error", "") or "").strip()
 
         if force_direct_recovery:
             fallback = self._compose_understood_goal_recovery(user_input, intent)
@@ -9257,9 +8450,7 @@ class ALICE:
             )
             return passthrough
 
-        scaffold = self._native_scaffold_response(
-            user_input, "conversation:clarification_needed"
-        )
+        scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
         if scaffold:
             self._record_failure_recovery_state(
                 reason="clarification_scaffold",
@@ -9276,9 +8467,7 @@ class ALICE:
         )
         return generic
 
-    def _apply_confidence_cascade(
-        self, intent: str, confidence: float, nlp_result, user_input: str = ""
-    ) -> dict:
+    def _apply_confidence_cascade(self, intent: str, confidence: float, nlp_result, user_input: str = "") -> dict:
         """
         Confidence cascade policy:
           >= 0.85 → execute directly
@@ -9337,17 +8526,11 @@ class ALICE:
         """Build executive-gate fallback responses without inline hardcoded branches."""
         str(intent or "").lower().strip()
         _failure_recovery = dict(
-            (getattr(self, "_internal_reasoning_state", {}) or {}).get(
-                "failure_recovery", {}
-            )
-            or {}
+            (getattr(self, "_internal_reasoning_state", {}) or {}).get("failure_recovery", {}) or {}
         )
         if bool(_failure_recovery.get("avoid_clarification")):
             _recovered = str(
-                (getattr(self, "_internal_reasoning_state", {}) or {}).get(
-                    "failure_recovery_response"
-                )
-                or ""
+                (getattr(self, "_internal_reasoning_state", {}) or {}).get("failure_recovery_response") or ""
             ).strip()
             if _recovered:
                 return _recovered
@@ -9370,15 +8553,11 @@ class ALICE:
             if clarification:
                 return clarification
 
-            scaffold = self._native_scaffold_response(
-                user_input, "conversation:clarification_needed"
-            )
+            scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
             if scaffold:
                 return scaffold
 
-        scaffold = self._native_scaffold_response(
-            user_input, "conversation:clarification_needed"
-        )
+        scaffold = self._native_scaffold_response(user_input, "conversation:clarification_needed")
         if scaffold:
             return scaffold
 
@@ -9409,9 +8588,7 @@ class ALICE:
         _gate_context = dict(getattr(self, "_internal_reasoning_state", {}) or {})
         if getattr(self, "goal_tracker", None):
             try:
-                _gate_context["goal_alignment"] = (
-                    self.goal_tracker.goal_alignment_score(response)
-                )
+                _gate_context["goal_alignment"] = self.goal_tracker.goal_alignment_score(response)
             except Exception:
                 _gate_context["goal_alignment"] = 1.0
 
@@ -9425,8 +8602,7 @@ class ALICE:
         self._last_exec_gate_eval = evaluation
         score = float(evaluation.get("score", 0.0))
         self._think(
-            f"Executive response gate ({route}) → score={score:.2f} "
-            f"accepted={evaluation.get('accepted', False)}"
+            f"Executive response gate ({route}) → score={score:.2f} accepted={evaluation.get('accepted', False)}"
         )
 
         if evaluation.get("accepted", False):
@@ -9450,9 +8626,7 @@ class ALICE:
         prior_confidence: float,
     ) -> None:
         """Post-response reflection loop that updates executive routing weights."""
-        if not getattr(self, "reflection_engine", None) or not getattr(
-            self, "executive_controller", None
-        ):
+        if not getattr(self, "reflection_engine", None) or not getattr(self, "executive_controller", None):
             return
         try:
             gate_eval = getattr(self, "_last_exec_gate_eval", {}) or {}
@@ -9464,12 +8638,7 @@ class ALICE:
                     _goal_align = 1.0
                     if getattr(self, "goal_tracker", None):
                         _goal_align = self.goal_tracker.goal_alignment_score(response)
-                    _topic_hint = str(
-                        (getattr(self, "_internal_reasoning_state", {}) or {}).get(
-                            "topic", ""
-                        )
-                        or ""
-                    )
+                    _topic_hint = str((getattr(self, "_internal_reasoning_state", {}) or {}).get("topic", "") or "")
                     _turn_quality = self.response_quality_tracker.track_turn(
                         user_input=user_input,
                         response=response,
@@ -9478,9 +8647,7 @@ class ALICE:
                         goal_alignment=_goal_align,
                         topic_hint=_topic_hint,
                     )
-                    self._internal_reasoning_state["turn_quality"] = (
-                        _turn_quality.as_dict()
-                    )
+                    self._internal_reasoning_state["turn_quality"] = _turn_quality.as_dict()
                 except Exception as _qt_err:
                     logger.debug(f"[QualityTracker] {_qt_err}")
 
@@ -9492,9 +8659,7 @@ class ALICE:
                 response=response,
                 route=route,
                 gate_accepted=bool(gate_eval.get("accepted", True)),
-                decision_scores=(
-                    getattr(self, "_internal_reasoning_state", {}) or {}
-                ).get("decision_scores", {}),
+                decision_scores=(getattr(self, "_internal_reasoning_state", {}) or {}).get("decision_scores", {}),
                 prior_confidence=float(prior_confidence or 0.0),
                 quality_metrics=_quality_payload,
                 failure_type=str(_failure_type),
@@ -9551,10 +8716,7 @@ class ALICE:
                 if use_voice and getattr(self, "speech", None):
                     self.speech.speak(response, blocking=False)
                 return response
-        raise RuntimeError(
-            "Contract pipeline unavailable. Check runtime_boundaries "
-            "initialization in ALICE.__init__."
-        )
+        raise RuntimeError("Contract pipeline unavailable. Check runtime_boundaries initialization in ALICE.__init__.")
 
     def _is_error_response(self, response: str, expected_domain: str = None) -> bool:
         """Detect error-like responses that should be logged for learning."""
@@ -9593,14 +8755,10 @@ class ALICE:
             }
 
             expected_indicators = domain_indicators.get(expected_domain, [])
-            if expected_indicators and not any(
-                ind in text for ind in expected_indicators
-            ):
+            if expected_indicators and not any(ind in text for ind in expected_indicators):
                 # Check if response has OTHER domain's indicators
                 for domain, indicators in domain_indicators.items():
-                    if domain != expected_domain and any(
-                        ind in text for ind in indicators
-                    ):
+                    if domain != expected_domain and any(ind in text for ind in indicators):
                         return True  # Wrong domain detected
 
         return has_error
@@ -9611,12 +8769,8 @@ class ALICE:
         try:
             body = html.unescape(body)
             # Remove style/script blocks before stripping tags
-            body = re.sub(
-                r"<style[\s\S]*?>[\s\S]*?</style>", "", body, flags=re.IGNORECASE
-            )
-            body = re.sub(
-                r"<script[\s\S]*?>[\s\S]*?</script>", "", body, flags=re.IGNORECASE
-            )
+            body = re.sub(r"<style[\s\S]*?>[\s\S]*?</style>", "", body, flags=re.IGNORECASE)
+            body = re.sub(r"<script[\s\S]*?>[\s\S]*?</script>", "", body, flags=re.IGNORECASE)
             body = re.sub(r"<\s*br\s*/?>", "\n", body, flags=re.IGNORECASE)
             body = re.sub(r"</p\s*>", "\n\n", body, flags=re.IGNORECASE)
             body = re.sub(r"<[^>]+>", "", body)
@@ -9825,11 +8979,7 @@ class ALICE:
 
         for exchange in recent:
             # Create concise summary
-            user_text = (
-                exchange["user"][:50] + "..."
-                if len(exchange["user"]) > 50
-                else exchange["user"]
-            )
+            user_text = exchange["user"][:50] + "..." if len(exchange["user"]) > 50 else exchange["user"]
             summary_parts.append(f"User asked: {user_text}")
 
         return " | ".join(summary_parts)
@@ -9842,21 +8992,15 @@ class ALICE:
         if self.last_email_list:
             num_emails = sum(1 for e in self.last_email_list if e is not None)
             if num_emails > 0:
-                context_parts.append(
-                    f"User is viewing {num_emails} emails from their inbox"
-                )
+                context_parts.append(f"User is viewing {num_emails} emails from their inbox")
 
         # Track pending actions
         if self.pending_action:
-            context_parts.append(
-                f"In progress: {self.pending_action.replace('_', ' ')}"
-            )
+            context_parts.append(f"In progress: {self.pending_action.replace('_', ' ')}")
 
         # Track referenced items
         if self.referenced_items:
-            refs = ", ".join(
-                f"{k}: {v}" for k, v in list(self.referenced_items.items())[-3:]
-            )
+            refs = ", ".join(f"{k}: {v}" for k, v in list(self.referenced_items.items())[-3:])
             context_parts.append(f"Recently referenced: {refs}")
 
         # Track topics
@@ -9880,9 +9024,7 @@ class ALICE:
 
                     # Restore conversation summary (only recent ones)
                     if "conversation_summary" in state:
-                        self.conversation_summary = state["conversation_summary"][
-                            -5:
-                        ]  # Last 5 only
+                        self.conversation_summary = state["conversation_summary"][-5:]  # Last 5 only
 
                     # Restore topics
                     if "conversation_topics" in state:
@@ -9892,18 +9034,12 @@ class ALICE:
                     if "referenced_items" in state:
                         self.referenced_items = state["referenced_items"]
 
-                    if "conversation_state_tracker" in state and getattr(
-                        self, "conversation_state_tracker", None
-                    ):
-                        self.conversation_state_tracker.load_state(
-                            state["conversation_state_tracker"]
-                        )
+                    if "conversation_state_tracker" in state and getattr(self, "conversation_state_tracker", None):
+                        self.conversation_state_tracker.load_state(state["conversation_state_tracker"])
 
                     # Restore adaptive routing weights (with decay toward neutral)
                     if getattr(self, "executive_controller", None):
-                        self.executive_controller.load_weights(
-                            "data/executive_routing_weights.json"
-                        )
+                        self.executive_controller.load_weights("data/executive_routing_weights.json")
 
                     logger.info("[OK] Previous conversation context restored")
             except Exception as e:
@@ -9917,9 +9053,7 @@ class ALICE:
                     self.advanced_context.load_state(advanced_state_file)
                     logger.info("[OK] Advanced context state restored")
                 except Exception as e:
-                    logger.warning(
-                        f"[WARNING] Could not load advanced context state: {e}"
-                    )
+                    logger.warning(f"[WARNING] Could not load advanced context state: {e}")
 
     def _save_conversation_state(self):
         """Save conversation state for next session"""
@@ -9947,9 +9081,7 @@ class ALICE:
 
             # Persist adaptive routing weights for cumulative learning
             if getattr(self, "executive_controller", None):
-                self.executive_controller.save_weights(
-                    "data/executive_routing_weights.json"
-                )
+                self.executive_controller.save_weights("data/executive_routing_weights.json")
 
             # Save context state if available
             if self.context:
@@ -9960,9 +9092,7 @@ class ALICE:
         except Exception as e:
             logger.warning(f"[WARNING] Could not save conversation state: {e}")
 
-    def _store_interaction(
-        self, user_input: str, response: str, intent: str, entities: Dict
-    ):
+    def _store_interaction(self, user_input: str, response: str, intent: str, entities: Dict):
         """Store interaction in memory and context"""
         # Update last interaction (for /correct and /feedback)
         self.last_user_input = user_input
@@ -10017,15 +9147,11 @@ class ALICE:
                 )
 
             # Goal tracker: update goal progress / drift / completion detection
-            if getattr(self, "goal_tracker", None) and getattr(
-                self, "conversation_state_tracker", None
-            ):
+            if getattr(self, "goal_tracker", None) and getattr(self, "conversation_state_tracker", None):
                 try:
                     _gt_state = self.conversation_state_tracker.get_state_summary()
                     _current_topic = str(_gt_state.get("conversation_topic", "") or "")
-                    _previous_topic = str(
-                        getattr(self, "_last_goal_tracker_topic", "") or ""
-                    )
+                    _previous_topic = str(getattr(self, "_last_goal_tracker_topic", "") or "")
                     self.goal_tracker.update(
                         user_input=user_input,
                         response=response,
@@ -10041,17 +9167,9 @@ class ALICE:
 
             if getattr(self, "cognitive_orchestrator", None):
                 try:
-                    _decision_scores = (
-                        getattr(self, "_internal_reasoning_state", {}) or {}
-                    ).get("decision_scores", {})
-                    _gate_accepted = bool(
-                        (getattr(self, "_last_exec_gate_eval", {}) or {}).get(
-                            "accepted", True
-                        )
-                    )
-                    _turn_route = (
-                        "plugin" if bool(locals().get("plugin_result")) else "llm"
-                    )
+                    _decision_scores = (getattr(self, "_internal_reasoning_state", {}) or {}).get("decision_scores", {})
+                    _gate_accepted = bool((getattr(self, "_last_exec_gate_eval", {}) or {}).get("accepted", True))
+                    _turn_route = "plugin" if bool(locals().get("plugin_result")) else "llm"
                     self.cognitive_orchestrator.observe_turn(
                         user_input=user_input,
                         intent=intent or "conversation:general",
@@ -10136,20 +9254,12 @@ class ALICE:
                 try:
                     # Extract relationships from user input
                     relationships = self.relationship_tracker.process_text(user_input)
-                    logger.debug(
-                        f"Extracted {len(relationships)} relationships from user input"
-                    )
+                    logger.debug(f"Extracted {len(relationships)} relationships from user input")
 
                     # Also process assistant response for relationship context
-                    if (
-                        response and len(response) < 500
-                    ):  # Only process shorter responses
-                        assistant_relationships = (
-                            self.relationship_tracker.process_text(response)
-                        )
-                        logger.debug(
-                            f"Extracted {len(assistant_relationships)} relationships from assistant response"
-                        )
+                    if response and len(response) < 500:  # Only process shorter responses
+                        assistant_relationships = self.relationship_tracker.process_text(response)
+                        logger.debug(f"Extracted {len(assistant_relationships)} relationships from assistant response")
                 except Exception as e:
                     logger.error(f"Error extracting relationships: {e}")
 
@@ -10180,9 +9290,7 @@ class ALICE:
                     if entity_values:
                         # Store most recent reference
                         self.referenced_items[entity_type] = (
-                            entity_values[0]
-                            if isinstance(entity_values, list)
-                            else entity_values
+                            entity_values[0] if isinstance(entity_values, list) else entity_values
                         )
 
             # Limit tracking size
@@ -10211,9 +9319,7 @@ class ALICE:
             self.context.update_conversation(user_input, response, intent, entity_list)
 
             # Store in episodic memory with enhanced metadata (unless privacy mode)
-            if not self.privacy_mode and getattr(
-                self, "_exec_should_store_memory", True
-            ):
+            if not self.privacy_mode and getattr(self, "_exec_should_store_memory", True):
                 self.memory.store_memory(
                     content=f"User: {user_input} | Assistant: {response}",
                     memory_type="episodic",
@@ -10231,23 +9337,15 @@ class ALICE:
                 # Check if periodic consolidation is needed
                 self.memory.periodic_consolidation_check()
             elif not getattr(self, "_exec_should_store_memory", True):
-                logger.info(
-                    "[Executive] Episodic memory storage skipped by executive policy"
-                )
+                logger.info("[Executive] Episodic memory storage skipped by executive policy")
             else:
-                logger.info(
-                    "[PRIVACY] Episodic memory storage skipped (privacy mode enabled)"
-                )
+                logger.info("[PRIVACY] Episodic memory storage skipped (privacy mode enabled)")
 
             # Quality checker: automatic detection of soft issues (vocab gaps, directness, repetition)
             try:
                 _qc = get_quality_checker()
                 # conversation_summary[-1] is the turn just appended above; [-2] is the previous turn
-                _prev = (
-                    self.conversation_summary[-2]
-                    if len(self.conversation_summary) >= 2
-                    else None
-                )
+                _prev = self.conversation_summary[-2] if len(self.conversation_summary) >= 2 else None
                 _qc.analyze(
                     user_input=user_input,
                     response=response,
@@ -10271,9 +9369,7 @@ class ALICE:
                         confidence=getattr(self, "_last_intent_confidence", 0.5),
                         plugin_success=_last_res.get("success", True),
                         plugin_error_code=(
-                            _last_res.get("data", {}).get("error")
-                            if isinstance(_last_res.get("data"), dict)
-                            else None
+                            _last_res.get("data", {}).get("error") if isinstance(_last_res.get("data"), dict) else None
                         ),
                     )
                     _components = {
@@ -10281,17 +9377,13 @@ class ALICE:
                         "nlp_processor": self.nlp,
                         "task_planner": getattr(self, "task_planner", None),
                         "memory_system": getattr(self, "memory", None),
-                        "response_formulator": getattr(
-                            self, "response_formulator", None
-                        ),
+                        "response_formulator": getattr(self, "response_formulator", None),
                     }
                     self.self_debugger.analyse_turn(_pm, _components)
             except Exception:
                 pass
 
-            if getattr(self, "world_state_memory", None) and getattr(
-                self, "execution_journal", None
-            ):
+            if getattr(self, "world_state_memory", None) and getattr(self, "execution_journal", None):
                 try:
                     _before = dict(getattr(self, "_turn_state_pre_snapshot", {}) or {})
                     _after = dict(self.world_state_memory.snapshot() or {})
@@ -10301,9 +9393,7 @@ class ALICE:
                         event="turn_complete",
                         metadata={
                             "intent": intent,
-                            "route_choice": str(
-                                (entities or {}).get("route_choice") or ""
-                            ),
+                            "route_choice": str((entities or {}).get("route_choice") or ""),
                         },
                     )
                     self.execution_journal.record(
@@ -10332,9 +9422,7 @@ class ALICE:
             print("\n" + "=" * 80)
             print("A.L.I.C.E - Your Personal AI System")
             print("=" * 80)
-            print(
-                f"\nHello {self.context.user_prefs.name}! I'm ALICE, your advanced AI system."
-            )
+            print(f"\nHello {self.context.user_prefs.name}! I'm ALICE, your advanced AI system.")
             print("I'm here to help you with anything you need.\n")
             print("Commands:")
             print("   /help      - Show available commands")
@@ -10413,9 +9501,7 @@ class ALICE:
     def run_voice_mode(self):
         """Run voice-activated mode"""
         if not self.speech:
-            logger.error(
-                "[ERROR] Voice mode not available - speech engine not initialized"
-            )
+            logger.error("[ERROR] Voice mode not available - speech engine not initialized")
             return
 
         self.running = True
@@ -10464,13 +9550,16 @@ class ALICE:
         # System resources
         try:
             from ai.plugins.system_plugin import SystemPlugin
+
             snap = SystemPlugin().get_snapshot()
             if snap:
                 cpu = snap.get("cpu_percent", 0)
                 ram_used = snap.get("ram_used_gb", 0)
                 ram_total = snap.get("ram_total_gb", 0)
                 disk_free = snap.get("disk_free_gb", 0)
-                print(f"  System:   CPU {cpu:.0f}% · RAM {ram_used:.1f}/{ram_total:.1f} GB · Disk {disk_free:.0f} GB free")
+                print(
+                    f"  System:   CPU {cpu:.0f}% · RAM {ram_used:.1f}/{ram_total:.1f} GB · Disk {disk_free:.0f} GB free"
+                )
             else:
                 print("  System:   (psutil unavailable)")
         except Exception:
@@ -10480,14 +9569,20 @@ class ALICE:
         try:
             result = subprocess.run(
                 ["git", "status", "--short", "--branch"],
-                capture_output=True, text=True, timeout=3,
+                capture_output=True,
+                text=True,
+                timeout=3,
                 cwd=_os.getcwd(),
             )
             if result.returncode == 0:
                 lines = result.stdout.strip().splitlines()
                 branch_line = lines[0].replace("## ", "").split("...")[0] if lines else "unknown"
                 changes = len([ln for ln in lines[1:] if ln.strip()])
-                git_str = f"{branch_line} ({changes} change{'s' if changes != 1 else ''})" if changes else f"{branch_line} (clean)"
+                git_str = (
+                    f"{branch_line} ({changes} change{'s' if changes != 1 else ''})"
+                    if changes
+                    else f"{branch_line} (clean)"
+                )
                 print(f"  Git:      {git_str}")
         except Exception:
             pass
@@ -10495,6 +9590,7 @@ class ALICE:
         # Calendar events today
         try:
             from memory.world_model import get_world_model
+
             wm = get_world_model()
             snap_wm = wm.snapshot()
             upcoming = list((snap_wm.get("environment") or {}).get("upcoming_calendar") or [])
@@ -10525,6 +9621,7 @@ class ALICE:
         # Active goals
         try:
             from ai.goals.goal_engine import get_goal_engine
+
             engine = get_goal_engine()
             goals = engine.active()
             if goals:
@@ -10548,6 +9645,7 @@ class ALICE:
         try:
             _GOOD_TASK_SOURCES = {"open_task_signal", "ambient", "intention_unresolved"}
             from memory.world_model import get_world_model as _gwm
+
             _snap_wm = _gwm().snapshot()
             open_tasks = list((_snap_wm.get("environment") or {}).get("open_tasks") or [])
             novel = [t for t in open_tasks if t.get("text") and t.get("source") in _GOOD_TASK_SOURCES]
@@ -10565,7 +9663,11 @@ class ALICE:
             model_name = self.llm_model if hasattr(self, "llm_model") else "unknown"
             mem_stats = self.memory.get_statistics()
             total_mem = mem_stats.get("total_memories", "?")
-            uptime_s = (datetime.now(timezone.utc) - self._start_time).total_seconds() if hasattr(self, "_start_time") else None
+            uptime_s = (
+                (datetime.now(timezone.utc) - self._start_time).total_seconds()
+                if hasattr(self, "_start_time")
+                else None
+            )
             if uptime_s is not None:
                 m, s = divmod(int(uptime_s), 60)
                 h, m = divmod(m, 60)
@@ -10601,9 +9703,7 @@ class ALICE:
             print("   /relationships     - Show entity relationships")
             print()
             print("Memory Management:")
-            print(
-                "   /mem-list [type]   - List memories (types: episodic, semantic, procedural, document)"
-            )
+            print("   /mem-list [type]   - List memories (types: episodic, semantic, procedural, document)")
             print("   /mem-search <query>- Search memories by semantic similarity")
             print("   /mem-delete <id>   - Delete a specific memory by ID")
             print("   /patterns          - Show proposed patterns awaiting approval")
@@ -10615,21 +9715,15 @@ class ALICE:
             print("   /autonomous resume - Resume autonomous execution")
             print("   /autonomous status - Show autonomous mode status")
             print("   /goals             - List all active and completed goals")
-            print(
-                "   /operator-status   - Show action engine, world state, autonomy, and execution metrics"
-            )
+            print("   /operator-status   - Show action engine, world state, autonomy, and execution metrics")
             print()
             print("Debug Commands:")
             print("   /correct [type]    - Correct A.L.I.C.E's last response")
             print("   /feedback [rating] - Rate A.L.I.C.E's last response (1-5)")
             print("   /learning          - Show active learning statistics")
-            print(
-                "   /realtime-status   - Show continuous learning metrics and velocity"
-            )
+            print("   /realtime-status   - Show continuous learning metrics and velocity")
             print("   /formulation       - Show response formulation learning progress")
-            print(
-                "   /autolearn [days]  - Show automated learning audit report (default: 7 days)"
-            )
+            print("   /autolearn [days]  - Show automated learning audit report (default: 7 days)")
 
         elif cmd in {"/exit", "/quit"}:
             farewell = self._get_farewell()
@@ -10752,9 +9846,7 @@ class ALICE:
                             print(f"   • {entity.title()}: {count} connections")
 
                     if stats["entity_types"]:
-                        print(
-                            f"\nEntity types: {', '.join(stats['entity_types'].keys())}"
-                        )
+                        print(f"\nEntity types: {', '.join(stats['entity_types'].keys())}")
 
                     print("=" * 50)
                 except Exception as e:
@@ -10782,9 +9874,7 @@ class ALICE:
                             target = rel["target_entity"].title()
                             rel_type = rel["relationship_type"].replace("_", " ")
                             confidence = rel["confidence"]
-                            print(
-                                f"   • {source} {rel_type} {target} (confidence: {confidence:.2f})"
-                            )
+                            print(f"   • {source} {rel_type} {target} (confidence: {confidence:.2f})")
 
                     print("=" * 50)
                 except Exception as e:
@@ -10813,9 +9903,7 @@ class ALICE:
             if not memory_type or memory_type == "semantic":
                 memories.extend([("semantic", m) for m in self.memory.semantic_memory])
             if not memory_type or memory_type == "procedural":
-                memories.extend(
-                    [("procedural", m) for m in self.memory.procedural_memory]
-                )
+                memories.extend([("procedural", m) for m in self.memory.procedural_memory])
             if not memory_type or memory_type == "document":
                 memories.extend([("document", m) for m in self.memory.document_memory])
 
@@ -10830,16 +9918,10 @@ class ALICE:
                 print("   No memories found.")
             else:
                 for i, (mem_type, mem) in enumerate(memories[:20], 1):  # Show max 20
-                    content_preview = (
-                        mem.content[:60] + "..."
-                        if len(mem.content) > 60
-                        else mem.content
-                    )
+                    content_preview = mem.content[:60] + "..." if len(mem.content) > 60 else mem.content
                     importance = "★" * int(mem.importance * 5)  # Convert to 0-5 stars
                     print(f"   {i}. [{mem_type[:3].upper()}] {content_preview}")
-                    print(
-                        f"      ID: {mem.id} | Importance: {importance} | Access: {mem.access_count}x"
-                    )
+                    print(f"      ID: {mem.id} | Importance: {importance} | Access: {mem.access_count}x")
                     print(f"      Tags: {', '.join(mem.tags) if mem.tags else 'none'}")
                     print()
 
@@ -10866,21 +9948,15 @@ class ALICE:
             else:
                 for i, result in enumerate(results, 1):
                     content_preview = (
-                        result["content"][:60] + "..."
-                        if len(result["content"]) > 60
-                        else result["content"]
+                        result["content"][:60] + "..." if len(result["content"]) > 60 else result["content"]
                     )
                     similarity = result["similarity"]
                     importance = "★" * int(result["importance"] * 5)
 
                     print(f"   {i}. {content_preview}")
                     print(f"      ID: {result['id']} | Type: {result['type']}")
-                    print(
-                        f"      Similarity: {similarity:.2f} | Importance: {importance}"
-                    )
-                    print(
-                        f"      Tags: {', '.join(result['tags']) if result['tags'] else 'none'}"
-                    )
+                    print(f"      Similarity: {similarity:.2f} | Importance: {importance}")
+                    print(f"      Tags: {', '.join(result['tags']) if result['tags'] else 'none'}")
                     print()
 
             print("=" * 70)
@@ -10905,11 +9981,7 @@ class ALICE:
                 for i, mem in enumerate(memory_list):
                     if mem.id == memory_id:
                         memory_type = mem.type
-                        content_preview = (
-                            mem.content[:60] + "..."
-                            if len(mem.content) > 60
-                            else mem.content
-                        )
+                        content_preview = mem.content[:60] + "..." if len(mem.content) > 60 else mem.content
 
                         # Remove from memory list
                         memory_list.pop(i)
@@ -10965,21 +10037,15 @@ class ALICE:
                     print(f"\n   {i}. [{pattern['intent']}] Pattern {pattern['id']}")
                     print(f"      Examples: {pattern['example_inputs'][:2]}")
                     print(f"      Template: {pattern['proposed_template'][:80]}...")
-                    print(
-                        f"      Cluster Size: {pattern['cluster_size']} similar interactions"
-                    )
+                    print(f"      Cluster Size: {pattern['cluster_size']} similar interactions")
                     print(f"      Confidence: {pattern['confidence']:.1%}")
                     print(f"      Approve: /patterns approve {pattern['id']}")
                     print(f"      Reject:  /patterns reject {pattern['id']}")
 
                 if len(stats["pending_patterns"]) > 5:
-                    print(
-                        f"\n   ... and {len(stats['pending_patterns']) - 5} more pending patterns"
-                    )
+                    print(f"\n   ... and {len(stats['pending_patterns']) - 5} more pending patterns")
             else:
-                print(
-                    "   [OK] No pending patterns. All proposed patterns have been reviewed."
-                )
+                print("   [OK] No pending patterns. All proposed patterns have been reviewed.")
 
             print("\n" + "=" * 70)
 
@@ -10998,9 +10064,7 @@ class ALICE:
                 self.pattern_miner = PatternMiner()
 
             if self.pattern_miner.approve_pattern(pattern_id):
-                print(
-                    f"\n[OK] Pattern {pattern_id} approved and will be used for future interactions"
-                )
+                print(f"\n[OK] Pattern {pattern_id} approved and will be used for future interactions")
             else:
                 print(f"\n[ERROR] Pattern {pattern_id} not found")
 
@@ -11077,19 +10141,12 @@ class ALICE:
                 and self.conversational_engine.learned_greetings
             ):
                 greeting_options = (
-                    self.conversational_engine._unique_candidates(
-                        self.conversational_engine.learned_greetings
-                    )
+                    self.conversational_engine._unique_candidates(self.conversational_engine.learned_greetings)
                     if hasattr(self.conversational_engine, "_unique_candidates")
                     else self.conversational_engine.learned_greetings
                 )
-                if (
-                    hasattr(self.conversational_engine, "_pick_non_repeating")
-                    and len(greeting_options) >= 2
-                ):
-                    return self.conversational_engine._pick_non_repeating(
-                        greeting_options
-                    )
+                if hasattr(self.conversational_engine, "_pick_non_repeating") and len(greeting_options) >= 2:
+                    return self.conversational_engine._pick_non_repeating(greeting_options)
 
         learned = self._learned_greeting_response(
             user_input="greeting",
@@ -11173,29 +10230,18 @@ Generate only the greeting (1 sentence), no other text. Be friendly and offer to
                     examples = self.learning_engine.get_high_quality_examples()
                     farewell_responses = []
                     for ex in examples:
-                        user_text = (
-                            ex.get("user_input", "")
-                            if isinstance(ex, dict)
-                            else getattr(ex, "user_input", "")
-                        )
+                        user_text = ex.get("user_input", "") if isinstance(ex, dict) else getattr(ex, "user_input", "")
                         response_text = (
                             ex.get("assistant_response", "")
                             if isinstance(ex, dict)
                             else getattr(ex, "assistant_response", "")
                         )
-                        if any(
-                            word in user_text.lower()
-                            for word in ["bye", "goodbye", "exit", "quit"]
-                        ):
+                        if any(word in user_text.lower() for word in ["bye", "goodbye", "exit", "quit"]):
                             if response_text and len(response_text) < 80:
                                 farewell_responses.append(response_text)
 
-                    if farewell_responses and hasattr(
-                        self.conversational_engine, "_pick_non_repeating"
-                    ):
-                        return self.conversational_engine._pick_non_repeating(
-                            farewell_responses
-                        )
+                    if farewell_responses and hasattr(self.conversational_engine, "_pick_non_repeating"):
+                        return self.conversational_engine._pick_non_repeating(farewell_responses)
             except Exception:
                 pass
 
@@ -11231,9 +10277,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             # Ultimate fallback
             return f"Take care, {name}!"
 
-    def _handle_relationship_query(
-        self, user_input: str, intent: str, entities: Dict[str, Any]
-    ) -> Optional[str]:
+    def _handle_relationship_query(self, user_input: str, intent: str, entities: Dict[str, Any]) -> Optional[str]:
         """Handle relationship queries like 'who does John work for?' or 'tell me about Sarah'"""
         query_lower = user_input.lower()
 
@@ -11295,25 +10339,16 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             match = re.search(pattern, query_lower)
             if match:
                 entity_name = match.group(1)
-                second_entity = (
-                    match.group(2)
-                    if len(match.groups()) > 1 and match.group(2)
-                    else None
-                )
+                second_entity = match.group(2) if len(match.groups()) > 1 and match.group(2) else None
 
                 # Skip if technical domain or self-reference
                 if entity_name in technical_domains or entity_name in self_references:
                     continue
-                if second_entity and (
-                    second_entity in technical_domains
-                    or second_entity in self_references
-                ):
+                if second_entity and (second_entity in technical_domains or second_entity in self_references):
                     continue
 
                 # Get relationships for the entity
-                relationships = self.relationship_tracker.get_entity_relationships(
-                    entity_name
-                )
+                relationships = self.relationship_tracker.get_entity_relationships(entity_name)
 
                 if not relationships:
                     # Don't return error for specific patterns - just skip to LLM
@@ -11347,15 +10382,10 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                     specific_rels = [
                         rel
                         for rel in relationships
-                        if (
-                            rel.source_entity == second_entity.lower()
-                            or rel.target_entity == second_entity.lower()
-                        )
+                        if (rel.source_entity == second_entity.lower() or rel.target_entity == second_entity.lower())
                     ]
                     if specific_rels:
-                        response_parts.append(
-                            f"\nConnection with {second_entity.title()}:"
-                        )
+                        response_parts.append(f"\nConnection with {second_entity.title()}:")
                         for rel in specific_rels:
                             if rel.source_entity == entity_name.lower():
                                 response_parts.append(
@@ -11490,9 +10520,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
         elif correction_type == "sentiment":
             print(f"Current sentiment: {last_nlp_result.get('sentiment', {})}")
-            new_sentiment = input(
-                "Correct sentiment (positive/negative/neutral): "
-            ).strip()
+            new_sentiment = input("Correct sentiment (positive/negative/neutral): ").strip()
             if new_sentiment:
                 self.learning_manager.record_correction(
                     CorrectionType.SENTIMENT_ANALYSIS,
@@ -11552,9 +10580,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             rating = int(input("Rate this response (1-5): ").strip())
 
         if 1 <= rating <= 5:
-            feedback_type = (
-                FeedbackType.POSITIVE if rating >= 4 else FeedbackType.NEGATIVE
-            )
+            feedback_type = FeedbackType.POSITIVE if rating >= 4 else FeedbackType.NEGATIVE
             comment = input("Additional comment (optional): ").strip()
             suggestion = ""
 
@@ -11631,9 +10657,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             print(f"   Check Interval: {status['check_interval_hours']} hours")
             print(f"   Last Run: {status['last_run'] or 'Never'}")
             print(f"   Cycles Completed: {status['cycles_completed']}")
-            print(
-                f"   Total Corrections Applied: {status['total_corrections_applied']}"
-            )
+            print(f"   Total Corrections Applied: {status['total_corrections_applied']}")
 
             print("\nLearning Velocity:")
             print(f"   Total Errors: {velocity['total_errors']}")
@@ -11680,9 +10704,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
             if stats["independent_actions"] > 0:
                 independence_rate = (
-                    stats["independent_actions"] / stats["total_templates"] * 100
-                    if stats["total_templates"] > 0
-                    else 0
+                    stats["independent_actions"] / stats["total_templates"] * 100 if stats["total_templates"] > 0 else 0
                 )
                 print(f"   Independence Rate: {independence_rate:.1f}%")
 
@@ -11696,8 +10718,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             if stats["total_templates"] > stats["independent_actions"]:
                 print("\nStill Learning:")
                 learning_actions = (
-                    set(self.response_formulator.templates.keys())
-                    - self.response_formulator.independent_actions
+                    set(self.response_formulator.templates.keys()) - self.response_formulator.independent_actions
                 )
                 for action in list(learning_actions)[:5]:
                     print(f"   - {action}")
@@ -11751,9 +10772,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             print(f"   Passing Rate: {overall['passing_rate']}% (score >= 85)")
             print(f"   Failing Rate: {overall['failing_rate']}% (score < 70)")
             if overall.get("critical_failures", 0) > 0:
-                print(
-                    f"   Critical Failures: {overall['critical_failures']} (score < 50)"
-                )
+                print(f"   Critical Failures: {overall['critical_failures']} (score < 50)")
 
             # AutoLearn statistics
             autolearn_stats = report["autolearn_stats"]
@@ -11782,9 +10801,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             problem_areas = report.get("problem_areas", {})
             if problem_areas:
                 print("\nProblem Areas (score < 70):")
-                sorted_problems = sorted(
-                    problem_areas.items(), key=lambda x: x[1]["avg_score"]
-                )
+                sorted_problems = sorted(problem_areas.items(), key=lambda x: x[1]["avg_score"])
                 for action, data in sorted_problems[:5]:
                     print(f"\n   {action}:")
                     print(f"      Failures: {data['count']}")
@@ -11848,9 +10865,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         ]
 
         existing = set((self.autonomy_manager.status() or {}).get("enabled_loops", []))
-        existing.update(
-            (self.autonomy_manager.status() or {}).get("disabled_loops", [])
-        )
+        existing.update((self.autonomy_manager.status() or {}).get("disabled_loops", []))
         for loop in baseline:
             if loop.name not in existing:
                 self.autonomy_manager.register_loop(loop)
@@ -11874,12 +10889,8 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         trigger_events = self._evaluate_autonomy_triggers()
 
         print("\nUnified Action Engine:")
-        print(
-            f"   Bound: {'Yes' if hasattr(self, 'action_engine') and self.action_engine else 'No'}"
-        )
-        print(
-            f"   Last Goal Satisfied: {bool((self._internal_reasoning_state or {}).get('goal_satisfied', False))}"
-        )
+        print(f"   Bound: {'Yes' if hasattr(self, 'action_engine') and self.action_engine else 'No'}")
+        print(f"   Last Goal Satisfied: {bool((self._internal_reasoning_state or {}).get('goal_satisfied', False))}")
 
         print("\nWorld State:")
         print(f"   Active Task: {world_state.get('active_task') or 'None'}")
@@ -11891,9 +10902,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             )
         else:
             print("   Last Tool: n/a")
-        print(
-            f"   Last Successful Target: {world_state.get('last_successful_target') or 'None'}"
-        )
+        print(f"   Last Successful Target: {world_state.get('last_successful_target') or 'None'}")
         unresolved = world_state.get("unresolved_ambiguity") or []
         print(f"   Unresolved Ambiguity: {len(unresolved)}")
 
@@ -11906,19 +10915,12 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
         print("\nBounded Autonomy:")
         print(f"   Total Loops: {autonomy_status.get('total_loops', 0)}")
-        print(
-            f"   Enabled Loops: {', '.join(autonomy_status.get('enabled_loops', [])) or 'none'}"
-        )
-        print(
-            f"   Disabled Loops: {', '.join(autonomy_status.get('disabled_loops', [])) or 'none'}"
-        )
+        print(f"   Enabled Loops: {', '.join(autonomy_status.get('enabled_loops', [])) or 'none'}")
+        print(f"   Disabled Loops: {', '.join(autonomy_status.get('disabled_loops', [])) or 'none'}")
         if trigger_events:
             print("   Trigger Events:")
             for ev in trigger_events[:5]:
-                print(
-                    f"      - {ev['loop']} [{ev['severity']}] {ev['reason']} "
-                    f"-> {ev['recommended_action']}"
-                )
+                print(f"      - {ev['loop']} [{ev['severity']}] {ev['reason']} -> {ev['recommended_action']}")
         print("=" * 70)
 
     def _get_pending_approval_snapshots(self):
@@ -11988,10 +10990,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             "autonomous_running": _is_running,
             "autonomous_paused": _is_paused,
             "tool_verified": bool(
-                (
-                    (self._internal_reasoning_state or {}).get("tool_verification")
-                    or {}
-                ).get("accepted", False)
+                ((self._internal_reasoning_state or {}).get("tool_verification") or {}).get("accepted", False)
             ),
         }
 
@@ -12018,20 +11017,10 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
         rollback = {}
         if action_result is not None:
-            rollback = (getattr(action_result, "state_updates", {}) or {}).get(
-                "rollback"
-            ) or {}
-            _verification_report = dict(
-                getattr(action_result, "verification_report", {}) or {}
-            )
-            _verifier_next = (
-                str(_verification_report.get("recommended_next_action") or "")
-                .strip()
-                .lower()
-            )
-            _verifier_conf = float(
-                _verification_report.get("target_match_score", 0.0) or 0.0
-            )
+            rollback = (getattr(action_result, "state_updates", {}) or {}).get("rollback") or {}
+            _verification_report = dict(getattr(action_result, "verification_report", {}) or {})
+            _verifier_next = str(_verification_report.get("recommended_next_action") or "").strip().lower()
+            _verifier_conf = float(_verification_report.get("target_match_score", 0.0) or 0.0)
             if _verifier_next == "retry":
                 event_dicts.append(
                     {
@@ -12098,15 +11087,8 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                     ask_history=self._autonomy_medium_ask_history,
                 )
                 decision_dict = decision.to_dict()
-                if (
-                    decision.trigger_reason == "pending_approvals_waiting"
-                    and decision.should_notify_user
-                ):
-                    approval_ids = [
-                        p.get("approval_id")
-                        for p in pending_approvals
-                        if p.get("approval_id")
-                    ]
+                if decision.trigger_reason == "pending_approvals_waiting" and decision.should_notify_user:
+                    approval_ids = [p.get("approval_id") for p in pending_approvals if p.get("approval_id")]
                     if approval_ids:
                         decision_dict["operator_message"] = (
                             "Pending operator decisions: "
@@ -12132,13 +11114,9 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                 if getattr(self, "conversation_state_tracker", None):
                     try:
                         if decision.affected_goal_id:
-                            self.conversation_state_tracker.set_last_trigger_goal(
-                                decision.affected_goal_id
-                            )
+                            self.conversation_state_tracker.set_last_trigger_goal(decision.affected_goal_id)
                         if decision.pause_autonomy:
-                            self.conversation_state_tracker.set_autonomy_pause_reason(
-                                decision.trigger_reason
-                            )
+                            self.conversation_state_tracker.set_autonomy_pause_reason(decision.trigger_reason)
                     except Exception:
                         pass
 
@@ -12148,9 +11126,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                         "severity": decision.severity,
                         "goal_id": decision.affected_goal_id,
                     }
-                    _loop = (
-                        self.execution_loop if hasattr(self, "execution_loop") else None
-                    )
+                    _loop = self.execution_loop if hasattr(self, "execution_loop") else None
                     if _loop and hasattr(_loop, "pause"):
                         try:
                             _loop.pause()
@@ -12158,9 +11134,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                             pass
                     if getattr(self, "world_state_memory", None):
                         try:
-                            self.world_state_memory.set_autonomy_pause_reason(
-                                decision.trigger_reason
-                            )
+                            self.world_state_memory.set_autonomy_pause_reason(decision.trigger_reason)
                         except Exception:
                             pass
 
@@ -12206,9 +11180,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if subcommand == "start":
             if not _loop_is_running():
                 self.execution_loop.start()
-                print(
-                    "\n[OK] Autonomous mode started - Alice will work on active goals independently"
-                )
+                print("\n[OK] Autonomous mode started - Alice will work on active goals independently")
             else:
                 print("\n[INFO] Autonomous mode is already running")
 
@@ -12246,15 +11218,9 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
                 is_paused = bool(getattr(_loop, "paused"))
             else:
                 is_paused = _state_val == "paused"
-            active_goals = (
-                self.goal_system.get_active_goals()
-                if hasattr(self, "goal_system")
-                else []
-            )
+            active_goals = self.goal_system.get_active_goals() if hasattr(self, "goal_system") else []
             autonomy_status = (
-                self.autonomy_manager.status()
-                if hasattr(self, "autonomy_manager") and self.autonomy_manager
-                else {}
+                self.autonomy_manager.status() if hasattr(self, "autonomy_manager") and self.autonomy_manager else {}
             )
             trigger_events = self._evaluate_autonomy_triggers()
 
@@ -12263,9 +11229,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             print(f"   Running: {'Yes' if is_running else 'No'}")
             print(f"   Paused: {'Yes' if is_paused else 'No'}")
             print(f"   Active Goals: {len(active_goals)}")
-            print(
-                f"   Bounded Loops Enabled: {len(autonomy_status.get('enabled_loops', []))}"
-            )
+            print(f"   Bounded Loops Enabled: {len(autonomy_status.get('enabled_loops', []))}")
             print(f"   Trigger Events: {len(trigger_events)}")
 
             if active_goals:
@@ -12297,22 +11261,14 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         if active_goals:
             for i, goal in enumerate(active_goals, 1):
                 print(f"\n{i}. {goal.title} (ID: {goal.goal_id})")
-                _status = (
-                    goal.status.value
-                    if hasattr(goal.status, "value")
-                    else str(goal.status)
-                )
+                _status = goal.status.value if hasattr(goal.status, "value") else str(goal.status)
                 print(f"   Status: {_status}")
                 print(f"   Progress: {int(goal.progress * 100)}%")
-                _created = datetime.fromtimestamp(goal.created_at).strftime(
-                    "%Y-%m-%d %H:%M"
-                )
+                _created = datetime.fromtimestamp(goal.created_at).strftime("%Y-%m-%d %H:%M")
                 print(f"   Created: {_created}")
 
                 if goal.deadline:
-                    _deadline = datetime.fromtimestamp(goal.deadline).strftime(
-                        "%Y-%m-%d"
-                    )
+                    _deadline = datetime.fromtimestamp(goal.deadline).strftime("%Y-%m-%d")
                     print(f"   Deadline: {_deadline}")
 
                 total_steps = len(goal.steps)
@@ -12362,9 +11318,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
     def _agentic_loop_reason(self, state):
         return {
             "lane": "tool"
-            if str((state or {}).get("intent", "")).startswith(
-                ("notes:", "weather:", "file_operations:")
-            )
+            if str((state or {}).get("intent", "")).startswith(("notes:", "weather:", "file_operations:"))
             else "llm"
         }
 
@@ -12435,14 +11389,9 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         force_plugins_for_notes: bool,
         pending_action: Any,
     ) -> Dict[str, Any]:
-        if (
-            str(intent or "") == "conversation:clarification_needed"
-            and float(intent_confidence or 0.0) < 0.35
-        ):
+        if str(intent or "") == "conversation:clarification_needed" and float(intent_confidence or 0.0) < 0.35:
             return {"action": "ask_clarification", "route": "clarify"}
-        if has_action_cue or (
-            ":" in str(intent or "") and not str(intent).startswith("conversation:")
-        ):
+        if has_action_cue or (":" in str(intent or "") and not str(intent).startswith("conversation:")):
             return {"action": "use_plugin", "route": "tool"}
         return {"action": "use_llm", "route": "llm"}
 
@@ -12458,11 +11407,7 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         elif " pause" in cmd:
             daemon.pause(reason="manual_command")
         elif " resume" in cmd:
-            if (
-                hasattr(daemon, "is_running")
-                and not daemon.is_running
-                and hasattr(daemon, "start")
-            ):
+            if hasattr(daemon, "is_running") and not daemon.is_running and hasattr(daemon, "start"):
                 daemon.start()
             daemon.resume()
         elif " run-once" in cmd or " run_once" in cmd or " tick" in cmd:
@@ -12674,9 +11619,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="A.L.I.C.E - Advanced AI System")
     parser.add_argument("--voice", action="store_true", help="Enable voice interaction")
-    parser.add_argument(
-        "--voice-only", action="store_true", help="Run in voice-only mode"
-    )
+    parser.add_argument("--voice-only", action="store_true", help="Run in voice-only mode")
     parser.add_argument("--model", default="llama3", help="LLM model to use")
     parser.add_argument("--name", default="User", help="Your name")
 

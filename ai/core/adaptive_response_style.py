@@ -23,12 +23,8 @@ _FILLER_PATTERNS = [
     re.compile(r"\bIn conclusion[,:]?\s*", re.IGNORECASE),
     re.compile(r"\bTo conclude[,:]?\s*", re.IGNORECASE),
     re.compile(r"\bHope (?:this|that) helps[.!]?\s*$", re.IGNORECASE),
-    re.compile(
-        r"\bLet me know if you (?:have|need) (?:any|more)[^.]*[.!]?\s*$", re.IGNORECASE
-    ),
-    re.compile(
-        r"\bDo you (?:have|need) any (?:other|more) questions[?!]?\s*$", re.IGNORECASE
-    ),
+    re.compile(r"\bLet me know if you (?:have|need) (?:any|more)[^.]*[.!]?\s*$", re.IGNORECASE),
+    re.compile(r"\bDo you (?:have|need) any (?:other|more) questions[?!]?\s*$", re.IGNORECASE),
 ]
 
 
@@ -108,16 +104,11 @@ class AdaptiveResponseStyle:
         if mood in {"negative", "frustrated", "angry"}:
             style["verbosity"] = "brief"
 
-        if (
-            str(intent or "").startswith("technical:")
-            and style["verbosity"] == "normal"
-        ):
+        if str(intent or "").startswith("technical:") and style["verbosity"] == "normal":
             style["verbosity"] = "expanded"
         return style
 
-    def apply_constraints(
-        self, response: str, preferences: Dict[str, Any] | None
-    ) -> str:
+    def apply_constraints(self, response: str, preferences: Dict[str, Any] | None) -> str:
         prefs = dict(preferences or {})
         out = str(response or "")
 

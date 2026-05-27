@@ -451,9 +451,8 @@ class ScenarioRunner:
             # Initialize A.L.I.C.E. if needed
             if not self.alice:
                 from app.main import ALICE  # lazy — avoids create_app() at collection time
-                self.alice = ALICE(
-                    voice_enabled=False, user_name="TestUser", debug=False
-                )
+
+                self.alice = ALICE(voice_enabled=False, user_name="TestUser", debug=False)
 
             # Run each input in sequence
             last_response = ""
@@ -469,9 +468,7 @@ class ScenarioRunner:
                     last_response = response
 
                     # Extract intent and confidence from NLP result
-                    if hasattr(self.alice, "nlp") and hasattr(
-                        self.alice.nlp, "context"
-                    ):
+                    if hasattr(self.alice, "nlp") and hasattr(self.alice.nlp, "context"):
                         last_intent = self.alice.nlp.context.last_intent
 
                     # Check for clarification when it shouldn't happen
@@ -482,13 +479,8 @@ class ScenarioRunner:
                             "which one did you mean",
                             "can you provide more details",
                         ]
-                        if any(
-                            marker in response.lower()
-                            for marker in clarification_markers
-                        ):
-                            result.errors.append(
-                                f"Unexpected clarification prompt: '{response[:100]}'"
-                            )
+                        if any(marker in response.lower() for marker in clarification_markers):
+                            result.errors.append(f"Unexpected clarification prompt: '{response[:100]}'")
 
                 except Exception as e:
                     result.errors.append(f"Processing error: {str(e)}")
@@ -501,10 +493,7 @@ class ScenarioRunner:
 
             # Validate expectations
             if scenario.expected_intent and last_intent != scenario.expected_intent:
-                result.errors.append(
-                    f"Intent mismatch: expected '{scenario.expected_intent}', "
-                    f"got '{last_intent}'"
-                )
+                result.errors.append(f"Intent mismatch: expected '{scenario.expected_intent}', got '{last_intent}'")
 
             # Check if scenario passed
             # should_succeed=False means we expect graceful failure (errors are OK)
@@ -553,9 +542,7 @@ class ScenarioRunner:
                     print(f"    → {error}")
 
         print(f"\n{'=' * 80}")
-        print(
-            f"Results: {passed} passed, {failed} failed ({passed / (passed + failed) * 100:.1f}% pass rate)"
-        )
+        print(f"Results: {passed} passed, {failed} failed ({passed / (passed + failed) * 100:.1f}% pass rate)")
         print(f"{'=' * 80}\n")
 
         return {
@@ -574,9 +561,7 @@ class ScenarioRunner:
         report_lines = []
         report_lines.append("=" * 80)
         report_lines.append("A.L.I.C.E. SCENARIO TEST REPORT")
-        report_lines.append(
-            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
+        report_lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         report_lines.append("=" * 80)
         report_lines.append("")
 
@@ -590,9 +575,7 @@ class ScenarioRunner:
         report_lines.append(f"Total Scenarios:  {len(self.results)}")
         report_lines.append(f"Passed:           {passed} ({pass_rate:.1f}%)")
         report_lines.append(f"Failed:           {failed}")
-        report_lines.append(
-            f"Avg Duration:     {sum(r.duration_ms for r in self.results) / len(self.results):.2f}ms"
-        )
+        report_lines.append(f"Avg Duration:     {sum(r.duration_ms for r in self.results) / len(self.results):.2f}ms")
         report_lines.append("")
 
         # Failed scenarios detail
@@ -616,9 +599,7 @@ class ScenarioRunner:
         report_lines.append("-" * 80)
         suites = {}
         for result in self.results:
-            scenario = next(
-                (s for s in self.scenarios if s.id == result.scenario_id), None
-            )
+            scenario = next((s for s in self.scenarios if s.id == result.scenario_id), None)
             if scenario:
                 suite = scenario.suite
                 if suite not in suites:
@@ -631,9 +612,7 @@ class ScenarioRunner:
         for suite, stats in sorted(suites.items()):
             total = stats["passed"] + stats["failed"]
             rate = stats["passed"] / total * 100 if total > 0 else 0
-            report_lines.append(
-                f"  {suite:<20} {stats['passed']}/{total} ({rate:.1f}%)"
-            )
+            report_lines.append(f"  {suite:<20} {stats['passed']}/{total} ({rate:.1f}%)")
 
         report = "\n".join(report_lines)
 
@@ -661,9 +640,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Run A.L.I.C.E. scenario tests")
     parser.add_argument("--suite", type=str, help="Run specific test suite")
-    parser.add_argument(
-        "--report", action="store_true", help="Generate detailed report"
-    )
+    parser.add_argument("--report", action="store_true", help="Generate detailed report")
     parser.add_argument("--output", type=str, help="Output file for report")
     parser.add_argument("--scenarios", type=str, help="Path to scenarios JSON file")
 
@@ -684,9 +661,7 @@ def main():
 
     # Generate report if requested
     if args.report or args.output:
-        output_path = (
-            Path(args.output) if args.output else Path("scenario_test_report.txt")
-        )
+        output_path = Path(args.output) if args.output else Path("scenario_test_report.txt")
         report = runner.generate_report(output_path)
         if not args.output:
             print("\n" + report)

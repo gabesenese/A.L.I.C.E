@@ -39,9 +39,7 @@ class GoalProgress:
     def as_dict(self) -> Dict[str, Any]:
         return {
             "goal_description": self.goal_description,
-            "subgoals": [
-                {"desc": sg.description, "done": sg.completed} for sg in self.subgoals
-            ],
+            "subgoals": [{"desc": sg.description, "done": sg.completed} for sg in self.subgoals],
             "completion_checklist": dict(self.completion_checklist),
             "progress_score": round(self.progress_score, 3),
             "completion_signals": list(self.completion_signals),
@@ -156,21 +154,11 @@ class GoalTracker:
             )
 
         # Goal evolution: if topic shifts but remains related, create a subgoal.
-        if (
-            self._goal
-            and current_topic
-            and previous_topic
-            and current_topic != previous_topic
-        ):
-            related = (
-                self._token_similarity(current_topic, self._goal.goal_description)
-                >= self._SIMILARITY_THRESHOLD
-            )
+        if self._goal and current_topic and previous_topic and current_topic != previous_topic:
+            related = self._token_similarity(current_topic, self._goal.goal_description) >= self._SIMILARITY_THRESHOLD
             if related:
                 subgoal_text = f"advance {current_topic}"
-                if not any(
-                    sg.description == subgoal_text for sg in self._goal.subgoals
-                ):
+                if not any(sg.description == subgoal_text for sg in self._goal.subgoals):
                     self._goal.subgoals.append(SubGoal(description=subgoal_text))
 
         self._tick_progress(user_input, response)
@@ -190,9 +178,7 @@ class GoalTracker:
         # Explicit user acknowledgement is the strongest completion signal
         if "user_acknowledged" in self._goal.completion_signals:
             return True
-        if self._goal.completion_checklist and all(
-            self._goal.completion_checklist.values()
-        ):
+        if self._goal.completion_checklist and all(self._goal.completion_checklist.values()):
             return True
         return self._goal.is_complete()
 
@@ -202,19 +188,14 @@ class GoalTracker:
             return ""
         if self.is_goal_achieved():
             pending = [sg for sg in self._goal.subgoals if not sg.completed]
-            pending_checks = [
-                k for k, done in self._goal.completion_checklist.items() if not done
-            ]
+            pending_checks = [k for k, done in self._goal.completion_checklist.items() if not done]
             if pending_checks:
                 return f"Main goal mostly met. Pending verification: {pending_checks[0].replace('_', ' ')}"
             if pending:
                 return f"Main goal met. Still pending: {pending[0].description}"
             return "Goal appears achieved. Ready for the next task."
         progress_pct = int(self._goal.progress_score * 100)
-        return (
-            f"Progress toward '{self._goal.goal_description}': ~{progress_pct}%. "
-            "Continue to advance this goal."
-        )
+        return f"Progress toward '{self._goal.goal_description}': ~{progress_pct}%. Continue to advance this goal."
 
     def get_goal_prompt_injection(self) -> str:
         """
@@ -227,13 +208,9 @@ class GoalTracker:
         pending = [sg.description for sg in self._goal.subgoals if not sg.completed]
         if pending:
             lines.append(f"Pending subgoals: {', '.join(pending[:3])}")
-        pending_checks = [
-            k for k, done in self._goal.completion_checklist.items() if not done
-        ]
+        pending_checks = [k for k, done in self._goal.completion_checklist.items() if not done]
         if pending_checks:
-            lines.append(
-                f"Pending checks: {', '.join(p.replace('_', ' ') for p in pending_checks[:3])}"
-            )
+            lines.append(f"Pending checks: {', '.join(p.replace('_', ' ') for p in pending_checks[:3])}")
         if self.is_goal_achieved():
             lines.append("Status: goal achieved — offer a summary or next step.")
         else:
@@ -263,24 +240,19 @@ class GoalTracker:
         # Response addresses the goal
         if self._goal.goal_description:
             overlap = self._token_similarity(self._goal.goal_description, low_resp)
-            self._goal.progress_score = min(
-                1.0, self._goal.progress_score + (overlap * 0.15)
-            )
+            self._goal.progress_score = min(1.0, self._goal.progress_score + (overlap * 0.15))
 
         # Completion checklist updates for troubleshooting/debug goals.
         checklist = self._goal.completion_checklist
         if checklist:
-            if "problem_identified" in checklist and any(
-                k in low_resp for k in ("cause", "problem", "issue", "error")
-            ):
+            if "problem_identified" in checklist and any(k in low_resp for k in ("cause", "problem", "issue", "error")):
                 checklist["problem_identified"] = True
             if "solution_given" in checklist and any(
                 k in low_resp for k in ("fix", "solution", "change", "update", "step")
             ):
                 checklist["solution_given"] = True
             if "verification_confirmed" in checklist and any(
-                k in low_input
-                for k in ("worked", "fixed", "confirmed", "verified", "done")
+                k in low_input for k in ("worked", "fixed", "confirmed", "verified", "done")
             ):
                 checklist["verification_confirmed"] = True
             if all(checklist.values()):
@@ -291,12 +263,8 @@ class GoalTracker:
             if not sg.completed and sg.description:
                 if self._token_similarity(sg.description, low_resp) >= 0.40:
                     sg.completed = True
-                    self._goal.completion_signals.append(
-                        f"subgoal:{sg.description[:30]}"
-                    )
-                    self._goal.progress_score = min(
-                        1.0, self._goal.progress_score + 0.10
-                    )
+                    self._goal.completion_signals.append(f"subgoal:{sg.description[:30]}")
+                    self._goal.progress_score = min(1.0, self._goal.progress_score + 0.10)
 
     def _token_similarity(self, a: str, b: str) -> float:
         ta = set(re.findall(r"[a-z0-9']+", a.lower()))

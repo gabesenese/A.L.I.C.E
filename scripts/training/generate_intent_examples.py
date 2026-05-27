@@ -123,10 +123,7 @@ def _generate_examples(intent: str, description: str, count: int, model: str) ->
     lines = [ln.strip().lstrip("•-*0123456789.) ") for ln in raw.splitlines()]
     # Filter: must be at least 5 chars, not a header or meta line
     results = [
-        ln
-        for ln in lines
-        if len(ln) >= 5
-        and not ln.lower().startswith(("here are", "sure", "of course", "note:"))
+        ln for ln in lines if len(ln) >= 5 and not ln.lower().startswith(("here are", "sure", "of course", "note:"))
     ]
     return results[:count]
 
@@ -188,9 +185,7 @@ def run(
         to_process = [(i, INTENT_DESCRIPTIONS.get(i, i)) for i in target_intents]
     else:
         to_process = [
-            (intent, desc)
-            for intent, desc in INTENT_DESCRIPTIONS.items()
-            if existing.get(intent, 0) < min_examples
+            (intent, desc) for intent, desc in INTENT_DESCRIPTIONS.items() if existing.get(intent, 0) < min_examples
         ]
 
     if not to_process:
@@ -229,12 +224,8 @@ def run(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Generate synthetic intent training examples"
-    )
-    parser.add_argument(
-        "--intent", nargs="+", help="Specific intent(s) to generate for"
-    )
+    parser = argparse.ArgumentParser(description="Generate synthetic intent training examples")
+    parser.add_argument("--intent", nargs="+", help="Specific intent(s) to generate for")
     parser.add_argument(
         "--min-examples",
         type=int,
@@ -248,19 +239,13 @@ def main():
         help=f"How many examples to generate per intent (default: {DEFAULT_GENERATE_COUNT})",
     )
     parser.add_argument("--model", default="llama3.1:8b", help="Ollama model to use")
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Preview without writing"
-    )
-    parser.add_argument(
-        "--list", action="store_true", help="List current intent counts and exit"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="Preview without writing")
+    parser.add_argument("--list", action="store_true", help="List current intent counts and exit")
     args = parser.parse_args()
 
     if args.list:
         counts = _load_existing_counts()
-        print(
-            f"\nCurrent training examples per intent ({sum(counts.values())} total):\n"
-        )
+        print(f"\nCurrent training examples per intent ({sum(counts.values())} total):\n")
         for intent, count in sorted(counts.items(), key=lambda x: x[1]):
             flag = "  <-- THIN" if count < DEFAULT_MIN_EXAMPLES else ""
             print(f"  {count:4d}  {intent}{flag}")

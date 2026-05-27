@@ -7,9 +7,7 @@ def test_no_fake_operator_continue_local_step_wording():
         response_text="Next best move: inspect file ai/runtime/agent_loop.py because Active objective exists; agent loop should drive next safe step.",
         intent="operator:continue",
         route="local",
-        operator_state={
-            "active_objective": "Improve Alice into an agentic companion/operator"
-        },
+        operator_state={"active_objective": "Improve Alice into an agentic companion/operator"},
         project_memory={},
         local_execution={
             "action": "operator:continue",

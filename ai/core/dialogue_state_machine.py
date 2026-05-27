@@ -58,10 +58,7 @@ class DialogueStateMachine:
             self.clarifying_turns = 0
 
         self.state = target
-        if (
-            self.state == DialogueState.CLARIFYING
-            and self.clarifying_turns >= self.max_clarifying_turns
-        ):
+        if self.state == DialogueState.CLARIFYING and self.clarifying_turns >= self.max_clarifying_turns:
             self.state = DialogueState.READY
             self.clarifying_turns = 0
         return True

@@ -163,11 +163,7 @@ class ResponsePlanner:
         outline = self._build_outline(resp_type, strategy, reasoning_state)
         constraints = self._build_constraints(resp_type, strategy, reasoning_state)
         required_sections = self._required_sections(resp_type, strategy)
-        goal_context = str(
-            reasoning_state.get("user_goal")
-            or conversation_state.get("user_goal")
-            or ""
-        )
+        goal_context = str(reasoning_state.get("user_goal") or conversation_state.get("user_goal") or "")
         format_hint = self._format_hint(resp_type)
         plan_depth = self._plan_depth(reasoning_state, conversation_state)
         return ResponsePlan(
@@ -209,9 +205,7 @@ class ResponsePlanner:
             return "conversational"
 
         # Explanation-level questions
-        if intent_low.startswith("learning:") or any(
-            w in low_input for w in self._QUESTION_WORDS
-        ):
+        if intent_low.startswith("learning:") or any(w in low_input for w in self._QUESTION_WORDS):
             return "explanation"
 
         # Direct factual question
@@ -226,21 +220,9 @@ class ResponsePlanner:
         reasoning_state: Dict[str, Any],
         conversation_state: Dict[str, Any],
     ) -> str:
-        depth = int(
-            reasoning_state.get("depth_level")
-            or conversation_state.get("depth_level")
-            or 0
-        )
-        goal = str(
-            reasoning_state.get("user_goal")
-            or conversation_state.get("user_goal")
-            or ""
-        )
-        conv_goal = str(
-            reasoning_state.get("conversation_goal")
-            or conversation_state.get("conversation_goal")
-            or ""
-        )
+        depth = int(reasoning_state.get("depth_level") or conversation_state.get("depth_level") or 0)
+        goal = str(reasoning_state.get("user_goal") or conversation_state.get("user_goal") or "")
+        conv_goal = str(reasoning_state.get("conversation_goal") or conversation_state.get("conversation_goal") or "")
         conf = float(reasoning_state.get("confidence") or 0.0)
 
         # Conversational and action-oriented types are always direct
@@ -253,11 +235,7 @@ class ResponsePlanner:
             return "answer_directly"
 
         # Learning context → teach progressively
-        if (
-            conv_goal == "learning"
-            or "learn" in goal.lower()
-            or "understand" in goal.lower()
-        ):
+        if conv_goal == "learning" or "learn" in goal.lower() or "understand" in goal.lower():
             if depth >= 3:
                 return "incremental_teaching"
             return "guided_explanation"
@@ -377,11 +355,7 @@ class ResponsePlanner:
         reasoning_state: Dict[str, Any],
         conversation_state: Dict[str, Any],
     ) -> int:
-        depth = int(
-            reasoning_state.get("depth_level")
-            or conversation_state.get("depth_level")
-            or 0
-        )
+        depth = int(reasoning_state.get("depth_level") or conversation_state.get("depth_level") or 0)
         if depth <= 1:
             return 1
         if depth <= 3:
@@ -398,7 +372,9 @@ class ResponsePlanner:
         if rtype in ("debugging", "troubleshooting"):
             return "Should I start by identifying the root cause, or do you want immediate fix steps first?"
         if rtype == "explanation":
-            return "Would you like the simple explanation first, then an example, or the deep technical version directly?"
+            return (
+                "Would you like the simple explanation first, then an example, or the deep technical version directly?"
+            )
         if rtype == "planning":
             return "Should I give a high-level roadmap first, or a detailed phased plan with risks and dependencies?"
         if topic:

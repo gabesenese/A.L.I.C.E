@@ -96,16 +96,10 @@ def finalize_conversational_surface(
         and route not in {"llm_fallback", "contract_tool_response"}
         and callable(getattr(alice, "_publish_with_fast_llm_style", None))
     ):
-        text = str(
-            alice._publish_with_fast_llm_style(
-                response=text, user_input=user_input, intent=intent
-            )
-        )
+        text = str(alice._publish_with_fast_llm_style(response=text, user_input=user_input, intent=intent))
     if callable(getattr(alice, "_executive_apply_response_gate", None)):
         text = str(
-            alice._executive_apply_response_gate(
-                response=text, user_input=user_input, intent=intent, route=route
-            )
+            alice._executive_apply_response_gate(response=text, user_input=user_input, intent=intent, route=route)
         )
     return text
 
@@ -144,8 +138,7 @@ def sanitize_internal_process_output(
     if getattr(alice, "response_formulator", None):
         user_resp = alice.response_formulator.generate(
             intent=str(
-                getattr(alice, "last_intent", "")
-                or getattr(alice, "_last_routed_intent", "conversation:general")
+                getattr(alice, "last_intent", "") or getattr(alice, "_last_routed_intent", "conversation:general")
             ),
             context={"user_input": user_input, "response": text},
             tool_results=dict(getattr(alice, "_last_plugin_result", {}) or {}),
@@ -169,14 +162,10 @@ def sanitize_internal_process_output(
             text = alice._answerability_gate_fallback_response(user_input)
     if "intent=" in low or "raw_response=" in low or low.startswith("analysis:"):
         filtered = [
-            ln
-            for ln in text.splitlines()
-            if not ln.lower().startswith(("intent=", "raw_response=", "analysis:"))
+            ln for ln in text.splitlines() if not ln.lower().startswith(("intent=", "raw_response=", "analysis:"))
         ]
         text = "\n".join(ln for ln in filtered if ln.strip()).strip()
-        if not text and callable(
-            getattr(alice, "_answerability_gate_fallback_response", None)
-        ):
+        if not text and callable(getattr(alice, "_answerability_gate_fallback_response", None)):
             text = alice._answerability_gate_fallback_response(user_input)
     if callable(getattr(alice, "_clamp_final_response", None)):
         return alice._clamp_final_response(

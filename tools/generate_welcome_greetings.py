@@ -121,9 +121,7 @@ def generate_candidates(
         greetings = parsed.get("greetings") if isinstance(parsed, dict) else []
         if not isinstance(greetings, list):
             greetings = []
-        output["periods"][p] = _validate_candidates(
-            [str(g) for g in greetings[:per_period]]
-        )
+        output["periods"][p] = _validate_candidates([str(g) for g in greetings[:per_period]])
     return output
 
 
@@ -164,8 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     except URLError as exc:
         print(
-            f"Ollama unavailable at {OLLAMA_URL}: {exc}. "
-            "No greeting files were modified.",
+            f"Ollama unavailable at {OLLAMA_URL}: {exc}. No greeting files were modified.",
             file=sys.stderr,
         )
         return 2

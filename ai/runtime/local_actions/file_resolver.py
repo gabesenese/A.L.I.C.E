@@ -16,9 +16,7 @@ class FileResolver:
         suffix = [f for f in files if f.lower().endswith("/" + target.lower())]
         if suffix:
             return {"file_exists": True, "resolved": suffix[0], "close_matches": []}
-        basename_exact = [
-            f for f in files if Path(f).name.lower() == Path(target).name.lower()
-        ]
+        basename_exact = [f for f in files if Path(f).name.lower() == Path(target).name.lower()]
         if len(basename_exact) == 1:
             return {
                 "file_exists": True,
@@ -39,9 +37,7 @@ class FileResolver:
             }
         basename = target.split("/")[-1].lower()
         contains = [f for f in files if basename and basename in Path(f).name.lower()]
-        fuzzy_basename = get_close_matches(
-            basename, [Path(f).name.lower() for f in files], n=8, cutoff=0.55
-        )
+        fuzzy_basename = get_close_matches(basename, [Path(f).name.lower() for f in files], n=8, cutoff=0.55)
         fuzzy_files: List[str] = []
         for item in files:
             file_name = Path(item).name.lower()

@@ -8,8 +8,7 @@ def test_a_llm_natural_greeting_accepted():
         operator_state={},
         session_state={},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to see you. How are you?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you?",
     )
     low = result.text.lower()
     assert result.generated_by == "llm_constrained"
@@ -24,8 +23,7 @@ def test_b_old_machine_learning_bug_blocked():
         operator_state={},
         session_state={},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "We were discussing machine learning last time. Good to see you.",
+        llm_generate=lambda *args, **kwargs: "We were discussing machine learning last time. Good to see you.",
     )
     low = result.text.lower()
     assert "machine learning" not in low
@@ -42,8 +40,7 @@ def test_c_broad_memory_not_used_for_plain_greeting_metadata():
         operator_state={},
         session_state={},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to hear from you. How's it going?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to hear from you. How's it going?",
     )
     assert result.suppressed_project_menu is True
     assert result.continuity_guard_applied is True
@@ -58,8 +55,7 @@ def test_d_active_state_not_forced_into_plain_greeting():
         },
         session_state={},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to see you. How are you doing?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you doing?",
     )
     low = result.text.lower()
     assert "routing" not in low
@@ -76,8 +72,7 @@ def test_e_active_state_allowed_for_explicit_continuation():
         },
         session_state={},
         user_input="hi alice, where were we?",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Still on routing. Ready to continue.",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Still on routing. Ready to continue.",
     )
     low = result.text.lower()
     assert "still on routing" in low
@@ -103,8 +98,7 @@ def test_g_forced_companion_phrase_rejected():
         operator_state={},
         session_state={},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. I'm with you. Let's keep it simple.",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. I'm with you. Let's keep it simple.",
     )
     low = result.text.lower()
     assert result.generated_by == "fallback"
@@ -117,8 +111,7 @@ def test_h_repeated_greeting_is_shorter():
         operator_state={},
         session_state={"greeting_count": 0},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to hear from you. How's it going?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to hear from you. How's it going?",
     )
     second = render_grounded_greeting(
         user_name="Gabriel",
@@ -145,11 +138,7 @@ def test_i_recent_greeting_retry_rejects_repeat_and_accepts_second():
     result = render_grounded_greeting(
         user_name="Gabriel",
         operator_state={},
-        session_state={
-            "recent_greeting_texts": [
-                "Hey Gabriel! Good to see you here. How's your day going?"
-            ]
-        },
+        session_state={"recent_greeting_texts": ["Hey Gabriel! Good to see you here. How's your day going?"]},
         user_input="hi alice",
         llm_generate=_llm,
     )
@@ -162,12 +151,9 @@ def test_j_exact_duplicate_rejected():
     result = render_grounded_greeting(
         user_name="Gabriel",
         operator_state={},
-        session_state={
-            "recent_greeting_texts": ["Hey Gabriel. Good to see you. How are you?"]
-        },
+        session_state={"recent_greeting_texts": ["Hey Gabriel. Good to see you. How are you?"]},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to see you. How are you?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you?",
     )
     assert result.generated_by == "fallback"
     assert "repeated_candidate" in result.validation_reasons
@@ -177,14 +163,9 @@ def test_k_similar_duplicate_rejected():
     result = render_grounded_greeting(
         user_name="Gabriel",
         operator_state={},
-        session_state={
-            "recent_greeting_texts": [
-                "Hey Gabriel! Good to see you here. How's your day going?"
-            ]
-        },
+        session_state={"recent_greeting_texts": ["Hey Gabriel! Good to see you here. How's your day going?"]},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to see you. How's your day going?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How's your day going?",
     )
     assert result.generated_by == "fallback"
     assert "repeated_candidate" in result.validation_reasons
@@ -194,12 +175,9 @@ def test_l_natural_different_greeting_accepted():
     result = render_grounded_greeting(
         user_name="Gabriel",
         operator_state={},
-        session_state={
-            "recent_greeting_texts": ["Hey Gabriel. Good to see you. How are you?"]
-        },
+        session_state={"recent_greeting_texts": ["Hey Gabriel. Good to see you. How are you?"]},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to hear from you. How’s it going?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to hear from you. How’s it going?",
     )
     assert result.generated_by == "llm_constrained"
     assert "fallback" not in result.greeting_style
@@ -211,8 +189,7 @@ def test_m_soft_continuity_still_rejected():
         operator_state={},
         session_state={},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel! Long time no chat. Nice to connect with you!",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel! Long time no chat. Nice to connect with you!",
     )
     assert result.generated_by == "fallback"
 
@@ -223,8 +200,7 @@ def test_n_stale_memory_regression_still_blocked_with_metadata():
         operator_state={},
         session_state={},
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "We were discussing machine learning last time. Good to see you.",
+        llm_generate=lambda *args, **kwargs: "We were discussing machine learning last time. Good to see you.",
     )
     low = result.text.lower()
     assert "machine learning" not in low
@@ -246,15 +222,12 @@ def test_o_session_state_stores_recent_greetings_capped_to_five():
             ]
         },
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Glad you’re here. How’s everything?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Glad you’re here. How’s everything?",
     )
     recent = result.session_state.get("recent_greeting_texts", [])
     assert result.session_state.get("last_greeting_text")
     assert len(recent) == 5
-    assert any(
-        "glad you re here" in item or "glad you're here" in item for item in recent
-    )
+    assert any("glad you re here" in item or "glad you're here" in item for item in recent)
 
 
 def test_p_morning_phrase_rejected_in_evening():
@@ -281,8 +254,7 @@ def test_q_evening_phrase_accepted_in_evening():
         session_state={},
         user_input="hi alice",
         local_time=at_531pm,
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good evening. How’s it going?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good evening. How’s it going?",
     )
     assert result.generated_by == "llm_constrained"
     assert result.validation_passed is True
@@ -296,8 +268,7 @@ def test_r_timeless_greeting_accepted_any_time():
         session_state={},
         user_input="hi alice",
         local_time=at_531pm,
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to see you. How are you?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you?",
     )
     assert result.generated_by == "llm_constrained"
 
@@ -310,8 +281,7 @@ def test_s_unknown_time_rejects_time_sensitive_phrase():
         user_input="hi alice",
         local_time=None,
         timezone_name="",
-        llm_generate=lambda *args,
-        **kwargs: "Good morning Gabriel. How’s your morning?",
+        llm_generate=lambda *args, **kwargs: "Good morning Gabriel. How’s your morning?",
     )
     assert result.generated_by == "fallback"
     assert "time_period_mismatch" in result.validation_reasons
@@ -324,8 +294,7 @@ def test_t_continuity_guard_still_works():
         session_state={},
         user_input="hi alice",
         local_time=datetime.fromisoformat("2026-05-10T17:31:00-04:00"),
-        llm_generate=lambda *args,
-        **kwargs: "We were discussing machine learning last time.",
+        llm_generate=lambda *args, **kwargs: "We were discussing machine learning last time.",
     )
     low = result.text.lower()
     assert "machine learning" not in low

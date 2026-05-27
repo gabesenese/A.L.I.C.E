@@ -112,10 +112,7 @@ class GoalEngine:
                 pass
         if self._file.exists():
             try:
-                return [
-                    Goal.from_dict(g)
-                    for g in json.loads(self._file.read_text(encoding="utf-8"))
-                ]
+                return [Goal.from_dict(g) for g in json.loads(self._file.read_text(encoding="utf-8"))]
             except Exception:
                 pass
         return []
@@ -123,9 +120,7 @@ class GoalEngine:
     def _save(self) -> None:
         self._file.parent.mkdir(parents=True, exist_ok=True)
         self._file.write_text(
-            json.dumps(
-                [g.to_dict() for g in self._goals], indent=2, ensure_ascii=False
-            ),
+            json.dumps([g.to_dict() for g in self._goals], indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
         if self._store is not None:
@@ -238,22 +233,14 @@ class GoalEngine:
     def get_ready_goals(self) -> List[Goal]:
         """Return active goals whose all dependency goals are completed."""
         completed_ids = {g.goal_id for g in self._goals if g.status == "completed"}
-        return [
-            g
-            for g in self.active()
-            if all(dep in completed_ids for dep in g.dependencies)
-        ]
+        return [g for g in self.active() if all(dep in completed_ids for dep in g.dependencies)]
 
     def get_blocker_goals(self, goal_id: str) -> List[Goal]:
         """Return active goals that are blocking the given goal (incomplete dependencies)."""
         completed_ids = {g.goal_id for g in self._goals if g.status == "completed"}
         for g in self._goals:
             if g.goal_id == goal_id:
-                return [
-                    b
-                    for b in self._goals
-                    if b.goal_id in g.dependencies and b.goal_id not in completed_ids
-                ]
+                return [b for b in self._goals if b.goal_id in g.dependencies and b.goal_id not in completed_ids]
         return []
 
     def extract_from_text(self, text: str) -> Optional[str]:
@@ -321,9 +308,7 @@ class GoalEngine:
                         if all(m2.get("done") for m2 in g.milestones):
                             g.status = "completed"
                         self._save()
-                        self._record_event(
-                            goal_id, "milestone_advanced", note=m.get("text", "")[:60]
-                        )
+                        self._record_event(goal_id, "milestone_advanced", note=m.get("text", "")[:60])
                         return True
         return False
 
@@ -358,9 +343,7 @@ class GoalEngine:
                 or intent_lower in next_act
                 or any(w in intent_lower for w in next_act.split() if len(w) > 4)
             )
-            overlap_with_desc = any(
-                w in input_lower for w in desc.split() if len(w) > 5
-            )
+            overlap_with_desc = any(w in input_lower for w in desc.split() if len(w) > 5)
 
             if overlap_with_next or (overlap_with_desc and not next_act):
                 self.mark_worked(goal.goal_id)
@@ -369,9 +352,7 @@ class GoalEngine:
                 for m in goal.milestones:
                     if not m.get("done"):
                         m_text = str(m.get("text") or "").lower()
-                        if any(
-                            w in m_text for w in intent_lower.split() if len(w) > 4
-                        ) or any(
+                        if any(w in m_text for w in intent_lower.split() if len(w) > 4) or any(
                             w in m_text for w in input_lower.split() if len(w) > 5
                         ):
                             self.complete_milestone(goal.goal_id, m["id"])

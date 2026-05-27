@@ -50,18 +50,12 @@ def _default_state() -> Dict[str, Any]:
     }
 
 
-def _dedupe_records(
-    records: List[Dict[str, Any]], *, key_field: str, limit: int
-) -> List[Dict[str, Any]]:
+def _dedupe_records(records: List[Dict[str, Any]], *, key_field: str, limit: int) -> List[Dict[str, Any]]:
     seen = set()
     out: List[Dict[str, Any]] = []
     for raw in records:
         item = dict(raw or {})
-        key = (
-            str(item.get(key_field) or item.get("text") or item.get("goal") or "")
-            .strip()
-            .lower()
-        )
+        key = str(item.get(key_field) or item.get("text") or item.get("goal") or "").strip().lower()
         if not key or key in seen:
             continue
         seen.add(key)
@@ -122,9 +116,7 @@ class WorldModel:
         for section in ("user", "environment", "alice_state"):
             if isinstance(payload.get(section), dict):
                 merged[section].update(payload[section])
-        if isinstance(payload.get("alice_state"), dict) and isinstance(
-            payload["alice_state"].get("personality"), dict
-        ):
+        if isinstance(payload.get("alice_state"), dict) and isinstance(payload["alice_state"].get("personality"), dict):
             personality = deepcopy(DEFAULT_PERSONALITY)
             personality.update(payload["alice_state"].get("personality") or {})
             merged["alice_state"]["personality"] = personality
@@ -135,9 +127,7 @@ class WorldModel:
     def save(self) -> None:
         self._state["updated_at"] = _now_iso()
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(
-            json.dumps(self._state, indent=2, sort_keys=True), encoding="utf-8"
-        )
+        tmp.write_text(json.dumps(self._state, indent=2, sort_keys=True), encoding="utf-8")
         tmp.replace(self.path)
 
     def snapshot(self) -> Dict[str, Any]:
@@ -183,9 +173,7 @@ class WorldModel:
         self.save()
 
     def set_last_proactive_interrupt(self, timestamp: Optional[str] = None) -> None:
-        self._state["alice_state"]["last_proactive_interrupt"] = str(
-            timestamp or _now_iso()
-        )
+        self._state["alice_state"]["last_proactive_interrupt"] = str(timestamp or _now_iso())
         self.save()
 
     def mark_thread_resolved(self, text: str) -> None:
@@ -260,8 +248,7 @@ class WorldModel:
     def update_upcoming_calendar(self, events: List[Dict[str, Any]]) -> None:
         """Replace the upcoming calendar list with fresh data from the ambient monitor."""
         self._state["environment"]["upcoming_calendar"] = [
-            {k: str(v or "") for k, v in dict(ev or {}).items()}
-            for ev in list(events or [])
+            {k: str(v or "") for k, v in dict(ev or {}).items()} for ev in list(events or [])
         ][:20]
         self.save()
 
@@ -303,12 +290,8 @@ class WorldModel:
             topics_store[topic] = rec
         if topics_store:
             # Keep only top 30 by confidence to prevent unbounded growth
-            sorted_topics = sorted(
-                topics_store.values(), key=lambda x: x["confidence"], reverse=True
-            )
-            self._state["topic_confidence"] = {
-                r["topic"]: r for r in sorted_topics[:30]
-            }
+            sorted_topics = sorted(topics_store.values(), key=lambda x: x["confidence"], reverse=True)
+            self._state["topic_confidence"] = {r["topic"]: r for r in sorted_topics[:30]}
             self.save()
 
     def high_confidence_topics(self, min_confidence: float = 0.5) -> List[str]:
@@ -316,9 +299,7 @@ class WorldModel:
         store: Dict[str, Any] = dict(self._state.get("topic_confidence") or {})
         return [
             rec["topic"]
-            for rec in sorted(
-                store.values(), key=lambda x: x["confidence"], reverse=True
-            )
+            for rec in sorted(store.values(), key=lambda x: x["confidence"], reverse=True)
             if float(rec.get("confidence", 0)) >= min_confidence
         ]
 

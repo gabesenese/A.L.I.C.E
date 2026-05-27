@@ -116,9 +116,7 @@ def run() -> int:
         results.append(
             _check(
                 'update: corrected content "Gabriel wakes at 6am" survived restart',
-                row is not None
-                and "6am" in (row.content or "")
-                and bool((row.context or {}).get("corrected")),
+                row is not None and "6am" in (row.content or "") and bool((row.context or {}).get("corrected")),
             )
         )
 
@@ -142,11 +140,7 @@ def run() -> int:
             source="health_check",
         )
         store2, _ = _reset(db_path, mem_dir)
-        superseded = sum(
-            1
-            for r in store2.get_all("episodic")
-            if (r.context or {}).get("superseded") is True
-        )
+        superseded = sum(1 for r in store2.get_all("episodic") if (r.context or {}).get("superseded") is True)
         results.append(
             _check(
                 f"consolidate: superseded flag persisted ({superseded} entries marked)",

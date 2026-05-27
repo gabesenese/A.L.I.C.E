@@ -29,9 +29,7 @@ class OllamaScorer:
     def __init__(self):
         self.signals: List[TrainingSignal] = []
 
-    def score_audit(
-        self, audit: AuditScore, domain: str, skill: str = "general"
-    ) -> List[TrainingSignal]:
+    def score_audit(self, audit: AuditScore, domain: str, skill: str = "general") -> List[TrainingSignal]:
         """
         Convert audit score into training signals
 
@@ -162,9 +160,7 @@ class OllamaScorer:
         for domain, skills in aggregated.items():
             for skill, stats in skills.items():
                 # Priority = negative signals + improvement needs
-                priority = (stats["negative"] * 2 + stats["improvement"]) / max(
-                    1, len(stats["signals"])
-                )
+                priority = (stats["negative"] * 2 + stats["improvement"]) / max(1, len(stats["signals"]))
 
                 priorities.append(
                     {
@@ -191,9 +187,7 @@ class OllamaScorer:
         Returns:
             {queries: [...], responses: [...], scores: [...]}
         """
-        relevant_signals = [
-            s for s in self.signals if s.domain == domain and s.skill == skill
-        ]
+        relevant_signals = [s for s in self.signals if s.domain == domain and s.skill == skill]
 
         batch = {
             "domain": domain,
@@ -201,9 +195,7 @@ class OllamaScorer:
             "size": len(relevant_signals),
             "signals": [self._signal_to_dict(s) for s in relevant_signals],
             "avg_strength": (
-                sum(s.strength for s in relevant_signals) / len(relevant_signals)
-                if relevant_signals
-                else 0
+                sum(s.strength for s in relevant_signals) / len(relevant_signals) if relevant_signals else 0
             ),
         }
 

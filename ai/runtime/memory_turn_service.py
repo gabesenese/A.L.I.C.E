@@ -51,10 +51,7 @@ class MemoryTurnService:
         )
         structured_payloads: List[Dict[str, Any]] = []
         for candidate in extracted_candidates:
-            if (
-                not bool(candidate.should_store)
-                or not str(candidate.content or "").strip()
-            ):
+            if not bool(candidate.should_store) or not str(candidate.content or "").strip():
                 continue
             structured_payloads.append(
                 {
@@ -83,12 +80,8 @@ class MemoryTurnService:
             "memory_extraction": {
                 "candidate_count": len(extracted_candidates),
                 "stored_count": len(structured_payloads),
-                "stored_domains": sorted(
-                    {str(item.get("domain") or "") for item in structured_payloads}
-                ),
-                "stored_kinds": sorted(
-                    {str(item.get("kind") or "") for item in structured_payloads}
-                ),
+                "stored_domains": sorted({str(item.get("domain") or "") for item in structured_payloads}),
+                "stored_kinds": sorted({str(item.get("kind") or "") for item in structured_payloads}),
                 "extracted_fragments": [
                     str(getattr(candidate, "fragment", "") or "").strip()
                     for candidate in extracted_candidates

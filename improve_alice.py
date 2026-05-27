@@ -123,9 +123,7 @@ class ContinuousImprovementPipeline:
             results = self._run_with_streaming(cmd)
         else:
             # Capture output silently and parse directly from memory
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
             results = self._parse_test_output_console(result.stdout)
 
         print(f"\n✓ Tests completed: {results['pass_rate']:.1f}% pass rate")
@@ -163,9 +161,9 @@ class ContinuousImprovementPipeline:
                 try:
                     print(line, end="")
                 except UnicodeEncodeError:
-                    safe = line.encode(
+                    safe = line.encode(sys.stdout.encoding or "utf-8", errors="replace").decode(
                         sys.stdout.encoding or "utf-8", errors="replace"
-                    ).decode(sys.stdout.encoding or "utf-8", errors="replace")
+                    )
                     print(safe, end="")
                 # Save for parsing
                 output_lines.append(line)
@@ -206,9 +204,7 @@ class ContinuousImprovementPipeline:
             if "Results:" in line and "passed" in line and "failed" in line:
                 import re
 
-                match = re.search(
-                    r"(\d+)\s+passed,\s+(\d+)\s+failed\s+\((\d+\.?\d*)%", line
-                )
+                match = re.search(r"(\d+)\s+passed,\s+(\d+)\s+failed\s+\((\d+\.?\d*)%", line)
                 if match:
                     summary_passed = int(match.group(1))
                     summary_failed = int(match.group(2))
@@ -236,18 +232,11 @@ class ContinuousImprovementPipeline:
             is_pass = False
             is_fail = False
 
-            for offset in range(
-                0, min(151, len(lines) - i)
-            ):  # Start at 0 to check same line
+            for offset in range(0, min(151, len(lines) - i)):  # Start at 0 to check same line
                 check_line = lines[i + offset]
 
                 # Stop if we hit the next test (but not for offset=0)
-                if (
-                    offset > 10
-                    and check_line.startswith("[")
-                    and "]" in check_line
-                    and ":" in check_line
-                ):
+                if offset > 10 and check_line.startswith("[") and "]" in check_line and ":" in check_line:
                     break
 
                 # Check for explicit PASS marker (prefer exact matches)
@@ -288,9 +277,7 @@ class ContinuousImprovementPipeline:
             # Check if individual parsing matches summary
             if parsed_passed == summary_passed and parsed_failed == summary_failed:
                 # Perfect match!
-                print(
-                    f"  ✓ Parsed: {parsed_passed} passed, {parsed_failed} failed (matches summary)"
-                )
+                print(f"  ✓ Parsed: {parsed_passed} passed, {parsed_failed} failed (matches summary)")
                 return {
                     "pass_rate": pass_rate,
                     "passed": passed_ids,
@@ -329,9 +316,7 @@ class ContinuousImprovementPipeline:
         total = len(passed_ids) + len(failed_ids)
         pass_rate = (len(passed_ids) / total * 100) if total > 0 else 0
 
-        print(
-            f"  Parsed (no summary): {len(passed_ids)} passed, {len(failed_ids)} failed"
-        )
+        print(f"  Parsed (no summary): {len(passed_ids)} passed, {len(failed_ids)} failed")
 
         return {
             "pass_rate": pass_rate,
@@ -414,9 +399,7 @@ class ContinuousImprovementPipeline:
 
         return {"scenario_id": scenario_id, "error_type": "unknown"}
 
-    def _extract_failure_details_console(
-        self, test_line: str, lines: List[str], line_index: int
-    ) -> Dict[str, Any]:
+    def _extract_failure_details_console(self, test_line: str, lines: List[str], line_index: int) -> Dict[str, Any]:
         """Extract detailed failure information from console output."""
         scenario_id = self._extract_scenario_id(test_line)
 
@@ -426,11 +409,7 @@ class ContinuousImprovementPipeline:
             error_line = lines[line_index + offset].strip()
 
             # Skip empty lines and JSON log lines
-            if (
-                not error_line
-                or error_line.startswith("[")
-                or error_line.startswith('{"timestamp"')
-            ):
+            if not error_line or error_line.startswith("[") or error_line.startswith('{"timestamp"'):
                 continue
 
             # Remove arrow prefix if present
@@ -438,10 +417,7 @@ class ContinuousImprovementPipeline:
                 error_line = error_line[1:].strip()
 
             # Check for intent mismatch
-            if (
-                "Intent mismatch" in error_line
-                or "intent mismatch" in error_line.lower()
-            ):
+            if "Intent mismatch" in error_line or "intent mismatch" in error_line.lower():
                 # Extract expected and actual from the error line
                 # Format: "Intent mismatch: expected 'X', got 'Y'"
                 parts = error_line.split("'")
@@ -488,9 +464,7 @@ class ContinuousImprovementPipeline:
                 if retest_scenarios:
                     with open(output_file, "w", encoding="utf-8") as f:
                         json.dump({"scenarios": retest_scenarios}, f, indent=2)
-                    print(
-                        f"  Created retest file with {len(retest_scenarios)} scenarios"
-                    )
+                    print(f"  Created retest file with {len(retest_scenarios)} scenarios")
                 else:
                     print(f"  ⚠ Warning: No scenarios found for IDs: {scenario_ids}")
                     # Create empty structure
@@ -510,9 +484,7 @@ class ContinuousImprovementPipeline:
 
     # ==================== PHASE 2: ANALYZE FAILURES ====================
 
-    def analyze_failures(
-        self, failed_tests: List[Dict[str, Any]]
-    ) -> List[FailureAnalysis]:
+    def analyze_failures(self, failed_tests: List[Dict[str, Any]]) -> List[FailureAnalysis]:
         """
         Phase 2: Analyze failures and categorize them.
 
@@ -535,9 +507,7 @@ class ContinuousImprovementPipeline:
                 print(f"\n→ {failure['scenario_id']}: {analysis.failure_type}")
                 print(f"  Root cause: {analysis.root_cause}")
                 print(f"  Fix: {analysis.suggested_fix}")
-                print(
-                    f"  Auto-fixable: {'Yes' if analysis.auto_fixable else 'No (manual)'}"
-                )
+                print(f"  Auto-fixable: {'Yes' if analysis.auto_fixable else 'No (manual)'}")
 
         self.failures_analyzed = analyses
         return analyses
@@ -704,9 +674,7 @@ class ContinuousImprovementPipeline:
                 example = TrainingExample(
                     input=analysis.input_text,
                     expected_intent=corrected_intent,
-                    expected_plugin=corrected_intent.split(":")[0]
-                    if ":" in corrected_intent
-                    else "unknown",
+                    expected_plugin=corrected_intent.split(":")[0] if ":" in corrected_intent else "unknown",
                     context={
                         "original_expected": analysis.expected,
                         "system_suggested": analysis.actual,
@@ -765,9 +733,7 @@ class ContinuousImprovementPipeline:
 
     # ==================== PHASE 5: TRAIN A.L.I.C.E ====================
 
-    def train_from_corrections(
-        self, training_examples: List[TrainingExample]
-    ) -> Dict[str, Any]:
+    def train_from_corrections(self, training_examples: List[TrainingExample]) -> Dict[str, Any]:
         """
         Phase 5: Train A.L.I.C.E on corrected examples.
 
@@ -851,9 +817,7 @@ class ContinuousImprovementPipeline:
 
         # Filter out generic test IDs (from parser filling to match summary)
         real_failed = [
-            sid
-            for sid in original_failed
-            if not sid.startswith("test_failed_") and not sid.startswith("test_passed_")
+            sid for sid in original_failed if not sid.startswith("test_failed_") and not sid.startswith("test_passed_")
         ]
 
         if not real_failed:
@@ -872,26 +836,20 @@ class ContinuousImprovementPipeline:
         still_failing = [f["scenario_id"] for f in retest_results["failed"]]
         now_passing = [sid for sid in real_failed if sid not in still_failing]
 
-        improvement_pct = (
-            (len(now_passing) / len(real_failed) * 100) if real_failed else 0
-        )
+        improvement_pct = (len(now_passing) / len(real_failed) * 100) if real_failed else 0
 
         # Calculate ACTUAL final pass rate based on original full test suite
         # Not just the retest pass rate - we need to account for all originally passing tests
         original_total = original_results["total"]
         original_passed_count = len(original_results["passed"])
         new_total_passing = original_passed_count + len(now_passing)
-        final_pass_rate = (
-            (new_total_passing / original_total * 100) if original_total > 0 else 0
-        )
+        final_pass_rate = (new_total_passing / original_total * 100) if original_total > 0 else 0
 
         print("\n✓ Verification complete:")
         print(f"  - Now passing: {len(now_passing)}/{len(real_failed)}")
         print(f"  - Still failing: {len(still_failing)}")
         print(f"  - Improvement: {improvement_pct:.1f}%")
-        print(
-            f"  - Overall pass rate: {original_results['pass_rate']:.1f}% → {final_pass_rate:.1f}%"
-        )
+        print(f"  - Overall pass rate: {original_results['pass_rate']:.1f}% → {final_pass_rate:.1f}%")
 
         return {
             "verification_pass_rate": final_pass_rate,
@@ -1028,9 +986,7 @@ class ContinuousImprovementPipeline:
         fix_results = self.apply_automated_fixes(analyses)
 
         # Phase 4: Generate training data from corrections
-        training_examples = self.generate_training_from_corrections(
-            analyses, fix_results["fixes_applied"]
-        )
+        training_examples = self.generate_training_from_corrections(analyses, fix_results["fixes_applied"])
 
         # Phase 5: Train A.L.I.C.E
         self.train_from_corrections(training_examples)
@@ -1050,9 +1006,7 @@ class ContinuousImprovementPipeline:
             "start_time": iteration_start.isoformat(),
             "end_time": datetime.now().isoformat(),
             "original_pass_rate": test_results["pass_rate"],
-            "final_pass_rate": verification_results.get(
-                "verification_pass_rate", test_results["pass_rate"]
-            ),
+            "final_pass_rate": verification_results.get("verification_pass_rate", test_results["pass_rate"]),
             "failures_analyzed": len(analyses),
             "fixes_applied": len(fix_results["fixes_applied"]),
             "training_examples": len(training_examples),
@@ -1066,9 +1020,7 @@ class ContinuousImprovementPipeline:
         print("\n" + "=" * 80)
         print(f"ITERATION {self.current_iteration} SUMMARY")
         print("=" * 80)
-        print(
-            f"Pass rate: {test_results['pass_rate']:.1f}% → {iteration_data['final_pass_rate']:.1f}%"
-        )
+        print(f"Pass rate: {test_results['pass_rate']:.1f}% → {iteration_data['final_pass_rate']:.1f}%")
         print(f"Improvements: {len(verification_results.get('improvements', []))}")
         print(f"Still failing: {len(verification_results.get('still_failing', []))}")
         print(f"Training examples: {len(training_examples)}")
@@ -1136,10 +1088,7 @@ class ContinuousImprovementPipeline:
         if top_intents:
             print("  Top failing intents:")
             for item in top_intents:
-                print(
-                    f"    {item['intent']}: {item['total_failures']} failures "
-                    f"(dominant: {item['dominant_type']})"
-                )
+                print(f"    {item['intent']}: {item['total_failures']} failures (dominant: {item['dominant_type']})")
         top_patterns = report.get("top_failing_patterns", [])
         if top_patterns:
             print("  Top failure types:")
@@ -1156,9 +1105,7 @@ class ContinuousImprovementPipeline:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="A.L.I.C.E Continuous Improvement Pipeline"
-    )
+    parser = argparse.ArgumentParser(description="A.L.I.C.E Continuous Improvement Pipeline")
     parser.add_argument(
         "--iterations",
         type=int,

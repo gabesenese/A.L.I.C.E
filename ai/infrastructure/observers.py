@@ -148,10 +148,7 @@ class SystemHealthObserver(Observer):
         """Notify on low memory (with cooldown)"""
         now = datetime.now()
 
-        if (
-            self._last_memory_warning is None
-            or (now - self._last_memory_warning) > self._warning_cooldown
-        ):
+        if self._last_memory_warning is None or (now - self._last_memory_warning) > self._warning_cooldown:
             usage = event.data.get("usage", 0)
             available = event.data.get("available", 0)
             available_gb = available / (1024**3)
@@ -193,17 +190,13 @@ class ReminderObserver(Observer):
     def start(self):
         """Start observing reminder events"""
         self.event_bus.subscribe(EventType.REMINDER_DUE, self._on_reminder_due)
-        self.event_bus.subscribe(
-            EventType.EVENT_APPROACHING, self._on_event_approaching
-        )
+        self.event_bus.subscribe(EventType.EVENT_APPROACHING, self._on_event_approaching)
         logger.info("ReminderObserver started")
 
     def stop(self):
         """Stop observing"""
         self.event_bus.unsubscribe(EventType.REMINDER_DUE, self._on_reminder_due)
-        self.event_bus.unsubscribe(
-            EventType.EVENT_APPROACHING, self._on_event_approaching
-        )
+        self.event_bus.unsubscribe(EventType.EVENT_APPROACHING, self._on_event_approaching)
 
     def _on_reminder_due(self, event: Event):
         """Notify on due reminders"""
@@ -239,9 +232,7 @@ class BackgroundActivityObserver(Observer):
     def stop(self):
         """Stop observing"""
         self.event_bus.unsubscribe(EventType.EMAIL_RECEIVED, self._on_email_received)
-        self.event_bus.unsubscribe(
-            EventType.CALENDAR_UPDATED, self._on_calendar_updated
-        )
+        self.event_bus.unsubscribe(EventType.CALENDAR_UPDATED, self._on_calendar_updated)
         self.event_bus.unsubscribe(EventType.FILE_CHANGED, self._on_file_changed)
 
     def _on_email_received(self, event: Event):
@@ -252,9 +243,7 @@ class BackgroundActivityObserver(Observer):
 
         # Only notify if flagged as important or from important sender
         if is_important or any(s in sender for s in self._important_senders):
-            self.notify(
-                f"New email from {sender}: {subject}", priority=EventPriority.NORMAL
-            )
+            self.notify(f"New email from {sender}: {subject}", priority=EventPriority.NORMAL)
 
     def _on_calendar_updated(self, event: Event):
         """Notify on calendar changes"""
@@ -263,9 +252,7 @@ class BackgroundActivityObserver(Observer):
 
         # Only notify on new events or cancellations
         if change_type in ["created", "cancelled"]:
-            self.notify(
-                f"Calendar {change_type}: {event_title}", priority=EventPriority.LOW
-            )
+            self.notify(f"Calendar {change_type}: {event_title}", priority=EventPriority.LOW)
 
     def _on_file_changed(self, event: Event):
         """Watch for important file changes (configurable)"""

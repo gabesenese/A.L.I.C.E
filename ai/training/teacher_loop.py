@@ -71,9 +71,7 @@ class TeacherLoop:
         self.suggestions: List[PatternSuggestion] = []
         self.learned_count = 0
 
-    def analyze_fallbacks(
-        self, lookback_hours: int = 24, max_interactions: int = 1000
-    ) -> List[PatternSuggestion]:
+    def analyze_fallbacks(self, lookback_hours: int = 24, max_interactions: int = 1000) -> List[PatternSuggestion]:
         """
         Analyze logged LLM fallbacks and suggest patterns to learn
 
@@ -120,9 +118,7 @@ class TeacherLoop:
 
         return suggestions
 
-    def _load_interactions(
-        self, lookback_hours: int, max_interactions: int
-    ) -> List[Dict[str, Any]]:
+    def _load_interactions(self, lookback_hours: int, max_interactions: int) -> List[Dict[str, Any]]:
         """Load recent LLM fallback interactions"""
         cutoff_time = datetime.now() - timedelta(hours=lookback_hours)
 
@@ -155,9 +151,7 @@ class TeacherLoop:
 
         return interactions
 
-    def _group_similar_interactions(
-        self, interactions: List[Dict[str, Any]]
-    ) -> List[List[Dict[str, Any]]]:
+    def _group_similar_interactions(self, interactions: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
         """Group similar interactions by user input pattern"""
         # Simple grouping by normalized user input
         # TODO: Use semantic similarity for better grouping
@@ -181,9 +175,7 @@ class TeacherLoop:
 
         return groups
 
-    def _create_suggestion(
-        self, group: List[Dict[str, Any]]
-    ) -> Optional[PatternSuggestion]:
+    def _create_suggestion(self, group: List[Dict[str, Any]]) -> Optional[PatternSuggestion]:
         """Create a pattern suggestion from a group of similar interactions"""
         if not group:
             return None
@@ -208,9 +200,7 @@ class TeacherLoop:
         consistency = response_counts[common_response] / len(responses)
 
         # Determine if should auto-learn
-        should_auto_learn = (
-            len(group) >= self.auto_learn_threshold and consistency >= 0.8
-        )
+        should_auto_learn = len(group) >= self.auto_learn_threshold and consistency >= 0.8
 
         return PatternSuggestion(
             user_input_pattern=group[0].get("user_input", ""),
@@ -249,16 +239,12 @@ class TeacherLoop:
             with open(TEACHER_SUGGESTIONS_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
 
-            logger.info(
-                f"[TeacherLoop] Saved suggestions to {TEACHER_SUGGESTIONS_PATH}"
-            )
+            logger.info(f"[TeacherLoop] Saved suggestions to {TEACHER_SUGGESTIONS_PATH}")
 
         except Exception as e:
             logger.error(f"[TeacherLoop] Error saving suggestions: {e}")
 
-    def learn_pattern(
-        self, suggestion: PatternSuggestion, conversational_engine=None
-    ) -> bool:
+    def learn_pattern(self, suggestion: PatternSuggestion, conversational_engine=None) -> bool:
         """
         Learn a pattern (add to curated_patterns.json or training data)
 
@@ -276,13 +262,8 @@ class TeacherLoop:
                 if intent not in conversational_engine.learned_responses:
                     conversational_engine.learned_responses[intent] = []
 
-                if (
-                    suggestion.common_response
-                    not in conversational_engine.learned_responses[intent]
-                ):
-                    conversational_engine.learned_responses[intent].append(
-                        suggestion.common_response
-                    )
+                if suggestion.common_response not in conversational_engine.learned_responses[intent]:
+                    conversational_engine.learned_responses[intent].append(suggestion.common_response)
                     logger.info(f"[TeacherLoop] Learned pattern for intent '{intent}'")
 
             # Also add to training data for persistence
@@ -362,13 +343,9 @@ class TeacherLoop:
 _teacher_loop: Optional[TeacherLoop] = None
 
 
-def get_teacher_loop(
-    min_frequency: int = 3, auto_learn_threshold: int = 5
-) -> TeacherLoop:
+def get_teacher_loop(min_frequency: int = 3, auto_learn_threshold: int = 5) -> TeacherLoop:
     """Get singleton teacher loop instance"""
     global _teacher_loop
     if _teacher_loop is None:
-        _teacher_loop = TeacherLoop(
-            min_frequency=min_frequency, auto_learn_threshold=auto_learn_threshold
-        )
+        _teacher_loop = TeacherLoop(min_frequency=min_frequency, auto_learn_threshold=auto_learn_threshold)
     return _teacher_loop

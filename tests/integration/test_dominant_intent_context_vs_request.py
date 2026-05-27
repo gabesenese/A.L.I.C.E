@@ -12,8 +12,6 @@ def test_weather_context_plus_open_notes_request_prefers_notes():
 
 def test_cold_day_context_plus_work_on_alice_prefers_operator_continue():
     nlp = NLPProcessor()
-    result = nlp.process(
-        "good, it was a cold day today so i just stayed home, now i am gonna work on alice for a bit"
-    )
+    result = nlp.process("good, it was a cold day today so i just stayed home, now i am gonna work on alice for a bit")
     assert result.intent == "operator:continue"
     assert not result.intent.startswith("weather:")

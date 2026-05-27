@@ -27,13 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_ml_deps() -> None:
-    global \
-        _ML_DEPS_LOADED, \
-        np, \
-        TfidfVectorizer, \
-        LogisticRegression, \
-        KMeans, \
-        StandardScaler
+    global _ML_DEPS_LOADED, np, TfidfVectorizer, LogisticRegression, KMeans, StandardScaler
     if _ML_DEPS_LOADED:
         return
     try:
@@ -231,9 +225,7 @@ class RouterClassifier:
         ]
         """
         if _missing_router_deps():
-            logger.warning(
-                "[RouterClassifier] Missing dependencies (numpy/scikit-learn)"
-            )
+            logger.warning("[RouterClassifier] Missing dependencies (numpy/scikit-learn)")
             return False
         if not training_data or len(training_data) < 10:
             logger.warning("[RouterClassifier] Not enough training data")
@@ -328,16 +320,12 @@ class IntentRefiner:
         """Load intent correction mappings"""
         if self.intent_map_file.exists():
             try:
-                with open(
-                    self.intent_map_file, "r", encoding="utf-8", errors="ignore"
-                ) as f:
+                with open(self.intent_map_file, "r", encoding="utf-8", errors="ignore") as f:
                     self.intent_corrections = json.load(f)
             except Exception as e:
                 logger.warning(f"[IntentRefiner] Error loading intent map: {e}")
 
-    def refine_intent(
-        self, user_input: str, detected_intent: str, confidence: float
-    ) -> Tuple[str, float, str]:
+    def refine_intent(self, user_input: str, detected_intent: str, confidence: float) -> Tuple[str, float, str]:
         """
         Refine detected intent based on input and confidence
 
@@ -413,9 +401,7 @@ class IntentRefiner:
             with open(self.intent_map_file, "w") as f:
                 json.dump(self.intent_corrections, f, indent=2)
 
-            logger.info(
-                f"[IntentRefiner] Trained on {len(correction_data)} corrections"
-            )
+            logger.info(f"[IntentRefiner] Trained on {len(correction_data)} corrections")
             return True
 
         except Exception as e:
@@ -468,9 +454,7 @@ class PatternClusterer:
             return []
 
         if _missing_cluster_deps():
-            logger.warning(
-                "[PatternClusterer] Missing dependencies (numpy/scikit-learn)"
-            )
+            logger.warning("[PatternClusterer] Missing dependencies (numpy/scikit-learn)")
             return []
 
         try:
@@ -492,9 +476,7 @@ class PatternClusterer:
 
                 # Vectorize
                 if not self.is_trained:
-                    self.vectorizer = TfidfVectorizer(
-                        analyzer="char", ngram_range=(2, 3), max_features=100
-                    )
+                    self.vectorizer = TfidfVectorizer(analyzer="char", ngram_range=(2, 3), max_features=100)
 
                 vectors = self.vectorizer.fit_transform(texts)
 
@@ -512,26 +494,14 @@ class PatternClusterer:
                 for cluster_id, cluster_items in clusters.items():
                     if len(cluster_items) >= min_cluster_size:
                         # Get most common response
-                        responses = [
-                            i.get("assistant_response", "") for i in cluster_items
-                        ]
-                        most_common = (
-                            max(set(responses), key=responses.count)
-                            if responses
-                            else ""
-                        )
+                        responses = [i.get("assistant_response", "") for i in cluster_items]
+                        most_common = max(set(responses), key=responses.count) if responses else ""
 
                         avg_quality = 0.7
                         if np is not None:
-                            avg_quality = float(
-                                np.mean(
-                                    [i.get("quality_score", 0.7) for i in cluster_items]
-                                )
-                            )
+                            avg_quality = float(np.mean([i.get("quality_score", 0.7) for i in cluster_items]))
                         else:
-                            qualities = [
-                                i.get("quality_score", 0.7) for i in cluster_items
-                            ]
+                            qualities = [i.get("quality_score", 0.7) for i in cluster_items]
                             avg_quality = sum(qualities) / max(len(qualities), 1)
 
                         candidate = {
@@ -556,17 +526,13 @@ class PatternClusterer:
             return False
 
         if _missing_cluster_deps():
-            logger.warning(
-                "[PatternClusterer] Missing dependencies (numpy/scikit-learn)"
-            )
+            logger.warning("[PatternClusterer] Missing dependencies (numpy/scikit-learn)")
             return False
 
         try:
             texts = [d.get("user_input", "") for d in fallback_data]
 
-            self.vectorizer = TfidfVectorizer(
-                analyzer="char", ngram_range=(2, 3), max_features=100
-            )
+            self.vectorizer = TfidfVectorizer(analyzer="char", ngram_range=(2, 3), max_features=100)
             vectors = self.vectorizer.fit_transform(texts)
 
             n_clusters = max(1, len(fallback_data) // 5)
@@ -581,9 +547,7 @@ class PatternClusterer:
             with open(self.kmeans_file, "wb") as f:
                 pickle.dump(self.kmeans, f)
 
-            logger.info(
-                f"[PatternClusterer] Trained on {len(fallback_data)} interactions"
-            )
+            logger.info(f"[PatternClusterer] Trained on {len(fallback_data)} interactions")
             return True
 
         except Exception as e:

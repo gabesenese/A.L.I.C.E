@@ -49,9 +49,7 @@ class LabSimulator:
                 "from": random.choice(senders),
                 "subject": random.choice(subjects),
                 "body": f"Email body {i}. Lorem ipsum dolor sit amet...",
-                "timestamp": (
-                    base_time - timedelta(hours=random.randint(0, 720))
-                ).isoformat(),
+                "timestamp": (base_time - timedelta(hours=random.randint(0, 720))).isoformat(),
                 "read": random.choice([True, False]),
                 "starred": random.choice([True, False, False, False]),
             }
@@ -96,16 +94,11 @@ class LabSimulator:
                 event = {
                     "id": str(uuid.uuid4()),
                     "title": f"{random.choice(event_types).title()} - {random.choice(['Team', 'Client', 'Internal'])}",
-                    "start": current_date.replace(
-                        hour=hour, minute=0, second=0
-                    ).isoformat(),
+                    "start": current_date.replace(hour=hour, minute=0, second=0).isoformat(),
                     "end": (
-                        current_date.replace(hour=hour, minute=0, second=0)
-                        + timedelta(minutes=duration)
+                        current_date.replace(hour=hour, minute=0, second=0) + timedelta(minutes=duration)
                     ).isoformat(),
-                    "location": random.choice(
-                        ["Conference Room A", "Zoom", "My Office", "Cafeteria"]
-                    ),
+                    "location": random.choice(["Conference Room A", "Zoom", "My Office", "Cafeteria"]),
                     "attendees": random.randint(1, 8),
                     "description": "Meeting description placeholder",
                 }
@@ -146,15 +139,9 @@ class LabSimulator:
                 "path": f"/{random.choice(directories)}/",
                 "type": file_types[ext],
                 "size_kb": random.randint(1, 5000),
-                "created": (
-                    datetime.now() - timedelta(days=random.randint(0, 365))
-                ).isoformat(),
-                "modified": (
-                    datetime.now() - timedelta(days=random.randint(0, 100))
-                ).isoformat(),
-                "accessed": (
-                    datetime.now() - timedelta(hours=random.randint(0, 168))
-                ).isoformat(),
+                "created": (datetime.now() - timedelta(days=random.randint(0, 365))).isoformat(),
+                "modified": (datetime.now() - timedelta(days=random.randint(0, 100))).isoformat(),
+                "accessed": (datetime.now() - timedelta(hours=random.randint(0, 168))).isoformat(),
             }
             files.append(file_obj)
 
@@ -244,9 +231,7 @@ class LabSimulator:
         return paths
 
     # ===== STRESS TEST =====
-    def generate_stress_test_queries(
-        self, scenario: Dict[str, Any], num_queries: int = 50
-    ) -> List[Dict[str, Any]]:
+    def generate_stress_test_queries(self, scenario: Dict[str, Any], num_queries: int = 50) -> List[Dict[str, Any]]:
         """Generate N realistic queries against a scenario."""
         queries = []
 
@@ -340,14 +325,7 @@ class LabSimulator:
         """Get statistics about generated lab data."""
         return {
             "output_dir": self.output_dir,
-            "lab_files": [
-                f
-                for f in os.listdir(self.output_dir)
-                if os.path.isfile(os.path.join(self.output_dir, f))
-            ],
-            "total_size_mb": sum(
-                os.path.getsize(os.path.join(self.output_dir, f))
-                for f in os.listdir(self.output_dir)
-            )
+            "lab_files": [f for f in os.listdir(self.output_dir) if os.path.isfile(os.path.join(self.output_dir, f))],
+            "total_size_mb": sum(os.path.getsize(os.path.join(self.output_dir, f)) for f in os.listdir(self.output_dir))
             / (1024 * 1024),
         }

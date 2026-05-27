@@ -49,28 +49,15 @@ class CodeAnalyzer:
                     flags=re.MULTILINE,
                 )
             ),
-            "class_count": len(
-                re.findall(r"^\s*class\s+[A-Za-z_]\w*", text, flags=re.MULTILINE)
-            ),
-            "function_count": len(
-                re.findall(r"^\s*def\s+[A-Za-z_]\w*\s*\(", text, flags=re.MULTILINE)
-            ),
+            "class_count": len(re.findall(r"^\s*class\s+[A-Za-z_]\w*", text, flags=re.MULTILINE)),
+            "function_count": len(re.findall(r"^\s*def\s+[A-Za-z_]\w*\s*\(", text, flags=re.MULTILINE)),
             "todo_count": len(re.findall(r"\b(?:TODO|FIXME)\b", text)),
-            "fallback_phrase_count": sum(
-                lower.count(marker) for marker in fallback_markers
-            ),
-            "hardcoded_response_phrase_count": sum(
-                text.count(marker) for marker in hardcoded_markers
-            ),
-            "regex_count": len(
-                re.findall(r"re\.(?:search|match|findall|compile)\s*\(", text)
-            ),
-            "route_intent_mentions": len(
-                re.findall(r"\b(?:route|intent|local|tool|clarify)\b", lower)
-            ),
+            "fallback_phrase_count": sum(lower.count(marker) for marker in fallback_markers),
+            "hardcoded_response_phrase_count": sum(text.count(marker) for marker in hardcoded_markers),
+            "regex_count": len(re.findall(r"re\.(?:search|match|findall|compile)\s*\(", text)),
+            "route_intent_mentions": len(re.findall(r"\b(?:route|intent|local|tool|clarify)\b", lower)),
             "broad_keyword_matching_risk": bool(
-                re.search(r"\bif\s+['\"].+['\"]\s+in\s+[a-zA-Z_][a-zA-Z0-9_]*", text)
-                or " in text.lower()" in lower
+                re.search(r"\bif\s+['\"].+['\"]\s+in\s+[a-zA-Z_][a-zA-Z0-9_]*", text) or " in text.lower()" in lower
             ),
             "large_file_warning": len(lines) > 800 or len(text) > 60000,
         }
@@ -81,9 +68,7 @@ class CodeAnalyzer:
         if stats.get("fallback_phrase_count", 0) > 0:
             flags.append("contains fallback-phrase response logic")
         if stats.get("broad_keyword_matching_risk"):
-            flags.append(
-                "contains broad substring matching that can over-trigger routes"
-            )
+            flags.append("contains broad substring matching that can over-trigger routes")
         if stats.get("function_count", 0) >= 25:
             flags.append("god-file risk: many function responsibilities")
         if "route=" in low and "intent=" in low:

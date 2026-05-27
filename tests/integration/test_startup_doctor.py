@@ -17,9 +17,7 @@ def _seed_required_layout(tmp_path: Path) -> Path:
     (tmp_path / "app" / "main.py").write_text("# placeholder\n", encoding="utf-8")
 
     (tmp_path / "tools" / "auditing").mkdir(parents=True)
-    (tmp_path / "tools" / "auditing" / "training_data_auditor.py").write_text(
-        "# placeholder\n", encoding="utf-8"
-    )
+    (tmp_path / "tools" / "auditing" / "training_data_auditor.py").write_text("# placeholder\n", encoding="utf-8")
 
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True)
@@ -39,14 +37,10 @@ def _write_clean_learning_data(tmp_path: Path) -> None:
         "timestamp": "2026-03-14T12:00:00",
         "tone": "helpful",
     }
-    (data_dir / "learned_phrasings.jsonl").write_text(
-        json.dumps(entry) + "\n", encoding="utf-8"
-    )
+    (data_dir / "learned_phrasings.jsonl").write_text(json.dumps(entry) + "\n", encoding="utf-8")
     (data_dir / "entities.json").write_text("{}", encoding="utf-8")
     (data_dir / "relationships.json").write_text("[]", encoding="utf-8")
-    (data_dir / "patterns.json").write_text(
-        json.dumps({"conversation:help": 1}), encoding="utf-8"
-    )
+    (data_dir / "patterns.json").write_text(json.dumps({"conversation:help": 1}), encoding="utf-8")
 
 
 def _write_critical_learning_data(tmp_path: Path) -> None:
@@ -65,14 +59,10 @@ def _write_critical_learning_data(tmp_path: Path) -> None:
         "timestamp": "2026-03-14T12:00:00",
         "tone": "helpful",
     }
-    (data_dir / "learned_phrasings.jsonl").write_text(
-        json.dumps(entry) + "\n", encoding="utf-8"
-    )
+    (data_dir / "learned_phrasings.jsonl").write_text(json.dumps(entry) + "\n", encoding="utf-8")
     (data_dir / "entities.json").write_text("{}", encoding="utf-8")
     (data_dir / "relationships.json").write_text("[]", encoding="utf-8")
-    (data_dir / "patterns.json").write_text(
-        json.dumps({"weather": 1}), encoding="utf-8"
-    )
+    (data_dir / "patterns.json").write_text(json.dumps({"weather": 1}), encoding="utf-8")
 
 
 def test_startup_doctor_fast_profile_healthy(tmp_path):

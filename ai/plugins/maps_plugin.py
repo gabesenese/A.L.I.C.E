@@ -165,9 +165,7 @@ class MapsPlugin:
 
         return None
 
-    def _find_nearby_places(
-        self, city: str, place_type: str, radius_km: int = 5
-    ) -> List[Dict]:
+    def _find_nearby_places(self, city: str, place_type: str, radius_km: int = 5) -> List[Dict]:
         """
         Find nearby places using Nominatim (OpenStreetMap geocoding) and Overpass API.
         Free, no API key required.
@@ -211,9 +209,7 @@ class MapsPlugin:
 
                     if name != "Unnamed" and place_lat and place_lon:
                         # Calculate approximate distance (rough)
-                        dist_km = self._calculate_distance(
-                            lat, lon, place_lat, place_lon
-                        )
+                        dist_km = self._calculate_distance(lat, lon, place_lat, place_lon)
 
                         places.append(
                             {
@@ -249,9 +245,7 @@ class MapsPlugin:
 
         return None
 
-    def _calculate_distance(
-        self, lat1: float, lon1: float, lat2: float, lon2: float
-    ) -> float:
+    def _calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate approximate distance in km using Haversine formula"""
         from math import radians, cos, sin, asin, sqrt
 

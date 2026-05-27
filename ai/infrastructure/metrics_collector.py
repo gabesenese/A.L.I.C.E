@@ -95,9 +95,7 @@ class MetricsCollector:
         # LLM metrics
         self.llm_calls = _get_or_create(
             "alice_llm_calls_total",
-            lambda: Counter(
-                "alice_llm_calls_total", "Total LLM API calls", ["model", "success"]
-            ),
+            lambda: Counter("alice_llm_calls_total", "Total LLM API calls", ["model", "success"]),
         )
 
         self.llm_duration = _get_or_create(
@@ -155,17 +153,13 @@ class MetricsCollector:
         # Error metrics
         self.errors_total = _get_or_create(
             "alice_errors_total",
-            lambda: Counter(
-                "alice_errors_total", "Total errors", ["type", "component"]
-            ),
+            lambda: Counter("alice_errors_total", "Total errors", ["type", "component"]),
         )
 
         # Learning metrics
         self.learning_examples = _get_or_create(
             "alice_learning_examples_total",
-            lambda: Gauge(
-                "alice_learning_examples_total", "Total learning examples collected"
-            ),
+            lambda: Gauge("alice_learning_examples_total", "Total learning examples collected"),
         )
 
         self.learning_quality = _get_or_create(
@@ -180,9 +174,7 @@ class MetricsCollector:
         # System metrics
         self.active_conversations = _get_or_create(
             "alice_active_conversations",
-            lambda: Gauge(
-                "alice_active_conversations", "Number of active conversation threads"
-            ),
+            lambda: Gauge("alice_active_conversations", "Number of active conversation threads"),
         )
 
         self.memory_usage = _get_or_create(
@@ -308,9 +300,7 @@ class MetricsCollector:
     def track_plugin(self, plugin: str, action: str, duration: float, success: bool):
         """Track plugin execution"""
         if self.enable_prometheus:
-            self.plugin_calls.labels(
-                plugin=plugin, action=action, success=str(success)
-            ).inc()
+            self.plugin_calls.labels(plugin=plugin, action=action, success=str(success)).inc()
             self.plugin_duration.labels(plugin=plugin, action=action).observe(duration)
         else:
             with self.lock:
@@ -351,25 +341,17 @@ class MetricsCollector:
             with self.lock:
                 self.histograms[f"confidence_{intent}"].append(confidence)
 
-    def track_intent_entity_validation(
-        self, intent: str, validation_score: float, issues: list
-    ):
+    def track_intent_entity_validation(self, intent: str, validation_score: float, issues: list):
         """Track intent-entity cross-validation metrics (P0-1)"""
         if self.enable_prometheus:
-            self.intent_entity_validation.labels(intent=intent).observe(
-                validation_score
-            )
+            self.intent_entity_validation.labels(intent=intent).observe(validation_score)
 
             # Track specific validation issues
             for issue in issues:
                 if "missing required" in issue.lower():
-                    self.validation_issues.labels(
-                        intent=intent, issue_type="missing_required"
-                    ).inc()
+                    self.validation_issues.labels(intent=intent, issue_type="missing_required").inc()
                 elif "few expected" in issue.lower():
-                    self.validation_issues.labels(
-                        intent=intent, issue_type="few_expected"
-                    ).inc()
+                    self.validation_issues.labels(intent=intent, issue_type="few_expected").inc()
         else:
             with self.lock:
                 self.histograms[f"validation_score_{intent}"].append(validation_score)
@@ -381,9 +363,7 @@ class MetricsCollector:
         if self.enable_prometheus:
             self.ambiguity_detected.labels(
                 ref_type=ref_type,
-                candidate_count=str(
-                    min(candidate_count, 5)
-                ),  # Cap at 5+ for cardinality
+                candidate_count=str(min(candidate_count, 5)),  # Cap at 5+ for cardinality
             ).inc()
         else:
             with self.lock:
@@ -392,9 +372,7 @@ class MetricsCollector:
     def track_entity_normalization(self, category: str, rule_applied: str):
         """Track entity normalization events (P0-3)"""
         if self.enable_prometheus:
-            self.entity_normalized.labels(
-                category=category, rule_applied=rule_applied
-            ).inc()
+            self.entity_normalized.labels(category=category, rule_applied=rule_applied).inc()
         else:
             with self.lock:
                 self.counters[f"normalized_{category}_{rule_applied}"] += 1
@@ -407,9 +385,7 @@ class MetricsCollector:
             with self.lock:
                 self.counters[f"clarification_{reason}"] += 1
 
-    def set_gauge(
-        self, name: str, value: float, labels: Optional[Dict[str, str]] = None
-    ):
+    def set_gauge(self, name: str, value: float, labels: Optional[Dict[str, str]] = None):
         """Set gauge value"""
         if self.enable_prometheus:
             # Dynamic gauge setting - would need pre-registration
@@ -417,16 +393,12 @@ class MetricsCollector:
         with self.lock:
             self.gauges[name] = value
 
-    def increment_counter(
-        self, name: str, value: int = 1, labels: Optional[Dict[str, str]] = None
-    ):
+    def increment_counter(self, name: str, value: int = 1, labels: Optional[Dict[str, str]] = None):
         """Increment counter"""
         with self.lock:
             self.counters[name] += value
 
-    def record_histogram(
-        self, name: str, value: float, labels: Optional[Dict[str, str]] = None
-    ):
+    def record_histogram(self, name: str, value: float, labels: Optional[Dict[str, str]] = None):
         """Record histogram value"""
         with self.lock:
             self.histograms[name].append(value)
@@ -449,16 +421,8 @@ class MetricsCollector:
                         "max": max(values),
                         "avg": sum(values) / len(values),
                         "p50": sorted(values)[len(values) // 2] if values else 0,
-                        "p95": (
-                            sorted(values)[int(len(values) * 0.95)]
-                            if len(values) > 1
-                            else 0
-                        ),
-                        "p99": (
-                            sorted(values)[int(len(values) * 0.99)]
-                            if len(values) > 1
-                            else 0
-                        ),
+                        "p95": (sorted(values)[int(len(values) * 0.95)] if len(values) > 1 else 0),
+                        "p99": (sorted(values)[int(len(values) * 0.99)] if len(values) > 1 else 0),
                     }
 
             return summary
@@ -479,9 +443,7 @@ class MetricsCollector:
 
 
 # Decorator for automatic function timing
-def track_time(
-    metric_name: Optional[str] = None, labels: Optional[Dict[str, str]] = None
-):
+def track_time(metric_name: Optional[str] = None, labels: Optional[Dict[str, str]] = None):
     """
     Decorator to automatically track function execution time
 
@@ -510,9 +472,7 @@ def track_time(
 
                 # Record timing
                 metrics.record_histogram(f"{name}_duration", duration, labels)
-                metrics.increment_counter(
-                    f"{name}_total", labels={"success": str(success)}
-                )
+                metrics.increment_counter(f"{name}_total", labels={"success": str(success)})
 
         return wrapper
 
@@ -800,7 +760,5 @@ def get_adaptive_controller(target_p95_ms: float = 3000.0) -> AdaptiveController
     if _adaptive_ctrl_instance is None:
         with _ctrl_lock:
             if _adaptive_ctrl_instance is None:
-                _adaptive_ctrl_instance = AdaptiveController(
-                    target_p95_ms=target_p95_ms
-                )
+                _adaptive_ctrl_instance = AdaptiveController(target_p95_ms=target_p95_ms)
     return _adaptive_ctrl_instance

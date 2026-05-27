@@ -68,9 +68,7 @@ class DocumentPlugin(PluginInterface):
 
         return False
 
-    def execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         """Execute document operations"""
         try:
             query_lower = query.lower()
@@ -88,17 +86,11 @@ class DocumentPlugin(PluginInterface):
                 return self._handle_document_ingestion(query, entities)
 
             # Document search commands
-            elif any(
-                keyword in query_lower
-                for keyword in ["search documents", "find in documents", "search files"]
-            ):
+            elif any(keyword in query_lower for keyword in ["search documents", "find in documents", "search files"]):
                 return self._handle_document_search(query, entities)
 
             # List documents command
-            elif any(
-                keyword in query_lower
-                for keyword in ["list documents", "show documents", "what documents"]
-            ):
+            elif any(keyword in query_lower for keyword in ["list documents", "show documents", "what documents"]):
                 return self._handle_list_documents()
 
             # Document-related question that might need RAG
@@ -223,11 +215,7 @@ class DocumentPlugin(PluginInterface):
             for i, result in enumerate(results, 1):
                 # Get source file and chunk info from memory entry ID
                 result.get("id", "")
-                content_preview = (
-                    result["content"][:200] + "..."
-                    if len(result["content"]) > 200
-                    else result["content"]
-                )
+                content_preview = result["content"][:200] + "..." if len(result["content"]) > 200 else result["content"]
                 similarity = result.get("similarity", 0.0)
 
                 # Try to extract source file from tags

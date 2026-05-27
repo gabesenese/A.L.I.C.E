@@ -46,9 +46,7 @@ class TestMemoryRAG:
                 timestamp=datetime.now().isoformat(),
                 context={},
                 importance=0.8,
-                embedding=embedding.create_embedding(
-                    "Python is a programming language"
-                ).tolist(),
+                embedding=embedding.create_embedding("Python is a programming language").tolist(),
                 tags=["programming", "python"],
             ),
             MemoryEntry(
@@ -58,9 +56,7 @@ class TestMemoryRAG:
                 timestamp=datetime.now().isoformat(),
                 context={},
                 importance=0.9,
-                embedding=embedding.create_embedding(
-                    "Alice is an AI assistant"
-                ).tolist(),
+                embedding=embedding.create_embedding("Alice is an AI assistant").tolist(),
                 tags=["alice", "ai"],
             ),
             MemoryEntry(
@@ -70,9 +66,7 @@ class TestMemoryRAG:
                 timestamp=datetime.now().isoformat(),
                 context={},
                 importance=0.7,
-                embedding=embedding.create_embedding(
-                    "Machine learning uses neural networks"
-                ).tolist(),
+                embedding=embedding.create_embedding("Machine learning uses neural networks").tolist(),
                 tags=["ml", "ai"],
             ),
         ]
@@ -95,30 +89,22 @@ class TestMemoryRAG:
     def test_rag_filters_by_similarity_threshold(self, rag, populated_store):
         """RAG should respect similarity thresholds"""
         # High threshold should return fewer results
-        high_threshold_results = rag.query(
-            query_text="programming", top_k=10, min_similarity=0.8
-        )
+        high_threshold_results = rag.query(query_text="programming", top_k=10, min_similarity=0.8)
 
         # Low threshold should return more results
-        low_threshold_results = rag.query(
-            query_text="programming", top_k=10, min_similarity=0.3
-        )
+        low_threshold_results = rag.query(query_text="programming", top_k=10, min_similarity=0.3)
 
         assert len(low_threshold_results) >= len(high_threshold_results)
 
     def test_rag_respects_top_k_limit(self, rag, populated_store):
         """RAG should respect top_k parameter"""
-        results = rag.query(
-            query_text="AI and programming", top_k=1, min_similarity=0.1
-        )
+        results = rag.query(query_text="AI and programming", top_k=1, min_similarity=0.1)
 
         assert len(results) <= 1
 
     def test_llm_context_generation(self, rag, populated_store):
         """RAG should generate proper LLM context"""
-        context = rag.get_llm_context(
-            user_input="Tell me about Python", max_tokens=1000, max_memories=3
-        )
+        context = rag.get_llm_context(user_input="Tell me about Python", max_tokens=1000, max_memories=3)
 
         assert isinstance(context, str)
         if context:  # May be empty if no relevant memories
@@ -145,9 +131,7 @@ class TestMemoryRAG:
             timestamp=datetime.now().isoformat(),
             context={},
             importance=0.8,
-            embedding=embedding.create_embedding(
-                "Python documentation explains functions"
-            ).tolist(),
+            embedding=embedding.create_embedding("Python documentation explains functions").tolist(),
             tags=["docs"],
             source_file="python_docs.pdf",
             chunk_index=0,
@@ -157,9 +141,7 @@ class TestMemoryRAG:
         store.add(document_mem)
 
         # Search documents only
-        doc_results = rag.search_documents(
-            query="Python functions", top_k=10, min_similarity=0.3
-        )
+        doc_results = rag.search_documents(query="Python functions", top_k=10, min_similarity=0.3)
 
         # Should only return document type
         for result in doc_results:
@@ -175,9 +157,7 @@ class TestMemoryRAG:
 
     def test_similarity_scoring(self, rag, populated_store):
         """Similarity scores should be reasonable"""
-        results = rag.query(
-            query_text="Python programming language", top_k=5, min_similarity=0.0
-        )
+        results = rag.query(query_text="Python programming language", top_k=5, min_similarity=0.0)
 
         for result in results:
             # Similarity should be between 0 and 1

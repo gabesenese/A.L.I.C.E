@@ -153,34 +153,18 @@ def test_current_events_guard_detects_world_situation_without_live_sources():
 
     alice = ALICE.__new__(ALICE)
 
+    assert alice._is_freshness_sensitive_current_events_request("what is happening in the world right now?") is True
     assert (
-        alice._is_freshness_sensitive_current_events_request(
-            "what is happening in the world right now?"
-        )
-        is True
-    )
-    assert (
-        alice._is_freshness_sensitive_current_events_request(
-            "how can i design an assistant with today's technology?"
-        )
+        alice._is_freshness_sensitive_current_events_request("how can i design an assistant with today's technology?")
         is False
     )
-    assert (
-        alice._is_freshness_sensitive_current_events_request(
-            "what is happening with Alice right now?"
-        )
-        is False
-    )
+    assert alice._is_freshness_sensitive_current_events_request("what is happening with Alice right now?") is False
 
-    payload = alice._freshness_required_payload(
-        "what is happening in the world right now?"
-    )
+    payload = alice._freshness_required_payload("what is happening in the world right now?")
     assert payload["source_requirement"] == "live sources"
     assert payload["blocked_source"] == "model memory"
 
-    response = alice._formulate_freshness_guard_response(
-        "what is happening in the world right now?"
-    ).lower()
+    response = alice._formulate_freshness_guard_response("what is happening in the world right now?").lower()
     assert "live sources" in response
     assert "model memory" in response
     assert "pandemic" not in response

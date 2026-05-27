@@ -22,9 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Add parent directory to path
-PROJECT_ROOT = (
-    Path(__file__).resolve().parents[2]
-)  # Go up 2 levels: automation -> scripts -> project root
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Go up 2 levels: automation -> scripts -> project root
 sys.path.insert(0, str(PROJECT_ROOT))
 
 TRAINING_DIR = PROJECT_ROOT / "data" / "training"
@@ -65,13 +63,9 @@ def run_autonomous_nightly_training():
             )
 
             generated = generate_scenarios(PROJECT_ROOT, count_per_domain=3)
-            error_generated = generate_scenarios_from_errors(
-                PROJECT_ROOT, max_scenarios=50
-            )
+            error_generated = generate_scenarios_from_errors(PROJECT_ROOT, max_scenarios=50)
             logger.info(f"[PHASE -1] Generated {len(generated)} scenarios")
-            logger.info(
-                f"[PHASE -1] Generated {len(error_generated)} scenarios from errors"
-            )
+            logger.info(f"[PHASE -1] Generated {len(error_generated)} scenarios from errors")
             pipeline_stats["phases_completed"].append(
                 {
                     "name": "scenario_generation",
@@ -94,13 +88,9 @@ def run_autonomous_nightly_training():
         runner.save_results()
 
         scenario_count = len(runner.results)
-        success_count = sum(
-            1 for r in runner.results if r.route_match and r.intent_match
-        )
+        success_count = sum(1 for r in runner.results if r.route_match and r.intent_match)
 
-        logger.info(
-            f"[PHASE 0] Complete: {scenario_count} scenarios, {success_count} successful"
-        )
+        logger.info(f"[PHASE 0] Complete: {scenario_count} scenarios, {success_count} successful")
         pipeline_stats["phases_completed"].append(
             {"name": "scenarios", "count": scenario_count, "success": success_count}
         )
@@ -116,13 +106,9 @@ def run_autonomous_nightly_training():
         # Run comparisons on all scenario results
         teacher_summary = teacher_comp.run_comparison_cycle(runner.training_data)
 
-        logger.info(
-            f"[PHASE 1] Complete: {teacher_summary['comparisons_done']} comparisons"
-        )
+        logger.info(f"[PHASE 1] Complete: {teacher_summary['comparisons_done']} comparisons")
         logger.info(f"  - Average quality: {teacher_summary['avg_quality']:.2f}")
-        logger.info(
-            f"  - High-quality patterns: {teacher_summary['high_quality_patterns']}"
-        )
+        logger.info(f"  - High-quality patterns: {teacher_summary['high_quality_patterns']}")
         logger.info(f"  - Problem patterns: {teacher_summary['problem_patterns']}")
 
         pipeline_stats["phases_completed"].append(
@@ -134,12 +120,8 @@ def run_autonomous_nightly_training():
         )
 
         # Get identified patterns
-        high_quality_patterns = teacher_comp.identify_high_quality_patterns(
-            min_quality=0.8, min_occurrences=2
-        )
-        problem_patterns = teacher_comp.identify_problem_patterns(
-            max_quality=0.5, min_occurrences=2
-        )
+        high_quality_patterns = teacher_comp.identify_high_quality_patterns(min_quality=0.8, min_occurrences=2)
+        problem_patterns = teacher_comp.identify_problem_patterns(max_quality=0.5, min_occurrences=2)
 
         # ===== PHASE 2: Auto-Corrections from Scenarios =====
         logger.info("\n[PHASE 2] Creating Auto-Corrections from Mismatches")
@@ -167,9 +149,7 @@ def run_autonomous_nightly_training():
 
         correction_results = correction_engine.process_scenario_results(scenario_dicts)
 
-        logger.info(
-            f"[PHASE 2] Complete: {correction_results['corrections_added']} corrections added"
-        )
+        logger.info(f"[PHASE 2] Complete: {correction_results['corrections_added']} corrections added")
         logger.info(f"  - Intent mismatches: {correction_results['intent_mismatches']}")
         logger.info(f"  - Route mismatches: {correction_results['route_mismatches']}")
 
@@ -193,19 +173,11 @@ def run_autonomous_nightly_training():
 
         logger.info(f"[PHASE 2B] Errors seen: {offline_summary['errors_seen']}")
         logger.info(f"  - Corrections added: {offline_summary['corrections_added']}")
-        logger.info(
-            f"  - Corrections updated: {offline_summary['corrections_updated']}"
-        )
-        logger.info(
-            f"  - Corrections applied: {offline_summary['corrections_applied']}"
-        )
+        logger.info(f"  - Corrections updated: {offline_summary['corrections_updated']}")
+        logger.info(f"  - Corrections applied: {offline_summary['corrections_applied']}")
         logger.info(f"  - Hard lessons: {offline_summary['hard_lessons']}")
-        logger.info(
-            f"  - Hard lesson adjustments: {offline_summary['hard_lesson_adjustments']}"
-        )
-        logger.info(
-            f"  - Promoted from errors: {offline_summary['promoted_from_errors']}"
-        )
+        logger.info(f"  - Hard lesson adjustments: {offline_summary['hard_lesson_adjustments']}")
+        logger.info(f"  - Promoted from errors: {offline_summary['promoted_from_errors']}")
 
         pipeline_stats["phases_completed"].append(
             {
@@ -241,9 +213,7 @@ def run_autonomous_nightly_training():
         pipeline_stats["phases_completed"].append(
             {
                 "name": "threshold_adjustment",
-                "adjustments_made": len(
-                    adjustment_summary["adjustments"].get("adjustments_made", [])
-                ),
+                "adjustments_made": len(adjustment_summary["adjustments"].get("adjustments_made", [])),
             }
         )
 
@@ -257,15 +227,11 @@ def run_autonomous_nightly_training():
         rules_summary = rules_opt.run_optimization_cycle()
 
         if rules_summary:
-            logger.info(
-                f"[PHASE 4] Found {rules_summary.get('confusion_pairs', 0)} confusion patterns"
-            )
+            logger.info(f"[PHASE 4] Found {rules_summary.get('confusion_pairs', 0)} confusion patterns")
             if rules_summary.get("top_confusion"):
                 expected, actual = rules_summary["top_confusion"][0]
                 count = rules_summary["top_confusion"][1]
-                logger.info(
-                    f"  - Top confusion: {expected} misclassified as {actual} ({count} times)"
-                )
+                logger.info(f"  - Top confusion: {expected} misclassified as {actual} ({count} times)")
         else:
             logger.info("[PHASE 4] No confusion patterns found (or insufficient data)")
 
@@ -287,18 +253,12 @@ def run_autonomous_nightly_training():
 
         logger.info("[PHASE 5] Pattern Promotion Results:")
         logger.info(f"  - Patterns auto-promoted: {promotion_results['promoted']}")
-        logger.info(
-            f"  - Patterns staged for review: {promotion_results['staged_for_review']}"
-        )
-        logger.info(
-            f"  - Total clusters analyzed: {promotion_results['total_clusters_found']}"
-        )
+        logger.info(f"  - Patterns staged for review: {promotion_results['staged_for_review']}")
+        logger.info(f"  - Total clusters analyzed: {promotion_results['total_clusters_found']}")
 
         # Also promote high-quality patterns from teacher comparison
         for pattern in high_quality_patterns[:3]:  # Top 3 high-quality patterns
-            logger.info(
-                f"  - Suggested promotion: {pattern['intent']} (quality {pattern['avg_quality']:.2f})"
-            )
+            logger.info(f"  - Suggested promotion: {pattern['intent']} (quality {pattern['avg_quality']:.2f})")
 
         pipeline_stats["phases_completed"].append(
             {
@@ -329,9 +289,7 @@ def run_autonomous_nightly_training():
                     corrections = json.load(f)
 
                 if corrections:
-                    logger.info(
-                        f"[ML] Intent refiner would be trained on {len(corrections)} corrections (skipped)"
-                    )
+                    logger.info(f"[ML] Intent refiner would be trained on {len(corrections)} corrections (skipped)")
                     ml_trained["intent"] = True
 
         except Exception as e:
@@ -370,19 +328,13 @@ def run_autonomous_nightly_training():
             },
             "autonomous_improvements": {
                 "corrections_created": correction_results["corrections_added"],
-                "thresholds_adjusted": len(
-                    adjustment_summary["adjustments"].get("adjustments_made", [])
-                ),
-                "confusion_patterns_identified": rules_summary.get(
-                    "confusion_pairs", 0
-                ),
+                "thresholds_adjusted": len(adjustment_summary["adjustments"].get("adjustments_made", [])),
+                "confusion_patterns_identified": rules_summary.get("confusion_pairs", 0),
                 "patterns_auto_promoted": promotion_results["promoted"],
                 "patterns_staged_for_review": promotion_results["staged_for_review"],
             },
             "next_steps": [
-                f"Review {len(problem_patterns)} problem patterns"
-                if problem_patterns
-                else "No problem patterns",
+                f"Review {len(problem_patterns)} problem patterns" if problem_patterns else "No problem patterns",
                 f"Promote {len(high_quality_patterns)} identified high-quality patterns",
                 "Continue collecting real interaction data",
                 "Re-run nightly training to measure improvements",
@@ -393,18 +345,13 @@ def run_autonomous_nightly_training():
         logger.info("\n" + json.dumps(report, indent=2))
 
         # Save report to file
-        report_file = (
-            TRAINING_DIR
-            / f"autonomous_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        )
+        report_file = TRAINING_DIR / f"autonomous_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(report_file, "w") as f:
             json.dump(report, f, indent=2)
 
         logger.info(f"\nReport saved to: {report_file}")
         logger.info("=" * 80)
-        logger.info(
-            f"OK: Autonomous nightly training complete at: {datetime.now().isoformat()}"
-        )
+        logger.info(f"OK: Autonomous nightly training complete at: {datetime.now().isoformat()}")
         logger.info("=" * 80)
 
         return True

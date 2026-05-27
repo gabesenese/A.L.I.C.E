@@ -97,17 +97,13 @@ class LLMGateway:
         self.policy = get_llm_policy()
         self.formatter_registry = FormatterRegistry()
         self.model_router = None
-        self.multi_llm_enabled = os.getenv(
-            "ALICE_MULTI_LLM_ROUTER", "1"
-        ).strip() not in {
+        self.multi_llm_enabled = os.getenv("ALICE_MULTI_LLM_ROUTER", "1").strip() not in {
             "0",
             "false",
             "off",
             "no",
         }
-        self.strict_generation_router = os.getenv(
-            "ALICE_MULTI_LLM_STRICT_GENERATION", "1"
-        ).strip().lower() not in {
+        self.strict_generation_router = os.getenv("ALICE_MULTI_LLM_STRICT_GENERATION", "1").strip().lower() not in {
             "0",
             "false",
             "off",
@@ -135,9 +131,7 @@ class LLMGateway:
             "recent_requests": [],  # Last 100 requests for analysis
         }
 
-        logger.info(
-            "[LLMGateway] Initialized - All LLM calls now gated with advanced telemetry"
-        )
+        logger.info("[LLMGateway] Initialized - All LLM calls now gated with advanced telemetry")
 
     def request(
         self,
@@ -202,16 +196,9 @@ class LLMGateway:
         # Step 3: Route to appropriate LLM method based on call type
         try:
             logger.info(f"[LLMGateway] [CALL] LLM call ({call_type.value})")
-            output_mode = (
-                str((context or {}).get("output_mode") or "final_answer_only")
-                .strip()
-                .lower()
-            )
+            output_mode = str((context or {}).get("output_mode") or "final_answer_only").strip().lower()
 
-            if (
-                self._should_use_multi_router(call_type)
-                and self.model_router is not None
-            ):
+            if self._should_use_multi_router(call_type) and self.model_router is not None:
                 routed = self.model_router.generate(
                     request=prompt or user_input,
                     context={
@@ -219,10 +206,7 @@ class LLMGateway:
                         "call_type": call_type.value,
                     },
                 )
-                if (
-                    routed.get("response")
-                    and float(routed.get("confidence", 0.0)) > 0.0
-                ):
+                if routed.get("response") and float(routed.get("confidence", 0.0)) > 0.0:
                     response = str(routed.get("response"))
                     model_used = str(routed.get("model") or "")
                     self.stats["multi_router_calls"] += 1
@@ -232,9 +216,7 @@ class LLMGateway:
                         "source": "multi_router",
                         "call_type": call_type.value,
                         "model": model_used,
-                        "role": (
-                            getattr(self.model_router, "last_route", {}) or {}
-                        ).get("role", ""),
+                        "role": (getattr(self.model_router, "last_route", {}) or {}).get("role", ""),
                     }
                     return LLMResponse(
                         success=True,
@@ -243,23 +225,16 @@ class LLMGateway:
                         model_used=model_used,
                         route_source="multi_router",
                     )
-                if (
-                    call_type == LLMCallType.GENERATION
-                    and self.strict_generation_router
-                ):
+                if call_type == LLMCallType.GENERATION and self.strict_generation_router:
                     _raw_err = str(routed.get("response") or "")
                     if _raw_err:
-                        logger.info(
-                            "[LLMGateway] strict generation blocked: %s", _raw_err
-                        )
+                        logger.info("[LLMGateway] strict generation blocked: %s", _raw_err)
                     err = "Primary generation route is unavailable right now."
                     self._last_route = {
                         "source": "multi_router",
                         "call_type": call_type.value,
                         "model": str(routed.get("model") or ""),
-                        "role": (
-                            getattr(self.model_router, "last_route", {}) or {}
-                        ).get("role", ""),
+                        "role": (getattr(self.model_router, "last_route", {}) or {}).get("role", ""),
                     }
                     return LLMResponse(
                         success=False,
@@ -279,42 +254,20 @@ class LLMGateway:
 
             elif call_type == LLMCallType.PARSE_INPUT:
                 # Alice asks Ollama to parse complex input
-                input_to_parse = (
-                    context.get("input_to_parse", user_input) if context else user_input
-                )
+                input_to_parse = context.get("input_to_parse", user_input) if context else user_input
                 parsed_result = self.llm.parse_complex_input(input_to_parse)
-                response = json.dumps(
-                    parsed_result, indent=2
-                )  # Return as formatted JSON
+                response = json.dumps(parsed_result, indent=2)  # Return as formatted JSON
 
             elif call_type == LLMCallType.PHRASE_RESPONSE:
                 # Alice asks Ollama to phrase her structured thought
-                alice_thought = (
-                    context.get("alice_thought", prompt) if context else prompt
-                )
-                tone = (
-                    context.get("tone", "warm and helpful")
-                    if context
-                    else "warm and helpful"
-                )
-                phrasing_context = {
-                    "user_name": (
-                        context.get("user_name", "the user") if context else "the user"
-                    )
-                }
-                response = self.llm.phrase_with_tone(
-                    alice_thought, tone, phrasing_context
-                )
+                alice_thought = context.get("alice_thought", prompt) if context else prompt
+                tone = context.get("tone", "warm and helpful") if context else "warm and helpful"
+                phrasing_context = {"user_name": (context.get("user_name", "the user") if context else "the user")}
+                response = self.llm.phrase_with_tone(alice_thought, tone, phrasing_context)
 
             elif call_type == LLMCallType.PHRASE_MICRO:
-                source_text = str(
-                    context.get("alice_thought", prompt) if context else prompt
-                ).strip()
-                tone = (
-                    context.get("tone", "warm and helpful")
-                    if context
-                    else "warm and helpful"
-                )
+                source_text = str(context.get("alice_thought", prompt) if context else prompt).strip()
+                tone = context.get("tone", "warm and helpful") if context else "warm and helpful"
                 micro_prompt = (
                     "Polish this text only. Keep meaning unchanged. "
                     "No new facts. Keep it under 26 words.\n\n"
@@ -327,14 +280,8 @@ class LLMGateway:
                 )
 
             elif call_type == LLMCallType.PHRASE_STRUCTURED:
-                payload = (
-                    context.get("structured_payload", prompt) if context else prompt
-                )
-                tone = (
-                    context.get("tone", "warm and helpful")
-                    if context
-                    else "warm and helpful"
-                )
+                payload = context.get("structured_payload", prompt) if context else prompt
+                tone = context.get("tone", "warm and helpful") if context else "warm and helpful"
                 rewrite_prompt = (
                     "Rewrite this structured payload into one concise user-facing reply. "
                     "Use only payload facts. Do not add extra details.\n\n"
@@ -348,15 +295,11 @@ class LLMGateway:
 
             elif call_type == LLMCallType.AUDIT_LOGIC:
                 # Alice asks Ollama to verify her reasoning
-                logic_chain = (
-                    context.get("logic_chain", [prompt]) if context else [prompt]
-                )
+                logic_chain = context.get("logic_chain", [prompt]) if context else [prompt]
                 if not isinstance(logic_chain, list):
                     logic_chain = [logic_chain]
                 audit_result = self.llm.audit_logic(logic_chain)
-                response = json.dumps(
-                    audit_result, indent=2
-                )  # Return as formatted JSON
+                response = json.dumps(audit_result, indent=2)  # Return as formatted JSON
 
             elif call_type == LLMCallType.GENERATION:
                 response = self._generation_last_resort(
@@ -435,13 +378,9 @@ class LLMGateway:
         cfg = getattr(self.llm, "config", None)
         if cfg is None:
             return "unknown"
-        return str(
-            getattr(cfg, "active_model", None) or getattr(cfg, "model", "unknown")
-        )
+        return str(getattr(cfg, "active_model", None) or getattr(cfg, "model", "unknown"))
 
-    def _try_formatter(
-        self, tool_name: str, data: Dict[str, Any], context: Dict[str, Any]
-    ) -> Optional[str]:
+    def _try_formatter(self, tool_name: str, data: Dict[str, Any], context: Dict[str, Any]) -> Optional[str]:
         """
         Try to format tool output without LLM
 
@@ -492,9 +431,7 @@ class LLMGateway:
                 "intent": intent,
                 "entities": sanitize_for_learning(entities or {}),
                 "context": {
-                    k: v
-                    for k, v in safe_context.items()
-                    if k not in ["llm_engine", "memory_system", "plugin_manager"]
+                    k: v for k, v in safe_context.items() if k not in ["llm_engine", "memory_system", "plugin_manager"]
                 },
                 "llm_response": redact_text(llm_response or ""),
                 "call_type": "LLM_FALLBACK",
@@ -611,9 +548,7 @@ class LLMGateway:
 
         return False
 
-    def _build_tool_format_prompt(
-        self, tool_name: str, data: Dict[str, Any], user_input: str
-    ) -> str:
+    def _build_tool_format_prompt(self, tool_name: str, data: Dict[str, Any], user_input: str) -> str:
         """Build LLM prompt for formatting tool output"""
         return f"""The user asked: "{user_input}"
 
@@ -645,9 +580,7 @@ Be conversational and helpful. Do not mention the tool name or technical details
             pass
 
         # 2) Knowledge assist for direct question-like prompts.
-        if base_text.endswith("?") or any(
-            q in base_text.lower() for q in ("what", "why", "how", "when", "where")
-        ):
+        if base_text.endswith("?") or any(q in base_text.lower() for q in ("what", "why", "how", "when", "where")):
             try:
                 knowledge = str(self.llm.query_knowledge(base_text) or "").strip()
                 if knowledge:
@@ -680,36 +613,24 @@ Be conversational and helpful. Do not mention the tool name or technical details
 
         stats = {
             **self.stats,
-            "self_handler_percentage": round(
-                100 * self.stats["self_handlers"] / total, 1
-            ),
-            "pattern_hit_percentage": round(
-                100 * self.stats["pattern_hits"] / total, 1
-            ),
+            "self_handler_percentage": round(100 * self.stats["self_handlers"] / total, 1),
+            "pattern_hit_percentage": round(100 * self.stats["pattern_hits"] / total, 1),
             "tool_call_percentage": round(100 * self.stats["tool_calls"] / total, 1),
             "rag_lookup_percentage": round(100 * self.stats["rag_lookups"] / total, 1),
             "llm_fallback_percentage": round(100 * self.stats["llm_calls"] / total, 1),
-            "formatter_percentage": round(
-                100 * self.stats["formatter_calls"] / total, 1
-            ),
-            "multi_router_percentage": round(
-                100 * self.stats["multi_router_calls"] / total, 1
-            ),
+            "formatter_percentage": round(100 * self.stats["formatter_calls"] / total, 1),
+            "multi_router_percentage": round(100 * self.stats["multi_router_calls"] / total, 1),
             "denial_percentage": round(100 * self.stats["policy_denials"] / total, 1),
-            "multi_llm_enabled": bool(
-                self.multi_llm_enabled and self.model_router is not None
-            ),
+            "multi_llm_enabled": bool(self.multi_llm_enabled and self.model_router is not None),
             "strict_generation_router": bool(self.strict_generation_router),
             "model_roles": (
                 self.model_router.describe_models()
-                if self.model_router is not None
-                and hasattr(self.model_router, "describe_models")
+                if self.model_router is not None and hasattr(self.model_router, "describe_models")
                 else {}
             ),
             "model_runtime_status": (
                 self.model_router.runtime_status()
-                if self.model_router is not None
-                and hasattr(self.model_router, "runtime_status")
+                if self.model_router is not None and hasattr(self.model_router, "runtime_status")
                 else {}
             ),
             "last_route": dict(self._last_route or {}),

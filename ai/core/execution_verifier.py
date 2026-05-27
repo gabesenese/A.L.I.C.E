@@ -77,10 +77,7 @@ class ExecutionVerifier:
 
             criteria_results[criterion] = bool(met)
             if not met:
-                issues.append(
-                    "success_criterion_not_met:"
-                    + re.sub(r"\s+", "_", criterion_lower)[:64]
-                )
+                issues.append("success_criterion_not_met:" + re.sub(r"\s+", "_", criterion_lower)[:64])
 
         confidence = 1.0 - (0.25 * len(issues))
         confidence = max(0.0, min(1.0, confidence))

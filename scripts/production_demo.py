@@ -156,9 +156,7 @@ def _mock_queries(runtime: Dict[str, Any]) -> List[Dict[str, Any]]:
             "and learn from our interactions."
         ),
         "Write a Python function to sort an array": (
-            "def sort_array(arr):\n"
-            "    return sorted(arr)\n\n"
-            "result = sort_array([64, 34, 25, 12, 22, 11, 90])"
+            "def sort_array(arr):\n    return sorted(arr)\n\nresult = sort_array([64, 34, 25, 12, 22, 11, 90])"
         ),
     }
 
@@ -250,9 +248,7 @@ def _print_summary(results: List[Dict[str, Any]]) -> None:
         print(f"  Domain: {row['domain']}")
         print(f"  Response: {row['response']}")
         print(
-            "  Latency: "
-            f"{total_ms:.1f}ms (NLP:{row['nlp_ms']:.1f} + "
-            f"CTX:{row['ctx_ms']:.1f} + LLM:{row['llm_ms']:.1f})"
+            f"  Latency: {total_ms:.1f}ms (NLP:{row['nlp_ms']:.1f} + CTX:{row['ctx_ms']:.1f} + LLM:{row['llm_ms']:.1f})"
         )
 
     print("\n" + "=" * 70)

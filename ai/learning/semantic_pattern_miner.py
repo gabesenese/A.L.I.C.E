@@ -134,9 +134,7 @@ class SemanticPatternMiner:
         vec2 = self._get_embedding(text2)
         return SimpleEmbedding.cosine_similarity(vec1, vec2)
 
-    def cluster_by_semantics(
-        self, interactions: List[Dict[str, Any]]
-    ) -> Dict[str, List[Dict[str, Any]]]:
+    def cluster_by_semantics(self, interactions: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """
         Cluster interactions by semantic similarity of user inputs.
 
@@ -178,9 +176,7 @@ class SemanticPatternMiner:
 
         return clusters
 
-    def extract_pattern_from_cluster(
-        self, cluster_key: str, interactions: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def extract_pattern_from_cluster(self, cluster_key: str, interactions: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Extract a pattern from a semantic cluster.
 
@@ -202,9 +198,9 @@ class SemanticPatternMiner:
 
         # Calculate pattern quality
         intent_agreement = intent_counter.most_common(1)[0][1] / len(intents)
-        cluster_cohesion = sum(
-            self._similarity(user_inputs[0], inp) for inp in user_inputs[1:]
-        ) / max(len(user_inputs) - 1, 1)
+        cluster_cohesion = sum(self._similarity(user_inputs[0], inp) for inp in user_inputs[1:]) / max(
+            len(user_inputs) - 1, 1
+        )
 
         quality_score = (intent_agreement + cluster_cohesion) / 2
 
@@ -262,18 +258,12 @@ class SemanticPatternMiner:
         patterns = self.mine_semantic_patterns()
 
         # Filter by quality
-        high_quality_patterns = [
-            p for p in patterns if p["quality_score"] >= min_quality
-        ]
+        high_quality_patterns = [p for p in patterns if p["quality_score"] >= min_quality]
 
         # Update metadata
         self.semantic_patterns["patterns"] = high_quality_patterns
-        self.semantic_patterns["metadata"]["total_patterns"] = len(
-            high_quality_patterns
-        )
-        self.semantic_patterns["metadata"]["total_interactions_analyzed"] = len(
-            self._load_interactions()
-        )
+        self.semantic_patterns["metadata"]["total_patterns"] = len(high_quality_patterns)
+        self.semantic_patterns["metadata"]["total_interactions_analyzed"] = len(self._load_interactions())
         self.semantic_patterns["metadata"]["last_updated"] = datetime.now().isoformat()
 
         # Build intent clusters
@@ -284,9 +274,7 @@ class SemanticPatternMiner:
 
         self._save_semantic_patterns()
 
-        logger.info(
-            f"Updated {len(high_quality_patterns)} high-quality semantic patterns"
-        )
+        logger.info(f"Updated {len(high_quality_patterns)} high-quality semantic patterns")
         return high_quality_patterns
 
     def get_intent_patterns(self, intent: str) -> List[Dict[str, Any]]:
@@ -309,9 +297,7 @@ class SemanticPatternMiner:
         similarities = []
         for pattern in self.semantic_patterns["patterns"]:
             for example in pattern.get("examples", []):
-                sim = SimpleEmbedding.cosine_similarity(
-                    input_vec, self._get_embedding(example)
-                )
+                sim = SimpleEmbedding.cosine_similarity(input_vec, self._get_embedding(example))
                 similarities.append((pattern, sim))
 
         # Return top-k unique patterns
@@ -333,11 +319,7 @@ class SemanticPatternMiner:
 
         return {
             "total_patterns": len(patterns),
-            "average_quality": (
-                sum(p["quality_score"] for p in patterns) / len(patterns)
-                if patterns
-                else 0
-            ),
+            "average_quality": (sum(p["quality_score"] for p in patterns) / len(patterns) if patterns else 0),
             "intent_distribution": dict(intents),
             "top_intents": intents.most_common(5),
             "last_updated": self.semantic_patterns["metadata"].get("last_updated"),

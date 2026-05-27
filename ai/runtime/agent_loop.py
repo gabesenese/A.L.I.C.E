@@ -165,23 +165,16 @@ class AgentLoop:
             step.status = "completed" if obs.success else "failed"
             executed.append(step.step_id)
             if obs.success:
-                record_success(
-                    "agent_loop_step", obs.summary or step.reason, user_id=user_id
-                )
+                record_success("agent_loop_step", obs.summary or step.reason, user_id=user_id)
                 if str(obs.inspected_file or "").strip():
                     record_file_inspected(str(obs.inspected_file), user_id=user_id)
             else:
-                record_failure(
-                    "agent_loop_step", obs.error or step.reason, user_id=user_id
-                )
+                record_failure("agent_loop_step", obs.error or step.reason, user_id=user_id)
 
         inspected_files = list(state.get("files_inspected") or [])
         if observations:
             for observation in observations:
-                if (
-                    observation.success
-                    and str(observation.inspected_file or "").strip()
-                ):
+                if observation.success and str(observation.inspected_file or "").strip():
                     inspected_files.append(str(observation.inspected_file))
         inspected_files = self._dedupe_preserve(inspected_files)
         last_inspected_file = (
@@ -298,9 +291,7 @@ class AgentLoop:
             )
         if intent in {"operator:continue", "operator:execute_recommended_action"}:
             last_recommended = dict(
-                state.get("last_recommended_action")
-                or project.get("last_recommended_action")
-                or {}
+                state.get("last_recommended_action") or project.get("last_recommended_action") or {}
             )
             suggested_state = list(state.get("suggested_next_files") or [])
             suggested_project = list(project.get("suggested_next_files") or [])
@@ -316,8 +307,7 @@ class AgentLoop:
                 step_id="step_continue",
                 action="analyze_file" if target else "plan",
                 target=str(target or ""),
-                reason=reason
-                or "Continue should execute one safe step toward active objective.",
+                reason=reason or "Continue should execute one safe step toward active objective.",
                 safety_level="safe_read",
                 requires_approval=False,
             )
@@ -410,9 +400,7 @@ def build_agent_loop_state(
         user_input=user_input,
         operator_state={
             "active_objective": active_objective,
-            "last_inspected_file": str(
-                (local_execution or {}).get("inspected_file") or ""
-            ),
+            "last_inspected_file": str((local_execution or {}).get("inspected_file") or ""),
         },
         project_memory=project,
         routing_result={
@@ -426,9 +414,6 @@ def build_agent_loop_state(
     )
     payload = result.to_dict()
     # Backward compatibility for existing golden expectations.
-    if (
-        payload.get("executed_steps")
-        and "execute_safe_step" not in payload["executed_steps"]
-    ):
+    if payload.get("executed_steps") and "execute_safe_step" not in payload["executed_steps"]:
         payload["executed_steps"].append("execute_safe_step")
     return payload

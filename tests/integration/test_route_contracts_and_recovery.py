@@ -35,7 +35,5 @@ def test_recovery_improvement_and_failure_clustering():
     )
     assert result["rolled_back"] is True
 
-    snippet = stack.regression_generator.generate_test_snippet(
-        {"signature": "timeout bug", "error": "timeout"}
-    )
+    snippet = stack.regression_generator.generate_test_snippet({"signature": "timeout bug", "error": "timeout"})
     assert "test_generated_" in snippet

@@ -48,9 +48,7 @@ class ReflectionEngine:
         response = (response or "").strip()
         quality_metrics = quality_metrics or {}
         relevance = self._relevance_score(user_input, response)
-        topic_adherence = float(
-            quality_metrics.get("topic_adherence", relevance) or relevance
-        )
+        topic_adherence = float(quality_metrics.get("topic_adherence", relevance) or relevance)
         alignment = float(quality_metrics.get("alignment", 1.0) or 1.0)
         adherence = float(
             quality_metrics.get(
@@ -63,18 +61,11 @@ class ReflectionEngine:
         correct_like = gate_accepted and is_relevant and len(response) > 8
 
         success_score = (
-            (0.45 if gate_accepted else 0.0)
-            + (0.30 * relevance)
-            + (0.15 * topic_adherence)
-            + (0.10 * adherence)
+            (0.45 if gate_accepted else 0.0) + (0.30 * relevance) + (0.15 * topic_adherence) + (0.10 * adherence)
         )
         success_score = max(0.0, min(1.0, success_score))
 
-        confidence_adjustment = (
-            0.08
-            if success_score >= 0.70
-            else (-0.10 if success_score < 0.45 else -0.02)
-        )
+        confidence_adjustment = 0.08 if success_score >= 0.70 else (-0.10 if success_score < 0.45 else -0.02)
 
         routing_adjustments: Dict[str, float] = {}
         route_key = route if route in ("llm", "tools", "search", "memory") else "llm"
@@ -90,21 +81,15 @@ class ReflectionEngine:
             routing_adjustments["tools"] = routing_adjustments.get("tools", 0.0) + 0.03
             routing_adjustments["llm"] = routing_adjustments.get("llm", 0.0) - 0.03
         elif failure_type == "topic_drift":
-            routing_adjustments["clarify"] = (
-                routing_adjustments.get("clarify", 0.0) + 0.03
-            )
+            routing_adjustments["clarify"] = routing_adjustments.get("clarify", 0.0) + 0.03
         elif failure_type in ("weak_knowledge", "overgeneralization"):
-            routing_adjustments["search"] = (
-                routing_adjustments.get("search", 0.0) + 0.02
-            )
+            routing_adjustments["search"] = routing_adjustments.get("search", 0.0) + 0.02
             routing_adjustments["llm"] = routing_adjustments.get("llm", 0.0) - 0.02
 
         # If decision scores were very close, favor clarification slightly next turn.
         ranked = sorted((decision_scores or {}).values(), reverse=True)
         if len(ranked) >= 2 and (ranked[0] - ranked[1]) < 0.10:
-            routing_adjustments["clarify"] = (
-                routing_adjustments.get("clarify", 0.0) + 0.02
-            )
+            routing_adjustments["clarify"] = routing_adjustments.get("clarify", 0.0) + 0.02
 
         return ReflectionResult(
             was_correct=bool(correct_like),

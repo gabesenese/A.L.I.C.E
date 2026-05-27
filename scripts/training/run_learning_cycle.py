@@ -151,10 +151,7 @@ def run_learning_cycle():
             signals.extend(generated)
 
             for signal in generated:
-                print(
-                    f"  {result['domain']}: {signal.signal_type} "
-                    f"(score: {result['audit_score']:.1f})"
-                )
+                print(f"  {result['domain']}: {signal.signal_type} (score: {result['audit_score']:.1f})")
 
         # Step 5: Store feedback for training
         print("\n[5/5] Storing feedback for learning...")
@@ -180,9 +177,7 @@ def run_learning_cycle():
         print(f"   Improvement needed:   {improvement}")
         print(f"  Negative signals:     {negative}")
 
-        avg_score = (
-            sum(r["audit_score"] for r in results) / len(results) if results else 0
-        )
+        avg_score = sum(r["audit_score"] for r in results) / len(results) if results else 0
         print(f"\n  Average Score: {avg_score:.2f}/5.0")
 
         if positive + improvement > negative:

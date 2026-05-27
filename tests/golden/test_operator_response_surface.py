@@ -12,13 +12,10 @@ def test_operator_surface_strips_service_chatter():
         operator_state={},
         local_execution={
             "success": True,
-            "analysis": {
-                "summary": "it owns the bounded operator loop: plan, act, observe, verify, and update state"
-            },
+            "analysis": {"summary": "it owns the bounded operator loop: plan, act, observe, verify, and update state"},
         },
         next_step=(
-            "inspect ai/runtime/next_step_policy.py because it decides what Alice should do "
-            "after each safe step"
+            "inspect ai/runtime/next_step_policy.py because it decides what Alice should do after each safe step"
         ),
     )
     low = out.lower()
@@ -40,13 +37,10 @@ def test_local_success_with_inspected_file():
         local_execution={
             "success": True,
             "inspected_file": "ai/runtime/agent_loop.py",
-            "analysis": {
-                "summary": "it owns the bounded operator loop: plan, act, observe, verify, and update state"
-            },
+            "analysis": {"summary": "it owns the bounded operator loop: plan, act, observe, verify, and update state"},
         },
         next_step=(
-            "inspect ai/runtime/next_step_policy.py because it decides what Alice should do "
-            "after each safe step"
+            "inspect ai/runtime/next_step_policy.py because it decides what Alice should do after each safe step"
         ),
     )
     low = out.lower()
@@ -84,9 +78,7 @@ def test_no_hardcoded_context_ack_in_operator_surface():
         operator_state={},
         local_execution={
             "success": True,
-            "analysis": {
-                "summary": "it owns the bounded operator loop: plan, act, observe, verify, and update state"
-            },
+            "analysis": {"summary": "it owns the bounded operator loop: plan, act, observe, verify, and update state"},
         },
         next_step="inspect ai/runtime/next_step_policy.py because it decides what Alice should do after each safe step",
     )

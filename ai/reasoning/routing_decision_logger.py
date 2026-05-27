@@ -161,9 +161,7 @@ class RoutingDecisionLogger:
 
         return decision
 
-    def record_outcome(
-        self, decision_id: str, success: bool, error_message: Optional[str] = None
-    ) -> None:
+    def record_outcome(self, decision_id: str, success: bool, error_message: Optional[str] = None) -> None:
         """Record the outcome of a routing decision."""
         for decision in self.decisions:
             if decision.decision_id == decision_id:
@@ -171,9 +169,7 @@ class RoutingDecisionLogger:
                 decision.execution_error = error_message
 
                 # Update success rate
-                route_key = (
-                    f"{decision.winning_candidate}_{decision.decision_type.value}"
-                )
+                route_key = f"{decision.winning_candidate}_{decision.decision_type.value}"
                 current_rate = self.routing_success_rates.get(route_key, 0.0)
                 total = self.routing_stats.get(route_key, 1)
 
@@ -217,10 +213,10 @@ I routed your request as follows:
                         explanation += f"\n  • {cand.name} ({cand.score:.2f}): {cand.reasoning[:50]}"
 
                 if decision.uncertainty_level > 0.3:
+                    explanation += "\n\n⚠️ Note: I'm not very confident in this decision. "
                     explanation += (
-                        "\n\n⚠️ Note: I'm not very confident in this decision. "
+                        f"Please correct me if I misunderstood (uncertainty: {decision.uncertainty_level * 100:.0f}%)"
                     )
-                    explanation += f"Please correct me if I misunderstood (uncertainty: {decision.uncertainty_level * 100:.0f}%)"
 
                 return explanation.strip()
 
@@ -244,28 +240,18 @@ I routed your request as follows:
         # Calculate effectiveness
         effectiveness = {}
         for route, stats in by_route.items():
-            success_rate = (
-                stats["successful"] / stats["total"] if stats["total"] > 0 else 0.0
-            )
+            success_rate = stats["successful"] / stats["total"] if stats["total"] > 0 else 0.0
             effectiveness[route] = {
                 "usage_count": stats["total"],
                 "success_rate": success_rate,
-                "reliability": (
-                    "high"
-                    if success_rate > 0.8
-                    else "medium"
-                    if success_rate > 0.6
-                    else "low"
-                ),
+                "reliability": ("high" if success_rate > 0.8 else "medium" if success_rate > 0.6 else "low"),
             }
 
         return {
             "total_decisions": len(self.decisions),
             "by_route": effectiveness,
             "most_used": max(by_route.items(), key=lambda x: x[1]["total"])[0],
-            "most_reliable": max(
-                by_route.items(), key=lambda x: x[1]["successful"] / x[1]["total"]
-            )[0],
+            "most_reliable": max(by_route.items(), key=lambda x: x[1]["successful"] / x[1]["total"])[0],
         }
 
     def get_problem_routes(self) -> List[Dict[str, Any]]:
@@ -315,17 +301,13 @@ I routed your request as follows:
         recent = self.decisions[-20:]
         confidences = [d.intent_confidence for d in recent]
         avg_confidence = sum(confidences) / len(confidences)
-        confidence_variance = sum((c - avg_confidence) ** 2 for c in confidences) / len(
-            confidences
-        )
+        confidence_variance = sum((c - avg_confidence) ** 2 for c in confidences) / len(confidences)
         consistency_score = 1.0 / (1.0 + confidence_variance)
 
         # Calculate routing diversity (lower = more predictable)
         routes = [d.winning_candidate for d in recent]
         unique_routes = len(set(routes))
-        diversity_score = 1.0 - (
-            unique_routes / len(routes)
-        )  # More routes = less predictable
+        diversity_score = 1.0 - (unique_routes / len(routes))  # More routes = less predictable
 
         # Combine scores
         predictability = (consistency_score + diversity_score) / 2.0
@@ -339,19 +321,9 @@ I routed your request as follows:
         lines = ["Recent Routing Decisions:", "=" * 70]
 
         for decision in self.decisions[-max_entries:]:
-            symbol = (
-                "✓"
-                if decision.execution_success
-                else "✗"
-                if decision.execution_success is False
-                else "?"
-            )
-            lines.append(
-                f"{symbol} {decision.decision_id}: {decision.classified_intent}"
-            )
-            lines.append(
-                f"   → {decision.winning_candidate} (conf={decision.intent_confidence:.0%})"
-            )
+            symbol = "✓" if decision.execution_success else "✗" if decision.execution_success is False else "?"
+            lines.append(f"{symbol} {decision.decision_id}: {decision.classified_intent}")
+            lines.append(f"   → {decision.winning_candidate} (conf={decision.intent_confidence:.0%})")
             if decision.execution_error:
                 lines.append(f"   Error: {decision.execution_error[:60]}")
 

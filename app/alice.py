@@ -24,10 +24,18 @@ os.environ["TRANSFORMERS_VERBOSITY"] = "error"  # silence HuggingFace load repor
 # Set minimal logging — ERROR only so internal INFO/WARNING never reach the UI
 logging.basicConfig(level=logging.ERROR, format="%(message)s")
 for logger_name in [
-    "tensorflow", "torch", "sentence_transformers", "transformers",
-    "googleapiclient", "googleapiclient.discovery_cache",
-    "google.auth", "google.auth.transport",
-    "ai.memory", "ai.plugins", "ai.core", "ai.runtime",
+    "tensorflow",
+    "torch",
+    "sentence_transformers",
+    "transformers",
+    "googleapiclient",
+    "googleapiclient.discovery_cache",
+    "google.auth",
+    "google.auth.transport",
+    "ai.memory",
+    "ai.plugins",
+    "ai.core",
+    "ai.runtime",
     "ai.memory.maintenance_scheduler",
 ]:
     logging.getLogger(logger_name).setLevel(logging.ERROR)
@@ -86,9 +94,7 @@ def start_alice_rich(
         ui.clear()
         ui.show_welcome()
         if debug:
-            ui.print_info(
-                "Debug mode: A.L.I.C.E thinking steps will appear above each response."
-            )
+            ui.print_info("Debug mode: A.L.I.C.E thinking steps will appear above each response.")
         if privacy_mode:
             ui.print_info(" Privacy mode: Episodic memories will not be saved.")
         ui.print_info("")

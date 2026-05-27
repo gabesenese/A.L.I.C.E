@@ -59,9 +59,7 @@ class DocumentProcessor:
             ".csv",
         }
 
-    def process_file(
-        self, file_path: str
-    ) -> Tuple[str, List[DocumentChunk], Dict[str, Any]]:
+    def process_file(self, file_path: str) -> Tuple[str, List[DocumentChunk], Dict[str, Any]]:
         """
         Process a file and extract text content with chunks
 
@@ -108,12 +106,8 @@ class DocumentProcessor:
             "filepath": str(file_path),  # Ensure string for JSON serialization
             "extension": extension,
             "file_size": file_path.stat().st_size,
-            "created_date": datetime.fromtimestamp(
-                file_path.stat().st_ctime
-            ).isoformat(),
-            "modified_date": datetime.fromtimestamp(
-                file_path.stat().st_mtime
-            ).isoformat(),
+            "created_date": datetime.fromtimestamp(file_path.stat().st_ctime).isoformat(),
+            "modified_date": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat(),
             "file_hash": self._calculate_file_hash(file_path),
             "total_chunks": len(chunks),
             "total_characters": len(text),
@@ -171,9 +165,7 @@ class DocumentProcessor:
                 text += paragraph.text + "\n"
             return text
         except ImportError:
-            logger.warning(
-                "python-docx not installed. Install with: pip install python-docx"
-            )
+            logger.warning("python-docx not installed. Install with: pip install python-docx")
             raise ImportError("python-docx required for DOCX processing")
 
     def _extract_text_from_html(self, file_path: Path) -> str:
@@ -189,9 +181,7 @@ class DocumentProcessor:
                 script.decompose()
             return soup.get_text(separator=" ", strip=True)
         except ImportError:
-            logger.warning(
-                "beautifulsoup4 not installed. Install with: pip install beautifulsoup4"
-            )
+            logger.warning("beautifulsoup4 not installed. Install with: pip install beautifulsoup4")
             # Fallback: simple HTML tag removal
             import re
 
@@ -325,17 +315,13 @@ class VectorStore:
     def add(self, id: str, vector: np.ndarray, metadata: Dict):
         """Add vector to store"""
         if len(vector) != self.dimension:
-            raise ValueError(
-                f"Vector dimension mismatch: expected {self.dimension}, got {len(vector)}"
-            )
+            raise ValueError(f"Vector dimension mismatch: expected {self.dimension}, got {len(vector)}")
 
         self.ids.append(id)
         self.vectors.append(vector)
         self.metadata.append(metadata)
 
-    def search(
-        self, query_vector: np.ndarray, top_k: int = 5
-    ) -> List[Tuple[str, float, Dict]]:
+    def search(self, query_vector: np.ndarray, top_k: int = 5) -> List[Tuple[str, float, Dict]]:
         """
         Search for similar vectors using cosine similarity
 
@@ -440,9 +426,7 @@ class MemorySystem:
         self.turns_since_consolidation += 1
 
         if self.turns_since_consolidation >= self.consolidation_interval:
-            logger.info(
-                f" Running periodic memory consolidation (after {self.turns_since_consolidation} turns)"
-            )
+            logger.info(f" Running periodic memory consolidation (after {self.turns_since_consolidation} turns)")
             self.consolidate_memories(max_episodic=1000, auto_deduplicate=True)
             self.turns_since_consolidation = 0
 
@@ -456,14 +440,10 @@ class MemorySystem:
 
                 # Set longer timeout for model download
                 os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60"
-                self._embedding_model = SentenceTransformer(
-                    "all-MiniLM-L6-v2", device="cpu"
-                )
+                self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
                 logger.info("Embedding model loaded (sentence-transformers)")
             except ImportError:
-                logger.warning(
-                    "[WARNING] sentence-transformers not installed. Using simple embeddings."
-                )
+                logger.warning("[WARNING] sentence-transformers not installed. Using simple embeddings.")
                 logger.warning("   Install with: pip install sentence-transformers")
                 # Fallback to simple TF-IDF based embeddings
                 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -472,9 +452,7 @@ class MemorySystem:
                 self._tfidf_fitted = False  # Track if TF-IDF has been fitted
                 self._tfidf_corpus = []  # Collect texts for fitting
             except Exception as e:
-                logger.warning(
-                    f"[WARNING] Failed to load sentence-transformers model: {e}"
-                )
+                logger.warning(f"[WARNING] Failed to load sentence-transformers model: {e}")
                 logger.warning("   Falling back to simple TF-IDF embeddings.")
                 # Fallback to simple TF-IDF based embeddings
                 try:
@@ -484,9 +462,7 @@ class MemorySystem:
                     self._tfidf_fitted = False  # Track if TF-IDF has been fitted
                     self._tfidf_corpus = []  # Collect texts for fitting
                 except ImportError:
-                    logger.error(
-                        "sklearn not available either. Embeddings will be disabled."
-                    )
+                    logger.error("sklearn not available either. Embeddings will be disabled.")
                     self._embedding_model = None
 
         return self._embedding_model
@@ -724,17 +700,13 @@ class MemorySystem:
             dt = datetime.fromisoformat(str(ts).rstrip("Z"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            age_hours = max(
-                0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
-            )
+            age_hours = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0)
             # Half-life-like decay: older memories still contribute but less.
             return math.exp(-0.035 * age_hours)
         except (ValueError, TypeError):
             return 0.5
 
-    def _estimate_confidence(
-        self, entry: Optional[MemoryEntry], recall_row: Dict[str, Any]
-    ) -> float:
+    def _estimate_confidence(self, entry: Optional[MemoryEntry], recall_row: Dict[str, Any]) -> float:
         """Estimate memory confidence from metadata with reasonable fallbacks."""
         if entry and isinstance(entry.context, dict):
             raw_conf = entry.context.get("confidence")
@@ -807,12 +779,7 @@ class MemorySystem:
             confidence = self._estimate_confidence(entry, row)
             source_reliability = self._estimate_source_reliability(entry)
 
-            weighted_score = (
-                relevance * 0.5
-                + recency * 0.2
-                + confidence * 0.2
-                + source_reliability * 0.1
-            )
+            weighted_score = relevance * 0.5 + recency * 0.2 + confidence * 0.2 + source_reliability * 0.1
 
             weighted.append(
                 {
@@ -872,9 +839,7 @@ class MemorySystem:
             parts = ["Relevant information from memory (weighted):"]
             for i, mem in enumerate(candidates[:max_memories], 1):
                 ws = float(mem.get("weighted_score", 0.0))
-                parts.append(
-                    f"{i}. {mem['content']} (score {ws:.2f}, from {mem['timestamp'][:10]})"
-                )
+                parts.append(f"{i}. {mem['content']} (score {ws:.2f}, from {mem['timestamp'][:10]})")
             return "\n".join(parts)
 
     def ingest_document(
@@ -893,9 +858,7 @@ class MemorySystem:
         """
         try:
             # Process the document
-            full_text, chunks, metadata = self.document_processor.process_file(
-                file_path
-            )
+            full_text, chunks, metadata = self.document_processor.process_file(file_path)
 
             # Check if document was already ingested (by hash)
             file_hash = metadata["file_hash"]
@@ -938,9 +901,7 @@ class MemorySystem:
             # Register document
             self.document_registry[file_hash] = {
                 "document_id": doc_id,
-                "file_path": str(
-                    file_path
-                ),  # Convert Path to string for JSON serialization
+                "file_path": str(file_path),  # Convert Path to string for JSON serialization
                 "metadata": metadata,
                 "chunk_ids": chunk_ids,
                 "chunks_created": len(chunks),
@@ -953,9 +914,7 @@ class MemorySystem:
             self._save_document_registry()
             self._save_memories()
 
-            logger.info(
-                f"Document ingested: {metadata['filename']} ({len(chunks)} chunks)"
-            )
+            logger.info(f"Document ingested: {metadata['filename']} ({len(chunks)} chunks)")
 
             return {
                 "status": "success",
@@ -1018,11 +977,7 @@ class MemorySystem:
 
         supported_files = []
         for file_path in files:
-            if (
-                file_path.is_file()
-                and file_path.suffix.lower()
-                in self.document_processor.supported_extensions
-            ):
+            if file_path.is_file() and file_path.suffix.lower() in self.document_processor.supported_extensions:
                 # Apply file patterns if specified
                 if file_patterns:
                     if not any(file_path.match(pattern) for pattern in file_patterns):
@@ -1057,18 +1012,12 @@ class MemorySystem:
 
             except Exception as e:
                 results["failed"] += 1
-                results["details"].append(
-                    {"file": str(file_path), "status": "error", "message": str(e)}
-                )
+                results["details"].append({"file": str(file_path), "status": "error", "message": str(e)})
 
-        logger.info(
-            f"Directory ingestion complete: {results['successful']}/{results['total_files']} files"
-        )
+        logger.info(f"Directory ingestion complete: {results['successful']}/{results['total_files']} files")
         return results
 
-    def search_documents(
-        self, query: str, top_k: int = 5, min_similarity: float = 0.6
-    ) -> List[Dict]:
+    def search_documents(self, query: str, top_k: int = 5, min_similarity: float = 0.6) -> List[Dict]:
         """
         Search specifically in ingested documents
 
@@ -1114,9 +1063,7 @@ class MemorySystem:
                     "size_mb": size_mb,
                     "chunks": doc_info["chunks_created"],
                     "ingestion_date": doc_info["ingestion_timestamp"][:10],
-                    "ingested_at": doc_info["ingestion_timestamp"][:19].replace(
-                        "T", " "
-                    ),
+                    "ingested_at": doc_info["ingestion_timestamp"][:19].replace("T", " "),
                     "tags": doc_info["tags"],
                 }
             )
@@ -1159,9 +1106,7 @@ class MemorySystem:
             try:
                 with open(registry_file, "r") as f:
                     self.document_registry = json.load(f)
-                logger.info(
-                    f"Document registry loaded ({len(self.document_registry)} documents)"
-                )
+                logger.info(f"Document registry loaded ({len(self.document_registry)} documents)")
             except Exception as e:
                 logger.error(f"Error loading document registry: {e}")
                 self.document_registry = {}
@@ -1225,37 +1170,25 @@ class MemorySystem:
 
                     # Compare embeddings if available
                     if memory_list[i].embedding and memory_list[j].embedding:
-                        similarity = self._cosine_similarity(
-                            memory_list[i].embedding, memory_list[j].embedding
-                        )
+                        similarity = self._cosine_similarity(memory_list[i].embedding, memory_list[j].embedding)
 
                         if similarity >= similarity_threshold:
                             # Keep the one with higher importance
-                            importance_i = self.calculate_memory_importance(
-                                memory_list[i]
-                            )
-                            importance_j = self.calculate_memory_importance(
-                                memory_list[j]
-                            )
+                            importance_i = self.calculate_memory_importance(memory_list[i])
+                            importance_j = self.calculate_memory_importance(memory_list[j])
 
                             if importance_i >= importance_j:
                                 to_remove.add(j)
                                 # Merge access counts
-                                memory_list[i].access_count += memory_list[
-                                    j
-                                ].access_count
+                                memory_list[i].access_count += memory_list[j].access_count
                             else:
                                 to_remove.add(i)
-                                memory_list[j].access_count += memory_list[
-                                    i
-                                ].access_count
+                                memory_list[j].access_count += memory_list[i].access_count
                                 break  # Move to next i
 
             # Remove duplicates
             if to_remove:
-                indices_to_keep = [
-                    i for i in range(len(memory_list)) if i not in to_remove
-                ]
+                indices_to_keep = [i for i in range(len(memory_list)) if i not in to_remove]
                 new_list = [memory_list[i] for i in indices_to_keep]
                 setattr(self, memory_list_name, new_list)
                 removed_count += len(to_remove)
@@ -1280,9 +1213,7 @@ class MemorySystem:
 
         return dot_product / (norm_v1 * norm_v2)
 
-    def consolidate_memories(
-        self, max_episodic: int = 1000, auto_deduplicate: bool = True
-    ):
+    def consolidate_memories(self, max_episodic: int = 1000, auto_deduplicate: bool = True):
         """
         Consolidate old episodic memories with importance scoring
 
@@ -1300,9 +1231,7 @@ class MemorySystem:
             self.deduplicate_memories()
 
         if len(self.episodic_memory) <= max_episodic:
-            logger.info(
-                f"[OK] Memory consolidation not needed ({len(self.episodic_memory)} < {max_episodic})"
-            )
+            logger.info(f"[OK] Memory consolidation not needed ({len(self.episodic_memory)} < {max_episodic})")
             return
 
         # Recalculate importance for all episodic memories
@@ -1417,11 +1346,7 @@ class MemorySystem:
         # Tag filter (any-match)
         if tags:
             tag_set = {t.lower() for t in tags}
-            candidates = [
-                m
-                for m in candidates
-                if m.tags and any(t.lower() in tag_set for t in m.tags)
-            ]
+            candidates = [m for m in candidates if m.tags and any(t.lower() in tag_set for t in m.tags)]
 
         # Date range filter
         if since or until:
@@ -1464,12 +1389,7 @@ class MemorySystem:
         try:
             from ai.memory.memory_store import get_memory_store
 
-            all_entries = (
-                self.episodic_memory
-                + self.semantic_memory
-                + self.procedural_memory
-                + self.document_memory
-            )
+            all_entries = self.episodic_memory + self.semantic_memory + self.procedural_memory + self.document_memory
             get_memory_store().bulk_add(all_entries)
             self._save_document_registry()
             logger.info(f"[Memory] Synced {len(all_entries)} memories to SQLite")
@@ -1489,9 +1409,7 @@ class MemorySystem:
                 json_path = os.path.join(self.data_dir, "memories.json")
                 migrated = store.migrate_from_json(json_path)
                 if migrated:
-                    logger.info(
-                        f"[Memory] First-run migration: {migrated} entries imported from JSON"
-                    )
+                    logger.info(f"[Memory] First-run migration: {migrated} entries imported from JSON")
 
             def _to_entry(e) -> MemoryEntry:
                 return MemoryEntry(**_asdict(e))
@@ -1516,12 +1434,7 @@ class MemorySystem:
             )
 
             # Rebuild in-process vector index from stored embeddings
-            for mem in (
-                self.episodic_memory
-                + self.semantic_memory
-                + self.procedural_memory
-                + self.document_memory
-            ):
+            for mem in self.episodic_memory + self.semantic_memory + self.procedural_memory + self.document_memory:
                 if mem.embedding:
                     self.vector_store.add(
                         id=mem.id,
@@ -1608,12 +1521,7 @@ class MemoryPriorityScorer:
         s = self._surprise(entry)
         o = self._outcome(entry)
         a = self._access(entry)
-        return (
-            self._w.recency * r
-            + self._w.surprise * s
-            + self._w.outcome * o
-            + self._w.access * a
-        )
+        return self._w.recency * r + self._w.surprise * s + self._w.outcome * o + self._w.access * a
 
     def batch_score(self, entries: List[Any]) -> List[float]:
         for e in entries:

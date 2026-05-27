@@ -52,8 +52,7 @@ class SmartContextCache:
             return ""
         # Use entity types and first values
         ent_str = ":".join(
-            f"{k}:{str(v[0] if isinstance(v, list) and v else v)[:30]}"
-            for k, v in list(entities.items())[:5]
+            f"{k}:{str(v[0] if isinstance(v, list) and v else v)[:30]}" for k, v in list(entities.items())[:5]
         )
         return hashlib.md5(ent_str.encode()).hexdigest()
 

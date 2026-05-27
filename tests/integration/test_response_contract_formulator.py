@@ -71,8 +71,7 @@ def test_response_formulator_blocks_equals_delimited_internal_summary_leak():
     formulator = ResponseFormulator()
     reasoning = ReasoningOutput(
         internal_summary=(
-            "intent=greeting | confidence=0.00 | route=unknown | "
-            "user_input=hey alice | raw_response=hi there"
+            "intent=greeting | confidence=0.00 | route=unknown | user_input=hey alice | raw_response=hi there"
         ),
         intent="conversation:greeting",
         plan=["respond naturally"],
@@ -220,10 +219,7 @@ def test_response_formulator_collapses_chatty_clarification_template():
         mode="final_answer_only",
     )
 
-    assert (
-        final_response.message
-        == "Please share one missing detail so I can answer precisely."
-    )
+    assert final_response.message == "Please share one missing detail so I can answer precisely."
 
 
 def test_process_input_wrapper_blocks_internal_output_leakage():
@@ -238,10 +234,7 @@ def test_process_input_wrapper_blocks_internal_output_leakage():
     alice.last_assistant_response = ""
 
     # Internal pipeline leaks meta text; wrapper must sanitize before returning.
-    alice._process_input_internal = (
-        lambda _user_input,
-        use_voice=False: "analysis: the user wants agent architecture"
-    )
+    alice._process_input_internal = lambda _user_input, use_voice=False: "analysis: the user wants agent architecture"
 
     user_text = ALICE.process_input(alice, "I want to build an agent-like AI")
 

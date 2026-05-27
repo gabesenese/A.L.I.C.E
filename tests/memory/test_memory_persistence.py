@@ -75,9 +75,7 @@ def test_write_through_survives_restart(db_path, tmp_path):
     row = store2.get_by_id(mem_id)
     assert row is not None, "Memory row missing from SQLite after restart"
     assert "5km" in row.content, f"Unexpected content: {row.content!r}"
-    assert any(m.id == mem_id for m in system2.episodic_memory), (
-        "Memory missing from reloaded in-memory list"
-    )
+    assert any(m.id == mem_id for m in system2.episodic_memory), "Memory missing from reloaded in-memory list"
 
 
 def test_forget_marks_invalid_in_sqlite(db_path, tmp_path):
@@ -122,9 +120,7 @@ def test_update_content_survives_restart(db_path, tmp_path):
     row = store2.get_by_id(mem_id)
     assert row is not None, "Updated memory row missing from SQLite after restart"
     assert "6am" in row.content, f"Old content still present: {row.content!r}"
-    assert (row.context or {}).get("corrected") is True, (
-        "context['corrected'] flag not persisted"
-    )
+    assert (row.context or {}).get("corrected") is True, "context['corrected'] flag not persisted"
 
 
 def test_consolidation_superseded_survives_restart(db_path, tmp_path):
@@ -152,12 +148,8 @@ def test_consolidation_superseded_survives_restart(db_path, tmp_path):
 
     store2, _ = _restart(db_path, tmp_path)
     all_rows = store2.get_all("episodic")
-    superseded_count = sum(
-        1 for r in all_rows if (r.context or {}).get("superseded") is True
-    )
-    assert superseded_count >= 1, (
-        f"No superseded entries found after restart; total episodic rows={len(all_rows)}"
-    )
+    superseded_count = sum(1 for r in all_rows if (r.context or {}).get("superseded") is True)
+    assert superseded_count >= 1, f"No superseded entries found after restart; total episodic rows={len(all_rows)}"
 
 
 def test_remove_deleted_from_sqlite(db_path, tmp_path):
@@ -173,12 +165,8 @@ def test_remove_deleted_from_sqlite(db_path, tmp_path):
     system._remove_memory_by_id(mem_id)
 
     store2, system2 = _restart(db_path, tmp_path)
-    assert store2.get_by_id(mem_id) is None, (
-        "Deleted memory still present in SQLite after restart"
-    )
-    assert not any(m.id == mem_id for m in system2.episodic_memory), (
-        "Deleted memory reloaded into in-memory list"
-    )
+    assert store2.get_by_id(mem_id) is None, "Deleted memory still present in SQLite after restart"
+    assert not any(m.id == mem_id for m in system2.episodic_memory), "Deleted memory reloaded into in-memory list"
 
 
 def test_access_count_accumulates_in_sqlite(db_path, tmp_path):

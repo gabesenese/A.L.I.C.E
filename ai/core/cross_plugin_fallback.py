@@ -39,9 +39,7 @@ _CHAIN: Dict[Tuple[str, str], List[FallbackPlugin]] = {
     ],
     # Local file not found → try listing files to help user
     ("local", "target_not_found"): [
-        FallbackPlugin(
-            "local", action_override="code:list_files", note="list_to_help_find"
-        ),
+        FallbackPlugin("local", action_override="code:list_files", note="list_to_help_find"),
     ],
     # Default catch-all
     ("default", "timeout"): [
@@ -74,9 +72,7 @@ class CrossPluginFallbackChain:
         if steps:
             return list(steps)
 
-        return list(
-            _CHAIN.get(("default", err), _CHAIN.get(("default", "timeout"), []))
-        )
+        return list(_CHAIN.get(("default", err), _CHAIN.get(("default", "timeout"), [])))
 
     def resolve_action(self, step: FallbackPlugin, original_action: str) -> str:
         return str(step.action_override or original_action)

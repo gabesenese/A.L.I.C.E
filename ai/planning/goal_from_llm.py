@@ -35,9 +35,7 @@ def _parse_goal_response(raw: str) -> Optional[GoalJSON]:
     if match:
         try:
             obj = json.loads(match.group(0))
-            target_intent = (
-                obj.get("target_intent") or obj.get("intent") or "conversation:general"
-            )
+            target_intent = obj.get("target_intent") or obj.get("intent") or "conversation:general"
             if not isinstance(target_intent, str):
                 target_intent = "conversation:general"
             action = obj.get("action", "execute")

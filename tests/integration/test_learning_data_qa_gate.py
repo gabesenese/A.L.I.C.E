@@ -27,14 +27,10 @@ def _write_valid_learning_files(tmp_path):
         "timestamp": "2026-03-14T12:00:00",
         "tone": "helpful",
     }
-    (data_dir / "learned_phrasings.jsonl").write_text(
-        json.dumps(learned_entry) + "\n", encoding="utf-8"
-    )
+    (data_dir / "learned_phrasings.jsonl").write_text(json.dumps(learned_entry) + "\n", encoding="utf-8")
     (data_dir / "entities.json").write_text("{}", encoding="utf-8")
     (data_dir / "relationships.json").write_text("[]", encoding="utf-8")
-    (data_dir / "patterns.json").write_text(
-        json.dumps({"conversation:help": 1}), encoding="utf-8"
-    )
+    (data_dir / "patterns.json").write_text(json.dumps({"conversation:help": 1}), encoding="utf-8")
 
     return data_dir
 
@@ -57,14 +53,10 @@ def _write_critical_learning_files(tmp_path):
         "timestamp": "2026-03-14T12:00:00",
         "tone": "helpful",
     }
-    (data_dir / "learned_phrasings.jsonl").write_text(
-        json.dumps(bad_entry) + "\n", encoding="utf-8"
-    )
+    (data_dir / "learned_phrasings.jsonl").write_text(json.dumps(bad_entry) + "\n", encoding="utf-8")
     (data_dir / "entities.json").write_text("{}", encoding="utf-8")
     (data_dir / "relationships.json").write_text("[]", encoding="utf-8")
-    (data_dir / "patterns.json").write_text(
-        json.dumps({"weather_advice": 1}), encoding="utf-8"
-    )
+    (data_dir / "patterns.json").write_text(json.dumps({"weather_advice": 1}), encoding="utf-8")
 
     return data_dir
 
@@ -84,9 +76,7 @@ def _write_warning_learning_files(tmp_path):
         "timestamp": "2026-03-14T12:00:00",
         "tone": "helpful",
     }
-    (data_dir / "learned_phrasings.jsonl").write_text(
-        json.dumps(learned_entry) + "\n", encoding="utf-8"
-    )
+    (data_dir / "learned_phrasings.jsonl").write_text(json.dumps(learned_entry) + "\n", encoding="utf-8")
 
     entities = {
         "for": {
@@ -110,13 +100,9 @@ def _write_warning_learning_files(tmp_path):
             "metadata": {},
         },
     }
-    (data_dir / "entities.json").write_text(
-        json.dumps(entities, indent=2), encoding="utf-8"
-    )
+    (data_dir / "entities.json").write_text(json.dumps(entities, indent=2), encoding="utf-8")
     (data_dir / "relationships.json").write_text("[]", encoding="utf-8")
-    (data_dir / "patterns.json").write_text(
-        json.dumps({"conversation:help": 1}), encoding="utf-8"
-    )
+    (data_dir / "patterns.json").write_text(json.dumps({"conversation:help": 1}), encoding="utf-8")
 
     return data_dir
 

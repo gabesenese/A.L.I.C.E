@@ -98,9 +98,7 @@ class PersonalityEvolutionEngine:
                 for user_id, traits_data in data.get("users", {}).items():
                     self.user_traits[user_id] = PersonalityTraits.from_dict(traits_data)
 
-                logger.info(
-                    f"Loaded personality traits for {len(self.user_traits)} users"
-                )
+                logger.info(f"Loaded personality traits for {len(self.user_traits)} users")
             except Exception as e:
                 logger.error(f"Failed to load personality traits: {e}")
 
@@ -110,10 +108,7 @@ class PersonalityEvolutionEngine:
         try:
             data = {
                 "base": self.base_traits.to_dict(),
-                "users": {
-                    user_id: traits.to_dict()
-                    for user_id, traits in self.user_traits.items()
-                },
+                "users": {user_id: traits.to_dict() for user_id, traits in self.user_traits.items()},
             }
 
             with open(traits_file, "w") as f:
@@ -149,9 +144,7 @@ class PersonalityEvolutionEngine:
 
         # Analyze user's reaction to A.L.I.C.E's response
         if user_reaction:
-            reaction_signals = self._analyze_user_reaction(
-                user_id, alice_response, user_reaction
-            )
+            reaction_signals = self._analyze_user_reaction(user_id, alice_response, user_reaction)
             signals.extend(reaction_signals)
 
         # Store signals in history
@@ -159,9 +152,7 @@ class PersonalityEvolutionEngine:
 
         return signals
 
-    def _analyze_user_style(
-        self, user_id: str, user_input: str
-    ) -> List[InteractionSignal]:
+    def _analyze_user_style(self, user_id: str, user_input: str) -> List[InteractionSignal]:
         """Analyze user's communication style and generate signals"""
         signals = []
         input_lower = user_input.lower()
@@ -192,10 +183,7 @@ class PersonalityEvolutionEngine:
             )
 
         # Formality signal
-        if any(
-            word in input_lower
-            for word in ["please", "thank you", "kindly", "would you"]
-        ):
+        if any(word in input_lower for word in ["please", "thank you", "kindly", "would you"]):
             signals.append(
                 InteractionSignal(
                     user_id=user_id,
@@ -205,10 +193,7 @@ class PersonalityEvolutionEngine:
                     reason="User uses polite/formal language",
                 )
             )
-        elif any(
-            word in input_lower
-            for word in ["yo", "hey", "sup", "gimme", "gonna", "wanna"]
-        ):
+        elif any(word in input_lower for word in ["yo", "hey", "sup", "gimme", "gonna", "wanna"]):
             signals.append(
                 InteractionSignal(
                     user_id=user_id,
@@ -245,18 +230,13 @@ class PersonalityEvolutionEngine:
 
         return signals
 
-    def _analyze_user_reaction(
-        self, user_id: str, alice_response: str, user_reaction: str
-    ) -> List[InteractionSignal]:
+    def _analyze_user_reaction(self, user_id: str, alice_response: str, user_reaction: str) -> List[InteractionSignal]:
         """Analyze user's reaction to A.L.I.C.E's response"""
         signals = []
         reaction_lower = user_reaction.lower()
 
         # Check if user found response too verbose
-        if any(
-            phrase in reaction_lower
-            for phrase in ["too long", "too much", "tldr", "shorter", "brief"]
-        ):
+        if any(phrase in reaction_lower for phrase in ["too long", "too much", "tldr", "shorter", "brief"]):
             signals.append(
                 InteractionSignal(
                     user_id=user_id,
@@ -309,9 +289,7 @@ class PersonalityEvolutionEngine:
             )
 
         # Check if user found response too casual
-        if any(
-            phrase in reaction_lower for phrase in ["professional", "formal", "serious"]
-        ):
+        if any(phrase in reaction_lower for phrase in ["professional", "formal", "serious"]):
             signals.append(
                 InteractionSignal(
                     user_id=user_id,
@@ -323,10 +301,7 @@ class PersonalityEvolutionEngine:
             )
 
         # Check for frustration (need more empathy)
-        if any(
-            phrase in reaction_lower
-            for phrase in ["frustrated", "annoying", "wrong", "didn't help"]
-        ):
+        if any(phrase in reaction_lower for phrase in ["frustrated", "annoying", "wrong", "didn't help"]):
             signals.append(
                 InteractionSignal(
                     user_id=user_id,
@@ -384,17 +359,13 @@ class PersonalityEvolutionEngine:
         Main method: Learn from a complete interaction
         """
         # Detect signals
-        signals = self.detect_signals_from_interaction(
-            user_id, user_input, alice_response, user_reaction
-        )
+        signals = self.detect_signals_from_interaction(user_id, user_input, alice_response, user_reaction)
 
         # Apply signals to evolve personality
         if signals:
             self.apply_signals(signals, user_id)
 
-            logger.info(
-                f"Personality updated for {user_id} based on {len(signals)} signals"
-            )
+            logger.info(f"Personality updated for {user_id} based on {len(signals)} signals")
 
     def get_personality_profile(self, user_id: str) -> Dict[str, any]:
         """Get human-readable personality profile for user"""

@@ -19,9 +19,7 @@ class OllamaTeacher:
         self.llm = llm
         self.queries_cache = {}
 
-    def generate_test_queries(
-        self, domain: str, skill: str, count: int = 5, use_cache: bool = True
-    ) -> List[str]:
+    def generate_test_queries(self, domain: str, skill: str, count: int = 5, use_cache: bool = True) -> List[str]:
         """
         Generate diverse test queries for a domain/skill
 
@@ -140,9 +138,7 @@ Example: ["query1", "query2", ...]
 
         return queries[:count]
 
-    def generate_all_domains(
-        self, count_per_skill: int = 3
-    ) -> Dict[str, Dict[str, List[str]]]:
+    def generate_all_domains(self, count_per_skill: int = 3) -> Dict[str, Dict[str, List[str]]]:
         """
         Generate test queries for all domains and skills
 
@@ -154,13 +150,9 @@ Example: ["query1", "query2", ...]
         for domain, vectors in TEACHING_VECTORS.items():
             all_queries[domain] = {}
             for vector in vectors:
-                queries = self.generate_test_queries(
-                    domain, vector.skill, count_per_skill
-                )
+                queries = self.generate_test_queries(domain, vector.skill, count_per_skill)
                 all_queries[domain][vector.skill] = queries
-                logger.info(
-                    f"Generated {len(queries)} queries for {domain}:{vector.skill}"
-                )
+                logger.info(f"Generated {len(queries)} queries for {domain}:{vector.skill}")
 
         return all_queries
 

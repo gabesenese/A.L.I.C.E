@@ -65,12 +65,8 @@ class ContradictionDetector:
                     UNIQUE(memory_a_id, memory_b_id)
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_contr_a ON contradictions(memory_a_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_contr_b ON contradictions(memory_b_id)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_contr_a ON contradictions(memory_a_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_contr_b ON contradictions(memory_b_id)")
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -141,9 +137,7 @@ class ContradictionDetector:
                 (cid, id_a, id_b, confidence, now),
             )
             conn.commit()
-        logger.info(
-            "[ContradictionDetector] %s ↔ %s (conf=%.2f)", id_a, id_b, confidence
-        )
+        logger.info("[ContradictionDetector] %s ↔ %s (conf=%.2f)", id_a, id_b, confidence)
         return cid
 
     def resolve(self, memory_a_id: str, memory_b_id: str, resolution: str) -> bool:
@@ -151,8 +145,7 @@ class ContradictionDetector:
             memory_a_id, memory_b_id = memory_b_id, memory_a_id
         with self._conn() as conn:
             cur = conn.execute(
-                "UPDATE contradictions SET resolved=1, resolution=? "
-                "WHERE memory_a_id=? AND memory_b_id=?",
+                "UPDATE contradictions SET resolved=1, resolution=? WHERE memory_a_id=? AND memory_b_id=?",
                 (resolution, memory_a_id, memory_b_id),
             )
             conn.commit()

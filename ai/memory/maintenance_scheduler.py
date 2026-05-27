@@ -116,8 +116,7 @@ class MaintenanceScheduler:
             due = [
                 t
                 for t in self._tasks.values()
-                if t.last_run is None
-                or (now - t.last_run).total_seconds() >= t.interval
+                if t.last_run is None or (now - t.last_run).total_seconds() >= t.interval
             ]
         for task in due:
             self._run_task(task)
@@ -159,12 +158,7 @@ class MaintenanceScheduler:
             ms = get_memory_system()
             scorer = get_memory_scorer()
             store = get_memory_store()
-            all_entries = (
-                ms.episodic_memory
-                + ms.semantic_memory
-                + ms.procedural_memory
-                + ms.document_memory
-            )
+            all_entries = ms.episodic_memory + ms.semantic_memory + ms.procedural_memory + ms.document_memory
             scores = scorer.batch_score(all_entries)
             for entry in all_entries:
                 eid = getattr(entry, "id", None)
@@ -216,9 +210,7 @@ class MaintenanceScheduler:
             candidates = (ms.episodic_memory + ms.semantic_memory)[:200]
             found = detector.scan(candidates)
             if found:
-                logger.info(
-                    "[contradiction_scan] %d contradictions detected", len(found)
-                )
+                logger.info("[contradiction_scan] %d contradictions detected", len(found))
 
         def _hierarchical_compress() -> None:
             from ai.memory.hierarchical_compressor import get_compressor
@@ -230,9 +222,7 @@ class MaintenanceScheduler:
         self.register("score_refresh", _score_refresh, ivs["score_refresh"])
         self.register("semantic_dedup", _semantic_dedup, ivs["semantic_dedup"])
         self.register("quarantine_purge", _quarantine_purge, ivs["quarantine_purge"])
-        self.register(
-            "contradiction_scan", _contradiction_scan, ivs["contradiction_scan"]
-        )
+        self.register("contradiction_scan", _contradiction_scan, ivs["contradiction_scan"])
         self.register(
             "hierarchical_compress",
             _hierarchical_compress,

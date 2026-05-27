@@ -60,12 +60,7 @@ class RetrievalBudget:
         def _priority(m: Dict[str, Any]) -> float:
             mtype = str(m.get("memory_type") or m.get("type") or "episodic")
             type_w = self._type_priority.get(mtype, 0.5)
-            score = float(
-                m.get("weighted_score")
-                or m.get("importance")
-                or m.get("similarity")
-                or 0.5
-            )
+            score = float(m.get("weighted_score") or m.get("importance") or m.get("similarity") or 0.5)
             return type_w * score
 
         scored = [(m, _priority(m)) for m in candidates if _priority(m) >= min_priority]

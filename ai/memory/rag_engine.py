@@ -14,9 +14,7 @@ logger = logging.getLogger(__name__)
 class RAGEngine:
     """Handles retrieval-augmented generation queries"""
 
-    def __init__(
-        self, memory_store: MemoryStore, embedding_manager: EmbeddingManager
-    ) -> None:
+    def __init__(self, memory_store: MemoryStore, embedding_manager: EmbeddingManager) -> None:
         self.store = memory_store
         self.embedding = embedding_manager
 
@@ -58,9 +56,7 @@ class RAGEngine:
                 if mem_embedding:
                     import numpy as np
 
-                    similarity = self.embedding.calculate_similarity(
-                        query_embedding, np.array(mem_embedding)
-                    )
+                    similarity = self.embedding.calculate_similarity(query_embedding, np.array(mem_embedding))
                 else:
                     similarity = 0.0
 
@@ -82,9 +78,7 @@ class RAGEngine:
             logger.error(f"RAG query failed: {e}")
             return []
 
-    def get_llm_context(
-        self, user_input: str, max_tokens: int = 4000, max_memories: int = 3
-    ) -> str:
+    def get_llm_context(self, user_input: str, max_tokens: int = 4000, max_memories: int = 3) -> str:
         """
         Get relevant context for LLM response
 
@@ -98,9 +92,7 @@ class RAGEngine:
         """
         try:
             # Query relevant memories
-            memories = self.query(
-                query_text=user_input, top_k=max_memories, min_similarity=0.6
-            )
+            memories = self.query(query_text=user_input, top_k=max_memories, min_similarity=0.6)
 
             if not memories:
                 return ""
@@ -128,9 +120,7 @@ class RAGEngine:
             logger.error(f"Failed to get LLM context: {e}")
             return ""
 
-    def search_documents(
-        self, query: str, top_k: int = 5, min_similarity: float = 0.6
-    ) -> List[Dict[str, Any]]:
+    def search_documents(self, query: str, top_k: int = 5, min_similarity: float = 0.6) -> List[Dict[str, Any]]:
         """
         Search through ingested document chunks
 
@@ -171,9 +161,7 @@ from typing import Optional as OptionalType
 _rag_engine: OptionalType[RAGEngine] = None
 
 
-def get_rag_engine(
-    memory_store: MemoryStore = None, embedding_manager: EmbeddingManager = None
-) -> RAGEngine:
+def get_rag_engine(memory_store: MemoryStore = None, embedding_manager: EmbeddingManager = None) -> RAGEngine:
     """Get or create the RAGEngine singleton"""
     global _rag_engine
     if _rag_engine is None:

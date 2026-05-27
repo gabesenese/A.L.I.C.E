@@ -35,9 +35,7 @@ class FactChecker:
             "could be",
         ]
 
-    def check_code_claim(
-        self, claim: str, actual_analysis: Dict[str, Any]
-    ) -> Tuple[bool, Optional[str]]:
+    def check_code_claim(self, claim: str, actual_analysis: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """
         Check if a claim about code is factual.
 
@@ -63,25 +61,21 @@ class FactChecker:
             if any(kw in claim_lower for kw in keywords):
                 # Check if this feature actually exists in imports or function names
                 imports_str = " ".join(actual_analysis.get("imports", [])).lower()
-                functions_str = " ".join(
-                    f["name"] for f in actual_analysis.get("functions", [])
-                ).lower()
-                classes_str = " ".join(
-                    c["name"] for c in actual_analysis.get("classes", [])
-                ).lower()
+                functions_str = " ".join(f["name"] for f in actual_analysis.get("functions", [])).lower()
+                classes_str = " ".join(c["name"] for c in actual_analysis.get("classes", [])).lower()
 
                 all_code = imports_str + functions_str + classes_str
 
                 # If claim mentions feature but code doesn't have related keywords
                 if not any(kw in all_code for kw in keywords):
-                    correction = f"Note: The claim mentions {feature}, but I don't see evidence of that in the actual code."
+                    correction = (
+                        f"Note: The claim mentions {feature}, but I don't see evidence of that in the actual code."
+                    )
                     return False, correction
 
         return True, None
 
-    def check_file_existence_claim(
-        self, claimed_file: str, available_files: List[str]
-    ) -> Tuple[bool, Optional[str]]:
+    def check_file_existence_claim(self, claimed_file: str, available_files: List[str]) -> Tuple[bool, Optional[str]]:
         """
         Check if a claimed file actually exists.
 
@@ -97,10 +91,7 @@ class FactChecker:
 
         for actual_file in available_files:
             actual_normalized = Path(actual_file).as_posix().lower()
-            if (
-                claimed_normalized in actual_normalized
-                or actual_normalized in claimed_normalized
-            ):
+            if claimed_normalized in actual_normalized or actual_normalized in claimed_normalized:
                 return True, None
 
         correction = f"File '{claimed_file}' not found in codebase."
@@ -118,9 +109,7 @@ class FactChecker:
         """
         response_lower = response.lower()
 
-        uncertainty_count = sum(
-            1 for marker in self.uncertain_markers if marker in response_lower
-        )
+        uncertainty_count = sum(1 for marker in self.uncertain_markers if marker in response_lower)
 
         # Normalize to 0-1
         return min(1.0, uncertainty_count * 0.2)
@@ -154,23 +143,15 @@ class FactChecker:
             ]
         )
 
-        has_source_citation = any(
-            marker in response
-            for marker in ["line", "function", "class", "import", "```"]
-        )
+        has_source_citation = any(marker in response for marker in ["line", "function", "class", "import", "```"])
 
         if has_definitive_claim and not has_source_citation:
             # Add disclaimer
-            return (
-                response
-                + "\n\n(Note: This is based on general patterns, not verified against the actual code)"
-            )
+            return response + "\n\n(Note: This is based on general patterns, not verified against the actual code)"
 
         return response
 
-    def require_evidence(
-        self, claim_type: str, evidence: Optional[Dict[str, Any]] = None
-    ) -> bool:
+    def require_evidence(self, claim_type: str, evidence: Optional[Dict[str, Any]] = None) -> bool:
         """
         Check if sufficient evidence exists for a claim type.
 

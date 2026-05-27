@@ -18,9 +18,7 @@ async def app_lifespan(app: FastAPI):
             await client.get("http://localhost:11434/api/tags")
             logger.info("startup_check", component="ollama", status="ok")
     except Exception as exc:  # pragma: no cover - depends on local services
-        logger.warning(
-            "startup_check", component="ollama", status="degraded", error=str(exc)
-        )
+        logger.warning("startup_check", component="ollama", status="degraded", error=str(exc))
 
     # Companion services — all daemon threads, stop automatically on process exit.
     from ai.runtime.notifier import heartbeat_output, daemon_notify

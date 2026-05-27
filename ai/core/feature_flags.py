@@ -65,9 +65,7 @@ class FeatureFlagManager:
         self._initialized = True
         self.config_path = config_path or Path("data/feature_flags.json")
         self._flags: Dict[str, FeatureFlag] = {}
-        self._user_overrides: Dict[
-            str, Set[str]
-        ] = {}  # user_id -> set of enabled flags
+        self._user_overrides: Dict[str, Set[str]] = {}  # user_id -> set of enabled flags
         self._reload_lock = Lock()
 
         # Default flags for P0 NLP improvements
@@ -137,17 +135,13 @@ class FeatureFlagManager:
                 for user_id, enabled_flags in data.get("user_overrides", {}).items():
                     self._user_overrides[user_id] = set(enabled_flags)
 
-                logger.info(
-                    f"[FEATURE_FLAGS] Loaded {len(self._flags)} flags from {self.config_path}"
-                )
+                logger.info(f"[FEATURE_FLAGS] Loaded {len(self._flags)} flags from {self.config_path}")
             except Exception as e:
                 logger.error(f"[FEATURE_FLAGS] Failed to load config: {e}")
         else:
             # Create default config
             self._save_config()
-            logger.info(
-                "[FEATURE_FLAGS] Created default config with P0 improvements enabled"
-            )
+            logger.info("[FEATURE_FLAGS] Created default config with P0 improvements enabled")
 
     def _save_config(self) -> None:
         """Persist current flags to disk."""
@@ -165,10 +159,7 @@ class FeatureFlagManager:
                     }
                     for flag in self._flags.values()
                 ],
-                "user_overrides": {
-                    user_id: list(flags)
-                    for user_id, flags in self._user_overrides.items()
-                },
+                "user_overrides": {user_id: list(flags) for user_id, flags in self._user_overrides.items()},
             }
 
             with open(self.config_path, "w", encoding="utf-8") as f:
@@ -227,9 +218,7 @@ class FeatureFlagManager:
             self._user_overrides[user_id].discard(flag_name)
 
         self._save_config()
-        logger.info(
-            f"[FEATURE_FLAGS] User override: {user_id} - {flag_name} = {enabled}"
-        )
+        logger.info(f"[FEATURE_FLAGS] User override: {user_id} - {flag_name} = {enabled}")
 
     def get_all_flags(self) -> Dict[str, FeatureFlag]:
         """Get all registered feature flags."""

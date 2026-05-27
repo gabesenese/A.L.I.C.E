@@ -126,9 +126,7 @@ class TaskScheduler:
         self.failed_tasks: Set[str] = set()
 
         # Dependency graph
-        self.dependents: Dict[str, Set[str]] = defaultdict(
-            set
-        )  # task -> tasks that depend on it
+        self.dependents: Dict[str, Set[str]] = defaultdict(set)  # task -> tasks that depend on it
 
         # Worker threads
         self.workers: List[threading.Thread] = []
@@ -283,9 +281,7 @@ class TaskScheduler:
                 with self.lock:
                     heapq.heappush(self.ready_queue, task)
                     self.running_tasks.discard(task.id)
-                logger.info(
-                    f"Retrying task {task.id} ({task.retry_count}/{task.max_retries})"
-                )
+                logger.info(f"Retrying task {task.id} ({task.retry_count}/{task.max_retries})")
             else:
                 task.status = TaskStatus.FAILED
                 with self.lock:
@@ -320,9 +316,7 @@ class TaskScheduler:
 
         # Spawn worker threads
         for i in range(self.max_workers):
-            worker = threading.Thread(
-                target=self._worker_thread, name=f"TaskWorker-{i}", daemon=True
-            )
+            worker = threading.Thread(target=self._worker_thread, name=f"TaskWorker-{i}", daemon=True)
             worker.start()
             self.workers.append(worker)
 
@@ -357,8 +351,7 @@ class TaskScheduler:
                     [
                         t
                         for t in self.tasks.values()
-                        if t.status
-                        in [TaskStatus.PENDING, TaskStatus.READY, TaskStatus.RUNNING]
+                        if t.status in [TaskStatus.PENDING, TaskStatus.READY, TaskStatus.RUNNING]
                     ]
                 )
 
@@ -418,9 +411,7 @@ class TaskScheduler:
                 longest_path[task_id] = task.estimate_duration
                 return task.estimate_duration
 
-            max_dep_path = max(
-                (calculate_longest_path(dep) for dep in task.dependencies), default=0.0
-            )
+            max_dep_path = max((calculate_longest_path(dep) for dep in task.dependencies), default=0.0)
 
             longest_path[task_id] = max_dep_path + task.estimate_duration
             return longest_path[task_id]
@@ -443,9 +434,7 @@ class TaskScheduler:
 
             # Find dependency with longest path
             if task.dependencies:
-                current_id = max(
-                    task.dependencies, key=lambda tid: longest_path.get(tid, 0.0)
-                )
+                current_id = max(task.dependencies, key=lambda tid: longest_path.get(tid, 0.0))
             else:
                 current_id = None
 
@@ -454,9 +443,7 @@ class TaskScheduler:
     def get_stats(self) -> Dict[str, Any]:
         """Get scheduler statistics"""
         with self.lock:
-            pending_count = len(
-                [t for t in self.tasks.values() if t.status == TaskStatus.PENDING]
-            )
+            pending_count = len([t for t in self.tasks.values() if t.status == TaskStatus.PENDING])
             ready_count = len(self.ready_queue)
             running_count = len(self.running_tasks)
 
@@ -466,9 +453,7 @@ class TaskScheduler:
                 "ready": ready_count,
                 "running": running_count,
                 "avg_task_duration": (
-                    self.stats["total_runtime"] / self.stats["completed"]
-                    if self.stats["completed"] > 0
-                    else 0.0
+                    self.stats["total_runtime"] / self.stats["completed"] if self.stats["completed"] > 0 else 0.0
                 ),
             }
 

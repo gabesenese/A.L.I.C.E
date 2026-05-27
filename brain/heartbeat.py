@@ -60,9 +60,9 @@ class HeartbeatConfig:
     checkin_gap_seconds: float = 90 * 60
     active_recent_seconds: float = 2 * 60 * 60
     stale_task_seconds: float = 24 * 60 * 60
-    meeting_warning_seconds: float = 15 * 60   # alert when meeting is within 15 min
-    cpu_critical_pct: float = 90.0             # alert if CPU sustained above this
-    ram_critical_pct: float = 90.0             # alert if RAM above this
+    meeting_warning_seconds: float = 15 * 60  # alert when meeting is within 15 min
+    cpu_critical_pct: float = 90.0  # alert if CPU sustained above this
+    ram_critical_pct: float = 90.0  # alert if RAM above this
 
 
 class Heartbeat:
@@ -169,10 +169,7 @@ class Heartbeat:
         if (
             last_active_age is not None
             and last_active_age <= self.config.active_recent_seconds
-            and (
-                last_checkin_age is None
-                or last_checkin_age >= self.config.checkin_gap_seconds
-            )
+            and (last_checkin_age is None or last_checkin_age >= self.config.checkin_gap_seconds)
         ):
             decisions.append(
                 HeartbeatDecision(
@@ -303,6 +300,7 @@ class Heartbeat:
     def _send_toast(decision: "HeartbeatDecision") -> None:
         try:
             from ai.notifications.desktop_notifier import send_notification
+
             send_notification(title="A.L.I.C.E", body=decision.message)
         except Exception:
             pass

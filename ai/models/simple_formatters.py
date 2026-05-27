@@ -180,9 +180,7 @@ class WeatherFormatter(SimpleFormatter):
                 if target_date:
                     for day in days:
                         if day.get("date") == target_date:
-                            return WeatherFormatter._format_single_day(
-                                location, day, label_override=target_day
-                            )
+                            return WeatherFormatter._format_single_day(location, day, label_override=target_day)
 
         # Weather condition icons/symbols
         condition_icons = {
@@ -261,9 +259,7 @@ class WeatherFormatter(SimpleFormatter):
         return "\n".join(summary_lines)
 
     @staticmethod
-    def _format_single_day(
-        location: str, day: Dict[str, Any], label_override: Optional[str] = None
-    ) -> str:
+    def _format_single_day(location: str, day: Dict[str, Any], label_override: Optional[str] = None) -> str:
         """Format a single day's forecast with improved readability"""
         date_str = day.get("date")
         high = day.get("high")
@@ -541,11 +537,7 @@ class NotesFormatter(SimpleFormatter):
     @staticmethod
     def format(data: Any, **kwargs) -> Optional[str]:
         """Format notes payloads (legacy lists/single-note + structured action data)."""
-        if (
-            isinstance(data, dict)
-            and "action" in data
-            and isinstance(data.get("data"), dict)
-        ):
+        if isinstance(data, dict) and "action" in data and isinstance(data.get("data"), dict):
             return NotesFormatter._format_action_payload(data)
 
         if not isinstance(data, list):
@@ -605,10 +597,7 @@ class NotesFormatter(SimpleFormatter):
         if data.get("error") == "requires_confirmation":
             prompt = data.get("prompt", "")
             note_title = data.get("note_title", "")
-            return (
-                prompt
-                or f'Confirm to proceed with "{note_title}". Reply "confirm" or "cancel".'
-            )
+            return prompt or f'Confirm to proceed with "{note_title}". Reply "confirm" or "cancel".'
 
         # Feature #4: Action cancelled
         if action == "action_cancelled":
@@ -627,9 +616,7 @@ class NotesFormatter(SimpleFormatter):
             header = "Notes" if action == "list_notes" else "Archived Notes"
 
             if not notes and count == 0:
-                header_line = (
-                    "Archived notes" if action == "list_archived_notes" else "Notes"
-                )
+                header_line = "Archived notes" if action == "list_archived_notes" else "Notes"
                 return f"No {header_line.lower()} found."
 
             # Feature #8: Strategy-based adaptive rendering
@@ -647,9 +634,7 @@ class NotesFormatter(SimpleFormatter):
             overdue_count = data.get("overdue_count", 0)
             upcoming = data.get("upcoming_reminders", [])
             if overdue_count:
-                lines.append(
-                    f"\n[!] {overdue_count} overdue note(s). Use 'show overdue notes' for details."
-                )
+                lines.append(f"\n[!] {overdue_count} overdue note(s). Use 'show overdue notes' for details.")
             if upcoming:
                 lines.append(f"\nUpcoming reminders ({len(upcoming)}):")
                 for r in upcoming[:3]:
@@ -770,9 +755,7 @@ class NotesFormatter(SimpleFormatter):
             return "\n".join(lines)
 
         if action == "search_notes_empty":
-            return (
-                f"No notes found for '{data.get('query', '')}'. Try different keywords."
-            )
+            return f"No notes found for '{data.get('query', '')}'. Try different keywords."
 
         # ── Feature #3: Create note from conversation ─────────────────────────
         if action == "create_note_from_context":
@@ -900,9 +883,7 @@ class NotesFormatter(SimpleFormatter):
             if data.get("error"):
                 error = data.get("error")
                 if error == "no_item_number":
-                    return (
-                        "Please specify which checklist item number to check/uncheck."
-                    )
+                    return "Please specify which checklist item number to check/uncheck."
                 elif error == "no_checklist_items":
                     title = data.get("note_title", "this note")
                     return f'"{title}" doesn\'t have any checklist items.'

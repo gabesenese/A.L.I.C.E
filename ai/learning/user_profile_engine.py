@@ -109,17 +109,11 @@ class UserProfileEngine:
                 self.profile = UserProfile(user_id=user_id)
                 self.profile.name = data.get("name")
                 self.profile.interaction_count = data.get("interaction_count", 0)
-                self.profile.first_interaction = data.get(
-                    "first_interaction", time.time()
-                )
-                self.profile.last_interaction = data.get(
-                    "last_interaction", time.time()
-                )
+                self.profile.first_interaction = data.get("first_interaction", time.time())
+                self.profile.last_interaction = data.get("last_interaction", time.time())
                 self.profile.interests = set(data.get("interests", []))
                 self.profile.expertise_areas = data.get("expertise_areas", {})
-                self.profile.communication_style = data.get(
-                    "communication_style", self.style_dimensions.copy()
-                )
+                self.profile.communication_style = data.get("communication_style", self.style_dimensions.copy())
                 self.profile.schedule = data.get("schedule", {})
                 self.profile.metadata = data.get("metadata", {})
 
@@ -133,9 +127,7 @@ class UserProfileEngine:
                     behavior = BehavioralPattern(**behavior_data)
                     self.profile.behaviors[behavior.pattern_id] = behavior
 
-                logger.info(
-                    f"Loaded profile for {user_id}: {self.profile.interaction_count} interactions"
-                )
+                logger.info(f"Loaded profile for {user_id}: {self.profile.interaction_count} interactions")
 
             except Exception as e:
                 logger.error(f"Error loading profile: {e}")
@@ -165,12 +157,8 @@ class UserProfileEngine:
                 "communication_style": self.profile.communication_style,
                 "schedule": self.profile.schedule,
                 "metadata": self.profile.metadata,
-                "preferences": [
-                    asdict(pref) for pref in self.profile.preferences.values()
-                ],
-                "behaviors": [
-                    asdict(behavior) for behavior in self.profile.behaviors.values()
-                ],
+                "preferences": [asdict(pref) for pref in self.profile.preferences.values()],
+                "behaviors": [asdict(behavior) for behavior in self.profile.behaviors.values()],
             }
 
             with open(profile_file, "w") as f:
@@ -220,19 +208,14 @@ class UserProfileEngine:
         if self.profile.interaction_count % 10 == 0:
             self.save_profile()
 
-    def _learn_communication_style(
-        self, user_input: str, alice_response: str, feedback: Optional[str]
-    ):
+    def _learn_communication_style(self, user_input: str, alice_response: str, feedback: Optional[str]):
         """Learn user's preferred communication style"""
         if not self.profile:
             return
 
         # Analyze user input characteristics
         input_length = len(user_input.split())
-        has_technical_terms = any(
-            term in user_input.lower()
-            for term in ["api", "function", "class", "algorithm"]
-        )
+        has_technical_terms = any(term in user_input.lower() for term in ["api", "function", "class", "algorithm"])
 
         # Brevity preference
         if input_length < 10:
@@ -248,13 +231,9 @@ class UserProfileEngine:
         if feedback == "positive":
             response_length = len(alice_response.split())
             if response_length < 50:
-                self._update_style_dimension(
-                    "detail_orientation", 0.4
-                )  # Liked brief response
+                self._update_style_dimension("detail_orientation", 0.4)  # Liked brief response
             else:
-                self._update_style_dimension(
-                    "detail_orientation", 0.6
-                )  # Liked detailed response
+                self._update_style_dimension("detail_orientation", 0.6)  # Liked detailed response
 
     def _update_style_dimension(self, dimension: str, target_value: float):
         """Update a communication style dimension with learning rate"""
@@ -263,9 +242,7 @@ class UserProfileEngine:
 
         current = self.profile.communication_style[dimension]
         # Exponential moving average
-        new_value = (
-            current * (1 - self.learning_rate) + target_value * self.learning_rate
-        )
+        new_value = current * (1 - self.learning_rate) + target_value * self.learning_rate
         self.profile.communication_style[dimension] = new_value
 
     def _learn_from_entities(self, entities: Dict[str, Any], intent: Optional[str]):
@@ -274,11 +251,7 @@ class UserProfileEngine:
             return
 
         for entity_name, entity_data in entities.items():
-            entity_type = (
-                entity_data.get("type", "general")
-                if isinstance(entity_data, dict)
-                else "general"
-            )
+            entity_type = entity_data.get("type", "general") if isinstance(entity_data, dict) else "general"
 
             # Learn tool preferences
             if intent in ["code_analysis", "file_operations"]:
@@ -287,9 +260,7 @@ class UserProfileEngine:
 
             # Learn topic preferences
             if entity_type == "concept":
-                self._update_preference(
-                    f"topic_{entity_name}", True, category="interests"
-                )
+                self._update_preference(f"topic_{entity_name}", True, category="interests")
 
     def _update_preference(
         self,
@@ -326,34 +297,22 @@ class UserProfileEngine:
         current_hour = datetime.now().hour
 
         if 6 <= current_hour < 9:
-            self._record_pattern(
-                "morning_routine", "time_of_day", "Active in early morning"
-            )
+            self._record_pattern("morning_routine", "time_of_day", "Active in early morning")
         elif 9 <= current_hour < 12:
-            self._record_pattern(
-                "morning_work", "time_of_day", "Active during morning work hours"
-            )
+            self._record_pattern("morning_work", "time_of_day", "Active during morning work hours")
         elif 12 <= current_hour < 14:
-            self._record_pattern(
-                "midday_activity", "time_of_day", "Active around midday"
-            )
+            self._record_pattern("midday_activity", "time_of_day", "Active around midday")
         elif 14 <= current_hour < 18:
-            self._record_pattern(
-                "afternoon_work", "time_of_day", "Active during afternoon"
-            )
+            self._record_pattern("afternoon_work", "time_of_day", "Active during afternoon")
         elif 18 <= current_hour < 22:
             self._record_pattern("evening_activity", "time_of_day", "Active in evening")
         elif 22 <= current_hour or current_hour < 6:
-            self._record_pattern(
-                "night_owl", "time_of_day", "Active late night or early morning"
-            )
+            self._record_pattern("night_owl", "time_of_day", "Active late night or early morning")
 
         # Intent-based patterns
         if intent:
             pattern_id = f"frequent_{intent}"
-            self._record_pattern(
-                pattern_id, "intent_frequency", f"Frequently uses {intent}"
-            )
+            self._record_pattern(pattern_id, "intent_frequency", f"Frequently uses {intent}")
 
     def _record_pattern(self, pattern_id: str, pattern_type: str, description: str):
         """Record observation of a behavioral pattern"""
@@ -443,23 +402,14 @@ class UserProfileEngine:
         if not counts:
             return {}
         max_count = max(counts.values())
-        return {
-            intent: round((cnt / max_count) * max_weight, 4)
-            for intent, cnt in counts.items()
-        }
+        return {intent: round((cnt / max_count) * max_weight, 4) for intent, cnt in counts.items()}
 
-    def get_active_patterns(
-        self, min_confidence: float = 0.5
-    ) -> List[BehavioralPattern]:
+    def get_active_patterns(self, min_confidence: float = 0.5) -> List[BehavioralPattern]:
         """Get high-confidence behavioral patterns"""
         if not self.profile:
             return []
 
-        return [
-            pattern
-            for pattern in self.profile.behaviors.values()
-            if pattern.confidence >= min_confidence
-        ]
+        return [pattern for pattern in self.profile.behaviors.values() if pattern.confidence >= min_confidence]
 
     def get_schedule_prediction(self) -> Dict[str, Any]:
         """Predict user availability based on learned patterns"""
@@ -472,21 +422,13 @@ class UserProfileEngine:
         # Check for time-based patterns
         active_patterns = self.get_active_patterns(min_confidence=0.6)
         current_time_patterns = [
-            p
-            for p in active_patterns
-            if p.pattern_type == "time_of_day" and p.pattern_id in p.description
+            p for p in active_patterns if p.pattern_type == "time_of_day" and p.pattern_id in p.description
         ]
 
         prediction = {
             "likely_available": len(current_time_patterns) > 0,
-            "confidence": max(
-                [p.confidence for p in current_time_patterns], default=0.0
-            ),
-            "typical_activity": (
-                current_time_patterns[0].description
-                if current_time_patterns
-                else "unknown"
-            ),
+            "confidence": max([p.confidence for p in current_time_patterns], default=0.0),
+            "typical_activity": (current_time_patterns[0].description if current_time_patterns else "unknown"),
         }
 
         return prediction
@@ -507,11 +449,7 @@ class UserProfileEngine:
             "learned_preferences": len(self.profile.preferences),
             "behavioral_patterns": len(self.profile.behaviors),
             "high_confidence_preferences": len(
-                [
-                    p
-                    for p in self.profile.preferences.values()
-                    if p.confidence >= self.confidence_threshold
-                ]
+                [p for p in self.profile.preferences.values() if p.confidence >= self.confidence_threshold]
             ),
         }
 

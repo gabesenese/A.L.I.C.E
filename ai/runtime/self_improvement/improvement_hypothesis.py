@@ -36,9 +36,7 @@ def build_hypothesis(
     classification: FailureClassification,
     project_state: Dict[str, Any] | None = None,
 ) -> ImprovementHypothesis:
-    low = " ".join(
-        [event.symptom, event.actual_behavior, event.expected_behavior]
-    ).lower()
+    low = " ".join([event.symptom, event.actual_behavior, event.expected_behavior]).lower()
     state = dict(project_state or {})
     objective = str(state.get("active_objective") or "").strip()
     expected_behavior = str(event.expected_behavior or "").strip()
@@ -46,8 +44,7 @@ def build_hypothesis(
         expected_behavior = "Behavior should be grounded, safe, and objective-driven."
 
     hypothesis_text = (
-        "Runtime behavior likely diverged due to policy/routing mismatch and needs "
-        "targeted bounded updates."
+        "Runtime behavior likely diverged due to policy/routing mismatch and needs targeted bounded updates."
     )
     risks = ["regression in adjacent runtime behaviors"]
 
@@ -77,8 +74,7 @@ def build_hypothesis(
         risks = ["loss of useful recall context"]
     elif classification.failure_kind == "local_execution":
         hypothesis_text = (
-            "Local execution target resolution and fallback handling are likely missing "
-            "safe target disambiguation."
+            "Local execution target resolution and fallback handling are likely missing safe target disambiguation."
         )
         risks = ["more clarification loops", "tool fallback regressions"]
     elif classification.failure_kind == "response_grounding":
@@ -95,8 +91,7 @@ def build_hypothesis(
         risks = ["tone instability"]
     elif classification.failure_kind == "runtime_error":
         hypothesis_text = (
-            "Runtime lifecycle path likely lacks safe optional-component guards causing "
-            "startup/shutdown exceptions."
+            "Runtime lifecycle path likely lacks safe optional-component guards causing startup/shutdown exceptions."
         )
         risks = ["partial subsystem startup states"]
 

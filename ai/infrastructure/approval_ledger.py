@@ -45,9 +45,7 @@ class ApprovalLedger:
         self._pending: Dict[str, ApprovalRequest] = {}
         self._scope_approvals: Dict[str, float] = {}
 
-    def create_request(
-        self, *, action: str, scope: str, summary: str
-    ) -> ApprovalRequest:
+    def create_request(self, *, action: str, scope: str, summary: str) -> ApprovalRequest:
         now = time.time()
         req = ApprovalRequest(
             approval_id=f"appr-{uuid.uuid4().hex[:12]}",
@@ -69,9 +67,7 @@ class ApprovalLedger:
             return None
         return req
 
-    def confirm(
-        self, *, approval_id: str, confirmation_text: str, actor: str = "user"
-    ) -> Optional[ApprovalRecord]:
+    def confirm(self, *, approval_id: str, confirmation_text: str, actor: str = "user") -> Optional[ApprovalRecord]:
         req = self.get_pending(approval_id)
         if not req:
             return None
@@ -92,9 +88,7 @@ class ApprovalLedger:
         self._pending.pop(req.approval_id, None)
         return record
 
-    def reject(
-        self, *, approval_id: str, confirmation_text: str, actor: str = "user"
-    ) -> Optional[ApprovalRecord]:
+    def reject(self, *, approval_id: str, confirmation_text: str, actor: str = "user") -> Optional[ApprovalRecord]:
         req = self.get_pending(approval_id)
         if not req:
             return None

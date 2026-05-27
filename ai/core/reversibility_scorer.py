@@ -67,11 +67,7 @@ _REVERSIBILITY_TABLE: Dict[str, float] = {
 }
 
 _ACTION_RE = re.compile(
-    r"\b("
-    + "|".join(
-        re.escape(k) for k in sorted(_REVERSIBILITY_TABLE, key=len, reverse=True)
-    )
-    + r")\b",
+    r"\b(" + "|".join(re.escape(k) for k in sorted(_REVERSIBILITY_TABLE, key=len, reverse=True)) + r")\b",
     re.IGNORECASE,
 )
 
@@ -79,9 +75,7 @@ _ACTION_RE = re.compile(
 class ReversibilityScorer:
     """Score an action's reversibility based on intent string and user input."""
 
-    def score(
-        self, *, intent: str, user_input: str = "", params: Dict[str, Any] | None = None
-    ) -> float:
+    def score(self, *, intent: str, user_input: str = "", params: Dict[str, Any] | None = None) -> float:
         """Return reversibility in [0, 1].  Lower = harder to undo."""
         text = f"{intent} {user_input}".lower()
 
@@ -90,9 +84,7 @@ class ReversibilityScorer:
             return 0.70  # unknown → conservatively partially reversible
 
         # Use the minimum score found (worst-case reversibility wins)
-        scores = [
-            _REVERSIBILITY_TABLE.get(m.lower().replace(" ", "_"), 0.70) for m in matches
-        ]
+        scores = [_REVERSIBILITY_TABLE.get(m.lower().replace(" ", "_"), 0.70) for m in matches]
         return round(min(scores), 3)
 
     def reversibility_label(self, score: float) -> str:

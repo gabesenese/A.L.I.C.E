@@ -20,9 +20,7 @@ class RoutingDecision(Enum):
     """
 
     SELF_REFLECTION = "self_reflection"  # Code introspection, training stats, system commands (priority 1)
-    CONVERSATIONAL = (
-        "conversational"  # Learned patterns, greetings, chitchat (priority 2)
-    )
+    CONVERSATIONAL = "conversational"  # Learned patterns, greetings, chitchat (priority 2)
     TOOL_CALL = "tool"  # Plugin/tool execution (priority 3)
     RAG_ONLY = "rag_only"  # Knowledge base retrieval without generation (priority 4)
     LLM_FALLBACK = "llm_fallback"  # LLM generation (last resort, priority 5)
@@ -309,16 +307,10 @@ class RequestRouter:
             from ai.optimization.runtime_thresholds import get_thresholds
 
             thresholds = get_thresholds()
-            self.MIN_TOOL_CONFIDENCE = float(
-                thresholds.get("tool_path_confidence", self.MIN_TOOL_CONFIDENCE)
-            )
-            self.MIN_CONV_CONFIDENCE = float(
-                thresholds.get("conversation_min_confidence", self.MIN_CONV_CONFIDENCE)
-            )
+            self.MIN_TOOL_CONFIDENCE = float(thresholds.get("tool_path_confidence", self.MIN_TOOL_CONFIDENCE))
+            self.MIN_CONV_CONFIDENCE = float(thresholds.get("conversation_min_confidence", self.MIN_CONV_CONFIDENCE))
             self.CLARIFICATION_THRESHOLD = float(
-                thresholds.get(
-                    "router_clarification_threshold", self.CLARIFICATION_THRESHOLD
-                )
+                thresholds.get("router_clarification_threshold", self.CLARIFICATION_THRESHOLD)
             )
         except Exception as e:
             logger.debug(f"Runtime thresholds unavailable for router: {e}")
@@ -468,21 +460,15 @@ class RequestRouter:
             return True
         return "ai system" in text_lower or "personal system" in text_lower
 
-    def should_clarify(
-        self, intent: str, confidence: float, entities: Dict[str, Any], user_text: str
-    ) -> bool:
+    def should_clarify(self, intent: str, confidence: float, entities: Dict[str, Any], user_text: str) -> bool:
         """Check if we should ask for clarification instead of executing tool"""
         text_lower = user_text.lower()
         intent_lower = self._normalize_intent(intent)
 
         # Clarify when a tool intent conflicts with a goal-statement style request.
-        if self._is_tool_intent(intent_lower) and self._looks_like_goal_statement(
-            text_lower
-        ):
+        if self._is_tool_intent(intent_lower) and self._looks_like_goal_statement(text_lower):
             note_markers = ("note", "notes", "memo", "list", "lists")
-            if "note" in intent_lower and not any(
-                m in text_lower for m in note_markers
-            ):
+            if "note" in intent_lower and not any(m in text_lower for m in note_markers):
                 return True
 
         # Clarify when below configured threshold unless user text is explicit.
@@ -494,11 +480,7 @@ class RequestRouter:
                 domain = "weather"
             elif "email" in intent_lower:
                 domain = "email"
-            elif (
-                "calendar" in intent_lower
-                or "schedule" in intent_lower
-                or "meeting" in intent_lower
-            ):
+            elif "calendar" in intent_lower or "schedule" in intent_lower or "meeting" in intent_lower:
                 domain = "calendar"
             elif "file_operations" in intent_lower or "file" in intent_lower:
                 domain = "file_operations"
@@ -598,9 +580,7 @@ class RequestRouter:
         # Priority 1: SELF_REFLECTION (code, training, system)
         if intent in self.SELF_REFLECTION_INTENTS:
             self.routing_stats["self_reflection"] += 1
-            self._emit_routing_event(
-                "self_reflection", RoutingDecision.SELF_REFLECTION, intent, 1.0
-            )
+            self._emit_routing_event("self_reflection", RoutingDecision.SELF_REFLECTION, intent, 1.0)
             return RouteResult(
                 decision=RoutingDecision.SELF_REFLECTION,
                 confidence=1.0,  # Always high confidence for self-reflection
@@ -611,14 +591,9 @@ class RequestRouter:
         if self._is_conversational_intent(intent):
             # Conversational routing requires healthy confidence, except for very
             # short explicit social utterances (hi/thanks/bye/ack).
-            if (
-                confidence >= self.MIN_CONV_CONFIDENCE
-                or self._is_explicit_short_conversation(user_text, intent)
-            ):
+            if confidence >= self.MIN_CONV_CONFIDENCE or self._is_explicit_short_conversation(user_text, intent):
                 self.routing_stats["conversational"] += 1
-                self._emit_routing_event(
-                    "conversational", RoutingDecision.CONVERSATIONAL, intent, confidence
-                )
+                self._emit_routing_event("conversational", RoutingDecision.CONVERSATIONAL, intent, confidence)
                 return RouteResult(
                     decision=RoutingDecision.CONVERSATIONAL,
                     confidence=confidence,
@@ -641,9 +616,7 @@ class RequestRouter:
         if self._is_tool_intent(intent) and user_text:
             if self.should_clarify(intent, confidence, entities, user_text):
                 self.routing_stats["llm_fallback"] += 1
-                self._emit_routing_event(
-                    "llm", RoutingDecision.LLM_FALLBACK, intent, confidence
-                )
+                self._emit_routing_event("llm", RoutingDecision.LLM_FALLBACK, intent, confidence)
                 return RouteResult(
                     decision=RoutingDecision.LLM_FALLBACK,
                     confidence=max(confidence, 0.5),
@@ -673,20 +646,14 @@ class RequestRouter:
                     confidence=confidence,
                     tool_name=tool_name,
                     reasoning=f"Tool execution: {intent}",
-                    metadata={
-                        "use_simple_formatter": True
-                    },  # Use rule-based formatter, not LLM
+                    metadata={"use_simple_formatter": True},  # Use rule-based formatter, not LLM
                 )
             else:
                 # Low confidence tool intent - escalate to LLM clarification path
                 # instead of conversational/tool pipeline.
-                logger.warning(
-                    f"Low confidence ({confidence:.2f}) for tool intent: {intent}"
-                )
+                logger.warning(f"Low confidence ({confidence:.2f}) for tool intent: {intent}")
                 self.routing_stats["llm_fallback"] += 1
-                self._emit_routing_event(
-                    "llm", RoutingDecision.LLM_FALLBACK, intent, confidence
-                )
+                self._emit_routing_event("llm", RoutingDecision.LLM_FALLBACK, intent, confidence)
                 return RouteResult(
                     decision=RoutingDecision.LLM_FALLBACK,
                     confidence=max(confidence, 0.5),
@@ -701,9 +668,7 @@ class RequestRouter:
         # Priority 4: RAG_ONLY (knowledge retrieval without generation)
         if intent in self.RAG_INTENTS:
             self.routing_stats["rag"] += 1
-            self._emit_routing_event(
-                "rag", RoutingDecision.RAG_ONLY, intent, confidence
-            )
+            self._emit_routing_event("rag", RoutingDecision.RAG_ONLY, intent, confidence)
             return RouteResult(
                 decision=RoutingDecision.RAG_ONLY,
                 confidence=confidence,
@@ -713,9 +678,7 @@ class RequestRouter:
         # Priority 5: LLM_FALLBACK (last resort)
         if intent in self.LLM_INTENTS or confidence < self.MIN_TOOL_CONFIDENCE:
             self.routing_stats["llm_fallback"] += 1
-            self._emit_routing_event(
-                "llm", RoutingDecision.LLM_FALLBACK, intent, confidence
-            )
+            self._emit_routing_event("llm", RoutingDecision.LLM_FALLBACK, intent, confidence)
             return RouteResult(
                 decision=RoutingDecision.LLM_FALLBACK,
                 confidence=confidence,

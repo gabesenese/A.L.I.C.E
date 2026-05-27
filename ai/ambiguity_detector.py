@@ -15,15 +15,11 @@ class AmbiguityDetector:
         re.IGNORECASE,
     )
 
-    def _looks_like_weather_pronoun_query(
-        self, *, user_input: str, unresolved_pronouns: Iterable[str]
-    ) -> bool:
+    def _looks_like_weather_pronoun_query(self, *, user_input: str, unresolved_pronouns: Iterable[str]) -> bool:
         low = str(user_input or "").lower()
         if not low:
             return False
-        pronouns = {
-            str(p).strip().lower() for p in unresolved_pronouns if str(p).strip()
-        }
+        pronouns = {str(p).strip().lower() for p in unresolved_pronouns if str(p).strip()}
         # Only bypass when the ambiguity is likely a weather placeholder pronoun.
         if not pronouns or not pronouns.issubset({"it", "its", "it's", "that", "this"}):
             return False
@@ -39,9 +35,7 @@ class AmbiguityDetector:
         unresolved = list(unresolved_pronouns)
         if not unresolved:
             return False
-        if self._looks_like_weather_pronoun_query(
-            user_input=user_input, unresolved_pronouns=unresolved
-        ):
+        if self._looks_like_weather_pronoun_query(user_input=user_input, unresolved_pronouns=unresolved):
             return False
         # Short pronoun-heavy follow-ups are the highest-risk misrouting shape.
         return int(token_count or 0) <= 8

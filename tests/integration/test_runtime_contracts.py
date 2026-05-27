@@ -77,9 +77,7 @@ def test_callable_response_adapter_generates_response():
     output = adapter.generate(
         ResponseRequest(
             user_input="hi",
-            decision=RouterDecision(
-                route="llm", intent="conversation:general", confidence=0.8
-            ),
+            decision=RouterDecision(route="llm", intent="conversation:general", confidence=0.8),
             memory=MemoryResult(items=[]),
         )
     )
@@ -100,9 +98,7 @@ def test_callable_verifier_adapter_verifies_response():
     verdict = adapter.verify(
         VerifierRequest(
             user_input="hello",
-            decision=RouterDecision(
-                route="llm", intent="conversation:general", confidence=0.8
-            ),
+            decision=RouterDecision(route="llm", intent="conversation:general", confidence=0.8),
             memory=MemoryResult(items=[]),
             proposed_response=ResponseOutput(text="hi", confidence=0.8),
         )

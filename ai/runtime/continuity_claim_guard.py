@@ -194,9 +194,7 @@ def _has_recent_session_evidence(items: List[Dict[str, Any]], *, now: datetime) 
     return False
 
 
-def _recent_session_items(
-    items: List[Dict[str, Any]], *, now: datetime
-) -> List[Dict[str, Any]]:
+def _recent_session_items(items: List[Dict[str, Any]], *, now: datetime) -> List[Dict[str, Any]]:
     matched: List[Dict[str, Any]] = []
     cutoff = now - timedelta(hours=6)
     for item in list(items or []):
@@ -213,10 +211,7 @@ def _recent_session_items(
 
 def _has_active_objective(operator_state: Dict[str, Any]) -> bool:
     state = dict(operator_state or {})
-    return bool(
-        str(state.get("active_objective") or "").strip()
-        and str(state.get("current_focus") or "").strip()
-    )
+    return bool(str(state.get("active_objective") or "").strip() and str(state.get("current_focus") or "").strip())
 
 
 def assess_continuity_claims(
@@ -228,9 +223,7 @@ def assess_continuity_claims(
 ) -> ContinuityGuardResult:
     content = str(text or "").strip()
     if not content:
-        return ContinuityGuardResult(
-            "", [], [], [], [], {}, [], {}, {}, {}, False, False
-        )
+        return ContinuityGuardResult("", [], [], [], [], {}, [], {}, {}, {}, False, False)
 
     sentences = _SENTENCE_SPLIT.split(content)
     detected: List[str] = []
@@ -245,9 +238,7 @@ def assess_continuity_claims(
     all_items = list(memory_items or [])
     recent_items = _recent_session_items(all_items, now=now)
     structured_items = [
-        row
-        for row in all_items
-        if _is_structured_memory(row, min_confidence=min_structured_confidence)
+        row for row in all_items if _is_structured_memory(row, min_confidence=min_structured_confidence)
     ]
     state_tokens = _operator_state_topic_tokens(dict(operator_state or {}))
     operator_active = _has_active_objective(dict(operator_state or {}))
@@ -270,24 +261,16 @@ def assess_continuity_claims(
 
             if recent_items:
                 for item in recent_items:
-                    if _has_topic_overlap(
-                        claim_tokens, _tokens(str(item.get("content") or ""))
-                    ):
+                    if _has_topic_overlap(claim_tokens, _tokens(str(item.get("content") or ""))):
                         reasons.append("recent_session_overlap")
                         break
 
-            if (
-                operator_active
-                and state_tokens
-                and _has_topic_overlap(claim_tokens, state_tokens)
-            ):
+            if operator_active and state_tokens and _has_topic_overlap(claim_tokens, state_tokens):
                 reasons.append("active_objective_overlap")
 
             if structured_items:
                 for item in structured_items:
-                    if _has_topic_overlap(
-                        claim_tokens, _tokens(_memory_item_topic_text(item))
-                    ):
+                    if _has_topic_overlap(claim_tokens, _tokens(_memory_item_topic_text(item))):
                         reasons.append("structured_memory_overlap")
                         break
 
@@ -330,9 +313,7 @@ def assess_continuity_claims(
         unsupported_claims=unsupported,
         evidence_sources=evidence_sources,
         claim_topic_tokens=claim_topic_tokens_map,
-        evidence_topic_tokens=sorted(
-            _memory_topic_tokens(recent_items + structured_items).union(state_tokens)
-        ),
+        evidence_topic_tokens=sorted(_memory_topic_tokens(recent_items + structured_items).union(state_tokens)),
         overlap_passed_by_claim=overlap_passed_by_claim,
         support_reasons=support_reasons,
         rejection_reasons=rejection_reasons,

@@ -130,9 +130,7 @@ class OllamaEvaluator:
             # Log evaluation
             self._log_evaluation(evaluation)
 
-            logger.info(
-                f"[Evaluator] Score: {evaluation.overall_score}/100 for {action_type}"
-            )
+            logger.info(f"[Evaluator] Score: {evaluation.overall_score}/100 for {action_type}")
 
             return evaluation
 
@@ -332,9 +330,7 @@ Be objective and constructive. Focus on helping Alice improve."""
                 for line in f:
                     if line.strip():
                         data = json.loads(line)
-                        eval_time = datetime.fromisoformat(
-                            data["timestamp"]
-                        ).timestamp()
+                        eval_time = datetime.fromisoformat(data["timestamp"]).timestamp()
 
                         # Filter by date
                         if eval_time < cutoff:

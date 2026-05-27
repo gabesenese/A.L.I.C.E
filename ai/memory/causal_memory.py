@@ -67,12 +67,8 @@ class CausalMemory:
                     UNIQUE(cause_id, effect_id)
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_causal_cause  ON causal_chains(cause_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_causal_effect ON causal_chains(effect_id)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_causal_cause  ON causal_chains(cause_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_causal_effect ON causal_chains(effect_id)")
             conn.commit()
 
     # ------------------------------------------------------------------

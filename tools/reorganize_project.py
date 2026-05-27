@@ -265,13 +265,8 @@ def execute_reorganization(dry_run=True, min_existing_ratio: float = 0.60):
         return True
 
     if not healthy:
-        print(
-            "\n[BLOCKED] Reorganization map appears stale for current repository state."
-        )
-        print(
-            f"[BLOCKED] Existing ratio {stats['existing_ratio']:.1%} is below "
-            f"required {min_existing_ratio:.1%}."
-        )
+        print("\n[BLOCKED] Reorganization map appears stale for current repository state.")
+        print(f"[BLOCKED] Existing ratio {stats['existing_ratio']:.1%} is below required {min_existing_ratio:.1%}.")
         print("[BLOCKED] Refresh the map first, then rerun intentionally.")
         return False
 
@@ -320,9 +315,7 @@ def execute_reorganization(dry_run=True, min_existing_ratio: float = 0.60):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Quarantined project reorganization tool"
-    )
+    parser = argparse.ArgumentParser(description="Quarantined project reorganization tool")
     parser.add_argument("--execute", action="store_true", help="Actually move files")
     parser.add_argument(
         "--acknowledge-quarantine",

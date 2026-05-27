@@ -25,9 +25,7 @@ class MetricTracker:
             "metrics": {},
         }
 
-    def record_pre_training_score(
-        self, domain: str, overall_score: float, dimension_scores: Dict[str, float]
-    ):
+    def record_pre_training_score(self, domain: str, overall_score: float, dimension_scores: Dict[str, float]):
         """
         Record scores before training
 
@@ -47,9 +45,7 @@ class MetricTracker:
 
         logger.info(f"PRE-TRAINING {domain}: {overall_score:.2f}/5.0")
 
-    def record_post_training_score(
-        self, domain: str, overall_score: float, dimension_scores: Dict[str, float]
-    ):
+    def record_post_training_score(self, domain: str, overall_score: float, dimension_scores: Dict[str, float]):
         """
         Record scores after training
 
@@ -71,9 +67,7 @@ class MetricTracker:
         pre = self.current_session["metrics"].get("pre_training", {}).get(domain, {})
         improvement = overall_score - pre.get("overall", 0)
 
-        logger.info(
-            f"POST-TRAINING {domain}: {overall_score:.2f}/5.0 (+{improvement:+.2f})"
-        )
+        logger.info(f"POST-TRAINING {domain}: {overall_score:.2f}/5.0 (+{improvement:+.2f})")
 
     def get_improvement(self, domain: str) -> Dict[str, float]:
         """
@@ -122,31 +116,23 @@ class MetricTracker:
         improvements = self.get_all_improvements()
 
         # Calculate overall improvement
-        improvements_list = [
-            imp["overall"] for imp in improvements.values() if "overall" in imp
-        ]
+        improvements_list = [imp["overall"] for imp in improvements.values() if "overall" in imp]
 
-        overall_improvement = (
-            sum(improvements_list) / len(improvements_list) if improvements_list else 0
-        )
+        overall_improvement = sum(improvements_list) / len(improvements_list) if improvements_list else 0
 
         summary = {
             "timestamp": self.current_session["timestamp"],
             "domains_trained": len(improvements),
             "overall_improvement": overall_improvement,
             "domain_improvements": improvements,
-            "improvements_by_dimension": self._aggregate_dimension_improvements(
-                improvements
-            ),
+            "improvements_by_dimension": self._aggregate_dimension_improvements(improvements),
         }
 
         # Append to metrics file
         with open(self.metrics_file, "a") as f:
             f.write(json.dumps(summary) + "\n")
 
-        logger.info(
-            f"Session complete. Overall improvement: +{overall_improvement:.2f}"
-        )
+        logger.info(f"Session complete. Overall improvement: +{overall_improvement:.2f}")
 
         # Reset for next session
         self.current_session = {
@@ -157,9 +143,7 @@ class MetricTracker:
 
         return summary
 
-    def _aggregate_dimension_improvements(
-        self, improvements: Dict[str, Dict]
-    ) -> Dict[str, float]:
+    def _aggregate_dimension_improvements(self, improvements: Dict[str, Dict]) -> Dict[str, float]:
         """Aggregate improvements by dimension across domains"""
         dimension_improvements = {}
 
@@ -171,9 +155,7 @@ class MetricTracker:
                 dimension_improvements[dim].append(improvement)
 
         # Calculate averages
-        return {
-            dim: sum(imps) / len(imps) for dim, imps in dimension_improvements.items()
-        }
+        return {dim: sum(imps) / len(imps) for dim, imps in dimension_improvements.items()}
 
     def get_session_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """
@@ -231,9 +213,7 @@ class MetricTracker:
         improvements = [s["improvement"] for s in scores]
         if len(improvements) >= 2:
             recent_avg = sum(improvements[-3:]) / min(3, len(improvements))
-            trend = (
-                "up" if recent_avg > 0.1 else "down" if recent_avg < -0.1 else "stable"
-            )
+            trend = "up" if recent_avg > 0.1 else "down" if recent_avg < -0.1 else "stable"
         else:
             trend = "unknown"
 
@@ -254,10 +234,7 @@ class MetricTracker:
 
         for domain, imp in improvements.items():
             print(f"\n{domain.upper()}")
-            print(
-                f"  Overall: {imp['pre_score']:.1f} → {imp['post_score']:.1f} "
-                f"({imp['overall']:+.2f})"
-            )
+            print(f"  Overall: {imp['pre_score']:.1f} → {imp['post_score']:.1f} ({imp['overall']:+.2f})")
 
             for dim, dim_imp in imp["dimensions"].items():
                 print(f"  {dim}: {dim_imp:+.2f}")

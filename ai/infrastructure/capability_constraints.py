@@ -202,9 +202,7 @@ class CapabilityConstraintsLedger:
     def register_capability(self, capability: Capability) -> None:
         """Register a capability."""
         self.capabilities[capability.name] = capability
-        logger.info(
-            f"[Constraints] Registered capability: {capability.name} ({capability.level.value})"
-        )
+        logger.info(f"[Constraints] Registered capability: {capability.name} ({capability.level.value})")
 
     def can_do(self, capability: str) -> bool:
         """Check if ALICE can perform a capability."""
@@ -244,9 +242,7 @@ class CapabilityConstraintsLedger:
 
         return True, "Capability available but requires approval"
 
-    def validate_capability_disclaimer(
-        self, disclaimed_capability: str
-    ) -> tuple[bool, str]:
+    def validate_capability_disclaimer(self, disclaimed_capability: str) -> tuple[bool, str]:
         """
         Validate if ALICE should claim she CANNOT do something.
 
@@ -269,9 +265,7 @@ class CapabilityConstraintsLedger:
         """Group capabilities for easier management."""
         self.capability_groups[group] = set(capabilities)
 
-    def get_all_capabilities(
-        self, available_only: bool = False
-    ) -> Dict[str, Capability]:
+    def get_all_capabilities(self, available_only: bool = False) -> Dict[str, Capability]:
         """Get all capabilities."""
         if not available_only:
             return self.capabilities.copy()
@@ -295,9 +289,7 @@ class CapabilityConstraintsLedger:
             return None
         return cap.constraints.get(constraint_key)
 
-    def capability_contradiction_detected(
-        self, claim: str, current_ledger_state: bool
-    ) -> bool:
+    def capability_contradiction_detected(self, claim: str, current_ledger_state: bool) -> bool:
         """
         Detect if ALICE made a contradictory capability claim.
 
@@ -312,11 +304,7 @@ class CapabilityConstraintsLedger:
 
     def get_high_risk_capabilities(self) -> Dict[str, Capability]:
         """Get all high-risk capabilities for safety monitoring."""
-        return {
-            k: v
-            for k, v in self.capabilities.items()
-            if v.risk_level in ("high", "critical")
-        }
+        return {k: v for k, v in self.capabilities.items() if v.risk_level in ("high", "critical")}
 
 
 # Singleton

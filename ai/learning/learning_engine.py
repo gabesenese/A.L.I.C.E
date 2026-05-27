@@ -35,13 +35,7 @@ _DEPS_LOADED = False
 
 
 def _load_optional_deps() -> None:
-    global \
-        _DEPS_LOADED, \
-        np, \
-        TfidfVectorizer, \
-        LogisticRegression, \
-        cosine_similarity, \
-        SentenceTransformer
+    global _DEPS_LOADED, np, TfidfVectorizer, LogisticRegression, cosine_similarity, SentenceTransformer
     if _DEPS_LOADED:
         return
     try:
@@ -130,21 +124,15 @@ class LearningEngine:
         self.embeddings = None
 
         if _ml_available():
-            self.vectorizer = TfidfVectorizer(
-                analyzer="char", ngram_range=(2, 3), max_features=200
-            )
+            self.vectorizer = TfidfVectorizer(analyzer="char", ngram_range=(2, 3), max_features=200)
             self.classifier = LogisticRegression(max_iter=1000, random_state=42)
         else:
             self.vectorizer = None
             self.classifier = None
-            logger.warning(
-                "[Learning] ML dependencies missing; similarity search disabled"
-            )
+            logger.warning("[Learning] ML dependencies missing; similarity search disabled")
 
         if not _dl_available():
-            logger.warning(
-                "[Learning] sentence-transformers not available, using traditional ML"
-            )
+            logger.warning("[Learning] sentence-transformers not available, using traditional ML")
 
         self.stats = self._load_stats()
         self._lock = threading.RLock()
@@ -184,9 +172,7 @@ class LearningEngine:
             # Update statistics
             self.stats["total_examples"] = len(self.examples)
             if intent:
-                self.stats["examples_by_intent"][intent] = (
-                    self.stats["examples_by_intent"].get(intent, 0) + 1
-                )
+                self.stats["examples_by_intent"][intent] = self.stats["examples_by_intent"].get(intent, 0) + 1
 
             # Quality tracking
             if quality_score >= 0.8:
@@ -215,9 +201,7 @@ class LearningEngine:
         log_path = project_root / "data" / "training" / "auto_generated.jsonl"
 
         correction_engine = get_auto_correction_engine(project_root)
-        error_summary = correction_engine.process_error_logs(
-            log_path, max_entries=max_entries
-        )
+        error_summary = correction_engine.process_error_logs(log_path, max_entries=max_entries)
         applied_summary = correction_engine.apply_corrections_to_thresholds()
 
         error_entries = self._load_error_entries(log_path)
@@ -298,17 +282,13 @@ class LearningEngine:
 
         return entries
 
-    def _extract_hard_lessons(
-        self, error_entries: List[Dict[str, Any]], min_count: int = 5
-    ) -> List[Dict[str, Any]]:
+    def _extract_hard_lessons(self, error_entries: List[Dict[str, Any]], min_count: int = 5) -> List[Dict[str, Any]]:
         """Group repeated errors into hard lessons."""
         counts: Dict[Tuple[str, str, str], int] = defaultdict(int)
 
         for entry in error_entries:
             domain = entry.get("domain", "unknown")
-            intent = (
-                entry.get("expected_intent") or entry.get("actual_intent") or "unknown"
-            )
+            intent = entry.get("expected_intent") or entry.get("actual_intent") or "unknown"
             error_type = entry.get("error_type") or "unknown"
             counts[(domain, intent, error_type)] += 1
 
@@ -348,9 +328,7 @@ class LearningEngine:
 
         self._save_patterns()
 
-    def get_similar_examples(
-        self, user_input: str, top_k: int = 3
-    ) -> List[TrainingExample]:
+    def get_similar_examples(self, user_input: str, top_k: int = 3) -> List[TrainingExample]:
         """Find similar examples using TF-IDF similarity (cached matrix)"""
         if not _ml_available():
             return []
@@ -373,9 +351,7 @@ class LearningEngine:
             query_vec = self.vectorizer.transform([user_input])
             similarities = cosine_similarity(query_vec, self._tfidf_matrix)[0]
             candidate_count = min(top_k, len(similarities))
-            top_indices = np.argpartition(similarities, -candidate_count)[
-                -candidate_count:
-            ]
+            top_indices = np.argpartition(similarities, -candidate_count)[-candidate_count:]
             top_indices = top_indices[np.argsort(similarities[top_indices])[::-1]]
 
             similar = []
@@ -417,10 +393,7 @@ class LearningEngine:
         Returns None if not enough examples
         """
         high_quality = [
-            ex
-            for ex in self.examples
-            if ex.quality_score >= 0.8
-            and (ex.user_rating is None or ex.user_rating >= 3)
+            ex for ex in self.examples if ex.quality_score >= 0.8 and (ex.user_rating is None or ex.user_rating >= 3)
         ]
 
         if len(high_quality) < min_examples:
@@ -439,9 +412,7 @@ class LearningEngine:
         """Check if we have enough data to fine-tune"""
         return self.get_high_quality_examples(min_examples) is not None
 
-    def get_training_data(
-        self, min_quality: float = 0.7, max_examples: Optional[int] = None
-    ) -> List[TrainingExample]:
+    def get_training_data(self, min_quality: float = 0.7, max_examples: Optional[int] = None) -> List[TrainingExample]:
         filtered = [ex for ex in self.examples if ex.quality_score >= min_quality]
 
         if max_examples:
@@ -449,21 +420,14 @@ class LearningEngine:
 
         return filtered
 
-    def record_feedback(
-        self, user_input: str, response: str, rating: int, feedback_text: str = ""
-    ):
+    def record_feedback(self, user_input: str, response: str, rating: int, feedback_text: str = ""):
         """Record user feedback on a response"""
         # Find matching example
         for ex in self.examples:
-            if (
-                ex.user_input.lower() == user_input.lower()
-                and ex.assistant_response == response
-            ):
+            if ex.user_input.lower() == user_input.lower() and ex.assistant_response == response:
                 ex.user_rating = rating
                 self._save_stats()
-                logger.info(
-                    f"[Learning] Feedback recorded: {user_input[:50]}... → rating {rating}"
-                )
+                logger.info(f"[Learning] Feedback recorded: {user_input[:50]}... → rating {rating}")
                 break
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -564,9 +528,7 @@ class LearningEngine:
 
         return len(intersection) / len(union) if union else 0.0
 
-    def suggest_pattern_creation(
-        self, min_occurrences: int = 3
-    ) -> List[Dict[str, Any]]:
+    def suggest_pattern_creation(self, min_occurrences: int = 3) -> List[Dict[str, Any]]:
         """
         Suggest patterns that should be created based on repeated LLM calls
 
@@ -763,9 +725,7 @@ class AutoCorrectionEngine:
             "route_mismatches": route_mismatches,
         }
 
-    def process_error_logs(
-        self, log_path: Path, max_entries: int = 500
-    ) -> Dict[str, Any]:
+    def process_error_logs(self, log_path: Path, max_entries: int = 500) -> Dict[str, Any]:
         """
         Process error logs (success_flag=False) and create corrections.
 
@@ -814,9 +774,7 @@ class AutoCorrectionEngine:
 
                     existing = self._find_existing_correction(correction)
                     if existing:
-                        existing["validation_count"] = (
-                            existing.get("validation_count", 1) + 1
-                        )
+                        existing["validation_count"] = existing.get("validation_count", 1) + 1
                         existing["last_seen"] = datetime.now().isoformat()
                         corrections_updated += 1
                     else:
@@ -860,9 +818,7 @@ class AutoCorrectionEngine:
 
             # Check if dangerous domain
             if domain.lower() in self.DANGEROUS_DOMAINS:
-                logger.warning(
-                    f"[AutoCorrection] Skipping dangerous domain correction: {domain}"
-                )
+                logger.warning(f"[AutoCorrection] Skipping dangerous domain correction: {domain}")
                 return None
 
             correction = {
@@ -910,9 +866,7 @@ class AutoCorrectionEngine:
             correction = {
                 "id": f"auto_log_corr_{datetime.now().isoformat()}",
                 "timestamp": datetime.now().isoformat(),
-                "correction_type": entry.get(
-                    "error_type", self._infer_error_type(entry)
-                ),
+                "correction_type": entry.get("error_type", self._infer_error_type(entry)),
                 "user_input": entry.get("user_input", ""),
                 "expected_intent": expected_intent,
                 "actual_intent": entry.get("actual_intent", ""),
@@ -923,8 +877,7 @@ class AutoCorrectionEngine:
                 "applied": False,
                 "validation_count": 1,
                 "confidence": entry.get("confidence", 0.0),
-                "teacher_response": entry.get("teacher_response")
-                or (judged.get("response") if judged else None),
+                "teacher_response": entry.get("teacher_response") or (judged.get("response") if judged else None),
             }
 
             return correction
@@ -988,9 +941,7 @@ class AutoCorrectionEngine:
             logger.warning(f"[AutoCorrection] Teacher judge failed: {e}")
             return None
 
-    def apply_corrections_to_thresholds(
-        self, force_apply: bool = False
-    ) -> Dict[str, Any]:
+    def apply_corrections_to_thresholds(self, force_apply: bool = False) -> Dict[str, Any]:
         """
         Apply corrections to adjust NLP thresholds and rules.
         Only applies corrections that have been validated multiple times,
@@ -1009,10 +960,7 @@ class AutoCorrectionEngine:
             if correction.get("applied"):
                 continue
 
-            if (
-                not force_apply
-                and correction.get("validation_count", 0) < MIN_VALIDATIONS
-            ):
+            if not force_apply and correction.get("validation_count", 0) < MIN_VALIDATIONS:
                 continue
 
             domain = correction.get("domain", "").lower()
@@ -1036,8 +984,7 @@ class AutoCorrectionEngine:
             )
 
             logger.info(
-                f"[AutoCorrection] Applying: {user_input[:30]}... "
-                f"({correction.get('correction_type')}) for {domain}"
+                f"[AutoCorrection] Applying: {user_input[:30]}... ({correction.get('correction_type')}) for {domain}"
             )
 
         if applied_count > 0:
@@ -1060,9 +1007,7 @@ class AutoCorrectionEngine:
                 data = {}
             existing = data.get("corrections", [])
             # Deduplicate by user_input (case-insensitive)
-            existing_keys = {
-                e["user_input"].lower() for e in existing if "user_input" in e
-            }
+            existing_keys = {e["user_input"].lower() for e in existing if "user_input" in e}
             for entry in new_entries:
                 if entry["user_input"].lower() not in existing_keys:
                     existing.append(entry)
@@ -1101,12 +1046,8 @@ class PatternPromotionEngine:
     def __init__(self, project_root: Optional[Path] = None):
         self.project_root = project_root or Path(__file__).resolve().parents[1]
         self.data_dir = self.project_root / "data" / "training"
-        self.learning_patterns_file = (
-            self.project_root / "memory" / "learning_patterns.json"
-        )
-        self.patterns_for_review_file = (
-            self.project_root / "memory" / "patterns_for_review.json"
-        )
+        self.learning_patterns_file = self.project_root / "memory" / "learning_patterns.json"
+        self.patterns_for_review_file = self.project_root / "memory" / "patterns_for_review.json"
         self.learning_patterns = self._load_patterns()
         self.patterns_for_review = self._load_review_patterns()
         logger.info("[PatternPromotion] Engine initialized")
@@ -1119,9 +1060,7 @@ class PatternPromotionEngine:
                     data = json.load(f)
                     # Ensure it's a dict (not a list)
                     if isinstance(data, list):
-                        logger.warning(
-                            "[PatternPromotion] learning_patterns.json contains array, converting to dict"
-                        )
+                        logger.warning("[PatternPromotion] learning_patterns.json contains array, converting to dict")
                         return {}
                     return data if isinstance(data, dict) else {}
             except Exception as e:
@@ -1198,9 +1137,7 @@ class PatternPromotionEngine:
                     if pattern:
                         self.learning_patterns[intent] = pattern
                         promoted_count += 1
-                        logger.info(
-                            f"[PatternPromotion] Promoted pattern for: {intent}"
-                        )
+                        logger.info(f"[PatternPromotion] Promoted pattern for: {intent}")
                 else:
                     # Stage for review
                     pattern = self._create_pattern_from_cluster(intent, examples)
@@ -1234,10 +1171,7 @@ class PatternPromotionEngine:
                             try:
                                 data = json.loads(line)
                                 # Quality filter
-                                if (
-                                    data.get("quality_score", 0.0)
-                                    >= self.MIN_QUALITY_SCORE
-                                ):
+                                if data.get("quality_score", 0.0) >= self.MIN_QUALITY_SCORE:
                                     examples.append(data)
                             except json.JSONDecodeError:
                                 pass  # Skip malformed lines
@@ -1275,9 +1209,7 @@ class PatternPromotionEngine:
         # Default: stage for review if not explicitly safe
         return False
 
-    def _create_pattern_from_cluster(
-        self, intent: str, examples: List[Dict]
-    ) -> Optional[Dict]:
+    def _create_pattern_from_cluster(self, intent: str, examples: List[Dict]) -> Optional[Dict]:
         """Create a pattern from a cluster of examples"""
         try:
             # Get most common response
@@ -1286,9 +1218,7 @@ class PatternPromotionEngine:
 
             # Calculate confidence
             quality_scores = [ex.get("quality_score", 0.7) for ex in examples]
-            avg_quality = (
-                (sum(quality_scores) / len(quality_scores)) if quality_scores else 0.7
-            )
+            avg_quality = (sum(quality_scores) / len(quality_scores)) if quality_scores else 0.7
 
             pattern = {
                 "intent": intent,
@@ -1388,11 +1318,7 @@ class NLPErrorLogger:
                 "reason": reason,
                 "session_id": session_id,
                 "success": False,
-                "domain": (
-                    original_intent.split(":")[0]
-                    if ":" in original_intent
-                    else original_intent
-                ),
+                "domain": (original_intent.split(":")[0] if ":" in original_intent else original_intent),
                 "actual_intent": original_intent,
                 "expected_intent": corrected_intent,
                 "error_type": "intent_override",

@@ -80,11 +80,7 @@ class ToolResultVerifier:
             issues.append("action does not match execution expectation")
         if not response and not data:
             issues.append("empty plugin output")
-        if (
-            response
-            and any(m in response.lower() for m in _NEGATIVE_MARKERS)
-            and success
-        ):
+        if response and any(m in response.lower() for m in _NEGATIVE_MARKERS) and success:
             issues.append("success flag contradicts response text")
         if status and status not in _ALLOWED_STATUS:
             issues.append("invalid status field")
@@ -105,11 +101,7 @@ class ToolResultVerifier:
             issues.append("diagnostics field must be a dict when provided")
         intent_prefix = (intent or "").split(":", 1)[0]
 
-        if (
-            success
-            and intent_prefix == "weather"
-            and "weather" not in plugin_name.lower()
-        ):
+        if success and intent_prefix == "weather" and "weather" not in plugin_name.lower():
             issues.append("unexpected plugin for weather intent")
 
         if success and isinstance(data, dict):
@@ -120,22 +112,12 @@ class ToolResultVerifier:
             if intent_prefix == "notes" and "count" in data and "notes" in data:
                 notes = data.get("notes")
                 count = data.get("count")
-                if (
-                    isinstance(notes, list)
-                    and isinstance(count, int)
-                    and count < len(notes)
-                ):
+                if isinstance(notes, list) and isinstance(count, int) and count < len(notes):
                     issues.append("notes count is inconsistent with listed notes")
 
         user_lower = (user_input or "").lower()
-        if (
-            success
-            and any(w in user_lower for w in ("count", "how many", "list", "show"))
-            and not data
-        ):
-            issues.append(
-                "goal likely unsatisfied: user requested structured output but tool data is empty"
-            )
+        if success and any(w in user_lower for w in ("count", "how many", "list", "show")) and not data:
+            issues.append("goal likely unsatisfied: user requested structured output but tool data is empty")
 
         if success and intent_prefix in {"system", "file_operations"} and not data:
             issues.append("high-impact action lacks structured execution data")
@@ -143,9 +125,7 @@ class ToolResultVerifier:
         if success and "umbrella" in user_lower and isinstance(data, dict):
             cond = str(data.get("condition") or "").lower()
             resp_lower = response.lower().strip()
-            rainy = any(
-                w in cond for w in ("rain", "drizzle", "storm", "shower", "thunder")
-            )
+            rainy = any(w in cond for w in ("rain", "drizzle", "storm", "shower", "thunder"))
             if resp_lower.startswith("yes") and not rainy:
                 issues.append("umbrella recommendation contradicts weather condition")
             if resp_lower.startswith("no") and rainy:

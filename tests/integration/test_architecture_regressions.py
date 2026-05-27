@@ -35,9 +35,7 @@ class _WorldStateMemory:
 
 def test_goal_recognizer_detects_objective_statement():
     recognizer = get_goal_recognizer()
-    signal = recognizer.detect(
-        "My objective is to make this a reliable autonomous agent with verification loops"
-    )
+    signal = recognizer.detect("My objective is to make this a reliable autonomous agent with verification loops")
 
     assert signal is not None
     assert "autonomous" in " ".join(signal.markers)
@@ -147,9 +145,7 @@ def test_execution_verifier_rejects_when_contract_success_criteria_fail():
     )
 
     assert report.accepted is False
-    assert any(
-        issue.startswith("success_criterion_not_met:") for issue in report.issues
-    )
+    assert any(issue.startswith("success_criterion_not_met:") for issue in report.issues)
 
 
 def test_execution_loop_replans_when_tool_verified_but_goal_not_advanced():
@@ -159,9 +155,7 @@ def test_execution_loop_replans_when_tool_verified_but_goal_not_advanced():
         intent="notes:update",
         confidence=0.83,
         entities={},
-        conversation_state={
-            "active_goal_stack": [{"goal_id": "g1", "title": "organize notes"}]
-        },
+        conversation_state={"active_goal_stack": [{"goal_id": "g1", "title": "organize notes"}]},
     )
     decision = controller.decide(
         state,

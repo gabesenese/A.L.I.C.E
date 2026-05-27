@@ -22,9 +22,7 @@ def test_active_objective_still_recommends_agent_loop_initially():
     decision = decide_next_step(
         route="local",
         intent="operator:continue",
-        operator_state={
-            "active_objective": "Improve Alice into an agentic companion/operator"
-        },
+        operator_state={"active_objective": "Improve Alice into an agentic companion/operator"},
         local_execution={},
         available_files=[],
         files_inspected=[],

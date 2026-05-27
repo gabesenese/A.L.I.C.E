@@ -36,8 +36,10 @@ def test_execute_chain_with_failing_plugins_returns_partial():
     class FakePlugin:
         name = "Fake"
         enabled = True
+
         def can_handle(self, intent, entities, query):
             return True
+
         def execute(self, intent, query, entities, context):
             if intent == "calendar:events":
                 return {"success": True, "response": "Sprint planning at 10:00"}
@@ -62,8 +64,10 @@ def test_execute_chain_all_fail_returns_none():
     class FailPlugin:
         name = "Fail"
         enabled = True
+
         def can_handle(self, intent, entities, query):
             return True
+
         def execute(self, intent, query, entities, context):
             return {"success": False, "response": ""}
 

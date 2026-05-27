@@ -21,7 +21,9 @@ if not os.path.exists(phoneme_output_dir):
 model_dir = "C:/Users/gabri/AppData/Local/Programs/Python/Python312/Lib/site-packages/pocketsphinx/model/en-us"
 hmm_path = "C:/Users/gabri/AppData/Local/Programs/Python/Python312/Lib/site-packages/pocketsphinx/model/en-us/en-us"
 dict_path = "C:/Users/gabri/AppData/Local/Programs/Python/Python312/Lib/site-packages/pocketsphinx/model/en-us/cmudict-en-us.dict"
-lm_path = "C:/Users/gabri/AppData/Local/Programs/Python/Python312/Lib/site-packages/pocketsphinx/model/en-us/en-us.lm.bin"
+lm_path = (
+    "C:/Users/gabri/AppData/Local/Programs/Python/Python312/Lib/site-packages/pocketsphinx/model/en-us/en-us.lm.bin"
+)
 
 # Configure the decoder
 config = {
@@ -66,9 +68,7 @@ def process_file(filename):
 
                     # Save each phoneme audio segment
                     for i, phoneme in enumerate(phonemes):
-                        phoneme_file = os.path.join(
-                            phoneme_output_dir, f"{phoneme}_{i}.wav"
-                        )
+                        phoneme_file = os.path.join(phoneme_output_dir, f"{phoneme}_{i}.wav")
                         segment_audio.export(phoneme_file, format="wav")
 
         except Exception as e:

@@ -31,12 +31,8 @@ def build_agentic_focus_plan(metrics: Dict[str, Any]) -> List[AgenticFocusItem]:
     wrong_tool_rate = float(metrics.get("wrong_tool_rate", 1.0) or 1.0)
     recovery_success_rate = float(metrics.get("recovery_success_rate", 0.0) or 0.0)
     stale_state_rate = float(metrics.get("stale_state_rate", 1.0) or 1.0)
-    long_horizon_completion_rate = float(
-        metrics.get("long_horizon_completion_rate", 0.0) or 0.0
-    )
-    personalization_satisfaction = float(
-        metrics.get("personalization_satisfaction", 0.0) or 0.0
-    )
+    long_horizon_completion_rate = float(metrics.get("long_horizon_completion_rate", 0.0) or 0.0)
+    personalization_satisfaction = float(metrics.get("personalization_satisfaction", 0.0) or 0.0)
 
     items: List[AgenticFocusItem] = []
 

@@ -117,9 +117,7 @@ class MultiGoalArbitrator:
         # Check capacity
         active_count = sum(1 for g in self.goals.values() if g.status == "active")
         if active_count >= self.max_active_goals:
-            logger.warning(
-                f"[MultiGoal] At capacity ({self.max_active_goals} goals). Pausing lowest priority."
-            )
+            logger.warning(f"[MultiGoal] At capacity ({self.max_active_goals} goals). Pausing lowest priority.")
             self._pause_lowest_priority_goal()
 
         self.goal_counter += 1
@@ -136,9 +134,7 @@ class MultiGoalArbitrator:
         )
 
         self.goals[goal_id] = goal
-        logger.info(
-            f"[MultiGoal] Added goal '{description}' (priority={priority.name}, deadline={deadline})"
-        )
+        logger.info(f"[MultiGoal] Added goal '{description}' (priority={priority.name}, deadline={deadline})")
 
         return goal
 
@@ -170,9 +166,7 @@ class MultiGoalArbitrator:
             overdue_penalty = -1000 if g.is_overdue() else 0
             urgent_penalty = -500 if g.is_urgent() else 0
             priority_val = -g.priority.value * 100
-            age = (
-                datetime.now() - datetime.fromisoformat(g.created_at)
-            ).total_seconds()
+            age = (datetime.now() - datetime.fromisoformat(g.created_at)).total_seconds()
 
             return (overdue_penalty + urgent_penalty + priority_val, age)
 
@@ -201,9 +195,7 @@ class MultiGoalArbitrator:
 
         goal.last_touched = datetime.now().isoformat()
 
-        logger.info(
-            f"[MultiGoal] Progress on '{goal.description}': {goal.progress_percent:.0f}%"
-        )
+        logger.info(f"[MultiGoal] Progress on '{goal.description}': {goal.progress_percent:.0f}%")
 
     def complete_goal(self, goal_id: str, notes: str = "") -> None:
         """Mark a goal as completed."""
@@ -255,11 +247,7 @@ class MultiGoalArbitrator:
 
     def _pause_lowest_priority_goal(self) -> None:
         """When at capacity, pause the lowest priority active goal."""
-        active_goals = [
-            g
-            for g in self.goals.values()
-            if g.status == "active" and not g.is_overdue()
-        ]
+        active_goals = [g for g in self.goals.values() if g.status == "active" and not g.is_overdue()]
 
         if not active_goals:
             return
@@ -338,14 +326,9 @@ class MultiGoalArbitrator:
         for goal in sorted(active, key=lambda g: g.priority.value, reverse=True):
             urgent = " ⚠ URGENT" if goal.is_urgent() else ""
             overdue = " ⛔ OVERDUE" if goal.is_overdue() else ""
-            progress_bar = "█" * int(goal.progress() / 10) + "░" * (
-                10 - int(goal.progress() / 10)
-            )
+            progress_bar = "█" * int(goal.progress() / 10) + "░" * (10 - int(goal.progress() / 10))
 
-            lines.append(
-                f"  • [{progress_bar}] {goal.description} "
-                f"({goal.priority.name}){urgent}{overdue}"
-            )
+            lines.append(f"  • [{progress_bar}] {goal.description} ({goal.priority.name}){urgent}{overdue}")
 
         return "\n".join(lines)
 

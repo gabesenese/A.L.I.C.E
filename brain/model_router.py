@@ -19,9 +19,7 @@ from models.base import Model
 class ModelRouter:
     """Select and execute model roles based on task type + complexity."""
 
-    def __init__(
-        self, usage_log: str = "logs/model_usage.log", confidence_floor: float = 0.6
-    ) -> None:
+    def __init__(self, usage_log: str = "logs/model_usage.log", confidence_floor: float = 0.6) -> None:
         self.models: Dict[str, Model] = {
             "fast": FastModel(),
             "reasoning": ReasoningModel(),
@@ -29,9 +27,12 @@ class ModelRouter:
         }
         self.fallback_key = "reasoning"
         self.confidence_floor = max(0.0, min(1.0, float(confidence_floor)))
-        self.require_all_roles = os.getenv(
-            "ALICE_MULTI_LLM_REQUIRE_ALL", "1"
-        ).strip().lower() not in {"0", "false", "off", "no"}
+        self.require_all_roles = os.getenv("ALICE_MULTI_LLM_REQUIRE_ALL", "1").strip().lower() not in {
+            "0",
+            "false",
+            "off",
+            "no",
+        }
         self.usage_log = Path(usage_log)
         self.usage_log.parent.mkdir(parents=True, exist_ok=True)
         self.usage_log.touch(exist_ok=True)
@@ -46,10 +47,7 @@ class ModelRouter:
         self.refresh_role_health()
 
     def describe_models(self) -> Dict[str, str]:
-        return {
-            role: str(getattr(model, "model_name", role))
-            for role, model in self.models.items()
-        }
+        return {role: str(getattr(model, "model_name", role)) for role, model in self.models.items()}
 
     def refresh_role_health(self) -> Dict[str, bool]:
         """Detect whether each routed model appears in local Ollama tags."""
@@ -95,10 +93,7 @@ class ModelRouter:
         return all(bool(v) for v in (self._role_health or {}).values())
 
     def runtime_status(self) -> Dict[str, Any]:
-        counts = {
-            role: self._recent_roles.count(role)
-            for role in ("fast", "reasoning", "coding")
-        }
+        counts = {role: self._recent_roles.count(role) for role in ("fast", "reasoning", "coding")}
         total = max(1, sum(counts.values()))
         shares = {k: round(v / total, 3) for k, v in counts.items()}
         return {
@@ -133,11 +128,7 @@ class ModelRouter:
 
         if task.task_type == "coding":
             return "coding"
-        if (
-            task.task_type in {"planning", "reasoning"}
-            or task.multi_step
-            or complexity > 7
-        ):
+        if task.task_type in {"planning", "reasoning"} or task.multi_step or complexity > 7:
             selected = "reasoning"
         elif task.task_type == "simple" and complexity <= 3:
             selected = "fast"
@@ -157,9 +148,7 @@ class ModelRouter:
         if task_type != "simple" or int(complexity) > 4:
             return selected
 
-        history = [
-            r for r in self._recent_roles if r in {"fast", "reasoning", "coding"}
-        ]
+        history = [r for r in self._recent_roles if r in {"fast", "reasoning", "coding"}]
         if len(history) < 8:
             return selected
 
@@ -175,9 +164,7 @@ class ModelRouter:
         self._recent_roles.append(str(role))
         self._recent_roles = self._recent_roles[-60:]
 
-    def generate(
-        self, request: str, context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    def generate(self, request: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         context = dict(context or {})
         self.refresh_role_health()
 
@@ -209,16 +196,10 @@ class ModelRouter:
 
         try:
             out = self.models[selected].generate(request, context=context)
-            if (
-                float(out.get("confidence", 0.0)) < self.confidence_floor
-                and selected != "reasoning"
-            ):
+            if float(out.get("confidence", 0.0)) < self.confidence_floor and selected != "reasoning":
                 out = self.models["reasoning"].generate(request, context=context)
                 selected = "reasoning"
-            model_name = str(
-                out.get("model")
-                or getattr(self.models[selected], "model_name", selected)
-            )
+            model_name = str(out.get("model") or getattr(self.models[selected], "model_name", selected))
             self.last_route = {
                 "role": selected,
                 "model": model_name,
@@ -240,10 +221,7 @@ class ModelRouter:
             fallback_key = self.fallback_key
             try:
                 out = self.models[fallback_key].generate(request, context=context)
-                model_name = str(
-                    out.get("model")
-                    or getattr(self.models[fallback_key], "model_name", fallback_key)
-                )
+                model_name = str(out.get("model") or getattr(self.models[fallback_key], "model_name", fallback_key))
                 self.last_route = {
                     "role": fallback_key,
                     "model": model_name,
@@ -264,22 +242,14 @@ class ModelRouter:
             except Exception as exc:
                 self.last_route = {
                     "role": fallback_key,
-                    "model": str(
-                        getattr(
-                            self.models.get(fallback_key), "model_name", fallback_key
-                        )
-                    ),
+                    "model": str(getattr(self.models.get(fallback_key), "model_name", fallback_key)),
                     "task_type": task.task_type,
                     "complexity": int(complexity),
                     "success": False,
                 }
                 self._log_usage(
                     fallback_key,
-                    str(
-                        getattr(
-                            self.models.get(fallback_key), "model_name", fallback_key
-                        )
-                    ),
+                    str(getattr(self.models.get(fallback_key), "model_name", fallback_key)),
                     task.task_type,
                     complexity,
                     False,

@@ -98,9 +98,7 @@ class MemoryGrowthMonitor:
 
                 # Estimate size (rough approximation)
                 content_size = len(str(memory.get("content", "")))
-                embedding_size = (
-                    len(memory.get("embedding", [])) * 4
-                )  # 4 bytes per float
+                embedding_size = len(memory.get("embedding", [])) * 4  # 4 bytes per float
                 type_sizes[memory_type] += content_size + embedding_size
 
             snapshot["type_breakdown"] = {
@@ -121,18 +119,14 @@ class MemoryGrowthMonitor:
                         file_details[relative_path] = size
 
                 snapshot["file_stats"]["total_size_bytes"] = total_size
-                snapshot["file_stats"]["total_size_mb"] = round(
-                    total_size / (1024 * 1024), 2
-                )
+                snapshot["file_stats"]["total_size_mb"] = round(total_size / (1024 * 1024), 2)
                 snapshot["file_stats"]["file_details"] = file_details
 
             # Document statistics
             if hasattr(memory_system, "document_registry"):
                 registry = memory_system.document_registry
                 snapshot["memory_stats"]["total_documents"] = len(registry)
-                snapshot["memory_stats"]["total_chunks"] = sum(
-                    doc["chunks_created"] for doc in registry.values()
-                )
+                snapshot["memory_stats"]["total_chunks"] = sum(doc["chunks_created"] for doc in registry.values())
 
             # Log snapshot
             with open(self.growth_log_path, "a", encoding="utf-8") as f:
@@ -246,9 +240,7 @@ class MemoryGrowthMonitor:
             growth_rate = self.calculate_growth_rate(days=7)
             if not growth_rate.get("insufficient_data"):
                 rate_per_day = growth_rate.get("size_growth_rate_mb_per_day", 0)
-                rate_threshold = self.config["alert_thresholds"][
-                    "growth_rate_mb_per_day"
-                ]
+                rate_threshold = self.config["alert_thresholds"]["growth_rate_mb_per_day"]
 
                 if rate_per_day >= rate_threshold:
                     alerts.append(
@@ -305,27 +297,17 @@ class MemoryGrowthMonitor:
             lines.append("CURRENT STATE")
             lines.append("-" * 80)
             lines.append(f"  Timestamp: {latest['timestamp']}")
-            lines.append(
-                f"  Total Size: {latest['file_stats'].get('total_size_mb', 0)}MB"
-            )
-            lines.append(
-                f"  Total Memories: {latest['memory_stats'].get('total_memories', 0)}"
-            )
-            lines.append(
-                f"  Total Documents: {latest['memory_stats'].get('total_documents', 0)}"
-            )
+            lines.append(f"  Total Size: {latest['file_stats'].get('total_size_mb', 0)}MB")
+            lines.append(f"  Total Memories: {latest['memory_stats'].get('total_memories', 0)}")
+            lines.append(f"  Total Documents: {latest['memory_stats'].get('total_documents', 0)}")
             lines.append("")
 
             # Memory type breakdown
             if "type_breakdown" in latest:
                 lines.append("  Memory Type Breakdown:")
                 for mem_type, count in latest["type_breakdown"]["counts"].items():
-                    size_mb = latest["type_breakdown"]["sizes_bytes"].get(
-                        mem_type, 0
-                    ) / (1024 * 1024)
-                    lines.append(
-                        f"    - {mem_type}: {count} memories ({size_mb:.2f}MB)"
-                    )
+                    size_mb = latest["type_breakdown"]["sizes_bytes"].get(mem_type, 0) / (1024 * 1024)
+                    lines.append(f"    - {mem_type}: {count} memories ({size_mb:.2f}MB)")
             lines.append("")
 
         # Growth rate

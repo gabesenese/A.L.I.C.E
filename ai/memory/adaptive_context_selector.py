@@ -54,22 +54,18 @@ class AdaptiveContextSelector:
     """
 
     def __init__(self, feedback_path: str = "data/context/selection_feedback.jsonl"):
-        self.max_context_length = (
-            4000  # Max chars to send to LLM (raised for richer recall)
-        )
+        self.max_context_length = 4000  # Max chars to send to LLM (raised for richer recall)
         self.min_relevance = 0.2  # Lowered threshold — surface more past context
         self.feedback_path = feedback_path
 
         # Learning state: (context_type, intent) → (successes, failures, avg_rating)
-        self.context_success_rates: Dict[Tuple[str, str], Dict[str, float]] = (
-            defaultdict(
-                lambda: {"successes": 0, "failures": 0, "total_rating": 0, "count": 0}
-            )
+        self.context_success_rates: Dict[Tuple[str, str], Dict[str, float]] = defaultdict(
+            lambda: {"successes": 0, "failures": 0, "total_rating": 0, "count": 0}
         )
 
         # Learning state: (intent, entity_type) → success_rate
-        self.entity_context_success: Dict[Tuple[str, str], Dict[str, float]] = (
-            defaultdict(lambda: {"successes": 0, "failures": 0, "count": 0})
+        self.entity_context_success: Dict[Tuple[str, str], Dict[str, float]] = defaultdict(
+            lambda: {"successes": 0, "failures": 0, "count": 0}
         )
 
         # Selection history: map selection_id → SelectionFeedback
@@ -149,9 +145,7 @@ class AdaptiveContextSelector:
         # Persist feedback
         self._save_feedback(feedback)
 
-        logger.info(
-            f"Recorded feedback for selection {selection_id}: success={success}, rating={rating}"
-        )
+        logger.info(f"Recorded feedback for selection {selection_id}: success={success}, rating={rating}")
 
     def _save_feedback(self, feedback: SelectionFeedback):
         """Save feedback to disk"""
@@ -193,9 +187,7 @@ class AdaptiveContextSelector:
         success_rate = stats["successes"] / total
 
         # Calculate average rating (1-5 → 0-0.2 boost)
-        avg_rating = (
-            stats["total_rating"] / stats["count"] if stats["count"] > 0 else 3.0
-        )
+        avg_rating = stats["total_rating"] / stats["count"] if stats["count"] > 0 else 3.0
         rating_boost = (avg_rating - 1.0) / 20.0  # Normalize 1-5 to 0-0.2
 
         # Combine: higher success rate and ratings boost relevance
@@ -224,14 +216,8 @@ class AdaptiveContextSelector:
         input_lower = user_input.lower()
 
         for i, context_part in enumerate(all_context_parts):
-            context_type = (
-                context_types[i]
-                if context_types and i < len(context_types)
-                else "general"
-            )
-            score, reason = self._score_relevance(
-                context_part, input_lower, intent, entities, context_type
-            )
+            context_type = context_types[i] if context_types and i < len(context_types) else "general"
+            score, reason = self._score_relevance(context_part, input_lower, intent, entities, context_type)
 
             # Apply learned relevance boost
             learned_boost = self._get_learned_relevance_boost(context_type, intent)
@@ -268,9 +254,7 @@ class AdaptiveContextSelector:
                 break
 
         context_str = "\n\n".join(selected)
-        logger.debug(
-            f"Selected context (ID: {selection_id}): {len(scored)} pieces, {total_length} chars"
-        )
+        logger.debug(f"Selected context (ID: {selection_id}): {len(scored)} pieces, {total_length} chars")
         return context_str, selection_id
 
     def _score_relevance(
@@ -344,9 +328,7 @@ class AdaptiveContextSelector:
 
             total = data["successes"] + data["failures"]
             success_rate = data["successes"] / total if total > 0 else 0
-            avg_rating = (
-                data["total_rating"] / data["count"] if data["count"] > 0 else 0
-            )
+            avg_rating = data["total_rating"] / data["count"] if data["count"] > 0 else 0
 
             key = f"{context_type}:{intent}"
             stats["context_type_patterns"][key] = {

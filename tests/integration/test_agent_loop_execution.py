@@ -58,7 +58,5 @@ def test_inspected_file_is_recorded_before_next_step_decision():
         user_id="default",
     )
     # After inspecting agent_loop.py, next recommendation should move forward.
-    assert "ai/runtime/agent_loop.py" in [
-        o.get("inspected_file") for o in result.observations
-    ]
+    assert "ai/runtime/agent_loop.py" in [o.get("inspected_file") for o in result.observations]
     assert "ai/runtime/agent_loop.py" not in str(result.next_step or "").lower()

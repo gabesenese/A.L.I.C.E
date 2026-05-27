@@ -4,12 +4,8 @@ from __future__ import annotations
 
 import re
 
-_PLANNING_RE = re.compile(
-    r"\b(plan|roadmap|strategy|design|architecture|step[- ]by[- ]step)\b", re.IGNORECASE
-)
-_REASONING_RE = re.compile(
-    r"\b(why|tradeoff|compare|analyze|root cause|diagnose|evaluate)\b", re.IGNORECASE
-)
+_PLANNING_RE = re.compile(r"\b(plan|roadmap|strategy|design|architecture|step[- ]by[- ]step)\b", re.IGNORECASE)
+_REASONING_RE = re.compile(r"\b(why|tradeoff|compare|analyze|root cause|diagnose|evaluate)\b", re.IGNORECASE)
 _MULTI_RE = re.compile(r"\b(and|then|also|after that|plus)\b", re.IGNORECASE)
 
 

@@ -24,13 +24,16 @@ _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+
 def _force_utf8_stdio() -> None:
     """Force UTF-8 on Windows cp1252 consoles. Call only when running as a script."""
     import io
+
     if hasattr(sys.stdout, "buffer"):
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 
 DEFAULT_BENCHMARK_PATH = Path("data/benchmarks/core_100_scenarios.json")
 DEFAULT_SCORECARD_PATH = Path("data/benchmarks/scorecard_latest.json")
@@ -48,9 +51,7 @@ def _normalize_prompt(text: str) -> str:
     return " ".join((text or "").strip().lower().split())
 
 
-def _extract_records(
-    training_data_path: Path, min_quality: float
-) -> List[Dict[str, Any]]:
+def _extract_records(training_data_path: Path, min_quality: float) -> List[Dict[str, Any]]:
     if not training_data_path.exists():
         raise ValueError(f"Training data file not found: {training_data_path}")
 
@@ -64,9 +65,7 @@ def _extract_records(
             continue
 
         user_input = str(entry.get("user_input") or "").strip()
-        intent = str(
-            entry.get("intent") or (entry.get("context") or {}).get("intent") or ""
-        ).strip()
+        intent = str(entry.get("intent") or (entry.get("context") or {}).get("intent") or "").strip()
         if not user_input or not intent:
             continue
         if intent in EXCLUDED_INTENTS:
@@ -85,18 +84,14 @@ def _extract_records(
                 "intent": intent,
                 "domain": domain,
                 "timestamp": timestamp,
-                "quality_score": float(quality_score)
-                if isinstance(quality_score, (int, float))
-                else 0.0,
+                "quality_score": float(quality_score) if isinstance(quality_score, (int, float)) else 0.0,
             }
         )
 
     return records
 
 
-def _round_robin_select(
-    grouped: Dict[str, List[Dict[str, Any]]], size: int
-) -> List[Dict[str, Any]]:
+def _round_robin_select(grouped: Dict[str, List[Dict[str, Any]]], size: int) -> List[Dict[str, Any]]:
     selected: List[Dict[str, Any]] = []
     domain_names = sorted(grouped)
     idx_by_domain = {domain: 0 for domain in domain_names}
@@ -127,9 +122,7 @@ def build_core_benchmark(
 ) -> Dict[str, Any]:
     records = _extract_records(training_data_path, min_quality=min_quality)
     if len(records) < size:
-        raise ValueError(
-            f"Not enough candidate records ({len(records)}) to build benchmark of size {size}."
-        )
+        raise ValueError(f"Not enough candidate records ({len(records)}) to build benchmark of size {size}.")
 
     deduped: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for record in records:
@@ -142,10 +135,7 @@ def build_core_benchmark(
         # Keep higher quality, then newer timestamp.
         if record["quality_score"] > existing["quality_score"]:
             deduped[key] = record
-        elif (
-            record["quality_score"] == existing["quality_score"]
-            and record["timestamp"] > existing["timestamp"]
-        ):
+        elif record["quality_score"] == existing["quality_score"] and record["timestamp"] > existing["timestamp"]:
             deduped[key] = record
 
     grouped: Dict[str, List[Dict[str, Any]]] = {}
@@ -164,9 +154,7 @@ def build_core_benchmark(
 
     selected = _round_robin_select(grouped, size=size)
     if len(selected) < size:
-        raise ValueError(
-            f"Unable to select {size} benchmark records. Selected {len(selected)}."
-        )
+        raise ValueError(f"Unable to select {size} benchmark records. Selected {len(selected)}.")
 
     scenarios = []
     for idx, rec in enumerate(selected, start=1):
@@ -230,9 +218,7 @@ def score_benchmark(benchmark_path: Path) -> Dict[str, Any]:
     benchmark_payload = json.loads(benchmark_path.read_text(encoding="utf-8"))
     scenarios = benchmark_payload.get("scenarios", [])
     if len(scenarios) != 100:
-        raise ValueError(
-            f"Benchmark must contain exactly 100 scenarios. Found: {len(scenarios)}"
-        )
+        raise ValueError(f"Benchmark must contain exactly 100 scenarios. Found: {len(scenarios)}")
 
     runner = ScenarioRunner(benchmark_path)
     loaded = runner.load_scenarios()
@@ -303,14 +289,8 @@ def score_benchmark(benchmark_path: Path) -> Dict[str, Any]:
 
     for domain, stats in per_domain.items():
         stats["pass_rate"] = stats["passed"] / stats["total"] if stats["total"] else 0.0
-        stats["intent_accuracy"] = (
-            stats["intent_correct"] / stats["intent_checked"]
-            if stats["intent_checked"]
-            else 0.0
-        )
-        stats["useful_response_rate"] = (
-            stats["useful"] / stats["total"] if stats["total"] else 0.0
-        )
+        stats["intent_accuracy"] = stats["intent_correct"] / stats["intent_checked"] if stats["intent_checked"] else 0.0
+        stats["useful_response_rate"] = stats["useful"] / stats["total"] if stats["total"] else 0.0
 
     intent_accuracy = intent_correct / intent_checked if intent_checked else 0.0
     useful_response_rate = useful_count / len(results) if results else 0.0
@@ -346,24 +326,13 @@ def build_kpi_snapshot(scorecard: Dict[str, Any]) -> Dict[str, Any]:
     summary = scorecard.get("summary") or {}
     latency = scorecard.get("latency_ms") or {"p95": summary.get("p95_latency_ms", 0.0)}
     per_domain = scorecard.get("per_domain") or {}
-    useful_response_rate = float(
-        objective.get(
-            "useful_response_rate", scorecard.get("useful_response_rate", 0.0)
-        )
-    )
+    useful_response_rate = float(objective.get("useful_response_rate", scorecard.get("useful_response_rate", 0.0)))
     clarification_rate = 1.0 - useful_response_rate
-    critical = {
-        domain: (per_domain.get(domain) or {}).get("pass_rate", 0.0)
-        for domain in CRITICAL_DOMAINS
-    }
+    critical = {domain: (per_domain.get(domain) or {}).get("pass_rate", 0.0) for domain in CRITICAL_DOMAINS}
     return {
         "generated_at": scorecard.get("generated_at"),
-        "objective_score": float(
-            objective.get("objective_score", scorecard.get("objective_score", 0.0))
-        ),
-        "intent_accuracy": float(
-            objective.get("intent_accuracy", scorecard.get("intent_accuracy", 0.0))
-        ),
+        "objective_score": float(objective.get("objective_score", scorecard.get("objective_score", 0.0))),
+        "intent_accuracy": float(objective.get("intent_accuracy", scorecard.get("intent_accuracy", 0.0))),
         "useful_response_rate": useful_response_rate,
         "clarification_rate_proxy": max(0.0, min(1.0, clarification_rate)),
         "latency_p95_ms": float(latency.get("p95", 0.0)),
@@ -380,9 +349,7 @@ def _load_scorecard(path: Path) -> Dict[str, Any]:
         raise ValueError(f"Invalid scorecard JSON at {path}: {exc}") from exc
 
 
-def compare_scorecards(
-    current: Dict[str, Any], baseline: Dict[str, Any]
-) -> Dict[str, Any]:
+def compare_scorecards(current: Dict[str, Any], baseline: Dict[str, Any]) -> Dict[str, Any]:
     current_obj = float(current["objective"]["objective_score"])
     baseline_obj = float(baseline["objective"]["objective_score"])
     current_latency = float(current["summary"]["avg_latency_ms"])
@@ -486,35 +453,21 @@ def _print_gate(gate: Dict[str, Any]) -> None:
     latency_delta = metrics.get("latency_delta_ms")
     print(
         "Objective delta: "
-        + (
-            f"{objective_delta:+.6f}"
-            if isinstance(objective_delta, (int, float))
-            else "N/A (baseline bootstrap)"
-        )
+        + (f"{objective_delta:+.6f}" if isinstance(objective_delta, (int, float)) else "N/A (baseline bootstrap)")
     )
     print(
         "Latency delta (ms): "
-        + (
-            f"{latency_delta:+.2f}"
-            if isinstance(latency_delta, (int, float))
-            else "N/A (baseline bootstrap)"
-        )
+        + (f"{latency_delta:+.2f}" if isinstance(latency_delta, (int, float)) else "N/A (baseline bootstrap)")
     )
     print(f"Regression count: {metrics['regression_count']}")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Build, run, and gate the core 100-scenario benchmark."
-    )
+    parser = argparse.ArgumentParser(description="Build, run, and gate the core 100-scenario benchmark.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    build_parser = subparsers.add_parser(
-        "build", help="Build locked core benchmark from training data."
-    )
-    build_parser.add_argument(
-        "--training-data", default="data/training/training_data.jsonl"
-    )
+    build_parser = subparsers.add_parser("build", help="Build locked core benchmark from training data.")
+    build_parser.add_argument("--training-data", default="data/training/training_data.jsonl")
     build_parser.add_argument("--output", default=str(DEFAULT_BENCHMARK_PATH))
     build_parser.add_argument("--size", type=int, default=100)
     build_parser.add_argument("--min-quality", type=float, default=0.7)
@@ -528,9 +481,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     gate_parser.add_argument("--baseline", default=str(DEFAULT_BASELINE_PATH))
     gate_parser.add_argument("--write-baseline", action="store_true")
 
-    run_gate_parser = subparsers.add_parser(
-        "run-gate", help="Run benchmark then evaluate gate in one command."
-    )
+    run_gate_parser = subparsers.add_parser("run-gate", help="Run benchmark then evaluate gate in one command.")
     run_gate_parser.add_argument("--benchmark", default=str(DEFAULT_BENCHMARK_PATH))
     run_gate_parser.add_argument("--scorecard", default=str(DEFAULT_SCORECARD_PATH))
     run_gate_parser.add_argument("--baseline", default=str(DEFAULT_BASELINE_PATH))

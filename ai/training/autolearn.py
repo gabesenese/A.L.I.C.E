@@ -62,9 +62,7 @@ class AutoLearn:
         if auto_start:
             self.start()
 
-        logger.info(
-            f"AutoLearn initialized - will run every {check_interval_hours} hours"
-        )
+        logger.info(f"AutoLearn initialized - will run every {check_interval_hours} hours")
 
     def start(self) -> None:
         """Start the automated learning loop"""
@@ -137,25 +135,19 @@ class AutoLearn:
 
         try:
             # Step 1: Get evaluations since last cycle
-            logger.info(
-                f"[Step 1] Loading evaluations from last {self.check_interval_hours} hours..."
-            )
+            logger.info(f"[Step 1] Loading evaluations from last {self.check_interval_hours} hours...")
 
             if not self.ollama_evaluator:
                 logger.warning("[AutoLearn] No evaluator available - skipping cycle")
                 return
 
-            evaluations = self.ollama_evaluator.get_recent_evaluations(
-                days=self.check_interval_hours / 24
-            )
+            evaluations = self.ollama_evaluator.get_recent_evaluations(days=self.check_interval_hours / 24)
 
             stats["evaluations_analyzed"] = len(evaluations)
             logger.info(f"[Step 1] Loaded {len(evaluations)} evaluations")
 
             if len(evaluations) == 0:
-                logger.info(
-                    "[AutoLearn] No evaluations - Alice hasn't been used recently"
-                )
+                logger.info("[AutoLearn] No evaluations - Alice hasn't been used recently")
                 self._finalize_cycle(stats)
                 return
 
@@ -163,9 +155,7 @@ class AutoLearn:
             failures = [e for e in evaluations if e.failed]
             successes = [e for e in evaluations if e.passed]
 
-            logger.info(
-                f"[Step 2] Failures: {len(failures)}, Successes: {len(successes)}"
-            )
+            logger.info(f"[Step 2] Failures: {len(failures)}, Successes: {len(successes)}")
 
             # Step 3: Learn from failures
             if failures:
@@ -176,9 +166,7 @@ class AutoLearn:
 
             # Step 4: Reinforce successes
             if successes:
-                logger.info(
-                    f"[Step 4] Reinforcing {len(successes)} successful patterns..."
-                )
+                logger.info(f"[Step 4] Reinforcing {len(successes)} successful patterns...")
                 reinforcements = self._reinforce_successes(successes)
                 stats["patterns_reinforced"] = reinforcements
 
@@ -189,9 +177,7 @@ class AutoLearn:
             self.total_evaluations += len(evaluations)
             self.total_improvements += improvements_made
 
-            logger.info(
-                f"[AutoLearn] Cycle complete: {improvements_made} improvements made"
-            )
+            logger.info(f"[AutoLearn] Cycle complete: {improvements_made} improvements made")
             logger.info("=" * 70)
 
         except Exception as e:
@@ -262,9 +248,7 @@ class AutoLearn:
         for action_type, action_successes in by_action.items():
             # Only reinforce if consistently successful
             if len(action_successes) >= 3:
-                logger.info(
-                    f"  - {action_type}: {len(action_successes)} successes - reinforcing"
-                )
+                logger.info(f"  - {action_type}: {len(action_successes)} successes - reinforcing")
 
                 try:
                     # Log successes to realtime logger
@@ -365,9 +349,7 @@ class AutoLearn:
             "recommendation": self._generate_recommendation(stats, problem_areas),
         }
 
-    def _generate_recommendation(
-        self, stats: Dict[str, Any], problem_areas: Dict[str, Any]
-    ) -> str:
+    def _generate_recommendation(self, stats: Dict[str, Any], problem_areas: Dict[str, Any]) -> str:
         """Generate recommendation for user based on performance"""
 
         avg_score = stats.get("average_score", 0)
@@ -377,9 +359,7 @@ class AutoLearn:
         elif avg_score >= 80:
             return "Good performance. Minor improvements in progress."
         elif avg_score >= 70:
-            return (
-                "Acceptable performance. AutoLearn is addressing issues automatically."
-            )
+            return "Acceptable performance. AutoLearn is addressing issues automatically."
         elif avg_score >= 60:
             return "Below target. Review problem areas - AutoLearn may need more training data."
         else:

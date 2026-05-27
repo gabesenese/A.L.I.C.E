@@ -292,18 +292,13 @@ class PersistentGoalSystem:
         return [
             goal
             for goal in self.goals.values()
-            if goal.status
-            not in [GoalStatus.COMPLETED, GoalStatus.CANCELLED, GoalStatus.FAILED]
+            if goal.status not in [GoalStatus.COMPLETED, GoalStatus.CANCELLED, GoalStatus.FAILED]
         ]
 
     def get_completed_goals(self) -> List[Goal]:
         """Get all goals that reached completed status (most recent first)."""
-        completed = [
-            goal for goal in self.goals.values() if goal.status == GoalStatus.COMPLETED
-        ]
-        completed.sort(
-            key=lambda g: g.completed_at or g.updated_at or g.created_at, reverse=True
-        )
+        completed = [goal for goal in self.goals.values() if goal.status == GoalStatus.COMPLETED]
+        completed.sort(key=lambda g: g.completed_at or g.updated_at or g.created_at, reverse=True)
         return completed
 
     def get_goals_by_priority(self, priority: GoalPriority) -> List[Goal]:
@@ -352,9 +347,7 @@ class PersistentGoalSystem:
     def _infer_step_type_from_description(description: str) -> str:
         """Infer step type from plain-text plans when explicit metadata is absent."""
         low = str(description or "").strip().lower()
-        if any(
-            token in low for token in ("research", "investigate", "explore", "gather")
-        ):
+        if any(token in low for token in ("research", "investigate", "explore", "gather")):
             return "research"
         if any(token in low for token in ("analy", "inspect", "review")):
             return "analyze"
@@ -388,24 +381,14 @@ class PersistentGoalSystem:
             raw_dependencies: List[str] = []
 
             if isinstance(step_desc, dict):
-                description = str(
-                    step_desc.get("description")
-                    or step_desc.get("text")
-                    or f"Step {i + 1}"
-                ).strip()
+                description = str(step_desc.get("description") or step_desc.get("text") or f"Step {i + 1}").strip()
                 step_type = (
-                    str(
-                        step_desc.get("type")
-                        or self._infer_step_type_from_description(description)
-                        or "implement"
-                    )
+                    str(step_desc.get("type") or self._infer_step_type_from_description(description) or "implement")
                     .strip()
                     .lower()
                 )
                 raw_dependencies = [
-                    str(dep).strip().lower()
-                    for dep in list(step_desc.get("dependencies") or [])
-                    if str(dep).strip()
+                    str(dep).strip().lower() for dep in list(step_desc.get("dependencies") or []) if str(dep).strip()
                 ]
             else:
                 description = str(step_desc or f"Step {i + 1}").strip()
@@ -535,12 +518,8 @@ class PersistentGoalSystem:
         return {
             "total_goals": len(self.goals),
             "active_goals": len(active),
-            "completed_goals": len(
-                [g for g in self.goals.values() if g.status == GoalStatus.COMPLETED]
-            ),
-            "blocked_goals": len(
-                [g for g in self.goals.values() if g.status == GoalStatus.BLOCKED]
-            ),
+            "completed_goals": len([g for g in self.goals.values() if g.status == GoalStatus.COMPLETED]),
+            "blocked_goals": len([g for g in self.goals.values() if g.status == GoalStatus.BLOCKED]),
             "critical_goals": len(self.get_goals_by_priority(GoalPriority.CRITICAL)),
             "goals": [self.get_goal_summary(g.goal_id) for g in active],
         }
@@ -553,9 +532,7 @@ class PersistentGoalSystem:
             List of goals that were in progress
         """
         in_progress = [
-            goal
-            for goal in self.goals.values()
-            if goal.status in [GoalStatus.IN_PROGRESS, GoalStatus.PAUSED]
+            goal for goal in self.goals.values() if goal.status in [GoalStatus.IN_PROGRESS, GoalStatus.PAUSED]
         ]
 
         if in_progress:

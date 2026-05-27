@@ -81,9 +81,7 @@ def build_patch_plan(
             "pytest tests/integration/test_contract_pipeline.py",
             "pytest",
         ]
-        proposed_changes.append(
-            "Refine route/evidence scoring and clarification fallback conditions."
-        )
+        proposed_changes.append("Refine route/evidence scoring and clarification fallback conditions.")
     elif kind in {"memory", "continuity_claim"}:
         tests_to_add = ["tests/golden/test_companion_memory_flows.py"]
         tests_to_run = [

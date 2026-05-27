@@ -239,16 +239,12 @@ if __name__ == "__main__":
     if "--acknowledge-quarantine" not in sys.argv:
         print("\n[BLOCKED] This script is quarantined because module maps are stale.")
         print("[BLOCKED] Regenerate live usage evidence before moving modules.")
-        print(
-            "[BLOCKED] To proceed intentionally, rerun with --acknowledge-quarantine."
-        )
+        print("[BLOCKED] To proceed intentionally, rerun with --acknowledge-quarantine.")
         sys.exit(2)
 
     if "--legacy-layout" not in sys.argv:
         print("\n[BLOCKED] This script targets the legacy flat ai/*.py module layout.")
-        print(
-            "[BLOCKED] Current repository layout is namespaced (ai/core, ai/learning, etc.)."
-        )
+        print("[BLOCKED] Current repository layout is namespaced (ai/core, ai/learning, etc.).")
         print("[BLOCKED] If you still need this path, rerun with --legacy-layout.")
         sys.exit(2)
 

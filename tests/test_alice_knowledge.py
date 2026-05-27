@@ -64,9 +64,7 @@ def test_alice_knowledge():
     if relationships:
         print(f"  - Relationships: {len(relationships)} found")
         for rel in relationships[:3]:
-            print(
-                f"    * {rel['subject']} {rel['predicate']} {rel['object']} (conf: {rel['confidence']:.2f})"
-            )
+            print(f"    * {rel['subject']} {rel['predicate']} {rel['object']} (conf: {rel['confidence']:.2f})")
     print()
 
     # Test 3: Ask Alice about what she learned
@@ -119,9 +117,7 @@ def test_alice_knowledge():
         print(f"Alice: {response}")
 
         # Check if Alice can answer independently
-        can_answer, conf = alice.knowledge_engine.can_answer_independently(
-            question, "greeting"
-        )
+        can_answer, conf = alice.knowledge_engine.can_answer_independently(question, "greeting")
         print(f"Can answer independently: {can_answer} (confidence: {conf:.2f})")
     print()
 
@@ -130,9 +126,7 @@ def test_alice_knowledge():
     print("-" * 70)
     if alice.knowledge_engine.learned_responses:
         print("Intents Alice has learned:")
-        for intent, responses in list(alice.knowledge_engine.learned_responses.items())[
-            :5
-        ]:
+        for intent, responses in list(alice.knowledge_engine.learned_responses.items())[:5]:
             print(f"  - {intent}: {len(responses)} examples")
     print()
 
@@ -143,9 +137,7 @@ def test_alice_knowledge():
     for word in test_words:
         associations = alice.knowledge_engine.concepts.get_related_words(word)
         if associations:
-            print(
-                f"{word} is associated with: {', '.join([w for w, _ in associations[:5]])}"
-            )
+            print(f"{word} is associated with: {', '.join([w for w, _ in associations[:5]])}")
     print()
 
     # Final Summary

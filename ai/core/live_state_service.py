@@ -51,14 +51,8 @@ class LiveStateService:
             return None
 
         freshest = max(candidates, key=lambda x: float(x.captured_at or 0.0))
-        ttl = float(
-            max_age_seconds
-            if max_age_seconds is not None
-            else self.FRESHNESS_TTL_SECONDS["weather"]
-        )
-        age_seconds = max(
-            0.0, self._to_epoch(datetime.utcnow()) - float(freshest.captured_at or 0.0)
-        )
+        ttl = float(max_age_seconds if max_age_seconds is not None else self.FRESHNESS_TTL_SECONDS["weather"])
+        age_seconds = max(0.0, self._to_epoch(datetime.utcnow()) - float(freshest.captured_at or 0.0))
         is_stale = age_seconds > ttl if freshest.captured_at else True
         return {
             "source": freshest.source,
@@ -90,22 +84,14 @@ class LiveStateService:
 
         freshest = max(candidates, key=lambda x: float(x.captured_at or 0.0))
         payload = dict(freshest.data or {})
-        ttl = float(
-            max_age_seconds
-            if max_age_seconds is not None
-            else self.FRESHNESS_TTL_SECONDS["forecast"]
-        )
-        age_seconds = max(
-            0.0, self._to_epoch(datetime.utcnow()) - float(freshest.captured_at or 0.0)
-        )
+        ttl = float(max_age_seconds if max_age_seconds is not None else self.FRESHNESS_TTL_SECONDS["forecast"])
+        age_seconds = max(0.0, self._to_epoch(datetime.utcnow()) - float(freshest.captured_at or 0.0))
         payload["age_seconds"] = age_seconds
         payload["is_stale"] = age_seconds > ttl if freshest.captured_at else True
         payload["ttl_seconds"] = ttl
         return payload
 
-    def _from_reasoning_entity(
-        self, reasoning_engine: Any, entity_id: str
-    ) -> Optional[LiveSnapshot]:
+    def _from_reasoning_entity(self, reasoning_engine: Any, entity_id: str) -> Optional[LiveSnapshot]:
         if not reasoning_engine:
             return None
         try:

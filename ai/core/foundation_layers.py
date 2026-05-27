@@ -52,14 +52,9 @@ class FoundationLayers:
         return normalized
 
     # 2) Multi-turn plan memory.
-    def update_plan_memory(
-        self, *, intent: str, parsed_command: Dict[str, Any], text: str
-    ) -> Dict[str, Any]:
+    def update_plan_memory(self, *, intent: str, parsed_command: Dict[str, Any], text: str) -> Dict[str, Any]:
         self._plan.turns_seen += 1
-        if (
-            parsed_command.get("object_type")
-            and parsed_command.get("object_type") != "unknown"
-        ):
+        if parsed_command.get("object_type") and parsed_command.get("object_type") != "unknown":
             self._plan.domain = str(parsed_command.get("object_type"))
         if parsed_command.get("title_hint"):
             self._plan.goal = str(parsed_command.get("title_hint"))
@@ -107,10 +102,7 @@ class FoundationLayers:
         top = ordered[0][1] if ordered else 0.0
         second = ordered[1][1] if len(ordered) > 1 else 0.0
         margin = top - second
-        needs = bool(
-            confidence < self._clarification_conf_threshold
-            or margin < self._clarification_margin_threshold
-        )
+        needs = bool(confidence < self._clarification_conf_threshold or margin < self._clarification_margin_threshold)
         if needs:
             self._metrics["clarifications"] += 1
         prompt = ""
@@ -121,10 +113,7 @@ class FoundationLayers:
             if brevity == "concise":
                 prompt = f"{top_name} or {second_name}?"
             else:
-                prompt = (
-                    f"I can handle this as {top_name} or {second_name}. "
-                    f"Which one do you want?"
-                )
+                prompt = f"I can handle this as {top_name} or {second_name}. Which one do you want?"
         return {
             "needs_clarification": needs,
             "top_margin": margin,
@@ -136,9 +125,7 @@ class FoundationLayers:
             },
         }
 
-    def response_style_hint(
-        self, profile: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, str]:
+    def response_style_hint(self, profile: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
         prefs = dict(profile or {})
         return {
             "brevity": str(prefs.get("response_brevity") or "balanced"),
@@ -154,28 +141,18 @@ class FoundationLayers:
     ) -> Dict[str, float]:
         """Adaptive threshold calibration from runtime outcomes (P0)."""
         if false_clarification:
-            self._clarification_conf_threshold = max(
-                0.45, self._clarification_conf_threshold - 0.01
-            )
-            self._clarification_margin_threshold = max(
-                0.20, self._clarification_margin_threshold - 0.01
-            )
+            self._clarification_conf_threshold = max(0.45, self._clarification_conf_threshold - 0.01)
+            self._clarification_margin_threshold = max(0.20, self._clarification_margin_threshold - 0.01)
         if wrong_tool_execution:
-            self._clarification_conf_threshold = min(
-                0.75, self._clarification_conf_threshold + 0.02
-            )
-            self._clarification_margin_threshold = min(
-                0.50, self._clarification_margin_threshold + 0.015
-            )
+            self._clarification_conf_threshold = min(0.75, self._clarification_conf_threshold + 0.02)
+            self._clarification_margin_threshold = min(0.50, self._clarification_margin_threshold + 0.015)
         return {
             "confidence": round(self._clarification_conf_threshold, 4),
             "margin": round(self._clarification_margin_threshold, 4),
         }
 
     # 5) Evaluation harness (online turn metrics).
-    def record_turn(
-        self, *, confidence: float, clarification: bool, safety_blocked: bool
-    ) -> Dict[str, Any]:
+    def record_turn(self, *, confidence: float, clarification: bool, safety_blocked: bool) -> Dict[str, Any]:
         self._metrics["turns"] += 1
         if clarification:
             self._metrics["clarifications"] += 1
@@ -192,9 +169,7 @@ class FoundationLayers:
     def new_budget(self) -> TurnBudget:
         return TurnBudget(budget_ms=self._budget_ms)
 
-    def should_run_deep_stage(
-        self, budget: TurnBudget, *, shallow_confidence: float
-    ) -> bool:
+    def should_run_deep_stage(self, budget: TurnBudget, *, shallow_confidence: float) -> bool:
         if shallow_confidence >= self._deep_stage_skip_threshold:
             return False
         return budget.remaining_ms() > 20.0
@@ -209,9 +184,7 @@ class FoundationLayers:
             "notes:delete",
         }
         high_risk_language = {"delete all", "wipe", "format", "shutdown", "reboot"}
-        blocked = intent in high_risk_intents or any(
-            cue in low for cue in high_risk_language
-        )
+        blocked = intent in high_risk_intents or any(cue in low for cue in high_risk_language)
         return {
             "allowed": not blocked,
             "requires_confirmation": blocked,

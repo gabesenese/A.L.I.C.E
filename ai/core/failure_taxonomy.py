@@ -174,9 +174,7 @@ class FailureTaxonomy:
         error_code = data.get("error") or data.get("message_code")
 
         parsed_cmd = nlp_result.get("parsed_command", {}) or {}
-        modifiers = (
-            parsed_cmd.get("modifiers", {}) if isinstance(parsed_cmd, dict) else {}
-        )
+        modifiers = parsed_cmd.get("modifiers", {}) if isinstance(parsed_cmd, dict) else {}
         frame = modifiers.get("frame", {}) if isinstance(modifiers, dict) else {}
         frame_name = frame.get("name") if isinstance(frame, dict) else None
 
@@ -199,13 +197,9 @@ class FailureTaxonomy:
 
         # ── 2. Pronoun in utterance but resolution failed ──────────────
         if any(tok in utt_lower.split() for tok in self._COREF_TOKENS):
-            coref_token = next(
-                (tok for tok in self._COREF_TOKENS if tok in utt_lower.split()), None
-            )
+            coref_token = next((tok for tok in self._COREF_TOKENS if tok in utt_lower.split()), None)
             # Only classify as COREF_MISS if result doesn't have a valid note_ref
-            resolved_ok = bool(
-                data.get("note_title") or data.get("query") or data.get("results")
-            )
+            resolved_ok = bool(data.get("note_title") or data.get("query") or data.get("results"))
             if not resolved_ok:
                 return FailureRecord(
                     failure_type=COREF_MISS,
@@ -233,9 +227,7 @@ class FailureTaxonomy:
             )
 
         # ── 4. Frame parser had no match or low confidence → FRAME_MISS
-        if frame_name is None or (
-            isinstance(frame, dict) and frame.get("confidence", 1.0) < 0.50
-        ):
+        if frame_name is None or (isinstance(frame, dict) and frame.get("confidence", 1.0) < 0.50):
             return FailureRecord(
                 failure_type=FRAME_MISS,
                 utterance=utterance,
@@ -378,12 +370,8 @@ class FailureTaxonomy:
         per_intent = self.per_intent_failures(n)
 
         # Top-3 failing intents by total failures
-        intent_totals = {
-            intent: sum(counts.values()) for intent, counts in per_intent.items()
-        }
-        top_intents = sorted(intent_totals.items(), key=lambda x: x[1], reverse=True)[
-            :3
-        ]
+        intent_totals = {intent: sum(counts.values()) for intent, counts in per_intent.items()}
+        top_intents = sorted(intent_totals.items(), key=lambda x: x[1], reverse=True)[:3]
         top_failing_intents = []
         for intent, total in top_intents:
             dominant_type = max(per_intent[intent].items(), key=lambda x: x[1])[0]
@@ -396,12 +384,8 @@ class FailureTaxonomy:
             )
 
         # Top-3 failing patterns by failure_type count
-        top_patterns = sorted(type_summary.items(), key=lambda x: x[1], reverse=True)[
-            :3
-        ]
-        top_failing_patterns = [
-            {"failure_type": ft, "count": cnt} for ft, cnt in top_patterns if cnt > 0
-        ]
+        top_patterns = sorted(type_summary.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_failing_patterns = [{"failure_type": ft, "count": cnt} for ft, cnt in top_patterns if cnt > 0]
 
         # Suggested changes (heuristic rules)
         suggested: List[str] = []
@@ -416,30 +400,16 @@ class FailureTaxonomy:
                     if r.get("intent") == intent and r.get("failure_type") == SLOT_MISS:
                         for s in r.get("missing_slots", []):
                             missing_counts[s] = missing_counts.get(s, 0) + 1
-                top_slot = (
-                    max(missing_counts, key=missing_counts.get)
-                    if missing_counts
-                    else "unknown"
-                )
-                suggested.append(
-                    f"Add '{top_slot}' slot extractor for {intent} ({dtype} ×{total})"
-                )
+                top_slot = max(missing_counts, key=missing_counts.get) if missing_counts else "unknown"
+                suggested.append(f"Add '{top_slot}' slot extractor for {intent} ({dtype} ×{total})")
             elif dtype == FRAME_MISS:
-                suggested.append(
-                    f"Expand FrameDefinition trigger keywords/patterns for {intent} ({dtype} ×{total})"
-                )
+                suggested.append(f"Expand FrameDefinition trigger keywords/patterns for {intent} ({dtype} ×{total})")
             elif dtype == COREF_MISS:
-                suggested.append(
-                    f"Improve coreference resolution for {intent} context chain ({dtype} ×{total})"
-                )
+                suggested.append(f"Improve coreference resolution for {intent} context chain ({dtype} ×{total})")
             elif dtype == NLP_WRONG_INTENT:
-                suggested.append(
-                    f"Add training examples or adjust PHASE 1 patterns for {intent} ({dtype} ×{total})"
-                )
+                suggested.append(f"Add training examples or adjust PHASE 1 patterns for {intent} ({dtype} ×{total})")
             elif dtype == BAD_TEMPORAL:
-                suggested.append(
-                    f"Improve TemporalParser coverage for {intent} expressions ({dtype} ×{total})"
-                )
+                suggested.append(f"Improve TemporalParser coverage for {intent} expressions ({dtype} ×{total})")
             else:
                 suggested.append(f"Investigate {dtype} failures in {intent} (×{total})")
 
@@ -460,11 +430,7 @@ class FailureTaxonomy:
     def _find_missing_slots(action: str, data: Dict[str, Any]) -> List[str]:
         """Infer which slots are missing based on action + error data."""
         missing: List[str] = []
-        clarify_q = (
-            data.get("clarification_question", "").lower()
-            if isinstance(data, dict)
-            else ""
-        )
+        clarify_q = data.get("clarification_question", "").lower() if isinstance(data, dict) else ""
         msg_code = data.get("message_code", "") if isinstance(data, dict) else ""
 
         if "search" in msg_code or "query" in clarify_q:
@@ -690,9 +656,7 @@ def _fix_add_domain_rule(record: FailureRecord, components: Dict[str, Any]) -> b
         return False
 
 
-def _fix_alter_planner_weight(
-    record: FailureRecord, components: Dict[str, Any]
-) -> bool:
+def _fix_alter_planner_weight(record: FailureRecord, components: Dict[str, Any]) -> bool:
     planner = components.get("task_planner")
     if not planner:
         return False
@@ -731,9 +695,7 @@ def _fix_memory_search_boost(record: FailureRecord, components: Dict[str, Any]) 
     try:
         current = getattr(mem_sys, "search_top_k", 5)
         mem_sys.search_top_k = min(current + 2, 20)
-        logger.info(
-            "SelfDebugger: boosted memory search top-k → %d", mem_sys.search_top_k
-        )
+        logger.info("SelfDebugger: boosted memory search top-k → %d", mem_sys.search_top_k)
         return True
     except Exception as exc:
         logger.debug("SelfDebugger: memory_search_boost failed: %s", exc)
@@ -797,9 +759,7 @@ class FixScheduler:
             self._total_pulls += 1
             best_strategy = max(
                 candidates,
-                key=lambda s: self._arm(record.failure_type, s).ucb_score(
-                    self._total_pulls
-                ),
+                key=lambda s: self._arm(record.failure_type, s).ucb_score(self._total_pulls),
             )
             arm = self._arm(record.failure_type, best_strategy)
             confidence = (arm.successes + 1) / (arm.successes + arm.failures + 2)
@@ -852,12 +812,8 @@ class SelfDebugger:
         fix_log_path: Optional[str] = None,
         failure_log_path: Optional[str] = None,
     ) -> None:
-        self._classifier = RootCauseClassifier(
-            log_path=failure_log_path or "memory/self_debug_failures.jsonl"
-        )
-        self._scheduler = FixScheduler(
-            log_path=fix_log_path or "memory/self_debug_fixes.jsonl"
-        )
+        self._classifier = RootCauseClassifier(log_path=failure_log_path or "memory/self_debug_failures.jsonl")
+        self._scheduler = FixScheduler(log_path=fix_log_path or "memory/self_debug_fixes.jsonl")
         self._pending_fixes: List[FixAction] = []
 
     def analyse_turn(

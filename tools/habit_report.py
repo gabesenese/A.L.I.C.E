@@ -75,10 +75,7 @@ def _format_habits(habits: List[dict]) -> str:
         name = h.get("name", "unnamed")
         seq = h.get("sequence", [])
         # sequence items can be strings or dicts
-        seq_str = " → ".join(
-            f"{s['intent']}:{s['plugin']}" if isinstance(s, dict) else str(s)
-            for s in seq
-        )
+        seq_str = " → ".join(f"{s['intent']}:{s['plugin']}" if isinstance(s, dict) else str(s) for s in seq)
         conf = h.get("confidence", 0)
         trig = h.get("trigger_length", "?")
         lines.append(f"| {i} | `{name}` | {seq_str} | {conf:.1f} | {trig} |")
@@ -157,9 +154,7 @@ def build_report(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate a Markdown dashboard from A.L.I.C.E habit/debug logs."
-    )
+    parser = argparse.ArgumentParser(description="Generate a Markdown dashboard from A.L.I.C.E habit/debug logs.")
     parser.add_argument(
         "--habits",
         default="memory/habits.jsonl",
@@ -215,10 +210,7 @@ def main() -> None:
         print("Top 5 macros:")
         for h in top:
             seq = h.get("sequence", [])
-            seq_str = " → ".join(
-                f"{s['intent']}:{s['plugin']}" if isinstance(s, dict) else str(s)
-                for s in seq
-            )
+            seq_str = " → ".join(f"{s['intent']}:{s['plugin']}" if isinstance(s, dict) else str(s) for s in seq)
             print(f"  [{h.get('confidence', 0):.1f}] {h.get('name', '?')}: {seq_str}")
 
 

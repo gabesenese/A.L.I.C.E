@@ -286,11 +286,7 @@ class PersonalEventsStorage:
     def delete_event(self, event_type: str, date: str) -> bool:
         """Delete an event"""
         initial_count = len(self.events)
-        self.events = [
-            e
-            for e in self.events
-            if not (e.event_type == event_type and e.date == date)
-        ]
+        self.events = [e for e in self.events if not (e.event_type == event_type and e.date == date)]
 
         if len(self.events) < initial_count:
             self._save_events()

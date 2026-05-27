@@ -57,10 +57,7 @@ class SemanticDeduplicator:
         if scorer is not None:
             scores: Dict[str, float] = scorer.batch_score(entries)
         else:
-            scores = {
-                getattr(e, "id", str(i)): float(getattr(e, "importance", 0.5))
-                for i, e in enumerate(entries)
-            }
+            scores = {getattr(e, "id", str(i)): float(getattr(e, "importance", 0.5)) for i, e in enumerate(entries)}
 
         to_remove: Set[str] = set()
         merged_pairs: List[Tuple[str, str]] = []

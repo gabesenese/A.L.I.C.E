@@ -84,9 +84,7 @@ class ConfidenceFusion:
                 get_clarification_feedback_loop,
             )
 
-            boost = get_clarification_feedback_loop().get_confidence_boost(
-                user_id, intent
-            )
+            boost = get_clarification_feedback_loop().get_confidence_boost(user_id, intent)
             if boost > 0:
                 base = min(1.0, (base or 0.5) + boost)
         except Exception:

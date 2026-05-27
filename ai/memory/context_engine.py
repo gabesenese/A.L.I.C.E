@@ -48,9 +48,7 @@ class UserPreferences:
 
                 requests = importlib.import_module("requests")
             except ImportError:  # pragma: no cover
-                logger.warning(
-                    "requests not available; skipping IP-based location detection"
-                )
+                logger.warning("requests not available; skipping IP-based location detection")
                 self._set_unknown_location()
                 return
             logger.info("Attempting to detect location...")
@@ -62,9 +60,7 @@ class UserPreferences:
                     self.country = data.get("country")
                     self.location = f"{self.city}, {self.country}"
                     self.timezone = data.get("timezone")
-                    logger.info(
-                        f"Location detected: {self.location} (IP-based, may not be exact)"
-                    )
+                    logger.info(f"Location detected: {self.location} (IP-based, may not be exact)")
                     return
 
             logger.warning("Location detection returned no data")
@@ -271,9 +267,7 @@ class ContextEngine:
     ) -> ConversationTurn:
         """Process a conversation turn and update context"""
 
-        turn_id = (
-            f"turn_{len(self.conversation_turns) + 1}_{int(datetime.now().timestamp())}"
-        )
+        turn_id = f"turn_{len(self.conversation_turns) + 1}_{int(datetime.now().timestamp())}"
 
         # Extract and resolve entities
         mentioned_entities = self._extract_entities(user_input)
@@ -304,9 +298,7 @@ class ContextEngine:
         self._update_entity_relevance()
 
         # Also update conversation state
-        self.update_conversation(
-            user_input, assistant_response, intent, mentioned_entities
-        )
+        self.update_conversation(user_input, assistant_response, intent, mentioned_entities)
 
         return turn
 
@@ -323,9 +315,7 @@ class ContextEngine:
 
         return list(set(entities_found))
 
-    def _resolve_coreferences(
-        self, text: str, mentioned_entities: List[str]
-    ) -> Dict[str, str]:
+    def _resolve_coreferences(self, text: str, mentioned_entities: List[str]) -> Dict[str, str]:
         """Resolve pronouns and references to specific entities"""
         resolutions = {}
         text_lower = text.lower()
@@ -349,9 +339,7 @@ class ContextEngine:
 
         return resolutions
 
-    def _resolve_neutral_pronoun(
-        self, pronoun: str, text: str, mentioned: List[str]
-    ) -> Optional[str]:
+    def _resolve_neutral_pronoun(self, pronoun: str, text: str, mentioned: List[str]) -> Optional[str]:
         """Resolve 'it' to most recently mentioned neutral entity"""
         for entity_id in reversed(self.pronoun_stack):
             entity = self.entities.get(entity_id)
@@ -359,9 +347,7 @@ class ContextEngine:
                 return entity_id
         return None
 
-    def _resolve_demonstrative(
-        self, demonstrative: str, text: str, mentioned: List[str]
-    ) -> Optional[str]:
+    def _resolve_demonstrative(self, demonstrative: str, text: str, mentioned: List[str]) -> Optional[str]:
         """Resolve 'this'/'that' based on recency and context"""
         if not self.demonstrative_stack:
             return None
@@ -374,9 +360,7 @@ class ContextEngine:
 
         return self.demonstrative_stack[-1] if self.demonstrative_stack else None
 
-    def _resolve_definite_description(
-        self, phrase: str, text: str, mentioned: List[str]
-    ) -> Optional[str]:
+    def _resolve_definite_description(self, phrase: str, text: str, mentioned: List[str]) -> Optional[str]:
         """Resolve definite descriptions like 'the email', 'the file'"""
         entity_type = None
         for etype, patterns in self.entity_patterns.items():
@@ -395,9 +379,7 @@ class ContextEngine:
 
         return None
 
-    def _resolve_temporal_reference(
-        self, phrase: str, text: str, mentioned: List[str]
-    ) -> Optional[str]:
+    def _resolve_temporal_reference(self, phrase: str, text: str, mentioned: List[str]) -> Optional[str]:
         """Resolve temporal references like 'the latest', 'the first'"""
         if "latest" in phrase or "last" in phrase or "recent" in phrase:
             return self.pronoun_stack[-1] if self.pronoun_stack else None
@@ -419,36 +401,22 @@ class ContextEngine:
                 break
 
         # Politeness markers
-        if any(
-            word in text_lower
-            for word in ["please", "could you", "would you", "thank you"]
-        ):
+        if any(word in text_lower for word in ["please", "could you", "would you", "thank you"]):
             signals["politeness"] = "high"
 
         # Urgency markers
-        if any(
-            word in text_lower
-            for word in ["urgent", "asap", "quickly", "immediately", "now"]
-        ):
+        if any(word in text_lower for word in ["urgent", "asap", "quickly", "immediately", "now"]):
             signals["urgency"] = "high"
 
         # Certainty markers
-        if any(
-            word in text_lower
-            for word in ["definitely", "certainly", "absolutely", "sure"]
-        ):
+        if any(word in text_lower for word in ["definitely", "certainly", "absolutely", "sure"]):
             signals["certainty"] = "high"
-        elif any(
-            word in text_lower for word in ["maybe", "perhaps", "possibly", "might"]
-        ):
+        elif any(word in text_lower for word in ["maybe", "perhaps", "possibly", "might"]):
             signals["certainty"] = "low"
 
         # Question types
         if text.strip().endswith("?"):
-            if any(
-                word in text_lower
-                for word in ["what", "how", "why", "when", "where", "who"]
-            ):
+            if any(word in text_lower for word in ["what", "how", "why", "when", "where", "who"]):
                 signals["question_type"] = "wh_question"
             elif any(
                 word in text_lower
@@ -467,9 +435,7 @@ class ContextEngine:
 
         return signals
 
-    def _update_focus(
-        self, mentioned_entities: List[str], pragmatic_signals: Dict[str, Any]
-    ):
+    def _update_focus(self, mentioned_entities: List[str], pragmatic_signals: Dict[str, Any]):
         """Update current conversation focus"""
 
         # Handle topic shifts
@@ -551,29 +517,18 @@ class ContextEngine:
         logger.info(f"Added entity {entity_id} of type {entity_type}")
         return entity_id
 
-    def get_contextual_entities(
-        self, query: str, max_entities: int = 5
-    ) -> List[Tuple[str, float]]:
+    def get_contextual_entities(self, query: str, max_entities: int = 5) -> List[Tuple[str, float]]:
         """Get entities relevant to a query"""
         # Fallback to focus-based selection
-        return [
-            (eid, self.entities[eid].relevance_score)
-            for eid in self.current_focus[:max_entities]
-        ]
+        return [(eid, self.entities[eid].relevance_score) for eid in self.current_focus[:max_entities]]
 
     def resolve_reference(self, reference_text: str) -> Optional[str]:
         """Resolve a textual reference to an entity ID"""
         reference_lower = reference_text.lower().strip()
 
         for entity_id, entity in self.entities.items():
-            all_refs = (
-                [entity_id.lower()]
-                + [m.lower() for m in entity.mentions]
-                + [a.lower() for a in entity.aliases]
-            )
-            if reference_lower in all_refs or any(
-                ref in reference_lower for ref in all_refs
-            ):
+            all_refs = [entity_id.lower()] + [m.lower() for m in entity.mentions] + [a.lower() for a in entity.aliases]
+            if reference_lower in all_refs or any(ref in reference_lower for ref in all_refs):
                 return entity_id
 
         return None
@@ -612,12 +567,8 @@ class ContextEngine:
             context_parts.append("\nRecent conversation:")
             for turn in recent_turns:
                 if turn.entities_resolved:
-                    resolved_info = ", ".join(
-                        [f"{ref}→{eid}" for ref, eid in turn.entities_resolved.items()]
-                    )
-                    context_parts.append(
-                        f"- User: {turn.user_input[:100]} (resolved: {resolved_info})"
-                    )
+                    resolved_info = ", ".join([f"{ref}→{eid}" for ref, eid in turn.entities_resolved.items()])
+                    context_parts.append(f"- User: {turn.user_input[:100]} (resolved: {resolved_info})")
                 else:
                     context_parts.append(f"- User: {turn.user_input[:100]}")
 
@@ -659,9 +610,7 @@ class ContextEngine:
                     normalized_entities.append(str(item))
 
             self.conv_state.mentioned_entities.extend(normalized_entities)
-            self.conv_state.mentioned_entities = list(
-                set(self.conv_state.mentioned_entities[-20:])
-            )
+            self.conv_state.mentioned_entities = list(set(self.conv_state.mentioned_entities[-20:]))
 
     def get_context_summary(self) -> Dict[str, Any]:
         """Get a summary of current context for LLM"""
@@ -673,11 +622,7 @@ class ContextEngine:
         summary = {
             "user_name": self.user_prefs.name,
             "session_duration_minutes": int(session_duration.total_seconds() / 60),
-            "recent_topics": (
-                self.conv_state.mentioned_entities[-5:]
-                if self.conv_state.mentioned_entities
-                else []
-            ),
+            "recent_topics": (self.conv_state.mentioned_entities[-5:] if self.conv_state.mentioned_entities else []),
             "active_topic": self.conv_state.active_topic,
             "pending_tasks": self.conv_state.pending_tasks,
             "last_intent": self.conv_state.last_intent,
@@ -726,29 +671,19 @@ class ContextEngine:
 
     def add_task(self, task: str):
         """Add a pending task"""
-        self.conv_state.pending_tasks.append(
-            {"task": task, "created": datetime.now().isoformat(), "completed": False}
-        )
+        self.conv_state.pending_tasks.append({"task": task, "created": datetime.now().isoformat(), "completed": False})
         logger.info(f"[OK] Task added: {task}")
 
     def complete_task(self, task_index: int):
         """Mark a task as completed"""
         if 0 <= task_index < len(self.conv_state.pending_tasks):
             self.conv_state.pending_tasks[task_index]["completed"] = True
-            self.conv_state.pending_tasks[task_index]["completed_at"] = (
-                datetime.now().isoformat()
-            )
-            logger.info(
-                f"[OK] Task completed: {self.conv_state.pending_tasks[task_index]['task']}"
-            )
+            self.conv_state.pending_tasks[task_index]["completed_at"] = datetime.now().isoformat()
+            logger.info(f"[OK] Task completed: {self.conv_state.pending_tasks[task_index]['task']}")
 
     def get_pending_tasks(self) -> List[str]:
         """Get list of pending tasks"""
-        return [
-            t["task"]
-            for t in self.conv_state.pending_tasks
-            if not t.get("completed", False)
-        ]
+        return [t["task"] for t in self.conv_state.pending_tasks if not t.get("completed", False)]
 
     def set_active_topic(self, topic: str):
         """Set the current conversation topic"""
@@ -831,9 +766,7 @@ class ContextEngine:
                     entity_type=entity_data["entity_type"],
                     data=entity_data["data"],
                     mentions=entity_data["mentions"],
-                    last_mentioned=datetime.fromisoformat(
-                        entity_data["last_mentioned"]
-                    ),
+                    last_mentioned=datetime.fromisoformat(entity_data["last_mentioned"]),
                     relevance_score=entity_data["relevance_score"],
                     aliases=entity_data["aliases"],
                 )

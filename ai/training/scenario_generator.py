@@ -59,9 +59,7 @@ class ScenarioGenerator:
         self.output_file = self.project_root / "scenarios" / "auto_generated.json"
         self.llm = LocalLLMEngine(LLMConfig(model=model))
 
-    def generate(
-        self, domains: Optional[List[str]] = None, count_per_domain: int = 3
-    ) -> List[Dict[str, Any]]:
+    def generate(self, domains: Optional[List[str]] = None, count_per_domain: int = 3) -> List[Dict[str, Any]]:
         """Generate scenarios for given domains."""
         domains = domains or DEFAULT_DOMAINS
         scenarios: List[Dict[str, Any]] = []
@@ -76,9 +74,7 @@ class ScenarioGenerator:
 
             parsed = self._safe_parse(raw)
             if not parsed:
-                logger.warning(
-                    f"[ScenarioGenerator] No scenarios generated for {domain}"
-                )
+                logger.warning(f"[ScenarioGenerator] No scenarios generated for {domain}")
                 continue
 
             scenarios.extend(parsed)
@@ -162,11 +158,7 @@ class ScenarioGenerator:
             "Each scenario has: name, description, domain, tags, steps. "
             "Each step has: user_input, expected_intent, expected_route, expected_entities, notes. "
             "Use ONLY these routes: " + ", ".join(ALLOWED_ROUTES) + ". "
-            "Use ONLY these intents for domain '"
-            + domain
-            + "': "
-            + ", ".join(intents)
-            + ". "
+            "Use ONLY these intents for domain '" + domain + "': " + ", ".join(intents) + ". "
             f"Create {count} scenarios for domain '{domain}'. "
             "Make them realistic and concise. "
             "If forecast-related, include time_range in expected_entities."
@@ -190,21 +182,13 @@ class ScenarioGenerator:
                 return []
         return []
 
-    def _merge_existing(
-        self, new_scenarios: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+    def _merge_existing(self, new_scenarios: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         existing = []
         if self.output_file.exists():
             try:
-                with open(
-                    self.output_file, "r", encoding="utf-8", errors="ignore"
-                ) as f:
+                with open(self.output_file, "r", encoding="utf-8", errors="ignore") as f:
                     payload = json.load(f)
-                    existing = (
-                        payload.get("scenarios", [])
-                        if isinstance(payload, dict)
-                        else payload
-                    )
+                    existing = payload.get("scenarios", []) if isinstance(payload, dict) else payload
             except Exception:
                 existing = []
 

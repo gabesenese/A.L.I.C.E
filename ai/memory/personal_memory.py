@@ -52,15 +52,9 @@ class PersonalMemoryStore:
         trace_id: str | None = None,
         importance: float = 0.7,
     ) -> str:
-        normalized_domain = self._normalize_token(
-            domain, PERSONAL_MEMORY_DOMAINS, DEFAULT_PERSONAL_DOMAIN
-        )
-        normalized_kind = self._normalize_token(
-            kind, PERSONAL_MEMORY_KINDS, DEFAULT_PERSONAL_KIND
-        )
-        normalized_scope = self._normalize_token(
-            scope, PERSONAL_MEMORY_SCOPES, DEFAULT_PERSONAL_SCOPE
-        )
+        normalized_domain = self._normalize_token(domain, PERSONAL_MEMORY_DOMAINS, DEFAULT_PERSONAL_DOMAIN)
+        normalized_kind = self._normalize_token(kind, PERSONAL_MEMORY_KINDS, DEFAULT_PERSONAL_KIND)
+        normalized_scope = self._normalize_token(scope, PERSONAL_MEMORY_SCOPES, DEFAULT_PERSONAL_SCOPE)
 
         structured_context = {
             "memory_schema": "personal_v1",
@@ -142,9 +136,7 @@ class PersonalMemoryStore:
                 return True
         return False
 
-    def forget_recent_memory(
-        self, domain: str | None = None, kind: str | None = None
-    ) -> Dict[str, Any]:
+    def forget_recent_memory(self, domain: str | None = None, kind: str | None = None) -> Dict[str, Any]:
         recent = self.find_recent_structured_memories(domain=domain, kind=kind, top_k=1)
         if not recent:
             return {"updated": False}
@@ -158,9 +150,7 @@ class PersonalMemoryStore:
         )
         return {"updated": bool(ok), "memory_id": str(target.get("id", ""))}
 
-    def update_memory(
-        self, memory_id: str, new_content: str, confidence: float | None = None
-    ) -> Dict[str, Any]:
+    def update_memory(self, memory_id: str, new_content: str, confidence: float | None = None) -> Dict[str, Any]:
         for attr in (
             "episodic_memory",
             "semantic_memory",
@@ -182,9 +172,7 @@ class PersonalMemoryStore:
                 try:
                     from ai.memory.memory_store import get_memory_store
 
-                    get_memory_store().update(
-                        str(memory_id), {"content": entry.content, "context": ctx}
-                    )
+                    get_memory_store().update(str(memory_id), {"content": entry.content, "context": ctx})
                 except Exception:
                     pass
                 return {"updated": True, "memory_id": str(memory_id)}
@@ -240,10 +228,7 @@ class PersonalMemoryStore:
             if isinstance(bucket, list):
                 sources.extend(bucket)
         for item in sources:
-            tags = [
-                str(t or "").strip().lower()
-                for t in list(getattr(item, "tags", []) or [])
-            ]
+            tags = [str(t or "").strip().lower() for t in list(getattr(item, "tags", []) or [])]
             if "structured:personal" not in tags:
                 continue
             ctx = getattr(item, "context", {}) if hasattr(item, "context") else {}
@@ -269,21 +254,15 @@ class PersonalMemoryStore:
             dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            age_hours = max(
-                0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
-            )
+            age_hours = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0)
             return math.exp(-0.03 * age_hours)
         except Exception:
             return 0.5
 
     @staticmethod
     def _lexical_similarity(query: str, content: str) -> float:
-        q_tokens = {
-            t for t in re.findall(r"[a-z0-9]+", str(query).lower()) if len(t) > 2
-        }
-        c_tokens = {
-            t for t in re.findall(r"[a-z0-9]+", str(content).lower()) if len(t) > 2
-        }
+        q_tokens = {t for t in re.findall(r"[a-z0-9]+", str(query).lower()) if len(t) > 2}
+        c_tokens = {t for t in re.findall(r"[a-z0-9]+", str(content).lower()) if len(t) > 2}
         if not q_tokens or not c_tokens:
             return 0.0
         overlap = len(q_tokens.intersection(c_tokens))
@@ -342,9 +321,7 @@ class PersonalMemoryStore:
             "had lunch with",
             "stayed home today",
         )
-        return any(marker in low for marker in clean_markers) and not low.startswith(
-            "gabriel said:"
-        )
+        return any(marker in low for marker in clean_markers) and not low.startswith("gabriel said:")
 
     @staticmethod
     def _is_meta_recall_query_content(text: str) -> bool:
@@ -367,21 +344,11 @@ class PersonalMemoryStore:
         min_similarity: float = 0.35,
     ) -> Dict[str, Any]:
         normalized_domain = (
-            self._normalize_token(
-                domain, PERSONAL_MEMORY_DOMAINS, DEFAULT_PERSONAL_DOMAIN
-            )
-            if domain
-            else None
+            self._normalize_token(domain, PERSONAL_MEMORY_DOMAINS, DEFAULT_PERSONAL_DOMAIN) if domain else None
         )
-        normalized_kind = (
-            self._normalize_token(kind, PERSONAL_MEMORY_KINDS, DEFAULT_PERSONAL_KIND)
-            if kind
-            else None
-        )
+        normalized_kind = self._normalize_token(kind, PERSONAL_MEMORY_KINDS, DEFAULT_PERSONAL_KIND) if kind else None
         normalized_scope = (
-            self._normalize_token(scope, PERSONAL_MEMORY_SCOPES, DEFAULT_PERSONAL_SCOPE)
-            if scope
-            else None
+            self._normalize_token(scope, PERSONAL_MEMORY_SCOPES, DEFAULT_PERSONAL_SCOPE) if scope else None
         )
 
         # Phase 1: direct scan of structured entries to avoid vector misses.
@@ -403,34 +370,24 @@ class PersonalMemoryStore:
         ranked: List[Dict[str, Any]] = []
         raw_candidate_count = len(filtered)
         downranked_mixed_count = 0
-        has_clean_fragment = any(
-            self._is_clean_personal_fragment(str(row.get("content") or ""))
-            for row in filtered
-        )
+        has_clean_fragment = any(self._is_clean_personal_fragment(str(row.get("content") or "")) for row in filtered)
         for row in filtered:
             ctx = dict(row.get("context") or {})
             if bool(ctx.get("invalid")) or bool(ctx.get("superseded")):
                 continue
-            if (
-                normalized_domain == "personal_life"
-                and self._is_meta_recall_query_content(str(row.get("content") or ""))
+            if normalized_domain == "personal_life" and self._is_meta_recall_query_content(
+                str(row.get("content") or "")
             ):
                 continue
             confidence = max(
                 0.0,
-                min(
-                    1.0, float(ctx.get("confidence", row.get("importance", 0.5)) or 0.5)
-                ),
+                min(1.0, float(ctx.get("confidence", row.get("importance", 0.5)) or 0.5)),
             )
             importance = max(0.0, min(1.0, float(row.get("importance", 0.5) or 0.5)))
             recency = self._recency_score(str(row.get("timestamp") or ""))
             lexical = self._lexical_similarity(query, str(row.get("content") or ""))
-            combined = (
-                confidence * 0.35 + importance * 0.25 + recency * 0.25 + lexical * 0.15
-            )
-            if has_clean_fragment and self._is_broad_mixed_turn_content(
-                str(row.get("content") or "")
-            ):
+            combined = confidence * 0.35 + importance * 0.25 + recency * 0.25 + lexical * 0.15
+            if has_clean_fragment and self._is_broad_mixed_turn_content(str(row.get("content") or "")):
                 downranked_mixed_count += 1
                 if normalized_domain == "personal_life":
                     # Prefer clean personal event fragments and suppress broad mixed-turn sentences.
@@ -467,16 +424,8 @@ class PersonalMemoryStore:
             if current is None:
                 by_norm[key] = row
                 continue
-            cur_conf = float(
-                (current.get("context") or {}).get(
-                    "confidence", current.get("importance", 0.0)
-                )
-                or 0.0
-            )
-            new_conf = float(
-                (row.get("context") or {}).get("confidence", row.get("importance", 0.0))
-                or 0.0
-            )
+            cur_conf = float((current.get("context") or {}).get("confidence", current.get("importance", 0.0)) or 0.0)
+            new_conf = float((row.get("context") or {}).get("confidence", row.get("importance", 0.0)) or 0.0)
             current_key = (
                 float(current.get("weighted_score", 0.0)),
                 cur_conf,

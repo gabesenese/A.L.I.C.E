@@ -158,9 +158,7 @@ class AuditScheduler:
             "scheduled_jobs": len(self.scheduler.jobs),
             "run_count": self.run_count,
             "last_run": self.last_run.isoformat() if self.last_run else None,
-            "next_run": self.get_next_run_time().isoformat()
-            if self.get_next_run_time()
-            else None,
+            "next_run": self.get_next_run_time().isoformat() if self.get_next_run_time() else None,
             "schedule_time": self.schedule_time,
         }
 
@@ -227,9 +225,7 @@ class AutomatedAuditRunner:
                 logger.info(f"  Skill: {vector.skill}")
 
                 # Generate queries
-                queries = self.teacher.generate_test_queries(
-                    domain, vector.skill, count=2
-                )
+                queries = self.teacher.generate_test_queries(domain, vector.skill, count=2)
 
                 domain_scores["tests"] += len(queries)
                 cycle_results["total_tests"] += len(queries)
@@ -241,15 +237,11 @@ class AutomatedAuditRunner:
                         response = self.alice.process_input(query)
 
                         # Audit response
-                        audit_score = self.auditor.audit_response(
-                            domain, query, response
-                        )
+                        audit_score = self.auditor.audit_response(domain, query, response)
                         domain_audit_scores.append(audit_score)
 
                         # Generate training signals
-                        signals = self.scorer.score_audit(
-                            audit_score, domain, vector.skill
-                        )
+                        signals = self.scorer.score_audit(audit_score, domain, vector.skill)
 
                         # Inject signals
                         count = self.injector.inject_signals(signals)
@@ -262,15 +254,11 @@ class AutomatedAuditRunner:
 
             # Record domain metrics
             if domain_audit_scores:
-                avg_score = sum(s.overall_score for s in domain_audit_scores) / len(
-                    domain_audit_scores
-                )
+                avg_score = sum(s.overall_score for s in domain_audit_scores) / len(domain_audit_scores)
                 domain_scores["avg_score"] = avg_score
 
                 dimension_scores = self._aggregate_dimension_scores(domain_audit_scores)
-                self.tracker.record_pre_training_score(
-                    domain, avg_score, dimension_scores
-                )
+                self.tracker.record_pre_training_score(domain, avg_score, dimension_scores)
 
             cycle_results["domains"][domain] = domain_scores
 
@@ -292,11 +280,7 @@ class AutomatedAuditRunner:
         dimension_scores = {}
 
         for dimension in ScoringDimension:
-            scores = [
-                a.scores.get(dimension, 0)
-                for a in audit_scores
-                if dimension in a.scores
-            ]
+            scores = [a.scores.get(dimension, 0) for a in audit_scores if dimension in a.scores]
             if scores:
                 dimension_scores[dimension.value] = sum(scores) / len(scores)
 
@@ -313,8 +297,6 @@ class AutomatedAuditRunner:
         self.scheduler.stop()
 
 
-def create_scheduler(
-    alice, teacher, auditor, scorer, injector, tracker
-) -> AutomatedAuditRunner:
+def create_scheduler(alice, teacher, auditor, scorer, injector, tracker) -> AutomatedAuditRunner:
     """Factory to create automated runner with scheduler"""
     return AutomatedAuditRunner(alice, teacher, auditor, scorer, injector, tracker)

@@ -300,14 +300,10 @@ class ResponseQualityChecker:
         domain = intent.split(":", 1)[0] if ":" in intent else intent
 
         issues += self._check_directness(user_input, response, intent, domain)
-        issues += self._check_repetition(
-            user_input, response, intent, domain, previous_turn
-        )
+        issues += self._check_repetition(user_input, response, intent, domain, previous_turn)
         issues += self._check_vocab_gap(user_input, intent, domain)
         if plugin_called and had_stored_data:
-            issues += self._check_unnecessary_plugin(
-                user_input, intent, domain, plugin_called
-            )
+            issues += self._check_unnecessary_plugin(user_input, intent, domain, plugin_called)
 
         if issues:
             self._log_issues(issues)
@@ -323,9 +319,7 @@ class ResponseQualityChecker:
 
     # ── Individual checks ─────────────────────────────────────────────────────
 
-    def _check_directness(
-        self, user_input: str, response: str, intent: str, domain: str
-    ) -> List[QualityIssue]:
+    def _check_directness(self, user_input: str, response: str, intent: str, domain: str) -> List[QualityIssue]:
         """Flag when a yes/no question didn't get a yes/no answer."""
         if not _YES_NO_QUESTION_PATTERNS.search(user_input):
             return []
@@ -387,9 +381,7 @@ class ResponseQualityChecker:
             )
         ]
 
-    def _check_vocab_gap(
-        self, user_input: str, intent: str, domain: str
-    ) -> List[QualityIssue]:
+    def _check_vocab_gap(self, user_input: str, intent: str, domain: str) -> List[QualityIssue]:
         """Flag domain-relevant words in user input that aren't in the keyword list."""
         known = set(DOMAIN_KEYWORDS.get(domain, []))
         if not known:
@@ -438,9 +430,7 @@ class ResponseQualityChecker:
                 detail={
                     "reason": "plugin called when stored data was available",
                     "plugin": plugin_called,
-                    "user_words": list(
-                        set(re.findall(r"[a-z']+", user_input.lower())) - _STOPWORDS
-                    ),
+                    "user_words": list(set(re.findall(r"[a-z']+", user_input.lower())) - _STOPWORDS),
                 },
                 severity="medium",
             )

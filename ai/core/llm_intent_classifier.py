@@ -190,18 +190,14 @@ JSON response:"""
             if response.success and response.response:
                 return self._parse_llm_response(response.response, query)
             else:
-                logger.warning(
-                    f"LLM intent classification failed: {response.response if response else 'No response'}"
-                )
+                logger.warning(f"LLM intent classification failed: {response.response if response else 'No response'}")
                 return None
 
         except Exception as e:
             logger.error(f"Error in LLM intent classification: {e}")
             return None
 
-    def _classify_with_self_consistency(
-        self, prompt: str, query: str, num_samples: int
-    ) -> Optional[LLMIntentResult]:
+    def _classify_with_self_consistency(self, prompt: str, query: str, num_samples: int) -> Optional[LLMIntentResult]:
         """
         Use self-consistency: Generate multiple classifications and pick most common
 
@@ -249,9 +245,7 @@ JSON response:"""
 
         # Boost confidence based on consistency
         consistency_ratio = intent_counts[most_common_intent] / len(results)
-        best_result.confidence = min(
-            0.99, best_result.confidence * (0.5 + 0.5 * consistency_ratio)
-        )
+        best_result.confidence = min(0.99, best_result.confidence * (0.5 + 0.5 * consistency_ratio))
 
         logger.info(
             f"Self-consistency: {most_common_intent} ({consistency_ratio:.0%} agreement across {len(results)} samples)"
@@ -259,9 +253,7 @@ JSON response:"""
 
         return best_result
 
-    def _parse_llm_response(
-        self, response: str, query: str
-    ) -> Optional[LLMIntentResult]:
+    def _parse_llm_response(self, response: str, query: str) -> Optional[LLMIntentResult]:
         """
         Parse LLM's JSON response into LLMIntentResult
 
@@ -333,9 +325,7 @@ JSON response:"""
                 return (semantic_intent, semantic_confidence, "semantic_fallback")
 
         # Low confidence (<0.5) - use self-consistency (3 samples)
-        logger.info(
-            f"Low confidence ({semantic_confidence:.2f}), using LLM self-consistency"
-        )
+        logger.info(f"Low confidence ({semantic_confidence:.2f}), using LLM self-consistency")
         result = self.classify_with_cot(query, context, num_samples=3)
         if result:
             return (result.intent, result.confidence, "llm_consistency")

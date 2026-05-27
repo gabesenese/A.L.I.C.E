@@ -31,9 +31,7 @@ def process_chunk(chunk_info):
     for j, segment in enumerate(segments):
         start_time = segment[0]
         end_time = segment[1]
-        extracted_segment = chunk[
-            start_time * 1000 : end_time * 1000
-        ]  # Convert to milliseconds
+        extracted_segment = chunk[start_time * 1000 : end_time * 1000]  # Convert to milliseconds
         extracted_segment.export(f"chunk_{i}_segment_{j}.wav", format="wav")
 
     return f"Chunk {i} processed and segments saved."

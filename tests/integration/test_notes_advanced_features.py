@@ -62,18 +62,14 @@ class TestContentSearch:
         assert "quarterly budget" in results[0].matched_snippet.lower()
 
     def test_search_by_content_returns_ContentSearchResult(self, plugin):
-        plugin.manager.create_note(
-            title="Ideas", content="Build a rocket ship and explore space."
-        )
+        plugin.manager.create_note(title="Ideas", content="Build a rocket ship and explore space.")
         results = plugin.manager.search_by_content("rocket ship")
         assert all(isinstance(r, ContentSearchResult) for r in results)
         assert results[0].score > 0
 
     def test_search_by_content_scores_title_higher(self, plugin):
         plugin.manager.create_note(title="rocket plans", content="General notes.")
-        plugin.manager.create_note(
-            title="Unrelated", content="a rocket is mentioned here briefly."
-        )
+        plugin.manager.create_note(title="Unrelated", content="a rocket is mentioned here briefly.")
         results = plugin.manager.search_by_content("rocket")
         # Note with "rocket" in title should score higher
         assert results[0].note.title == "rocket plans"
@@ -100,23 +96,15 @@ class TestContentSearch:
         assert result["data"]["count"] >= 1
 
     def test_content_search_respects_archived_exclude(self, plugin):
-        note = plugin.manager.create_note(
-            title="Old note", content="hidden archived text"
-        )
+        note = plugin.manager.create_note(title="Old note", content="hidden archived text")
         plugin.manager.archive_note(note.id)
-        results = plugin.manager.search_by_content(
-            "hidden archived text", include_archived=False
-        )
+        results = plugin.manager.search_by_content("hidden archived text", include_archived=False)
         assert len(results) == 0
 
     def test_content_search_includes_archived_when_flag_set(self, plugin):
-        note = plugin.manager.create_note(
-            title="Old note", content="hidden archived text"
-        )
+        note = plugin.manager.create_note(title="Old note", content="hidden archived text")
         plugin.manager.archive_note(note.id)
-        results = plugin.manager.search_by_content(
-            "hidden archived text", include_archived=True
-        )
+        results = plugin.manager.search_by_content("hidden archived text", include_archived=True)
         assert len(results) == 1
 
 
@@ -144,9 +132,7 @@ class TestCreateNoteFromContext:
 
     def test_create_from_context_uses_seeded_turns(self, plugin):
         plugin.record_conversation_turn("user", "Can you summarize the meeting agenda?")
-        plugin.record_conversation_turn(
-            "assistant", "Sure — we covered budget review and Q3 goals."
-        )
+        plugin.record_conversation_turn("assistant", "Sure — we covered budget review and Q3 goals.")
         result = plugin.execute(command="save this")
         assert result["success"] is True
         assert result["action"] == "create_note_from_context"
@@ -226,9 +212,7 @@ class TestNotesRoutingGuards:
 
 class TestAppendNote:
     def test_append_adds_text_to_existing_content(self, plugin):
-        note = plugin.manager.create_note(
-            title="Shopping list", content="- Milk\n- Eggs"
-        )
+        note = plugin.manager.create_note(title="Shopping list", content="- Milk\n- Eggs")
         plugin.manager.append_note_content(note.id, "- Bread")
         updated = plugin.manager.get_note(note.id)
         assert "Bread" in updated.content
@@ -250,9 +234,7 @@ class TestAppendNote:
         assert updated.priority == "urgent"
 
     def test_patch_note_fields_updates_tags(self, plugin):
-        note = plugin.manager.create_note(
-            title="Dev notes", content="spec.", tags=["work"]
-        )
+        note = plugin.manager.create_note(title="Dev notes", content="spec.", tags=["work"])
         plugin.manager.patch_note_fields(note.id, {"tags": ["work", "dev", "sprint"]})
         updated = plugin.manager.get_note(note.id)
         assert "sprint" in updated.tags
@@ -278,9 +260,7 @@ class TestAppendNote:
 class TestReminderSurfacing:
     def test_get_upcoming_reminders_returns_due_within_48h(self, plugin):
         soon = (datetime.now() + timedelta(hours=12)).isoformat()
-        plugin.manager.create_note(
-            title="Due soon", content="check this", due_date=soon
-        )
+        plugin.manager.create_note(title="Due soon", content="check this", due_date=soon)
         upcoming = plugin.manager.get_upcoming_reminders(hours=48)
         assert len(upcoming) == 1
         assert upcoming[0].title == "Due soon"
@@ -293,18 +273,14 @@ class TestReminderSurfacing:
 
     def test_list_notes_payload_includes_overdue_count(self, plugin):
         overdue_dt = (datetime.now() - timedelta(days=2)).isoformat()
-        plugin.manager.create_note(
-            title="Overdue task", content="late", due_date=overdue_dt
-        )
+        plugin.manager.create_note(title="Overdue task", content="late", due_date=overdue_dt)
         result = plugin.execute(command="list notes")
         assert "overdue_count" in result["data"]
         assert result["data"]["overdue_count"] >= 1
 
     def test_list_notes_payload_includes_upcoming_reminders(self, plugin):
         soon = (datetime.now() + timedelta(hours=6)).isoformat()
-        plugin.manager.create_note(
-            title="Morning standup", content="team sync", due_date=soon
-        )
+        plugin.manager.create_note(title="Morning standup", content="team sync", due_date=soon)
         result = plugin.execute(command="list notes")
         assert "upcoming_reminders" in result["data"]
         assert len(result["data"]["upcoming_reminders"]) >= 1
@@ -349,11 +325,7 @@ class TestFormatterStrategy:
         s = CompactNotesListStrategy()
         lines = s.render_notes_list(notes, count=10, shown=10, header="Notes")
         # One line per note (no preview lines in compact mode)
-        content_lines = [
-            ln
-            for ln in lines
-            if ln.startswith(("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9."))
-        ]
+        content_lines = [ln for ln in lines if ln.startswith(("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9."))]
         assert len(content_lines) == 9  # lines 1-9
 
     def test_detailed_strategy_includes_preview(self):

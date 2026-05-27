@@ -30,9 +30,7 @@ def classify_turn_mode(
         if normalized_intent == "operator:project_status":
             return "operator_status"
         return "operator_continue"
-    if normalized_intent.startswith("code:") or (
-        normalized_route == "local" and normalized_intent.startswith("code:")
-    ):
+    if normalized_intent.startswith("code:") or (normalized_route == "local" and normalized_intent.startswith("code:")):
         return "code_work"
     if normalized_route in {"tool", "plugin"}:
         return "tool_result"
@@ -47,13 +45,9 @@ def classify_turn_mode(
         low,
     ):
         return "operator_continue"
-    if re.search(
-        r"\b(explain|teach me|i'm a beginner|im a beginner|show me simply)\b", low
-    ):
+    if re.search(r"\b(explain|teach me|i'm a beginner|im a beginner|show me simply)\b", low):
         return "educational_explain"
-    if re.search(
-        r"\b(analy[sz]e file|inspect codebase|read [a-z0-9_./\\-]+\.py)\b", low
-    ):
+    if re.search(r"\b(analy[sz]e file|inspect codebase|read [a-z0-9_./\\-]+\.py)\b", low):
         return "code_work"
     if re.search(
         r"\b(how are you|what's up|whats up|how's it going|hows it going|hello|hi)\b",
@@ -62,8 +56,7 @@ def classify_turn_mode(
         return "casual_companion"
 
     has_objective = bool(
-        str(state.get("active_objective") or "").strip()
-        or str(project.get("active_objective") or "").strip()
+        str(state.get("active_objective") or "").strip() or str(project.get("active_objective") or "").strip()
     )
     if has_objective and normalized_intent == "conversation:goal_statement":
         # Only escalate to operator_continue when the user intends to work,

@@ -39,11 +39,7 @@ def logger(log_file: Path) -> NLPErrorLogger:
 def _read_entries(log_file: Path) -> list[dict]:
     if not log_file.exists():
         return []
-    return [
-        json.loads(line)
-        for line in log_file.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    return [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 # ── log_intent_override ───────────────────────────────────────────────────────
@@ -93,9 +89,7 @@ class TestLogIntentOverride:
         assert len(str(entry["original_confidence"]).replace("0.", "")) <= 4
         assert len(str(entry["corrected_confidence"]).replace("0.", "")) <= 4
 
-    def test_domain_extracted_from_colon_split(
-        self, logger: NLPErrorLogger, log_file: Path
-    ):
+    def test_domain_extracted_from_colon_split(self, logger: NLPErrorLogger, log_file: Path):
         logger.log_intent_override(
             user_input="x",
             original_intent="weather:current",
@@ -106,9 +100,7 @@ class TestLogIntentOverride:
         )
         assert _read_entries(log_file)[0]["domain"] == "weather"
 
-    def test_session_id_included_when_provided(
-        self, logger: NLPErrorLogger, log_file: Path
-    ):
+    def test_session_id_included_when_provided(self, logger: NLPErrorLogger, log_file: Path):
         logger.log_intent_override(
             user_input="x",
             original_intent="a:b",
@@ -215,9 +207,7 @@ class TestLogClarificationSkip:
 
 
 class TestMultipleEntries:
-    def test_each_log_call_appends_a_new_line(
-        self, logger: NLPErrorLogger, log_file: Path
-    ):
+    def test_each_log_call_appends_a_new_line(self, logger: NLPErrorLogger, log_file: Path):
         logger.log_intent_override(
             user_input="a",
             original_intent="x:y",
@@ -252,9 +242,7 @@ class TestMultipleEntries:
 
 
 class TestThreadSafety:
-    def test_concurrent_writes_produce_distinct_valid_entries(
-        self, logger: NLPErrorLogger, log_file: Path
-    ):
+    def test_concurrent_writes_produce_distinct_valid_entries(self, logger: NLPErrorLogger, log_file: Path):
         N = 20
         barrier = threading.Barrier(N)
 

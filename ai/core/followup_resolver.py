@@ -182,13 +182,9 @@ class FollowUpResolver:
         lower = user_input.lower().strip()
 
         if not recent_intent:
-            return FollowUpResult(
-                nlp_intent, nlp_confidence, False, None, "no_recent_context"
-            )
+            return FollowUpResult(nlp_intent, nlp_confidence, False, None, "no_recent_context")
 
-        recent_domain = (
-            recent_intent.split(":")[0] if ":" in recent_intent else recent_intent
-        )
+        recent_domain = recent_intent.split(":")[0] if ":" in recent_intent else recent_intent
         nlp_domain = nlp_intent.split(":")[0] if ":" in nlp_intent else nlp_intent
         generic_cue = bool(self._GENERIC_CUE_RE.search(lower))
 
@@ -216,9 +212,7 @@ class FollowUpResolver:
 
         if recent_domain == "weather" and domain_signal_hit:
             weak_weather_signals = {"need", "bring"}
-            strong_weather_hits = [
-                sig for sig in domain_signal_hits if sig not in weak_weather_signals
-            ]
+            strong_weather_hits = [sig for sig in domain_signal_hits if sig not in weak_weather_signals]
             short_generic_followup = generic_cue and len(lower.split()) <= 6
             if not strong_weather_hits and not short_generic_followup:
                 domain_signal_hit = False
@@ -231,11 +225,7 @@ class FollowUpResolver:
             and not nlp_intent.endswith(":general")
         )
 
-        if (
-            domain_signal_hit
-            and recent_domain in self.DOMAIN_SIGNALS
-            and not same_domain_specific
-        ):
+        if domain_signal_hit and recent_domain in self.DOMAIN_SIGNALS and not same_domain_specific:
             decay = math.exp(-0.15 * max(0, turn_distance))
             new_conf = max(nlp_confidence, 0.82 * decay)
 
@@ -285,11 +275,7 @@ class FollowUpResolver:
                 f"domain_signal:{recent_domain}",
             )
 
-        if (
-            perception_followup_domain
-            and perception_followup_domain == recent_domain
-            and not same_domain_specific
-        ):
+        if perception_followup_domain and perception_followup_domain == recent_domain and not same_domain_specific:
             decay = math.exp(-0.15 * max(0, turn_distance))
             new_conf = max(nlp_confidence, 0.80 * decay)
             logger.debug(
@@ -327,8 +313,6 @@ class FollowUpResolver:
                     new_conf,
                     decay,
                 )
-                return FollowUpResult(
-                    recent_intent, new_conf, True, recent_domain, "generic_followup"
-                )
+                return FollowUpResult(recent_intent, new_conf, True, recent_domain, "generic_followup")
 
         return FollowUpResult(nlp_intent, nlp_confidence, False, None, "no_followup")

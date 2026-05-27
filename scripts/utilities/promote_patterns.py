@@ -84,9 +84,7 @@ class PatternPromoter:
                     for pattern in patterns_list:
                         if isinstance(pattern, dict):
                             # Use normalized input as key
-                            normalized = self._normalize_input(
-                                pattern.get("pattern", "")
-                            )
+                            normalized = self._normalize_input(pattern.get("pattern", ""))
                             if normalized:
                                 existing.add(normalized)
             except Exception as e:
@@ -113,9 +111,7 @@ class PatternPromoter:
                     for item in feedback_list:
                         if isinstance(item, dict):
                             # Filter by negative type if applicable
-                            if item.get("type") == "negative" or "negative" not in str(
-                                item
-                            ):
+                            if item.get("type") == "negative" or "negative" not in str(item):
                                 user_input = item.get("user_input", "")
                                 normalized = self._normalize_input(user_input)
                                 if normalized:
@@ -180,9 +176,7 @@ class PatternPromoter:
 
         return slots
 
-    def _create_response_template(
-        self, teacher_responses: List[str], variable_slots: Dict[str, str]
-    ) -> str:
+    def _create_response_template(self, teacher_responses: List[str], variable_slots: Dict[str, str]) -> str:
         """
         Create response template from teacher responses
 
@@ -199,9 +193,7 @@ class PatternPromoter:
         from collections import Counter
 
         # Normalize responses
-        normalized_responses = [
-            self._normalize_input(r) for r in teacher_responses if r
-        ]
+        normalized_responses = [self._normalize_input(r) for r in teacher_responses if r]
 
         if not normalized_responses:
             return ""
@@ -256,16 +248,10 @@ class PatternPromoter:
                     key = (entry.get("actual_intent"), entry.get("domain"))
 
                     groups[key]["inputs"].append(entry.get("user_input", ""))
-                    groups[key]["teacher_responses"].append(
-                        entry.get("teacher_response", "")
-                    )
-                    groups[key]["alice_responses"].append(
-                        entry.get("alice_response", "")
-                    )
+                    groups[key]["teacher_responses"].append(entry.get("teacher_response", ""))
+                    groups[key]["alice_responses"].append(entry.get("alice_response", ""))
                     groups[key]["route_matches"].append(entry.get("route_match", False))
-                    groups[key]["intent_matches"].append(
-                        entry.get("intent_match", False)
-                    )
+                    groups[key]["intent_matches"].append(entry.get("intent_match", False))
 
                 except json.JSONDecodeError:
                     continue
@@ -282,9 +268,7 @@ class PatternPromoter:
 
             # Calculate teacher response rate (how often teacher has response)
             teacher_response_rate = (
-                sum(1 for tr in data["teacher_responses"] if tr) / frequency
-                if frequency > 0
-                else 0.0
+                sum(1 for tr in data["teacher_responses"] if tr) / frequency if frequency > 0 else 0.0
             )
 
             # We require that teacher responded often enough (at least min_teacher_consistency %)
@@ -306,9 +290,7 @@ class PatternPromoter:
             variable_slots = self._detect_variable_slots(data["inputs"])
 
             # Create response template
-            response_template = self._create_response_template(
-                data["teacher_responses"], variable_slots
-            )
+            response_template = self._create_response_template(data["teacher_responses"], variable_slots)
 
             # Use most common normalized input as pattern
             normalized_inputs = [self._normalize_input(i) for i in data["inputs"]]
@@ -338,9 +320,7 @@ class PatternPromoter:
 
         return candidates
 
-    def promote_patterns(
-        self, candidates: List[PatternCandidate], auto_apply: bool = True
-    ) -> int:
+    def promote_patterns(self, candidates: List[PatternCandidate], auto_apply: bool = True) -> int:
         """
         Promote pattern candidates to learning_patterns.json
 
@@ -361,8 +341,7 @@ class PatternPromoter:
 
         for candidate in candidates:
             if (
-                candidate.teacher_consistency >= self.min_teacher_consistency
-                and candidate.frequency >= 5
+                candidate.teacher_consistency >= self.min_teacher_consistency and candidate.frequency >= 5
             ):  # Higher bar for auto-apply
                 auto_candidates.append(candidate)
             else:
@@ -397,9 +376,7 @@ class PatternPromoter:
         promoted_count = 0
 
         if auto_apply and auto_candidates:
-            logger.info(
-                f"\n[AUTO-PROMOTE] Auto-promoting {len(auto_candidates)} high-confidence patterns"
-            )
+            logger.info(f"\n[AUTO-PROMOTE] Auto-promoting {len(auto_candidates)} high-confidence patterns")
 
             for candidate in auto_candidates:
                 pattern_entry = {
@@ -426,9 +403,7 @@ class PatternPromoter:
 
         # Save manual review candidates
         if manual_candidates:
-            logger.info(
-                f"\n[REVIEW] {len(manual_candidates)} patterns need manual review"
-            )
+            logger.info(f"\n[REVIEW] {len(manual_candidates)} patterns need manual review")
 
             review_file = Path("memory/patterns_for_review.json")
             review_data = {
@@ -456,9 +431,7 @@ def main():
     """Main entry point for pattern promotion"""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Promote patterns from simulation logs"
-    )
+    parser = argparse.ArgumentParser(description="Promote patterns from simulation logs")
     parser.add_argument(
         "--min-frequency",
         type=int,
@@ -488,9 +461,7 @@ def main():
     logger.info("=" * 70)
 
     # Create promoter
-    promoter = PatternPromoter(
-        min_frequency=args.min_frequency, min_teacher_consistency=args.min_consistency
-    )
+    promoter = PatternPromoter(min_frequency=args.min_frequency, min_teacher_consistency=args.min_consistency)
 
     # Analyze logs
     log_file = Path("data/training/auto_generated.jsonl")
@@ -511,9 +482,7 @@ def main():
 
         # Promote patterns
         logger.info("\n" + "=" * 70)
-        promoted = promoter.promote_patterns(
-            candidates, auto_apply=not args.no_auto_apply
-        )
+        promoted = promoter.promote_patterns(candidates, auto_apply=not args.no_auto_apply)
 
         logger.info(f"\n[OK] Pattern promotion complete! Promoted {promoted} patterns.")
     else:

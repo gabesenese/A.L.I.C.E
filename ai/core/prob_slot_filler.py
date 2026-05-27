@@ -101,16 +101,12 @@ _QUERY_PATS: List[re.Pattern] = [
         r"(?:notes?\s+(?:about|on|containing|mentioning|with))\s+(.+?)(?:\s+tagged|\s*$)",
         re.I,
     ),
-    re.compile(
-        r'(?:about|for|related\s+to)\s+["\']?([^"\']+?)["\']?(?:\s+tagged|\s*$)', re.I
-    ),
+    re.compile(r'(?:about|for|related\s+to)\s+["\']?([^"\']+?)["\']?(?:\s+tagged|\s*$)', re.I),
 ]
 
 # note_ref: "the X note", "note called X", note #N
 _NOTE_REF_PATS: List[re.Pattern] = [
-    re.compile(
-        r'(?:the\s+)?note\s+(?:called|titled?|named?)\s+["\']?(.+?)["\']?(?:\s|$)', re.I
-    ),
+    re.compile(r'(?:the\s+)?note\s+(?:called|titled?|named?)\s+["\']?(.+?)["\']?(?:\s|$)', re.I),
     re.compile(r"(?:note|file)\s+#?(\d+)", re.I),
     re.compile(r"(?:the\s+)([A-Z][^\s,]{2,40})\s+note", re.I),
     re.compile(r'"([^"]{2,60})"'),
@@ -142,9 +138,7 @@ _PRIORITY_MAP = {
 _CONTENT_PATS: List[re.Pattern] = [
     re.compile(r"(?:content|body|text)\s*:\s*(.+?)(?:\s+tagged|\s*$)", re.I),
     re.compile(r'saying\s+["\']?(.+?)["\']?(?:\s+tagged|\s*$)', re.I),
-    re.compile(
-        r'(?:that\s+says?|which\s+says?)\s+["\']?(.+?)["\']?(?:\s+tagged|\s*$)', re.I
-    ),
+    re.compile(r'(?:that\s+says?|which\s+says?)\s+["\']?(.+?)["\']?(?:\s+tagged|\s*$)', re.I),
 ]
 
 # event title
@@ -227,16 +221,12 @@ def _levenshtein(a: str, b: str) -> int:
     for i, ca in enumerate(a, 1):
         curr = [i]
         for j, cb in enumerate(b, 1):
-            curr.append(
-                min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + (0 if ca == cb else 1))
-            )
+            curr.append(min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + (0 if ca == cb else 1)))
         prev = curr
     return prev[-1]
 
 
-def _fuzzy_match(
-    query: str, candidates: List[str], threshold: float = 0.65
-) -> Optional[Tuple[str, float]]:
+def _fuzzy_match(query: str, candidates: List[str], threshold: float = 0.65) -> Optional[Tuple[str, float]]:
     """Return (best_match, normalized_similarity) or None."""
     if not candidates:
         return None
@@ -338,11 +328,7 @@ class ProbabilisticSlotFiller:
             if result is not None:
                 results[slot] = result
 
-        fill_conf = (
-            sum(r.confidence for r in results.values()) / len(results)
-            if results
-            else 0.0
-        )
+        fill_conf = sum(r.confidence for r in results.values()) / len(results) if results else 0.0
 
         logger.debug(
             "[SLOTS] frame=%s slots=%s",
@@ -391,9 +377,7 @@ class ProbabilisticSlotFiller:
     def _fill_title(self, text: str, ctx: Dict, ev: Dict) -> Optional[SlotResult]:
         # 1. Frame evidence (from FrameParser inline extractor)
         if ev.get("title"):
-            return SlotResult(
-                ev["title"], self._W_PATTERN * 0.90, "pattern", ev["title"]
-            )
+            return SlotResult(ev["title"], self._W_PATTERN * 0.90, "pattern", ev["title"])
 
         # 2. Pattern strategy
         val = _first_match(_TITLE_PATS, text)
@@ -427,9 +411,7 @@ class ProbabilisticSlotFiller:
 
     def _fill_query(self, text: str, ctx: Dict, ev: Dict) -> Optional[SlotResult]:
         if ev.get("query"):
-            return SlotResult(
-                ev["query"], self._W_PATTERN * 0.90, "pattern", ev["query"]
-            )
+            return SlotResult(ev["query"], self._W_PATTERN * 0.90, "pattern", ev["query"])
 
         val = _first_match(_QUERY_PATS, text)
         if val:
@@ -440,13 +422,9 @@ class ProbabilisticSlotFiller:
         if m:
             remainder = m.group(1).strip()
             # Strip leading "notes about / notes on"
-            remainder = re.sub(
-                r"^notes?\s+(?:about|on|for)\s+", "", remainder, flags=re.I
-            )
+            remainder = re.sub(r"^notes?\s+(?:about|on|for)\s+", "", remainder, flags=re.I)
             if remainder:
-                return SlotResult(
-                    remainder, self._W_POSITIONAL * 0.70, "positional", remainder
-                )
+                return SlotResult(remainder, self._W_POSITIONAL * 0.70, "positional", remainder)
 
         return None
 
@@ -454,9 +432,7 @@ class ProbabilisticSlotFiller:
 
     def _fill_note_ref(self, text: str, ctx: Dict, ev: Dict) -> Optional[SlotResult]:
         if ev.get("note_ref"):
-            return SlotResult(
-                ev["note_ref"], self._W_PATTERN * 0.90, "pattern", ev["note_ref"]
-            )
+            return SlotResult(ev["note_ref"], self._W_PATTERN * 0.90, "pattern", ev["note_ref"])
 
         val = _first_match(_NOTE_REF_PATS, text)
         if val:

@@ -38,9 +38,7 @@ class OperatorState:
     last_patch_plan_id: str = ""
     last_audit_report_id: str = ""
     self_improvement_status: str = ""
-    updated_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -104,22 +102,16 @@ class OperatorState:
             last_test_failure=str(data.get("last_test_failure") or ""),
             user_corrections=list(data.get("user_corrections") or []),
             design_constraints=list(data.get("design_constraints") or []),
-            last_self_improvement_event_id=str(
-                data.get("last_self_improvement_event_id") or ""
-            ),
+            last_self_improvement_event_id=str(data.get("last_self_improvement_event_id") or ""),
             last_hypothesis_id=str(data.get("last_hypothesis_id") or ""),
             last_patch_plan_id=str(data.get("last_patch_plan_id") or ""),
             last_audit_report_id=str(data.get("last_audit_report_id") or ""),
             self_improvement_status=str(data.get("self_improvement_status") or ""),
-            updated_at=str(
-                data.get("updated_at") or datetime.now(timezone.utc).isoformat()
-            ),
+            updated_at=str(data.get("updated_at") or datetime.now(timezone.utc).isoformat()),
         )
 
 
-def update_operator_state(
-    existing: Dict[str, Any] | None, updates: Dict[str, Any]
-) -> Dict[str, Any]:
+def update_operator_state(existing: Dict[str, Any] | None, updates: Dict[str, Any]) -> Dict[str, Any]:
     state = OperatorState.from_dict(existing)
     for key, value in dict(updates or {}).items():
         if hasattr(state, key):
@@ -168,40 +160,23 @@ def sync_operator_state_with_project_memory(
     state.last_test_failure = str(pm.last_test_failure or state.last_test_failure)
     state.current_plan = list(pm.current_plan or state.current_plan)
     state.current_step = str(pm.current_step or state.current_step)
-    state.next_recommended_action = str(
-        pm.next_recommended_action or state.next_recommended_action
-    )
-    state.suggested_next_files = list(
-        getattr(pm, "suggested_next_files", []) or state.suggested_next_files
-    )
-    state.last_recommended_action = dict(
-        getattr(pm, "last_recommended_action", {}) or state.last_recommended_action
-    )
+    state.next_recommended_action = str(pm.next_recommended_action or state.next_recommended_action)
+    state.suggested_next_files = list(getattr(pm, "suggested_next_files", []) or state.suggested_next_files)
+    state.last_recommended_action = dict(getattr(pm, "last_recommended_action", {}) or state.last_recommended_action)
     state.last_self_improvement_event_id = str(
-        getattr(pm, "last_self_improvement_event_id", "")
-        or state.last_self_improvement_event_id
+        getattr(pm, "last_self_improvement_event_id", "") or state.last_self_improvement_event_id
     )
-    state.last_hypothesis_id = str(
-        getattr(pm, "last_hypothesis_id", "") or state.last_hypothesis_id
-    )
-    state.last_patch_plan_id = str(
-        getattr(pm, "last_patch_plan_id", "") or state.last_patch_plan_id
-    )
-    state.last_audit_report_id = str(
-        getattr(pm, "last_audit_report_id", "") or state.last_audit_report_id
-    )
-    state.self_improvement_status = str(
-        getattr(pm, "self_improvement_status", "") or state.self_improvement_status
-    )
+    state.last_hypothesis_id = str(getattr(pm, "last_hypothesis_id", "") or state.last_hypothesis_id)
+    state.last_patch_plan_id = str(getattr(pm, "last_patch_plan_id", "") or state.last_patch_plan_id)
+    state.last_audit_report_id = str(getattr(pm, "last_audit_report_id", "") or state.last_audit_report_id)
+    state.self_improvement_status = str(getattr(pm, "self_improvement_status", "") or state.self_improvement_status)
     state.user_corrections = list(pm.user_corrections or state.user_corrections)
     state.design_constraints = list(pm.design_constraints or state.design_constraints)
     state.updated_at = datetime.now(timezone.utc).isoformat()
     return state.to_dict()
 
 
-def commit_operator_state_to_project_memory(
-    operator_state: Dict[str, Any] | None, user_id: str = "default"
-) -> None:
+def commit_operator_state_to_project_memory(operator_state: Dict[str, Any] | None, user_id: str = "default") -> None:
     state = OperatorState.from_dict(operator_state)
     update_project_state(
         {

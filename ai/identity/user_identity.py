@@ -53,9 +53,7 @@ def save_identity(identity: UserIdentity) -> None:
     _IDENTITY_DIR.mkdir(parents=True, exist_ok=True)
     identity.updated_at = _now_iso()
     path = _IDENTITY_DIR / f"{identity.user_id}.json"
-    path.write_text(
-        json.dumps(identity.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    path.write_text(json.dumps(identity.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def update_identity(updates: Dict[str, Any], user_id: str = "gabriel") -> UserIdentity:

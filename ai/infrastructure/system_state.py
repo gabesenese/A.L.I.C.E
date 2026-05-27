@@ -278,9 +278,7 @@ class SystemStateTracker:
                     data={
                         "task_id": task_id,
                         "name": task.name,
-                        "duration": (
-                            task.duration.total_seconds() if task.duration else 0
-                        ),
+                        "duration": (task.duration.total_seconds() if task.duration else 0),
                         "metadata": task.metadata,
                     },
                     priority=EventPriority.NORMAL,
@@ -288,8 +286,7 @@ class SystemStateTracker:
 
                 # Check if all tasks are done
                 if all(
-                    t.status
-                    in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]
+                    t.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]
                     for t in self._tasks.values()
                 ):
                     self.set_status(SystemStatus.IDLE)
@@ -309,9 +306,7 @@ class SystemStateTracker:
                         "task_id": task_id,
                         "name": task.name,
                         "error": error,
-                        "duration": (
-                            task.duration.total_seconds() if task.duration else 0
-                        ),
+                        "duration": (task.duration.total_seconds() if task.duration else 0),
                     },
                     priority=EventPriority.HIGH,
                     requires_notification=True,
@@ -319,8 +314,7 @@ class SystemStateTracker:
 
                 # Check if all tasks are done
                 if all(
-                    t.status
-                    in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]
+                    t.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]
                     for t in self._tasks.values()
                 ):
                     self.set_status(SystemStatus.IDLE)
@@ -333,11 +327,7 @@ class SystemStateTracker:
     def get_active_tasks(self) -> List[TaskState]:
         """Get all active tasks"""
         with self._lock:
-            return [
-                task
-                for task in self._tasks.values()
-                if task.status in [TaskStatus.PENDING, TaskStatus.RUNNING]
-            ]
+            return [task for task in self._tasks.values() if task.status in [TaskStatus.PENDING, TaskStatus.RUNNING]]
 
     def get_stats(self) -> Dict[str, Any]:
         """Get system state statistics"""

@@ -19,9 +19,7 @@ def test_guidance_mentions_required_system_design_criteria():
 
 def test_direct_answer_is_structured_and_not_vendor_list_only():
     guard = SystemDesignResponseGuard()
-    out = guard.direct_answer(
-        "What would an advanced assistant architecture look like today?"
-    )
+    out = guard.direct_answer("What would an advanced assistant architecture look like today?")
     assert out is not None
     lowered = out.lower()
     assert "orchestration" in lowered

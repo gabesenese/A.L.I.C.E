@@ -21,9 +21,7 @@ class SystemDesignResponseGuard:
                 "fictional ai system",
             )
         )
-        return topic_hit and any(
-            k in lowered for k in ("ai", "machine learning", "ml", "assistant")
-        )
+        return topic_hit and any(k in lowered for k in ("ai", "machine learning", "ml", "assistant"))
 
     def guidance_text(self) -> str:
         return (

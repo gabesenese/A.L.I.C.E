@@ -200,17 +200,12 @@ class SemanticSimilarity:
 
         similarities = []
         for t1 in tokens1[:10]:  # Limit to first 10 tokens for performance
-            best_match = max(
-                (1.0 - (self.levenshtein_distance(t1, t2) / max(len(t1), len(t2))))
-                for t2 in tokens2[:10]
-            )
+            best_match = max((1.0 - (self.levenshtein_distance(t1, t2) / max(len(t1), len(t2)))) for t2 in tokens2[:10])
             similarities.append(best_match)
 
         return sum(similarities) / len(similarities) if similarities else 0.0
 
-    def combined_similarity(
-        self, text1: str, text2: str, weights: Dict[str, float] = None
-    ) -> float:
+    def combined_similarity(self, text1: str, text2: str, weights: Dict[str, float] = None) -> float:
         """
         Calculate combined similarity using multiple algorithms.
 
@@ -238,9 +233,7 @@ class SemanticSimilarity:
 
         return combined
 
-    def find_best_match(
-        self, query: str, candidates: List[str], threshold: float = 0.3
-    ) -> Tuple[str, float]:
+    def find_best_match(self, query: str, candidates: List[str], threshold: float = 0.3) -> Tuple[str, float]:
         """
         Find the best matching candidate for a query.
 
@@ -269,9 +262,7 @@ class SemanticSimilarity:
 
         return best_match, best_score
 
-    def rank_candidates(
-        self, query: str, candidates: List[str], top_n: int = 5
-    ) -> List[Tuple[str, float]]:
+    def rank_candidates(self, query: str, candidates: List[str], top_n: int = 5) -> List[Tuple[str, float]]:
         """
         Rank candidates by similarity to query.
 
@@ -287,10 +278,7 @@ class SemanticSimilarity:
             return []
 
         # Calculate similarity for each candidate
-        scored_candidates = [
-            (candidate, self.combined_similarity(query, candidate))
-            for candidate in candidates
-        ]
+        scored_candidates = [(candidate, self.combined_similarity(query, candidate)) for candidate in candidates]
 
         # Sort by score descending
         scored_candidates.sort(key=lambda x: x[1], reverse=True)

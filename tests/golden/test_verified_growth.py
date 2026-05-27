@@ -32,8 +32,7 @@ def test_old_finding_format_fails_contract():
         route="local",
         intent="operator:continue",
         response_text=(
-            "Finding: it owns the bounded operator loop.\n\n"
-            "Next best move: inspect ai/runtime/next_step_policy.py."
+            "Finding: it owns the bounded operator loop.\n\nNext best move: inspect ai/runtime/next_step_policy.py."
         ),
         local_execution={"success": True},
         next_step="inspect ai/runtime/next_step_policy.py",

@@ -43,12 +43,8 @@ def test_briefing_includes_calendar_events(tmp_path):
         [
             {
                 "title": "Sprint planning",
-                "start": datetime.now(timezone.utc)
-                .replace(hour=10, minute=0)
-                .isoformat(),
-                "end": datetime.now(timezone.utc)
-                .replace(hour=11, minute=0)
-                .isoformat(),
+                "start": datetime.now(timezone.utc).replace(hour=10, minute=0).isoformat(),
+                "end": datetime.now(timezone.utc).replace(hour=11, minute=0).isoformat(),
                 "location": "",
                 "all_day": "False",
             }
@@ -127,11 +123,7 @@ def test_session_continuity_injected_on_first_turn(tmp_path):
 
     identity = state.memory_domains.identity
     continuity = identity.get("session_continuity") or {}
-    assert (
-        "open_tasks" in continuity
-        or "active_goals" in continuity
-        or "active_threads" in continuity
-    )
+    assert "open_tasks" in continuity or "active_goals" in continuity or "active_threads" in continuity
 
 
 def test_session_continuity_not_reinjected_on_subsequent_turns(tmp_path):
@@ -147,13 +139,9 @@ def test_session_continuity_not_reinjected_on_subsequent_turns(tmp_path):
     loop = CompanionRuntimeLoop(world_model=model)
 
     # First turn — session is new, continuity injected
-    state1 = loop.start_turn(
-        user_id="gabriel", user_input="Hey", turn_number=1, user_state=None
-    )
+    state1 = loop.start_turn(user_id="gabriel", user_input="Hey", turn_number=1, user_state=None)
     assert "session_continuity" in (state1.memory_domains.identity or {})
 
     # Later turn — session already exists, continuity NOT re-injected
-    state2 = loop.start_turn(
-        user_id="gabriel", user_input="What next?", turn_number=5, user_state=None
-    )
+    state2 = loop.start_turn(user_id="gabriel", user_input="What next?", turn_number=5, user_state=None)
     assert "session_continuity" not in (state2.memory_domains.identity or {})

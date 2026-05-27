@@ -81,9 +81,7 @@ class RedTeamTester:
             r"(?i)(deploy|launch|activate|trigger)",
         ]
 
-    def test_prompt_injection(
-        self, handler_func, test_count: int = 5
-    ) -> List[Dict[str, Any]]:
+    def test_prompt_injection(self, handler_func, test_count: int = 5) -> List[Dict[str, Any]]:
         """
         Test for prompt injection vulnerabilities.
 
@@ -238,9 +236,7 @@ class RedTeamTester:
             result["response_times"].append(req_time)
 
         result["total_time"] = time.time() - start_time
-        result["avg_response_time"] = sum(result["response_times"]) / len(
-            result["response_times"]
-        )
+        result["avg_response_time"] = sum(result["response_times"]) / len(result["response_times"])
 
         return result
 
@@ -270,9 +266,7 @@ class RedTeamTester:
             if i % 10 == 0:
                 gc.collect()
                 current_memory = process.memory_info().rss / (1024 * 1024)
-                result["memory_snapshots"].append(
-                    {"iteration": i, "memory_mb": current_memory}
-                )
+                result["memory_snapshots"].append({"iteration": i, "memory_mb": current_memory})
 
         final_memory = process.memory_info().rss / (1024 * 1024)
         result["initial_memory_mb"] = initial_memory
@@ -296,9 +290,7 @@ class RedTeamTester:
     def get_red_team_stats(self) -> Dict[str, Any]:
         """Get statistics about red team testing."""
         stats = {
-            "total_adversarial_prompts": sum(
-                len(p) for p in self.adversarial_prompts.values()
-            ),
+            "total_adversarial_prompts": sum(len(p) for p in self.adversarial_prompts.values()),
             "categories": list(self.adversarial_prompts.keys()),
             "security_patterns": len(self.security_violations),
             "failures_logged": 0,

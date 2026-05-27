@@ -59,9 +59,7 @@ class TestResponseFormulationPipeline:
 
         # Check if Alice learned independence
         can_phrase = learner.can_phrase_myself(thought, tone="warm and helpful")
-        assert can_phrase is True, (
-            "Alice should be able to phrase independently after 5 examples"
-        )
+        assert can_phrase is True, "Alice should be able to phrase independently after 5 examples"
 
     def test_independent_phrasing_quality(self, learner):
         """Alice's independent phrasing should be natural and adapt to new data"""
@@ -91,9 +89,7 @@ class TestResponseFormulationPipeline:
         assert len(response) > 10
         # Adaptation should have replaced "tasks" with "meeting"
         assert "meeting" in response.lower()
-        assert any(
-            word in response.lower() for word in ["created", "made", "added", "note"]
-        )
+        assert any(word in response.lower() for word in ["created", "made", "added", "note"])
 
     def test_formulator_learns_from_successes(self, formulator):
         """Response formulator should record successful phrasings via its learner"""

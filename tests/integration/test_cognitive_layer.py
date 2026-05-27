@@ -77,9 +77,7 @@ class TestResponsePlanner:
         assert plan.response_type == "conversational"
 
     def test_explanation_strategy_for_learning_goal(self):
-        plan = self._plan(
-            "explain decorators", intent="learning:python", depth=1, goal="learn python"
-        )
+        plan = self._plan("explain decorators", intent="learning:python", depth=1, goal="learn python")
         assert plan.strategy == "guided_explanation"
 
     def test_expand_strategy_at_deep_depth(self):
@@ -150,9 +148,7 @@ class TestGoalTracker:
     def setup_method(self):
         self.tracker = GoalTracker()
 
-    def _update(
-        self, user_input="ok", response="here is the answer", user_goal="", conv_goal=""
-    ):
+    def _update(self, user_input="ok", response="here is the answer", user_goal="", conv_goal=""):
         self.tracker.update(
             user_input=user_input,
             response=response,
@@ -215,23 +211,16 @@ class TestGoalTracker:
         # Now diverge — should replace, not subgoal
         self._update(user_goal="book a flight to Paris")
         status = self.tracker.get_status()
-        assert (
-            "paris" in status["goal_description"].lower()
-            or "flight" in status["goal_description"].lower()
-        )
+        assert "paris" in status["goal_description"].lower() or "flight" in status["goal_description"].lower()
 
     def test_completion_detected_on_user_acknowledgement(self):
         self._update(user_goal="fix the login bug")
-        self._update(
-            user_input="thanks, that solved it!", user_goal="fix the login bug"
-        )
+        self._update(user_input="thanks, that solved it!", user_goal="fix the login bug")
         assert self.tracker.is_goal_achieved()
 
     def test_goal_alignment_score_high_on_match(self):
         self._update(user_goal="learn Python async")
-        score = self.tracker.goal_alignment_score(
-            "Python async await explained with examples"
-        )
+        score = self.tracker.goal_alignment_score("Python async await explained with examples")
         assert score > 0.20
 
     def test_goal_alignment_score_returns_one_when_no_goal(self):
@@ -286,21 +275,14 @@ class TestResponseQualityTracker:
 
     def test_overgeneralization_detected(self):
         bad_response = (
-            "It depends. In general there are many factors. "
-            "As an AI I cannot be determined to give a specific answer."
+            "It depends. In general there are many factors. As an AI I cannot be determined to give a specific answer."
         )
-        q = self._track(
-            response=bad_response, gate_accepted=False, reflection_score=0.30
-        )
+        q = self._track(response=bad_response, gate_accepted=False, reflection_score=0.30)
         assert q.failure_type == FAILURE_OVERGENERALIZATION
 
     def test_weak_knowledge_detected(self):
-        bad_response = (
-            "I'm not sure. Maybe possibly you could try. I don't know for certain."
-        )
-        q = self._track(
-            response=bad_response, gate_accepted=False, reflection_score=0.30
-        )
+        bad_response = "I'm not sure. Maybe possibly you could try. I don't know for certain."
+        q = self._track(response=bad_response, gate_accepted=False, reflection_score=0.30)
         assert q.failure_type == FAILURE_WEAK_KNOWLEDGE
 
     def test_topic_drift_detected(self):
@@ -349,9 +331,7 @@ class TestResponseQualityTracker:
         assert q.topic_adherence >= q.relevance
 
     def test_coherence_score_high_for_varied_response(self):
-        q = self._track(
-            response="Python is a high-level interpreted language known for readability and simplicity"
-        )
+        q = self._track(response="Python is a high-level interpreted language known for readability and simplicity")
         assert q.coherence > 0.5
 
     def test_verbosity_ideal_for_medium_length(self):
@@ -559,12 +539,7 @@ class TestCognitiveOrchestrator:
             horizon_days=45,
             milestones=["design", "implement", "validate"],
         )
-        assert (
-            self.orchestrator.mark_milestone_completed(
-                goal_id="proj-1", milestone="design"
-            )
-            is True
-        )
+        assert self.orchestrator.mark_milestone_completed(goal_id="proj-1", milestone="design") is True
         snapshot = self.orchestrator.get_cognitive_snapshot()
         proj = next(g for g in snapshot["project_goals"] if g["goal_id"] == "proj-1")
         assert proj["progress"] > 0.0
@@ -612,27 +587,17 @@ class TestCognitiveOrchestrator:
             milestones=["detect", "stabilize"],
         )
         snap_a = self.orchestrator.get_cognitive_snapshot()
-        goal_a = next(
-            g for g in snap_a["project_goals"] if g["goal_id"] == "proj-lifecycle"
-        )
+        goal_a = next(g for g in snap_a["project_goals"] if g["goal_id"] == "proj-lifecycle")
         assert goal_a["state"] == GOAL_ACTIVE
 
-        self.orchestrator.mark_milestone_completed(
-            goal_id="proj-lifecycle", milestone="detect"
-        )
+        self.orchestrator.mark_milestone_completed(goal_id="proj-lifecycle", milestone="detect")
         snap_b = self.orchestrator.get_cognitive_snapshot()
-        goal_b = next(
-            g for g in snap_b["project_goals"] if g["goal_id"] == "proj-lifecycle"
-        )
+        goal_b = next(g for g in snap_b["project_goals"] if g["goal_id"] == "proj-lifecycle")
         assert goal_b["state"] == GOAL_PROGRESSING
 
-        self.orchestrator.mark_milestone_completed(
-            goal_id="proj-lifecycle", milestone="stabilize"
-        )
+        self.orchestrator.mark_milestone_completed(goal_id="proj-lifecycle", milestone="stabilize")
         snap_c = self.orchestrator.get_cognitive_snapshot()
-        goal_c = next(
-            g for g in snap_c["project_goals"] if g["goal_id"] == "proj-lifecycle"
-        )
+        goal_c = next(g for g in snap_c["project_goals"] if g["goal_id"] == "proj-lifecycle")
         assert goal_c["state"] == GOAL_COMPLETED
 
     def test_failure_monitoring_aggregates_frequency_and_cause(self):
@@ -664,10 +629,7 @@ class TestCognitiveOrchestrator:
         self.orchestrator._run_cycle()
         snap = self.orchestrator.get_cognitive_snapshot()
         assert len(snap["improvement_queue"]) >= 1
-        assert all(
-            "description" in item and "priority" in item
-            for item in snap["improvement_queue"]
-        )
+        assert all("description" in item and "priority" in item for item in snap["improvement_queue"])
 
     def test_working_cognitive_state_updates_after_cycle(self):
         self.orchestrator.register_project_goal(
@@ -691,9 +653,9 @@ class TestCognitiveOrchestrator:
 
     def test_controlled_reasoning_trigger_emits_event_without_llm_loop(self):
         custom_events = []
-        self.event_bus._subscribers.setdefault(
-            "cognition.reasoning_trigger", []
-        ).append(lambda e: custom_events.append(e))
+        self.event_bus._subscribers.setdefault("cognition.reasoning_trigger", []).append(
+            lambda e: custom_events.append(e)
+        )
         self.orchestrator.reasoning_importance_threshold = 0.25
         self.orchestrator.register_project_goal(
             goal_id="proj-trigger",
@@ -736,9 +698,7 @@ class TestCognitiveOrchestrator:
         )
 
         snap_a = self.orchestrator.get_cognitive_snapshot()
-        goal_a = next(
-            g for g in snap_a["project_goals"] if g["goal_id"] == "proj-drift"
-        )
+        goal_a = next(g for g in snap_a["project_goals"] if g["goal_id"] == "proj-drift")
         assert goal_a["state"] in (GOAL_DRIFTED, GOAL_ACTIVE, GOAL_PROGRESSING)
 
         # Repeated relevant turns without milestone progress should mark blocked.
@@ -752,9 +712,7 @@ class TestCognitiveOrchestrator:
             )
 
         snap_b = self.orchestrator.get_cognitive_snapshot()
-        goal_b = next(
-            g for g in snap_b["project_goals"] if g["goal_id"] == "proj-drift"
-        )
+        goal_b = next(g for g in snap_b["project_goals"] if g["goal_id"] == "proj-drift")
         assert goal_b["state"] in (GOAL_BLOCKED, GOAL_PROGRESSING, GOAL_ACTIVE)
 
     def test_runtime_guidance_uses_between_turn_metrics(self):

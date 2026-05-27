@@ -186,7 +186,6 @@ class AmbientMonitor:
             logger.debug("[AmbientMonitor] goal poll skipped: %s", exc)
             return {"skipped": str(exc)}
 
-
     def _poll_system(self) -> Dict[str, Any]:
         try:
             from ai.plugins.system_plugin import SystemPlugin  # noqa: PLC0415

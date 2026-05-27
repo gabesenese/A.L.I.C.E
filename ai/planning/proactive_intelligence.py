@@ -91,9 +91,7 @@ class ProactiveIntelligence:
         # Callbacks for delivering insights
         self.insight_callbacks: List[Callable] = []
 
-    def inject_dependencies(
-        self, goal_system=None, profile_engine=None, context_manager=None
-    ):
+    def inject_dependencies(self, goal_system=None, profile_engine=None, context_manager=None):
         """Inject external systems"""
         self.goal_system = goal_system
         self.profile_engine = profile_engine
@@ -110,9 +108,7 @@ class ProactiveIntelligence:
             return
 
         self.running = True
-        self.thread = threading.Thread(
-            target=self._intelligence_loop, name="ProactiveIntelligence", daemon=True
-        )
+        self.thread = threading.Thread(target=self._intelligence_loop, name="ProactiveIntelligence", daemon=True)
         self.thread.start()
 
         logger.info("Proactive intelligence loop started")
@@ -227,9 +223,7 @@ class ProactiveIntelligence:
             hours_since_update = time_since_update / 3600.0
 
             if hours_since_update > 24 and goal.progress < 1.0:
-                if not self._insight_exists_recently(
-                    f"stalled_goal_{goal.goal_id}", hours=24
-                ):
+                if not self._insight_exists_recently(f"stalled_goal_{goal.goal_id}", hours=24):
                     self._generate_insight(
                         category="stalled_goal",
                         priority=2,
@@ -244,9 +238,7 @@ class ProactiveIntelligence:
                 hours_remaining = time_until_deadline / 3600.0
 
                 if 0 < hours_remaining < 24:
-                    if not self._insight_exists_recently(
-                        f"deadline_approaching_{goal.goal_id}", hours=12
-                    ):
+                    if not self._insight_exists_recently(f"deadline_approaching_{goal.goal_id}", hours=12):
                         self._generate_insight(
                             category="deadline_approaching",
                             priority=1,
@@ -257,9 +249,7 @@ class ProactiveIntelligence:
 
             # Check for blocked goals
             if goal.blockers:
-                if not self._insight_exists_recently(
-                    f"blocked_goal_{goal.goal_id}", hours=6
-                ):
+                if not self._insight_exists_recently(f"blocked_goal_{goal.goal_id}", hours=6):
                     self._generate_insight(
                         category="blocked_goal",
                         priority=2,
@@ -346,17 +336,13 @@ class ProactiveIntelligence:
 
         return False
 
-    def get_pending_insights(
-        self, priority_threshold: int = 3
-    ) -> List[ProactiveInsight]:
+    def get_pending_insights(self, priority_threshold: int = 3) -> List[ProactiveInsight]:
         """Get pending insights above priority threshold"""
         with self.lock:
             return [
                 insight
                 for insight in self.insights
-                if not insight.delivered
-                and not insight.dismissed
-                and insight.priority <= priority_threshold
+                if not insight.delivered and not insight.dismissed and insight.priority <= priority_threshold
             ]
 
     def dismiss_insight(self, insight_id: str):
@@ -373,9 +359,7 @@ class ProactiveIntelligence:
             total_insights = len(self.insights)
             delivered = sum(1 for i in self.insights if i.delivered)
             dismissed = sum(1 for i in self.insights if i.dismissed)
-            pending = sum(
-                1 for i in self.insights if not i.delivered and not i.dismissed
-            )
+            pending = sum(1 for i in self.insights if not i.delivered and not i.dismissed)
 
         return {
             "running": self.running,

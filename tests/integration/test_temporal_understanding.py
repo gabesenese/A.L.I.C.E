@@ -138,21 +138,15 @@ class TestInferGrain:
         assert result.grain == "hour"
 
     def test_date_and_time_gives_minute(self):
-        result = self._tu(
-            {"date": "2025-04-01", "time": "09:30", "raw_text": "April 1st at 09:30"}
-        )
+        result = self._tu({"date": "2025-04-01", "time": "09:30", "raw_text": "April 1st at 09:30"})
         assert result.grain == "minute"
 
     def test_end_date_with_week_cue_gives_week(self):
-        result = self._tu(
-            {"date": "2025-04-07", "end_date": "2025-04-13", "raw_text": "this week"}
-        )
+        result = self._tu({"date": "2025-04-07", "end_date": "2025-04-13", "raw_text": "this week"})
         assert result.grain == "week"
 
     def test_end_date_without_week_cue_gives_day(self):
-        result = self._tu(
-            {"date": "2025-04-07", "end_date": "2025-04-13", "raw_text": "this period"}
-        )
+        result = self._tu({"date": "2025-04-07", "end_date": "2025-04-13", "raw_text": "this period"})
         assert result.grain == "day"
 
     def test_month_cue_gives_month(self):

@@ -69,9 +69,7 @@ def _suggestion_from_failure(
     low = str(failure or "").lower()
     candidates: List[CandidateNextAction] = []
 
-    def add_file(
-        action: str, path: str, reason: str, source: str, confidence: float
-    ) -> None:
+    def add_file(action: str, path: str, reason: str, source: str, confidence: float) -> None:
         if path in files_inspected and "blocker" not in reason.lower():
             return
         if path in available_files or _file_exists(path):
@@ -101,9 +99,7 @@ def _suggestion_from_failure(
             "failure_signal",
             0.8,
         )
-    if any(
-        token in low for token in ("routing", "misroute", "clarification", "intent")
-    ):
+    if any(token in low for token in ("routing", "misroute", "clarification", "intent")):
         for path in (
             "ai/core/routing/route_arbiter.py",
             "ai/core/routing/evidence_contracts.py",
@@ -199,24 +195,12 @@ def decide_next_step(
     files = list(available_files or [])
     inspected = list(files_inspected or state.get("files_inspected") or [])
     changed = list(recent_files_changed or proj.get("files_changed") or [])
-    failure = str(
-        last_failure
-        or local.get("error")
-        or state.get("last_failure")
-        or proj.get("last_failure")
-        or ""
-    )
+    failure = str(last_failure or local.get("error") or state.get("last_failure") or proj.get("last_failure") or "")
 
     candidates: List[CandidateNextAction] = []
-    candidates.extend(
-        _suggestion_from_failure(
-            failure=failure, available_files=files, files_inspected=inspected
-        )
-    )
+    candidates.extend(_suggestion_from_failure(failure=failure, available_files=files, files_inspected=inspected))
 
-    active_objective = str(
-        state.get("active_objective") or proj.get("active_objective") or ""
-    )
+    active_objective = str(state.get("active_objective") or proj.get("active_objective") or "")
     if active_objective and not candidates:
         inspected_set = {str(p or "").lower() for p in inspected}
         if "ai/runtime/agent_loop.py" not in inspected_set:
@@ -325,9 +309,7 @@ def decide_next_step(
     if top:
         top_payload = asdict(top)
         return NextStepDecision(
-            next_recommended_action=(
-                f"{top.action.replace('_', ' ')} {top.target} because {top.reason}"
-            ).strip(),
+            next_recommended_action=(f"{top.action.replace('_', ' ')} {top.target} because {top.reason}").strip(),
             last_recommended_action={
                 **top_payload,
                 "requires_approval": False,
@@ -343,18 +325,10 @@ def decide_next_step(
             should_continue_without_question=True,
         )
 
-    remembered_next = str(
-        state.get("next_recommended_action")
-        or proj.get("next_recommended_action")
-        or ""
-    )
+    remembered_next = str(state.get("next_recommended_action") or proj.get("next_recommended_action") or "")
     return NextStepDecision(
         next_recommended_action=remembered_next,
-        last_recommended_action=dict(
-            state.get("last_recommended_action")
-            or proj.get("last_recommended_action")
-            or {}
-        ),
+        last_recommended_action=dict(state.get("last_recommended_action") or proj.get("last_recommended_action") or {}),
         candidate_actions=[],
         suggested_next_files=list(state.get("suggested_next_files") or []),
         should_continue=bool(remembered_next),

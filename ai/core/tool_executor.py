@@ -55,9 +55,7 @@ class ToolExecutor:
             )
             verification = self.verifier.verify(result)
             result["verification"] = verification.to_dict()
-            return ToolExecutionOutcome(
-                handled=False, verified=verification.accepted, result=result
-            )
+            return ToolExecutionOutcome(handled=False, verified=verification.accepted, result=result)
 
         raw = plugin_manager.execute_for_intent(intent, query, entities, context)
         normalized = self._normalize_result(intent=intent, raw=raw)
@@ -68,9 +66,7 @@ class ToolExecutor:
             normalized["success"] = False
             normalized["status"] = "verification_failed"
             normalized["retryable"] = True
-            normalized["message"] = (
-                "I could not verify that tool output was reliable. Please clarify or try again."
-            )
+            normalized["message"] = "I could not verify that tool output was reliable. Please clarify or try again."
             normalized["data"] = {
                 **(normalized.get("data") or {}),
                 "verification_issues": verification.issues,
@@ -78,9 +74,7 @@ class ToolExecutor:
             }
 
         handled = raw is not None
-        return ToolExecutionOutcome(
-            handled=handled, verified=verification.accepted, result=normalized
-        )
+        return ToolExecutionOutcome(handled=handled, verified=verification.accepted, result=normalized)
 
     def _infer_action(self, intent: str) -> str:
         if ":" in (intent or ""):
@@ -108,10 +102,7 @@ class ToolExecutor:
 
         def _has_title() -> bool:
             return bool(
-                entities.get("title")
-                or entities.get("note_title")
-                or entities.get("event")
-                or entities.get("subject")
+                entities.get("title") or entities.get("note_title") or entities.get("event") or entities.get("subject")
             )
 
         def _has_target() -> bool:
@@ -146,9 +137,7 @@ class ToolExecutor:
 
         return missing
 
-    def _normalize_result(
-        self, *, intent: str, raw: Optional[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def _normalize_result(self, *, intent: str, raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         plugin = self._infer_plugin(intent)
         action = self._infer_action(intent)
 

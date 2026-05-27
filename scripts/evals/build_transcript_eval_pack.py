@@ -31,18 +31,12 @@ def _extract_eval_turns(rows: List[Dict[str, Any]], limit: int) -> List[Dict[str
     turns: List[Dict[str, Any]] = []
     for row in rows:
         user_input = str(
-            row.get("user_input")
-            or row.get("prompt")
-            or row.get("query")
-            or row.get("pattern")
-            or ""
+            row.get("user_input") or row.get("prompt") or row.get("query") or row.get("pattern") or ""
         ).strip()
         if not user_input:
             continue
 
-        expected_route = str(
-            row.get("route") or (row.get("metadata") or {}).get("route") or ""
-        ).strip()
+        expected_route = str(row.get("route") or (row.get("metadata") or {}).get("route") or "").strip()
         if not expected_route:
             normalized = user_input.lower()
             if normalized.startswith("weather") or "weather" in normalized:
@@ -53,10 +47,7 @@ def _extract_eval_turns(rows: List[Dict[str, Any]], limit: int) -> List[Dict[str
                 expected_route = "llm"
 
         expected_contains = str(
-            row.get("assistant_response")
-            or row.get("response")
-            or row.get("ollama_phrasing")
-            or ""
+            row.get("assistant_response") or row.get("response") or row.get("ollama_phrasing") or ""
         ).strip()
 
         entry = {
@@ -84,9 +75,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build transcript eval pack JSONL")
     parser.add_argument("--input", required=True, help="Input JSONL transcript path")
     parser.add_argument("--output", required=True, help="Output JSONL eval pack path")
-    parser.add_argument(
-        "--limit", type=int, default=50, help="Maximum turns to include"
-    )
+    parser.add_argument("--limit", type=int, default=50, help="Maximum turns to include")
     args = parser.parse_args()
 
     rows = _read_jsonl(Path(args.input))

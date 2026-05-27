@@ -32,9 +32,7 @@ class MemoryQuarantine:
 
     LOW_SCORE_THRESHOLD = 0.18
 
-    def __init__(
-        self, db_path: Path = _DB_PATH, ttl_days: float = _DEFAULT_TTL_DAYS
-    ) -> None:
+    def __init__(self, db_path: Path = _DB_PATH, ttl_days: float = _DEFAULT_TTL_DAYS) -> None:
         self.db_path = db_path
         self.ttl_days = ttl_days
         self._init_schema()
@@ -59,12 +57,8 @@ class MemoryQuarantine:
                     released       INTEGER DEFAULT 0
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_q_mid ON quarantine(memory_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_q_exp ON quarantine(expires_at)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_q_mid ON quarantine(memory_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_q_exp ON quarantine(expires_at)")
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -91,9 +85,7 @@ class MemoryQuarantine:
                 (qid, memory_id, reason, score, now.isoformat(), expires.isoformat()),
             )
             conn.commit()
-        logger.info(
-            "[Quarantine] %s quarantined: %s (score=%s)", memory_id, reason, score
-        )
+        logger.info("[Quarantine] %s quarantined: %s (score=%s)", memory_id, reason, score)
         return qid
 
     def release(self, memory_id: str) -> bool:

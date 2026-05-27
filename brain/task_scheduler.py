@@ -219,9 +219,7 @@ class TaskScheduler:
                 if task.is_due(now):
                     self._fire(task)
             except Exception as exc:
-                logger.debug(
-                    "[TaskScheduler] error checking task %s: %s", task.name, exc
-                )
+                logger.debug("[TaskScheduler] error checking task %s: %s", task.name, exc)
 
     def _fire(self, task: ScheduledTask) -> None:
         logger.info("[TaskScheduler] firing task: %s", task.name)
@@ -235,13 +233,9 @@ class TaskScheduler:
         try:
             result = self._callback(task.name, task.action)
             if result:
-                logger.debug(
-                    "[TaskScheduler] task %s response: %.120s", task.name, result
-                )
+                logger.debug("[TaskScheduler] task %s response: %.120s", task.name, result)
         except Exception as exc:
-            logger.warning(
-                "[TaskScheduler] task %s execution failed: %s", task.name, exc
-            )
+            logger.warning("[TaskScheduler] task %s execution failed: %s", task.name, exc)
 
     # ----------------------------------------------------------------- persist
 

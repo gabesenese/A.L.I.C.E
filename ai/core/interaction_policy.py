@@ -126,9 +126,7 @@ class InteractionPolicy:
         settings = self._hand_tuned_derive(mood, urgency, compound)
 
         # ── 2. Optionally blend with learned model ────────────────────────────
-        if (
-            use_learned_model or self._is_learned_model_enabled()
-        ) and _POLICY_TRAINER_AVAILABLE:
+        if (use_learned_model or self._is_learned_model_enabled()) and _POLICY_TRAINER_AVAILABLE:
             try:
                 trainer = _get_policy_trainer()
                 if trainer.is_ready:
@@ -152,9 +150,7 @@ class InteractionPolicy:
                         skip_clarif = clarify_prob <= 0.5
                         # cautious_prob > 0.5 → cautious (lower threshold, shorter)
                         if cautious_prob > 0.5:
-                            new_threshold = max(
-                                0.30, settings.clarification_threshold - 0.10
-                            )
+                            new_threshold = max(0.30, settings.clarification_threshold - 0.10)
                             new_length = "brief"
                         else:
                             new_threshold = settings.clarification_threshold
@@ -168,18 +164,13 @@ class InteractionPolicy:
                         )
                         policy_source = "learned_model"
             except Exception as exc:
-                logger.debug(
-                    "[InteractionPolicy] Learned model inference failed: %s", exc
-                )
+                logger.debug("[InteractionPolicy] Learned model inference failed: %s", exc)
 
         # ── 3. Log this turn's policy decision ───────────────────────────────
         if _TURN_LOGGER_AVAILABLE:
             try:
                 _top_k_entries = [
-                    TopKEntry(
-                        intent=e.get("intent", ""), score=float(e.get("score", 0.0))
-                    )
-                    for e in (top_k or [])
+                    TopKEntry(intent=e.get("intent", ""), score=float(e.get("score", 0.0))) for e in (top_k or [])
                 ]
                 entry = TurnEntry(
                     session_id=session_id,
@@ -288,10 +279,8 @@ class ResponseKnobs:
         return ResponseKnobs(
             length=self.length + w * (other.length - self.length),
             directness=self.directness + w * (other.directness - self.directness),
-            technical_depth=self.technical_depth
-            + w * (other.technical_depth - self.technical_depth),
-            empathy_level=self.empathy_level
-            + w * (other.empathy_level - self.empathy_level),
+            technical_depth=self.technical_depth + w * (other.technical_depth - self.technical_depth),
+            empathy_level=self.empathy_level + w * (other.empathy_level - self.empathy_level),
             formality=self.formality + w * (other.formality - self.formality),
         )
 
@@ -312,21 +301,11 @@ class ResponseKnobs:
 
 
 _SENTIMENT_DEFAULTS: Dict[str, ResponseKnobs] = {
-    "positive": ResponseKnobs(
-        length=0.5, directness=0.6, empathy_level=0.5, formality=0.4
-    ),
-    "negative": ResponseKnobs(
-        length=0.4, directness=0.4, empathy_level=0.8, formality=0.5
-    ),
-    "frustrated": ResponseKnobs(
-        length=0.3, directness=0.7, empathy_level=0.7, formality=0.4
-    ),
-    "excited": ResponseKnobs(
-        length=0.6, directness=0.6, empathy_level=0.5, formality=0.3
-    ),
-    "neutral": ResponseKnobs(
-        length=0.5, directness=0.5, empathy_level=0.4, formality=0.5
-    ),
+    "positive": ResponseKnobs(length=0.5, directness=0.6, empathy_level=0.5, formality=0.4),
+    "negative": ResponseKnobs(length=0.4, directness=0.4, empathy_level=0.8, formality=0.5),
+    "frustrated": ResponseKnobs(length=0.3, directness=0.7, empathy_level=0.7, formality=0.4),
+    "excited": ResponseKnobs(length=0.6, directness=0.6, empathy_level=0.5, formality=0.3),
+    "neutral": ResponseKnobs(length=0.5, directness=0.5, empathy_level=0.4, formality=0.5),
 }
 
 
@@ -421,13 +400,9 @@ class KnobBandit:
             arm.update(proposed_knobs, reward)
             self._turn_count += 1
             if self._turn_count % 100 == 0:
-                self._epsilon = max(
-                    self._epsilon_min, self._epsilon - self._anneal_rate
-                )
+                self._epsilon = max(self._epsilon_min, self._epsilon - self._anneal_rate)
 
-    def best_knobs_for(
-        self, intent: str, sentiment: str = "neutral", topic: str = ""
-    ) -> ResponseKnobs:
+    def best_knobs_for(self, intent: str, sentiment: str = "neutral", topic: str = "") -> ResponseKnobs:
         key = self._context_key(intent, sentiment, topic)
         with self._bandit_lock:
             arm = self._arms.get(key)

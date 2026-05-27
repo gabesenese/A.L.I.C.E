@@ -38,9 +38,7 @@ def test_audit_components():
         from ai.ollama_auditor_spec import AUDIT_DIMENSIONS
 
         domains_audited = list(AUDIT_DIMENSIONS.keys())
-        print(
-            f"[OK] Loaded {len(domains_audited)} audited domains: {', '.join(domains_audited)}"
-        )
+        print(f"[OK] Loaded {len(domains_audited)} audited domains: {', '.join(domains_audited)}")
 
         for domain in domains_audited[:2]:
             dims = AUDIT_DIMENSIONS[domain]

@@ -20,13 +20,13 @@ from typing import Any, Dict, List, Optional, Set
 # ---------------------------------------------------------------------------
 _DOMAIN_KEYWORDS: Dict[str, Set[str]] = {
     "calendar": {"schedule", "calendar", "meeting", "meetings", "event", "events", "appointment"},
-    "email":    {"email", "emails", "inbox", "mail", "message", "messages", "unread"},
-    "system":   {"system", "cpu", "memory", "ram", "disk", "processes", "ports", "network", "status"},
-    "weather":  {"weather", "temperature", "forecast", "rain", "sunny", "wind", "humidity"},
-    "notes":    {"note", "notes", "jot", "write down"},
-    "search":   {"search", "look up", "google", "find", "what is", "who is"},
-    "goals":    {"goals", "goal", "objective", "objectives", "priorities", "priority"},
-    "tasks":    {"task", "tasks", "todo", "to-do", "open threads", "pending"},
+    "email": {"email", "emails", "inbox", "mail", "message", "messages", "unread"},
+    "system": {"system", "cpu", "memory", "ram", "disk", "processes", "ports", "network", "status"},
+    "weather": {"weather", "temperature", "forecast", "rain", "sunny", "wind", "humidity"},
+    "notes": {"note", "notes", "jot", "write down"},
+    "search": {"search", "look up", "google", "find", "what is", "who is"},
+    "goals": {"goals", "goal", "objective", "objectives", "priorities", "priority"},
+    "tasks": {"task", "tasks", "todo", "to-do", "open threads", "pending"},
 }
 
 # Connective patterns that suggest the user wants multiple things
@@ -39,12 +39,12 @@ _COMPOUND_PATTERNS = re.compile(
 # Map detected domain → canonical intent to execute
 _DOMAIN_TO_INTENT: Dict[str, str] = {
     "calendar": "calendar:events",
-    "email":    "email:check",
-    "system":   "system:status",
-    "weather":  "weather:current",
-    "notes":    "notes:list",
-    "goals":    "goals:list",
-    "tasks":    "tasks:list",
+    "email": "email:check",
+    "system": "system:status",
+    "weather": "weather:current",
+    "notes": "notes:list",
+    "goals": "goals:list",
+    "tasks": "tasks:list",
 }
 
 

@@ -55,9 +55,7 @@ class StatefulCounterPlugin(PluginInterface):
                 self.total_count = state_data.get("total_count", 0)
                 self.history = state_data.get("history", [])
 
-                logger.info(
-                    f"{self.name} loaded state: {self.total_count} total interactions"
-                )
+                logger.info(f"{self.name} loaded state: {self.total_count} total interactions")
             else:
                 logger.info(f"{self.name} starting fresh (no saved state)")
 
@@ -79,9 +77,7 @@ class StatefulCounterPlugin(PluginInterface):
 
         return False
 
-    def execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         """
         Execute plugin functionality with state updates.
         """
@@ -133,12 +129,8 @@ class StatefulCounterPlugin(PluginInterface):
                         "total_count": self.total_count,
                         "session_count": self.session_count,
                         "history_size": len(self.history),
-                        "first_use": self.history[0]["timestamp"]
-                        if self.history
-                        else None,
-                        "last_use": self.history[-1]["timestamp"]
-                        if self.history
-                        else None,
+                        "first_use": self.history[0]["timestamp"] if self.history else None,
+                        "last_use": self.history[-1]["timestamp"] if self.history else None,
                     },
                     "formulate": True,
                 }
@@ -192,15 +184,11 @@ if __name__ == "__main__":
 
         # Simulate interactions
         for i in range(3):
-            result = plugin.execute(
-                intent="count", query=f"count this {i}", entities={}, context={}
-            )
+            result = plugin.execute(intent="count", query=f"count this {i}", entities={}, context={})
             print(f" Execution {i + 1}: {result['data']}")
 
         # Get stats
-        stats = plugin.execute(
-            intent="stats", query="show stats", entities={}, context={}
-        )
+        stats = plugin.execute(intent="stats", query="show stats", entities={}, context={})
         print(f" Stats: {stats['data']}")
 
         # Shutdown

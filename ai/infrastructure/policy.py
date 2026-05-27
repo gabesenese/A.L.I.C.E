@@ -124,38 +124,28 @@ def get_policy_decision(
     # LLM explicitly said "ask" and gave a question
     if goal_json and goal_json.action == "ask" and goal_json.clarification_question:
         logger.info("[Policy] Goal JSON says ask -> returning clarification")
-        return PolicyDecision(
-            execute=False, clarification_question=goal_json.clarification_question
-        )
+        return PolicyDecision(execute=False, clarification_question=goal_json.clarification_question)
 
     # Band 4: very low confidence — always clarify
     if intent_confidence < ask_threshold:
         if goal_json and goal_json.action == "execute":
-            logger.info(
-                "[Policy] Low confidence but Goal JSON says execute -> executing"
-            )
+            logger.info("[Policy] Low confidence but Goal JSON says execute -> executing")
             return PolicyDecision(execute=True)
         logger.info(f"[Policy] Low confidence ({intent_confidence:.2f}) -> ask")
         return PolicyDecision(
             execute=False,
-            clarification_question=(
-                goal_json.clarification_question if goal_json else None
-            ),
+            clarification_question=(goal_json.clarification_question if goal_json else None),
         )
 
     # Band 2-3: medium confidence — execute but note feedback opportunity
     if intent_confidence < tool_path_threshold:
         if has_goal or plugin_available:
-            logger.info(
-                f"[Policy] Medium confidence ({intent_confidence:.2f}) -> execute with feedback flag"
-            )
+            logger.info(f"[Policy] Medium confidence ({intent_confidence:.2f}) -> execute with feedback flag")
             return PolicyDecision(execute=True)
         # No goal or plugin — clarify
         return PolicyDecision(
             execute=False,
-            clarification_question=(
-                goal_json.clarification_question if goal_json else None
-            ),
+            clarification_question=(goal_json.clarification_question if goal_json else None),
         )
 
     # Band 1: high confidence — execute directly

@@ -129,12 +129,8 @@ class TestTighterErrorRecovery:
             "data": {},
         }
 
-        good_score = scorer.score_result(
-            good_result, "what's the weather?", "weather:get"
-        )
-        bad_score = scorer.score_result(
-            bad_result, "what's the weather?", "weather:get"
-        )
+        good_score = scorer.score_result(good_result, "what's the weather?", "weather:get")
+        bad_score = scorer.score_result(bad_result, "what's the weather?", "weather:get")
 
         # Good should score better than bad
         assert good_score.overall > bad_score.overall
@@ -167,9 +163,7 @@ class TestTighterErrorRecovery:
 
         # Both should work
         normal_score = scorer.score_result(result, "run tests", "test:run")
-        high_stakes_score = scorer.score_result(
-            result, "run tests", "test:run", is_high_stakes=True
-        )
+        high_stakes_score = scorer.score_result(result, "run tests", "test:run", is_high_stakes=True)
 
         # Both should be valid scores
         assert 0.0 <= normal_score.overall <= 1.0
@@ -258,11 +252,11 @@ class TestStableResponseVariance:
         engine = ToneTrajectoryEngine()
         engine.set_session_tone(ToneStyle.FORMAL)
 
-        formal_response = "We must proceed with deliberate caution and careful consideration of all available alternatives."
-        # Casual response WITH contractions (don't, can't) which formal forbids
-        casual_response = (
-            "I don't think we can't do this because you'll just mess it up."
+        formal_response = (
+            "We must proceed with deliberate caution and careful consideration of all available alternatives."
         )
+        # Casual response WITH contractions (don't, can't) which formal forbids
+        casual_response = "I don't think we can't do this because you'll just mess it up."
 
         score_formal = engine.evaluate_response_consistency(formal_response)
         score_casual = engine.evaluate_response_consistency(casual_response)

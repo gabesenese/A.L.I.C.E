@@ -111,19 +111,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         "alice_project": ("alice", "project", "repo", "codebase", "feature"),
         "preferences": ("prefer", "preference", "like", "dislike"),
     }
-    personal_memory = (
-        PersonalMemoryStore(getattr(alice, "memory"))
-        if getattr(alice, "memory", None)
-        else None
-    )
+    personal_memory = PersonalMemoryStore(getattr(alice, "memory")) if getattr(alice, "memory", None) else None
     memory_answer_verifier = MemoryAnswerVerifier()
     local_executor = LocalActionExecutor(alice)
     route_arbiter = RouteArbiter()
 
     def _normalize_path(path_text: str) -> str:
-        return (
-            str(path_text or "").strip().strip("`'\"").replace("\\", "/").lstrip("./")
-        )
+        return str(path_text or "").strip().strip("`'\"").replace("\\", "/").lstrip("./")
 
     def _extract_code_path_claims(text: str) -> List[str]:
         claims: List[str] = []
@@ -278,10 +272,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "coat",
             "jacket",
         )
-        if not any(
-            re.search(r"\b" + re.escape(term) + r"\b", text)
-            for term in weather_scope_terms
-        ):
+        if not any(re.search(r"\b" + re.escape(term) + r"\b", text) for term in weather_scope_terms):
             return False
 
         has_query_shape = bool(
@@ -373,9 +364,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if _positive_weather.search(text):
             return True
         # "weather in [place]" / "weather [place]" — implicit lookup, not commentary
-        if re.search(
-            r"\bweather\s+(?:in|for|at|near|around)\s+\w", text, re.IGNORECASE
-        ):
+        if re.search(r"\bweather\s+(?:in|for|at|near|around)\s+\w", text, re.IGNORECASE):
             return False
         # Atmospheric statements without a request verb — require at least 5 words
         # to avoid catching short lookup inputs like "weather nested" or "weather boston".
@@ -387,11 +376,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             r"\b(ready to work|work on alice|work on the project|let'?s work|let'?s continue|back to alice|back to working)\b",
             re.IGNORECASE,
         )
-        if (
-            "weather" in text
-            and not _request_verbs.search(text)
-            and not _work_intent.search(text)
-        ):
+        if "weather" in text and not _request_verbs.search(text) and not _work_intent.search(text):
             if len(text.split()) >= 5:
                 return True
         # "sun is out", "it's sunny", "sunny today", "nice day"
@@ -508,9 +493,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         return any(term in text for term in framing_terms)
 
     def _looks_like_current_events_request(user_input: str) -> bool:
-        detector = getattr(
-            alice, "_is_freshness_sensitive_current_events_request", None
-        )
+        detector = getattr(alice, "_is_freshness_sensitive_current_events_request", None)
         if callable(detector):
             try:
                 return bool(detector(user_input))
@@ -581,10 +564,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
         )
         return bool(
-            (
-                any(marker in text for marker in freshness_markers)
-                and any(marker in text for marker in world_markers)
-            )
+            (any(marker in text for marker in freshness_markers) and any(marker in text for marker in world_markers))
             or broad_situation
         )
 
@@ -632,10 +612,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
                 _self = build_self_block(include_opinions=True, include_session=True)
                 if _self:
-                    lines.append(
-                        "Alice's internal view (for grounding — do NOT repeat this as a list): "
-                        + _self
-                    )
+                    lines.append("Alice's internal view (for grounding — do NOT repeat this as a list): " + _self)
             except Exception:
                 pass
 
@@ -720,17 +697,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 _stale = _engine.stale_goals(days=3.0)
                 if _stale:
                     _stale_names = [g.description for g in _stale[:2]]
-                    _observations.append(
-                        f"Stalled for 3+ days: {'; '.join(_stale_names)}"
-                    )
+                    _observations.append(f"Stalled for 3+ days: {'; '.join(_stale_names)}")
 
                 for _g in _engine.active()[:5]:
                     _blockers = _engine.get_blocker_goals(_g.goal_id)
                     if _blockers:
                         _blocker_names = [b.description for b in _blockers[:2]]
-                        _observations.append(
-                            f"'{_g.description}' is blocked by: {', '.join(_blocker_names)}"
-                        )
+                        _observations.append(f"'{_g.description}' is blocked by: {', '.join(_blocker_names)}")
                         break
 
                 if _observations:
@@ -780,16 +753,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if not items:
             return {"count": 0.0, "avg_similarity": 0.0, "avg_weighted": 0.0}
         count = float(len(items))
-        avg_similarity = (
-            sum(float(i.get("similarity", 0.0) or 0.0) for i in items) / count
-        )
-        avg_weighted = (
-            sum(
-                float(i.get("weighted_score", i.get("score", 0.0)) or 0.0)
-                for i in items
-            )
-            / count
-        )
+        avg_similarity = sum(float(i.get("similarity", 0.0) or 0.0) for i in items) / count
+        avg_weighted = sum(float(i.get("weighted_score", i.get("score", 0.0)) or 0.0) for i in items) / count
         return {
             "count": count,
             "avg_similarity": avg_similarity,
@@ -801,9 +766,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         sources: List[str] = []
         for row in items:
             ctx = dict(row.get("context") or {})
-            source = str(
-                ctx.get("source") or row.get("source") or "conversation"
-            ).strip()
+            source = str(ctx.get("source") or row.get("source") or "conversation").strip()
             if not source:
                 continue
             key = source.lower()
@@ -818,19 +781,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return False
         strength = _memory_strength(items)
         top_similarity = float(items[0].get("similarity", 0.0) or 0.0)
-        top_weighted = float(
-            items[0].get("weighted_score", items[0].get("score", 0.0)) or 0.0
-        )
+        top_weighted = float(items[0].get("weighted_score", items[0].get("score", 0.0)) or 0.0)
         top_ctx = dict(items[0].get("context") or {})
-        top_confidence = float(
-            top_ctx.get("confidence", items[0].get("importance", 0.0)) or 0.0
-        )
+        top_confidence = float(top_ctx.get("confidence", items[0].get("importance", 0.0)) or 0.0)
         return bool(
-            (
-                top_similarity >= 0.46
-                and top_weighted >= 0.40
-                and strength["avg_similarity"] >= 0.40
-            )
+            (top_similarity >= 0.46 and top_weighted >= 0.40 and strength["avg_similarity"] >= 0.40)
             or (len(items) >= 1 and top_confidence >= 0.75)
         )
 
@@ -934,9 +889,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return str(final_payload.message or "").strip()
         return str(final_payload or "").strip()
 
-    def _verify_codebase_claims(
-        response_text: str, user_input: str = ""
-    ) -> Dict[str, Any]:
+    def _verify_codebase_claims(response_text: str, user_input: str = "") -> Dict[str, Any]:
         text = str(response_text or "")
         low = text.lower()
         user_text = str(user_input or "").lower().strip()
@@ -976,18 +929,14 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return {}
 
         available_paths = {
-            _normalize_path(str(entry.get("path") or ""))
-            for entry in files
-            if str(entry.get("path") or "").strip()
+            _normalize_path(str(entry.get("path") or "")) for entry in files if str(entry.get("path") or "").strip()
         }
         if not available_paths:
             return {}
 
         available_paths_lower = {path.lower() for path in available_paths}
         available_names = {Path(path).name.lower() for path in available_paths}
-        top_level_dirs = {
-            path.split("/", 1)[0].lower() for path in available_paths_lower if path
-        }
+        top_level_dirs = {path.split("/", 1)[0].lower() for path in available_paths_lower if path}
 
         def _path_exists(candidate: str) -> bool:
             normalized = _normalize_path(candidate).lower()
@@ -998,10 +947,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             base_name = Path(normalized).name.lower()
             if base_name in available_names:
                 return True
-            return any(
-                known.endswith(normalized) or normalized.endswith(known)
-                for known in available_paths_lower
-            )
+            return any(known.endswith(normalized) or normalized.endswith(known) for known in available_paths_lower)
 
         missing_paths: List[str] = []
         for claimed_path in _extract_code_path_claims(text):
@@ -1024,9 +970,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "available_file_count": len(available_paths),
         }
 
-    def _verify_weather_claims(
-        *, user_input: str, response_text: str
-    ) -> Dict[str, Any]:
+    def _verify_weather_claims(*, user_input: str, response_text: str) -> Dict[str, Any]:
         text = str(response_text or "").strip()
         low = text.lower()
         if not text:
@@ -1052,9 +996,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if not has_weather_language:
             return {}
 
-        has_fact_pattern = any(
-            pattern.search(text) for pattern in _weather_fact_patterns
-        )
+        has_fact_pattern = any(pattern.search(text) for pattern in _weather_fact_patterns)
         if not has_fact_pattern and "forecast" not in low:
             return {}
 
@@ -1074,10 +1016,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if has_live_data_disclaimer:
             return {}
 
-        if (
-            not _looks_like_weather_request(user_input)
-            and "according to my knowledge" not in low
-        ):
+        if not _looks_like_weather_request(user_input) and "according to my knowledge" not in low:
             return {}
 
         placeholder_markers = []
@@ -1092,9 +1031,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "contains_numeric_weather_claims": bool(has_fact_pattern),
         }
 
-    def _compose_weather_response_from_tool_payload(
-        *, tool_payload: Dict[str, Any], user_input: str
-    ) -> str:
+    def _compose_weather_response_from_tool_payload(*, tool_payload: Dict[str, Any], user_input: str) -> str:
         payload = dict(tool_payload or {})
 
         # If the FallbackGraph pre-computed a clarifying message, surface it directly.
@@ -1131,12 +1068,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             _day_labels = {
                 _today.isoformat(): "today",
                 (_today + _td(days=1)).isoformat(): "tomorrow",
-                (_today + _td(days=2)).isoformat(): (_today + _td(days=2)).strftime(
-                    "%A"
-                ),
-                (_today + _td(days=3)).isoformat(): (_today + _td(days=3)).strftime(
-                    "%A"
-                ),
+                (_today + _td(days=2)).isoformat(): (_today + _td(days=2)).strftime("%A"),
+                (_today + _td(days=3)).isoformat(): (_today + _td(days=3)).strftime("%A"),
             }
 
             parts = []
@@ -1161,9 +1094,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         }
         if hasattr(alice, "_alice_direct_phrase"):
             try:
-                phrased = str(
-                    alice._alice_direct_phrase("weather_report", report_payload) or ""
-                ).strip()
+                phrased = str(alice._alice_direct_phrase("weather_report", report_payload) or "").strip()
                 if phrased:
                     return phrased
             except Exception:
@@ -1228,15 +1159,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         state = sync_operator_state_with_project_memory(state, project_state)
         setattr(alice, "_operator_state", state)
         continuation_active = bool(
-            operator_ctx.get("active_capability") == "code_inspection"
-            and operator_ctx.get("awaiting_target")
+            operator_ctx.get("active_capability") == "code_inspection" and operator_ctx.get("awaiting_target")
         )
         low = str(req.user_input or "").lower()
         dominant_hint = resolve_dominant_intent_hint(req.user_input)
         last_recommended_action = dict(
-            state.get("last_recommended_action")
-            or project_state.last_recommended_action
-            or {}
+            state.get("last_recommended_action") or project_state.last_recommended_action or {}
         )
 
         if _is_recommendation_explain_query(req.user_input) and last_recommended_action:
@@ -1252,16 +1180,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
-        if (
-            _is_recommendation_approval_phrase(req.user_input)
-            and last_recommended_action
-        ):
+        if _is_recommendation_approval_phrase(req.user_input) and last_recommended_action:
             requires_approval = bool(last_recommended_action.get("requires_approval"))
-            intent = (
-                "operator:continue"
-                if requires_approval
-                else "operator:execute_recommended_action"
-            )
+            intent = "operator:continue" if requires_approval else "operator:execute_recommended_action"
             return RouterDecision(
                 route="local",
                 intent=intent,
@@ -1286,9 +1207,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 "what were we working on",
             )
         ):
-            intent = (
-                "operator:next_step" if "next" in low else "operator:project_status"
-            )
+            intent = "operator:next_step" if "next" in low else "operator:project_status"
             return RouterDecision(
                 route="local",
                 intent=intent,
@@ -1378,9 +1297,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 low,
             )
         )
-        if continue_command and bool(
-            state.get("active_objective") or project_state.active_objective
-        ):
+        if continue_command and bool(state.get("active_objective") or project_state.active_objective):
             return RouterDecision(
                 route="local",
                 intent="operator:continue",
@@ -1393,9 +1310,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
-        if (
-            "what's the next step" in low or "what is the next step" in low
-        ) and state.get("active_objective"):
+        if ("what's the next step" in low or "what is the next step" in low) and state.get("active_objective"):
             return RouterDecision(
                 route="local",
                 intent="code:request",
@@ -1510,9 +1425,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"reason": "slash_command"},
             )
 
-        if hasattr(alice, "_is_location_query") and alice._is_location_query(
-            req.user_input
-        ):
+        if hasattr(alice, "_is_location_query") and alice._is_location_query(req.user_input):
             return RouterDecision(
                 route="local",
                 intent="system:location",
@@ -1712,9 +1625,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 resolved_input = str(resolution.rewritten_input or req.user_input)
                 resolution_meta = {
                     "rewritten": resolved_input != req.user_input,
-                    "resolved_bindings": dict(
-                        getattr(resolution, "resolved_bindings", {}) or {}
-                    ),
+                    "resolved_bindings": dict(getattr(resolution, "resolved_bindings", {}) or {}),
                 }
                 if getattr(resolution, "needs_clarification", False):
                     if should_answer_instead_of_clarify(
@@ -1725,11 +1636,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     ):
                         reroute_intent = _fallback_answer_intent(req.user_input)
                         return RouterDecision(
-                            route=(
-                                "local"
-                                if reroute_intent.startswith(("operator:", "code:"))
-                                else "llm"
-                            ),
+                            route=("local" if reroute_intent.startswith(("operator:", "code:")) else "llm"),
                             intent=reroute_intent,
                             confidence=0.74,
                             decision_band="execute",
@@ -1747,12 +1654,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         needs_clarification=True,
                         metadata={
                             "reason": "context_ambiguity",
-                            "options": list(
-                                getattr(resolution, "clarification_options", []) or []
-                            ),
-                            "pronouns": list(
-                                getattr(resolution, "unresolved_pronouns", []) or []
-                            ),
+                            "options": list(getattr(resolution, "clarification_options", []) or []),
+                            "pronouns": list(getattr(resolution, "unresolved_pronouns", []) or []),
                         },
                     )
             except Exception:
@@ -1776,11 +1679,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         except Exception:
             confidence = raw_confidence
         parsed_command = getattr(nlp_result, "parsed_command", {}) or {}
-        modifiers = (
-            parsed_command.get("modifiers", {})
-            if isinstance(parsed_command, dict)
-            else {}
-        )
+        modifiers = parsed_command.get("modifiers", {}) if isinstance(parsed_command, dict) else {}
 
         route = "llm"
         if ":" in intent and not intent.startswith("conversation"):
@@ -1789,16 +1688,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if (
             intent.startswith("weather:")
             and not is_explicit_weather_request(req.user_input)
-            and dominant_hint
-            in {"conversation:goal_statement", "conversation:educational_explain"}
+            and dominant_hint in {"conversation:goal_statement", "conversation:educational_explain"}
         ):
             intent = dominant_hint
             route = "llm"
             confidence = max(confidence, 0.82)
 
-        if str(intent).startswith("file_operations:") and not _has_explicit_file_target(
-            req.user_input
-        ):
+        if str(intent).startswith("file_operations:") and not _has_explicit_file_target(req.user_input):
             arbitration = route_arbiter.arbitrate(
                 user_input=req.user_input,
                 candidate_route=route,
@@ -1869,11 +1765,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         elif confidence >= 0.35:
             band = "clarify"
         else:
-            band = (
-                "refuse"
-                if any(marker in lower_input for marker in risky_refusal_markers)
-                else "clarify"
-            )
+            band = "refuse" if any(marker in lower_input for marker in risky_refusal_markers) else "clarify"
 
         if band == "clarify":
             if should_answer_instead_of_clarify(
@@ -1884,10 +1776,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             ):
                 reroute_intent = _fallback_answer_intent(req.user_input)
                 reroute_route = (
-                    "local"
-                    if reroute_intent.startswith("operator:")
-                    or reroute_intent.startswith("code:")
-                    else "llm"
+                    "local" if reroute_intent.startswith("operator:") or reroute_intent.startswith("code:") else "llm"
                 )
                 return RouterDecision(
                     route=reroute_route,
@@ -1928,12 +1817,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             metadata={
                 "keywords": list(getattr(nlp_result, "keywords", []) or []),
                 "resolved_input": resolved_input,
-                "tool_execution_disabled": bool(
-                    modifiers.get("tool_execution_disabled")
-                ),
-                "tool_eligibility_gate": dict(
-                    modifiers.get("tool_eligibility_gate") or {}
-                ),
+                "tool_execution_disabled": bool(modifiers.get("tool_execution_disabled")),
+                "tool_eligibility_gate": dict(modifiers.get("tool_eligibility_gate") or {}),
                 "routing_trace": dict(modifiers.get("routing_trace") or {}),
                 "operator_state": dict(getattr(alice, "_operator_state", {}) or {}),
                 **resolution_meta,
@@ -1945,22 +1830,16 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             items: List[Dict[str, Any]] = []
             metadata: Dict[str, Any] = {"count": 0}
             request_intent = str((req.metadata or {}).get("intent") or "").lower()
-            greeting_turn = (
-                request_intent.endswith("greeting") or request_intent == "greeting"
-            )
+            greeting_turn = request_intent.endswith("greeting") or request_intent == "greeting"
             if getattr(alice, "memory", None):
-                personal_mode = bool(
-                    personal_memory and _is_personal_memory_query(req.query)
-                )
+                personal_mode = bool(personal_memory and _is_personal_memory_query(req.query))
                 if personal_mode:
                     domain = _infer_personal_domain(req.query)
-                    day_to_day_detail = (
-                        personal_memory.retrieve_structured_memory_detailed(
-                            req.query,
-                            domain=domain,
-                            scope="day_to_day",
-                            top_k=req.max_items,
-                        )
+                    day_to_day_detail = personal_memory.retrieve_structured_memory_detailed(
+                        req.query,
+                        domain=domain,
+                        scope="day_to_day",
+                        top_k=req.max_items,
                     )
                     day_to_day = list(day_to_day_detail.get("items") or [])
                     remaining = max(0, req.max_items - len(day_to_day))
@@ -1976,13 +1855,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     )
                     long_term = list(long_term_detail.get("items") or [])
                     items = list(day_to_day) + list(long_term)
-                    raw_retrieved_count = int(
-                        day_to_day_detail.get("raw_retrieved_count", 0)
-                    ) + int(long_term_detail.get("raw_retrieved_count", 0))
+                    raw_retrieved_count = int(day_to_day_detail.get("raw_retrieved_count", 0)) + int(
+                        long_term_detail.get("raw_retrieved_count", 0)
+                    )
                     deduped_count = len(items)
-                    downranked_mixed_count = int(
-                        day_to_day_detail.get("downranked_mixed_count", 0)
-                    ) + int(long_term_detail.get("downranked_mixed_count", 0))
+                    downranked_mixed_count = int(day_to_day_detail.get("downranked_mixed_count", 0)) + int(
+                        long_term_detail.get("downranked_mixed_count", 0)
+                    )
                     metadata = {
                         "count": len(items or []),
                         "mode": "personal_structured",
@@ -1990,16 +1869,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "requested_domain": domain,
                         "retrieved_memory_count": len(items or []),
                         "evidence_count": len(items or []),
-                        "insufficient_evidence": not _has_sufficient_personal_evidence(
-                            items
-                        ),
+                        "insufficient_evidence": not _has_sufficient_personal_evidence(items),
                         "evidence_sources": _evidence_sources(items),
                         "evidence": _memory_strength(items),
                         "raw_retrieved_count": raw_retrieved_count,
                         "deduped_count": deduped_count,
-                        "duplicate_count_removed": max(
-                            0, raw_retrieved_count - deduped_count
-                        ),
+                        "duplicate_count_removed": max(0, raw_retrieved_count - deduped_count),
                         "downranked_mixed_count": downranked_mixed_count,
                     }
                 elif not greeting_turn:
@@ -2072,9 +1947,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if not text:
             return
         try:
-            has_structured_fields = all(
-                str(item.get(key) or "").strip() for key in ("domain", "kind", "scope")
-            )
+            has_structured_fields = all(str(item.get(key) or "").strip() for key in ("domain", "kind", "scope"))
             if personal_memory and has_structured_fields:
                 personal_memory.store_structured_memory(
                     content=text,
@@ -2087,9 +1960,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     importance=float(item.get("importance", 0.7) or 0.7),
                 )
             else:
-                alice.memory.store_memory(
-                    content=text, memory_type="episodic", context=item
-                )
+                alice.memory.store_memory(content=text, memory_type="episodic", context=item)
         except Exception:
             # Storage errors should not block response path.
             return
@@ -2113,9 +1984,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 diagnostics={"stage": "pre_tool_validation"},
             )
 
-        if str(invocation.action or "").startswith("code:") or str(
-            invocation.action or ""
-        ) in {
+        if str(invocation.action or "").startswith("code:") or str(invocation.action or "") in {
             "system:location",
             "freshness:current_events",
             "operator:next_step",
@@ -2128,9 +1997,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             "self_improvement:brief",
         }:
             context_payload = dict(invocation.params.get("context") or {})
-            extracted_target = _extract_code_target(
-                str(invocation.params.get("query") or "")
-            )
+            extracted_target = _extract_code_target(str(invocation.params.get("query") or ""))
             if extracted_target:
                 context_payload["target_file"] = extracted_target
             local = local_executor.execute(
@@ -2147,9 +2014,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "response": str(local.get("response") or ""),
                     "operator_context": dict(local.get("operator_context") or {}),
                     "local_execution": dict(local.get("local_execution") or {}),
-                    "close_matches": list(
-                        (local.get("operator_context") or {}).get("close_matches") or []
-                    ),
+                    "close_matches": list((local.get("operator_context") or {}).get("close_matches") or []),
                 },
                 error=str(local.get("error") or ""),
                 confidence=0.9 if success else 0.3,
@@ -2187,16 +2052,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         success = bool(result.get("success", False))
         data = dict(result)
-        data_error = (
-            (data.get("data") or {}).get("error")
-            if isinstance(data.get("data"), dict)
-            else ""
-        )
-        message_code = (
-            (data.get("data") or {}).get("message_code")
-            if isinstance(data.get("data"), dict)
-            else ""
-        )
+        data_error = (data.get("data") or {}).get("error") if isinstance(data.get("data"), dict) else ""
+        message_code = (data.get("data") or {}).get("message_code") if isinstance(data.get("data"), dict) else ""
         error = str(result.get("error") or data_error or "")
         if not error and not success and message_code:
             error = str(message_code)
@@ -2239,9 +2096,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     def _generate(req: ResponseRequest) -> ResponseOutput:
         if req.tool_result is not None:
             try:
-                diag_ctx = dict(
-                    (req.tool_result.diagnostics or {}).get("operator_context") or {}
-                )
+                diag_ctx = dict((req.tool_result.diagnostics or {}).get("operator_context") or {})
                 if diag_ctx:
                     setattr(alice, "_operator_context", diag_ctx)
             except Exception:
@@ -2249,9 +2104,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         decision_intent = str(req.decision.intent or "")
         operator_state = dict((req.decision.metadata or {}).get("operator_state") or {})
-        greeting_turn = (
-            decision_intent.endswith("greeting") or decision_intent == "greeting"
-        )
+        greeting_turn = decision_intent.endswith("greeting") or decision_intent == "greeting"
 
         def _build_grounded_greeting() -> ResponseOutput:
             session_state = dict(getattr(alice, "_greeting_session_state", {}) or {})
@@ -2286,9 +2139,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "generated_by": str(greeting.generated_by),
                     "warmth_level": str(greeting.warmth_level),
                     "companion_tone": bool(greeting.companion_tone),
-                    "assistant_like_prompt_suppressed": bool(
-                        greeting.assistant_like_prompt_suppressed
-                    ),
+                    "assistant_like_prompt_suppressed": bool(greeting.assistant_like_prompt_suppressed),
                     "validation_passed": bool(greeting.validation_passed),
                     "validation_reasons": list(greeting.validation_reasons),
                     "greeting_reason": str(greeting.reason),
@@ -2334,9 +2185,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"type": "command_dispatch"},
             )
 
-        if req.decision.intent == "system:location" and hasattr(
-            alice, "_build_location_payload"
-        ):
+        if req.decision.intent == "system:location" and hasattr(alice, "_build_location_payload"):
             payload = alice._build_location_payload()
             text = alice._alice_direct_phrase("location_report", payload)
             return ResponseOutput(
@@ -2350,20 +2199,14 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"type": "deterministic_location"},
             )
 
-        if (
-            req.decision.route == "local"
-            and req.tool_result is not None
-            and not req.tool_result.success
-        ):
+        if req.decision.route == "local" and req.tool_result is not None and not req.tool_result.success:
             data = dict(req.tool_result.data or {})
             op_ctx = dict(data.get("operator_context") or {})
             local_exec = dict(data.get("local_execution") or {})
             inferred = str(op_ctx.get("inferred_target_file") or "")
             close = list(op_ctx.get("close_matches") or [])
             if inferred and close:
-                msg = f"I could not find {inferred}. Close matches:\n- " + "\n- ".join(
-                    close[:5]
-                )
+                msg = f"I could not find {inferred}. Close matches:\n- " + "\n- ".join(close[:5])
             elif inferred:
                 wf_count = int(local_exec.get("workspace_file_count") or 0)
                 if wf_count > 0:
@@ -2371,10 +2214,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 else:
                     msg = f"I could not find {inferred} in the current workspace."
             else:
-                msg = str(
-                    req.tool_result.error
-                    or "I could not complete that local inspection request."
-                )
+                msg = str(req.tool_result.error or "I could not complete that local inspection request.")
             try:
                 current_state = dict(getattr(alice, "_operator_state", {}) or {})
                 inferred = str(op_ctx.get("inferred_target_file") or "")
@@ -2385,29 +2225,20 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         current_state,
                         {
                             "last_failure": str(
-                                local_exec.get("error")
-                                or req.tool_result.error
-                                or "local_execution_failed"
+                                local_exec.get("error") or req.tool_result.error or "local_execution_failed"
                             ),
-                            "known_blockers": [
-                                str(local_exec.get("error") or "local_execution_failed")
-                            ],
+                            "known_blockers": [str(local_exec.get("error") or "local_execution_failed")],
                             "current_step": "resolve_blocker",
-                            "last_inspected_file": inferred
-                            or str(current_state.get("last_inspected_file") or ""),
+                            "last_inspected_file": inferred or str(current_state.get("last_inspected_file") or ""),
                         },
                     ),
                 )
                 update_project_state(
                     {
                         "last_failure": str(
-                            local_exec.get("error")
-                            or req.tool_result.error
-                            or "local_execution_failed"
+                            local_exec.get("error") or req.tool_result.error or "local_execution_failed"
                         ),
-                        "known_blockers": [
-                            str(local_exec.get("error") or "local_execution_failed")
-                        ],
+                        "known_blockers": [str(local_exec.get("error") or "local_execution_failed")],
                         "current_step": "resolve_blocker",
                         "files_inspected": [inferred] if inferred else [],
                     },
@@ -2430,9 +2261,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
-        if req.decision.intent == "code:request" and hasattr(
-            alice, "_handle_code_request"
-        ):
+        if req.decision.intent == "code:request" and hasattr(alice, "_handle_code_request"):
             if req.tool_result and req.tool_result.success:
                 local_payload = dict(req.tool_result.data or {})
                 local_response = str(local_payload.get("response") or "").strip()
@@ -2447,19 +2276,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         confidence=float(req.tool_result.confidence or 0.85),
                         metadata={
                             "type": "local_code_request",
-                            "operator_context": dict(
-                                local_payload.get("operator_context") or {}
-                            ),
-                            "local_execution": dict(
-                                local_payload.get("local_execution") or {}
-                            ),
+                            "operator_context": dict(local_payload.get("operator_context") or {}),
+                            "local_execution": dict(local_payload.get("local_execution") or {}),
                         },
                     )
             code_response = ""
             try:
-                code_response = str(
-                    alice._handle_code_request(req.user_input, {}) or ""
-                ).strip()
+                code_response = str(alice._handle_code_request(req.user_input, {}) or "").strip()
             except Exception:
                 code_response = ""
 
@@ -2491,9 +2314,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if req.decision.intent == "freshness:current_events":
             payload = _freshness_required_payload(req.user_input)
             follow_up_question = _surface_text(
-                _formulate_freshness_guard_response(
-                    f"{req.user_input}\nrequested_focus=follow_up_slot"
-                ),
+                _formulate_freshness_guard_response(f"{req.user_input}\nrequested_focus=follow_up_slot"),
                 user_input=req.user_input,
                 intent=req.decision.intent,
                 route="contract_freshness_guard",
@@ -2526,9 +2347,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 )
             )
             clarify_base = (
-                "Which file should I inspect?"
-                if local_file_q
-                else "What exact result should I produce next?"
+                "Which file should I inspect?" if local_file_q else "What exact result should I produce next?"
             )
             clarify_text = _surface_text(
                 clarify_base,
@@ -2568,33 +2387,25 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     if req.decision.route == "local":
                         lx = dict(tool_payload.get("local_execution") or {})
                         inspected = str(lx.get("inspected_file") or "")
-                        current_state = dict(
-                            getattr(alice, "_operator_state", {}) or {}
-                        )
+                        current_state = dict(getattr(alice, "_operator_state", {}) or {})
                         setattr(
                             alice,
                             "_operator_state",
                             update_operator_state(
                                 current_state,
                                 {
-                                    "last_success": str(
-                                        req.decision.intent or "local_success"
-                                    ),
+                                    "last_success": str(req.decision.intent or "local_success"),
                                     "last_failure": "",
                                     "current_step": "observe_result",
                                     "files_inspected": [inspected] if inspected else [],
                                     "last_inspected_file": inspected
-                                    or str(
-                                        current_state.get("last_inspected_file") or ""
-                                    ),
+                                    or str(current_state.get("last_inspected_file") or ""),
                                 },
                             ),
                         )
                         update_project_state(
                             {
-                                "last_success": str(
-                                    req.decision.intent or "local_success"
-                                ),
+                                "last_success": str(req.decision.intent or "local_success"),
                                 "last_failure": "",
                                 "current_step": "observe_result",
                                 "files_inspected": [inspected] if inspected else [],
@@ -2638,18 +2449,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     },
                 )
 
-            nested_data = (
-                tool_payload.get("data")
-                if isinstance(tool_payload.get("data"), dict)
-                else {}
-            )
+            nested_data = tool_payload.get("data") if isinstance(tool_payload.get("data"), dict) else {}
             weather_tool_turn = (
                 str(req.decision.intent or "").startswith("weather:")
                 or str(req.tool_result.tool_name or "").lower().startswith("weather")
-                or str((nested_data or {}).get("plugin_type") or "").lower()
-                == "weather"
-                or "weather:"
-                in str((nested_data or {}).get("message_code") or "").lower()
+                or str((nested_data or {}).get("plugin_type") or "").lower() == "weather"
+                or "weather:" in str((nested_data or {}).get("message_code") or "").lower()
             )
             if weather_tool_turn:
                 return ResponseOutput(
@@ -2682,11 +2487,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
         ):
             _fail_payload = dict(req.tool_result.data or {})
-            _nested_fail = (
-                _fail_payload.get("data")
-                if isinstance(_fail_payload.get("data"), dict)
-                else {}
-            )
+            _nested_fail = _fail_payload.get("data") if isinstance(_fail_payload.get("data"), dict) else {}
             _fallback_msg = (
                 str(_fail_payload.get("fallback_message") or "").strip()
                 or str((_nested_fail or {}).get("fallback_message") or "").strip()
@@ -2704,27 +2505,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             memory_items = list(req.memory.items or [])
             if not _has_sufficient_personal_evidence(memory_items):
                 return ResponseOutput(
-                    text=_personal_memory_fallback_response(
-                        req.user_input, req.decision.intent
-                    ),
+                    text=_personal_memory_fallback_response(req.user_input, req.decision.intent),
                     confidence=0.96,
                     metadata={
                         "type": "personal_memory_insufficient",
                         "memory_evidence": _memory_strength(memory_items),
                     },
                 )
-            grounded_text = _render_personal_memory_summary(
-                req.user_input, req.decision.intent, memory_items
-            )
+            grounded_text = _render_personal_memory_summary(req.user_input, req.decision.intent, memory_items)
             verification = memory_answer_verifier.verify_answer(
                 answer_text=grounded_text,
                 evidence_items=memory_items,
             )
             if not bool(verification.get("accepted")):
                 return ResponseOutput(
-                    text=_personal_memory_fallback_response(
-                        req.user_input, req.decision.intent
-                    ),
+                    text=_personal_memory_fallback_response(req.user_input, req.decision.intent),
                     confidence=0.96,
                     metadata={
                         "type": "personal_memory_insufficient",
@@ -2764,9 +2559,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         or ""
                     ).strip()
                 except TypeError:
-                    llm_text = str(
-                        alice.llm.chat(req.user_input, use_history=True) or ""
-                    ).strip()
+                    llm_text = str(alice.llm.chat(req.user_input, use_history=True) or "").strip()
 
                 # Retry gate: if the LLM hedged, gave a non-answer, or was too dry/short
                 # on a discussion/brainstorm turn, force one harder pass.
@@ -2825,19 +2618,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                             or ""
                         ).strip()
                     except TypeError:
-                        _retry = str(
-                            alice.llm.chat(req.user_input, use_history=False) or ""
-                        ).strip()
+                        _retry = str(alice.llm.chat(req.user_input, use_history=False) or "").strip()
                     if _retry and len(_retry) > len(llm_text):
                         llm_text = _retry
 
                 # Strip trailing question on brainstorm/discussion turns — let the take stand.
                 if _is_discussion and llm_text.endswith("?"):
-                    _sentences = [
-                        s.strip()
-                        for s in re.split(r"(?<=[.!?])\s+", llm_text)
-                        if s.strip()
-                    ]
+                    _sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", llm_text) if s.strip()]
                     if len(_sentences) > 1 and _sentences[-1].endswith("?"):
                         llm_text = " ".join(_sentences[:-1])
             except Exception:
@@ -2861,12 +2648,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "whats next",
                 )
             )
-            if bool(continuity.unsupported_continuity_claim) and (
-                greeting_turn or continuation_cue
-            ):
-                session_state = dict(
-                    getattr(alice, "_greeting_session_state", {}) or {}
-                )
+            if bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue):
+                session_state = dict(getattr(alice, "_greeting_session_state", {}) or {})
                 user_name = str(getattr(alice, "user_name", "") or "")
                 greeting = render_grounded_greeting(
                     user_name=user_name,
@@ -2874,12 +2657,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     session_state=session_state,
                     user_input=req.user_input,
                     llm_generate=(
-                        (
-                            lambda prompt=None, **_kwargs: str(
-                                alice.llm.chat(str(prompt or ""), use_history=False)
-                                or ""
-                            )
-                        )
+                        (lambda prompt=None, **_kwargs: str(alice.llm.chat(str(prompt or ""), use_history=False) or ""))
                         if getattr(alice, "llm", None)
                         else None
                     ),
@@ -2905,71 +2683,37 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={
                     "type": "llm_response",
                     "continuity_claims": continuity.metadata(),
-                    "greeting_memory_policy": "active_state_only"
-                    if (greeting_turn or continuation_cue)
-                    else "",
+                    "greeting_memory_policy": "active_state_only" if (greeting_turn or continuation_cue) else "",
                     "broad_memory_suppressed": bool(greeting_turn or continuation_cue),
                     "active_objective_used": bool(greeting.active_objective_used)
-                    if (
-                        bool(continuity.unsupported_continuity_claim)
-                        and (greeting_turn or continuation_cue)
-                    )
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else False,
                     "greeting_style": str(greeting.greeting_style)
-                    if (
-                        bool(continuity.unsupported_continuity_claim)
-                        and (greeting_turn or continuation_cue)
-                    )
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else "",
                     "suppressed_project_menu": bool(greeting.suppressed_project_menu)
-                    if (
-                        bool(continuity.unsupported_continuity_claim)
-                        and (greeting_turn or continuation_cue)
-                    )
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else False,
                     "repeated_greeting": bool(greeting.repeated_greeting)
-                    if (
-                        bool(continuity.unsupported_continuity_claim)
-                        and (greeting_turn or continuation_cue)
-                    )
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else False,
                     "generated_by": str(greeting.generated_by)
-                    if (
-                        bool(continuity.unsupported_continuity_claim)
-                        and (greeting_turn or continuation_cue)
-                    )
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else "",
                     "warmth_level": str(greeting.warmth_level)
-                    if (
-                        bool(continuity.unsupported_continuity_claim)
-                        and (greeting_turn or continuation_cue)
-                    )
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else "",
                     "companion_tone": bool(greeting.companion_tone)
-                    if (
-                        bool(continuity.unsupported_continuity_claim)
-                        and (greeting_turn or continuation_cue)
-                    )
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else False,
-                    "assistant_like_prompt_suppressed": bool(
-                        greeting.assistant_like_prompt_suppressed
-                    )
-                    if (
-                        bool(continuity.unsupported_continuity_claim)
-                        and (greeting_turn or continuation_cue)
-                    )
+                    "assistant_like_prompt_suppressed": bool(greeting.assistant_like_prompt_suppressed)
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else False,
                     "validation_passed": bool(greeting.validation_passed)
-                    if (
-                        bool(continuity.unsupported_continuity_claim)
-                        and (greeting_turn or continuation_cue)
-                    )
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else True,
                     "validation_reasons": list(greeting.validation_reasons)
-                    if (
-                        bool(continuity.unsupported_continuity_claim)
-                        and (greeting_turn or continuation_cue)
-                    )
+                    if (bool(continuity.unsupported_continuity_claim) and (greeting_turn or continuation_cue))
                     else [],
                 },
             )
@@ -2985,9 +2729,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         elif route == "local":
             fallback_msg = "I couldn't complete that inspection. Check the file name and try again."
         else:
-            fallback_msg = (
-                "I wasn't sure how to respond to that. Could you be more specific?"
-            )
+            fallback_msg = "I wasn't sure how to respond to that. Could you be more specific?"
 
         return ResponseOutput(
             text=_surface_text(
@@ -3018,10 +2760,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if req.decision.decision_band == "refuse":
-            has_refusal = (
-                "can't safely" in response_text.lower()
-                or "cannot safely" in response_text.lower()
-            )
+            has_refusal = "can't safely" in response_text.lower() or "cannot safely" in response_text.lower()
             return VerifierResult(
                 accepted=has_refusal,
                 reason="refused_by_policy" if has_refusal else "refusal_missing",
@@ -3041,11 +2780,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 diagnostics={"band": req.decision.decision_band},
             )
 
-        if (
-            req.decision.route in {"tool", "plugin"}
-            and req.tool_result
-            and not req.tool_result.success
-        ):
+        if req.decision.route in {"tool", "plugin"} and req.tool_result and not req.tool_result.success:
             return VerifierResult(
                 accepted=False,
                 reason="tool_failed",
@@ -3057,9 +2792,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if req.decision.route == "llm":
-            operator_state = dict(
-                (req.decision.metadata or {}).get("operator_state") or {}
-            )
+            operator_state = dict((req.decision.metadata or {}).get("operator_state") or {})
             continuity = assess_continuity_claims(
                 text=response_text,
                 memory_items=list(req.memory.items or []),
@@ -3095,9 +2828,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     },
                 )
 
-            code_claim_diagnostics = _verify_codebase_claims(
-                response_text, req.user_input
-            )
+            code_claim_diagnostics = _verify_codebase_claims(response_text, req.user_input)
             if code_claim_diagnostics:
                 return VerifierResult(
                     accepted=False,

@@ -174,9 +174,7 @@ class ReasoningEngine:
         "vague_temporal_question",
     }
 
-    def __init__(
-        self, user_name: str = "User", max_turns: int = 50, max_entities: int = 200
-    ):
+    def __init__(self, user_name: str = "User", max_turns: int = 50, max_entities: int = 200):
         self._lock = threading.RLock()
         self.user_name = user_name
         self.max_turns = max_turns
@@ -266,9 +264,7 @@ class ReasoningEngine:
         with self._lock:
             return self.entities.get(entity_id)
 
-    def get_recent_entities(
-        self, kind: Optional[EntityKind] = None, n: int = 20
-    ) -> List[WorldEntity]:
+    def get_recent_entities(self, kind: Optional[EntityKind] = None, n: int = 20) -> List[WorldEntity]:
         """Get recent entities, optionally filtered by kind"""
         with self._lock:
             order = list(reversed(self._entity_order))
@@ -281,9 +277,7 @@ class ReasoningEngine:
                     out.append(e)
             return out
 
-    def find_entity_by_label(
-        self, label: str, kind: Optional[EntityKind] = None
-    ) -> Optional[WorldEntity]:
+    def find_entity_by_label(self, label: str, kind: Optional[EntityKind] = None) -> Optional[WorldEntity]:
         """Find entity by label or alias"""
         with self._lock:
             label_lower = label.lower().strip()
@@ -300,9 +294,7 @@ class ReasoningEngine:
                         return e
             return None
 
-    def record_turn(
-        self, user_input: str, intent: str, entities: Dict, response: str, success: bool
-    ) -> None:
+    def record_turn(self, user_input: str, intent: str, entities: Dict, response: str, success: bool) -> None:
         """Record a conversation turn"""
         with self._lock:
             turn_id = f"t{len(self.turns) + 1}_{int(datetime.now().timestamp())}"
@@ -356,8 +348,7 @@ class ReasoningEngine:
                     if self.entities.get(eid)
                 ],
                 "recent_entities_by_kind": {
-                    k.value: [e.label for e in self.get_recent_entities(kind=k, n=5)]
-                    for k in EntityKind
+                    k.value: [e.label for e in self.get_recent_entities(kind=k, n=5)] for k in EntityKind
                 },
             }
 
@@ -409,9 +400,7 @@ class ReasoningEngine:
                 )
 
         if any(re.search(pat, inp) for pat in self.CANCEL_PATTERNS):
-            logger.debug(
-                "Cancellation phrase detected in mixed input; skipping goal cancellation"
-            )
+            logger.debug("Cancellation phrase detected in mixed input; skipping goal cancellation")
 
         # 2) Revise: "actually delete the shopping list"
         for pat in self.REVISE_PATTERNS:
@@ -465,17 +454,10 @@ class ReasoningEngine:
         if current_goal:
             goal_keywords = self._content_tokens(current_goal.description)
             input_keywords = self._content_tokens(inp)
-            goal_entities = set(
-                str(v).lower() for v in current_goal.entities.values() if v
-            )
+            goal_entities = set(str(v).lower() for v in current_goal.entities.values() if v)
             input_entities = set(str(v).lower() for v in entities.values() if v)
-            same_intent = (
-                str(intent or "").strip().lower()
-                == str(current_goal.intent or "").strip().lower()
-            )
-            allow_intent_match = (
-                same_intent and not self._is_generic_conversational_intent(intent)
-            )
+            same_intent = str(intent or "").strip().lower() == str(current_goal.intent or "").strip().lower()
+            allow_intent_match = same_intent and not self._is_generic_conversational_intent(intent)
             goal_focus_words = [
                 tok
                 for tok in re.findall(r"[a-z0-9']+", current_goal.description.lower())
@@ -494,11 +476,7 @@ class ReasoningEngine:
                     current_goal.description = user_input[:200]
                 return GoalResolution(
                     goal=current_goal,
-                    intent=(
-                        intent
-                        if intent != "conversation:general"
-                        else current_goal.intent
-                    ),
+                    intent=(intent if intent != "conversation:general" else current_goal.intent),
                     entities={**current_goal.entities, **entities},
                     cancelled=False,
                     revised=False,
@@ -506,10 +484,7 @@ class ReasoningEngine:
                 )
 
         # 5) New goal: only if clearly new task
-        if (
-            intent in ["conversation:ack", "conversation:general"]
-            and len(inp.split()) < 5
-        ):
+        if intent in ["conversation:ack", "conversation:general"] and len(inp.split()) < 5:
             if current_goal:
                 return GoalResolution(
                     goal=current_goal,
@@ -586,10 +561,7 @@ class ReasoningEngine:
     @classmethod
     def _is_generic_conversational_intent(cls, intent: str) -> bool:
         low = str(intent or "").strip().lower()
-        return (
-            low.startswith("conversation:")
-            or low in cls._GENERIC_CONVERSATIONAL_INTENTS
-        )
+        return low.startswith("conversation:") or low in cls._GENERIC_CONVERSATIONAL_INTENTS
 
     def get_current_goal(self) -> Optional[ActiveGoal]:
         """Get current active goal"""
@@ -702,9 +674,7 @@ class ReasoningEngine:
         has_code_noun = any(token in text for token in code_nouns)
         return has_analysis_verb and has_code_noun
 
-    def _resolve_pronoun(
-        self, pronoun: str, snap: Dict[str, Any]
-    ) -> Optional[WorldEntity]:
+    def _resolve_pronoun(self, pronoun: str, snap: Dict[str, Any]) -> Optional[WorldEntity]:
         """Resolve pronoun to recent entity"""
         last_intent = snap.get("last_intent") or ""
         recent = snap.get("recent_entity_labels") or []
@@ -748,16 +718,12 @@ class ReasoningEngine:
     ) -> VerificationResult:
         """Verify plugin result against goal"""
         success = plugin_result.get("success", False)
-        response = (
-            plugin_result.get("response") or plugin_result.get("message") or ""
-        ).strip()
+        response = (plugin_result.get("response") or plugin_result.get("message") or "").strip()
 
         action_succeeded = self._check_action_success(success, response)
         goal_fulfilled = True
         if goal_intent or goal_description:
-            goal_fulfilled = self._check_goal_fulfilled(
-                success, response, goal_intent, goal_description
-            )
+            goal_fulfilled = self._check_goal_fulfilled(success, response, goal_intent, goal_description)
 
         verified = action_succeeded and goal_fulfilled
         msg: Optional[str] = None
@@ -839,9 +805,7 @@ if __name__ == "__main__":
     print(f"Resolved: {result.resolved_input}")
 
     # Test goal resolution
-    goal_res = engine.resolve_goal(
-        "delete the grocery list", "note:delete", {"note": "grocery list"}
-    )
+    goal_res = engine.resolve_goal("delete the grocery list", "note:delete", {"note": "grocery list"})
     print(f"Goal: {goal_res.goal.description if goal_res.goal else None}")
 
     # Test verification

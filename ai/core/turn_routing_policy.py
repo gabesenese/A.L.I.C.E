@@ -42,11 +42,7 @@ class TurnRoutingPolicy:
             force_try_plugins = True
 
         should_try_plugins = (
-            force_try_plugins
-            or (
-                (not is_short_followup and not is_pure_conversation)
-                or force_plugins_for_notes
-            )
+            force_try_plugins or ((not is_short_followup and not is_pure_conversation) or force_plugins_for_notes)
         ) and not force_skip_plugins
 
         if should_try_plugins:

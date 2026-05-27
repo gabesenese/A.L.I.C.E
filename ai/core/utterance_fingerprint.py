@@ -198,9 +198,7 @@ class FingerprintStore:
                 return
             try:
                 data = {k: v.as_dict() for k, v in self._cache.items()}
-                self._path.write_text(
-                    json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-                )
+                self._path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
                 self._dirty = False
                 logger.debug("[FINGERPRINT] Flushed %d entries to disk", len(data))
             except Exception as exc:

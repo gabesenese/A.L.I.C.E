@@ -19,9 +19,7 @@ def test_network_guard_and_rate_limiter():
 def test_capability_acquisition_and_benchmark():
     stack = get_roadmap_completion_stack()
 
-    cap = stack.capability_acquisition.register_candidate(
-        "new_skill", sandboxed=True, approved=True
-    )
+    cap = stack.capability_acquisition.register_candidate("new_skill", sandboxed=True, approved=True)
     assert cap["enabled"] is True
 
     bench = stack.benchmark_harness.run(

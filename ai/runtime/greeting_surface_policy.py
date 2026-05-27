@@ -84,11 +84,7 @@ def render_grounded_greeting(
         except Exception:
             resolved_local_time = None
     time_period = _get_time_period(resolved_local_time)
-    local_time_label = (
-        resolved_local_time.strftime("%Y-%m-%d %H:%M")
-        if resolved_local_time is not None
-        else ""
-    )
+    local_time_label = resolved_local_time.strftime("%Y-%m-%d %H:%M") if resolved_local_time is not None else ""
     if llm_generate:
         llm_candidate, llm_reasons, continuity_metadata = _try_constrained_llm_greeting(
             llm_generate=llm_generate,
@@ -139,9 +135,7 @@ def render_grounded_greeting(
     next_state["recent_active_objective"] = bool(has_active_focus)
     next_state["greeting_policy_version"] = "greeting_v1_final"
     normalized_rendered = _normalize_greeting_text(rendered)
-    recent_store = [
-        str(item).strip() for item in recent_greeting_texts if str(item or "").strip()
-    ]
+    recent_store = [str(item).strip() for item in recent_greeting_texts if str(item or "").strip()]
     if normalized_rendered:
         recent_store.append(normalized_rendered)
     next_state["recent_greeting_texts"] = recent_store[-5:]
@@ -173,17 +167,13 @@ def render_grounded_greeting(
     )
 
 
-def validate_chat_greeting(
-    text: str, *, pure_greeting: bool = True
-) -> GreetingValidationResult:
+def validate_chat_greeting(text: str, *, pure_greeting: bool = True) -> GreetingValidationResult:
     normalized = str(text or "").strip()
     if not normalized:
         return GreetingValidationResult(False, ["empty_greeting"], "")
 
     low = normalized.lower()
-    sentence_count = (
-        normalized.count(".") + normalized.count("?") + normalized.count("!")
-    )
+    sentence_count = normalized.count(".") + normalized.count("?") + normalized.count("!")
     if sentence_count < 1:
         return GreetingValidationResult(False, ["missing_sentence"], "")
     if sentence_count > 3:
@@ -233,9 +223,7 @@ def validate_chat_greeting(
     if any(token in low for token in banned_tokens):
         return GreetingValidationResult(False, ["banned_content"], "")
 
-    continuity = assess_continuity_claims(
-        text=normalized, memory_items=[], operator_state={}
-    )
+    continuity = assess_continuity_claims(text=normalized, memory_items=[], operator_state={})
     if continuity.unsupported_continuity_claim:
         return GreetingValidationResult(False, ["fake_continuity"], "")
 
@@ -318,15 +306,11 @@ def _try_constrained_llm_greeting(
     local_time_label: str = "",
     user_input: str = "",
 ) -> tuple[str, list[str], dict[str, Any]]:
-    recent_items = [
-        str(item).strip() for item in recent_greeting_texts if str(item or "").strip()
-    ]
+    recent_items = [str(item).strip() for item in recent_greeting_texts if str(item or "").strip()]
     if last_greeting_text.strip():
         recent_items.append(last_greeting_text.strip())
     recent_items = recent_items[-5:]
-    recent_block = (
-        "\n".join(f"- {item}" for item in recent_items) if recent_items else "- (none)"
-    )
+    recent_block = "\n".join(f"- {item}" for item in recent_items) if recent_items else "- (none)"
     variant = greeting_count % 4
 
     def _build_prompt(strict_retry: bool = False) -> str:
@@ -335,9 +319,7 @@ def _try_constrained_llm_greeting(
             if strict_retry
             else ""
         )
-        time_rules = (
-            "Do not reference the time of day at all — no morning, afternoon, evening, night, early, late, or schedule observations.\n"
-        )
+        time_rules = "Do not reference the time of day at all — no morning, afternoon, evening, night, early, late, or schedule observations.\n"
         return (
             f"Write Alice's opening reply to {user_name or 'Gabriel'}.\n"
             "Alice is a direct, dry, invested companion — not a warm assistant. She has presence and personality.\n"
@@ -397,9 +379,7 @@ def _try_constrained_llm_greeting(
         continuity = assess_continuity_claims(
             text=candidate,
             memory_items=[],
-            operator_state={"current_focus": current_focus}
-            if allow_focus_reference
-            else {},
+            operator_state={"current_focus": current_focus} if allow_focus_reference else {},
         )
         continuity_meta = dict(continuity.metadata() or {})
         continuity_meta.setdefault("broad_memory_suppressed", True)
@@ -476,14 +456,9 @@ def validate_greeting_candidate(
     for reason, tokens in banned_map.items():
         if any(token in low for token in tokens):
             reasons.append(reason)
-    if (
-        "machine learning" in low
-        and "machine learning" not in str(user_input or "").lower()
-    ):
+    if "machine learning" in low and "machine learning" not in str(user_input or "").lower():
         reasons.append("stale_memory_topic")
-    if not allow_focus_reference and any(
-        token in low for token in ("current focus", "current objective", "routing")
-    ):
+    if not allow_focus_reference and any(token in low for token in ("current focus", "current objective", "routing")):
         reasons.append("project_status_in_plain_greeting")
     if reasons:
         return GreetingValidationResult(False, sorted(set(reasons)), "")
@@ -507,9 +482,7 @@ def _is_repeated_greeting(candidate: str, recent_greeting_texts: list[str]) -> b
         overlap = (len(candidate_tokens & recent_tokens) / len(union)) if union else 0.0
         if overlap > 0.75:
             return True
-        if candidate_checkin and candidate_checkin == _extract_checkin_phrase(
-            norm_recent
-        ):
+        if candidate_checkin and candidate_checkin == _extract_checkin_phrase(norm_recent):
             shared_openers = {
                 "good to see you",
                 "good to hear from you",
@@ -517,10 +490,7 @@ def _is_repeated_greeting(candidate: str, recent_greeting_texts: list[str]) -> b
                 "how's your day going",
                 "how are you doing",
             }
-            if any(
-                phrase in norm_candidate and phrase in norm_recent
-                for phrase in shared_openers
-            ):
+            if any(phrase in norm_candidate and phrase in norm_recent for phrase in shared_openers):
                 return True
     return False
 
@@ -562,9 +532,7 @@ def _has_time_period_mismatch(text: str, time_period: str) -> bool:
     has_evening = "evening" in low
     has_night = bool(re.search(r"\bnight\b", low))
     has_tonight = "tonight" in low
-    has_time_phrase = (
-        has_morning or has_afternoon or has_evening or has_night or has_tonight
-    )
+    has_time_phrase = has_morning or has_afternoon or has_evening or has_night or has_tonight
     if not has_time_phrase:
         return False
     period = str(time_period or "").strip().lower()

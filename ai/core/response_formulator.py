@@ -103,13 +103,9 @@ class ResponseFormulator:
             r"\b(?:intent|confidence|route|user_input|raw_response|resolved_intent|response_type|strategy|plan|score|policy|contract|decision|routing)\s*=",
             re.IGNORECASE,
         ),
-        re.compile(
-            r"\b(?:analysis|context|executive|response\s+gate)\s*[=:]", re.IGNORECASE
-        ),
+        re.compile(r"\b(?:analysis|context|executive|response\s+gate)\s*[=:]", re.IGNORECASE),
     ]
-    CLARIFICATION_FALLBACK = (
-        "Please share one missing detail so I can answer precisely."
-    )
+    CLARIFICATION_FALLBACK = "Please share one missing detail so I can answer precisely."
     GENERIC_FALLBACK = "I can help with that."
     DIRECT_RETRY_FALLBACK = "I can answer directly once you share one concrete detail."
     AGENTIC_MODE_FALLBACK = (
@@ -260,10 +256,7 @@ class ResponseFormulator:
         )
 
         has_direct_structure = any(re.search(pat, text) for pat in direct_patterns)
-        is_question_like = bool(
-            "?" in text
-            or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", text)
-        )
+        is_question_like = bool("?" in text or re.match(r"^\s*(what|which|how|why|explain|define|compare)\b", text))
         return bool(has_direct_structure and is_question_like)
 
     def _sanitize_user_message(self, text: str) -> str:
@@ -316,9 +309,7 @@ class ResponseFormulator:
         text = str(user_input or "").strip()
         low = text.lower()
 
-        diff_match = re.search(
-            r"difference\s+between\s+(.+?)\s+and\s+(.+?)(?:\?|$)", low
-        )
+        diff_match = re.search(r"difference\s+between\s+(.+?)\s+and\s+(.+?)(?:\?|$)", low)
         if diff_match:
             left = diff_match.group(1).strip(" .?!")
             right = diff_match.group(2).strip(" .?!")
@@ -382,17 +373,11 @@ class ResponseFormulator:
             return self._compose_direct_answer_fallback(user_input)
 
         if tool_results and isinstance(tool_results, dict):
-            msg = str(
-                tool_results.get("response") or tool_results.get("message") or ""
-            ).strip()
+            msg = str(tool_results.get("response") or tool_results.get("message") or "").strip()
             if msg and not self.is_internal(msg):
                 return msg
 
-            data = (
-                tool_results.get("data")
-                if isinstance(tool_results.get("data"), dict)
-                else {}
-            )
+            data = tool_results.get("data") if isinstance(tool_results.get("data"), dict) else {}
             plugin = str(tool_results.get("plugin") or "").strip()
             action = str(tool_results.get("action") or "").strip()
             if plugin or action:
@@ -426,9 +411,7 @@ class ResponseFormulator:
             text,
             flags=re.IGNORECASE,
         )
-        text = "\n".join(
-            re.sub(r"[^\S\n]+", " ", line).strip() for line in text.split("\n")
-        )
+        text = "\n".join(re.sub(r"[^\S\n]+", " ", line).strip() for line in text.split("\n"))
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
         return text
 
@@ -448,9 +431,7 @@ class ResponseFormulator:
         candidate = ""
 
         if tool_results and isinstance(tool_results, dict):
-            candidate = str(
-                tool_results.get("response") or tool_results.get("message") or ""
-            ).strip()
+            candidate = str(tool_results.get("response") or tool_results.get("message") or "").strip()
 
         if not candidate:
             candidate = str((context or {}).get("response") or "").strip()
@@ -507,25 +488,17 @@ class ResponseFormulator:
 
         user_input = str(context.get("user_input") or "").strip()
         domain = str(payload.get("domain") or "current events").strip()
-        source_requirement = str(
-            payload.get("source_requirement") or "live sources"
-        ).strip()
+        source_requirement = str(payload.get("source_requirement") or "live sources").strip()
         blocked_source = str(payload.get("blocked_source") or "model memory").strip()
         search_dimensions = [
-            str(item).strip()
-            for item in list(payload.get("search_dimensions") or [])
-            if str(item).strip()
+            str(item).strip() for item in list(payload.get("search_dimensions") or []) if str(item).strip()
         ]
         if not search_dimensions:
             search_dimensions = ["topic", "region", "market"]
 
         dimensions = ", ".join(search_dimensions[:-1])
         if len(search_dimensions) > 1:
-            dimensions = (
-                f"{dimensions}, or {search_dimensions[-1]}"
-                if dimensions
-                else search_dimensions[-1]
-            )
+            dimensions = f"{dimensions}, or {search_dimensions[-1]}" if dimensions else search_dimensions[-1]
         else:
             dimensions = search_dimensions[0]
 
@@ -544,9 +517,7 @@ class ResponseFormulator:
                 f"from {blocked_source}; narrow it by {dimensions} and I can fetch current context."
             ),
         ]
-        index_basis = (
-            sum(ord(ch) for ch in user_input.lower()) if user_input else len(domain)
-        )
+        index_basis = sum(ord(ch) for ch in user_input.lower()) if user_input else len(domain)
         seed = variants[index_basis % len(variants)]
         return self._dynamic_phrase(seed, tone="careful and concise")
 
@@ -561,12 +532,8 @@ class ResponseFormulator:
                         self.templates[action] = ResponseTemplate(
                             action=action,
                             example_data=template_data.get("example_data", {}),
-                            example_phrasings=template_data.get(
-                                "example_phrasings", []
-                            ),
-                            formulation_rules=template_data.get(
-                                "formulation_rules", []
-                            ),
+                            example_phrasings=template_data.get("example_phrasings", []),
+                            formulation_rules=template_data.get("formulation_rules", []),
                         )
                 logger.info(f"Loaded {len(self.templates)} response templates")
             except Exception as e:
@@ -580,9 +547,7 @@ class ResponseFormulator:
                 with open(independence_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self.independent_actions = set(data.get("independent_actions", []))
-                logger.info(
-                    f"Alice can independently formulate {len(self.independent_actions)} action types"
-                )
+                logger.info(f"Alice can independently formulate {len(self.independent_actions)} action types")
             except Exception as e:
                 logger.error(f"Error loading independence data: {e}")
 
@@ -607,9 +572,7 @@ class ResponseFormulator:
         if action in self.independent_actions and self.phrasing_learner:
             alice_response = self._formulate_independently(action, data, success, tone)
             if alice_response:
-                logger.info(
-                    f"[ResponseFormulator] Alice formulated '{action}' independently"
-                )
+                logger.info(f"[ResponseFormulator] Alice formulated '{action}' independently")
                 return alice_response
 
         # Local fallback (no Ollama): generate response and learn from it.
@@ -618,9 +581,7 @@ class ResponseFormulator:
             self._learn_formulation(action, data, response, tone)
         return response
 
-    def _formulate_independently(
-        self, action: str, data: Dict[str, Any], success: bool, tone: str
-    ) -> Optional[str]:
+    def _formulate_independently(self, action: str, data: Dict[str, Any], success: bool, tone: str) -> Optional[str]:
         """Formulate response using Alice's learned patterns"""
         if not self.phrasing_learner:
             return None
@@ -718,9 +679,7 @@ class ResponseFormulator:
                 return self._dynamic_phrase(f"Done: '{subject}'.", tone="helpful")
             return self._dynamic_phrase("Done.", tone="helpful")
 
-    def _learn_formulation(
-        self, action: str, data: Dict[str, Any], response: str, tone: str
-    ):
+    def _learn_formulation(self, action: str, data: Dict[str, Any], response: str, tone: str):
         """Learn from a successful formulation"""
         if not self.phrasing_learner:
             return
@@ -737,9 +696,7 @@ class ResponseFormulator:
             if self.phrasing_learner.can_phrase_myself(thought, tone):
                 self.independent_actions.add(action)
                 self._save_independence_data()
-                logger.info(
-                    f"[ResponseFormulator] Alice achieved independence for '{action}'!"
-                )
+                logger.info(f"[ResponseFormulator] Alice achieved independence for '{action}'!")
         except Exception as e:
             logger.debug(f"Could not learn formulation: {e}")
 
@@ -748,9 +705,7 @@ class ResponseFormulator:
         independence_file = self.storage_path / "independence.json"
         try:
             with open(independence_file, "w", encoding="utf-8") as f:
-                json.dump(
-                    {"independent_actions": list(self.independent_actions)}, f, indent=2
-                )
+                json.dump({"independent_actions": list(self.independent_actions)}, f, indent=2)
         except Exception as e:
             logger.error(f"Error saving independence data: {e}")
 
@@ -795,9 +750,7 @@ class ResponseFormulator:
             "total_templates": len(self.templates),
             "independent_actions": len(self.independent_actions),
             "learning_progress": (
-                f"{len(self.independent_actions)}/{len(self.templates)}"
-                if self.templates
-                else "0/0"
+                f"{len(self.independent_actions)}/{len(self.templates)}" if self.templates else "0/0"
             ),
         }
 
@@ -806,15 +759,11 @@ class ResponseFormulator:
 _formulator = None
 
 
-def get_response_formulator(
-    phrasing_learner=None, llm_gateway=None
-) -> ResponseFormulator:
+def get_response_formulator(phrasing_learner=None, llm_gateway=None) -> ResponseFormulator:
     """Get or create the response formulator singleton"""
     global _formulator
     if _formulator is None:
-        _formulator = ResponseFormulator(
-            phrasing_learner=phrasing_learner, llm_gateway=llm_gateway
-        )
+        _formulator = ResponseFormulator(phrasing_learner=phrasing_learner, llm_gateway=llm_gateway)
     else:
         # Update dependencies if provided (supports late wiring)
         if phrasing_learner is not None and _formulator.phrasing_learner is None:

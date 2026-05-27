@@ -84,9 +84,7 @@ class SimpleGreetingPlugin(PluginInterface):
 
         return False
 
-    def execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         """
         Execute the plugin functionality.
 
@@ -142,9 +140,7 @@ class SimpleGreetingPlugin(PluginInterface):
         Cleanup when plugin is shut down.
         """
         try:
-            logger.info(
-                f"{self.name} shutting down. Total greetings: {self.greeting_count}"
-            )
+            logger.info(f"{self.name} shutting down. Total greetings: {self.greeting_count}")
             # Save state if needed
         except Exception as e:
             logger.error(f"{self.name} shutdown error: {e}")

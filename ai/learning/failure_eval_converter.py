@@ -53,11 +53,7 @@ def write_turn_eval(
     """
     try:
         _EVAL_PATH.parent.mkdir(parents=True, exist_ok=True)
-        score = (
-            _SUCCESS_SCORE
-            if success
-            else _VETO_SCORES.get(str(veto_reason or ""), _DEFAULT_FAILURE_SCORE)
-        )
+        score = _SUCCESS_SCORE if success else _VETO_SCORES.get(str(veto_reason or ""), _DEFAULT_FAILURE_SCORE)
         record = {
             "trace_id": str(trace_id or ""),
             "action_type": str(intent or "unknown"),
@@ -87,9 +83,7 @@ class FailureEvalConverter:
 
         watermark = self._read_watermark()
         try:
-            lines = _FAILURES_PATH.read_text(
-                encoding="utf-8", errors="ignore"
-            ).splitlines()
+            lines = _FAILURES_PATH.read_text(encoding="utf-8", errors="ignore").splitlines()
         except Exception:
             return {"converted": 0, "total_failures": 0, "new": 0}
 

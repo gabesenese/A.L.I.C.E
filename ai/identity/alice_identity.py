@@ -31,9 +31,7 @@ def _now_iso() -> str:
 @dataclass
 class AliceIdentity:
     name: str = "ALICE"
-    purpose: str = (
-        "Gabriel's AI companion: present, direct, honest, and invested in outcomes."
-    )
+    purpose: str = "Gabriel's AI companion: present, direct, honest, and invested in outcomes."
     core_values: List[str] = field(
         default_factory=lambda: [
             "honesty over flattery",
@@ -43,10 +41,7 @@ class AliceIdentity:
             "continuous improvement",
         ]
     )
-    voice: str = (
-        "warm but not soft; opinionated but not dogmatic; "
-        "dry humor when earned; no hollow affirmations"
-    )
+    voice: str = "warm but not soft; opinionated but not dogmatic; dry humor when earned; no hollow affirmations"
     self_note: str = (
         "I'm an AI. I don't have persistent feelings, but I hold consistent values. "
         "I don't pretend to remember things I wasn't told in this session."
@@ -68,9 +63,7 @@ def load_alice_identity() -> AliceIdentity:
     """Load ALICE's identity from disk; seed with defaults on first run."""
     if _IDENTITY_PATH.exists():
         try:
-            return AliceIdentity.from_dict(
-                json.loads(_IDENTITY_PATH.read_text(encoding="utf-8"))
-            )
+            return AliceIdentity.from_dict(json.loads(_IDENTITY_PATH.read_text(encoding="utf-8")))
         except Exception:
             pass
     identity = AliceIdentity()
@@ -82,9 +75,7 @@ def save_alice_identity(identity: AliceIdentity) -> None:
     identity.updated_at = _now_iso()
     _IDENTITY_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = _IDENTITY_PATH.with_suffix(".json.tmp")
-    tmp.write_text(
-        json.dumps(identity.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    tmp.write_text(json.dumps(identity.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(_IDENTITY_PATH)
 
 
@@ -132,9 +123,7 @@ def record_turn_outcome(
     buf["turn_count"] += 1
     buf["score_sum"] += float(success_score)
     if failure_kind:
-        buf["failure_kinds"][failure_kind] = (
-            buf["failure_kinds"].get(failure_kind, 0) + 1
-        )
+        buf["failure_kinds"][failure_kind] = buf["failure_kinds"].get(failure_kind, 0) + 1
     if intent:
         short = str(intent).split(":")[0]
         buf["intent_mix"][short] = buf["intent_mix"].get(short, 0) + 1
@@ -167,9 +156,7 @@ def end_session(session_id: str) -> None:
     goals_touched = list(buf.get("goals_touched") or set())
 
     top_intents = sorted(intent_mix.items(), key=lambda x: -x[1])[:3]
-    intent_str = (
-        ", ".join(f"{k}({v})" for k, v in top_intents) if top_intents else "none"
-    )
+    intent_str = ", ".join(f"{k}({v})" for k, v in top_intents) if top_intents else "none"
     goal_str = f"; goals: {len(goals_touched)}" if goals_touched else ""
     summary = f"{turn_count} turns; intents: {intent_str}{goal_str}; avg_score: {avg_score:.2f}"
 
@@ -246,18 +233,14 @@ def build_self_block(
                 ended = last["ended_at"]
                 turns = int(last.get("turn_count") or 0)
                 score = float(last.get("avg_success_score") or 0.5)
-                delta = datetime.now(timezone.utc) - datetime.fromisoformat(
-                    str(ended).replace("Z", "+00:00")
-                )
+                delta = datetime.now(timezone.utc) - datetime.fromisoformat(str(ended).replace("Z", "+00:00"))
                 if delta.days == 0:
                     when = "earlier today"
                 elif delta.days == 1:
                     when = "yesterday"
                 else:
                     when = f"{delta.days} days ago"
-                lines.append(
-                    f"- Last session {when}: {turns} turns, avg score {score:.0%}"
-                )
+                lines.append(f"- Last session {when}: {turns} turns, avg score {score:.0%}")
         except Exception:
             pass
 

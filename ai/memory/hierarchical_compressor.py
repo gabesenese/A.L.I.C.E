@@ -64,12 +64,8 @@ class HierarchicalCompressor:
                     conn.execute(f"ALTER TABLE memories ADD COLUMN {col} {defn}")
                 except sqlite3.OperationalError:
                     pass  # already exists
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_mem_level  ON memories(memory_level)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_mem_parent ON memories(parent_id)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_level  ON memories(memory_level)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_parent ON memories(parent_id)")
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -119,9 +115,7 @@ class HierarchicalCompressor:
 
     def _summarise(self, entries: List[Dict], label: str) -> str:
         """Build a plain-text summary from a group of entries."""
-        unique = list(dict.fromkeys(e["content"] for e in entries if e.get("content")))[
-            :10
-        ]
+        unique = list(dict.fromkeys(e["content"] for e in entries if e.get("content")))[:10]
         snippets = " | ".join(c[:80] for c in unique)
         return f"[{label}] {len(entries)} memories: {snippets}"
 
@@ -146,9 +140,7 @@ class HierarchicalCompressor:
                     mid,
                     content,
                     now,
-                    json.dumps(
-                        {"compressed_from": source_ids, "compression_level": level}
-                    ),
+                    json.dumps({"compressed_from": source_ids, "compression_level": level}),
                     round(importance, 4),
                     level,
                 ),
@@ -187,9 +179,7 @@ class HierarchicalCompressor:
                     continue
                 avg_imp = sum(e["importance"] for e in group) / len(group)
                 summary = self._summarise(group, day)
-                self._write_summary(
-                    summary, LEVEL_DAY, [e["id"] for e in group], avg_imp
-                )
+                self._write_summary(summary, LEVEL_DAY, [e["id"] for e in group], avg_imp)
                 created += 1
 
         elif level == LEVEL_DAY:
@@ -201,17 +191,13 @@ class HierarchicalCompressor:
                     continue
                 avg_imp = sum(e["importance"] for e in group) / len(group)
                 summary = self._summarise(group, f"Week {week}")
-                self._write_summary(
-                    summary, LEVEL_WEEK, [e["id"] for e in group], avg_imp
-                )
+                self._write_summary(summary, LEVEL_WEEK, [e["id"] for e in group], avg_imp)
                 created += 1
 
         elif level == LEVEL_WEEK:
             avg_imp = sum(e["importance"] for e in entries) / len(entries)
             summary = self._summarise(entries, "Long-term")
-            self._write_summary(
-                summary, LEVEL_TOPIC, [e["id"] for e in entries], avg_imp
-            )
+            self._write_summary(summary, LEVEL_TOPIC, [e["id"] for e in entries], avg_imp)
             created = 1
 
         if created:

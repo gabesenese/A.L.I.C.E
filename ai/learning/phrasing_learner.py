@@ -45,9 +45,7 @@ class PhrasingLearner:
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._load_learned_patterns()
-        logger.info(
-            f"[PhrasingLearner] Initialized with {len(self.learned_patterns)} patterns"
-        )
+        logger.info(f"[PhrasingLearner] Initialized with {len(self.learned_patterns)} patterns")
 
     def _load_learned_patterns(self) -> None:
         """Load previously learned phrasings from storage"""
@@ -301,13 +299,8 @@ class PhrasingLearner:
         self._persist(entry)
 
         # Log learning progress
-        if (
-            new_confidence >= self.confidence_threshold
-            and old_confidence < self.confidence_threshold
-        ):
-            logger.info(
-                f"[PhrasingLearner] Alice learned pattern '{pattern}'! Can now phrase independently."
-            )
+        if new_confidence >= self.confidence_threshold and old_confidence < self.confidence_threshold:
+            logger.info(f"[PhrasingLearner] Alice learned pattern '{pattern}'! Can now phrase independently.")
         else:
             logger.info(
                 f"[PhrasingLearner] Learning '{pattern}' (confidence: {new_confidence:.2f}, examples: {len(self.learned_patterns[pattern])})"
@@ -347,28 +340,18 @@ class PhrasingLearner:
         # Check confidence score
         confidence = self.confidence_scores.get(pattern, 0.0)
         if confidence < self.confidence_threshold:
-            logger.debug(
-                f"[PhrasingLearner] Low confidence ({confidence:.2f}) for '{pattern}', need Ollama"
-            )
+            logger.debug(f"[PhrasingLearner] Low confidence ({confidence:.2f}) for '{pattern}', need Ollama")
             return False
 
         # Check if we have examples with this tone
-        examples_with_tone = [
-            e
-            for e in self.learned_patterns[pattern]
-            if e["context"].get("tone") == tone
-        ]
+        examples_with_tone = [e for e in self.learned_patterns[pattern] if e["context"].get("tone") == tone]
 
         if len(examples_with_tone) < self.min_examples_for_confidence:
-            logger.debug(
-                f"[PhrasingLearner] Need more examples with tone '{tone}' (have {len(examples_with_tone)})"
-            )
+            logger.debug(f"[PhrasingLearner] Need more examples with tone '{tone}' (have {len(examples_with_tone)})")
             return False
 
         # Alice is confident and has learned this!
-        logger.info(
-            f"[PhrasingLearner] Alice can phrase '{pattern}' independently (confidence: {confidence:.2f})"
-        )
+        logger.info(f"[PhrasingLearner] Alice can phrase '{pattern}' independently (confidence: {confidence:.2f})")
         return True
 
     def phrase_myself(self, alice_thought: Dict, tone: str) -> str:
@@ -391,11 +374,7 @@ class PhrasingLearner:
         pattern = self._extract_pattern(alice_thought)
 
         # Get examples with matching tone
-        examples_with_tone = [
-            e
-            for e in self.learned_patterns[pattern]
-            if e["context"].get("tone") == tone
-        ]
+        examples_with_tone = [e for e in self.learned_patterns[pattern] if e["context"].get("tone") == tone]
 
         if not examples_with_tone:
             # Fallback: use any example with this pattern
@@ -423,9 +402,7 @@ class PhrasingLearner:
         logger.info(f"[PhrasingLearner] Alice phrased '{pattern}' independently!")
         return adapted_phrasing
 
-    def _adapt_phrasing(
-        self, learned_phrasing: str, current_thought: Dict, learned_thought: Dict
-    ) -> str:
+    def _adapt_phrasing(self, learned_phrasing: str, current_thought: Dict, learned_thought: Dict) -> str:
         """
         Adapt a learned phrasing to current situation.
         Keeps the structure/style but swaps in new content.
@@ -463,11 +440,7 @@ class PhrasingLearner:
                 if key in current_thought and key not in ["type", "confidence", "data"]:
                     old_val = learned_thought[key]
                     new_val = current_thought[key]
-                    if (
-                        old_val != new_val
-                        and old_val is not None
-                        and new_val is not None
-                    ):
+                    if old_val != new_val and old_val is not None and new_val is not None:
                         # Convert to string for replacement
                         old_str = str(old_val)
                         new_str = str(new_val)
@@ -491,22 +464,14 @@ class PhrasingLearner:
     def get_stats(self) -> Dict[str, Any]:
         """Get learning statistics"""
         total_patterns = len(self.learned_patterns)
-        total_examples = sum(
-            len(examples) for examples in self.learned_patterns.values()
-        )
-        confident_patterns = sum(
-            1
-            for conf in self.confidence_scores.values()
-            if conf >= self.confidence_threshold
-        )
+        total_examples = sum(len(examples) for examples in self.learned_patterns.values())
+        confident_patterns = sum(1 for conf in self.confidence_scores.values() if conf >= self.confidence_threshold)
 
         return {
             "total_patterns": total_patterns,
             "total_examples": total_examples,
             "confident_patterns": confident_patterns,
-            "independence_rate": (
-                confident_patterns / total_patterns if total_patterns > 0 else 0.0
-            ),
+            "independence_rate": (confident_patterns / total_patterns if total_patterns > 0 else 0.0),
             "patterns": {
                 pattern: {
                     "examples": len(self.learned_patterns[pattern]),
@@ -535,31 +500,23 @@ if __name__ == "__main__":
         "scope": ["ai/", "app/", "features/"],
     }
 
-    ollama_response = (
-        "Yes, I can read and analyze my Python codebase across all directories."
-    )
+    ollama_response = "Yes, I can read and analyze my Python codebase across all directories."
 
     can_do_it = learner.can_phrase_myself(alice_thought, "warm and helpful")
     print(f"Can Alice phrase this herself? {can_do_it}")
 
     if not can_do_it:
         print("Alice asks Ollama for help...")
-        learner.record_phrasing(
-            alice_thought, ollama_response, {"tone": "warm and helpful"}
-        )
+        learner.record_phrasing(alice_thought, ollama_response, {"tone": "warm and helpful"})
         print(f"Ollama: {ollama_response}")
 
     # Session 2
     print("\n[Session 2] Alice asks Ollama again...")
-    learner.record_phrasing(
-        alice_thought, ollama_response, {"tone": "warm and helpful"}
-    )
+    learner.record_phrasing(alice_thought, ollama_response, {"tone": "warm and helpful"})
 
     # Session 3
     print("\n[Session 3] Alice asks Ollama again...")
-    learner.record_phrasing(
-        alice_thought, ollama_response, {"tone": "warm and helpful"}
-    )
+    learner.record_phrasing(alice_thought, ollama_response, {"tone": "warm and helpful"})
 
     # Session 4 - Alice is confident!
     print("\n[Session 4] Alice tries herself...")

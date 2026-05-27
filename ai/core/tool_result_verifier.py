@@ -82,9 +82,7 @@ class ToolResultVerifier:
         accepted = len(issues) == 0
         confidence = conf_val if accepted else min(conf_val, 0.4)
 
-        return VerificationResult(
-            accepted=accepted, confidence=confidence, issues=issues
-        )
+        return VerificationResult(accepted=accepted, confidence=confidence, issues=issues)
 
 
 _tool_result_verifier: ToolResultVerifier | None = None

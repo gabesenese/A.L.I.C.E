@@ -117,9 +117,7 @@ class FallbackGraph:
             ),
         ],
         ("weather", "timeout"): [
-            FallbackStep(
-                "retry", "Weather service timed out — retrying.", requires_user=False
-            ),
+            FallbackStep("retry", "Weather service timed out — retrying.", requires_user=False),
             FallbackStep(
                 "escalate",
                 "Weather service is unreachable right now. Try again in a moment.",
@@ -163,9 +161,7 @@ class FallbackGraph:
             ),
         ],
         ("default", "timeout"): [
-            FallbackStep(
-                "retry", "Request timed out — retrying once.", requires_user=False
-            ),
+            FallbackStep("retry", "Request timed out — retrying once.", requires_user=False),
             FallbackStep(
                 "escalate",
                 "That's taking too long. Try rephrasing.",
@@ -197,11 +193,7 @@ class FallbackGraph:
             return list(steps)
 
         # Global default
-        return list(
-            self._GRAPH.get(
-                ("default", err), self._GRAPH.get(("default", "tool_failed"), [])
-            )
-        )
+        return list(self._GRAPH.get(("default", err), self._GRAPH.get(("default", "tool_failed"), [])))
 
     def first_user_message(self, intent: str, error_type: str) -> Optional[str]:
         """Return the first recovery message for immediate user display, or None."""
@@ -265,9 +257,7 @@ class RetryMemory:
         # Escalate step index with repeat failures
         return min(rec.count - 1, 2)
 
-    def escalation_message(
-        self, user_id: str, intent: str, error_type: str
-    ) -> Optional[str]:
+    def escalation_message(self, user_id: str, intent: str, error_type: str) -> Optional[str]:
         """Return an escalation message if failures have persisted beyond the fallback graph."""
         key = self._key(user_id, intent, error_type)
         rec = self._failures.get(key)

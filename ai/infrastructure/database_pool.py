@@ -155,9 +155,7 @@ class ConnectionPool:
                 else:
                     raise
 
-    def execute_query(
-        self, query: str, params: tuple = None, fetch: bool = True
-    ) -> Any:
+    def execute_query(self, query: str, params: tuple = None, fetch: bool = True) -> Any:
         """Execute query with automatic connection management"""
         with self.get_connection() as conn:
             if self.config.db_type == DatabaseType.POSTGRESQL:
@@ -219,9 +217,7 @@ class ConnectionPool:
 
         if self.config.db_type == DatabaseType.POSTGRESQL and self.pool:
             # Get active connection count - not directly available in psycopg2
-            stats["pool_size"] = (
-                f"{self.config.min_connections}-{self.config.max_connections}"
-            )
+            stats["pool_size"] = f"{self.config.min_connections}-{self.config.max_connections}"
 
         stats["healthy"] = self.health_check()
         return stats

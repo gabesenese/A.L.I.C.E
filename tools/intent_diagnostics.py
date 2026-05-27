@@ -155,13 +155,9 @@ def _warm_up_router(records: List[dict]) -> None:
             conf = float(r.get("original_confidence") or r.get("confidence") or 0.5)
             if original and corrected:
                 was_correct = original == corrected
-                router.record_outcome(
-                    original, was_correct=was_correct, confidence=conf
-                )
+                router.record_outcome(original, was_correct=was_correct, confidence=conf)
                 warmed += 1
-        print(
-            f"[warm-up] Seeded BayesianIntentRouter with {warmed} historical records."
-        )
+        print(f"[warm-up] Seeded BayesianIntentRouter with {warmed} historical records.")
     except Exception as exc:
         print(f"[warm-up] Router warm-up skipped: {exc}")
 
@@ -170,9 +166,7 @@ def _warm_up_router(records: List[dict]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate intent precision/recall diagnostics from correction logs."
-    )
+    parser = argparse.ArgumentParser(description="Generate intent precision/recall diagnostics from correction logs.")
     parser.add_argument(
         "--corrections",
         default="memory/auto_generated_corrections.jsonl",

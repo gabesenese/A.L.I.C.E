@@ -62,9 +62,7 @@ class FeedbackInjector:
 
     def _calculate_priority(self, signal: TrainingSignal) -> float:
         """Calculate training priority (0.0-1.0)"""
-        base_priority = {"negative": 1.0, "improvement": 0.6, "positive": 0.2}.get(
-            signal.signal_type, 0.5
-        )
+        base_priority = {"negative": 1.0, "improvement": 0.6, "positive": 0.2}.get(signal.signal_type, 0.5)
 
         return base_priority * signal.strength
 
@@ -122,9 +120,7 @@ class FeedbackInjector:
                 examples.extend(skill_list)
 
             if examples:
-                avg_priority = sum(e.get("priority", 0) for e in examples) / len(
-                    examples
-                )
+                avg_priority = sum(e.get("priority", 0) for e in examples) / len(examples)
                 aggregated[domain]["avg_priority"] = avg_priority
 
         return aggregated
@@ -164,9 +160,7 @@ class FeedbackInjector:
                 "domain": domain,
                 "count": len(examples),
                 "created": datetime.now().isoformat(),
-                "priority_weighted": (
-                    sum(e.get("priority", 0) for e in examples) if examples else 0
-                ),
+                "priority_weighted": (sum(e.get("priority", 0) for e in examples) if examples else 0),
             },
         }
 

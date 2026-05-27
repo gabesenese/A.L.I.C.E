@@ -36,27 +36,16 @@ class SystemStateAPI:
             return {}
 
         return {
-            "nlp_processor": (
-                "active"
-                if hasattr(self.alice, "nlp") and self.alice.nlp
-                else "inactive"
-            ),
-            "router_initialized": hasattr(self.alice, "router")
-            and self.alice.router is not None,
+            "nlp_processor": ("active" if hasattr(self.alice, "nlp") and self.alice.nlp else "inactive"),
+            "router_initialized": hasattr(self.alice, "router") and self.alice.router is not None,
             "reasoning_engine": (
                 "active"
-                if (
-                    getattr(self.alice, "reasoning_engine", None)
-                    or getattr(self.alice, "reasoning", None)
-                )
+                if (getattr(self.alice, "reasoning_engine", None) or getattr(self.alice, "reasoning", None))
                 else "inactive"
             ),
             "learning_engine": (
                 "active"
-                if (
-                    getattr(self.alice, "learning_engine", None)
-                    or getattr(self.alice, "learning", None)
-                )
+                if (getattr(self.alice, "learning_engine", None) or getattr(self.alice, "learning", None))
                 else "inactive"
             ),
         }
@@ -81,16 +70,12 @@ class SystemStateAPI:
                 # Estimate memory entries
                 if hasattr(mem_sys, "episodic_memory"):
                     state["episodic_memories"] = (
-                        len(mem_sys.episodic_memory)
-                        if hasattr(mem_sys.episodic_memory, "__len__")
-                        else 0
+                        len(mem_sys.episodic_memory) if hasattr(mem_sys.episodic_memory, "__len__") else 0
                     )
 
                 if hasattr(mem_sys, "semantic_memory"):
                     state["semantic_memories"] = (
-                        len(mem_sys.semantic_memory)
-                        if hasattr(mem_sys.semantic_memory, "__len__")
-                        else 0
+                        len(mem_sys.semantic_memory) if hasattr(mem_sys.semantic_memory, "__len__") else 0
                     )
 
                 # Get process memory
@@ -115,10 +100,7 @@ class SystemStateAPI:
                 except Exception:
                     pass
             if hasattr(self.alice.goal_system, "active_goals"):
-                return [
-                    self._format_goal(goal)
-                    for goal in list(self.alice.goal_system.active_goals or [])[:5]
-                ]
+                return [self._format_goal(goal) for goal in list(self.alice.goal_system.active_goals or [])[:5]]
 
         summarizer = getattr(
             self.alice,
@@ -126,10 +108,7 @@ class SystemStateAPI:
             getattr(self.alice, "_session_summarizer", None),
         )
         if summarizer and hasattr(summarizer, "active_goals"):
-            return [
-                self._format_goal(goal)
-                for goal in list(summarizer.active_goals or [])[:5]
-            ]
+            return [self._format_goal(goal) for goal in list(summarizer.active_goals or [])[:5]]
 
         return []
 
@@ -140,10 +119,7 @@ class SystemStateAPI:
             return goal
 
         title = str(
-            getattr(goal, "title", "")
-            or getattr(goal, "description", "")
-            or getattr(goal, "goal_id", "")
-            or goal
+            getattr(goal, "title", "") or getattr(goal, "description", "") or getattr(goal, "goal_id", "") or goal
         ).strip()
         status = str(getattr(goal, "status", "") or "").strip()
         if status and hasattr(getattr(goal, "status", None), "value"):
@@ -157,10 +133,7 @@ class SystemStateAPI:
 
         tasks = []
 
-        if (
-            hasattr(self.alice, "persistent_task_queue")
-            and self.alice.persistent_task_queue
-        ):
+        if hasattr(self.alice, "persistent_task_queue") and self.alice.persistent_task_queue:
             queue = self.alice.persistent_task_queue
             if hasattr(queue, "get_active_tasks"):
                 active = queue.get_active_tasks()
@@ -238,9 +211,7 @@ class SystemStateAPI:
         if hasattr(self.alice, "metrics") and self.alice.metrics:
             metrics = self.alice.metrics
             if hasattr(metrics, "avg_response_latency"):
-                state["avg_response_time_ms"] = getattr(
-                    metrics, "avg_response_latency", 0.0
-                )
+                state["avg_response_time_ms"] = getattr(metrics, "avg_response_latency", 0.0)
 
         return state
 
@@ -257,10 +228,7 @@ class SystemStateAPI:
             "uptime_seconds": 0,
         }
 
-        if (
-            hasattr(self.alice, "_session_summarizer")
-            and self.alice._session_summarizer
-        ):
+        if hasattr(self.alice, "_session_summarizer") and self.alice._session_summarizer:
             summarizer = self.alice._session_summarizer
             stats["session_id"] = summarizer.session_id[:8] + "..."
             stats["turn_count"] = summarizer.turn_count
@@ -316,9 +284,7 @@ class SystemStateAPI:
         # Check plugins
         plugins = snapshot.get("plugins", {})
         if plugins.get("failed_plugins"):
-            health["warnings"].append(
-                f"{len(plugins['failed_plugins'])} plugins failed to load"
-            )
+            health["warnings"].append(f"{len(plugins['failed_plugins'])} plugins failed to load")
 
         # Check tasks
         tasks = snapshot.get("active_tasks", [])

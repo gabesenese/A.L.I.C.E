@@ -198,9 +198,7 @@ class SelfReflectionSystem:
         except Exception:
             return (0, 0)
 
-    def _cache_get(
-        self, key: str, full_path: Optional[Path]
-    ) -> Optional[Dict[str, Any]]:
+    def _cache_get(self, key: str, full_path: Optional[Path]) -> Optional[Dict[str, Any]]:
         with self._cache_lock:
             entry = self._analysis_cache.get(key)
             if not entry:
@@ -211,19 +209,14 @@ class SelfReflectionSystem:
                 self._analysis_cache.pop(key, None)
                 return None
 
-            if (
-                full_path is not None
-                and self._get_file_signature(full_path) != cached_sig
-            ):
+            if full_path is not None and self._get_file_signature(full_path) != cached_sig:
                 self._analysis_cache.pop(key, None)
                 return None
 
             self._analysis_cache.move_to_end(key)
             return cached_data
 
-    def _cache_put(
-        self, key: str, analysis: Dict[str, Any], full_path: Optional[Path]
-    ) -> None:
+    def _cache_put(self, key: str, analysis: Dict[str, Any], full_path: Optional[Path]) -> None:
         sig = self._get_file_signature(full_path) if full_path is not None else (0, 0)
         with self._cache_lock:
             self._analysis_cache[key] = (analysis, datetime.now(), sig)
@@ -298,25 +291,16 @@ class SelfReflectionSystem:
             self._file_index_built_at = datetime.now()
             self._dir_mtime_snapshot = self._snapshot_dir_mtimes()
 
-    def _get_indexed_py_paths(
-        self, directory: Optional[str] = None, pattern: Optional[str] = None
-    ) -> List[str]:
+    def _get_indexed_py_paths(self, directory: Optional[str] = None, pattern: Optional[str] = None) -> List[str]:
         self._refresh_file_index()
         with self._index_lock:
             files = list(self._file_index_all_py)
 
         if directory:
-            files = [
-                rel for rel in files if self._path_starts_with_directory(rel, directory)
-            ]
+            files = [rel for rel in files if self._path_starts_with_directory(rel, directory)]
 
         if pattern:
-            files = [
-                rel
-                for rel in files
-                if fnmatch.fnmatch(Path(rel).name, pattern)
-                or fnmatch.fnmatch(rel, pattern)
-            ]
+            files = [rel for rel in files if fnmatch.fnmatch(Path(rel).name, pattern) or fnmatch.fnmatch(rel, pattern)]
 
         return files
 
@@ -325,11 +309,7 @@ class SelfReflectionSystem:
         # Direct absolute path
         if os.path.isabs(file_path):
             candidate = Path(file_path).resolve()
-            return (
-                candidate
-                if candidate.exists() and self._is_allowed_file(candidate)
-                else None
-            )
+            return candidate if candidate.exists() and self._is_allowed_file(candidate) else None
 
         # Direct relative path
         candidate = (self.base_path / file_path).resolve()
@@ -346,11 +326,7 @@ class SelfReflectionSystem:
 
         # Prefer exact suffix/path match when caller provided directories.
         if "/" in requested_norm:
-            suffix_matches = [
-                rel
-                for rel in all_files
-                if rel.replace("\\", "/").lower().endswith(requested_norm)
-            ]
+            suffix_matches = [rel for rel in all_files if rel.replace("\\", "/").lower().endswith(requested_norm)]
             if suffix_matches:
                 candidates = suffix_matches
 
@@ -399,9 +375,7 @@ class SelfReflectionSystem:
             logger.error(f"[SelfReflection] Error reading file {file_path}: {e}")
             return None
 
-    def list_codebase(
-        self, directory: Optional[str] = None, pattern: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    def list_codebase(self, directory: Optional[str] = None, pattern: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         List files in codebase
 
@@ -424,9 +398,7 @@ class SelfReflectionSystem:
                             "name": full_path.name,
                             "size": full_path.stat().st_size,
                             "module_type": self._classify_module(full_path),
-                            "language": (
-                                full_path.suffix[1:] if full_path.suffix else "text"
-                            ),
+                            "language": (full_path.suffix[1:] if full_path.suffix else "text"),
                         }
                     )
                 except Exception:
@@ -436,9 +408,7 @@ class SelfReflectionSystem:
             logger.error(f"[SelfReflection] Error listing codebase: {e}")
             return []
 
-    def search_code(
-        self, query: str, directory: Optional[str] = None, max_results: int = 10
-    ) -> List[Dict[str, Any]]:
+    def search_code(self, query: str, directory: Optional[str] = None, max_results: int = 10) -> List[Dict[str, Any]]:
         """
         Search for text in codebase
 
@@ -500,11 +470,7 @@ class SelfReflectionSystem:
     def _extract_purpose_from_ast(self, tree: ast.Module, content: str) -> str:
         """Extract file purpose from module docstring or initial comments"""
         # Try module docstring first
-        if (
-            tree.body
-            and isinstance(tree.body[0], ast.Expr)
-            and isinstance(tree.body[0].value, (ast.Str, ast.Constant))
-        ):
+        if tree.body and isinstance(tree.body[0], ast.Expr) and isinstance(tree.body[0].value, (ast.Str, ast.Constant)):
             docstring = ast.get_docstring(tree)
             if docstring:
                 # Get first meaningful line
@@ -608,9 +574,7 @@ class SelfReflectionSystem:
             tree = ast.parse(code_file.content)
 
             # Extract purpose
-            analysis["purpose"] = self._extract_purpose_from_ast(
-                tree, code_file.content
-            )
+            analysis["purpose"] = self._extract_purpose_from_ast(tree, code_file.content)
 
             # Calculate complexity
             analysis["complexity_score"] = self._calculate_complexity(tree)
@@ -621,9 +585,7 @@ class SelfReflectionSystem:
             # Extract classes with methods
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
-                    methods = [
-                        m.name for m in node.body if isinstance(m, ast.FunctionDef)
-                    ]
+                    methods = [m.name for m in node.body if isinstance(m, ast.FunctionDef)]
                     analysis["classes"].append(
                         {
                             "name": node.name,
@@ -653,9 +615,7 @@ class SelfReflectionSystem:
 
         except SyntaxError:
             # Fall back to regex if AST fails
-            logger.warning(
-                f"[SelfReflection] AST parse failed for {file_path}, using regex"
-            )
+            logger.warning(f"[SelfReflection] AST parse failed for {file_path}, using regex")
             analysis.update(self._fallback_regex_analysis(code_file.content))
 
         # Cache the result under canonical and requested keys.
@@ -678,9 +638,7 @@ class SelfReflectionSystem:
         # Extract classes
         class_pattern = r"^class\s+(\w+).*?:"
         for match in re.finditer(class_pattern, content, re.MULTILINE):
-            analysis["classes"].append(
-                {"name": match.group(1), "methods": [], "method_count": 0}
-            )
+            analysis["classes"].append({"name": match.group(1), "methods": [], "method_count": 0})
 
         # Extract functions
         func_pattern = r"^def\s+(\w+)\s*\([^)]*\)\s*:"
@@ -715,9 +673,7 @@ class SelfReflectionSystem:
         fallback_used = str(analysis.get("purpose") or "").startswith("Regex analysis")
 
         # Header
-        summary_parts.append(
-            f"**{analysis['name']}** ({analysis['lines']} lines, {analysis['module_type']})"
-        )
+        summary_parts.append(f"**{analysis['name']}** ({analysis['lines']} lines, {analysis['module_type']})")
 
         # Purpose
         if analysis.get("purpose") and not fallback_used:
@@ -729,34 +685,24 @@ class SelfReflectionSystem:
 
         # Key components
         if analysis.get("classes"):
-            class_names = [
-                c["name"] if isinstance(c, dict) else c for c in analysis["classes"]
-            ]
+            class_names = [c["name"] if isinstance(c, dict) else c for c in analysis["classes"]]
             representative = self._select_representative_classes(class_names)
-            summary_parts.append(
-                f"  Classes ({len(class_names)}): {', '.join(representative)}"
-            )
+            summary_parts.append(f"  Classes ({len(class_names)}): {', '.join(representative)}")
 
         if analysis.get("functions") and len(analysis["functions"]) > 0:
             summary_parts.append(f"  Functions: {', '.join(analysis['functions'][:5])}")
 
         # Dependencies
         if analysis.get("dependencies") and len(analysis["dependencies"]) > 0:
-            summary_parts.append(
-                f"  Dependencies: {', '.join(analysis['dependencies'][:5])}"
-            )
+            summary_parts.append(f"  Dependencies: {', '.join(analysis['dependencies'][:5])}")
 
         # Complexity
         if analysis.get("complexity_score", 0) > 20:
-            summary_parts.append(
-                f"   Complexity: {analysis['complexity_score']:.0f} (consider refactoring)"
-            )
+            summary_parts.append(f"   Complexity: {analysis['complexity_score']:.0f} (consider refactoring)")
 
         return "\n".join(summary_parts)
 
-    def _select_representative_classes(
-        self, class_names: List[str], max_items: int = 4
-    ) -> List[str]:
+    def _select_representative_classes(self, class_names: List[str], max_items: int = 4) -> List[str]:
         """Pick representative classes and prioritize orchestrator/processor types."""
         if not class_names:
             return []
@@ -788,10 +734,7 @@ class SelfReflectionSystem:
     def _infer_regex_fallback_purpose(self, analysis: Dict[str, Any]) -> str:
         """Infer a practical purpose statement when AST parsing is unavailable."""
         name = str(analysis.get("name") or "").lower()
-        classes = [
-            str(c.get("name") if isinstance(c, dict) else c).lower()
-            for c in (analysis.get("classes") or [])
-        ]
+        classes = [str(c.get("name") if isinstance(c, dict) else c).lower() for c in (analysis.get("classes") or [])]
         functions = [str(f).lower() for f in (analysis.get("functions") or [])]
         imports = [str(i).lower() for i in (analysis.get("imports") or [])]
         tokens = " ".join([name] + classes + functions + imports)
@@ -808,9 +751,7 @@ class SelfReflectionSystem:
             return "Notes workflow parsing and execution-support module."
         return "Core module with structured classes/functions for application behavior and routing."
 
-    def batch_summarize_files(
-        self, file_paths: List[str], parallel: bool = True
-    ) -> Dict[str, str]:
+    def batch_summarize_files(self, file_paths: List[str], parallel: bool = True) -> Dict[str, str]:
         """
         Generate summaries for multiple files efficiently
 
@@ -826,10 +767,7 @@ class SelfReflectionSystem:
         if parallel and len(file_paths) > 3:
             # Use parallel processing for speed
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                future_to_path = {
-                    executor.submit(self.generate_file_summary, path): path
-                    for path in file_paths
-                }
+                future_to_path = {executor.submit(self.generate_file_summary, path): path for path in file_paths}
 
                 for future in concurrent.futures.as_completed(future_to_path):
                     path = future_to_path[future]
@@ -943,15 +881,11 @@ class SelfReflectionSystem:
 
         # Check for error handling
         if "try:" in content and "except Exception as e:" not in content:
-            suggestions.append(
-                "Consider adding specific exception handling instead of bare 'except'"
-            )
+            suggestions.append("Consider adding specific exception handling instead of bare 'except'")
 
         # Check for type hints
         if "def " in content and "->" not in content[:500]:
-            suggestions.append(
-                "Consider adding type hints to function signatures for better code clarity"
-            )
+            suggestions.append("Consider adding type hints to function signatures for better code clarity")
 
         # Check for docstrings
         if "def " in content and '"""' not in content[:1000]:
@@ -959,15 +893,11 @@ class SelfReflectionSystem:
 
         # Check for logging
         if "print(" in content and "logger." not in content:
-            suggestions.append(
-                "Consider using logger instead of print() for better logging control"
-            )
+            suggestions.append("Consider using logger instead of print() for better logging control")
 
         # Check for hardcoded values
         if re.search(r'=\s*["\'](?:localhost|127\.0\.0\.1|api_key|password)', content):
-            suggestions.append(
-                "Check for hardcoded values that should be in configuration"
-            )
+            suggestions.append("Check for hardcoded values that should be in configuration")
 
         return suggestions
 

@@ -39,9 +39,7 @@ class FileOperationsPlugin(PluginInterface):
         super().__init__()
         self.name = "File Operations Plugin"
         self.version = "1.0.0"
-        self.description = (
-            "File system operations: create, read, delete, move, list, search files"
-        )
+        self.description = "File system operations: create, read, delete, move, list, search files"
         self.enabled = True
         self.capabilities = [
             "create_file",
@@ -113,9 +111,7 @@ class FileOperationsPlugin(PluginInterface):
         ]
         return intent in file_intents
 
-    def execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         """Execute file operation based on intent"""
         try:
             # Use the existing handle_request method
@@ -155,9 +151,7 @@ class FileOperationsPlugin(PluginInterface):
             logger.warning(f"Path validation failed for '{filepath}': {e}")
             return False
 
-    def handle_request(
-        self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def handle_request(self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle file operation requests
 
@@ -170,9 +164,7 @@ class FileOperationsPlugin(PluginInterface):
             Response dictionary with result
         """
         try:
-            action = (
-                intent.split(":")[-1] if ":" in intent else entities.get("action", "")
-            )
+            action = intent.split(":")[-1] if ":" in intent else entities.get("action", "")
 
             if action == "create":
                 return self._create_file(entities)
@@ -205,11 +197,7 @@ class FileOperationsPlugin(PluginInterface):
 
     def _create_file(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new file"""
-        filename = (
-            entities.get("filename")
-            or entities.get("file_name")
-            or entities.get("name")
-        )
+        filename = entities.get("filename") or entities.get("file_name") or entities.get("name")
         content = entities.get("content", "")
 
         if not filename:
@@ -238,11 +226,7 @@ class FileOperationsPlugin(PluginInterface):
 
     def _read_file(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Read a file's contents"""
-        filename = (
-            entities.get("filename")
-            or entities.get("file_name")
-            or entities.get("name")
-        )
+        filename = entities.get("filename") or entities.get("file_name") or entities.get("name")
 
         if not filename:
             return {"success": False, "message": "No filename specified"}
@@ -270,11 +254,7 @@ class FileOperationsPlugin(PluginInterface):
 
     def _delete_file(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Delete a file"""
-        filename = (
-            entities.get("filename")
-            or entities.get("file_name")
-            or entities.get("name")
-        )
+        filename = entities.get("filename") or entities.get("file_name") or entities.get("name")
 
         if not filename:
             return {"success": False, "message": "No filename specified"}
@@ -299,16 +279,8 @@ class FileOperationsPlugin(PluginInterface):
 
     def _move_file(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Move or rename a file"""
-        source = (
-            entities.get("source")
-            or entities.get("filename")
-            or entities.get("file_name")
-        )
-        destination = (
-            entities.get("destination")
-            or entities.get("dest")
-            or entities.get("new_name")
-        )
+        source = entities.get("source") or entities.get("filename") or entities.get("file_name")
+        destination = entities.get("destination") or entities.get("dest") or entities.get("new_name")
 
         if not source or not destination:
             return {
@@ -395,9 +367,7 @@ class FileOperationsPlugin(PluginInterface):
                         {
                             "name": item,
                             "size": stat.st_size,
-                            "modified": datetime.fromtimestamp(
-                                stat.st_mtime
-                            ).isoformat(),
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                         }
                     )
 

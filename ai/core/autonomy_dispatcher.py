@@ -116,17 +116,11 @@ class TinyAutonomyDispatcher:
         outcome = self.can_act_without_user(reason, severity)
         rule = self._TRUSTED_TRIGGER_RULES.get(reason, {})
 
-        goal_id = self._resolve_goal_id(
-            active_goal_id=active_goal_id, goal_summary=goal_summary
-        )
-        next_goal_action = str(
-            rule.get("next_goal_action")
-            or self._default_goal_action_for_outcome(outcome)
-        )
+        goal_id = self._resolve_goal_id(active_goal_id=active_goal_id, goal_summary=goal_summary)
+        next_goal_action = str(rule.get("next_goal_action") or self._default_goal_action_for_outcome(outcome))
         message = str(rule.get("message") or "")
         recommended_action = (
-            str((event or {}).get("recommended_action") or next_goal_action).strip()
-            or next_goal_action
+            str((event or {}).get("recommended_action") or next_goal_action).strip() or next_goal_action
         )
         confidence = float((event or {}).get("confidence", 0.0) or 0.0)
         dedupe_key = f"{reason}:{goal_id or 'none'}:{severity}:{recommended_action}"

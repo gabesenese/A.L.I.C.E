@@ -82,18 +82,14 @@ def _as_personality(payload: Dict[str, Any] | None) -> Dict[str, Any]:
     ):
         personality[key] = _clamp(personality.get(key))
     personality["interests"] = [
-        str(item).strip().lower()
-        for item in list(personality.get("interests") or [])
-        if str(item).strip()
+        str(item).strip().lower() for item in list(personality.get("interests") or []) if str(item).strip()
     ][:30]
     opinions = personality.get("opinions")
     personality["opinions"] = dict(opinions or {}) if isinstance(opinions, dict) else {}
     return personality
 
 
-def _topic_candidates(
-    text: str, extra_topics: Iterable[str] | None = None
-) -> List[str]:
+def _topic_candidates(text: str, extra_topics: Iterable[str] | None = None) -> List[str]:
     terms: List[str] = []
     for raw in list(extra_topics or []):
         cleaned = str(raw or "").strip().lower()
@@ -134,8 +130,7 @@ class PersonalityLayer:
         user_text = str(user_input or "").strip()
         word_count = len(user_text.split())
         is_short = bool(user_text) and (
-            word_count <= _SHORT_RESPONSE_WORD_LIMIT
-            or len(user_text) <= _SHORT_RESPONSE_CHAR_LIMIT
+            word_count <= _SHORT_RESPONSE_WORD_LIMIT or len(user_text) <= _SHORT_RESPONSE_CHAR_LIMIT
         )
 
         short_streak = int(meta.get("short_response_streak") or 0)
@@ -143,27 +138,19 @@ class PersonalityLayer:
         meta["short_response_streak"] = short_streak
 
         if short_streak >= _SHORT_RESPONSE_STREAK_THRESHOLD:
-            personality["curiosity_weight"] = _clamp(
-                float(personality["curiosity_weight"]) - 0.02
-            )
+            personality["curiosity_weight"] = _clamp(float(personality["curiosity_weight"]) - 0.02)
 
         if _WARM_SIGNAL.search(user_text):
-            personality["humor_threshold"] = _clamp(
-                float(personality["humor_threshold"]) + 0.015
-            )
+            personality["humor_threshold"] = _clamp(float(personality["humor_threshold"]) + 0.015)
 
         if _DIRECTNESS_SIGNAL.search(user_text):
             personality["directness"] = _clamp(float(personality["directness"]) + 0.02)
-            personality["curiosity_weight"] = _clamp(
-                float(personality["curiosity_weight"]) - 0.01
-            )
+            personality["curiosity_weight"] = _clamp(float(personality["curiosity_weight"]) - 0.01)
         elif _LOW_DIRECTNESS_SIGNAL.search(user_text):
             personality["directness"] = _clamp(float(personality["directness"]) - 0.01)
 
         if _STRESS_SIGNAL.search(user_text):
-            personality["concern_sensitivity"] = _clamp(
-                float(personality["concern_sensitivity"]) + 0.02
-            )
+            personality["concern_sensitivity"] = _clamp(float(personality["concern_sensitivity"]) + 0.02)
 
         topic_counts = Counter(dict(meta.get("topic_counts") or {}))
         for topic in _topic_candidates(user_text, conversation_topics):
@@ -305,9 +292,7 @@ def _meaningful_interests(raw: List[str], limit: int = 5) -> List[str]:
     return out
 
 
-def personality_to_system_instructions(
-    personality: Dict[str, Any] | None, intent: str = ""
-) -> str:
+def personality_to_system_instructions(personality: Dict[str, Any] | None, intent: str = "") -> str:
     shaped = _as_personality(personality)
     curiosity = float(shaped["curiosity_weight"])
     directness = float(shaped["directness"])
@@ -344,9 +329,7 @@ def build_personality_system_instructions(
     world_model: WorldModel | None = None,
     intent: str = "",
 ) -> str:
-    personality = PersonalityLayer(
-        world_model=world_model
-    ).world_model.get_personality()
+    personality = PersonalityLayer(world_model=world_model).world_model.get_personality()
     return personality_to_system_instructions(personality, intent=intent)
 
 
@@ -356,9 +339,7 @@ def apply_personality_to_system_prompt(
     intent: str = "",
 ) -> str:
     base = str(system_prompt or "").strip()
-    instructions = build_personality_system_instructions(
-        world_model=world_model, intent=intent
-    )
+    instructions = build_personality_system_instructions(world_model=world_model, intent=intent)
     if not instructions:
         return base
     return f"{base}\n\n{instructions}" if base else instructions

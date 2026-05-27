@@ -52,9 +52,7 @@ class ReferenceResolver:
         subject = self._pick_subject(state)
         if not subject:
             try:
-                subject = str(
-                    get_entity_registry().resolve_reference(text) or ""
-                ).strip()
+                subject = str(get_entity_registry().resolve_reference(text) or "").strip()
             except Exception:
                 subject = ""
         resolved_bindings: Dict[str, str] = {}

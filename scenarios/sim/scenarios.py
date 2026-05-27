@@ -1203,9 +1203,7 @@ def _load_generated_scenarios() -> List[Scenario]:
     try:
         with open(generated_file, "r", encoding="utf-8", errors="ignore") as f:
             payload = json.load(f)
-        scenario_defs = (
-            payload.get("scenarios", []) if isinstance(payload, dict) else payload
-        )
+        scenario_defs = payload.get("scenarios", []) if isinstance(payload, dict) else payload
     except Exception:
         return []
 

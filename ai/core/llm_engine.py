@@ -199,9 +199,7 @@ def _build_companion_context(intent: str = "", user_query: str = "") -> str:
         recent_signals: List[str] = []
         for entry in identity.emotional_history:
             try:
-                ts = datetime.fromisoformat(
-                    str(entry.get("noted_at") or "").replace("Z", "+00:00")
-                )
+                ts = datetime.fromisoformat(str(entry.get("noted_at") or "").replace("Z", "+00:00"))
                 if ts >= cutoff:
                     sig = str(entry.get("signal") or "").strip()
                     if sig:
@@ -267,13 +265,9 @@ def _build_companion_context(intent: str = "", user_query: str = "") -> str:
         from memory.world_model import get_world_model
 
         wm = get_world_model()
-        stale_domains = [
-            d for d in ("weather",) if wm.is_data_stale(d, ttl_seconds=1800.0)
-        ]
+        stale_domains = [d for d in ("weather",) if wm.is_data_stale(d, ttl_seconds=1800.0)]
         if stale_domains:
-            parts.append(
-                f"Stale data domains (offer to refresh if relevant): {', '.join(stale_domains)}"
-            )
+            parts.append(f"Stale data domains (offer to refresh if relevant): {', '.join(stale_domains)}")
     except Exception:
         pass
 
@@ -325,8 +319,7 @@ def _build_companion_context(intent: str = "", user_query: str = "") -> str:
                     advisor_lines.append(f"  • You {strength} that {stance}")
                 parts.append(
                     "Trusted advisor — you have a view on what Gabriel is asking about. "
-                    "Lead with it once, clearly, then respect his call:\n"
-                    + "\n".join(advisor_lines)
+                    "Lead with it once, clearly, then respect his call:\n" + "\n".join(advisor_lines)
                 )
         except Exception:
             pass
@@ -410,9 +403,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             if os.path.exists(path) or (path in ["ollama.exe", "ollama"]):
                 try:
                     # Test if executable works
-                    result = subprocess.run(
-                        [path, "--version"], capture_output=True, timeout=5
-                    )
+                    result = subprocess.run([path, "--version"], capture_output=True, timeout=5)
                     if result.returncode == 0:
                         logger.info(f"Ollama found at: {path}")
                         return path
@@ -442,9 +433,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
 
             # Start Ollama serve in background
             if os.name == "nt":  # Windows
-                subprocess.Popen(
-                    [ollama_path, "serve"], creationflags=subprocess.CREATE_NO_WINDOW
-                )
+                subprocess.Popen([ollama_path, "serve"], creationflags=subprocess.CREATE_NO_WINDOW)
             else:  # Unix-like
                 subprocess.Popen(
                     [ollama_path, "serve"],
@@ -493,14 +482,10 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                 self._available_models = list(model_names)
 
                 logger.info("Ollama connection established")
-                logger.info(
-                    f"Available models: {', '.join(model_names) if model_names else 'None'}"
-                )
+                logger.info(f"Available models: {', '.join(model_names) if model_names else 'None'}")
 
                 if not model_names:
-                    logger.error(
-                        "No local models available. Run: ollama pull llama3.1:8b"
-                    )
+                    logger.error("No local models available. Run: ollama pull llama3.1:8b")
                     return False
 
                 self._ensure_active_model_available(model_names)
@@ -543,9 +528,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
 
         base = active_model.split(":", 1)[0].lower()
         same_family = [m for m in model_names if m.lower().startswith(f"{base}:")]
-        fallback = (
-            same_family[0] if same_family else self._pick_fallback_model(model_names)
-        )
+        fallback = same_family[0] if same_family else self._pick_fallback_model(model_names)
         if not fallback:
             return
 
@@ -556,9 +539,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         )
         self.config._fine_tuned_model = None
         self.config.model = fallback
-        logger.info(
-            "Run this later to restore preferred model: ollama pull %s", active_model
-        )
+        logger.info("Run this later to restore preferred model: ollama pull %s", active_model)
 
     def _resolve_temperature(self, temperature: Optional[float]) -> float:
         """Resolve a per-call temperature override with safe fallback."""
@@ -568,14 +549,10 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         try:
             return max(0.0, min(1.0, float(temperature)))
         except (TypeError, ValueError):
-            logger.warning(
-                "Invalid temperature override %r; using config value", temperature
-            )
+            logger.warning("Invalid temperature override %r; using config value", temperature)
             return float(self.config.temperature)
 
-    def _build_system_prompt(
-        self, base_prompt: Optional[str] = None, intent: str = "", user_query: str = ""
-    ) -> str:
+    def _build_system_prompt(self, base_prompt: Optional[str] = None, intent: str = "", user_query: str = "") -> str:
         """Append companion context + personality drift to every system prompt."""
         prompt = str(base_prompt if base_prompt is not None else self.system_prompt)
         prompt += _build_companion_context(intent=intent, user_query=user_query)
@@ -613,9 +590,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                 self._ensure_active_model_available(self._available_models)
 
             # Build message history
-            messages = [
-                {"role": "system", "content": self._build_system_prompt(intent=intent, user_query=user_input)}
-            ]
+            messages = [{"role": "system", "content": self._build_system_prompt(intent=intent, user_query=user_input)}]
 
             # Inject companion context (memory, goals, personality) as a second system message
             if context and str(context).strip():
@@ -659,22 +634,14 @@ Be present. Be direct. Be the AI that actually stays in the room."""
 
             if response.status_code == 200:
                 result = response.json()
-                assistant_message = str(
-                    (result.get("message") or {}).get("content") or ""
-                ).strip()
+                assistant_message = str((result.get("message") or {}).get("content") or "").strip()
                 if not assistant_message:
                     logger.warning("LLM returned an empty chat response")
-                    return (
-                        "I received an empty response from the model. Please try again."
-                    )
+                    return "I received an empty response from the model. Please try again."
 
                 # Store in conversation history
-                self.conversation_history.append(
-                    {"role": "user", "content": user_input}
-                )
-                self.conversation_history.append(
-                    {"role": "assistant", "content": assistant_message}
-                )
+                self.conversation_history.append({"role": "user", "content": user_input})
+                self.conversation_history.append({"role": "assistant", "content": assistant_message})
 
                 # Log token usage if available
                 if "eval_count" in result:
@@ -758,9 +725,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                     try:
                         chunk = json.loads(line)
                         if "error" in chunk:
-                            err = str(
-                                chunk.get("error") or "Unknown stream error"
-                            ).strip()
+                            err = str(chunk.get("error") or "Unknown stream error").strip()
                             logger.error("Streaming chunk error: %s", err)
                             yield f"\n\n[ERROR] {err}"
                             return
@@ -778,9 +743,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
 
             # Store in history
             self.conversation_history.append({"role": "user", "content": user_input})
-            self.conversation_history.append(
-                {"role": "assistant", "content": full_response}
-            )
+            self.conversation_history.append({"role": "assistant", "content": full_response})
 
         except requests.exceptions.Timeout:
             yield "\n\n[TIMEOUT] Response timeout. Please try a shorter query."
@@ -800,9 +763,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         if stream:
             chunks = []
             prompt = messages[-1].content if messages else ""
-            for chunk in await asyncio.to_thread(
-                lambda: list(self.stream_chat(prompt))
-            ):
+            for chunk in await asyncio.to_thread(lambda: list(self.stream_chat(prompt))):
                 chunks.append(chunk)
             return ChatResponse(content="".join(chunks))
 
@@ -860,8 +821,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             prompt_text = (
                 "Output mode: final_answer_only. "
                 "Return only the final answer for the user. "
-                "Do not include analysis, plans, key points, or context headings.\n\n"
-                + prompt_text
+                "Do not include analysis, plans, key points, or context headings.\n\n" + prompt_text
             )
 
         if kwargs:
@@ -898,9 +858,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                 if text:
                     return text
 
-            logger.warning(
-                "generate() received non-200 or empty body; falling back to chat()"
-            )
+            logger.warning("generate() received non-200 or empty body; falling back to chat()")
         except Exception as e:
             logger.warning(f"generate() fallback to chat() due to: {e}")
 
@@ -1117,9 +1075,7 @@ Please phrase this naturally using the specified tone. Keep Alice's personality 
             Audit result with errors, inconsistencies, and suggestions
         """
         try:
-            reasoning_text = "\n".join(
-                [f"{i + 1}. {step}" for i, step in enumerate(logic_chain)]
-            )
+            reasoning_text = "\n".join([f"{i + 1}. {step}" for i, step in enumerate(logic_chain)])
 
             audit_request = f"""Please audit this reasoning chain for errors or inconsistencies:
 
@@ -1165,10 +1121,7 @@ Provide:
                 except (json.JSONDecodeError, ValueError, TypeError) as e:
                     logger.debug(f"Failed to parse audit response as JSON: {e}")
                     # Fallback: analyze content for issues
-                    has_errors = any(
-                        word in content.lower()
-                        for word in ["error", "incorrect", "inconsistent", "flaw"]
-                    )
+                    has_errors = any(word in content.lower() for word in ["error", "incorrect", "inconsistent", "flaw"])
                     return {
                         "has_errors": has_errors,
                         "raw_audit": content,
@@ -1263,9 +1216,7 @@ if __name__ == "__main__":
                         else:
                             print("[ERROR] Usage: /temp 0.7")
                     except ValueError:
-                        print(
-                            "[ERROR] Invalid temperature value. Use a number between 0.0 and 1.0"
-                        )
+                        print("[ERROR] Invalid temperature value. Use a number between 0.0 and 1.0")
                     continue
 
                 if user_input.lower() == "/stats":

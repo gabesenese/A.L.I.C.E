@@ -169,24 +169,15 @@ class CalendarPlugin(PluginInterface):
                 return self._handle_no_auth()
 
             # View calendar events
-            if any(
-                word in query_lower
-                for word in ["show", "view", "list", "what", "check"]
-            ):
+            if any(word in query_lower for word in ["show", "view", "list", "what", "check"]):
                 return self._view_events(query, entities)
 
             # Create calendar event
-            elif any(
-                word in query_lower
-                for word in ["create", "add", "schedule", "book", "set"]
-            ):
+            elif any(word in query_lower for word in ["create", "add", "schedule", "book", "set"]):
                 return self._create_event(query, entities)
 
             # Update calendar event
-            elif any(
-                word in query_lower
-                for word in ["update", "change", "modify", "reschedule"]
-            ):
+            elif any(word in query_lower for word in ["update", "change", "modify", "reschedule"]):
                 return self._update_event(query, entities)
 
             # Delete calendar event
@@ -228,14 +219,10 @@ class CalendarPlugin(PluginInterface):
                     creds.refresh(Request())
                 else:
                     if not os.path.exists(self.credentials_file):
-                        logger.warning(
-                            "Calendar credentials file not found. Calendar features disabled."
-                        )
+                        logger.warning("Calendar credentials file not found. Calendar features disabled.")
                         return None
 
-                    flow = InstalledAppFlow.from_client_secrets_file(
-                        self.credentials_file, SCOPES
-                    )
+                    flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, SCOPES)
                     creds = flow.run_local_server(port=0)
             except Exception as e:
                 logger.warning(
@@ -311,9 +298,7 @@ class CalendarPlugin(PluginInterface):
                 if "T" in start:  # datetime with time
                     start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
                     end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
-                    time_str = (
-                        f"{start_dt.strftime('%H:%M')}-{end_dt.strftime('%H:%M')}"
-                    )
+                    time_str = f"{start_dt.strftime('%H:%M')}-{end_dt.strftime('%H:%M')}"
                 else:  # all-day event
                     start_dt = datetime.fromisoformat(start)
                     time_str = "All day"
@@ -393,14 +378,10 @@ class CalendarPlugin(PluginInterface):
 
             # Add attendees if provided
             if event_details.get("attendees"):
-                event["attendees"] = [
-                    {"email": email} for email in event_details["attendees"]
-                ]
+                event["attendees"] = [{"email": email} for email in event_details["attendees"]]
 
             # Create the event
-            created_event = (
-                self.service.events().insert(calendarId="primary", body=event).execute()
-            )
+            created_event = self.service.events().insert(calendarId="primary", body=event).execute()
 
             # Format response
             start_dt = event_details["start_time"]
@@ -495,9 +476,7 @@ class CalendarPlugin(PluginInterface):
                 }
 
             # Format search results
-            response_lines = [
-                f" Found {len(events)} event(s) matching '{' '.join(search_terms)}':"
-            ]
+            response_lines = [f" Found {len(events)} event(s) matching '{' '.join(search_terms)}':"]
 
             for event in events[:5]:  # Limit to 5 results
                 start = event["start"].get("dateTime", event["start"].get("date"))
@@ -538,17 +517,13 @@ class CalendarPlugin(PluginInterface):
 
         # Tomorrow
         elif "tomorrow" in query_lower:
-            start = (now + timedelta(days=1)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
+            start = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             end = start + timedelta(days=1)
 
         # This week
         elif "week" in query_lower or "this week" in query_lower:
             days_since_monday = now.weekday()
-            start = (now - timedelta(days=days_since_monday)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
+            start = (now - timedelta(days=days_since_monday)).replace(hour=0, minute=0, second=0, microsecond=0)
             end = start + timedelta(days=7)
 
         # Next 7 days
@@ -616,8 +591,7 @@ class CalendarPlugin(PluginInterface):
                 location = match.group(1).strip()
                 # Filter out time-related words
                 if not any(
-                    time_word in location.lower()
-                    for time_word in ["am", "pm", "morning", "afternoon", "evening"]
+                    time_word in location.lower() for time_word in ["am", "pm", "morning", "afternoon", "evening"]
                 ):
                     details["location"] = location
                     break
@@ -653,17 +627,13 @@ class CalendarPlugin(PluginInterface):
                 event_date = now.date()
             # Add more date parsing as needed
 
-            start_time = datetime.combine(
-                event_date, datetime.min.time().replace(hour=hour, minute=minute)
-            )
+            start_time = datetime.combine(event_date, datetime.min.time().replace(hour=hour, minute=minute))
             end_time = start_time + timedelta(hours=1)
 
             return start_time, end_time
 
         # Look for relative times
-        relative_match = re.search(
-            r"in\s+(\d+)\s+(minute|hour)s?", query, re.IGNORECASE
-        )
+        relative_match = re.search(r"in\s+(\d+)\s+(minute|hour)s?", query, re.IGNORECASE)
         if relative_match:
             amount = int(relative_match.group(1))
             unit = relative_match.group(2).lower()
@@ -685,9 +655,7 @@ class CalendarPlugin(PluginInterface):
                 if "tomorrow" in query.lower():
                     event_date = (now + timedelta(days=1)).date()
 
-                start_time = datetime.combine(
-                    event_date, datetime.min.time().replace(hour=hour, minute=minute)
-                )
+                start_time = datetime.combine(event_date, datetime.min.time().replace(hour=hour, minute=minute))
                 end_time = start_time + timedelta(hours=1)
                 return start_time, end_time
 
@@ -708,9 +676,7 @@ class CalendarPlugin(PluginInterface):
             "events",
         ]
         words = query.lower().split()
-        search_terms = [
-            word for word in words if word not in stop_words and len(word) > 2
-        ]
+        search_terms = [word for word in words if word not in stop_words and len(word) > 2]
         return search_terms
 
     def _get_time_description(self, query: str) -> str:

@@ -78,9 +78,7 @@ class MemoryScorer:
 
     def batch_score(self, entries: List[Any]) -> Dict[str, float]:
         if entries:
-            max_ac = max(
-                (int(getattr(e, "access_count", 0)) for e in entries), default=1
-            )
+            max_ac = max((int(getattr(e, "access_count", 0)) for e in entries), default=1)
             with self._lock:
                 self._max_access = max(self._max_access, max_ac, 1)
         return {getattr(e, "id", str(i)): self.score(e) for i, e in enumerate(entries)}

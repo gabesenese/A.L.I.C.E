@@ -27,19 +27,13 @@ class GoalVerificationReport:
 class GoalActionVerifier:
     """Checks whether an action result satisfied the requested goal and target."""
 
-    def verify(
-        self, request: Any, tool_result: Dict[str, Any]
-    ) -> GoalVerificationReport:
+    def verify(self, request: Any, tool_result: Dict[str, Any]) -> GoalVerificationReport:
         issues: List[str] = []
         ambiguity_flags: List[str] = []
 
         success = bool((tool_result or {}).get("success", False))
         status = str((tool_result or {}).get("status", "")).strip().lower()
-        data = (
-            (tool_result or {}).get("data")
-            if isinstance((tool_result or {}).get("data"), dict)
-            else {}
-        )
+        data = (tool_result or {}).get("data") if isinstance((tool_result or {}).get("data"), dict) else {}
 
         tool_succeeded = bool(success or status in {"success", "partial"})
         target_score = self._target_match_score(request, data)
@@ -69,9 +63,7 @@ class GoalActionVerifier:
             or (tool_succeeded and (not target_matched or not domain_ok))
             or (not success and bool(data))
         )
-        goal_satisfied = bool(
-            success and target_matched and domain_ok and not ambiguity_flags
-        )
+        goal_satisfied = bool(success and target_matched and domain_ok and not ambiguity_flags)
         accepted = bool(
             (
                 status
@@ -121,16 +113,13 @@ class GoalActionVerifier:
         issues: List[str] = []
         tool_succeeded = bool(
             bool((tool_result or {}).get("success", False))
-            or str((tool_result or {}).get("status", "")).strip().lower()
-            in {"success", "partial"}
+            or str((tool_result or {}).get("status", "")).strip().lower() in {"success", "partial"}
         )
         if not tool_succeeded:
             return True, []
 
         if plugin == "notes" and action in {"create", "read", "update", "delete"}:
-            if action == "create" and not any(
-                data.get(k) for k in ("note_id", "id", "title", "note_title")
-            ):
+            if action == "create" and not any(data.get(k) for k in ("note_id", "id", "title", "note_title")):
                 issues.append("notes_create_missing_identifier")
             if action == "read" and not any(
                 data.get(k)
@@ -149,23 +138,15 @@ class GoalActionVerifier:
                 issues.append("notes_read_missing_content")
 
         if plugin == "email" and action in {"send", "draft", "read"}:
-            if action == "send" and not any(
-                data.get(k) for k in ("message_id", "id", "sent", "status")
-            ):
+            if action == "send" and not any(data.get(k) for k in ("message_id", "id", "sent", "status")):
                 issues.append("email_send_unconfirmed")
-            if action == "read" and not any(
-                data.get(k) for k in ("subject", "messages", "body", "content")
-            ):
+            if action == "read" and not any(data.get(k) for k in ("subject", "messages", "body", "content")):
                 issues.append("email_read_missing_payload")
 
         if plugin == "calendar" and action in {"create", "update", "read", "list"}:
-            if action in {"create", "update"} and not any(
-                data.get(k) for k in ("event_id", "id", "event", "title")
-            ):
+            if action in {"create", "update"} and not any(data.get(k) for k in ("event_id", "id", "event", "title")):
                 issues.append("calendar_write_missing_event_reference")
-            if action in {"read", "list"} and not any(
-                data.get(k) for k in ("events", "event", "items")
-            ):
+            if action in {"read", "list"} and not any(data.get(k) for k in ("events", "event", "items")):
                 issues.append("calendar_read_missing_events")
 
         if plugin in {"file_operations", "files", "file"} and action in {
@@ -194,9 +175,7 @@ class GoalActionVerifier:
             registry = None
 
         candidates = {
-            str(v).strip().lower()
-            for v in data.values()
-            if isinstance(v, (str, int, float)) and str(v).strip()
+            str(v).strip().lower() for v in data.values() if isinstance(v, (str, int, float)) and str(v).strip()
         }
         if registry and candidates:
             expanded_candidates = set(candidates)
@@ -209,9 +188,7 @@ class GoalActionVerifier:
             return 0.4
 
         desired = {
-            str(v).strip().lower()
-            for v in target_spec.values()
-            if isinstance(v, (str, int, float)) and str(v).strip()
+            str(v).strip().lower() for v in target_spec.values() if isinstance(v, (str, int, float)) and str(v).strip()
         }
         if registry and desired:
             expanded_desired = set(desired)
@@ -236,16 +213,10 @@ class GoalActionVerifier:
             return True
 
         params = getattr(request, "params", {}) or {}
-        if any(
-            params.get(k)
-            for k in ("target", "path", "filename", "note_id", "title", "note_title")
-        ):
+        if any(params.get(k) for k in ("target", "path", "filename", "note_id", "title", "note_title")):
             return True
 
-        if any(
-            data.get(k)
-            for k in ("target", "path", "filename", "note_id", "title", "note_title")
-        ):
+        if any(data.get(k) for k in ("target", "path", "filename", "note_id", "title", "note_title")):
             return True
 
         return False

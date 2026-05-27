@@ -37,10 +37,7 @@ class MemoryConsolidator:
                 entries.extend(bucket)
         out: List[Any] = []
         for entry in entries:
-            tags = [
-                str(t or "").strip().lower()
-                for t in list(getattr(entry, "tags", []) or [])
-            ]
+            tags = [str(t or "").strip().lower() for t in list(getattr(entry, "tags", []) or [])]
             if "structured:personal" in tags:
                 out.append(entry)
         return out
@@ -73,26 +70,16 @@ class MemoryConsolidator:
         for _, bucket in groups.items():
             if len(bucket) < 2:
                 continue
-            bucket_sorted = sorted(
-                bucket, key=lambda e: str(getattr(e, "timestamp", "")), reverse=True
-            )
+            bucket_sorted = sorted(bucket, key=lambda e: str(getattr(e, "timestamp", "")), reverse=True)
             anchor = bucket_sorted[0]
             anchor_ctx = dict(getattr(anchor, "context", {}) or {})
             for candidate in bucket_sorted[1:]:
                 cand_ctx = dict(getattr(candidate, "context", {}) or {})
-                sim = _similarity(
-                    getattr(anchor, "content", ""), getattr(candidate, "content", "")
-                )
+                sim = _similarity(getattr(anchor, "content", ""), getattr(candidate, "content", ""))
                 if sim < 0.68:
                     continue
-                anchor_conf = float(
-                    anchor_ctx.get("confidence", getattr(anchor, "importance", 0.6))
-                    or 0.6
-                )
-                cand_conf = float(
-                    cand_ctx.get("confidence", getattr(candidate, "importance", 0.6))
-                    or 0.6
-                )
+                anchor_conf = float(anchor_ctx.get("confidence", getattr(anchor, "importance", 0.6)) or 0.6)
+                cand_conf = float(cand_ctx.get("confidence", getattr(candidate, "importance", 0.6)) or 0.6)
                 new_conf = min(0.99, max(anchor_conf, cand_conf) + 0.05)
                 anchor_ctx["confidence"] = new_conf
                 anchor_ctx["consolidated_at"] = datetime.now(timezone.utc).isoformat()

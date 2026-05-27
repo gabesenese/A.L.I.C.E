@@ -86,14 +86,10 @@ class ResultQualityScorer:
         )
 
         # Add recommendations based on issues
-        recommendations = self._generate_recommendations(
-            issues, struct_score, rel_score, comp_score
-        )
+        recommendations = self._generate_recommendations(issues, struct_score, rel_score, comp_score)
 
         # Determine if retry is needed
-        threshold = (
-            self.high_stakes_threshold if is_high_stakes else self.retry_threshold
-        )
+        threshold = self.high_stakes_threshold if is_high_stakes else self.retry_threshold
         should_retry = overall < threshold and len(issues) > 0
 
         retry_reason = ""
@@ -151,9 +147,7 @@ class ResultQualityScorer:
 
         return max(0.0, min(1.0, score))
 
-    def _score_relevance(
-        self, result: Dict[str, Any], user_input: str, intent: str, issues: list
-    ) -> float:
+    def _score_relevance(self, result: Dict[str, Any], user_input: str, intent: str, issues: list) -> float:
         """Score how relevant the result is to the original query."""
         score = 1.0
 
@@ -236,26 +230,18 @@ class ResultQualityScorer:
 
         return max(0.0, min(1.0, score))
 
-    def _generate_recommendations(
-        self, issues: list, struct_score: float, rel_score: float, comp_score: float
-    ) -> list:
+    def _generate_recommendations(self, issues: list, struct_score: float, rel_score: float, comp_score: float) -> list:
         """Generate actionable recommendations based on scores."""
         recommendations = []
 
         if struct_score < 0.7:
-            recommendations.append(
-                "Ensure result has required fields: success, response, data, error"
-            )
+            recommendations.append("Ensure result has required fields: success, response, data, error")
 
         if rel_score < 0.7:
-            recommendations.append(
-                "Check if tool output is addressing the original query"
-            )
+            recommendations.append("Check if tool output is addressing the original query")
 
         if comp_score < 0.7:
-            recommendations.append(
-                "Expand result with more detail or complete the operation"
-            )
+            recommendations.append("Expand result with more detail or complete the operation")
 
         # Add issue-specific recommendations
         for issue in issues:

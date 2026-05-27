@@ -33,9 +33,7 @@ class ExecutionJournal:
         try:
             lines = self.storage_path.read_text(encoding="utf-8").splitlines()
             if len(lines) > _MAX_JOURNAL_LINES:
-                self.storage_path.write_text(
-                    "\n".join(lines[-_MAX_JOURNAL_LINES:]) + "\n", encoding="utf-8"
-                )
+                self.storage_path.write_text("\n".join(lines[-_MAX_JOURNAL_LINES:]) + "\n", encoding="utf-8")
         except Exception:
             pass
 

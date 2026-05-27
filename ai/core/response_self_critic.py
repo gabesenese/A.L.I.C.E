@@ -172,9 +172,7 @@ class ResponseSelfCritic:
         overlap = len(user_tokens & response_tokens)
         return overlap / max(1, len(user_tokens))
 
-    def _check_intent_and_topic(
-        self, user_input: str, intent: str, response: str
-    ) -> Optional[str]:
+    def _check_intent_and_topic(self, user_input: str, intent: str, response: str) -> Optional[str]:
         domain = self._domain_from_intent(intent)
         domain_words = self._DOMAIN_KEYWORDS.get(domain, set())
 
@@ -186,18 +184,12 @@ class ResponseSelfCritic:
         if overlap < 0.08 and domain != "conversation":
             return "topic mismatch"
 
-        if (
-            overlap < 0.04
-            and domain == "conversation"
-            and len(self._tokenize(user_input)) >= 5
-        ):
+        if overlap < 0.04 and domain == "conversation" and len(self._tokenize(user_input)) >= 5:
             return "weak topical relevance"
 
         return None
 
-    def _check_assumption_without_evidence(
-        self, user_input: str, response: str
-    ) -> Optional[str]:
+    def _check_assumption_without_evidence(self, user_input: str, response: str) -> Optional[str]:
         """Flag when the response asks a follow-up that presupposes its prior claim had merit."""
         inp_low = (user_input or "").lower()
         if not any(s in inp_low for s in self._CORRECTION_SIGNALS):
@@ -206,9 +198,7 @@ class ResponseSelfCritic:
             return "assumption-without-evidence: question presupposes prior suggestion had merit"
         return None
 
-    def _check_redundant_suggestion(
-        self, user_input: str, response: str
-    ) -> Optional[str]:
+    def _check_redundant_suggestion(self, user_input: str, response: str) -> Optional[str]:
         """Flag when the response recommends adding something the user confirmed already exists."""
         inp_low = (user_input or "").lower()
         if not any(s in inp_low for s in self._EXISTS_SIGNALS):
@@ -230,18 +220,14 @@ class ResponseSelfCritic:
 
         return None
 
-    def _check_memory_contradiction(
-        self, response: str, memory_snapshot: Optional[Dict[str, Any]]
-    ) -> Optional[str]:
+    def _check_memory_contradiction(self, response: str, memory_snapshot: Optional[Dict[str, Any]]) -> Optional[str]:
         if not memory_snapshot:
             return None
 
         text = (response or "").lower()
 
         user_name = (memory_snapshot.get("user_name") or "").strip()
-        if user_name and (
-            "i don't know your name" in text or "i do not know your name" in text
-        ):
+        if user_name and ("i don't know your name" in text or "i do not know your name" in text):
             return "contradicts memory: known user name"
 
         active_goal = memory_snapshot.get("active_goal") or {}

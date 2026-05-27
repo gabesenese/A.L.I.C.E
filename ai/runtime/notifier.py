@@ -24,11 +24,7 @@ def toast(title: str, body: str) -> None:
         return
     t = _xml_escape(title)[:64]
     b = _xml_escape(body)[:200]
-    xml = (
-        f'<toast><visual><binding template="ToastGeneric">'
-        f"<text>{t}</text><text>{b}</text>"
-        f"</binding></visual></toast>"
-    )
+    xml = f'<toast><visual><binding template="ToastGeneric"><text>{t}</text><text>{b}</text></binding></visual></toast>'
     # Single-quoted PS here-string is fully literal — no escaping needed for content.
     script = (
         "[Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom.Document,ContentType=WindowsRuntime]|Out-Null\n"

@@ -26,9 +26,7 @@ from ai.learning.learning_engine import (
     get_pattern_promotion_engine,
 )
 
-logging.basicConfig(
-    level=logging.INFO, format="[%(asctime)s] %(levelname)s - %(name)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s - %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -66,9 +64,7 @@ class AutomatedTrainingPipeline:
             intent = result.get("actual_intent", "")
 
             # Check if route and intent match expected
-            is_good_outcome = result.get("route_match", False) and result.get(
-                "intent_match", False
-            )
+            is_good_outcome = result.get("route_match", False) and result.get("intent_match", False)
 
             result.get("confidence", 0.5)
             quality_score = 0.9 if is_good_outcome else 0.5
@@ -87,9 +83,7 @@ class AutomatedTrainingPipeline:
                 logger.info(f"OK: Good outcome: '{user_input[:40]}...' ({intent})")
             else:
                 learning_opportunities += 1
-                logger.info(
-                    f"LEARN: '{user_input[:40]}...' (expected: {result.get('expected_intent')})"
-                )
+                logger.info(f"LEARN: '{user_input[:40]}...' (expected: {result.get('expected_intent')})")
 
         summary = {
             "good_outcomes": good_outcomes,
@@ -103,9 +97,7 @@ class AutomatedTrainingPipeline:
 
         return summary
 
-    def run_auto_corrections(
-        self, scenario_results: List[Dict], force_apply: bool = False
-    ) -> Dict[str, Any]:
+    def run_auto_corrections(self, scenario_results: List[Dict], force_apply: bool = False) -> Dict[str, Any]:
         """
         Phase 2: Auto-correction pipeline
 
@@ -116,14 +108,10 @@ class AutomatedTrainingPipeline:
         logger.info("\n[PHASE 2] Running Auto-Correction Pipeline...")
 
         # Process scenario results to create corrections
-        correction_summary = self.correction_engine.process_scenario_results(
-            scenario_results
-        )
+        correction_summary = self.correction_engine.process_scenario_results(scenario_results)
 
         # Apply corrections (force_apply skips the multi-run validation gate)
-        applied_summary = self.correction_engine.apply_corrections_to_thresholds(
-            force_apply=force_apply
-        )
+        applied_summary = self.correction_engine.apply_corrections_to_thresholds(force_apply=force_apply)
 
         logger.info("\n[Phase 2 Summary]")
         logger.info(f"  Corrections created: {correction_summary['corrections_added']}")
@@ -148,18 +136,12 @@ class AutomatedTrainingPipeline:
 
         logger.info("\n[Phase 3 Summary]")
         logger.info(f"  Patterns promoted: {promotion_summary['promoted']}")
-        logger.info(
-            f"  Patterns staged for review: {promotion_summary['staged_for_review']}"
-        )
-        logger.info(
-            f"  Total clusters found: {promotion_summary['total_clusters_found']}"
-        )
+        logger.info(f"  Patterns staged for review: {promotion_summary['staged_for_review']}")
+        logger.info(f"  Total clusters found: {promotion_summary['total_clusters_found']}")
 
         return promotion_summary
 
-    def run_full_pipeline(
-        self, scenario_results: List[Dict], force_apply: bool = False
-    ) -> Dict[str, Any]:
+    def run_full_pipeline(self, scenario_results: List[Dict], force_apply: bool = False) -> Dict[str, Any]:
         """Execute all three phases"""
         logger.info("STARTING FULL AUTOMATED TRAINING PIPELINE")
 
@@ -167,9 +149,7 @@ class AutomatedTrainingPipeline:
             "timestamp": datetime.now().isoformat(),
             "force_apply": force_apply,
             "phase1_feedback": self.run_scenario_feedback(scenario_results),
-            "phase2_corrections": self.run_auto_corrections(
-                scenario_results, force_apply=force_apply
-            ),
+            "phase2_corrections": self.run_auto_corrections(scenario_results, force_apply=force_apply),
             "phase3_promotion": self.run_pattern_promotion(),
         }
 
@@ -177,12 +157,8 @@ class AutomatedTrainingPipeline:
         logger.info("PIPELINE COMPLETE")
         logger.info("=" * 70)
         logger.info("Summary:")
-        logger.info(
-            f"  Good scenario outcomes: {results['phase1_feedback']['good_outcomes']}"
-        )
-        logger.info(
-            f"  Corrections added: {results['phase2_corrections']['corrections_created']['corrections_added']}"
-        )
+        logger.info(f"  Good scenario outcomes: {results['phase1_feedback']['good_outcomes']}")
+        logger.info(f"  Corrections added: {results['phase2_corrections']['corrections_created']['corrections_added']}")
         logger.info(f"  Patterns promoted: {results['phase3_promotion']['promoted']}")
 
         return results
@@ -198,9 +174,7 @@ class AutomatedTrainingPipeline:
         report.append("\n[PHASE 1: AUTO-FEEDBACK]")
         fb = results["phase1_feedback"]
         report.append(f"  Good outcomes marked as training: {fb['good_outcomes']}")
-        report.append(
-            f"  Learning opportunities identified: {fb['learning_opportunities']}"
-        )
+        report.append(f"  Learning opportunities identified: {fb['learning_opportunities']}")
         report.append(f"  Total scenarios processed: {fb['total_scenarios']}")
 
         report.append("\n[PHASE 2: AUTO-CORRECTIONS]")
@@ -214,16 +188,12 @@ class AutomatedTrainingPipeline:
         report.append("\n[PHASE 3: AUTO-PATTERN PROMOTION]")
         promo = results["phase3_promotion"]
         report.append(f"  Patterns auto-promoted (safe domains): {promo['promoted']}")
-        report.append(
-            f"  Patterns staged for review (complex domains): {promo['staged_for_review']}"
-        )
+        report.append(f"  Patterns staged for review (complex domains): {promo['staged_for_review']}")
         report.append(f"  Total intent clusters found: {promo['total_clusters_found']}")
 
         report.append("\n[SAFETY & CONTROL]")
         report.append("  OK: No patterns auto-promoted for dangerous domains")
-        report.append(
-            "  OK: Manual /feedback, /correct, /patterns commands still available"
-        )
+        report.append("  OK: Manual /feedback, /correct, /patterns commands still available")
         report.append("  OK: All changes logged and reversible")
         report.append(
             f"  OK: Corrections gate: {'force_apply (pipeline mode)' if results.get('force_apply') else 'validation_count >= 3'}"
@@ -246,12 +216,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Run automated training pipeline")
-    parser.add_argument(
-        "--results", type=str, help="Path to scenario results JSON file"
-    )
-    parser.add_argument(
-        "--report", action="store_true", help="Generate and print report only"
-    )
+    parser.add_argument("--results", type=str, help="Path to scenario results JSON file")
+    parser.add_argument("--report", action="store_true", help="Generate and print report only")
     parser.add_argument(
         "--force-apply",
         action="store_true",
@@ -277,12 +243,7 @@ if __name__ == "__main__":
     print(report)
 
     # Save report
-    report_file = (
-        PROJECT_ROOT
-        / "data"
-        / "training"
-        / f"training_report_{datetime.now().isoformat()}.txt"
-    )
+    report_file = PROJECT_ROOT / "data" / "training" / f"training_report_{datetime.now().isoformat()}.txt"
     report_file.parent.mkdir(parents=True, exist_ok=True)
     with open(report_file, "w") as f:
         f.write(report)

@@ -51,9 +51,7 @@ class PostMortem:
 class WeakSpotDetector:
     """Detects weak spots in ALICE's reasoning/routing and generates insights."""
 
-    def __init__(
-        self, analysis_window_turns: int = 50, min_occurrences_for_pattern: int = 3
-    ):
+    def __init__(self, analysis_window_turns: int = 50, min_occurrences_for_pattern: int = 3):
         """
         Args:
             analysis_window_turns: Analyze last N turns for patterns
@@ -113,9 +111,7 @@ class WeakSpotDetector:
         recent_failures = self.failures[-self.analysis_window_turns :]
 
         # Group by routing path
-        failures_by_path = self._group_failures(
-            recent_failures, group_by="routing_path"
-        )
+        failures_by_path = self._group_failures(recent_failures, group_by="routing_path")
 
         for path, path_failures in failures_by_path.items():
             if len(path_failures) >= self.min_occurrences_for_pattern:
@@ -133,9 +129,7 @@ class WeakSpotDetector:
                 postmortems.append(postmortem)
 
         # Group by error message pattern
-        failures_by_error = self._group_failures(
-            recent_failures, group_by="error_pattern"
-        )
+        failures_by_error = self._group_failures(recent_failures, group_by="error_pattern")
 
         for error_pattern, error_failures in failures_by_error.items():
             if len(error_failures) >= self.min_occurrences_for_pattern:
@@ -147,9 +141,7 @@ class WeakSpotDetector:
 
         return postmortems
 
-    def _group_failures(
-        self, failures: List[Failure], group_by: str
-    ) -> Dict[str, List[Failure]]:
+    def _group_failures(self, failures: List[Failure], group_by: str) -> Dict[str, List[Failure]]:
         """Group failures by a specific attribute."""
         groups = {}
 
@@ -170,24 +162,18 @@ class WeakSpotDetector:
 
         return groups
 
-    def _analyze_routing_weakness(
-        self, path: str, failures: List[Failure]
-    ) -> PostMortem:
+    def _analyze_routing_weakness(self, path: str, failures: List[Failure]) -> PostMortem:
         """Analyze why a routing path keeps failing."""
         intents = Counter(f.intent for f in failures)
         [f.error_message for f in failures]
-        retry_successes = sum(
-            1 for f in failures if f.was_retried and f.retry_succeeded
-        )
+        retry_successes = sum(1 for f in failures if f.was_retried and f.retry_succeeded)
 
         # Hypothesis
         if retry_successes > len(failures) / 2:
             hypothesis = "Transient failures—route is generally correct but occasionally unstable"
         else:
             top_intent = intents.most_common(1)[0][0]
-            hypothesis = (
-                f"Routing path '{path}' doesn't handle intent '{top_intent}' well"
-            )
+            hypothesis = f"Routing path '{path}' doesn't handle intent '{top_intent}' well"
 
         postmortem = PostMortem(
             pattern_name=f"weak_routing__{path.replace(':', '_')}",
@@ -210,9 +196,7 @@ class WeakSpotDetector:
 
         return postmortem
 
-    def _analyze_intent_weakness(
-        self, intent: str, failures: List[Failure]
-    ) -> PostMortem:
+    def _analyze_intent_weakness(self, intent: str, failures: List[Failure]) -> PostMortem:
         """Analyze why an intent keeps failing."""
         paths = Counter(f.routing_path for f in failures)
         [f.error_message for f in failures]
@@ -234,9 +218,7 @@ class WeakSpotDetector:
 
         return postmortem
 
-    def _analyze_error_pattern(
-        self, error_pattern: str, failures: List[Failure]
-    ) -> PostMortem:
+    def _analyze_error_pattern(self, error_pattern: str, failures: List[Failure]) -> PostMortem:
         """Analyze a recurring error pattern."""
         paths = [f.routing_path for f in failures]
         intents = [f.intent for f in failures]
@@ -288,16 +270,12 @@ def test_weak_spot_regression_{path.replace(":", "_")}():
         """Get prioritized list of improvements to make."""
         improvements = []
 
-        for postmortem in sorted(
-            self.postmortems, key=lambda p: p.occurrences, reverse=True
-        ):
+        for postmortem in sorted(self.postmortems, key=lambda p: p.occurrences, reverse=True):
             improvement = {
                 "priority": "high" if postmortem.occurrences >= 5 else "medium",
                 "pattern": postmortem.pattern_name,
                 "occurrences": postmortem.occurrences,
-                "suggestion": (
-                    postmortem.suggested_fixes[0] if postmortem.suggested_fixes else ""
-                ),
+                "suggestion": (postmortem.suggested_fixes[0] if postmortem.suggested_fixes else ""),
                 "test_case": postmortem.generated_test,
                 "severity": postmortem.severity,
             }
@@ -328,7 +306,4 @@ def test_weak_spot_regression_{path.replace(":", "_")}():
             return False
 
         # Trigger if there's a high-severity pattern with 5+ occurrences
-        return any(
-            p.occurrences >= 5 and p.severity in ("high", "critical")
-            for p in self.postmortems
-        )
+        return any(p.occurrences >= 5 and p.severity in ("high", "critical") for p in self.postmortems)

@@ -11,9 +11,7 @@ from tests.integration.test_contract_pipeline import _FakeAlice
 def test_store_structured_next_recommendation():
     alice = _FakeAlice()
     save_project_state(
-        ProjectMemoryState(
-            active_objective="Improve Alice into an agentic companion/operator"
-        ),
+        ProjectMemoryState(active_objective="Improve Alice into an agentic companion/operator"),
         user_id="default",
     )
     result = ContractPipeline(build_runtime_boundaries(alice)).run_turn(

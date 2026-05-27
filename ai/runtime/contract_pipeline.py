@@ -120,10 +120,7 @@ class ContractPipeline:
             loop.maybe_auto_audit(event)
             # Foundation 2 bridge — high-confidence failures become self-opinions
             classification = loop.classify(event)
-            if (
-                float(classification.confidence or 0) >= 0.75
-                and str(classification.failure_kind or "") != "unknown"
-            ):
+            if float(classification.confidence or 0) >= 0.75 and str(classification.failure_kind or "") != "unknown":
                 try:
                     from ai.identity.alice_identity import record_opinion
 
@@ -323,8 +320,7 @@ class ContractPipeline:
         return self.executive_controller.run_turn_state_machine(
             state=state,
             decision=executive_decision,
-            has_explicit_action_cue=self._is_tool_route(route)
-            and not approval_required,
+            has_explicit_action_cue=self._is_tool_route(route) and not approval_required,
             has_active_goal=bool(metadata.get("active_goals")),
             pre_route_blocked=approval_required or route == "clarify",
             tool_vetoed=route == "refuse",
@@ -343,20 +339,13 @@ class ContractPipeline:
         route = str(getattr(decision, "route", "") or "").strip().lower()
         route_is_tool = self._is_tool_route(route)
         approval_required = bool(action_discipline.get("approval_required"))
-        tool_success = bool(
-            route_is_tool and tool_result is not None and tool_result.success
-        )
+        tool_success = bool(route_is_tool and tool_result is not None and tool_result.success)
 
         verification_payload = self._verification_to_dict(verification)
         verification_accepted = bool(verification_payload["accepted"])
 
         goal_advanced = bool(
-            verification_accepted
-            and (
-                tool_success
-                if route_is_tool
-                else bool(str(response_text or "").strip())
-            )
+            verification_accepted and (tool_success if route_is_tool else bool(str(response_text or "").strip()))
         )
         if approval_required:
             goal_advanced = False
@@ -365,9 +354,7 @@ class ContractPipeline:
         if route_is_tool and tool_result is not None and not tool_result.success:
             retryable = bool(
                 not action_discipline.get("retried")
-                and self.companion_runtime.policy_engine.is_transient_tool_error(
-                    tool_result
-                )
+                and self.companion_runtime.policy_engine.is_transient_tool_error(tool_result)
             )
 
         execution_report = self.execution_verifier.verify_task_result(
@@ -389,9 +376,7 @@ class ContractPipeline:
         verification_passed = bool(verification_accepted and execution_report.accepted)
         combined_issues = self._merge_issue_lists(
             execution_report.issues,
-            []
-            if verification_accepted
-            else [str(verification_payload.get("reason") or "verification_failed")],
+            [] if verification_accepted else [str(verification_payload.get("reason") or "verification_failed")],
         )
 
         if approval_required:
@@ -423,9 +408,7 @@ class ContractPipeline:
                 "plugin": str(getattr(tool_result, "tool_name", "") or ""),
                 "action": str(getattr(tool_result, "action", "") or ""),
                 "status": (
-                    "skipped"
-                    if (not route_is_tool or tool_result is None)
-                    else ("ok" if tool_success else "failed")
+                    "skipped" if (not route_is_tool or tool_result is None) else ("ok" if tool_success else "failed")
                 ),
                 "route": route,
             },
@@ -459,9 +442,7 @@ class ContractPipeline:
         return merged
 
     @staticmethod
-    def _stage(
-        name: str, status: str, details: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    def _stage(name: str, status: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return {
             "name": name,
             "status": status,
@@ -492,9 +473,7 @@ class ContractPipeline:
             final_route=str(final_route or ""),
             final_intent=str(final_intent or ""),
             candidates=list(routing_trace.get("candidates") or []),
-            evidence_contract_results=list(
-                routing_trace.get("evidence_contract_results") or []
-            ),
+            evidence_contract_results=list(routing_trace.get("evidence_contract_results") or []),
             veto_reason=str(veto_reason or routing_trace.get("reason") or ""),
             verification_reason=str(verification_reason or ""),
             operator_context=dict(operator_context or {}),
@@ -505,9 +484,7 @@ class ContractPipeline:
         )
         self.routing_failure_logger.append(payload)
 
-    async def _run_turn_async(
-        self, user_input: str, user_id: str, turn_number: int = 0
-    ) -> PipelineResult:
+    async def _run_turn_async(self, user_input: str, user_id: str, turn_number: int = 0) -> PipelineResult:
         trace_id = str(uuid4())
         started = time.perf_counter()
         stages = []
@@ -598,9 +575,7 @@ class ContractPipeline:
         resolved_input = route_phase.resolved_input
         memory = route_phase.memory
         plan = dict(route_phase.plan or {})
-        routing_trace = dict(getattr(decision, "metadata", {}) or {}).get(
-            "routing_trace"
-        )
+        routing_trace = dict(getattr(decision, "metadata", {}) or {}).get("routing_trace")
         if isinstance(routing_trace, dict) and routing_trace:
             plan["routing_trace"] = dict(routing_trace)
         policy = self.companion_runtime.decide(
@@ -618,9 +593,7 @@ class ContractPipeline:
         resolved_input = route_phase.resolved_input
         memory = route_phase.memory
         plan = dict(route_phase.plan or {})
-        routing_trace = dict(getattr(decision, "metadata", {}) or {}).get(
-            "routing_trace"
-        )
+        routing_trace = dict(getattr(decision, "metadata", {}) or {}).get("routing_trace")
         if isinstance(routing_trace, dict) and routing_trace:
             plan["routing_trace"] = dict(routing_trace)
         if bool(route_veto.get("applied")):
@@ -652,9 +625,7 @@ class ContractPipeline:
                 final_intent=decision.intent,
                 plan=plan,
                 veto_reason="route_clarify",
-                operator_state=dict(
-                    (decision.metadata or {}).get("operator_state") or {}
-                ),
+                operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
             )
         routing_trace_for_log = dict(plan.get("routing_trace") or {})
         if bool(routing_trace_for_log.get("file_tool_vetoed")):
@@ -664,18 +635,11 @@ class ContractPipeline:
                 final_route=decision.route,
                 final_intent=decision.intent,
                 plan=plan,
-                veto_reason=str(
-                    routing_trace_for_log.get("reason") or "tool_route_vetoed"
-                ),
-                operator_state=dict(
-                    (decision.metadata or {}).get("operator_state") or {}
-                ),
+                veto_reason=str(routing_trace_for_log.get("reason") or "tool_route_vetoed"),
+                operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
             )
         low_input = str(user_input or "").lower()
-        if any(
-            token in low_input
-            for token in ("why did you do that", "that's wrong", "you misunderstood")
-        ):
+        if any(token in low_input for token in ("why did you do that", "that's wrong", "you misunderstood")):
             self._append_routing_failure(
                 trace_id=trace_id,
                 user_input=user_input,
@@ -683,9 +647,7 @@ class ContractPipeline:
                 final_intent=decision.intent,
                 plan=plan,
                 veto_reason="user_reported_misroute",
-                operator_state=dict(
-                    (decision.metadata or {}).get("operator_state") or {}
-                ),
+                operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
             )
 
         stages.append(
@@ -703,9 +665,7 @@ class ContractPipeline:
                     "resolved_input": resolved_input,
                     "policy_decision": policy.decision_type,
                     "policy_reason": policy.reason,
-                    "tool_execution_disabled": bool(
-                        route_veto.get("tool_execution_disabled")
-                    ),
+                    "tool_execution_disabled": bool(route_veto.get("tool_execution_disabled")),
                     "routing_trace": dict(plan.get("routing_trace") or {}),
                     "plan": plan,
                 },
@@ -735,12 +695,10 @@ class ContractPipeline:
         except Exception:
             pass
 
-        execute_phase, action_discipline = (
-            self.companion_runtime.execute_with_discipline(
-                orchestrator=self.orchestrator,
-                route_phase=route_phase,
-                policy=policy,
-            )
+        execute_phase, action_discipline = self.companion_runtime.execute_with_discipline(
+            orchestrator=self.orchestrator,
+            route_phase=route_phase,
+            policy=policy,
         )
         action_discipline = dict(action_discipline or {})
         action_discipline["policy_decision"] = policy.decision_type
@@ -759,19 +717,10 @@ class ContractPipeline:
                 )
             )
         elif execute_phase.executed and tool_result is not None:
-            tool_payload = (
-                tool_result.data if isinstance(tool_result.data, dict) else {}
-            )
-            tool_data = (
-                tool_payload.get("data")
-                if isinstance(tool_payload.get("data"), dict)
-                else {}
-            )
+            tool_payload = tool_result.data if isinstance(tool_result.data, dict) else {}
+            tool_data = tool_payload.get("data") if isinstance(tool_payload.get("data"), dict) else {}
             tool_error_detail = str(
-                tool_payload.get("error")
-                or tool_data.get("error")
-                or tool_data.get("message_code")
-                or ""
+                tool_payload.get("error") or tool_data.get("error") or tool_data.get("message_code") or ""
             ).strip()
             stages.append(
                 self._stage(
@@ -783,12 +732,8 @@ class ContractPipeline:
                         "error": tool_result.error,
                         "error_detail": tool_error_detail,
                         "confidence": tool_result.confidence,
-                        "schema_validation": str(
-                            (tool_result.diagnostics or {}).get("stage") or "ok"
-                        ),
-                        "attempt_count": int(
-                            action_discipline.get("attempt_count") or 1
-                        ),
+                        "schema_validation": str((tool_result.diagnostics or {}).get("stage") or "ok"),
+                        "attempt_count": int(action_discipline.get("attempt_count") or 1),
                         "retried": bool(action_discipline.get("retried")),
                     },
                 )
@@ -800,9 +745,7 @@ class ContractPipeline:
                     "skipped",
                     {
                         "route": decision.route,
-                        "attempt_count": int(
-                            action_discipline.get("attempt_count") or 0
-                        ),
+                        "attempt_count": int(action_discipline.get("attempt_count") or 0),
                         "retried": bool(action_discipline.get("retried")),
                     },
                 )
@@ -820,9 +763,7 @@ class ContractPipeline:
                 confidence=1.0,
                 diagnostics={
                     "policy_decision": policy.decision_type,
-                    "approval_reason": str(
-                        action_discipline.get("approval_reason") or ""
-                    ),
+                    "approval_reason": str(action_discipline.get("approval_reason") or ""),
                 },
             )
             stages.append(
@@ -856,9 +797,7 @@ class ContractPipeline:
             verification = verify_phase.verification
 
             if verification is None:
-                stages.append(
-                    self._stage("verify", "skipped", {"reason": "no_verifier"})
-                )
+                stages.append(self._stage("verify", "skipped", {"reason": "no_verifier"}))
             else:
                 stages.append(
                     self._stage(
@@ -881,23 +820,11 @@ class ContractPipeline:
                         verification_reason=str(verification.reason or ""),
                         veto_reason="verification_failed",
                         operator_context=dict(
-                            (
-                                (tool_result.diagnostics or {}).get("operator_context")
-                                if tool_result
-                                else {}
-                            )
-                            or {}
+                            ((tool_result.diagnostics or {}).get("operator_context") if tool_result else {}) or {}
                         ),
-                        operator_state=dict(
-                            (decision.metadata or {}).get("operator_state") or {}
-                        ),
+                        operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
                         local_execution=dict(
-                            (
-                                (tool_result.diagnostics or {}).get("local_execution")
-                                if tool_result
-                                else {}
-                            )
-                            or {}
+                            ((tool_result.diagnostics or {}).get("local_execution") if tool_result else {}) or {}
                         ),
                     )
 
@@ -908,17 +835,13 @@ class ContractPipeline:
             )
             respond_requires_follow_up = bool(respond_phase.requires_follow_up)
             respond_metadata = dict(respond_phase.metadata or {})
-            follow_up_question = str(
-                respond_metadata.get("follow_up_question") or ""
-            ).strip()
+            follow_up_question = str(respond_metadata.get("follow_up_question") or "").strip()
 
         if policy.decision_type in {"follow_up", "clarify"}:
             respond_requires_follow_up = True
 
         if respond_requires_follow_up and not follow_up_question:
-            follow_up_question = self.companion_runtime.default_follow_up_question(
-                policy=policy
-            )
+            follow_up_question = self.companion_runtime.default_follow_up_question(policy=policy)
             respond_metadata["follow_up_question"] = follow_up_question
 
         turn_state_machine = self._build_pre_execution_state_machine(
@@ -934,11 +857,9 @@ class ContractPipeline:
             response_text=response_text,
             action_discipline=action_discipline,
         )
-        post_execution_state_machine = (
-            self.executive_controller.run_post_execution_state_machine(
-                pre_execution=turn_state_machine,
-                outcome=turn_execution_outcome,
-            )
+        post_execution_state_machine = self.executive_controller.run_post_execution_state_machine(
+            pre_execution=turn_state_machine,
+            outcome=turn_execution_outcome,
         )
 
         if not turn_execution_outcome.verification_passed:
@@ -946,33 +867,25 @@ class ContractPipeline:
                 str(getattr(decision, "intent", "") or "").endswith("greeting")
                 or str(getattr(decision, "intent", "") or "") == "greeting"
             )
-            if is_greeting_turn or (
-                verification
-                and str(verification.reason or "") == "unsupported_continuity_claim"
-            ):
+            if is_greeting_turn or (verification and str(verification.reason or "") == "unsupported_continuity_claim"):
                 op_state = dict((decision.metadata or {}).get("operator_state") or {})
                 if not op_state.get("active_objective"):
                     top_goal = get_top_goal_for_greeting(str(user_id or "gabriel"))
                     if top_goal:
                         op_state = {**op_state, "active_objective": top_goal}
                 user_name = str(getattr(user_state_snapshot, "user_name", "") or "")
-                greeting_session = dict(
-                    self._greeting_session_state_by_user.get(str(user_id), {}) or {}
-                )
+                greeting_session = dict(self._greeting_session_state_by_user.get(str(user_id), {}) or {})
                 greeting = render_grounded_greeting(
                     user_name=user_name,
                     operator_state=op_state,
                     session_state=greeting_session,
                     user_input=user_input,
                 )
-                self._greeting_session_state_by_user[str(user_id)] = dict(
-                    greeting.session_state
-                )
+                self._greeting_session_state_by_user[str(user_id)] = dict(greeting.session_state)
                 response_text = str(greeting.text or "").strip()
             else:
                 response_text = (
-                    "I could not verify that result safely. "
-                    "Please rephrase the request or provide more detail."
+                    "I could not verify that result safely. Please rephrase the request or provide more detail."
                 )
             self._maybe_record_behavior_event(
                 user_id=user_id,
@@ -984,23 +897,16 @@ class ContractPipeline:
                 trace_id=trace_id,
                 failure_kind=(
                     "continuity_claim"
-                    if verification
-                    and str(verification.reason or "") == "unsupported_continuity_claim"
+                    if verification and str(verification.reason or "") == "unsupported_continuity_claim"
                     else "response_grounding"
                 ),
-                symptom=str(verification.reason or "verification_failed")
-                if verification
-                else "verification_failed",
+                symptom=str(verification.reason or "verification_failed") if verification else "verification_failed",
                 expected_behavior="Verified grounded response.",
                 actual_behavior="Verifier rejected the proposed response.",
                 severity="medium",
                 evidence={
-                    "verification_reason": str(verification.reason or "")
-                    if verification
-                    else "",
-                    "verification_diagnostics": dict(verification.diagnostics or {})
-                    if verification
-                    else {},
+                    "verification_reason": str(verification.reason or "") if verification else "",
+                    "verification_diagnostics": dict(verification.diagnostics or {}) if verification else {},
                 },
                 related_files=[
                     "ai/runtime/continuity_claim_guard.py",
@@ -1012,31 +918,22 @@ class ContractPipeline:
                 **dict(respond_metadata or {}),
                 "fallback": "execution_verifier_guard",
             }
-            if is_greeting_turn or (
-                verification
-                and str(verification.reason or "") == "unsupported_continuity_claim"
-            ):
+            if is_greeting_turn or (verification and str(verification.reason or "") == "unsupported_continuity_claim"):
                 respond_metadata.update(
                     {
                         "greeting_memory_policy": "active_state_only",
                         "broad_memory_suppressed": True,
                         "active_objective_used": bool(greeting.active_objective_used),
                         "greeting_style": str(greeting.greeting_style),
-                        "suppressed_project_menu": bool(
-                            greeting.suppressed_project_menu
-                        ),
+                        "suppressed_project_menu": bool(greeting.suppressed_project_menu),
                         "repeated_greeting": bool(greeting.repeated_greeting),
                         "generated_by": str(greeting.generated_by),
                         "warmth_level": str(greeting.warmth_level),
                         "companion_tone": bool(greeting.companion_tone),
-                        "assistant_like_prompt_suppressed": bool(
-                            greeting.assistant_like_prompt_suppressed
-                        ),
+                        "assistant_like_prompt_suppressed": bool(greeting.assistant_like_prompt_suppressed),
                         "validation_passed": bool(greeting.validation_passed),
                         "validation_reasons": list(greeting.validation_reasons),
-                        "continuity_guard_applied": bool(
-                            greeting.continuity_guard_applied
-                        ),
+                        "continuity_guard_applied": bool(greeting.continuity_guard_applied),
                         "continuity_claims": dict(greeting.continuity_claims or {}),
                         "llm_candidate_rejected": bool(greeting.llm_candidate_rejected),
                     }
@@ -1068,23 +965,11 @@ class ContractPipeline:
                 plan=plan,
                 veto_reason="fallback_response_used",
                 operator_context=dict(
-                    (
-                        (tool_result.diagnostics or {}).get("operator_context")
-                        if tool_result
-                        else {}
-                    )
-                    or {}
+                    ((tool_result.diagnostics or {}).get("operator_context") if tool_result else {}) or {}
                 ),
-                operator_state=dict(
-                    (decision.metadata or {}).get("operator_state") or {}
-                ),
+                operator_state=dict((decision.metadata or {}).get("operator_state") or {}),
                 local_execution=dict(
-                    (
-                        (tool_result.diagnostics or {}).get("local_execution")
-                        if tool_result
-                        else {}
-                    )
-                    or {}
+                    ((tool_result.diagnostics or {}).get("local_execution") if tool_result else {}) or {}
                 ),
                 response_excerpt=response_text,
             )
@@ -1180,65 +1065,39 @@ class ContractPipeline:
             tool_result=tool_result,
             action_discipline=action_discipline,
         )
-        local_exec_payload = dict(
-            (
-                (tool_result.diagnostics or {}).get("local_execution")
-                if tool_result
-                else {}
-            )
-            or {}
-        )
-        operator_state_payload = dict(
-            (decision.metadata or {}).get("operator_state") or {}
-        )
+        local_exec_payload = dict(((tool_result.diagnostics or {}).get("local_execution") if tool_result else {}) or {})
+        operator_state_payload = dict((decision.metadata or {}).get("operator_state") or {})
         next_step = decide_next_step(
             route=str(decision.route or ""),
             intent=str(decision.intent or ""),
             operator_state=operator_state_payload,
             local_execution=local_exec_payload,
-            available_files=list(
-                (local_exec_payload.get("suggested_next_files") or [])
-            ),
+            available_files=list((local_exec_payload.get("suggested_next_files") or [])),
             memory_recall=dict(memory.metadata or {}),
             routing_trace=dict(plan.get("routing_trace") or {}),
             last_failure=str(local_exec_payload.get("error") or ""),
         )
         stored_recommended_action = dict(next_step.last_recommended_action or {})
-        if stored_recommended_action and not stored_recommended_action.get(
-            "created_at"
-        ):
+        if stored_recommended_action and not stored_recommended_action.get("created_at"):
             stored_recommended_action["created_at"] = datetime.utcnow().isoformat()
-        if (
-            stored_recommended_action
-            or str(next_step.next_recommended_action or "").strip()
-        ):
+        if stored_recommended_action or str(next_step.next_recommended_action or "").strip():
             try:
                 update_project_state(
                     {
-                        "next_recommended_action": str(
-                            next_step.next_recommended_action or ""
-                        ),
+                        "next_recommended_action": str(next_step.next_recommended_action or ""),
                         "last_recommended_action": stored_recommended_action,
-                        "suggested_next_files": list(
-                            next_step.suggested_next_files or []
-                        ),
+                        "suggested_next_files": list(next_step.suggested_next_files or []),
                     },
                     user_id=str(user_id or "default"),
                 )
             except Exception:
                 pass
         if stored_recommended_action:
-            operator_state_payload["last_recommended_action"] = (
-                stored_recommended_action
-            )
+            operator_state_payload["last_recommended_action"] = stored_recommended_action
         if next_step.suggested_next_files:
-            operator_state_payload["suggested_next_files"] = list(
-                next_step.suggested_next_files or []
-            )
+            operator_state_payload["suggested_next_files"] = list(next_step.suggested_next_files or [])
         if str(next_step.next_recommended_action or "").strip():
-            operator_state_payload["next_recommended_action"] = str(
-                next_step.next_recommended_action or ""
-            )
+            operator_state_payload["next_recommended_action"] = str(next_step.next_recommended_action or "")
         response_text = apply_response_momentum(
             user_input=user_input,
             response_text=response_text,
@@ -1265,9 +1124,7 @@ class ContractPipeline:
                 # The previous turn was a clarification question; this answer resolves it
                 cfl.record_clarification(
                     user_id=user_id,
-                    original_input=str(
-                        getattr(companion_state, "last_user_input", "") or ""
-                    ),
+                    original_input=str(getattr(companion_state, "last_user_input", "") or ""),
                     question="",  # we don't store the exact question, just the pairing
                     answer=user_input,
                     intent=str(decision.intent or ""),
@@ -1300,25 +1157,15 @@ class ContractPipeline:
             learned = dict(identity.learned_preferences or {})
             _is_conversation_route = str(decision.route or "").lower() == "conversation"
             # Auto-derived mirror constraints only apply on non-conversation routes
-            mirror_constraints = (
-                {}
-                if _is_conversation_route
-                else get_style_mirror().derive_auto_constraints(user_id)
-            )
+            mirror_constraints = {} if _is_conversation_route else get_style_mirror().derive_auto_constraints(user_id)
             # Per-turn explicit > learned > mirror auto-derived
             merged = {
                 **mirror_constraints,
                 **learned,
-                **{
-                    k: v
-                    for k, v in per_turn.items()
-                    if v not in (None, "default", "normal", [])
-                },
+                **{k: v for k, v in per_turn.items() if v not in (None, "default", "normal", [])},
             }
             if merged:
-                response_text = AdaptiveResponseStyle().apply_constraints(
-                    response_text, merged
-                )
+                response_text = AdaptiveResponseStyle().apply_constraints(response_text, merged)
         except Exception:
             pass
 
@@ -1328,31 +1175,19 @@ class ContractPipeline:
 
             wm = get_world_model()
             intent_str = str(decision.intent or "")
-            if (
-                tool_result
-                and tool_result.success
-                and intent_str.startswith("weather:")
-            ):
+            if tool_result and tool_result.success and intent_str.startswith("weather:"):
                 wm.record_data_fetch("weather")
-            elif intent_str.startswith("weather:") and not (
-                tool_result and tool_result.success
-            ):
+            elif intent_str.startswith("weather:") and not (tool_result and tool_result.success):
                 # Tool didn't run or failed — qualify if we have cached data with age
                 age = wm.data_age_seconds("weather")
                 if age is not None:
                     mins = int(age / 60)
-                    if (
-                        mins > 0
-                        and response_text
-                        and "(last updated" not in response_text
-                    ):
+                    if mins > 0 and response_text and "(last updated" not in response_text:
                         response_text = f"(last updated ~{mins}m ago) {response_text}"
                 elif wm.is_data_stale("weather"):
                     # No cached data at all and plugin failed — add a retry suggestion
                     if response_text and "try again" not in response_text.lower():
-                        response_text += (
-                            " (Weather data unavailable — try again in a moment.)"
-                        )
+                        response_text += " (Weather data unavailable — try again in a moment.)"
         except Exception:
             pass
 
@@ -1372,10 +1207,7 @@ class ContractPipeline:
                     _body_lines = [
                         ln
                         for ln in _lines
-                        if not any(
-                            ln.startswith(p)
-                            for p in ("Good morning", "Good afternoon", "Good evening")
-                        )
+                        if not any(ln.startswith(p) for p in ("Good morning", "Good afternoon", "Good evening"))
                     ]
                     _body = "\n".join(_body_lines).strip()
                     if _body and response_text:
@@ -1418,17 +1250,10 @@ class ContractPipeline:
                 final_route=decision.route,
                 final_intent=decision.intent,
                 plan=plan,
-                verification_reason=str(
-                    (verification.reason if verification else "") or ""
-                ),
+                verification_reason=str((verification.reason if verification else "") or ""),
                 veto_reason="local_execution_target_not_found",
                 operator_context=dict(
-                    (
-                        (tool_result.diagnostics or {}).get("operator_context")
-                        if tool_result
-                        else {}
-                    )
-                    or {}
+                    ((tool_result.diagnostics or {}).get("operator_context") if tool_result else {}) or {}
                 ),
                 operator_state=operator_state_payload,
                 local_execution=local_exec_payload,
@@ -1451,9 +1276,7 @@ class ContractPipeline:
         }
         memory_plan = self.memory_turn_service.build_memory_plan(
             user_input=user_input,
-            user_name=str(
-                getattr(user_state_snapshot, "user_name", "") or user_id or "User"
-            ),
+            user_name=str(getattr(user_state_snapshot, "user_name", "") or user_id or "User"),
             trace_id=trace_id,
             decision_intent=decision.intent,
             decision_route=decision.route,
@@ -1478,9 +1301,7 @@ class ContractPipeline:
             user_id=user_id,
             intent=decision.intent,
             route=decision.route,
-            unresolved_references=list(
-                (decision.metadata or {}).get("pronouns", []) or []
-            ),
+            unresolved_references=list((decision.metadata or {}).get("pronouns", []) or []),
             active_goals=merged_active_goals,
             last_tool_used=(tool_result.tool_name if tool_result else ""),
             last_result_produced=response_text[:240],
@@ -1503,9 +1324,7 @@ class ContractPipeline:
                     "prior_task": state.prior_task,
                     "last_tool_used": state.last_tool_used,
                     "project_count": len(memory_domains.get("projects", []) or []),
-                    "unresolved_thread_count": len(
-                        memory_domains.get("unresolved_threads", []) or []
-                    ),
+                    "unresolved_thread_count": len(memory_domains.get("unresolved_threads", []) or []),
                 },
             )
         )
@@ -1563,39 +1382,23 @@ class ContractPipeline:
                     "identity_model": dict(memory_domains.get("identity", {}) or {}),
                     "memory_domains": memory_domains,
                     "last_tool_result": dict(companion_state.last_tool_result or {}),
-                    "last_user_state_signals": list(
-                        companion_state.last_user_state_signals or []
-                    ),
+                    "last_user_state_signals": list(companion_state.last_user_state_signals or []),
                     "action_discipline": {
                         "retry_count": int(action_discipline.get("attempt_count") or 0),
                         "retried": bool(action_discipline.get("retried")),
-                        "approval_required": bool(
-                            action_discipline.get("approval_required")
-                        ),
-                        "approval_reason": str(
-                            action_discipline.get("approval_reason") or ""
-                        ),
+                        "approval_required": bool(action_discipline.get("approval_required")),
+                        "approval_reason": str(action_discipline.get("approval_reason") or ""),
                     },
                 },
                 "memory_extraction": {
                     **dict(memory_plan.get("memory_extraction") or {}),
                 },
                 "operator_context": dict(
-                    (
-                        (tool_result.diagnostics or {}).get("operator_context")
-                        if tool_result
-                        else {}
-                    )
-                    or {}
+                    ((tool_result.diagnostics or {}).get("operator_context") if tool_result else {}) or {}
                 ),
                 "operator_state": operator_state_payload,
                 "local_execution": dict(
-                    (
-                        (tool_result.diagnostics or {}).get("local_execution")
-                        if tool_result
-                        else {}
-                    )
-                    or {}
+                    ((tool_result.diagnostics or {}).get("local_execution") if tool_result else {}) or {}
                 ),
                 "next_step_policy": next_step.to_dict(),
                 "agent_loop": agent_loop_payload,
@@ -1612,38 +1415,20 @@ class ContractPipeline:
             }
         )
         if "continuity_claims" in (respond_metadata or {}):
-            metadata_payload["continuity_claims"] = dict(
-                respond_metadata.get("continuity_claims") or {}
-            )
+            metadata_payload["continuity_claims"] = dict(respond_metadata.get("continuity_claims") or {})
         greeting_policy = {
-            "greeting_memory_policy": str(
-                (respond_metadata or {}).get("greeting_memory_policy") or ""
-            ),
-            "broad_memory_suppressed": bool(
-                (respond_metadata or {}).get("broad_memory_suppressed")
-            ),
-            "active_objective_used": bool(
-                (respond_metadata or {}).get("active_objective_used")
-            ),
+            "greeting_memory_policy": str((respond_metadata or {}).get("greeting_memory_policy") or ""),
+            "broad_memory_suppressed": bool((respond_metadata or {}).get("broad_memory_suppressed")),
+            "active_objective_used": bool((respond_metadata or {}).get("active_objective_used")),
             "greeting_style": str((respond_metadata or {}).get("greeting_style") or ""),
-            "suppressed_project_menu": bool(
-                (respond_metadata or {}).get("suppressed_project_menu")
-            ),
-            "repeated_greeting": bool(
-                (respond_metadata or {}).get("repeated_greeting")
-            ),
+            "suppressed_project_menu": bool((respond_metadata or {}).get("suppressed_project_menu")),
+            "repeated_greeting": bool((respond_metadata or {}).get("repeated_greeting")),
             "generated_by": str((respond_metadata or {}).get("generated_by") or ""),
             "warmth_level": str((respond_metadata or {}).get("warmth_level") or ""),
             "companion_tone": bool((respond_metadata or {}).get("companion_tone")),
-            "assistant_like_prompt_suppressed": bool(
-                (respond_metadata or {}).get("assistant_like_prompt_suppressed")
-            ),
-            "validation_passed": bool(
-                (respond_metadata or {}).get("validation_passed", True)
-            ),
-            "validation_reasons": list(
-                (respond_metadata or {}).get("validation_reasons") or []
-            ),
+            "assistant_like_prompt_suppressed": bool((respond_metadata or {}).get("assistant_like_prompt_suppressed")),
+            "validation_passed": bool((respond_metadata or {}).get("validation_passed", True)),
+            "validation_reasons": list((respond_metadata or {}).get("validation_reasons") or []),
         }
         if any(greeting_policy.values()):
             metadata_payload["greeting_metadata"] = greeting_policy

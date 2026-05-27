@@ -86,9 +86,7 @@ class TaskQueue:
     def _initialize_celery(self):
         """Initialize Celery for distributed task processing"""
         try:
-            self.celery_app = Celery(
-                "alice_tasks", broker=self.broker_url, backend=self.backend_url
-            )
+            self.celery_app = Celery("alice_tasks", broker=self.broker_url, backend=self.backend_url)
 
             self.celery_app.conf.update(
                 task_serializer="json",
@@ -102,9 +100,7 @@ class TaskQueue:
                 worker_max_tasks_per_child=100,
             )
 
-            logger.info(
-                f"[TaskQueue] Celery initialized with broker: {self.broker_url}"
-            )
+            logger.info(f"[TaskQueue] Celery initialized with broker: {self.broker_url}")
 
         except Exception as e:
             logger.warning(f"[TaskQueue] Celery init failed: {e}, using thread workers")
@@ -116,9 +112,7 @@ class TaskQueue:
         self.running = True
 
         for i in range(self.num_workers):
-            worker = threading.Thread(
-                target=self._worker_loop, name=f"TaskWorker-{i}", daemon=True
-            )
+            worker = threading.Thread(target=self._worker_loop, name=f"TaskWorker-{i}", daemon=True)
             worker.start()
             self.workers.append(worker)
 
@@ -154,9 +148,7 @@ class TaskQueue:
                         with self.lock:
                             self.stats["retried"] += 1
 
-                        logger.info(
-                            f"[TaskQueue] Retrying task {task.id} ({task.retry_count}/{task.max_retries})"
-                        )
+                        logger.info(f"[TaskQueue] Retrying task {task.id} ({task.retry_count}/{task.max_retries})")
                     else:
                         with self.lock:
                             self.stats["failed"] += 1
@@ -171,9 +163,7 @@ class TaskQueue:
 
     def _enqueue_task(self, task: Task):
         """Internal method to enqueue task"""
-        priority_value = (
-            -task.priority.value
-        )  # Negative for min-heap to act as max-heap
+        priority_value = -task.priority.value  # Negative for min-heap to act as max-heap
         task_data = {
             "id": task.id,
             "func": task.func,
@@ -222,9 +212,7 @@ class TaskQueue:
                     )
                     task_id = result.id
                 else:
-                    logger.warning(
-                        f"[TaskQueue] Task {task_name} not registered with Celery, using thread pool"
-                    )
+                    logger.warning(f"[TaskQueue] Task {task_name} not registered with Celery, using thread pool")
                     task = Task(
                         id=task_id,
                         func=func,
@@ -235,9 +223,7 @@ class TaskQueue:
                     )
                     self._enqueue_task(task)
             except Exception as e:
-                logger.warning(
-                    f"[TaskQueue] Celery enqueue failed: {e}, using thread pool"
-                )
+                logger.warning(f"[TaskQueue] Celery enqueue failed: {e}, using thread pool")
                 task = Task(
                     id=task_id,
                     func=func,
@@ -349,9 +335,7 @@ def initialize_task_queue(
 ) -> TaskQueue:
     """Initialize global task queue"""
     global _task_queue
-    _task_queue = TaskQueue(
-        broker_url=broker_url, backend_url=backend_url, num_workers=num_workers
-    )
+    _task_queue = TaskQueue(broker_url=broker_url, backend_url=backend_url, num_workers=num_workers)
     return _task_queue
 
 

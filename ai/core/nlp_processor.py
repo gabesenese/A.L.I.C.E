@@ -39,9 +39,7 @@ except ImportError:  # pragma: no cover
         return text.split()
 
     SentimentIntensityAnalyzer = None
-    logging.warning(
-        "[WARN] NLTK not available. Using basic tokenization and neutral sentiment."
-    )
+    logging.warning("[WARN] NLTK not available. Using basic tokenization and neutral sentiment.")
 
 try:
     sklearn_text = importlib.import_module("sklearn.feature_extraction.text")
@@ -57,18 +55,14 @@ try:
     dateparser = importlib.import_module("dateparser")
 except ImportError:  # pragma: no cover
     dateparser = None
-    logging.warning(
-        "[WARN] dateparser not available. Temporal parsing will be limited."
-    )
+    logging.warning("[WARN] dateparser not available. Temporal parsing will be limited.")
 
 try:
     parsedatetime_mod = importlib.import_module("parsedatetime")
     Calendar = parsedatetime_mod.Calendar
 except ImportError:  # pragma: no cover
     Calendar = None
-    logging.warning(
-        "[WARN] parsedatetime not available. Temporal parsing will be limited."
-    )
+    logging.warning("[WARN] parsedatetime not available. Temporal parsing will be limited.")
 
 # Semantic intent classification
 try:
@@ -77,9 +71,7 @@ try:
     SEMANTIC_CLASSIFIER_AVAILABLE = True
 except ImportError:
     SEMANTIC_CLASSIFIER_AVAILABLE = False
-    logging.warning(
-        "[WARN] Semantic intent classifier not available. Using fallback patterns."
-    )
+    logging.warning("[WARN] Semantic intent classifier not available. Using fallback patterns.")
 
 try:
     from ai.core.llm_intent_classifier import get_llm_intent_classifier
@@ -87,9 +79,7 @@ try:
     LLM_INTENT_CLASSIFIER_AVAILABLE = True
 except ImportError:
     LLM_INTENT_CLASSIFIER_AVAILABLE = False
-    logging.warning(
-        "[WARN] LLM intent classifier not available. Semantic-only routing will be used."
-    )
+    logging.warning("[WARN] LLM intent classifier not available. Semantic-only routing will be used.")
 
 # Entity normalizer (P0 Improvement)
 try:
@@ -148,9 +138,7 @@ except ImportError:
     ConversationMemory = None
     ImplicitIntentDetector = None
     DialogueStateMachine = None
-    logging.warning(
-        "[WARN] Tier foundation modules unavailable. Running base NLP stack."
-    )
+    logging.warning("[WARN] Tier foundation modules unavailable. Running base NLP stack.")
 
 from ai.core.followup_resolver import FollowUpResolver
 from ai.core.route_coordinator import RouteCoordinator, RouteCoordinatorConfig
@@ -195,15 +183,9 @@ _TOKEN_PATTERN = re.compile(r'"[^"]+"|#\w+|\d+(?:st|nd|rd|th)?|[A-Za-z]+|[^\w\s]
 _ORDINAL_TOKEN_RE = re.compile(r"\d+(?:st|nd|rd|th)")
 _ALPHA_TOKEN_RE = re.compile(r"[A-Za-z]+")
 
-_NOTE_TERMS: frozenset = frozenset(
-    {"note", "notes", "list", "lists", "todo", "task", "tasks"}
-)
-_EMAIL_TERMS: frozenset = frozenset(
-    {"email", "emails", "mail", "inbox", "sender", "subject"}
-)
-_CALENDAR_TERMS: frozenset = frozenset(
-    {"calendar", "event", "events", "meeting", "schedule"}
-)
+_NOTE_TERMS: frozenset = frozenset({"note", "notes", "list", "lists", "todo", "task", "tasks"})
+_EMAIL_TERMS: frozenset = frozenset({"email", "emails", "mail", "inbox", "sender", "subject"})
+_CALENDAR_TERMS: frozenset = frozenset({"calendar", "event", "events", "meeting", "schedule"})
 _WEATHER_TERMS: frozenset = frozenset(
     {
         "weather",
@@ -246,15 +228,9 @@ _WEATHER_FORECAST_TERMS: frozenset = frozenset(
         "later",
     }
 )
-_WEATHER_EVENT_TERMS: frozenset = frozenset(
-    {"snow", "rain", "storm", "drizzle", "thunder"}
-)
-_WEATHER_FUTURE_TERMS: frozenset = frozenset(
-    {"will", "gonna", "going", "chance", "expect", "is"}
-)
-_SYSTEM_TERMS: frozenset = frozenset(
-    {"system", "cpu", "memory", "disk", "battery", "status"}
-)
+_WEATHER_EVENT_TERMS: frozenset = frozenset({"snow", "rain", "storm", "drizzle", "thunder"})
+_WEATHER_FUTURE_TERMS: frozenset = frozenset({"will", "gonna", "going", "chance", "expect", "is"})
+_SYSTEM_TERMS: frozenset = frozenset({"system", "cpu", "memory", "disk", "battery", "status"})
 _NON_WEATHER_TARGET_TERMS: frozenset = frozenset(
     {
         "note",
@@ -363,15 +339,27 @@ def is_casual_weather_context(text: str, actionable_clause: str) -> bool:
 # ── PHASE 1 pattern sets ──────────────────────────────────────────────────────
 # System
 _P1_SYSTEM_STATUS: frozenset = frozenset({"status", "doing", "health", "how", "report", "info"})
-_P1_SYSTEM_RESOURCES: frozenset = frozenset({"cpu", "memory", "ram", "disk", "battery", "gpu", "processes", "ports", "network"})
+_P1_SYSTEM_RESOURCES: frozenset = frozenset(
+    {"cpu", "memory", "ram", "disk", "battery", "gpu", "processes", "ports", "network"}
+)
 _P1_SYSTEM_RESOURCE_VERBS: frozenset = frozenset(
     {"usage", "available", "how much", "low", "check", "is", "running", "listening", "open"}
 )
-_P1_SYSTEM_DIRECT: frozenset = frozenset({
-    "system status", "system report", "system info", "system health",
-    "what's running", "what is running", "open ports", "running processes",
-    "resource usage", "show processes", "list processes",
-})
+_P1_SYSTEM_DIRECT: frozenset = frozenset(
+    {
+        "system status",
+        "system report",
+        "system info",
+        "system health",
+        "what's running",
+        "what is running",
+        "open ports",
+        "running processes",
+        "resource usage",
+        "show processes",
+        "list processes",
+    }
+)
 
 # File operations
 _P1_FILE_CREATE: frozenset = frozenset({"create", "make", "new"})
@@ -425,13 +413,9 @@ _P1_EMAIL_DELETE_VERBS: frozenset = frozenset({"delete", "remove", "trash"})
 _P1_EMAIL_DELETE_NOUNS: frozenset = frozenset({"email", "mail", "message"})
 _P1_EMAIL_REPLY_VERBS: frozenset = frozenset({"reply", "respond"})
 _P1_EMAIL_SEARCH_VERBS: frozenset = frozenset({"search", "find", "look for"})
-_P1_EMAIL_SEARCH_NOUNS: frozenset = frozenset(
-    {"email", "mail", "inbox", "message", "from"}
-)
+_P1_EMAIL_SEARCH_NOUNS: frozenset = frozenset({"email", "mail", "inbox", "message", "from"})
 _P1_EMAIL_LIST_VERBS: frozenset = frozenset({"show", "list", "recent", "latest"})
-_P1_EMAIL_LIST_NOUNS: frozenset = frozenset(
-    {"email", "emails", "mail", "mails", "inbox"}
-)
+_P1_EMAIL_LIST_NOUNS: frozenset = frozenset({"email", "emails", "mail", "mails", "inbox"})
 _P1_EMAIL_READ_VERBS: frozenset = frozenset({"read", "open", "display", "view"})
 _P1_EMAIL_READ_NOUNS: frozenset = frozenset({"email", "emails", "mail", "message"})
 
@@ -873,9 +857,7 @@ class SlotFiller:
             "education": "study",
         }
 
-    def extract_slots(
-        self, text: str, intent: str, entities: Dict[str, List[Entity]]
-    ) -> Dict[str, Slot]:
+    def extract_slots(self, text: str, intent: str, entities: Dict[str, List[Entity]]) -> Dict[str, Slot]:
         """Extract slots based on intent and entities"""
         slots = {}
         text_lower = text.lower()
@@ -921,9 +903,7 @@ class SlotFiller:
 
     # ==================== NOTE SLOT EXTRACTORS ====================
 
-    def _extract_title(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_title(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract note title"""
         # Patterns like "note about X", "create X note", "X task"
         patterns = [
@@ -937,9 +917,7 @@ class SlotFiller:
             if match:
                 title = match.group(1).strip()
                 # Clean up common trailing words
-                title = re.sub(
-                    r"\s+(tagged?|with|priority|at|on|tomorrow|today).*$", "", title
-                )
+                title = re.sub(r"\s+(tagged?|with|priority|at|on|tomorrow|today).*$", "", title)
                 if len(title) > 2:
                     return title, 0.85, match.group(0)
 
@@ -959,9 +937,7 @@ class SlotFiller:
 
         return None, 0.0, ""
 
-    def _extract_content(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_content(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract note content"""
         # Content is usually after title or in quotes
         patterns = [
@@ -977,9 +953,7 @@ class SlotFiller:
 
         return None, 0.0, ""
 
-    def _extract_tags(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[List[str]], float, str]:
+    def _extract_tags(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[List[str]], float, str]:
         """Extract tags from #tagname or 'tagged X'"""
         tags = []
 
@@ -999,9 +973,7 @@ class SlotFiller:
             if match:
                 tag_text = match.group(1).strip()
                 # Split by comma or space
-                new_tags = [
-                    t.strip() for t in re.split(r"[,\s]+", tag_text) if t.strip()
-                ]
+                new_tags = [t.strip() for t in re.split(r"[,\s]+", tag_text) if t.strip()]
                 tags.extend(new_tags)
 
         if tags:
@@ -1016,9 +988,7 @@ class SlotFiller:
 
         return None, 0.0, ""
 
-    def _extract_priority(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_priority(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract priority level"""
         for keyword, priority in self.priority_map.items():
             if re.search(rf"\b{keyword}\b", text_lower):
@@ -1032,9 +1002,7 @@ class SlotFiller:
 
         return None, 0.0, ""
 
-    def _extract_category(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_category(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract category"""
         for keyword, category in self.category_map.items():
             if re.search(rf"\b{keyword}\b", text_lower):
@@ -1048,9 +1016,7 @@ class SlotFiller:
 
         return None, 0.0, ""
 
-    def _extract_note_type(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_note_type(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract note type"""
         for keyword, note_type in self.note_type_map.items():
             if re.search(rf"\b{keyword}\b", text_lower):
@@ -1058,9 +1024,7 @@ class SlotFiller:
 
         return None, 0.0, ""
 
-    def _extract_date(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_date(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract and normalize date"""
         _tr = self.temporal.parse(text)
         result = _tr.as_dict() if _tr else None
@@ -1072,9 +1036,7 @@ class SlotFiller:
             )
         return None, 0.0, ""
 
-    def _extract_time(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_time(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract and normalize time"""
         _tr = self.temporal.parse(text)
         result = _tr.as_dict() if _tr else None
@@ -1088,14 +1050,10 @@ class SlotFiller:
 
         # ==================== OTHER SLOT EXTRACTORS ====================
 
-    def _extract_query(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_query(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract search query"""
         # For search intents, the main query is usually the text minus action words
-        query = re.sub(
-            r"\b(search|find|show|list|get|fetch)\s+", "", text_lower, count=1
-        )
+        query = re.sub(r"\b(search|find|show|list|get|fetch)\s+", "", text_lower, count=1)
         query = re.sub(r"\b(notes?|emails?|events?|tasks?)\b", "", query).strip()
 
         if len(query) > 2:
@@ -1103,21 +1061,15 @@ class SlotFiller:
 
         return None, 0.0, ""
 
-    def _extract_album(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_album(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract album name"""
         return None, 0.0, ""  # Implement if needed
 
-    def _extract_playlist(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_playlist(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract playlist name"""
         return None, 0.0, ""  # Implement if needed
 
-    def _extract_service(
-        self, text: str, text_lower: str, entities: Dict
-    ) -> Tuple[Optional[str], float, str]:
+    def _extract_service(self, text: str, text_lower: str, entities: Dict) -> Tuple[Optional[str], float, str]:
         """Extract music service"""
         services = ["spotify", "apple music", "youtube music", "pandora"]
         for service in services:
@@ -1144,9 +1096,7 @@ class TemporalParser:
 
     def __init__(self):
         if Calendar is not None:
-            version_context_style = getattr(
-                parsedatetime_mod, "VERSION_CONTEXT_STYLE", None
-            )
+            version_context_style = getattr(parsedatetime_mod, "VERSION_CONTEXT_STYLE", None)
             if version_context_style is not None:
                 self.cal = Calendar(version=version_context_style)
             else:
@@ -1194,9 +1144,7 @@ class TemporalParser:
                 # In parsedatetime 2.x+, parse returns (time_struct, pdtContext)
                 # pdtContext.hasDateOrTime returns True if parsing was successful
                 parse_success = (
-                    parse_context.hasDateOrTime
-                    if hasattr(parse_context, "hasDateOrTime")
-                    else parse_context > 0
+                    parse_context.hasDateOrTime if hasattr(parse_context, "hasDateOrTime") else parse_context > 0
                 )
                 if parse_success:
                     parsed_dt = datetime(*time_struct[:6])
@@ -1328,9 +1276,7 @@ class CoreferenceResolver:
 
         all_pronouns = self._OBJECT_PRONOUNS | self._PERSON_PRONOUNS
         for pronoun in sorted(all_pronouns, key=len, reverse=True):  # longest first
-            if pronoun == "it" and any(
-                phrase in text_lower for phrase in protected_it_phrases
-            ):
+            if pronoun == "it" and any(phrase in text_lower for phrase in protected_it_phrases):
                 continue
             if re.search(rf"\b{re.escape(pronoun)}\b", text_lower):
                 replacement = self._find_referent(pronoun, context)
@@ -1343,15 +1289,11 @@ class CoreferenceResolver:
                         flags=re.IGNORECASE,
                     )
                     logger.info(f"[COREF] Resolved '{pronoun}' -> '{replacement}'")
-                    text_lower = (
-                        resolved_text.lower()
-                    )  # re-scan after each substitution
+                    text_lower = resolved_text.lower()  # re-scan after each substitution
 
         return resolved_text
 
-    def _find_referent(
-        self, pronoun: str, context: "ConversationContext"
-    ) -> Optional[str]:
+    def _find_referent(self, pronoun: str, context: "ConversationContext") -> Optional[str]:
         """Find what the pronoun refers to, using intent-type matching."""
         last_intent = context.last_intent or ""
 
@@ -1451,9 +1393,7 @@ class EmotionDetector:
 
         for emotion, keywords in self.EMOTION_KEYWORDS.items():
             for keyword in keywords:
-                if keyword in text_lower and not _has_negation_before(
-                    text_lower, keyword
-                ):
+                if keyword in text_lower and not _has_negation_before(text_lower, keyword):
                     emotions.append(emotion)
                     break
 
@@ -1523,14 +1463,8 @@ class NLPProcessor:
         self._initialized = True
 
         # Core components
-        self.sentiment_analyzer = (
-            SentimentIntensityAnalyzer() if SentimentIntensityAnalyzer else None
-        )
-        self.vectorizer = (
-            TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
-            if TfidfVectorizer
-            else None
-        )
+        self.sentiment_analyzer = SentimentIntensityAnalyzer() if SentimentIntensityAnalyzer else None
+        self.vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2)) if TfidfVectorizer else None
 
         # Advanced components
         self.temporal_parser = TemporalParser()
@@ -1584,29 +1518,19 @@ class NLPProcessor:
 
             thresholds = get_thresholds()
             self.UNKNOWN_FALLBACK_CONF_HARD = float(
-                thresholds.get(
-                    "unknown_fallback_conf_hard", self.UNKNOWN_FALLBACK_CONF_HARD
-                )
+                thresholds.get("unknown_fallback_conf_hard", self.UNKNOWN_FALLBACK_CONF_HARD)
             )
             self.UNKNOWN_FALLBACK_CONF_SOFT = float(
-                thresholds.get(
-                    "unknown_fallback_conf_soft", self.UNKNOWN_FALLBACK_CONF_SOFT
-                )
+                thresholds.get("unknown_fallback_conf_soft", self.UNKNOWN_FALLBACK_CONF_SOFT)
             )
             self.UNKNOWN_FALLBACK_PLAUS_SOFT = float(
-                thresholds.get(
-                    "unknown_fallback_plaus_soft", self.UNKNOWN_FALLBACK_PLAUS_SOFT
-                )
+                thresholds.get("unknown_fallback_plaus_soft", self.UNKNOWN_FALLBACK_PLAUS_SOFT)
             )
             self.UNKNOWN_FALLBACK_PLAUS_HARD = float(
-                thresholds.get(
-                    "unknown_fallback_plaus_hard", self.UNKNOWN_FALLBACK_PLAUS_HARD
-                )
+                thresholds.get("unknown_fallback_plaus_hard", self.UNKNOWN_FALLBACK_PLAUS_HARD)
             )
             self.ROUTE_UNCERTAINTY_THRESHOLD = float(
-                thresholds.get(
-                    "route_uncertainty_threshold", self.ROUTE_UNCERTAINTY_THRESHOLD
-                )
+                thresholds.get("route_uncertainty_threshold", self.ROUTE_UNCERTAINTY_THRESHOLD)
             )
             self.CLARIFICATION_INTENT_CONFIDENCE_THRESHOLD = float(
                 thresholds.get(
@@ -1615,14 +1539,10 @@ class NLPProcessor:
                 )
             )
             self.CLARIFICATION_CONFIDENCE_MIN = float(
-                thresholds.get(
-                    "clarification_confidence_min", self.CLARIFICATION_CONFIDENCE_MIN
-                )
+                thresholds.get("clarification_confidence_min", self.CLARIFICATION_CONFIDENCE_MIN)
             )
             self.CLARIFICATION_CONFIDENCE_MAX = float(
-                thresholds.get(
-                    "clarification_confidence_max", self.CLARIFICATION_CONFIDENCE_MAX
-                )
+                thresholds.get("clarification_confidence_max", self.CLARIFICATION_CONFIDENCE_MAX)
             )
             self.CONVERSATION_CATEGORY_GATE_THRESHOLD = float(
                 thresholds.get(
@@ -1837,11 +1757,7 @@ class NLPProcessor:
             return []
         try:
             turns = self.conversation_memory.recent(limit=limit)
-            return [
-                str(turn.user_input or "").strip()
-                for turn in turns
-                if str(turn.user_input or "").strip()
-            ]
+            return [str(turn.user_input or "").strip() for turn in turns if str(turn.user_input or "").strip()]
         except Exception:
             return []
 
@@ -1891,14 +1807,8 @@ class NLPProcessor:
             return route
 
         # Keep explicit high-impact commands deterministic when confidence is already acceptable.
-        explicit_action = (
-            str(getattr(parsed_command, "action", "") or "").strip().lower()
-        )
-        if (
-            explicit_action
-            in {"delete", "remove", "update", "append", "send", "compose"}
-            and route_conf >= 0.60
-        ):
+        explicit_action = str(getattr(parsed_command, "action", "") or "").strip().lower()
+        if explicit_action in {"delete", "remove", "update", "append", "send", "compose"} and route_conf >= 0.60:
             return route
 
         llm_context = self._recent_context_for_llm_intent(limit=3)
@@ -2034,9 +1944,7 @@ class NLPProcessor:
                     if len(parts) > 1:
                         objects.add(parts[-1])
         except Exception as e:
-            logger.debug(
-                f"Could not load command vocabulary from command_directory.md: {e}"
-            )
+            logger.debug(f"Could not load command vocabulary from command_directory.md: {e}")
 
         return {
             "verbs": verbs,
@@ -2057,9 +1965,7 @@ class NLPProcessor:
         for i, source_char in enumerate(source, start=1):
             current = [i]
             for j, target_char in enumerate(target, start=1):
-                substitution = previous[j - 1] + (
-                    0 if source_char == target_char else 1
-                )
+                substitution = previous[j - 1] + (0 if source_char == target_char else 1)
                 insertion = current[j - 1] + 1
                 deletion = previous[j] + 1
                 current.append(min(substitution, insertion, deletion))
@@ -2076,19 +1982,11 @@ class NLPProcessor:
         def _is_adjacent_transposition(source: str, target: str) -> bool:
             if len(source) != len(target):
                 return False
-            mismatches = [
-                index
-                for index, pair in enumerate(zip(source, target))
-                if pair[0] != pair[1]
-            ]
+            mismatches = [index for index, pair in enumerate(zip(source, target)) if pair[0] != pair[1]]
             if len(mismatches) != 2:
                 return False
             first, second = mismatches
-            return (
-                second == first + 1
-                and source[first] == target[second]
-                and source[second] == target[first]
-            )
+            return second == first + 1 and source[first] == target[second] and source[second] == target[first]
 
         candidate = None
         best_distance = max_distance + 1
@@ -2122,9 +2020,7 @@ class NLPProcessor:
         for part in parts:
             if part.isalpha():
                 lower = part.lower()
-                replacement = self._typo_replacements.get(
-                    lower
-                ) or self._closest_lexicon_term(lower)
+                replacement = self._typo_replacements.get(lower) or self._closest_lexicon_term(lower)
                 adjusted.append(replacement if replacement else part)
             else:
                 adjusted.append(part)
@@ -2142,62 +2038,39 @@ class NLPProcessor:
             lower,
         ) or re.search(r"\bany open notes?\b", lower):
             candidates.append(("notes:query_exist", 0.9))
-        if (
-            parsed.object_type == "note"
-            and parsed.action in self._plugin_actions["notes"]
-        ):
+        if parsed.object_type == "note" and parsed.action in self._plugin_actions["notes"]:
             weight = self._grammar_action_weights.get(parsed.action, 1.0)
             confidence = min(0.96, 0.68 * weight)
             candidates.append((f"notes:{parsed.action}", confidence))
 
-        if (
-            parsed.object_type == "weather"
-            and parsed.action in self._plugin_actions["weather"]
-        ):
+        if parsed.object_type == "weather" and parsed.action in self._plugin_actions["weather"]:
             candidates.append((f"weather:{parsed.action}", 0.84))
 
         if parsed.object_type == "unknown":
             lower = text.lower()
             if re.search(r"\b(email|mail|inbox)\b", lower):
-                action = (
-                    "compose"
-                    if re.search(r"\b(send|compose|draft|write)\b", lower)
-                    else "list"
-                )
+                action = "compose" if re.search(r"\b(send|compose|draft|write)\b", lower) else "list"
                 candidates.append((f"email:{action}", 0.66))
             if re.search(r"\b(calendar|meeting|event|schedule)\b", lower):
-                action = (
-                    "create"
-                    if re.search(r"\b(create|add|schedule|book)\b", lower)
-                    else "list"
-                )
+                action = "create" if re.search(r"\b(create|add|schedule|book)\b", lower) else "list"
                 candidates.append((f"calendar:{action}", 0.66))
 
         if plugin_scores:
-            ranked = sorted(
-                plugin_scores.items(), key=lambda item: item[1], reverse=True
-            )
+            ranked = sorted(plugin_scores.items(), key=lambda item: item[1], reverse=True)
             if ranked:
                 plugin, score = ranked[0]
                 if plugin in self._intent_action_defaults and score > 1.0:
                     action = self._intent_action_defaults[plugin]
-                    if (
-                        plugin == "notes"
-                        and parsed.action in self._plugin_actions["notes"]
-                    ):
+                    if plugin == "notes" and parsed.action in self._plugin_actions["notes"]:
                         action = parsed.action
-                    candidates.append(
-                        (f"{plugin}:{action}", min(0.85, 0.5 + (score / 12.0)))
-                    )
+                    candidates.append((f"{plugin}:{action}", min(0.85, 0.5 + (score / 12.0))))
 
         deduped: Dict[str, float] = {}
         for intent, score in candidates:
             deduped[intent] = max(score, deduped.get(intent, 0.0))
         return sorted(deduped.items(), key=lambda item: item[1], reverse=True)
 
-    def _retrieval_first_parse(
-        self, tokens: List[RichToken]
-    ) -> Optional[Tuple[str, float]]:
+    def _retrieval_first_parse(self, tokens: List[RichToken]) -> Optional[Tuple[str, float]]:
         """Resolve explicit object-reference follow-ups only.
 
         Foundation 2 policy: broad topic inheritance now belongs to
@@ -2213,9 +2086,7 @@ class NLPProcessor:
         if not last_intent:
             return None
 
-        reference_present = any(
-            token.flags.get("is_reference") for token in content_tokens
-        )
+        reference_present = any(token.flags.get("is_reference") for token in content_tokens)
         explicit_reference_tokens = {
             "it",
             "this",
@@ -2227,9 +2098,7 @@ class NLPProcessor:
             "those",
             "these",
         }
-        has_reference = reference_present or bool(
-            token_words & explicit_reference_tokens
-        )
+        has_reference = reference_present or bool(token_words & explicit_reference_tokens)
         if not has_reference:
             return None
 
@@ -2297,14 +2166,10 @@ class NLPProcessor:
                     action=s_action,
                     trace={**trace, "source": "phase1_authoritative"},
                 )
-            combined[semantic_name] = max(
-                combined.get(semantic_name, 0.0), semantic_score * 0.92
-            )
+            combined[semantic_name] = max(combined.get(semantic_name, 0.0), semantic_score * 0.92)
 
         if plugin_scores:
-            plugin_name, plugin_value = max(
-                plugin_scores.items(), key=lambda item: item[1]
-            )
+            plugin_name, plugin_value = max(plugin_scores.items(), key=lambda item: item[1])
             if plugin_name in self._intent_action_defaults and plugin_value > 1.4:
                 plugin_action = self._intent_action_defaults[plugin_name]
                 plugin_intent = f"{plugin_name}:{plugin_action}"
@@ -2324,11 +2189,7 @@ class NLPProcessor:
 
         best_intent, best_score = max(combined.items(), key=lambda item: item[1])
         sorted_scores = sorted(combined.values(), reverse=True)
-        margin = (
-            sorted_scores[0] - sorted_scores[1]
-            if len(sorted_scores) > 1
-            else sorted_scores[0]
-        )
+        margin = sorted_scores[0] - sorted_scores[1] if len(sorted_scores) > 1 else sorted_scores[0]
         calibrated = max(0.2, min(0.97, best_score * (0.88 + min(0.2, margin))))
 
         if ":" in best_intent:
@@ -2338,9 +2199,7 @@ class NLPProcessor:
 
         trace["calibration"] = {
             "margin": margin,
-            "combined": sorted(
-                combined.items(), key=lambda item: item[1], reverse=True
-            )[:5],
+            "combined": sorted(combined.items(), key=lambda item: item[1], reverse=True)[:5],
         }
 
         return RouteDecision(
@@ -2390,9 +2249,7 @@ class NLPProcessor:
             _upsert(str(semantic_intent[0]), float(semantic_intent[1]), "semantic")
 
         if plugin_scores:
-            plugin_ranked = sorted(
-                plugin_scores.items(), key=lambda item: item[1], reverse=True
-            )[:2]
+            plugin_ranked = sorted(plugin_scores.items(), key=lambda item: item[1], reverse=True)[:2]
             for plugin_name, plugin_score in plugin_ranked:
                 default_action = self._intent_action_defaults.get(plugin_name)
                 if default_action:
@@ -2501,16 +2358,12 @@ class NLPProcessor:
                 score -= 0.14
                 issues.append(f"missing_{intent_plugin}_cues")
 
-        if intent_plugin == "weather" and not any(
-            _contains_cue(cue) for cue in weather_cues
-        ):
+        if intent_plugin == "weather" and not any(_contains_cue(cue) for cue in weather_cues):
             score -= 0.28
             issues.append("weather_without_weather_signals")
 
         if intent_plugin == "weather":
-            has_location_signal = bool(
-                re.search(r"\b(?:in|at|for)\s+[a-z][a-z\s'\-]{2,30}\b", text_lower)
-            )
+            has_location_signal = bool(re.search(r"\b(?:in|at|for)\s+[a-z][a-z\s'\-]{2,30}\b", text_lower))
             has_temperature_signal = any(
                 _contains_cue(cue)
                 for cue in {
@@ -2542,9 +2395,7 @@ class NLPProcessor:
                     "wind",
                 }
             )
-            if not (
-                has_location_signal or has_temperature_signal or has_forecast_signal
-            ):
+            if not (has_location_signal or has_temperature_signal or has_forecast_signal):
                 score -= 0.24
                 issues.append("missing_weather_required_entities")
 
@@ -2553,9 +2404,7 @@ class NLPProcessor:
         if contradiction_hits:
             score -= 0.24
             issues.append(f"negative_evidence_{intent_plugin}_contradiction")
-            if intent_plugin == "weather" and not any(
-                _contains_cue(cue) for cue in weather_cues
-            ):
+            if intent_plugin == "weather" and not any(_contains_cue(cue) for cue in weather_cues):
                 score -= 0.10
                 issues.append("weather_contradiction_without_weather_support")
 
@@ -2586,18 +2435,13 @@ class NLPProcessor:
             score -= 0.08
             issues.append("no_object_for_domain_intent")
 
-        if (
-            intent_plugin in {"notes", "email", "calendar"}
-            and parsed_command.references
-        ):
+        if intent_plugin in {"notes", "email", "calendar"} and parsed_command.references:
             score += 0.18
             if parsed_command.action in {"read", "show", "open", "list"}:
                 score += 0.08
 
         if plugin_scores:
-            best_plugin, best_value = max(
-                plugin_scores.items(), key=lambda item: float(item[1])
-            )
+            best_plugin, best_value = max(plugin_scores.items(), key=lambda item: float(item[1]))
             if best_plugin != intent_plugin and float(best_value) > 1.25:
                 score -= 0.09
                 issues.append("plugin_score_disagrees_with_intent")
@@ -2682,9 +2526,7 @@ class NLPProcessor:
             if explicit_tool_cues or object_hint in tool_objects:
                 has_tool_cue = True
         if plugin_scores:
-            best_plugin, best_score = max(
-                plugin_scores.items(), key=lambda item: float(item[1])
-            )
+            best_plugin, best_score = max(plugin_scores.items(), key=lambda item: float(item[1]))
             tool_plugins = set(self.plugin_registry.all_actions.keys()) | {
                 "notes",
                 "email",
@@ -2708,11 +2550,7 @@ class NLPProcessor:
             "strategy",
             "plan",
         }
-        if (
-            has_conversation_cue
-            and bool(words & design_conversation_cues)
-            and not explicit_tool_cues
-        ):
+        if has_conversation_cue and bool(words & design_conversation_cues) and not explicit_tool_cues:
             return "conversation"
 
         if has_conversation_cue and not has_tool_cue:
@@ -2746,9 +2584,7 @@ class NLPProcessor:
         if not has_task:
             return False
 
-        has_build_verb = bool(
-            re.search(r"\b(create|created|build|built|make|made)\b", low)
-        )
+        has_build_verb = bool(re.search(r"\b(create|created|build|built|make|made)\b", low))
 
         constraint_cues = {
             "no fiction",
@@ -2845,12 +2681,7 @@ class NLPProcessor:
         has_domain_content = bool(tokens & domain_terms)
         has_ambiguity_markers = bool(tokens & ambiguity_terms)
 
-        return bool(
-            has_question_term
-            and is_question
-            and has_domain_content
-            and not has_ambiguity_markers
-        )
+        return bool(has_question_term and is_question and has_domain_content and not has_ambiguity_markers)
 
     def _should_force_unknown_fallback(
         self,
@@ -2873,10 +2704,7 @@ class NLPProcessor:
             return True
         if confidence < self.UNKNOWN_FALLBACK_CONF_HARD:
             return True
-        if (
-            confidence < self.UNKNOWN_FALLBACK_CONF_SOFT
-            and plausibility < self.UNKNOWN_FALLBACK_PLAUS_SOFT
-        ):
+        if confidence < self.UNKNOWN_FALLBACK_CONF_SOFT and plausibility < self.UNKNOWN_FALLBACK_PLAUS_SOFT:
             return True
         if plausibility < self.UNKNOWN_FALLBACK_PLAUS_HARD:
             return True
@@ -2967,11 +2795,7 @@ class NLPProcessor:
             "[FRAME_MERGE] Follow-up '%s' merged into frame '%s' with updated slots: %s",
             text[:60],
             merged["name"],
-            {
-                k: v
-                for k, v in merged["slots"].items()
-                if k in ("date", "time", "target")
-            },
+            {k: v for k, v in merged["slots"].items() if k in ("date", "time", "target")},
         )
         return merged
 
@@ -2985,9 +2809,7 @@ class NLPProcessor:
         if route.confidence >= self.ROUTE_UNCERTAINTY_THRESHOLD:
             return {}
 
-        ranked_plugins = sorted(
-            plugin_scores.items(), key=lambda item: item[1], reverse=True
-        )
+        ranked_plugins = sorted(plugin_scores.items(), key=lambda item: item[1], reverse=True)
         options = [name for name, score in ranked_plugins[:3] if score > 0.5]
         if route.plugin not in options:
             options.insert(0, route.plugin)
@@ -3030,9 +2852,7 @@ class NLPProcessor:
             ):
                 kind = "plugin_phrase" if kind == "utterance" else kind
 
-            segments.append(
-                TokenSegment(text=segment_text, kind=kind, start_pos=start, end_pos=end)
-            )
+            segments.append(TokenSegment(text=segment_text, kind=kind, start_pos=start, end_pos=end))
 
         return segments
 
@@ -3051,9 +2871,7 @@ class NLPProcessor:
             "it's": "it is",
         }
         for source, target in contractions.items():
-            normalized = re.sub(
-                rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE
-            )
+            normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE)
 
         typo_map = {
             "notets": "notes",
@@ -3062,20 +2880,14 @@ class NLPProcessor:
             "calender": "calendar",
         }
         for source, target in typo_map.items():
-            normalized = re.sub(
-                rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE
-            )
+            normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE)
 
         normalized = re.sub(r"\binside of\b", "in", normalized, flags=re.IGNORECASE)
-        normalized = re.sub(
-            r"\bi wanna\b", "i want to", normalized, flags=re.IGNORECASE
-        )
+        normalized = re.sub(r"\bi wanna\b", "i want to", normalized, flags=re.IGNORECASE)
         normalized = self._apply_noisy_channel_normalization(normalized)
 
         if self.tokenizer_profile == "strict":
-            normalized = re.sub(
-                r"\b(?:please|kindly)\b", "", normalized, flags=re.IGNORECASE
-            )
+            normalized = re.sub(r"\b(?:please|kindly)\b", "", normalized, flags=re.IGNORECASE)
             normalized = re.sub(r"\s+", " ", normalized).strip()
 
         return normalized
@@ -3151,51 +2963,36 @@ class NLPProcessor:
                     flags={
                         "is_ordinal": kind == "ordinal",
                         "is_reference": role == "reference",
-                        "is_meta_command": segment.kind == "meta_command"
-                        or norm in meta_words,
+                        "is_meta_command": segment.kind == "meta_command" or norm in meta_words,
                     },
                 )
                 tokens.append(token)
 
         return tokens
 
-    def _extract_semantic_hints(
-        self, text: str, tokens: List[RichToken]
-    ) -> ParsedCommand:
+    def _extract_semantic_hints(self, text: str, tokens: List[RichToken]) -> ParsedCommand:
         """Semantic hint layer: derive structured command from token sequence."""
         token_text = [token.normalized for token in tokens if token.kind != "symbol"]
         lower = text.lower()
         parsed = ParsedCommand()
 
         if text.endswith("?") or (
-            token_text
-            and token_text[0]
-            in {"what", "when", "where", "who", "why", "how", "do", "is", "are", "can"}
+            token_text and token_text[0] in {"what", "when", "where", "who", "why", "how", "do", "is", "are", "can"}
         ):
             parsed.sentence_type = "question"
-        elif token_text and token_text[0] in self.command_vocabulary.get(
-            "verbs", set()
-        ):
+        elif token_text and token_text[0] in self.command_vocabulary.get("verbs", set()):
             parsed.sentence_type = "imperative"
 
-        if re.search(r"\b(do i have|is there)\b", lower) and re.search(
-            r"\bnote|notes|list|lists\b", lower
-        ):
+        if re.search(r"\b(do i have|is there)\b", lower) and re.search(r"\bnote|notes|list|lists\b", lower):
             parsed.action = "query_exist"
             parsed.object_type = "note"
-        elif re.search(r"\b(list|show)\b", lower) and re.search(
-            r"\bnotes?|lists?\b", lower
-        ):
+        elif re.search(r"\b(list|show)\b", lower) and re.search(r"\bnotes?|lists?\b", lower):
             parsed.action = "list"
             parsed.object_type = "note"
-        elif re.search(r"\b(read|open|show)\b", lower) and re.search(
-            r"\bnotes?|lists?|it|that|this\b", lower
-        ):
+        elif re.search(r"\b(read|open|show)\b", lower) and re.search(r"\bnotes?|lists?|it|that|this\b", lower):
             parsed.action = "read"
             parsed.object_type = "note"
-        elif re.search(r"\b(create|make|new|add)\b", lower) and re.search(
-            r"\bnotes?|memo\b", lower
-        ):
+        elif re.search(r"\b(create|make|new|add)\b", lower) and re.search(r"\bnotes?|memo\b", lower):
             parsed.action = "create"
             parsed.object_type = "note"
         elif (
@@ -3205,19 +3002,13 @@ class NLPProcessor:
         ):
             parsed.action = "append"
             parsed.object_type = "note"
-        elif re.search(r"\b(send|compose|draft|reply)\b", lower) and re.search(
-            r"\bemail|mail|inbox\b", lower
-        ):
+        elif re.search(r"\b(send|compose|draft|reply)\b", lower) and re.search(r"\bemail|mail|inbox\b", lower):
             parsed.action = "compose" if not re.search(r"\breply\b", lower) else "reply"
             parsed.object_type = "email"
-        elif re.search(r"\b(read|open|show|list)\b", lower) and re.search(
-            r"\bemail|mail|inbox\b", lower
-        ):
+        elif re.search(r"\b(read|open|show|list)\b", lower) and re.search(r"\bemail|mail|inbox\b", lower):
             parsed.action = "read" if re.search(r"\b(read|open)\b", lower) else "list"
             parsed.object_type = "email"
-        elif re.search(r"\b(schedule|create|add|book)\b", lower) and re.search(
-            r"\bcalendar|event|meeting\b", lower
-        ):
+        elif re.search(r"\b(schedule|create|add|book)\b", lower) and re.search(r"\bcalendar|event|meeting\b", lower):
             parsed.action = "create"
             parsed.object_type = "calendar"
         elif re.search(r"\b(show|list|find|search)\b", lower) and re.search(
@@ -3226,20 +3017,12 @@ class NLPProcessor:
             parsed.action = "list" if re.search(r"\b(show|list)\b", lower) else "search"
             parsed.object_type = "calendar"
         elif any(word in lower for word in _P1_WEATHER_KEYWORDS):
-            parsed.action = (
-                "forecast"
-                if any(word in lower for word in _P1_FORECAST_WORDS)
-                else "current"
-            )
+            parsed.action = "forecast" if any(word in lower for word in _P1_FORECAST_WORDS) else "current"
             parsed.object_type = "weather"
 
-        title_match = re.search(
-            r"(?:called|named|titled|about)\s+([a-z0-9\s'\-]+)$", lower
-        )
+        title_match = re.search(r"(?:called|named|titled|about)\s+([a-z0-9\s'\-]+)$", lower)
         if not title_match:
-            title_match = re.search(
-                r"(?:read|open|show)\s+(?:the\s+)?([a-z0-9\s'\-]+?)\s+notes?\b", lower
-            )
+            title_match = re.search(r"(?:read|open|show)\s+(?:the\s+)?([a-z0-9\s'\-]+?)\s+notes?\b", lower)
         if title_match:
             parsed.title_hint = title_match.group(1).strip(" .,!?")
 
@@ -3256,19 +3039,13 @@ class NLPProcessor:
         if re.search(r"\b(?:my|mine)\b", lower):
             parsed.modifiers["scope"] = "my"
         if re.search(r"\b(today|tomorrow|yesterday|this week|next week)\b", lower):
-            parsed.modifiers["time"] = re.search(
-                r"\b(today|tomorrow|yesterday|this week|next week)\b", lower
-            ).group(1)
+            parsed.modifiers["time"] = re.search(r"\b(today|tomorrow|yesterday|this week|next week)\b", lower).group(1)
         if re.search(r"\b(low|medium|high|urgent)\b", lower):
-            parsed.modifiers["priority"] = re.search(
-                r"\b(low|medium|high|urgent)\b", lower
-            ).group(1)
+            parsed.modifiers["priority"] = re.search(r"\b(low|medium|high|urgent)\b", lower).group(1)
 
         return parsed
 
-    def _compute_plugin_scores(
-        self, tokens: List[RichToken], parsed: ParsedCommand
-    ) -> Dict[str, float]:
+    def _compute_plugin_scores(self, tokens: List[RichToken], parsed: ParsedCommand) -> Dict[str, float]:
         """Compute plugin routing scores from token features and parsed command."""
         scores = {
             "notes": 0.0,
@@ -3282,9 +3059,7 @@ class NLPProcessor:
         normalized = [token.normalized for token in tokens]
         token_counts = Counter(normalized)
         normalized_set = set(token_counts.keys())
-        bigrams = {
-            f"{normalized[i]} {normalized[i + 1]}" for i in range(len(normalized) - 1)
-        }
+        bigrams = {f"{normalized[i]} {normalized[i + 1]}" for i in range(len(normalized) - 1)}
         scores["notes"] += 1.2 * sum(token_counts[word] for word in _NOTE_TERMS)
         scores["email"] += 1.2 * sum(token_counts[word] for word in _EMAIL_TERMS)
         scores["calendar"] += 1.2 * sum(token_counts[word] for word in _CALENDAR_TERMS)
@@ -3292,10 +3067,7 @@ class NLPProcessor:
         scores["system"] += 1.2 * sum(token_counts[word] for word in _SYSTEM_TERMS)
         if _WEATHER_FORECAST_TERMS & normalized_set:
             scores["weather"] += 0.8
-        if (
-            _WEATHER_EVENT_TERMS & normalized_set
-            and _WEATHER_FUTURE_TERMS & normalized_set
-        ):
+        if _WEATHER_EVENT_TERMS & normalized_set and _WEATHER_FUTURE_TERMS & normalized_set:
             scores["weather"] += 0.9
 
         if parsed.object_type == "note":
@@ -3306,20 +3078,11 @@ class NLPProcessor:
             scores["calendar"] += 1.5
         if parsed.object_type == "weather":
             scores["weather"] += 1.6
-        if (
-            parsed.action in {"read", "append", "create", "list", "query_exist"}
-            and parsed.object_type == "note"
-        ):
+        if parsed.action in {"read", "append", "create", "list", "query_exist"} and parsed.object_type == "note":
             scores["notes"] += 1.0
-        if (
-            parsed.action in {"compose", "read", "list", "search", "reply"}
-            and parsed.object_type == "email"
-        ):
+        if parsed.action in {"compose", "read", "list", "search", "reply"} and parsed.object_type == "email":
             scores["email"] += 1.0
-        if (
-            parsed.action in {"create", "list", "search"}
-            and parsed.object_type == "calendar"
-        ):
+        if parsed.action in {"create", "list", "search"} and parsed.object_type == "calendar":
             scores["calendar"] += 1.0
         if parsed.action in {"current", "forecast"} and parsed.object_type == "weather":
             scores["weather"] += 1.0
@@ -3328,9 +3091,7 @@ class NLPProcessor:
 
         if "read it" in bigrams or "show it" in bigrams:
             scores["notes"] += 0.5
-            if self.context.last_intent and self.context.last_intent.startswith(
-                "email:"
-            ):
+            if self.context.last_intent and self.context.last_intent.startswith("email:"):
                 scores["email"] += 0.5
         if "system status" in bigrams:
             scores["system"] += 0.8
@@ -3355,9 +3116,7 @@ class NLPProcessor:
 
         # Strong weather language should outrank weak lexical collisions in notes/email/calendar.
         weather_signal_strength = sum(token_counts[word] for word in _WEATHER_TERMS)
-        has_explicit_non_weather_target = bool(
-            normalized_set & _NON_WEATHER_TARGET_TERMS
-        )
+        has_explicit_non_weather_target = bool(normalized_set & _NON_WEATHER_TARGET_TERMS)
         if weather_signal_strength >= 1 and not has_explicit_non_weather_target:
             scores["notes"] *= 0.35
             scores["email"] *= 0.45
@@ -3413,9 +3172,7 @@ class NLPProcessor:
         intent: str,
         entities: Dict[str, List[Entity]],
     ) -> Dict[str, Slot]:
-        return await asyncio.to_thread(
-            self.slot_filler.extract_slots, text, intent, entities
-        )
+        return await asyncio.to_thread(self.slot_filler.extract_slots, text, intent, entities)
 
     def debug_tokenizer(self, text: str) -> Dict[str, Any]:
         """Development HUD for tokenizer introspection."""
@@ -3444,19 +3201,12 @@ class NLPProcessor:
                 if isinstance(patterns, dict) and "corrections" in patterns:
                     learned = {}
                     for correction in patterns["corrections"]:
-                        if (
-                            "user_input" in correction
-                            and "expected_intent" in correction
-                        ):
+                        if "user_input" in correction and "expected_intent" in correction:
                             # Map user input to learned intent for fast override
-                            learned[correction["user_input"].lower()] = correction[
-                                "expected_intent"
-                            ]
+                            learned[correction["user_input"].lower()] = correction["expected_intent"]
 
                     if learned:
-                        logger.info(
-                            f"Loaded {len(learned)} learned corrections into NLP processor"
-                        )
+                        logger.info(f"Loaded {len(learned)} learned corrections into NLP processor")
                     return learned
         except Exception as e:
             logger.debug(f"Could not load learned corrections: {e}")
@@ -3468,20 +3218,14 @@ class NLPProcessor:
         if self._correction_embeddings is not None or not self.learned_corrections:
             return
         classifier = self._ensure_semantic_classifier()
-        if (
-            classifier is None
-            or not hasattr(classifier, "_model")
-            or classifier._model is None
-        ):
+        if classifier is None or not hasattr(classifier, "_model") or classifier._model is None:
             return
         try:
             keys = list(self.learned_corrections.keys())
             embs = classifier._model.encode(keys, normalize_embeddings=True)
             self._correction_keys = keys
             self._correction_embeddings = embs
-            logger.info(
-                "[LEARNED-SEM] Built correction embedding index (%d entries)", len(keys)
-            )
+            logger.info("[LEARNED-SEM] Built correction embedding index (%d entries)", len(keys))
         except Exception as exc:
             logger.debug("[LEARNED-SEM] Could not build correction embeddings: %s", exc)
 
@@ -3497,18 +3241,12 @@ class NLPProcessor:
         if self._correction_embeddings is None or self._correction_keys is None:
             return None
         classifier = self._ensure_semantic_classifier()
-        if (
-            classifier is None
-            or not hasattr(classifier, "_model")
-            or classifier._model is None
-        ):
+        if classifier is None or not hasattr(classifier, "_model") or classifier._model is None:
             return None
         try:
             import numpy as np
 
-            query_emb = classifier._model.encode(
-                [text.lower()], normalize_embeddings=True
-            )
+            query_emb = classifier._model.encode([text.lower()], normalize_embeddings=True)
             sims = (self._correction_embeddings @ query_emb.T).flatten()
             best_idx = int(np.argmax(sims))
             best_sim = float(sims[best_idx])
@@ -3590,9 +3328,7 @@ class NLPProcessor:
             if _fp_hit and _fp_hit.confidence >= 0.80:
                 _fp_prior_intent = _fp_hit.intent
                 _fp_prior_conf = _fp_hit.confidence
-                logger.debug(
-                    "[FINGERPRINT] Prior: %s (%.2f)", _fp_prior_intent, _fp_prior_conf
-                )
+                logger.debug("[FINGERPRINT] Prior: %s (%.2f)", _fp_prior_intent, _fp_prior_conf)
 
         # Step 2: Clean + normalize for tokenizer layers
         clean_text = self._clean_text(resolved_text)
@@ -3600,9 +3336,7 @@ class NLPProcessor:
         normalized_text = self._normalize_for_tokenizer(clean_text)
         contextual_text = normalized_text
         if self.conversation_memory is not None:
-            contextual_text = self.conversation_memory.build_contextual_input(
-                normalized_text
-            )
+            contextual_text = self.conversation_memory.build_contextual_input(normalized_text)
 
         # Step 3: Surface + lexical + semantic hint layers
         segments = self._surface_segment(normalized_text)
@@ -3640,26 +3374,19 @@ class NLPProcessor:
         weighted_candidates: List[Tuple[str, float]] = []
         _correction_key = normalized_text.lower()
         _orig_key = text.strip().lower()
-        _correction_intent = (
-            self.learned_corrections.get(_correction_key)
-            if self.learned_corrections
-            else None
-        ) or (
+        _correction_intent = (self.learned_corrections.get(_correction_key) if self.learned_corrections else None) or (
             self.learned_corrections.get(_orig_key)
             if self.learned_corrections and _orig_key != _correction_key
             else None
         )
         _send_followup_correction_guard = bool(
-            re.search(r"\bsend\b", _correction_key)
-            and re.search(r"\b(her|him|them)\b", _correction_key)
+            re.search(r"\bsend\b", _correction_key) and re.search(r"\b(her|him|them)\b", _correction_key)
         )
         if _send_followup_correction_guard:
             _correction_intent = None
         if _correction_intent:
             learned_intent = _correction_intent
-            logger.info(
-                f"[LEARNED] Using correction for '{normalized_text}' -> {learned_intent}"
-            )
+            logger.info(f"[LEARNED] Using correction for '{normalized_text}' -> {learned_intent}")
             intent = learned_intent
             intent_confidence = 0.95  # High confidence for learned patterns
         else:
@@ -3695,17 +3422,12 @@ class NLPProcessor:
                 ]
             ) or ("reminder" in _tl and "do i have" in _tl):
                 _reminder_intent = "reminder:list"
-            elif (
-                any(w in _tl for w in ["cancel", "delete", "remove"])
-                and "reminder" in _tl
-            ):
+            elif any(w in _tl for w in ["cancel", "delete", "remove"]) and "reminder" in _tl:
                 _reminder_intent = "reminder:cancel"
 
             _send_followup_intent = None
             _tl_words = set(_tl.split())
-            if "send" in _tl_words and any(
-                p in _tl_words for p in {"her", "him", "them"}
-            ):
+            if "send" in _tl_words and any(p in _tl_words for p in {"her", "him", "them"}):
                 _send_followup_intent = "email:compose"
 
             # ── Memory health check early override: runs before plugin scoring so
@@ -3756,12 +3478,8 @@ class NLPProcessor:
                     trace={"source": "retrieval_first"},
                 )
             else:
-                weighted_candidates = self._build_weighted_parse(
-                    parsed_command, plugin_scores, normalized_text
-                )
-                shallow_confidence = (
-                    max(plugin_scores.values()) if plugin_scores else 0.0
-                )
+                weighted_candidates = self._build_weighted_parse(parsed_command, plugin_scores, normalized_text)
+                shallow_confidence = max(plugin_scores.values()) if plugin_scores else 0.0
                 run_deep_stage = self.foundation_layers.should_run_deep_stage(
                     turn_budget, shallow_confidence=shallow_confidence
                 )
@@ -3786,15 +3504,11 @@ class NLPProcessor:
                     _implicit_matches = self.implicit_intent_detector.detect(
                         normalized_text,
                         recent_topic=(
-                            self.conversation_memory.latest_topic()
-                            if self.conversation_memory is not None
-                            else ""
+                            self.conversation_memory.latest_topic() if self.conversation_memory is not None else ""
                         ),
                     )
                     if _implicit_matches:
-                        parsed_command.modifiers["implicit_intents"] = [
-                            m.as_dict() for m in _implicit_matches[:3]
-                        ]
+                        parsed_command.modifiers["implicit_intents"] = [m.as_dict() for m in _implicit_matches[:3]]
                         for m in _implicit_matches[:2]:
                             weighted_candidates.append((m.intent, float(m.confidence)))
 
@@ -3810,21 +3524,19 @@ class NLPProcessor:
                 intent = route.intent
                 intent_confidence = route.confidence
 
-            intent, intent_confidence = (
-                self.route_coordinator.apply_initial_routing_policy(
-                    intent=intent,
-                    intent_confidence=float(intent_confidence or 0.0),
-                    route=route,
-                    parsed_command=parsed_command,
-                    plugin_scores=plugin_scores,
-                    semantic_intent=semantic_intent,
-                    weighted_candidates=weighted_candidates,
-                    build_uncertainty_prompt=self._build_uncertainty_prompt,
-                    build_top_intent_candidates=self._build_top_intent_candidates,
-                    validate_intent_plausibility=self._validate_intent_plausibility,
-                    should_force_unknown_fallback=self._should_force_unknown_fallback,
-                    normalized_text=normalized_text,
-                )
+            intent, intent_confidence = self.route_coordinator.apply_initial_routing_policy(
+                intent=intent,
+                intent_confidence=float(intent_confidence or 0.0),
+                route=route,
+                parsed_command=parsed_command,
+                plugin_scores=plugin_scores,
+                semantic_intent=semantic_intent,
+                weighted_candidates=weighted_candidates,
+                build_uncertainty_prompt=self._build_uncertainty_prompt,
+                build_top_intent_candidates=self._build_top_intent_candidates,
+                validate_intent_plausibility=self._validate_intent_plausibility,
+                should_force_unknown_fallback=self._should_force_unknown_fallback,
+                normalized_text=normalized_text,
             )
 
         intent, intent_confidence = self.route_coordinator.apply_category_gate(
@@ -3865,11 +3577,7 @@ class NLPProcessor:
             parsed_command.modifiers["tool_execution_disabled"] = True
 
         # Fingerprint prior: if we have a cached high-confidence parse, use it as a boost
-        if (
-            _fp_prior_intent
-            and _fp_prior_intent == intent
-            and _fp_prior_conf > intent_confidence
-        ):
+        if _fp_prior_intent and _fp_prior_intent == intent and _fp_prior_conf > intent_confidence:
             intent_confidence = min(0.97, _fp_prior_conf)
             logger.debug(
                 "[FINGERPRINT] Boosted confidence %.2f → %.2f",
@@ -3895,18 +3603,10 @@ class NLPProcessor:
             _ctx_dict = {
                 "last_plugin": self.context.last_plugin,
                 "last_intent": self.context.last_intent or "",
-                "last_note_title": (
-                    str(self.context.mentioned_notes[-1])
-                    if self.context.mentioned_notes
-                    else None
-                ),
+                "last_note_title": (str(self.context.mentioned_notes[-1]) if self.context.mentioned_notes else None),
                 "last_entities": self.context.last_entities,
                 "turn_index": self.context.turn_index,
-                "entity_chain": (
-                    self.dialogue_memory.entity_chain_dict()
-                    if self.dialogue_memory
-                    else []
-                ),
+                "entity_chain": (self.dialogue_memory.entity_chain_dict() if self.dialogue_memory else []),
             }
             frame_result = self.frame_parser.parse(normalized_text, context=_ctx_dict)
             if frame_result is not None and frame_result.confidence > 0.50:
@@ -3923,10 +3623,7 @@ class NLPProcessor:
                     and hasattr(route, "trace")
                     and route.trace.get("source") == "phase1_authoritative"
                 )
-                if (
-                    not _phase1_locked
-                    and frame_result.confidence > intent_confidence + 0.07
-                ):
+                if not _phase1_locked and frame_result.confidence > intent_confidence + 0.07:
                     logger.info(
                         "[FRAME] Override route %s (%.2f) → frame %s (%.2f)",
                         intent,
@@ -3941,9 +3638,7 @@ class NLPProcessor:
                     "confidence": frame_result.confidence,
                     "keywords": frame_result.matched_keywords,
                     "slots": filled_slots.as_dict() if filled_slots else {},
-                    "fill_confidence": (
-                        filled_slots.fill_confidence if filled_slots else 0.0
-                    ),
+                    "fill_confidence": (filled_slots.fill_confidence if filled_slots else 0.0),
                 }
             elif retrieval_route is not None:
                 # ── Semantic frame editing for short follow-ups ───────────────
@@ -3980,9 +3675,7 @@ class NLPProcessor:
                 float(intent_confidence or 0.0),
                 float(_followup_result.confidence),
             )
-            if intent.startswith(
-                ("notes:", "email:", "calendar:", "reminder:", "weather:")
-            ):
+            if intent.startswith(("notes:", "email:", "calendar:", "reminder:", "weather:")):
                 parsed_command.modifiers["unknown_intent_fallback"] = False
                 parsed_command.modifiers.pop("disambiguation", None)
             route = RouteDecision(
@@ -3997,19 +3690,9 @@ class NLPProcessor:
                 },
             )
 
-        _pending_slot = (
-            self.context.pending_clarification
-            if hasattr(self.context, "pending_clarification")
-            else {}
-        )
+        _pending_slot = self.context.pending_clarification if hasattr(self.context, "pending_clarification") else {}
         _pending_slot_type = (
-            str(
-                (_pending_slot or {}).get("slot_type")
-                or (_pending_slot or {}).get("type")
-                or ""
-            )
-            .strip()
-            .lower()
+            str((_pending_slot or {}).get("slot_type") or (_pending_slot or {}).get("type") or "").strip().lower()
         )
         if isinstance(_pending_slot, dict) and _pending_slot_type in {
             "help_narrowing",
@@ -4043,9 +3726,7 @@ class NLPProcessor:
                     _slot_text.lower(),
                 )
             )
-            _expected_shape = (
-                str(_pending_slot.get("expected_answer_shape") or "").strip().lower()
-            )
+            _expected_shape = str(_pending_slot.get("expected_answer_shape") or "").strip().lower()
             _ordinal_selected = ""
             if re.search(r"\b(second|2nd|two)\b", _slot_text.lower()):
                 _ordinal_selected = "second"
@@ -4087,12 +3768,8 @@ class NLPProcessor:
                     "expected_answer_shape": _expected_shape,
                 }
                 if _ordinal_selected:
-                    parsed_command.modifiers["pending_slot_followup"][
-                        "selected_reference"
-                    ] = _ordinal_selected
-                    parsed_command.modifiers["selected_object_reference"] = (
-                        _ordinal_selected
-                    )
+                    parsed_command.modifiers["pending_slot_followup"]["selected_reference"] = _ordinal_selected
+                    parsed_command.modifiers["selected_object_reference"] = _ordinal_selected
                 parsed_command.modifiers["followup_resolution"] = {
                     "was_followup": True,
                     "domain": "conversation",
@@ -4116,9 +3793,7 @@ class NLPProcessor:
             _choice_tokens = re.findall(r"\b[a-z0-9']+\b", _choice_text)
             _compact_choice = len(_choice_tokens) <= 4
             _choice = ""
-            if re.search(
-                r"\b(explanation|explain|walk\s*through|teach|how|why)\b", _choice_text
-            ):
+            if re.search(r"\b(explanation|explain|walk\s*through|teach|how|why)\b", _choice_text):
                 _choice = "explanation"
             elif re.search(
                 r"\b(direct\s+action|action|do\s+it|execute|perform|run\s+it)\b",
@@ -4131,24 +3806,16 @@ class NLPProcessor:
             ):
                 _choice = "quick_search"
 
-            if (
-                _choice
-                and _compact_choice
-                and not self._is_rich_conceptual_request(_choice_text)
-            ):
+            if _choice and _compact_choice and not self._is_rich_conceptual_request(_choice_text):
                 intent = "conversation:clarification_needed"
                 intent_confidence = max(float(intent_confidence or 0.0), 0.88)
                 parsed_command.modifiers["pending_slot_followup"] = {
                     "filled": True,
                     "slot": "route_choice",
                     "value": _choice,
-                    "parent_topic": str(
-                        _pending_slot.get("parent_topic") or "conversation"
-                    ),
+                    "parent_topic": str(_pending_slot.get("parent_topic") or "conversation"),
                     "parent_request": str(_pending_slot.get("parent_request") or ""),
-                    "parent_intent": str(
-                        _pending_slot.get("parent_intent") or "conversation:help"
-                    ),
+                    "parent_intent": str(_pending_slot.get("parent_intent") or "conversation:help"),
                     "reason": "pending_route_choice_slot",
                     "expected_answer_shape": "single_token",
                 }
@@ -4168,10 +3835,7 @@ class NLPProcessor:
                     trace={"source": "pending_route_choice_slot"},
                 )
 
-        if (
-            self._is_rich_conceptual_request(normalized_text)
-            and intent == "conversation:clarification_needed"
-        ):
+        if self._is_rich_conceptual_request(normalized_text) and intent == "conversation:clarification_needed":
             intent = (
                 "learning:system_design"
                 if self._is_conceptual_build_architecture_prompt(normalized_text)
@@ -4249,9 +3913,7 @@ class NLPProcessor:
             and intent_confidence < 0.70
             and any(cue in normalized_text.lower() for cue in _clarif_resolution_cues)
         ):
-            _pending_plugins = self.context.pending_clarification.get(
-                "candidate_plugins", []
-            )
+            _pending_plugins = self.context.pending_clarification.get("candidate_plugins", [])
             if _pending_plugins:
                 _tl_low = normalized_text.lower()
                 _idx = 0
@@ -4262,9 +3924,7 @@ class NLPProcessor:
                 _sel = _pending_plugins[min(_idx, len(_pending_plugins) - 1)]
                 intent = f"{_sel}:general"
                 intent_confidence = 0.78
-                parsed_command.modifiers["selected_object_reference"] = (
-                    f"candidate_plugin:{_sel}"
-                )
+                parsed_command.modifiers["selected_object_reference"] = f"candidate_plugin:{_sel}"
                 route = RouteDecision(
                     intent=intent,
                     confidence=intent_confidence,
@@ -4283,11 +3943,7 @@ class NLPProcessor:
             and isinstance(getattr(route, "trace", None), dict)
             and route.trace.get("source") == "followup_resolver"
         )
-        if (
-            intent_confidence < 0.70
-            and self.learned_corrections
-            and not _followup_locked
-        ):
+        if intent_confidence < 0.70 and self.learned_corrections and not _followup_locked:
             _sem = self._try_semantic_correction(normalized_text)
             if _sem:
                 _sem_intent, _sem_conf = _sem
@@ -4309,16 +3965,12 @@ class NLPProcessor:
         _compound_parts = _compound_sep.split(normalized_text.strip())
         if len(_compound_parts) > 1:
             # Prefer structured compound parsing via the frame parser
-            if self.frame_parser is not None and hasattr(
-                self.frame_parser, "parse_compound"
-            ):
+            if self.frame_parser is not None and hasattr(self.frame_parser, "parse_compound"):
                 _frame_ctx = {
                     "last_plugin": parsed_command.modifiers.get("last_plugin"),
                     "last_intent": parsed_command.modifiers.get("last_intent", ""),
                 }
-                _compound_frames = self.frame_parser.parse_compound(
-                    normalized_text.strip(), context=_frame_ctx
-                )
+                _compound_frames = self.frame_parser.parse_compound(normalized_text.strip(), context=_frame_ctx)
                 if len(_compound_frames) >= 2:
                     parsed_command.modifiers["compound_frames"] = [
                         {
@@ -4342,14 +3994,8 @@ class NLPProcessor:
                     if len(_part) > 8:
                         try:
                             _si, _sc = self._detect_intent_semantic(_part)
-                            if (
-                                _sc > 0.65
-                                and _si != "conversation:general"
-                                and _si != intent
-                            ):
-                                _secondary_intents.append(
-                                    {"intent": _si, "confidence": _sc, "text": _part}
-                                )
+                            if _sc > 0.65 and _si != "conversation:general" and _si != intent:
+                                _secondary_intents.append({"intent": _si, "confidence": _sc, "text": _part})
                         except Exception:
                             pass
                 if _secondary_intents:
@@ -4378,9 +4024,7 @@ class NLPProcessor:
             route is not None
             and isinstance(getattr(route, "trace", None), dict)
             and route.trace.get("source") == "followup_resolver"
-            and intent.startswith(
-                ("notes:", "email:", "calendar:", "reminder:", "weather:")
-            )
+            and intent.startswith(("notes:", "email:", "calendar:", "reminder:", "weather:"))
         )
 
         intent, intent_confidence = self.route_coordinator.apply_final_fallback(
@@ -4403,11 +4047,7 @@ class NLPProcessor:
         slots = self.slot_filler.extract_slots(normalized_text, intent, entities)
 
         # Step 4.5: Entity Normalization (P0 Improvement)
-        if (
-            self.entity_normalizer
-            and self.feature_flags
-            and self.feature_flags.is_enabled("nlp_entity_normalizer")
-        ):
+        if self.entity_normalizer and self.feature_flags and self.feature_flags.is_enabled("nlp_entity_normalizer"):
             from ai.infrastructure.metrics_collector import MetricsCollector
 
             metrics = MetricsCollector()
@@ -4417,36 +4057,24 @@ class NLPProcessor:
                     continue
                 # Normalize based on slot type
                 if slot_name == "tags" and isinstance(slot.value, list):
-                    normalized_tags = self.entity_normalizer.normalize_batch(
-                        slot.value, "tag"
-                    )
+                    normalized_tags = self.entity_normalizer.normalize_batch(slot.value, "tag")
                     for nt in normalized_tags:
                         if nt.normalized != nt.original:
-                            metrics.track_entity_normalization(
-                                "tag", nt.rule_applied or "default"
-                            )
+                            metrics.track_entity_normalization("tag", nt.rule_applied or "default")
                     slot.value = [nt.normalized for nt in normalized_tags]
                 elif slot_name in ("title", "query", "note_id"):
                     normalized = self.entity_normalizer.normalize(slot.value, "title")
                     if normalized.normalized != normalized.original:
-                        metrics.track_entity_normalization(
-                            "title", normalized.rule_applied or "default"
-                        )
+                        metrics.track_entity_normalization("title", normalized.rule_applied or "default")
                     slot.value = normalized.normalized
                     slot.confidence = min(slot.confidence, normalized.confidence)
                 elif slot_name in ("date", "time", "date_range"):
-                    normalized = self.entity_normalizer.normalize(
-                        str(slot.value), "datetime"
-                    )
+                    normalized = self.entity_normalizer.normalize(str(slot.value), "datetime")
                     if normalized.normalized != str(slot.value):
-                        metrics.track_entity_normalization(
-                            "datetime", normalized.rule_applied or "default"
-                        )
+                        metrics.track_entity_normalization("datetime", normalized.rule_applied or "default")
                         slot.value = normalized.normalized
                         slot.confidence = min(slot.confidence, normalized.confidence)
-        elif not self.feature_flags or not self.feature_flags.is_enabled(
-            "nlp_entity_normalizer"
-        ):
+        elif not self.feature_flags or not self.feature_flags.is_enabled("nlp_entity_normalizer"):
             # Feature disabled for A/B testing
             pass
 
@@ -4465,11 +4093,7 @@ class NLPProcessor:
         if self.sentiment_analyzer is not None:
             sentiment = self.sentiment_analyzer.polarity_scores(normalized_text)
             compound = sentiment.get("compound", 0)
-            sentiment["category"] = (
-                "positive"
-                if compound >= 0.05
-                else ("negative" if compound <= -0.05 else "neutral")
-            )
+            sentiment["category"] = "positive" if compound >= 0.05 else ("negative" if compound <= -0.05 else "neutral")
         else:
             sentiment = {
                 "compound": 0.0,
@@ -4494,23 +4118,15 @@ class NLPProcessor:
         # Step 10: Intent-Entity Cross-Validation (P0 Improvement)
         validation_score = 1.0
         validation_issues = []
-        if self.feature_flags and self.feature_flags.is_enabled(
-            "nlp_intent_entity_validation"
-        ):
-            validation_score, validation_issues = self._validate_intent_entity_match(
-                intent, slots
-            )
+        if self.feature_flags and self.feature_flags.is_enabled("nlp_intent_entity_validation"):
+            validation_score, validation_issues = self._validate_intent_entity_match(intent, slots)
 
             # Track validation metrics
             from ai.infrastructure.metrics_collector import MetricsCollector
 
             metrics = MetricsCollector()
-            metrics.track_intent_entity_validation(
-                intent, validation_score, validation_issues
-            )
-        elif not self.feature_flags or not self.feature_flags.is_enabled(
-            "nlp_intent_entity_validation"
-        ):
+            metrics.track_intent_entity_validation(intent, validation_score, validation_issues)
+        elif not self.feature_flags or not self.feature_flags.is_enabled("nlp_intent_entity_validation"):
             # Feature disabled for A/B testing
             pass
 
@@ -4540,9 +4156,7 @@ class NLPProcessor:
 
         _raw = str(text or "").lower().strip()
         _ctx_last = str(self.context.last_intent or "")
-        if _raw.startswith("write this down") or _raw.startswith(
-            "save this to my notes"
-        ):
+        if _raw.startswith("write this down") or _raw.startswith("save this to my notes"):
             intent = "notes:create"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
         if _ctx_last.startswith("notes:") and any(
@@ -4562,9 +4176,7 @@ class NLPProcessor:
         ) or re.search(r"\bany open notes?\b", _raw):
             intent = "notes:query_exist"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
-        if re.search(r"\bwork on alice\b", _raw) or re.search(
-            r"\bnow i\b.{0,30}\bwork on\b", _raw
-        ):
+        if re.search(r"\bwork on alice\b", _raw) or re.search(r"\bnow i\b.{0,30}\bwork on\b", _raw):
             _pc = bool(
                 re.search(
                     r"\b(hot|cold|tired|busy|outside|inside|feel|feeling|exhausted|"
@@ -4624,16 +4236,8 @@ class NLPProcessor:
             plugin_scores=plugin_scores,
             token_debug=[token.__dict__ for token in rich_tokens],
             intent_candidates=parsed_command.modifiers.get("intent_candidates", []),
-            intent_plausibility=float(
-                (parsed_command.modifiers.get("intent_plausibility") or {}).get(
-                    "score", 1.0
-                )
-            ),
-            plausibility_issues=list(
-                (parsed_command.modifiers.get("intent_plausibility") or {}).get(
-                    "issues", []
-                )
-            ),
+            intent_plausibility=float((parsed_command.modifiers.get("intent_plausibility") or {}).get("score", 1.0)),
+            plausibility_issues=list((parsed_command.modifiers.get("intent_plausibility") or {}).get("issues", [])),
             validation_score=validation_score,
             validation_issues=validation_issues,
         )
@@ -4646,16 +4250,10 @@ class NLPProcessor:
                 _filled = filled_slots.as_dict() if filled_slots else {}
                 self.dialogue_memory.update_from_nlp_result(intent, _filled)
             # Store successful high-confidence parses in the fingerprint cache
-            if (
-                hasattr(self, "_fp_store")
-                and self._fp_store is not None
-                and intent_confidence >= 0.80
-            ):
+            if hasattr(self, "_fp_store") and self._fp_store is not None and intent_confidence >= 0.80:
                 _frame_name = frame_result.frame_name if frame_result else None
                 _fp_slots = filled_slots.as_dict() if filled_slots else {}
-                self._fp_store.store(
-                    resolved_text, intent, _frame_name, _fp_slots, intent_confidence
-                )
+                self._fp_store.store(resolved_text, intent, _frame_name, _fp_slots, intent_confidence)
 
         logger.info(
             "[NLP] Intent: %s (%.2f) | Frame: %s | Slots: %d | Emotions: %s | Urgency: %s",
@@ -4671,9 +4269,7 @@ class NLPProcessor:
         if self.feature_flags and self.feature_flags.is_enabled("thought_trace"):
             _correction_source = "unknown"
             _routing_trace = (
-                parsed_command.modifiers.get("routing_trace") or {}
-                if hasattr(parsed_command, "modifiers")
-                else {}
+                parsed_command.modifiers.get("routing_trace") or {} if hasattr(parsed_command, "modifiers") else {}
             )
             _src = _routing_trace.get("source", "")
             if "learned" in _src:
@@ -4874,9 +4470,7 @@ class NLPProcessor:
         # System intents - check BEFORE time (system has "how's" pattern that could match time)
         if any(phrase in text_lower for phrase in _P1_SYSTEM_DIRECT):
             return "system:status", 0.95
-        if "system" in text_lower and any(
-            word in text_lower for word in _P1_SYSTEM_STATUS
-        ):
+        if "system" in text_lower and any(word in text_lower for word in _P1_SYSTEM_STATUS):
             return "system:status", 0.9
         # Resource check: "how is/is my + cpu/memory/disk/battery"
         if any(word in text_lower for word in ["how is", "is my", "is the"]) and any(
@@ -4914,9 +4508,7 @@ class NLPProcessor:
         if any(phrase in text_lower for phrase in _P1_MEMORY_RECALL):
             return "memory:recall", 0.95
         # Store: imperative "remember/save/keep + that/this" (exclude question-style prompts).
-        is_memory_question = text_lower.endswith("?") and (
-            "remember" in text_lower or "know" in text_lower
-        )
+        is_memory_question = text_lower.endswith("?") and ("remember" in text_lower or "know" in text_lower)
         if (
             not is_memory_question
             and any(word in text_lower for word in _P1_MEMORY_STORE)
@@ -5094,9 +4686,7 @@ class NLPProcessor:
         # Read note content: "what is in the grocery list?", "what's inside my notes?"
         # Must come before list/append to avoid misclassification.
         if _P1_NOTES_READ_CONTENT_RE.search(text_lower) and not _negated:
-            _mentions_note_word = bool(
-                re.search(r"\b(note|notes|list|lists|memo)\b", text_lower)
-            )
+            _mentions_note_word = bool(re.search(r"\b(note|notes|list|lists|memo)\b", text_lower))
             _pronoun_only = bool(re.search(r"\b(it|this|that)\b", text_lower))
             _notes_context = bool(
                 getattr(self.context, "last_intent", "").startswith("notes:")
@@ -5120,11 +4710,7 @@ class NLPProcessor:
         ):
             return "notes:create", 0.9
         # "add a note" - create, not append (no "to the" structure)
-        if (
-            text_lower.startswith("add")
-            and any(word in text_lower for word in _P1_NOTES_KEYWORDS)
-            and not _negated
-        ):
+        if text_lower.startswith("add") and any(word in text_lower for word in _P1_NOTES_KEYWORDS) and not _negated:
             return "notes:create", 0.9
         # Existence/count questions: "do i have notes?", "how many notes do i have?"
         if re.search(
@@ -5183,10 +4769,7 @@ class NLPProcessor:
         ):
             return "reminder:list", 0.95
         # Cancel: "cancel reminder", "delete reminder", "remove reminder"
-        if (
-            any(word in text_lower for word in ["cancel", "delete", "remove"])
-            and "reminder" in text_lower
-        ):
+        if any(word in text_lower for word in ["cancel", "delete", "remove"]) and "reminder" in text_lower:
             return "reminder:cancel", 0.95
         # ─────────────────────────────────────────────────────────────────────────
 
@@ -5267,10 +4850,7 @@ class NLPProcessor:
             ):
                 pass  # Fall through to weather detection below
             # Exclude time queries: "what is the time?"
-            elif (
-                any(word in text_lower for word in ["time", "clock", "date"])
-                and len(text_lower.split()) <= 6
-            ):
+            elif any(word in text_lower for word in ["time", "clock", "date"]) and len(text_lower.split()) <= 6:
                 pass  # Fall through to time detection below
             # Exclude vague pronouns: "what is that", "who is he/she"
             elif not any(
@@ -5302,10 +4882,7 @@ class NLPProcessor:
 
         # Vague temporal questions: "what about yesterday/tomorrow", "what happened last week"
         if any(word in text_lower for word in _P1_VAGUE_TEMPORAL) and (
-            "what" in text_lower
-            or "when" in text_lower
-            or "what about" in text_lower
-            or "what happened" in text_lower
+            "what" in text_lower or "when" in text_lower or "what about" in text_lower or "what happened" in text_lower
         ):
             return "vague_temporal_question", 0.8
 
@@ -5361,9 +4938,7 @@ class NLPProcessor:
                     return "weather:forecast", 0.88
                 return "weather:current", 0.88
 
-        if re.search(r"\bwork on alice\b", text_lower) or re.search(
-            r"\bnow i\b.{0,30}\bwork on\b", text_lower
-        ):
+        if re.search(r"\bwork on alice\b", text_lower) or re.search(r"\bnow i\b.{0,30}\bwork on\b", text_lower):
             # Guard: don't misroute personal life-update or future-intention messages
             # that happen to mention working on Alice.
             # "just woke up, now i am going to work on alice" → personal update, not command
@@ -5402,9 +4977,7 @@ class NLPProcessor:
             _now_work_signal = bool(re.search(r"\bnow\b.{0,60}\bwork on\b", _orig))
             if _is_intent_framing and _time_shifted and _going_out_signal:
                 pass  # fall through — departing + future-framing, not a current command
-            elif (_now_work_signal and not _going_out_signal) or not (
-                _has_personal_ctx and _is_intent_framing
-            ):
+            elif (_now_work_signal and not _going_out_signal) or not (_has_personal_ctx and _is_intent_framing):
                 return "operator:continue", 0.9
 
         # PHASE 1.5: Conversational guard before semantic fallback.
@@ -5483,9 +5056,7 @@ class NLPProcessor:
         if semantic_classifier:
             try:
                 # Raised threshold to avoid over-eager semantic force-fit.
-                result = semantic_classifier.get_plugin_action(
-                    intent_text, threshold=0.58
-                )
+                result = semantic_classifier.get_plugin_action(intent_text, threshold=0.58)
                 if result and result.get("confidence", 0) >= 0.68:
                     # Map plugin:action to intent
                     plugin = result.get("plugin", "")
@@ -5517,20 +5088,13 @@ class NLPProcessor:
             return "thanks", 0.9
 
         # Status inquiry
-        if any(
-            phrase in text_lower
-            for phrase in ["how are you", "how are you doing", "how is it going"]
-        ):
+        if any(phrase in text_lower for phrase in ["how are you", "how are you doing", "how is it going"]):
             return "status_inquiry", 0.85
 
         # Weather intents - gate on a weather signal so day-names alone don't misfire
         # (e.g. "I have a meeting on monday" must NOT hit weather:forecast)
-        _has_weather_signal = any(
-            w in text_lower for w in (_P3_WEATHER_WORDS | _P1_WEATHER_KEYWORDS)
-        )
-        if _has_weather_signal and any(
-            phrase in text_lower for phrase in _P3_FORECAST_PHRASES
-        ):
+        _has_weather_signal = any(w in text_lower for w in (_P3_WEATHER_WORDS | _P1_WEATHER_KEYWORDS))
+        if _has_weather_signal and any(phrase in text_lower for phrase in _P3_FORECAST_PHRASES):
             return "weather:forecast", 0.8
 
         if any(word in text_lower for word in _P3_WEATHER_WORDS):
@@ -5554,9 +5118,7 @@ class NLPProcessor:
                     "system": "system:status",
                 }
                 if plugin_name in plugin_intent_map:
-                    return plugin_intent_map[plugin_name], min(
-                        0.85, 0.55 + (score / 10.0)
-                    )
+                    return plugin_intent_map[plugin_name], min(0.85, 0.55 + (score / 10.0))
 
         return "conversation:general", 0.3
 
@@ -5649,24 +5211,18 @@ class NLPProcessor:
     def _update_context(self, result: ProcessedQuery):
         """Update conversation context"""
         _existing_pending = (
-            dict(getattr(self.context, "pending_clarification", {}) or {})
-            if hasattr(self, "context")
-            else {}
+            dict(getattr(self.context, "pending_clarification", {}) or {}) if hasattr(self, "context") else {}
         )
         self.context.last_intent = result.intent
         self.context.query_history.append(result.original_text)
         self.context.turn_index += 1
-        self.context.last_plugin = (
-            result.intent.split(":", 1)[0] if ":" in result.intent else "conversation"
-        )
+        self.context.last_plugin = result.intent.split(":", 1)[0] if ":" in result.intent else "conversation"
         if self.dialogue_state_machine is not None:
             _dialogue_state = self.dialogue_state_machine.observe_intent(result.intent)
             self.context.dialogue_state = _dialogue_state.value
         else:
             self.context.dialogue_state = (
-                "clarifying"
-                if result.intent == "conversation:clarification_needed"
-                else "active"
+                "clarifying" if result.intent == "conversation:clarification_needed" else "active"
             )
 
         disambiguation = {}
@@ -5677,25 +5233,17 @@ class NLPProcessor:
             _pending_slot_followup = _modifiers.get("pending_slot_followup", {})
 
         _existing_slot_type = (
-            str(
-                (_existing_pending or {}).get("slot_type")
-                or (_existing_pending or {}).get("type")
-                or ""
-            )
+            str((_existing_pending or {}).get("slot_type") or (_existing_pending or {}).get("type") or "")
             .strip()
             .lower()
         )
         _preserve_existing_slot = bool(
             isinstance(_existing_pending, dict)
             and _existing_pending
-            and _existing_slot_type
-            in {"route_choice", "help_route_choice", "help_narrowing", "narrowing"}
+            and _existing_slot_type in {"route_choice", "help_route_choice", "help_narrowing", "narrowing"}
             and bool(_existing_pending.get("active", True))
         )
-        _slot_was_filled = bool(
-            isinstance(_pending_slot_followup, dict)
-            and _pending_slot_followup.get("filled")
-        )
+        _slot_was_filled = bool(isinstance(_pending_slot_followup, dict) and _pending_slot_followup.get("filled"))
 
         if disambiguation:
             self.context.pending_clarification = disambiguation
@@ -5709,11 +5257,7 @@ class NLPProcessor:
         # Persist the semantic frame for follow-up merging
         if isinstance(result.parsed_command, dict):
             _frame_data = result.parsed_command.get("modifiers", {}).get("frame")
-            if (
-                _frame_data
-                and isinstance(_frame_data, dict)
-                and _frame_data.get("name")
-            ):
+            if _frame_data and isinstance(_frame_data, dict) and _frame_data.get("name"):
                 self.context.last_frame = dict(_frame_data)
 
         # Extract entities to context
@@ -5742,9 +5286,7 @@ class NLPProcessor:
             elif slot_name == "event":
                 self.context.mentioned_events.append(slot.value)
 
-    def _validate_intent_entity_match(
-        self, intent: str, slots: Dict[str, Slot]
-    ) -> Tuple[float, List[str]]:
+    def _validate_intent_entity_match(self, intent: str, slots: Dict[str, Slot]) -> Tuple[float, List[str]]:
         """
         Cross-validate intent with extracted entities (P0 Improvement).
 
@@ -5787,9 +5329,7 @@ class NLPProcessor:
             match_ratio = len(present_expected) / len(expected)
             # Only penalize if NO expected entities present AND there's a clear expectation
             if match_ratio == 0.0 and len(expected) <= 2:
-                validation_score -= (
-                    0.05  # Small penalty for completely missing simple expectations
-                )
+                validation_score -= 0.05  # Small penalty for completely missing simple expectations
                 # Don't add to issues - this is just informational
 
         # Bonus for having unexpected but relevant entities (don't penalize creativity)
@@ -5877,9 +5417,7 @@ class NLPProcessor:
             "they",
         }
 
-        keywords = [
-            token for token in tokens if token.isalnum() and token not in stopwords
-        ]
+        keywords = [token for token in tokens if token.isalnum() and token not in stopwords]
 
         from collections import Counter
 

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import psutil
+
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
@@ -39,11 +40,25 @@ _INTENTS = {
 }
 
 _TRIGGER_PHRASES = [
-    "system status", "system health", "how's the system", "how is the system",
-    "what's running", "what is running", "cpu usage", "cpu load",
-    "memory usage", "ram usage", "disk space", "disk usage",
-    "open ports", "network status", "running processes", "process list",
-    "resource usage", "system info", "system report",
+    "system status",
+    "system health",
+    "how's the system",
+    "how is the system",
+    "what's running",
+    "what is running",
+    "cpu usage",
+    "cpu load",
+    "memory usage",
+    "ram usage",
+    "disk space",
+    "disk usage",
+    "open ports",
+    "network status",
+    "running processes",
+    "process list",
+    "resource usage",
+    "system info",
+    "system report",
 ]
 
 
@@ -72,9 +87,7 @@ class SystemPlugin(PluginInterface):
         q = (query or "").lower()
         return any(phrase in q for phrase in _TRIGGER_PHRASES)
 
-    def execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         q = (query or "").lower()
 
         if "process" in q or "running" in q or intent == "system:processes":
@@ -113,9 +126,7 @@ class SystemPlugin(PluginInterface):
             # Top 5 CPU processes
             top = self._get_top_processes(n=5)
             if top:
-                proc_lines = "  " + "\n  ".join(
-                    f"{p['name']} ({p['cpu']:.1f}% CPU, {p['mem']:.0f} MB)" for p in top
-                )
+                proc_lines = "  " + "\n  ".join(f"{p['name']} ({p['cpu']:.1f}% CPU, {p['mem']:.0f} MB)" for p in top)
                 parts.append(f"Top processes:\n{proc_lines}")
 
             # Battery if available
@@ -148,8 +159,7 @@ class SystemPlugin(PluginInterface):
             return {"success": False, "response": "psutil not available."}
         top = self._get_top_processes(n=10)
         lines = "\n".join(
-            f"  {i+1}. {p['name']} — {p['cpu']:.1f}% CPU, {p['mem']:.0f} MB RAM"
-            for i, p in enumerate(top)
+            f"  {i + 1}. {p['name']} — {p['cpu']:.1f}% CPU, {p['mem']:.0f} MB RAM" for i, p in enumerate(top)
         )
         return {
             "success": True,
@@ -195,9 +205,7 @@ class SystemPlugin(PluginInterface):
             return {"success": False, "response": f"Could not list ports: {e}"}
 
         listening.sort(key=lambda x: x["port"])
-        lines = "\n".join(
-            f"  :{p['port']} — {p['process']} (pid {p['pid']})" for p in listening[:20]
-        )
+        lines = "\n".join(f"  :{p['port']} — {p['process']} (pid {p['pid']})" for p in listening[:20])
         text = lines if lines else "No listening ports found."
         return {"success": True, "response": f"Open listening ports:\n{text}", "data": {"ports": listening}}
 
@@ -228,7 +236,7 @@ class SystemPlugin(PluginInterface):
             try:
                 info = p.info
                 cpu = info.get("cpu_percent") or 0.0
-                mem_bytes = (info.get("memory_info") or None)
+                mem_bytes = info.get("memory_info") or None
                 mem_mb = mem_bytes.rss / 1e6 if mem_bytes else 0.0
                 procs.append({"pid": info["pid"], "name": info["name"] or "?", "cpu": cpu, "mem": mem_mb})
             except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -239,7 +247,9 @@ class SystemPlugin(PluginInterface):
         try:
             result = subprocess.run(
                 ["git", "status", "--short", "--branch"],
-                capture_output=True, text=True, timeout=3,
+                capture_output=True,
+                text=True,
+                timeout=3,
                 cwd=os.getcwd(),
             )
             if result.returncode != 0:

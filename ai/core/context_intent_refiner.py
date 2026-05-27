@@ -24,12 +24,8 @@ class ContextIntentRefiner:
         last = (last_intent or "").lower()
 
         # "analyze" after debugging context should stay technical.
-        if "analyze" in text and any(
-            k in (topic + " " + last) for k in ("debug", "traceback", "code", "bug")
-        ):
-            if not cur_intent.startswith(
-                ("file_operations:", "notes:", "conversation:question")
-            ):
+        if "analyze" in text and any(k in (topic + " " + last) for k in ("debug", "traceback", "code", "bug")):
+            if not cur_intent.startswith(("file_operations:", "notes:", "conversation:question")):
                 cur_intent = "conversation:question"
             conf = max(conf, 0.74)
             return {
@@ -39,10 +35,7 @@ class ContextIntentRefiner:
             }
 
         # Financial context disambiguation
-        if "analyze" in text and any(
-            k in (topic + " " + last)
-            for k in ("portfolio", "stocks", "invest", "market")
-        ):
+        if "analyze" in text and any(k in (topic + " " + last) for k in ("portfolio", "stocks", "invest", "market")):
             cur_intent = "conversation:question"
             conf = max(conf, 0.72)
             return {

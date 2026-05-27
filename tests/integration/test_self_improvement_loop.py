@@ -30,10 +30,7 @@ def test_self_improvement_audit_pipeline_updates_project_memory(monkeypatch, tmp
     assert report.approval_required is True
     assert report.classification["failure_kind"] == "greeting_tone"
     assert "ai/runtime/greeting_surface_policy.py" in report.patch_plan["target_files"]
-    assert (
-        "pytest tests/golden/test_greeting_memory_grounding.py"
-        in report.evaluation_plan["commands"]
-    )
+    assert "pytest tests/golden/test_greeting_memory_grounding.py" in report.evaluation_plan["commands"]
 
     state = load_project_state("default")
     assert state.last_self_improvement_event_id == event.event_id
@@ -42,15 +39,11 @@ def test_self_improvement_audit_pipeline_updates_project_memory(monkeypatch, tmp
 
 def test_approval_gate_rejects_unapproved_source_change():
     try:
-        assert_approval_for_source_change(
-            ApprovalDecision(approved=False, approval_type="source_change")
-        )
+        assert_approval_for_source_change(ApprovalDecision(approved=False, approval_type="source_change"))
     except PermissionError as exc:
         assert "not_approved" in str(exc)
     else:
-        raise AssertionError(
-            "expected approval gate to reject unapproved source change"
-        )
+        raise AssertionError("expected approval gate to reject unapproved source change")
 
 
 def test_auto_audit_flag_defaults_off(monkeypatch, tmp_path):

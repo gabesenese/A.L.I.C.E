@@ -57,9 +57,7 @@ class LocalActionExecutor:
             return m.group(1)
         return ""
 
-    def execute(
-        self, *, action: str, query: str, context: Dict[str, Any] | None = None
-    ) -> Dict[str, Any]:
+    def execute(self, *, action: str, query: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         ctx = dict(context or {})
         files = self.file_index.list_files()
         decision_meta = dict(ctx.get("decision_metadata") or {})
@@ -70,8 +68,7 @@ class LocalActionExecutor:
             "active_mode": mode,
             "awaiting_target": action in {"code:request", "code:list_files"},
             "continuation_from_previous_turn": bool(
-                ctx.get("continuation_from_previous_turn")
-                or operator_meta.get("continuation_from_previous_turn")
+                ctx.get("continuation_from_previous_turn") or operator_meta.get("continuation_from_previous_turn")
             ),
             "inferred_target_file": "",
             "file_exists": False,
@@ -110,9 +107,7 @@ class LocalActionExecutor:
                         + "\nNext best move: inspect ai/runtime/turn_orchestrator.py first."
                     )
                 else:
-                    text = "I can inspect these workspace files:\n- " + "\n- ".join(
-                        preview
-                    )
+                    text = "I can inspect these workspace files:\n- " + "\n- ".join(preview)
             else:
                 text = "I do not currently see workspace files to inspect."
             local_execution["success"] = bool(preview)
@@ -184,9 +179,7 @@ class LocalActionExecutor:
             if not resolved["file_exists"]:
                 local_execution["error"] = "target_not_found"
                 local_execution["workspace_file_count"] = len(files)
-                local_execution["close_matches"] = list(
-                    resolved.get("close_matches") or []
-                )
+                local_execution["close_matches"] = list(resolved.get("close_matches") or [])
                 return {
                     "success": False,
                     "response": "",
@@ -236,9 +229,7 @@ class LocalActionExecutor:
                 "local_execution": local_execution,
             }
 
-        if action == "system:location" and hasattr(
-            self.alice, "_build_location_payload"
-        ):
+        if action == "system:location" and hasattr(self.alice, "_build_location_payload"):
             payload = self.alice._build_location_payload()
             local_execution["success"] = bool(payload)
             return {
@@ -271,9 +262,7 @@ class LocalActionExecutor:
             operator_state = dict(ctx.get("operator_state") or {})
             project_state = load_project_state(user_id).to_dict()
             last_recommended_action = dict(
-                operator_state.get("last_recommended_action")
-                or project_state.get("last_recommended_action")
-                or {}
+                operator_state.get("last_recommended_action") or project_state.get("last_recommended_action") or {}
             )
             improvement_loop = ImprovementLoop(user_id=user_id)
             if action == "self_improvement:status":
@@ -362,12 +351,8 @@ class LocalActionExecutor:
             if action == "operator:explain_recommendation":
                 target = str(last_recommended_action.get("target") or "")
                 reason = str(last_recommended_action.get("reason") or "")
-                source = str(
-                    last_recommended_action.get("source") or "next_step_policy"
-                )
-                action_name = str(
-                    last_recommended_action.get("action") or "inspect_file"
-                )
+                source = str(last_recommended_action.get("source") or "next_step_policy")
+                action_name = str(last_recommended_action.get("action") or "inspect_file")
                 if not target:
                     text = "I do not have a stored recommendation yet. I can produce one from the active objective."
                 else:
@@ -384,15 +369,10 @@ class LocalActionExecutor:
                     "local_execution": local_execution,
                 }
 
-            if (
-                action in {"operator:continue", "operator:execute_recommended_action"}
-                and last_recommended_action
-            ):
+            if action in {"operator:continue", "operator:execute_recommended_action"} and last_recommended_action:
                 target = str(last_recommended_action.get("target") or "")
                 planned_action = str(last_recommended_action.get("action") or "")
-                requires_approval = bool(
-                    last_recommended_action.get("requires_approval")
-                )
+                requires_approval = bool(last_recommended_action.get("requires_approval"))
                 if requires_approval:
                     local_execution["success"] = True
                     return {
@@ -424,22 +404,14 @@ class LocalActionExecutor:
                 local_execution=local_execution,
                 available_files=files,
                 files_inspected=list(operator_state.get("files_inspected") or []),
-                last_failure=str(
-                    operator_state.get("last_failure")
-                    or project_state.get("last_failure")
-                    or ""
-                ),
+                last_failure=str(operator_state.get("last_failure") or project_state.get("last_failure") or ""),
             )
             if action == "operator:next_step":
                 update_project_state(
                     {
                         "next_recommended_action": decision.next_recommended_action,
-                        "last_recommended_action": dict(
-                            decision.last_recommended_action or {}
-                        ),
-                        "suggested_next_files": list(
-                            decision.suggested_next_files or []
-                        ),
+                        "last_recommended_action": dict(decision.last_recommended_action or {}),
+                        "suggested_next_files": list(decision.suggested_next_files or []),
                     },
                     user_id=user_id,
                 )
@@ -451,9 +423,7 @@ class LocalActionExecutor:
                     "operator_context": operator_context,
                     "local_execution": {
                         **local_execution,
-                        "suggested_next_files": list(
-                            decision.suggested_next_files or []
-                        ),
+                        "suggested_next_files": list(decision.suggested_next_files or []),
                     },
                 }
 

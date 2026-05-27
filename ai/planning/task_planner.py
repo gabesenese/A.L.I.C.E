@@ -69,10 +69,7 @@ class ExecutionPlan:
     @property
     def is_complete(self) -> bool:
         """Check if all steps are completed"""
-        return all(
-            step.status in [StepStatus.COMPLETED, StepStatus.SKIPPED]
-            for step in self.steps
-        )
+        return all(step.status in [StepStatus.COMPLETED, StepStatus.SKIPPED] for step in self.steps)
 
     @property
     def has_failed(self) -> bool:
@@ -89,9 +86,7 @@ class TaskPlanner:
     def __init__(self):
         self._plan_counter = 0
 
-    def create_plan(
-        self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]
-    ) -> ExecutionPlan:
+    def create_plan(self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]) -> ExecutionPlan:
         """
         Create an execution plan from understood intent
 
@@ -118,9 +113,7 @@ class TaskPlanner:
             metadata={"entities": entities, "context": context},
         )
 
-        logger.info(
-            f"Created plan {plan_id} with {len(steps)} steps for intent '{intent}'"
-        )
+        logger.info(f"Created plan {plan_id} with {len(steps)} steps for intent '{intent}'")
 
         return plan
 
@@ -153,9 +146,7 @@ class TaskPlanner:
         else:
             return f"Execute: {intent}"
 
-    def _generate_steps(
-        self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]
-    ) -> List[PlanStep]:
+    def _generate_steps(self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]) -> List[PlanStep]:
         """
         Generate execution steps for an intent
         This is the core planning logic
@@ -304,11 +295,7 @@ class TaskPlanner:
             query = entities.get("query", "")
 
             # Step 1: Search for music
-            steps.append(
-                PlanStep(
-                    step_id=1, action="plugin.music.search", params={"query": query}
-                )
-            )
+            steps.append(PlanStep(step_id=1, action="plugin.music.search", params={"query": query}))
 
             # Step 2: Play top result
             steps.append(
@@ -401,9 +388,7 @@ class TaskPlanner:
         for step in plan.steps:
             for dep in step.depends_on:
                 if dep not in step_ids:
-                    logger.error(
-                        f"Step {step.step_id} depends on non-existent step {dep}"
-                    )
+                    logger.error(f"Step {step.step_id} depends on non-existent step {dep}")
                     return False
 
         return True

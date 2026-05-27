@@ -102,21 +102,15 @@ class RBACEngine:
             user_input, ("delete", "remove", "erase", "drop")
         ):
             return PermissionScope.DELETE
-        if _contains_any(
-            intent, ("calendar:", "email:", "notes:", "reminder:")
-        ) and _contains_any(
+        if _contains_any(intent, ("calendar:", "email:", "notes:", "reminder:")) and _contains_any(
             user_input, ("create", "add", "send", "write", "update", "edit")
         ):
             return PermissionScope.WRITE
-        if _contains_any(
-            user_input, ("delete", "remove", "shutdown", "restart", "format")
-        ):
+        if _contains_any(user_input, ("delete", "remove", "shutdown", "restart", "format")):
             return PermissionScope.DELETE
         return PermissionScope.READ
 
-    def authorize(
-        self, request: AccessRequest, role: Optional[UserRole] = None
-    ) -> AccessDecision:
+    def authorize(self, request: AccessRequest, role: Optional[UserRole] = None) -> AccessDecision:
         active_role = role or self.default_role
         required = self._required_scope(request)
         granted = ROLE_SCOPES.get(active_role, ROLE_SCOPES[UserRole.STANDARD])
@@ -135,26 +129,19 @@ class RBACEngine:
             self._recent_scope_confirmation[required.value] = time.time()
 
         grace_until = self._recent_scope_confirmation.get(required.value, 0.0)
-        grace_active = (time.time() - grace_until) <= float(
-            self.confirmation_grace_seconds
-        )
+        grace_active = (time.time() - grace_until) <= float(self.confirmation_grace_seconds)
         if needs_confirmation and not confirmed:
             if grace_active:
                 return AccessDecision(
                     allowed=True,
                     requires_confirmation=False,
-                    reason=(
-                        f"Allowed by recent confirmation grace for scope={required.value}."
-                    ),
+                    reason=(f"Allowed by recent confirmation grace for scope={required.value}."),
                     required_scope=required,
                 )
             return AccessDecision(
                 allowed=True,
                 requires_confirmation=True,
-                reason=(
-                    f"Action requires confirmation for scope={required.value}. "
-                    "Reply with 'confirm' to continue."
-                ),
+                reason=(f"Action requires confirmation for scope={required.value}. Reply with 'confirm' to continue."),
                 required_scope=required,
             )
 

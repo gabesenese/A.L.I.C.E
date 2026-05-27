@@ -11,9 +11,7 @@ from datetime import datetime
 
 
 class SyntheticCorpusGenerator:
-    def __init__(
-        self, output_path: str = "data/training/synthetic_corpus.jsonl", llm_engine=None
-    ):
+    def __init__(self, output_path: str = "data/training/synthetic_corpus.jsonl", llm_engine=None):
         """
         Initialize synthetic corpus generator.
 
@@ -193,9 +191,7 @@ class SyntheticCorpusGenerator:
 
         return pairs
 
-    def generate_corpus(
-        self, templates: Optional[Dict[str, List[str]]] = None
-    ) -> List[Dict[str, Any]]:
+    def generate_corpus(self, templates: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
         """
         Generate synthetic corpus from templates.
 
@@ -292,6 +288,5 @@ class SyntheticCorpusGenerator:
             "total_pairs": len(corpus),
             "intents": intents,
             "synthetic_count": sum(1 for item in corpus if item.get("generated")),
-            "avg_quality": sum(item.get("quality_score", 0.8) for item in corpus)
-            / max(len(corpus), 1),
+            "avg_quality": sum(item.get("quality_score", 0.8) for item in corpus) / max(len(corpus), 1),
         }

@@ -6,9 +6,7 @@ def test_momentum_rewrites_passive_beginner_question_into_next_move():
         response_text="Which one sounds like a good starting point to you?",
         intent="conversation:educational_explain",
         route="llm",
-        operator_state={
-            "active_objective": "Improve Alice into an agentic companion/operator"
-        },
+        operator_state={"active_objective": "Improve Alice into an agentic companion/operator"},
         project_memory={},
         local_execution={},
         next_step="",

@@ -21,24 +21,11 @@ class _FakeNlp:
             and "make alice more companion-like" in lower
             and "hardcoded fallbacks" in lower
         ):
-            return _NlpResult(
-                intent="notes:create", intent_confidence=0.93, keywords=["make"]
-            )
-        if (
-            "create a note" in lower
-            and "making alice more companion-like" in lower
-            and "hardcoded fallbacks" in lower
-        ):
-            return _NlpResult(
-                intent="notes:create", intent_confidence=0.95, keywords=["note"]
-            )
-        if (
-            "don't want you to check anything" in lower
-            and "weather has been annoying lately" in lower
-        ):
-            return _NlpResult(
-                intent="weather:current", intent_confidence=0.92, keywords=["weather"]
-            )
+            return _NlpResult(intent="notes:create", intent_confidence=0.93, keywords=["make"])
+        if "create a note" in lower and "making alice more companion-like" in lower and "hardcoded fallbacks" in lower:
+            return _NlpResult(intent="notes:create", intent_confidence=0.95, keywords=["note"])
+        if "don't want you to check anything" in lower and "weather has been annoying lately" in lower:
+            return _NlpResult(intent="weather:current", intent_confidence=0.92, keywords=["weather"])
         if "always running and checking" in lower and "surroundings" in lower:
             return _NlpResult(
                 intent="conversation:clarification_needed",
@@ -46,28 +33,20 @@ class _FakeNlp:
                 keywords=[],
             )
         if "maybe" in lower:
-            return _NlpResult(
-                intent="weather:current", intent_confidence=0.65, keywords=["weather"]
-            )
+            return _NlpResult(intent="weather:current", intent_confidence=0.65, keywords=["weather"])
         if "unclear" in lower:
-            return _NlpResult(
-                intent="conversation:general", intent_confidence=0.4, keywords=[]
-            )
+            return _NlpResult(intent="conversation:general", intent_confidence=0.4, keywords=[])
         if "danger" in lower:
             return _NlpResult(intent="unknown", intent_confidence=0.2, keywords=[])
         if "weather" in text.lower():
-            return _NlpResult(
-                intent="weather:current", intent_confidence=0.92, keywords=["weather"]
-            )
+            return _NlpResult(intent="weather:current", intent_confidence=0.92, keywords=["weather"])
         if "read" in lower and "file" in lower:
             return _NlpResult(
                 intent="file_operations:read",
                 intent_confidence=0.91,
                 keywords=["file"],
             )
-        return _NlpResult(
-            intent="conversation:general", intent_confidence=0.8, keywords=[]
-        )
+        return _NlpResult(intent="conversation:general", intent_confidence=0.8, keywords=[])
 
 
 class _FakeMemory:
@@ -247,8 +226,7 @@ class _FakeAlice:
             return f"Your current location is **{payload['location']}**."
         if response_type == "weather_report":
             return (
-                f"WEATHER_REPORT {payload.get('temperature')}C "
-                f"{payload.get('condition')} in {payload.get('location')}"
+                f"WEATHER_REPORT {payload.get('temperature')}C {payload.get('condition')} in {payload.get('location')}"
             )
         if response_type == "weather_forecast":
             return "WEATHER_FORECAST"
@@ -277,9 +255,7 @@ def test_contract_pipeline_handles_tool_route():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(
-        user_input="weather in boston", user_id="u1", turn_number=1
-    )
+    result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=1)
 
     assert result.handled is True
     assert "sunny" in result.response_text.lower()
@@ -304,9 +280,7 @@ def test_contract_pipeline_formats_weather_nested_tool_payload_without_llm_fallb
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(
-        user_input="weather nested", user_id="u1", turn_number=12
-    )
+    result = pipeline.run_turn(user_input="weather nested", user_id="u1", turn_number=12)
 
     assert result.handled is True
     assert result.metadata["route"] == "tool"
@@ -543,10 +517,7 @@ def test_weather_followup_personal_reaction_does_not_call_weather_tool():
     assert second.handled is True
     assert second.metadata["route"] == "conversation"
     assert second.metadata["intent"] == "conversation:personal_reaction"
-    assert (
-        second.metadata["companion"]["policy_reason"]
-        == "contextual_reaction_after_tool_result"
-    )
+    assert second.metadata["companion"]["policy_reason"] == "contextual_reaction_after_tool_result"
 
     route_veto = dict(second.metadata["plan"].get("route_veto") or {})
     assert route_veto.get("applied") is True
@@ -581,10 +552,7 @@ def test_weather_followup_personal_reaction_without_gratitude_does_not_call_weat
     assert second.handled is True
     assert second.metadata["route"] == "conversation"
     assert second.metadata["intent"] == "conversation:personal_reaction"
-    assert (
-        second.metadata["companion"]["policy_reason"]
-        == "contextual_reaction_after_tool_result"
-    )
+    assert second.metadata["companion"]["policy_reason"] == "contextual_reaction_after_tool_result"
 
     execute_stage = _stage_by_name(second, "execute")
     assert execute_stage["status"] == "skipped"
@@ -620,10 +588,7 @@ def test_contract_pipeline_demotes_notes_create_misfire_for_collaborative_reason
     pipeline = ContractPipeline(boundaries)
 
     result = pipeline.run_turn(
-        user_input=(
-            "let's think through how to make alice more companion-like "
-            "without adding hardcoded fallbacks"
-        ),
+        user_input=("let's think through how to make alice more companion-like without adding hardcoded fallbacks"),
         user_id="u1",
         turn_number=51,
     )
@@ -639,10 +604,7 @@ def test_contract_pipeline_keeps_notes_create_when_explicit_note_request_present
     pipeline = ContractPipeline(boundaries)
 
     result = pipeline.run_turn(
-        user_input=(
-            "create a note about making alice more companion-like "
-            "without hardcoded fallbacks"
-        ),
+        user_input=("create a note about making alice more companion-like without hardcoded fallbacks"),
         user_id="u1",
         turn_number=52,
     )
@@ -658,10 +620,7 @@ def test_contract_pipeline_demotes_weather_tool_without_explicit_weather_request
     pipeline = ContractPipeline(boundaries)
 
     result = pipeline.run_turn(
-        user_input=(
-            "i don't want you to check anything, i'm just saying the weather "
-            "has been annoying lately"
-        ),
+        user_input=("i don't want you to check anything, i'm just saying the weather has been annoying lately"),
         user_id="u1",
         turn_number=53,
     )
@@ -714,9 +673,7 @@ def test_contract_pipeline_handles_location_deterministically():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(
-        user_input="what is my location?", user_id="u1", turn_number=3
-    )
+    result = pipeline.run_turn(user_input="what is my location?", user_id="u1", turn_number=3)
 
     assert result.handled is True
     assert "Kitchener" in result.response_text
@@ -742,9 +699,7 @@ def test_contract_pipeline_verify_band_requires_tool_evidence():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(
-        user_input="maybe weather in boston", user_id="u1", turn_number=5
-    )
+    result = pipeline.run_turn(user_input="maybe weather in boston", user_id="u1", turn_number=5)
 
     assert result.handled is True
     assert result.metadata["route"] == "tool"
@@ -757,9 +712,7 @@ def test_contract_pipeline_clarify_band_returns_follow_up():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(
-        user_input="this is unclear", user_id="u1", turn_number=6
-    )
+    result = pipeline.run_turn(user_input="this is unclear", user_id="u1", turn_number=6)
 
     assert result.handled is True
     assert result.metadata["route"] == "clarify"
@@ -792,9 +745,7 @@ def test_contract_pipeline_emits_post_execution_contract_and_outcome_metadata():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(
-        user_input="weather in boston", user_id="u1", turn_number=40
-    )
+    result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=40)
 
     assert result.handled is True
     contract = result.metadata["turn_contract"]
@@ -814,9 +765,7 @@ def test_contract_pipeline_persists_execution_artifacts_in_memory_context():
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(
-        user_input="weather in boston", user_id="u1", turn_number=41
-    )
+    result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=41)
 
     assert alice.memory._stored
     context = dict(alice.memory._stored[-1]["context"] or {})
@@ -833,9 +782,7 @@ def test_contract_pipeline_escalates_hard_tool_failures_in_post_execution_state_
     boundaries = build_runtime_boundaries(alice)
     pipeline = ContractPipeline(boundaries)
 
-    result = pipeline.run_turn(
-        user_input="weather fail hard", user_id="u1", turn_number=42
-    )
+    result = pipeline.run_turn(user_input="weather fail hard", user_id="u1", turn_number=42)
 
     assert result.handled is True
     assert result.metadata["route"] == "tool"
@@ -883,9 +830,7 @@ def test_meaningful_personal_statement_is_extracted_and_stored_as_structured_mem
 
     assert result.handled is True
     structured = [
-        row
-        for row in alice.memory._stored
-        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     assert structured
     ctx = structured[-1]["context"]
@@ -904,9 +849,7 @@ def test_filler_statement_is_not_stored_as_structured_memory():
 
     assert result.handled is True
     structured = [
-        row
-        for row in alice.memory._stored
-        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     assert structured == []
 
@@ -1010,13 +953,9 @@ def test_mixed_alice_and_personal_statement_creates_personal_life_memory():
 
     assert result.handled is True
     structured = [
-        row
-        for row in alice.memory._stored
-        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
-    domains = {
-        str((row.get("context") or {}).get("domain") or "") for row in structured
-    }
+    domains = {str((row.get("context") or {}).get("domain") or "") for row in structured}
     assert "personal_life" in domains
 
 
@@ -1080,16 +1019,10 @@ def test_mixed_turn_shopping_plus_code_request_stores_personal_update_and_keeps_
     assert result.metadata["route"] == "local"
     assert result.metadata["intent"] == "code:request"
     structured = [
-        row
-        for row in alice.memory._stored
-        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     assert structured
-    personal_rows = [
-        row
-        for row in structured
-        if (row.get("context") or {}).get("domain") == "personal_life"
-    ]
+    personal_rows = [row for row in structured if (row.get("context") or {}).get("domain") == "personal_life"]
     assert personal_rows
     latest = personal_rows[-1]
     ctx = latest["context"]
@@ -1116,9 +1049,7 @@ def test_mixed_turn_gym_plus_code_request_stores_personal_or_fitness_memory_and_
     assert result.handled is True
     assert result.metadata["intent"] == "code:request"
     structured = [
-        row
-        for row in alice.memory._stored
-        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     assert structured
     domains = {(row.get("context") or {}).get("domain") for row in structured}
@@ -1141,9 +1072,7 @@ def test_code_request_only_does_not_store_fake_personal_memory():
     assert result.metadata["intent"] == "code:request"
     assert result.metadata["route"] == "local"
     structured = [
-        row
-        for row in alice.memory._stored
-        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     assert structured == []
 
@@ -1161,9 +1090,7 @@ def test_personal_update_only_stores_day_to_day_personal_memory():
 
     assert result.handled is True
     structured = [
-        row
-        for row in alice.memory._stored
-        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     assert structured
     latest = structured[-1]
@@ -1193,32 +1120,17 @@ def test_project_work_session_mixed_turn_routes_conversation_and_stores_personal
     assert result.metadata["decision_band"] != "clarify"
 
     structured = [
-        row
-        for row in alice.memory._stored
-        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
     domains = [(row.get("context") or {}).get("domain") for row in structured]
     assert "personal_life" in domains
     assert "alice_project" in domains
     assert "work" not in domains
 
-    personal_rows = [
-        r
-        for r in structured
-        if (r.get("context") or {}).get("domain") == "personal_life"
-    ]
-    project_rows = [
-        r
-        for r in structured
-        if (r.get("context") or {}).get("domain") == "alice_project"
-    ]
-    assert any(
-        "shopping today" in str(r.get("content") or "").lower() for r in personal_rows
-    )
-    assert any(
-        "ready to work on the ai/alice project" in str(r.get("content") or "").lower()
-        for r in project_rows
-    )
+    personal_rows = [r for r in structured if (r.get("context") or {}).get("domain") == "personal_life"]
+    project_rows = [r for r in structured if (r.get("context") or {}).get("domain") == "alice_project"]
+    assert any("shopping today" in str(r.get("content") or "").lower() for r in personal_rows)
+    assert any("ready to work on the ai/alice project" in str(r.get("content") or "").lower() for r in project_rows)
 
 
 def test_ready_to_work_on_alice_routes_project_session_without_clarification():
@@ -1250,13 +1162,9 @@ def test_i_worked_late_today_extracts_work_domain_day_to_day_event():
     )
     assert result.handled is True
     structured = [
-        row
-        for row in alice.memory._stored
-        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
+        row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"
     ]
-    work_rows = [
-        r for r in structured if (r.get("context") or {}).get("domain") == "work"
-    ]
+    work_rows = [r for r in structured if (r.get("context") or {}).get("domain") == "work"]
     assert work_rows
     latest = work_rows[-1]
     assert (latest.get("context") or {}).get("kind") == "conversation_event"
@@ -1369,13 +1277,9 @@ def test_consolidation_marks_exact_duplicate_as_superseded_and_retrieval_ignores
     )
 
     structured = [
-        r
-        for r in alice.memory.episodic_memory
-        if "structured:personal" in list(getattr(r, "tags", []) or [])
+        r for r in alice.memory.episodic_memory if "structured:personal" in list(getattr(r, "tags", []) or [])
     ]
-    assert any(
-        bool((getattr(r, "context", {}) or {}).get("superseded")) for r in structured
-    )
+    assert any(bool((getattr(r, "context", {}) or {}).get("superseded")) for r in structured)
 
     rows = store.retrieve_structured_memory(
         "what did i talk about my personal life",
@@ -1519,10 +1423,7 @@ def test_read_a_file_vetoes_file_tool_and_reroutes_local():
     trace = dict((result.metadata.get("plan") or {}).get("routing_trace") or {})
     if not trace:
         trace = dict((result.metadata.get("plan") or {}).get("route_veto") or {})
-    assert (
-        trace.get("file_tool_vetoed") is True
-        or trace.get("reason") == "no_explicit_file_target"
-    )
+    assert trace.get("file_tool_vetoed") is True or trace.get("reason") == "no_explicit_file_target"
 
 
 def test_analyze_missing_file_includes_close_matches_and_workspace_context():

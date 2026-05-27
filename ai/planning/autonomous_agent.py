@@ -111,9 +111,7 @@ class AutonomousAgent:
             StepType.REPORT: self._execute_report_step,
         }
 
-    def decompose_goal(
-        self, goal_description: str, context: Dict[str, Any] = None
-    ) -> List[Dict[str, Any]]:
+    def decompose_goal(self, goal_description: str, context: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """
         Decompose a high-level goal into executable steps.
 
@@ -234,9 +232,7 @@ Provide the plan:"""
                 },
             ]
 
-        elif (
-            "implement" in goal_lower or "build" in goal_lower or "create" in goal_lower
-        ):
+        elif "implement" in goal_lower or "build" in goal_lower or "create" in goal_lower:
             return [
                 {
                     "type": "research",
@@ -299,9 +295,7 @@ Provide the plan:"""
                 },
             ]
 
-    def execute_step(
-        self, step: Dict[str, Any], context: ExecutionContext
-    ) -> Dict[str, Any]:
+    def execute_step(self, step: Dict[str, Any], context: ExecutionContext) -> Dict[str, Any]:
         """
         Execute a single step autonomously.
 
@@ -333,9 +327,7 @@ Provide the plan:"""
             logger.error(f"Step execution error: {e}")
             return {"success": False, "error": str(e), "output": None}
 
-    def _execute_research_step(
-        self, step: Dict[str, Any], context: ExecutionContext
-    ) -> Dict[str, Any]:
+    def _execute_research_step(self, step: Dict[str, Any], context: ExecutionContext) -> Dict[str, Any]:
         """Execute a research step"""
         description = step.get("description", "")
 
@@ -357,9 +349,7 @@ Provide the plan:"""
             "data": {},
         }
 
-    def _execute_analyze_step(
-        self, step: Dict[str, Any], context: ExecutionContext
-    ) -> Dict[str, Any]:
+    def _execute_analyze_step(self, step: Dict[str, Any], context: ExecutionContext) -> Dict[str, Any]:
         """Execute an analysis step"""
         description = step.get("description", "")
 
@@ -379,9 +369,7 @@ Provide the plan:"""
             "data": {},
         }
 
-    def _execute_implement_step(
-        self, step: Dict[str, Any], context: ExecutionContext
-    ) -> Dict[str, Any]:
+    def _execute_implement_step(self, step: Dict[str, Any], context: ExecutionContext) -> Dict[str, Any]:
         """Execute an implementation step"""
         description = step.get("description", "")
 
@@ -401,9 +389,7 @@ Provide the plan:"""
             "data": {},
         }
 
-    def _execute_test_step(
-        self, step: Dict[str, Any], context: ExecutionContext
-    ) -> Dict[str, Any]:
+    def _execute_test_step(self, step: Dict[str, Any], context: ExecutionContext) -> Dict[str, Any]:
         """Execute a testing step"""
         description = step.get("description", "")
 
@@ -420,9 +406,7 @@ Provide the plan:"""
             "data": {"tests_passed": True},
         }
 
-    def _execute_verify_step(
-        self, step: Dict[str, Any], context: ExecutionContext
-    ) -> Dict[str, Any]:
+    def _execute_verify_step(self, step: Dict[str, Any], context: ExecutionContext) -> Dict[str, Any]:
         """Execute a verification step"""
         description = step.get("description", "")
 
@@ -436,9 +420,7 @@ Provide the plan:"""
             "data": {},
         }
 
-    def _execute_report_step(
-        self, step: Dict[str, Any], context: ExecutionContext
-    ) -> Dict[str, Any]:
+    def _execute_report_step(self, step: Dict[str, Any], context: ExecutionContext) -> Dict[str, Any]:
         """Execute a reporting step"""
         description = step.get("description", "")
 
@@ -456,9 +438,7 @@ Provide the plan:"""
 
         return {"success": True, "output": report, "data": {}}
 
-    def _execute_generic_step(
-        self, step: Dict[str, Any], context: ExecutionContext
-    ) -> Dict[str, Any]:
+    def _execute_generic_step(self, step: Dict[str, Any], context: ExecutionContext) -> Dict[str, Any]:
         """Generic step executor"""
         return {
             "success": True,
@@ -499,13 +479,9 @@ Errors: {context.error_count}
 _autonomous_agent = None
 
 
-def get_autonomous_agent(
-    goal_system=None, llm_engine=None, plugin_system=None
-) -> AutonomousAgent:
+def get_autonomous_agent(goal_system=None, llm_engine=None, plugin_system=None) -> AutonomousAgent:
     """Get or create global autonomous agent"""
     global _autonomous_agent
     if _autonomous_agent is None:
-        _autonomous_agent = AutonomousAgent(
-            goal_system=goal_system, llm_engine=llm_engine, plugin_system=plugin_system
-        )
+        _autonomous_agent = AutonomousAgent(goal_system=goal_system, llm_engine=llm_engine, plugin_system=plugin_system)
     return _autonomous_agent

@@ -137,9 +137,7 @@ class TestSemanticDeduplicator:
 
     def test_access_counts_merged(self):
         base = _vec(7)
-        e1 = _Entry(
-            id="a", content="x", embedding=base, importance=0.9, access_count=10
-        )
+        e1 = _Entry(id="a", content="x", embedding=base, importance=0.9, access_count=10)
         e2 = _Entry(
             id="b",
             content="x",
@@ -217,9 +215,7 @@ class TestMemoryQuarantine:
         self.q.quarantine("old_mem", reason="test")
         # Back-date the expires_at so the record is already expired
         conn = sqlite3.connect(str(self._tmp.name))
-        conn.execute(
-            "UPDATE quarantine SET expires_at='2000-01-01T00:00:00+00:00' WHERE memory_id='old_mem'"
-        )
+        conn.execute("UPDATE quarantine SET expires_at='2000-01-01T00:00:00+00:00' WHERE memory_id='old_mem'")
         conn.commit()
         conn.close()
         n = self.q.purge_expired()
@@ -250,8 +246,7 @@ class TestHierarchicalCompressor:
         # Insert 210 raw episodic entries (above the 200 threshold)
         for i in range(210):
             conn.execute(
-                "INSERT INTO memories (id, content, memory_type, timestamp, tags) "
-                "VALUES (?, ?, 'episodic', ?, '[]')",
+                "INSERT INTO memories (id, content, memory_type, timestamp, tags) VALUES (?, ?, 'episodic', ?, '[]')",
                 (f"m{i}", f"memory {i}", f"2026-01-{(i % 28) + 1:02d}T10:00:00"),
             )
         conn.commit()
@@ -278,9 +273,7 @@ class TestHierarchicalCompressor:
     def test_summary_stored_as_semantic(self):
         self.compressor.compress_level(self.LEVEL_RAW)
         conn = sqlite3.connect(str(self._db))
-        rows = conn.execute(
-            "SELECT id FROM memories WHERE memory_type='semantic' AND tags LIKE '%summary%'"
-        ).fetchall()
+        rows = conn.execute("SELECT id FROM memories WHERE memory_type='semantic' AND tags LIKE '%summary%'").fetchall()
         conn.close()
         assert len(rows) > 0
 
@@ -526,9 +519,7 @@ class TestMaintenanceScheduler:
 
     def test_register_and_run_now(self):
         called = []
-        self.sched.register(
-            "test_task", lambda: called.append(1), interval_seconds=9999
-        )
+        self.sched.register("test_task", lambda: called.append(1), interval_seconds=9999)
         self.sched.start()
         ok = self.sched.run_now("test_task")
         assert ok
@@ -584,9 +575,7 @@ class TestContextForLlmBudget:
             for i in range(10)
         ]
 
-        with patch(
-            "ai.memory.retrieval_budget.get_retrieval_budget", return_value=budget
-        ):
+        with patch("ai.memory.retrieval_budget.get_retrieval_budget", return_value=budget):
             selected = budget.select(big_candidates)
             ctx = budget.format_context(selected)
 

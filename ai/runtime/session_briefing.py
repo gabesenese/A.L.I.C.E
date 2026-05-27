@@ -9,9 +9,7 @@ def _recent_emotional_signals(identity: Any, hours: float = 48.0) -> List[str]:
     signals: List[str] = []
     for entry in getattr(identity, "emotional_history", []):
         try:
-            ts = datetime.fromisoformat(
-                str(entry.get("noted_at") or "").replace("Z", "+00:00")
-            )
+            ts = datetime.fromisoformat(str(entry.get("noted_at") or "").replace("Z", "+00:00"))
             if ts >= cutoff:
                 signals.append(str(entry.get("signal") or ""))
         except Exception:
@@ -75,9 +73,7 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
                             time_str = "All day"
                         else:
                             time_str = start_dt.strftime("%H:%M")
-                        today_lines.append(
-                            f"  • {ev.get('title', 'Event')} at {time_str}"
-                        )
+                        today_lines.append(f"  • {ev.get('title', 'Event')} at {time_str}")
                 except (ValueError, AttributeError):
                     continue
             if today_lines:
@@ -89,10 +85,10 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
     # Goals intentionally excluded — they are in the LLM system prompt and should not
     # be printed as a response widget. Ask "what are my goals?" for explicit retrieval.
 
-    active: list = []
     try:
         from ai.goals.goal_engine import get_goal_engine
-        active = list(get_goal_engine().active())
+
+        list(get_goal_engine().active())
     except Exception:
         pass
 
@@ -106,9 +102,7 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
             if recent_emotions:
                 unique = list(dict.fromkeys(recent_emotions))  # ordered dedup
                 signals_str = ", ".join(unique[:3])
-                parts.append(
-                    f"Last session you mentioned feeling {signals_str} — how are you doing now?"
-                )
+                parts.append(f"Last session you mentioned feeling {signals_str} — how are you doing now?")
     except Exception:
         pass
 

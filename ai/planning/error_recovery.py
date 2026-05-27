@@ -50,9 +50,7 @@ class ErrorRecoverySystem:
     - Learns from recovery successes/failures
     """
 
-    def __init__(
-        self, max_retries: int = 3, max_replans: int = 2, escalation_threshold: int = 5
-    ):
+    def __init__(self, max_retries: int = 3, max_replans: int = 2, escalation_threshold: int = 5):
         self.max_retries = max_retries
         self.max_replans = max_replans
         self.escalation_threshold = escalation_threshold
@@ -84,9 +82,7 @@ class ErrorRecoverySystem:
         error_type = self._classify_error(error)
 
         # Record error
-        error_record = ErrorRecord(
-            step_id=step_id, error_type=error_type, error_message=str(error)
-        )
+        error_record = ErrorRecord(step_id=step_id, error_type=error_type, error_message=str(error))
         self.error_history.append(error_record)
 
         # Determine recovery strategy
@@ -110,11 +106,7 @@ class ErrorRecoverySystem:
         error_type_name = type(error).__name__
 
         # Network/connection errors
-        if (
-            "connection" in error_str
-            or "timeout" in error_str
-            or "network" in error_str
-        ):
+        if "connection" in error_str or "timeout" in error_str or "network" in error_str:
             return "network_error"
 
         # File system errors
@@ -198,9 +190,7 @@ class ErrorRecoverySystem:
         else:
             return RecoveryStrategy.ESCALATE
 
-    def _generate_escalation_message(
-        self, goal_id: str, step_id: str, error: Exception
-    ) -> str:
+    def _generate_escalation_message(self, goal_id: str, step_id: str, error: Exception) -> str:
         """Generate message for user escalation"""
         recent_errors = [e for e in self.error_history[-5:] if e.step_id == step_id]
 
@@ -218,9 +208,7 @@ What would you prefer?"""
 
         return message
 
-    def should_replan(
-        self, goal_id: str, current_plan: List[Dict[str, Any]], context: Dict[str, Any]
-    ) -> bool:
+    def should_replan(self, goal_id: str, current_plan: List[Dict[str, Any]], context: Dict[str, Any]) -> bool:
         """
         Determine if replanning is needed.
 
@@ -254,9 +242,7 @@ What would you prefer?"""
     def reset_for_goal(self, goal_id: str):
         """Reset error tracking for a goal"""
         # Clear retry counts for this goal
-        keys_to_remove = [
-            k for k in self.retry_counts.keys() if k.startswith(f"{goal_id}:")
-        ]
+        keys_to_remove = [k for k in self.retry_counts.keys() if k.startswith(f"{goal_id}:")]
         for key in keys_to_remove:
             del self.retry_counts[key]
 
@@ -269,18 +255,10 @@ What would you prefer?"""
     def get_stats(self) -> Dict[str, Any]:
         """Get recovery statistics"""
         total_errors = len(self.error_history)
-        recovery_attempted = len(
-            [e for e in self.error_history if e.recovery_attempted]
-        )
-        recoveries_successful = len(
-            [e for e in self.error_history if e.recovery_successful]
-        )
+        recovery_attempted = len([e for e in self.error_history if e.recovery_attempted])
+        recoveries_successful = len([e for e in self.error_history if e.recovery_successful])
 
-        success_rate = (
-            recoveries_successful / recovery_attempted
-            if recovery_attempted > 0
-            else 0.0
-        )
+        success_rate = recoveries_successful / recovery_attempted if recovery_attempted > 0 else 0.0
 
         return {
             "total_errors": total_errors,
@@ -296,20 +274,14 @@ What would you prefer?"""
 _recovery_system = None
 
 
-def get_recovery_system(
-    max_retries: int = 3, max_replans: int = 2
-) -> ErrorRecoverySystem:
+def get_recovery_system(max_retries: int = 3, max_replans: int = 2) -> ErrorRecoverySystem:
     """Get or create global error recovery system"""
     global _recovery_system
     if _recovery_system is None:
-        _recovery_system = ErrorRecoverySystem(
-            max_retries=max_retries, max_replans=max_replans
-        )
+        _recovery_system = ErrorRecoverySystem(max_retries=max_retries, max_replans=max_replans)
     return _recovery_system
 
 
-def get_error_recovery(
-    max_retries: int = 3, max_replans: int = 2
-) -> ErrorRecoverySystem:
+def get_error_recovery(max_retries: int = 3, max_replans: int = 2) -> ErrorRecoverySystem:
     """Alias for get_recovery_system - for consistency with other modules"""
     return get_recovery_system(max_retries=max_retries, max_replans=max_replans)

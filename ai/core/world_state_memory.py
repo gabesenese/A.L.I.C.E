@@ -125,12 +125,7 @@ class WorldStateMemory:
             target = (getattr(request, "target_spec", {}) or {}).get("target")
             if not target:
                 params = getattr(request, "params", {}) or {}
-                target = (
-                    params.get("target")
-                    or params.get("path")
-                    or params.get("note_id")
-                    or params.get("title")
-                )
+                target = params.get("target") or params.get("path") or params.get("note_id") or params.get("title")
             if target:
                 self._state["last_successful_target"] = target
 
@@ -144,9 +139,7 @@ class WorldStateMemory:
                 "last_narrowing_question": "Which exact target should I use?",
                 "ambiguity_flags": ambiguity,
             }
-            self._state["current_narrowing_question"] = (
-                "Which exact target should I use?"
-            )
+            self._state["current_narrowing_question"] = "Which exact target should I use?"
         elif self._state.get("unresolved_ambiguity"):
             self._state["unresolved_ambiguity"] = []
             self._state["pending_clarification"] = {}
@@ -157,9 +150,7 @@ class WorldStateMemory:
             self._state["last_recovery_outcome"] = recovery_path
 
         state_updates = getattr(result, "state_updates", {}) or {}
-        rollback = (
-            state_updates.get("rollback") if isinstance(state_updates, dict) else {}
-        )
+        rollback = state_updates.get("rollback") if isinstance(state_updates, dict) else {}
         if isinstance(rollback, dict):
             rollback_status = str(rollback.get("status") or "").strip()
             if rollback_status:

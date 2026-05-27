@@ -19,9 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Add parent directory to path
-PROJECT_ROOT = (
-    Path(__file__).resolve().parents[2]
-)  # Go up 2 levels: automation -> scripts -> project root
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Go up 2 levels: automation -> scripts -> project root
 sys.path.insert(0, str(PROJECT_ROOT))
 
 TRAINING_DIR = PROJECT_ROOT / "data" / "training"
@@ -136,8 +134,7 @@ def run_nightly_training():
                                     "time",
                                 ]
                             ),
-                            "has_vague_pattern": "vague"
-                            in log.get("actual_intent", "").lower(),
+                            "has_vague_pattern": "vague" in log.get("actual_intent", "").lower(),
                             "actual_route": log.get("actual_route", "LLM_FALLBACK"),
                         }
                         for log in training_logs[-1000:]  # Use last 1000 examples
@@ -145,13 +142,9 @@ def run_nightly_training():
                     if router_data:
                         trained = router.train(router_data)
                         if trained:
-                            logger.info(
-                                f"[ML] Router classifier trained on {len(router_data)} examples"
-                            )
+                            logger.info(f"[ML] Router classifier trained on {len(router_data)} examples")
                         else:
-                            logger.info(
-                                "[ML] Router classifier skipped (insufficient class diversity)"
-                            )
+                            logger.info("[ML] Router classifier skipped (insufficient class diversity)")
 
                     # Train intent refiner
                     refiner = get_intent_refiner()
@@ -167,27 +160,18 @@ def run_nightly_training():
                                 "confidence": c.get("confidence", 0.5),
                             }
                             for c in corrections
-                            if c.get("correction_type")
-                            and "intent" in c.get("correction_type", "")
+                            if c.get("correction_type") and "intent" in c.get("correction_type", "")
                         ]
                         if correction_data:
                             refiner.train(correction_data)
-                            logger.info(
-                                f"[ML] Intent refiner trained on {len(correction_data)} corrections"
-                            )
+                            logger.info(f"[ML] Intent refiner trained on {len(correction_data)} corrections")
 
                     # Train pattern clusterer on fallback interactions
                     clusterer = get_pattern_clusterer()
-                    fallback_logs = [
-                        log
-                        for log in training_logs
-                        if log.get("actual_route") == "LLM_FALLBACK"
-                    ]
+                    fallback_logs = [log for log in training_logs if log.get("actual_route") == "LLM_FALLBACK"]
                     if len(fallback_logs) >= 10:
                         clusterer.train(fallback_logs[-500:])
-                        logger.info(
-                            f"[ML] Pattern clusterer trained on {len(fallback_logs)} fallback interactions"
-                        )
+                        logger.info(f"[ML] Pattern clusterer trained on {len(fallback_logs)} fallback interactions")
 
         except Exception as e:
             logger.warning(f"[ML Training] Error training ML models: {e}")
@@ -204,16 +188,12 @@ def run_nightly_training():
             # Analyze last 24 hours of real interactions
             suggestions = teacher.analyze_fallbacks(lookback_hours=24)
 
-            logger.info(
-                f"Found {len(suggestions)} learning opportunities from real interactions"
-            )
+            logger.info(f"Found {len(suggestions)} learning opportunities from real interactions")
 
             # Auto-learn high-confidence patterns
             learned_count = teacher.auto_learn_high_confidence(suggestions)
 
-            logger.info(
-                f"OK: Auto-learned {learned_count} patterns from real interactions"
-            )
+            logger.info(f"OK: Auto-learned {learned_count} patterns from real interactions")
         except Exception as e:
             logger.warning(f"[Note] Real interaction analysis skipped: {e}")
             learned_count = 0
@@ -224,18 +204,12 @@ def run_nightly_training():
 
         logger.info("Simulation & Automation Results:")
         logger.info(f"  - Scenarios Run: {len(runner.results)} steps")
-        logger.info(
-            f"  - Good outcomes marked as training: {pipeline_results['phase1_feedback']['good_outcomes']}"
-        )
+        logger.info(f"  - Good outcomes marked as training: {pipeline_results['phase1_feedback']['good_outcomes']}")
         logger.info(
             f"  - Corrections created: {pipeline_results['phase2_corrections']['corrections_created']['corrections_added']}"
         )
-        logger.info(
-            f"  - Patterns promoted: {pipeline_results['phase3_promotion']['promoted']}"
-        )
-        logger.info(
-            f"  - Patterns staged for review: {pipeline_results['phase3_promotion']['staged_for_review']}"
-        )
+        logger.info(f"  - Patterns promoted: {pipeline_results['phase3_promotion']['promoted']}")
+        logger.info(f"  - Patterns staged for review: {pipeline_results['phase3_promotion']['staged_for_review']}")
         logger.info("\nReal Interaction Analysis:")
         logger.info(f"  - Patterns auto-learned: {learned_count}")
         logger.info("=" * 80)

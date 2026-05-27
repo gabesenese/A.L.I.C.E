@@ -7,8 +7,7 @@ def test_a_natural_greeting_accepted():
     result = render_grounded_greeting(
         user_name="Gabriel",
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to see you. How are you?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you?",
     )
     assert result.generated_by == "llm_constrained"
 
@@ -28,8 +27,7 @@ def test_c_multiple_questions_rejected():
     result = render_grounded_greeting(
         user_name="Gabriel",
         user_input="hi",
-        llm_generate=lambda *args,
-        **kwargs: "What are you working on? Is it new? Want ideas?",
+        llm_generate=lambda *args, **kwargs: "What are you working on? Is it new? Want ideas?",
     )
     assert result.generated_by == "fallback"
     assert "too_many_questions" in result.validation_reasons
@@ -48,8 +46,7 @@ def test_e_soft_continuity_rejected():
     result = render_grounded_greeting(
         user_name="Gabriel",
         user_input="hi",
-        llm_generate=lambda *args,
-        **kwargs: "Long time no chat. Nice to connect with you.",
+        llm_generate=lambda *args, **kwargs: "Long time no chat. Nice to connect with you.",
     )
     assert result.generated_by == "fallback"
 
@@ -69,11 +66,8 @@ def test_g_repetition_rejected():
     result = render_grounded_greeting(
         user_name="Gabriel",
         user_input="hi",
-        session_state={
-            "recent_greeting_texts": ["Hey Gabriel. Good to see you. How are you?"]
-        },
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to see you. How are you?",
+        session_state={"recent_greeting_texts": ["Hey Gabriel. Good to see you. How are you?"]},
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you?",
     )
     assert result.generated_by == "fallback"
     assert "repeated_candidate" in result.validation_reasons
@@ -83,8 +77,7 @@ def test_h_machine_learning_stale_memory_blocked():
     result = render_grounded_greeting(
         user_name="Gabriel",
         user_input="hi",
-        llm_generate=lambda *args,
-        **kwargs: "We were discussing machine learning last time.",
+        llm_generate=lambda *args, **kwargs: "We were discussing machine learning last time.",
     )
     assert result.generated_by == "fallback"
     assert "machine learning" not in result.text.lower()
@@ -95,8 +88,7 @@ def test_i_plain_greeting_has_no_project_status():
         user_name="Gabriel",
         user_input="hi alice",
         operator_state={"active_objective": "Improve", "current_focus": "routing"},
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to see you. How are you?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to see you. How are you?",
     )
     low = result.text.lower()
     assert "current objective" not in low
@@ -109,8 +101,7 @@ def test_j_explicit_continuation_may_mention_focus():
         user_name="Gabriel",
         user_input="hi alice, where were we?",
         operator_state={"active_objective": "Improve", "current_focus": "routing"},
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Still on routing. Ready to continue.",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Still on routing. Ready to continue.",
     )
     assert "routing" in result.text.lower()
 
@@ -119,8 +110,7 @@ def test_k_metadata_complete():
     result = render_grounded_greeting(
         user_name="Gabriel",
         user_input="hi alice",
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel. Good to hear from you. How's it going?",
+        llm_generate=lambda *args, **kwargs: "Hey Gabriel. Good to hear from you. How's it going?",
     )
     meta = result.continuity_claims
     assert meta.get("greeting_policy_version") == "greeting_v1_final"

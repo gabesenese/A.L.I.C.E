@@ -68,9 +68,7 @@ class PatternMiner:
         """Calculate similarity between two strings (0-1)."""
         return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
 
-    def _cluster_by_intent(
-        self, interactions: List[Dict[str, Any]]
-    ) -> Dict[str, List[Dict]]:
+    def _cluster_by_intent(self, interactions: List[Dict[str, Any]]) -> Dict[str, List[Dict]]:
         """Group interactions by intent."""
         clusters = defaultdict(list)
         for interaction in interactions:
@@ -78,9 +76,7 @@ class PatternMiner:
             clusters[intent].append(interaction)
         return clusters
 
-    def _cluster_by_similarity(
-        self, interactions: List[Dict[str, Any]]
-    ) -> List[List[Dict]]:
+    def _cluster_by_similarity(self, interactions: List[Dict[str, Any]]) -> List[List[Dict]]:
         """Cluster interactions by semantic similarity of user inputs."""
         if not interactions:
             return []
@@ -95,9 +91,7 @@ class PatternMiner:
             # Find all similar interactions
             remaining = []
             for interaction in unclustered:
-                sim = self._similarity(
-                    seed.get("user_input", ""), interaction.get("user_input", "")
-                )
+                sim = self._similarity(seed.get("user_input", ""), interaction.get("user_input", ""))
                 if sim >= self.similarity_threshold:
                     cluster.append(interaction)
                 else:
@@ -134,9 +128,7 @@ class PatternMiner:
 
         return proposed
 
-    def _create_pattern_proposal(
-        self, intent: str, cluster: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def _create_pattern_proposal(self, intent: str, cluster: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create a pattern proposal from a cluster of interactions."""
         user_inputs = [i.get("user_input", "") for i in cluster]
         responses = [i.get("llm_response", "") for i in cluster]
@@ -160,14 +152,11 @@ class PatternMiner:
             "common_entities": list(common_entities),
             "tool": tool_used,
             "cluster_size": len(cluster),
-            "avg_quality": sum(c.get("quality_score", 0.8) for c in cluster)
-            / len(cluster),
+            "avg_quality": sum(c.get("quality_score", 0.8) for c in cluster) / len(cluster),
             "approval_status": "pending",
             "created": datetime.now().isoformat(),
             "approved_by": None,
-            "confidence": min(
-                0.99, 0.8 + (len(cluster) * 0.05)
-            ),  # Higher with more examples
+            "confidence": min(0.99, 0.8 + (len(cluster) * 0.05)),  # Higher with more examples
         }
 
         return pattern
@@ -193,9 +182,7 @@ class PatternMiner:
 
         if truly_new:
             self.proposed_patterns["proposals"].extend(truly_new)
-            self.proposed_patterns["metadata"]["total_proposals"] = len(
-                self.proposed_patterns["proposals"]
-            )
+            self.proposed_patterns["metadata"]["total_proposals"] = len(self.proposed_patterns["proposals"])
             self._save_proposed_patterns()
 
         return truly_new[:min_new]
@@ -223,19 +210,11 @@ class PatternMiner:
 
     def get_pending_patterns(self) -> List[Dict[str, Any]]:
         """Get all patterns awaiting approval."""
-        return [
-            p
-            for p in self.proposed_patterns["proposals"]
-            if p.get("approval_status") == "pending"
-        ]
+        return [p for p in self.proposed_patterns["proposals"] if p.get("approval_status") == "pending"]
 
     def get_approved_patterns(self) -> List[Dict[str, Any]]:
         """Get all approved patterns."""
-        return [
-            p
-            for p in self.proposed_patterns["proposals"]
-            if p.get("approval_status") == "approved"
-        ]
+        return [p for p in self.proposed_patterns["proposals"] if p.get("approval_status") == "approved"]
 
     def get_pattern_stats(self) -> Dict[str, Any]:
         """Get statistics about proposed patterns."""
@@ -355,9 +334,7 @@ class HabitMiner:
             self._save()
         return newly_promoted
 
-    def suggest(
-        self, recent: Optional[List[ActionTuple]] = None
-    ) -> Optional[HabitMacro]:
+    def suggest(self, recent: Optional[List[ActionTuple]] = None) -> Optional[HabitMacro]:
         """Return the highest-confidence macro whose trigger matches the recent tail."""
         with self._hm_lock:
             tail = recent if recent is not None else list(self._window)
@@ -370,9 +347,7 @@ class HabitMiner:
 
     def all_macros(self) -> List[HabitMacro]:
         with self._hm_lock:
-            return sorted(
-                self._macros.values(), key=lambda m: m.confidence, reverse=True
-            )
+            return sorted(self._macros.values(), key=lambda m: m.confidence, reverse=True)
 
     def recent_actions(self, k: int = 10) -> List[ActionTuple]:
         with self._hm_lock:
@@ -449,9 +424,7 @@ class HTNPlanner:
                 if goal.lower() in macro.name.lower():
                     return [_fmt(a) for a in macro.sequence]
         with self._htn_lock:
-            methods = sorted(
-                self._methods.get(goal, []), key=lambda m: m.priority, reverse=True
-            )
+            methods = sorted(self._methods.get(goal, []), key=lambda m: m.priority, reverse=True)
         ctx = context or {}
         for method in methods:
             if all(ctx.get(cond) for cond in method.conditions):
@@ -473,9 +446,7 @@ def get_habit_miner(persistence_path: Optional[str] = None) -> HabitMiner:
     if _habit_miner_instance is None:
         with _habit_singletons_lock:
             if _habit_miner_instance is None:
-                _habit_miner_instance = HabitMiner(
-                    persistence_path=persistence_path or "memory/habits.jsonl"
-                )
+                _habit_miner_instance = HabitMiner(persistence_path=persistence_path or "memory/habits.jsonl")
     return _habit_miner_instance
 
 

@@ -37,9 +37,7 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
     confidence = 0.45
     reason = "insufficient specific signals"
 
-    def set_class(
-        k: str, files: List[str], rsn: str, conf: float, lyr: str, sig: str
-    ) -> None:
+    def set_class(k: str, files: List[str], rsn: str, conf: float, lyr: str, sig: str) -> None:
         nonlocal kind, likely_files, reason, confidence, layer
         kind = k
         likely_files = files
@@ -48,10 +46,7 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
         layer = lyr
         signals.append(sig)
 
-    if any(
-        s in text
-        for s in ("wrong route", "misroute", "clarify", "intent", "file_operations")
-    ):
+    if any(s in text for s in ("wrong route", "misroute", "clarify", "intent", "file_operations")):
         set_class(
             "routing",
             [
@@ -98,9 +93,7 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
             "response_guard",
             "continuity_keywords",
         )
-    elif any(
-        s in text for s in ("greeting", "dry", "assistant-like", "forced", "bland")
-    ):
+    elif any(s in text for s in ("greeting", "dry", "assistant-like", "forced", "bland")):
         set_class(
             "greeting_tone",
             [
@@ -179,9 +172,7 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
             "tests",
             "test_failure_keywords",
         )
-    elif any(
-        s in text for s in ("project state", "objective not set", "what are we fixing")
-    ):
+    elif any(s in text for s in ("project state", "objective not set", "what are we fixing")):
         set_class(
             "project_state",
             [
@@ -194,9 +185,7 @@ def classify_failure(event: BehaviorEvent) -> FailureClassification:
             "state",
             "project_state_keywords",
         )
-    elif any(
-        s in text for s in ("traceback", "exception", "attributeerror", "runtimeerror")
-    ):
+    elif any(s in text for s in ("traceback", "exception", "attributeerror", "runtimeerror")):
         tb = str(event.evidence.get("traceback") or "")
         tb_files = re.findall(r"([a-zA-Z0-9_/\\.-]+\.py)", tb)
         set_class(

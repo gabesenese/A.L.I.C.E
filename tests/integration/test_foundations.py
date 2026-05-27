@@ -57,9 +57,7 @@ def test_context_graph():
 
     # Test statistics
     stats = graph.get_statistics()
-    print(
-        f"✓ Statistics: {stats['total_entities']} entities, {stats['total_relationships']} relationships"
-    )
+    print(f"✓ Statistics: {stats['total_entities']} entities, {stats['total_relationships']} relationships")
 
     print("\n✅ Context Graph: ALL TESTS PASSED")
 
@@ -92,9 +90,7 @@ def test_personality_evolution():
     # Check if verbosity decreased
     new_traits = engine.get_traits_for_user("test_user")
     if new_traits.verbosity < traits.verbosity:
-        print(
-            f"✓ Verbosity adapted: {traits.verbosity:.2f} → {new_traits.verbosity:.2f}"
-        )
+        print(f"✓ Verbosity adapted: {traits.verbosity:.2f} → {new_traits.verbosity:.2f}")
     else:
         print("⚠ Verbosity unchanged (may be intentional)")
 
@@ -166,9 +162,7 @@ def test_response_variance():
                 print("⚠ Repetition not detected (may need tuning)")
 
     # Test quality tracking
-    engine.record_response_quality(
-        user_id="test_user", response=response1, user_reaction="thanks!"
-    )
+    engine.record_response_quality(user_id="test_user", response=response1, user_reaction="thanks!")
     print("✓ Quality feedback recorded")
 
     print("\n✅ Response Variance Engine: ALL TESTS PASSED")

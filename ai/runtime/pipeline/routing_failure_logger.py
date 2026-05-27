@@ -29,9 +29,7 @@ class RoutingFailureLogger:
         try:
             lines = self.path.read_text(encoding="utf-8").splitlines()
             if len(lines) > _MAX_LINES:
-                self.path.write_text(
-                    "\n".join(lines[-_MAX_LINES:]) + "\n", encoding="utf-8"
-                )
+                self.path.write_text("\n".join(lines[-_MAX_LINES:]) + "\n", encoding="utf-8")
         except Exception:
             pass
 

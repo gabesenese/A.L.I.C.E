@@ -247,9 +247,7 @@ class RouteCoordinator:
         plugin_scores: Dict[str, float],
         semantic_intent: Optional[Tuple[str, float]],
         weighted_candidates: List[Tuple[str, float]],
-        build_uncertainty_prompt: Callable[
-            [Any, Any, Dict[str, float]], Dict[str, Any]
-        ],
+        build_uncertainty_prompt: Callable[[Any, Any, Dict[str, float]], Dict[str, Any]],
         build_top_intent_candidates: Callable[..., List[Dict[str, Any]]],
         validate_intent_plausibility: Callable[..., Tuple[float, List[str]]],
         should_force_unknown_fallback: Callable[..., bool],
@@ -283,14 +281,8 @@ class RouteCoordinator:
                         "source": "route_coordinator",
                     }
 
-        uncertainty = (
-            build_uncertainty_prompt(route, parsed_command, plugin_scores)
-            if route is not None
-            else None
-        )
-        goal_statement_intent = (
-            intent or ""
-        ).lower().strip() == "conversation:goal_statement"
+        uncertainty = build_uncertainty_prompt(route, parsed_command, plugin_scores) if route is not None else None
+        goal_statement_intent = (intent or "").lower().strip() == "conversation:goal_statement"
         if intent.startswith("vague_") and not uncertainty:
             uncertainty = {
                 "needs_clarification": True,
@@ -318,10 +310,8 @@ class RouteCoordinator:
             modifiers["disambiguation"] = uncertainty
             if goal_statement_intent:
                 modifiers["goal_statement_preserved"] = True
-            elif (
-                intent_confidence
-                < self.config.clarification_intent_confidence_threshold
-                and not intent.startswith(("notes:", "email:", "calendar:", "system:"))
+            elif intent_confidence < self.config.clarification_intent_confidence_threshold and not intent.startswith(
+                ("notes:", "email:", "calendar:", "system:")
             ):
                 intent = "conversation:clarification_needed"
                 intent_confidence = max(intent_confidence, 0.41)
@@ -398,17 +388,13 @@ class RouteCoordinator:
                 {
                     "tool_eligibility_gate": True,
                     "reason": str(tool_eligibility.get("reason") or ""),
-                    "original_intent": str(
-                        tool_eligibility.get("original_intent") or ""
-                    ),
+                    "original_intent": str(tool_eligibility.get("original_intent") or ""),
                 }
             )
             modifiers["routing_trace"] = routing_trace
             return "conversation:general", max(float(intent_confidence or 0.0), 0.82)
 
-        current_intent_is_tool = (":" in str(intent or "")) and not str(
-            intent
-        ).startswith("conversation:")
+        current_intent_is_tool = (":" in str(intent or "")) and not str(intent).startswith("conversation:")
         if contextual_reaction and current_intent_is_tool:
             modifiers["tool_execution_disabled"] = True
             modifiers["contextual_reaction_gate"] = {
@@ -426,15 +412,12 @@ class RouteCoordinator:
                 }
             )
             modifiers["routing_trace"] = routing_trace
-            return "conversation:personal_reaction", max(
-                float(intent_confidence or 0.0), 0.82
-            )
+            return "conversation:personal_reaction", max(float(intent_confidence or 0.0), 0.82)
 
         if (
             intent_category == "conversation"
             and not intent.startswith("conversation:")
-            and float(intent_confidence or 0.0)
-            < self.config.conversation_category_gate_threshold
+            and float(intent_confidence or 0.0) < self.config.conversation_category_gate_threshold
         ):
             modifiers["tool_execution_disabled"] = True
             modifiers["category_gate"] = {
@@ -452,18 +435,14 @@ class RouteCoordinator:
                 ),
             )
         else:
-            modifiers["tool_execution_disabled"] = bool(
-                modifiers.get("tool_execution_disabled", False)
-            )
+            modifiers["tool_execution_disabled"] = bool(modifiers.get("tool_execution_disabled", False))
 
         if intent_category == "conversation":
             modifiers["tool_execution_disabled"] = True
 
         return intent, intent_confidence
 
-    def _is_contextual_reaction_followup(
-        self, *, text: str, previous_intent: str
-    ) -> bool:
+    def _is_contextual_reaction_followup(self, *, text: str, previous_intent: str) -> bool:
         if not str(previous_intent or "").startswith("weather:"):
             return False
 
@@ -471,9 +450,7 @@ class RouteCoordinator:
         if not utterance:
             return False
 
-        has_personal_state = any(
-            marker in utterance for marker in self._contextual_reaction_state_terms
-        )
+        has_personal_state = any(marker in utterance for marker in self._contextual_reaction_state_terms)
         has_direct_request = "?" in utterance or any(
             marker in utterance for marker in self._contextual_reaction_request_terms
         )
@@ -489,9 +466,7 @@ class RouteCoordinator:
         # Allow saved-list objects only when explicitly referenced as owned/specific lists.
         if re.search(r"\b(?:my|the)\s+[a-z][a-z0-9_-]*\s+list\b", utterance):
             return True
-        if re.search(
-            r"\b(?:what(?:'s|\s+is)\s+in|open|read|show)\b.{0,30}\blist\b", utterance
-        ):
+        if re.search(r"\b(?:what(?:'s|\s+is)\s+in|open|read|show)\b.{0,30}\blist\b", utterance):
             return True
         return False
 
@@ -499,12 +474,8 @@ class RouteCoordinator:
         utterance = str(text or "").strip().lower()
         if not utterance:
             return False
-        has_weather_domain = any(
-            term in utterance for term in self._weather_domain_terms
-        )
-        has_request_shape = "?" in utterance or any(
-            term in utterance for term in self._weather_explicit_request_terms
-        )
+        has_weather_domain = any(term in utterance for term in self._weather_domain_terms)
+        has_request_shape = "?" in utterance or any(term in utterance for term in self._weather_explicit_request_terms)
         return has_weather_domain and has_request_shape
 
     def _has_explicit_file_target(self, text: str) -> bool:
@@ -539,17 +510,13 @@ class RouteCoordinator:
             return "code:list_files"
         return "code:request"
 
-    def _tool_eligibility_gate(
-        self, *, text: str, intent: str
-    ) -> Optional[Dict[str, Any]]:
+    def _tool_eligibility_gate(self, *, text: str, intent: str) -> Optional[Dict[str, Any]]:
         normalized_intent = str(intent or "").strip().lower()
         if not normalized_intent or normalized_intent.startswith("conversation:"):
             return None
 
         if normalized_intent.startswith("file_operations:"):
-            has_file_action = any(
-                term in str(text or "").lower() for term in self._file_target_verbs
-            )
+            has_file_action = any(term in str(text or "").lower() for term in self._file_target_verbs)
             if has_file_action and not self._has_explicit_file_target(text):
                 reroute_intent = self._infer_file_tool_reroute_intent(text)
                 return {
@@ -560,18 +527,14 @@ class RouteCoordinator:
                     "rerouted_to": reroute_intent,
                 }
 
-        if normalized_intent.startswith(
-            "notes:"
-        ) and not self._has_explicit_notes_evidence(text):
+        if normalized_intent.startswith("notes:") and not self._has_explicit_notes_evidence(text):
             return {
                 "reason": "notes_tool_requires_explicit_notes_domain_evidence",
                 "original_intent": normalized_intent,
                 "tool_execution_disabled": True,
             }
 
-        if normalized_intent.startswith(
-            "weather:"
-        ) and not self._has_explicit_weather_request(text):
+        if normalized_intent.startswith("weather:") and not self._has_explicit_weather_request(text):
             return {
                 "reason": "weather_tool_requires_explicit_request",
                 "original_intent": normalized_intent,
@@ -631,29 +594,18 @@ class RouteCoordinator:
             modifiers["unknown_intent_fallback"] = False
             return intent, intent_confidence
 
-        pending_unknown_fallback = bool(
-            modifiers.get("pending_unknown_fallback", False)
-        )
-        should_fallback_final = (
-            pending_unknown_fallback
-            or should_force_unknown_fallback(
-                intent=intent,
-                confidence=float(intent_confidence or 0.0),
-                plausibility=float(final_plausibility),
-                uncertainty=(
-                    modifiers.get("disambiguation")
-                    if isinstance(modifiers.get("disambiguation"), dict)
-                    else None
-                ),
-                text=normalized_text,
-            )
+        pending_unknown_fallback = bool(modifiers.get("pending_unknown_fallback", False))
+        should_fallback_final = pending_unknown_fallback or should_force_unknown_fallback(
+            intent=intent,
+            confidence=float(intent_confidence or 0.0),
+            plausibility=float(final_plausibility),
+            uncertainty=(
+                modifiers.get("disambiguation") if isinstance(modifiers.get("disambiguation"), dict) else None
+            ),
+            text=normalized_text,
         )
 
-        if (
-            (not strong_action_frame)
-            and (not followup_locked_final)
-            and should_fallback_final
-        ):
+        if (not strong_action_frame) and (not followup_locked_final) and should_fallback_final:
             modifiers["unknown_intent_fallback"] = True
             modifiers["disambiguation"] = {
                 "needs_clarification": True,
@@ -679,8 +631,6 @@ class RouteCoordinator:
                 ),
             )
         else:
-            modifiers["unknown_intent_fallback"] = bool(
-                modifiers.get("unknown_intent_fallback", False)
-            )
+            modifiers["unknown_intent_fallback"] = bool(modifiers.get("unknown_intent_fallback", False))
 
         return intent, intent_confidence

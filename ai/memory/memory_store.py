@@ -204,9 +204,7 @@ class InMemoryMemoryStore(MemoryStore):
         candidates = self.get_all(memory_type=memory_type)
 
         # Filter memories with embeddings
-        memories_with_embeddings = [
-            mem for mem in candidates if mem.embedding is not None
-        ]
+        memories_with_embeddings = [mem for mem in candidates if mem.embedding is not None]
 
         if not memories_with_embeddings:
             return []
@@ -216,9 +214,7 @@ class InMemoryMemoryStore(MemoryStore):
             similarities = []
             for mem in memories_with_embeddings:
                 mem_embedding = np.array(mem.embedding)
-                similarity = cosine_similarity(
-                    embedding.reshape(1, -1), mem_embedding.reshape(1, -1)
-                )[0][0]
+                similarity = cosine_similarity(embedding.reshape(1, -1), mem_embedding.reshape(1, -1))[0][0]
 
                 if similarity >= threshold:
                     similarities.append((mem, similarity))
@@ -262,9 +258,7 @@ class InMemoryMemoryStore(MemoryStore):
         if memory_type is None:
             return len(self.memories)
 
-        return sum(
-            1 for mem in self.memories.values() if mem.memory_type == memory_type
-        )
+        return sum(1 for mem in self.memories.values() if mem.memory_type == memory_type)
 
 
 class SQLiteMemoryStore(MemoryStore):
@@ -302,15 +296,9 @@ class SQLiteMemoryStore(MemoryStore):
                     chunk_index   INTEGER
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_mem_type ON memories(memory_type)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_mem_ts   ON memories(timestamp DESC)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_mem_imp  ON memories(importance DESC)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_type ON memories(memory_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_ts   ON memories(timestamp DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_imp  ON memories(importance DESC)")
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -407,9 +395,7 @@ class SQLiteMemoryStore(MemoryStore):
 
     def get_by_id(self, memory_id: str) -> Optional[MemoryEntry]:
         with self._conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM memories WHERE id = ?", (memory_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
         return self._unpack(row) if row else None
 
     def get_all(self, memory_type: Optional[str] = None) -> List[MemoryEntry]:
@@ -420,9 +406,7 @@ class SQLiteMemoryStore(MemoryStore):
                     (memory_type,),
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT * FROM memories ORDER BY timestamp DESC"
-                ).fetchall()
+                rows = conn.execute("SELECT * FROM memories ORDER BY timestamp DESC").fetchall()
         return [self._unpack(r) for r in rows]
 
     def find_by_similarity(
@@ -441,9 +425,7 @@ class SQLiteMemoryStore(MemoryStore):
             query = np.array(embedding).reshape(1, -1)
             scored = []
             for mem in candidates:
-                sim = cosine_similarity(query, np.array(mem.embedding).reshape(1, -1))[
-                    0
-                ][0]
+                sim = cosine_similarity(query, np.array(mem.embedding).reshape(1, -1))[0][0]
                 if sim >= threshold:
                     scored.append((mem, sim))
             scored.sort(key=lambda x: x[1], reverse=True)
@@ -484,18 +466,12 @@ class SQLiteMemoryStore(MemoryStore):
                 elif k == "context":
                     params.append(json.dumps(v or {}))
                 elif k == "embedding":
-                    params.append(
-                        pickle.dumps(np.array(v, dtype=np.float32))
-                        if v is not None
-                        else None
-                    )
+                    params.append(pickle.dumps(np.array(v, dtype=np.float32)) if v is not None else None)
                 else:
                     params.append(v)
             params.append(memory_id)
             with self._conn() as conn:
-                conn.execute(
-                    f"UPDATE memories SET {', '.join(clauses)} WHERE id = ?", params
-                )
+                conn.execute(f"UPDATE memories SET {', '.join(clauses)} WHERE id = ?", params)
                 conn.commit()
             return True
         except Exception as e:
@@ -528,9 +504,7 @@ class SQLiteMemoryStore(MemoryStore):
                     except Exception:
                         pass
             count = self.bulk_add(entries)
-            logger.info(
-                f"[SQLiteMemoryStore] Migrated {count} entries from {json_path}"
-            )
+            logger.info(f"[SQLiteMemoryStore] Migrated {count} entries from {json_path}")
             return count
         except Exception as e:
             logger.error(f"[SQLiteMemoryStore] Migration failed: {e}")

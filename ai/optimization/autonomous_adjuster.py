@@ -70,9 +70,7 @@ class AutonomousThresholdAdjuster:
                     for key, default_value in defaults.items():
                         if key not in loaded:
                             loaded[key] = default_value
-                        elif key == "domain_confidence" and not isinstance(
-                            loaded[key], dict
-                        ):
+                        elif key == "domain_confidence" and not isinstance(loaded[key], dict):
                             loaded[key] = {}
                         elif key == "nlp_weights" and not isinstance(loaded[key], dict):
                             loaded[key] = default_value
@@ -117,9 +115,7 @@ class AutonomousThresholdAdjuster:
             logger.info("[AutonomousAdjuster] No training log found")
             return {}
 
-        domain_stats = defaultdict(
-            lambda: {"total": 0, "errors": 0, "route_errors": 0, "intent_errors": 0}
-        )
+        domain_stats = defaultdict(lambda: {"total": 0, "errors": 0, "route_errors": 0, "intent_errors": 0})
         route_stats = defaultdict(lambda: {"total": 0, "errors": 0})
 
         try:
@@ -228,9 +224,7 @@ class AutonomousThresholdAdjuster:
                     f"Domain '{domain}': Lowered confidence from {old_confidence:.2f} to {new_confidence:.2f} (error rate {error_rate:.1%})"
                 )
 
-                logger.info(
-                    f"[AutonomousAdjuster] {domain}: Error rate {error_rate:.1%} -> lowering confidence"
-                )
+                logger.info(f"[AutonomousAdjuster] {domain}: Error rate {error_rate:.1%} -> lowering confidence")
 
             # Low errors -> can be more confident
             elif error_rate < self.LOW_ERROR_THRESHOLD:
@@ -249,9 +243,7 @@ class AutonomousThresholdAdjuster:
                         f"Domain '{domain}': Raised confidence from {old_confidence:.2f} to {new_confidence:.2f} (error rate {error_rate:.1%})"
                     )
 
-                    logger.info(
-                        f"[AutonomousAdjuster] {domain}: Error rate {error_rate:.1%} -> raising confidence"
-                    )
+                    logger.info(f"[AutonomousAdjuster] {domain}: Error rate {error_rate:.1%} -> raising confidence")
 
             # Update NLP weights based on route error rate
             if domain in self.thresholds["nlp_weights"]:
@@ -375,9 +367,7 @@ class AutonomousThresholdAdjuster:
         # Log summary
         logger.info("[AutonomousAdjuster] Cycle complete:")
         logger.info(f"  - Analysis domains: {len(analysis.get('domain_errors', {}))}")
-        logger.info(
-            f"  - Adjustments made: {len(adjustments.get('adjustments_made', []))}"
-        )
+        logger.info(f"  - Adjustments made: {len(adjustments.get('adjustments_made', []))}")
         logger.info(f"  - Recommendations: {len(recommendations)}")
 
         return summary
@@ -499,9 +489,7 @@ class RulesOptimizer:
 
         return dict(confusion_pairs)
 
-    def generate_rule_suggestions(
-        self, confusion_pairs: Dict[str, int]
-    ) -> List[Dict[str, Any]]:
+    def generate_rule_suggestions(self, confusion_pairs: Dict[str, int]) -> List[Dict[str, Any]]:
         """
         For top confusion pairs, suggest keyword adjustments
 
@@ -526,9 +514,7 @@ class RulesOptimizer:
             }
 
             suggestions.append(suggestion)
-            logger.info(
-                f"[RulesOptimizer] Confusion pattern: {expected} misclassified as {actual} {count} times"
-            )
+            logger.info(f"[RulesOptimizer] Confusion pattern: {expected} misclassified as {actual} {count} times")
 
         return suggestions
 

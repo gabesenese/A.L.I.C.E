@@ -17,9 +17,7 @@ logger = logging.getLogger(__name__)
 class EmbeddingManager:
     """Manages vector embeddings for semantic similarity"""
 
-    def __init__(
-        self, model_name: str = "all-MiniLM-L6-v2", dimension: int = 384
-    ) -> None:
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", dimension: int = 384) -> None:
         self.model_name = model_name
         self.dimension = dimension
         self._model: Optional[any] = None
@@ -45,9 +43,7 @@ class EmbeddingManager:
                     self._model = SentenceTransformer(self.model_name, device="cpu")
                 logger.info(f"Embedding model loaded: {self.model_name}")
             except ImportError:
-                logger.warning(
-                    "[WARNING] sentence-transformers not installed. Using simple embeddings."
-                )
+                logger.warning("[WARNING] sentence-transformers not installed. Using simple embeddings.")
                 logger.warning("   Install with: pip install sentence-transformers")
                 # Fallback to simple TF-IDF based embeddings
                 try:
@@ -158,9 +154,7 @@ class EmbeddingManager:
             logger.error(f"Batch embedding failed: {e}")
             return [np.zeros(self.dimension) for _ in texts]
 
-    def calculate_similarity(
-        self, embedding1: np.ndarray, embedding2: np.ndarray
-    ) -> float:
+    def calculate_similarity(self, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
         """
         Calculate cosine similarity between two embeddings
 
@@ -174,9 +168,7 @@ class EmbeddingManager:
         try:
             from sklearn.metrics.pairwise import cosine_similarity
 
-            similarity = cosine_similarity(
-                embedding1.reshape(1, -1), embedding2.reshape(1, -1)
-            )[0][0]
+            similarity = cosine_similarity(embedding1.reshape(1, -1), embedding2.reshape(1, -1))[0][0]
             return float(similarity)
         except Exception as e:
             logger.error(f"Similarity calculation failed: {e}")

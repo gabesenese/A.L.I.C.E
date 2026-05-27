@@ -163,10 +163,7 @@ class MemoryPruner:
             return "keep"
 
         # Never prune documents (unless explicitly configured)
-        if (
-            memory_type == "document"
-            and self.config["retention_days"].get("document") is None
-        ):
+        if memory_type == "document" and self.config["retention_days"].get("document") is None:
             return "keep"
 
         # Check age
@@ -178,9 +175,7 @@ class MemoryPruner:
                 retention_days = self.config["retention_days"].get(memory_type)
                 if retention_days and age_days > retention_days:
                     # Too old - archive or prune based on importance
-                    importance_threshold = self.config["importance_threshold"].get(
-                        memory_type, 0.5
-                    )
+                    importance_threshold = self.config["importance_threshold"].get(memory_type, 0.5)
 
                     if importance >= importance_threshold:
                         return "archive"  # Important enough to keep in archive
@@ -207,9 +202,7 @@ class MemoryPruner:
             for memory in memories:
                 f.write(json.dumps(memory) + "\n")
 
-        logger.info(
-            f"[MemoryPruner] Archived {len(memories)} memories to {archive_file}"
-        )
+        logger.info(f"[MemoryPruner] Archived {len(memories)} memories to {archive_file}")
 
         # Compress if configured
         if self.config.get("compress_archives", True):
@@ -262,9 +255,7 @@ class MemoryPruner:
 
         return archives
 
-    def restore_from_archive(
-        self, archive_filename: str, memory_system
-    ) -> Dict[str, Any]:
+    def restore_from_archive(self, archive_filename: str, memory_system) -> Dict[str, Any]:
         """Restore memories from an archive file"""
         archive_path = self.archive_dir / archive_filename
 
@@ -299,9 +290,7 @@ class MemoryPruner:
                     )
                     restored_count += 1
 
-            logger.info(
-                f"[MemoryPruner] Restored {restored_count} memories from {archive_filename}"
-            )
+            logger.info(f"[MemoryPruner] Restored {restored_count} memories from {archive_filename}")
 
             return {
                 "success": True,
@@ -325,20 +314,14 @@ class MemoryPruner:
 
         # Calculate memory directory size
         if self.memory_dir.exists():
-            total_size = sum(
-                f.stat().st_size for f in self.memory_dir.rglob("*") if f.is_file()
-            )
+            total_size = sum(f.stat().st_size for f in self.memory_dir.rglob("*") if f.is_file())
             stats["memory_dir_size_mb"] = round(total_size / (1024 * 1024), 2)
 
         # Calculate archive directory size
         if self.archive_dir.exists():
-            total_size = sum(
-                f.stat().st_size for f in self.archive_dir.rglob("*") if f.is_file()
-            )
+            total_size = sum(f.stat().st_size for f in self.archive_dir.rglob("*") if f.is_file())
             stats["archive_dir_size_mb"] = round(total_size / (1024 * 1024), 2)
-            stats["total_archives"] = len(
-                list(self.archive_dir.glob("memories_archive_*"))
-            )
+            stats["total_archives"] = len(list(self.archive_dir.glob("memories_archive_*")))
 
         return stats
 

@@ -87,9 +87,7 @@ def test_metrics_collector():
 
     # Get stats
     stats = metrics.get_metrics_summary()
-    print(
-        f"✓ Metrics stats: requests={stats.get('total_requests', 0)}, llm_calls={stats.get('total_llm_calls', 0)}"
-    )
+    print(f"✓ Metrics stats: requests={stats.get('total_requests', 0)}, llm_calls={stats.get('total_llm_calls', 0)}")
 
     print("✅ Metrics Collector: PASS")
     return True
@@ -104,9 +102,7 @@ def test_structured_logging():
     )
 
     # Configure
-    configure_logging(
-        level="DEBUG", enable_json=False
-    )  # Disable JSON for console readability
+    configure_logging(level="DEBUG", enable_json=False)  # Disable JSON for console readability
     logger = get_structured_logger("test")
     print("✓ Structured logger initialized")
 
@@ -139,9 +135,7 @@ def test_database_pool():
     )
 
     # Initialize with SQLite for testing
-    config = DatabaseConfig(
-        db_type=DatabaseType.SQLITE, database="data/test_infrastructure.db"
-    )
+    config = DatabaseConfig(db_type=DatabaseType.SQLITE, database="data/test_infrastructure.db")
     pool = initialize_database(config)
     print(f"✓ Database pool initialized (type: {config.db_type.value})")
 
@@ -159,9 +153,7 @@ def test_database_pool():
 
     # Get stats
     stats = pool.get_stats()
-    print(
-        f"✓ Pool stats: size={stats.get('pool_size', 0)}, active={stats.get('active_connections', 0)}"
-    )
+    print(f"✓ Pool stats: size={stats.get('pool_size', 0)}, active={stats.get('active_connections', 0)}")
 
     print("✅ Database Pool: PASS")
     return True
@@ -195,9 +187,7 @@ def test_task_queue():
 
     # Get stats
     stats = queue.get_stats()
-    print(
-        f"✓ Queue stats: total={stats.get('total_tasks', 0)}, completed={stats.get('completed_tasks', 0)}"
-    )
+    print(f"✓ Queue stats: total={stats.get('total_tasks', 0)}, completed={stats.get('completed_tasks', 0)}")
 
     print("✅ Task Queue: PASS")
     return True

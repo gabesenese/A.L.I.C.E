@@ -10,9 +10,7 @@ def _clock():
     return datetime.now(timezone.utc)
 
 
-def test_ambient_monitor_poll_goals_writes_stale_task_to_world_model(
-    tmp_path, monkeypatch
-):
+def test_ambient_monitor_poll_goals_writes_stale_task_to_world_model(tmp_path, monkeypatch):
     from ai.goals.goal_engine import GoalEngine
 
     engine = GoalEngine(goals_file=tmp_path / "goals.json")
@@ -36,9 +34,7 @@ def test_ambient_monitor_poll_goals_writes_stale_task_to_world_model(
     monkeypatch.setattr(ge_mod, "get_goal_engine", lambda: engine)
 
     model = WorldModel(tmp_path / "world_model.json")
-    monitor = AmbientMonitor(
-        world_model=model, config=AmbientConfig(stale_goal_days=1.0)
-    )
+    monitor = AmbientMonitor(world_model=model, config=AmbientConfig(stale_goal_days=1.0))
     result = monitor.run_once()
 
     assert result["goals"].get("stale_count", 0) >= 1

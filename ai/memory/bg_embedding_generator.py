@@ -39,9 +39,7 @@ class BackgroundEmbeddingGenerator:
     - Callback support for async completion
     """
 
-    def __init__(
-        self, embedding_manager, max_queue_size: int = 1000, batch_size: int = 10
-    ):
+    def __init__(self, embedding_manager, max_queue_size: int = 1000, batch_size: int = 10):
         self.embedding_manager = embedding_manager
         self.max_queue_size = max_queue_size
         self.batch_size = batch_size
@@ -78,9 +76,7 @@ class BackgroundEmbeddingGenerator:
             return
 
         self.running = True
-        self.worker_thread = threading.Thread(
-            target=self._worker_loop, daemon=True, name="EmbeddingWorker"
-        )
+        self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True, name="EmbeddingWorker")
         self.worker_thread.start()
         logger.info("[BgEmbedding] Background embedding generator started")
 
@@ -246,9 +242,7 @@ class BackgroundEmbeddingGenerator:
                         try:
                             task.callback(task.task_id, embedding, task.metadata)
                         except Exception as e:
-                            logger.error(
-                                f"[BgEmbedding] Callback error for task {task.task_id}: {e}"
-                            )
+                            logger.error(f"[BgEmbedding] Callback error for task {task.task_id}: {e}")
                     with self.stats_lock:
                         self.stats["completed_tasks"] += 1
                 else:
@@ -262,9 +256,7 @@ class BackgroundEmbeddingGenerator:
             with self.stats_lock:
                 self.stats["total_processing_time"] += processing_time
 
-            logger.debug(
-                f"[BgEmbedding] Processed batch of {len(tasks)} tasks in {processing_time:.2f}s"
-            )
+            logger.debug(f"[BgEmbedding] Processed batch of {len(tasks)} tasks in {processing_time:.2f}s")
 
         except Exception as e:
             logger.error(f"[BgEmbedding] Batch processing error: {e}", exc_info=True)
@@ -287,9 +279,7 @@ class BackgroundEmbeddingGenerator:
             try:
                 task.callback(task.task_id, None, task.metadata)
             except Exception as cb_err:
-                logger.error(
-                    f"[BgEmbedding] Failure callback error for task {task.task_id}: {cb_err}"
-                )
+                logger.error(f"[BgEmbedding] Failure callback error for task {task.task_id}: {cb_err}")
         with self.stats_lock:
             self.stats["failed_tasks"] += 1
 
@@ -314,9 +304,7 @@ class BackgroundEmbeddingGenerator:
         stats_copy["running"] = self.running
 
         if stats_copy["completed_tasks"] > 0:
-            stats_copy["avg_processing_time"] = (
-                stats_copy["total_processing_time"] / stats_copy["completed_tasks"]
-            )
+            stats_copy["avg_processing_time"] = stats_copy["total_processing_time"] / stats_copy["completed_tasks"]
         else:
             stats_copy["avg_processing_time"] = 0.0
 
@@ -343,13 +331,9 @@ class BackgroundEmbeddingGenerator:
 _bg_embedding_generator = None
 
 
-def get_bg_embedding_generator(
-    embedding_manager, **kwargs
-) -> BackgroundEmbeddingGenerator:
+def get_bg_embedding_generator(embedding_manager, **kwargs) -> BackgroundEmbeddingGenerator:
     """Get singleton background embedding generator"""
     global _bg_embedding_generator
     if _bg_embedding_generator is None:
-        _bg_embedding_generator = BackgroundEmbeddingGenerator(
-            embedding_manager, **kwargs
-        )
+        _bg_embedding_generator = BackgroundEmbeddingGenerator(embedding_manager, **kwargs)
     return _bg_embedding_generator

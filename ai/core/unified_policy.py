@@ -90,9 +90,7 @@ class PolicyManager:
         # Check user approval needs
         if self.llm_policy:
             needs_approval = self.llm_policy.needs_user_approval(call_type.value)
-            if needs_approval and not self.llm_policy.has_user_approval(
-                call_type.value
-            ):
+            if needs_approval and not self.llm_policy.has_user_approval(call_type.value):
                 return False, f"User approval required for {call_type.value} calls"
 
         # Check confidence thresholds if provided
@@ -247,8 +245,7 @@ class PolicyManager:
         if self.llm_policy:
             try:
                 summary["llm_rate_limits"] = {
-                    call_type.value: self.llm_policy.can_make_call(call_type.value)
-                    for call_type in LLMCallType
+                    call_type.value: self.llm_policy.can_make_call(call_type.value) for call_type in LLMCallType
                 }
             except Exception as e:
                 logger.error(f"Failed to get LLM rate limits: {e}")

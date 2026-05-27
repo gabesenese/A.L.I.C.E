@@ -26,9 +26,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.automation.automated_training import AutomatedTrainingPipeline
 
-logging.basicConfig(
-    level=logging.INFO, format="[%(asctime)s] %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -120,9 +118,7 @@ def _extract_scenario_results(output: str) -> List[Dict]:
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Run scenarios and automated training pipeline"
-    )
+    parser = argparse.ArgumentParser(description="Run scenarios and automated training pipeline")
     parser.add_argument(
         "--policy",
         type=str,
@@ -130,9 +126,7 @@ def main():
         default="minimal",
         help="LLM policy for scenarios",
     )
-    parser.add_argument(
-        "--domains", nargs="+", help="Only run scenarios from specific domains"
-    )
+    parser.add_argument("--domains", nargs="+", help="Only run scenarios from specific domains")
     parser.add_argument(
         "--skip-scenarios",
         action="store_true",
@@ -181,10 +175,7 @@ def main():
     report_dir = PROJECT_ROOT / "data" / "training"
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    report_file = (
-        report_dir
-        / f"pipeline_report_{datetime.now().isoformat().replace(':', '-')}.txt"
-    )
+    report_file = report_dir / f"pipeline_report_{datetime.now().isoformat().replace(':', '-')}.txt"
     with open(report_file, "w") as f:
         f.write(report)
 

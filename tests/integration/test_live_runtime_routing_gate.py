@@ -79,10 +79,7 @@ def test_live_runtime_routes_companion_reasoning_prompt_to_conversation():
     pipeline = ContractPipeline(boundaries)
 
     result = pipeline.run_turn(
-        user_input=(
-            "let's think through how to make alice more companion-like "
-            "without adding hardcoded fallbacks"
-        ),
+        user_input=("let's think through how to make alice more companion-like without adding hardcoded fallbacks"),
         user_id="u-live",
         turn_number=1,
     )

@@ -11,9 +11,7 @@ def test_objective_driven_operator_continue_returns_next_step_or_blocker():
             "active_objective": "Improve agentic companion operator runtime",
             "current_focus": "agent loop",
         },
-        project_memory={
-            "active_objective": "Improve agentic companion operator runtime"
-        },
+        project_memory={"active_objective": "Improve agentic companion operator runtime"},
         routing_result={
             "route": "local",
             "intent": "operator:continue",

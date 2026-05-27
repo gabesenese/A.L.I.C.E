@@ -84,9 +84,7 @@ class QueryCache:
         """
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
-        self.cache: Dict[
-            str, Tuple[Dict, float]
-        ] = {}  # query_hash -> (result, timestamp)
+        self.cache: Dict[str, Tuple[Dict, float]] = {}  # query_hash -> (result, timestamp)
         self.access_order = deque()  # LRU tracking
         self.lock = threading.Lock()
         self.hits = 0
@@ -253,9 +251,7 @@ class ConfidenceCalibrator:
         with self.lock:
             if not self.predictions:
                 return {"bins": {}, "overall_accuracy": 0.0}
-            overall_accuracy = sum(
-                1 for _, correct in self.predictions if correct
-            ) / len(self.predictions)
+            overall_accuracy = sum(1 for _, correct in self.predictions if correct) / len(self.predictions)
             bins = {}
             for bin_key, stats in self.confidence_bins.items():
                 if stats["total"] > 0:
@@ -353,9 +349,7 @@ class SemanticIntentClassifier:
 
         for attempt in range(max_retries):
             try:
-                logger.info(
-                    f"Loading semantic model: {self.model_name} (attempt {attempt + 1}/{max_retries})"
-                )
+                logger.info(f"Loading semantic model: {self.model_name} (attempt {attempt + 1}/{max_retries})")
                 # Set longer timeout for model download
                 os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60"  # 60 seconds timeout
                 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
@@ -376,16 +370,12 @@ class SemanticIntentClassifier:
                 return
             except Exception as e:
                 if attempt < max_retries - 1:
-                    logger.warning(
-                        f"Failed to load semantic model (attempt {attempt + 1}): {e}"
-                    )
+                    logger.warning(f"Failed to load semantic model (attempt {attempt + 1}): {e}")
                     logger.info(f"Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                 else:
-                    logger.error(
-                        f"Failed to load semantic model after {max_retries} attempts: {e}"
-                    )
+                    logger.error(f"Failed to load semantic model after {max_retries} attempts: {e}")
                     logger.warning(
                         "Semantic intent classifier will be disabled. A.L.I.C.E will use pattern-based matching only."
                     )
@@ -506,35 +496,19 @@ class SemanticIntentClassifier:
             IntentExample("explain this to me", "question", "general", "explain"),
             IntentExample("help me understand", "question", "general", "explain"),
             # File Operations Plugin
-            IntentExample(
-                "create a file called test.txt", "file", "file_operations", "create"
-            ),
-            IntentExample(
-                "make a new file named data.json", "file", "file_operations", "create"
-            ),
+            IntentExample("create a file called test.txt", "file", "file_operations", "create"),
+            IntentExample("make a new file named data.json", "file", "file_operations", "create"),
             IntentExample("create document.docx", "file", "file_operations", "create"),
-            IntentExample(
-                "read the file config.json", "file", "file_operations", "read"
-            ),
-            IntentExample(
-                "show me what's in report.txt", "file", "file_operations", "read"
-            ),
+            IntentExample("read the file config.json", "file", "file_operations", "read"),
+            IntentExample("show me what's in report.txt", "file", "file_operations", "read"),
             IntentExample("open data.csv", "file", "file_operations", "read"),
             IntentExample("read notes.txt", "file", "file_operations", "read"),
-            IntentExample(
-                "delete the file test.txt", "file", "file_operations", "delete"
-            ),
+            IntentExample("delete the file test.txt", "file", "file_operations", "delete"),
             IntentExample("remove old_data.json", "file", "file_operations", "delete"),
             IntentExample("get rid of temp.log", "file", "file_operations", "delete"),
-            IntentExample(
-                "move file.txt to backup folder", "file", "file_operations", "move"
-            ),
-            IntentExample(
-                "move notes.txt to archive", "file", "file_operations", "move"
-            ),
-            IntentExample(
-                "copy report.pdf to documents", "file", "file_operations", "copy"
-            ),
+            IntentExample("move file.txt to backup folder", "file", "file_operations", "move"),
+            IntentExample("move notes.txt to archive", "file", "file_operations", "move"),
+            IntentExample("copy report.pdf to documents", "file", "file_operations", "copy"),
             IntentExample(
                 "rename document.txt to final_report.txt",
                 "file",
@@ -542,30 +516,16 @@ class SemanticIntentClassifier:
                 "move",
             ),
             IntentExample("list files in downloads", "file", "file_operations", "list"),
-            IntentExample(
-                "show me files in this directory", "file", "file_operations", "list"
-            ),
+            IntentExample("show me files in this directory", "file", "file_operations", "list"),
             IntentExample("list all files", "file", "file_operations", "list"),
-            IntentExample(
-                "search for python files", "file", "file_operations", "search"
-            ),
+            IntentExample("search for python files", "file", "file_operations", "search"),
             IntentExample("find all pdf files", "file", "file_operations", "search"),
             # Memory/RAG Plugin
-            IntentExample(
-                "remember that I prefer coffee over tea", "memory", "memory", "store"
-            ),
-            IntentExample(
-                "save this: my favorite color is blue", "memory", "memory", "store"
-            ),
-            IntentExample(
-                "keep in mind that I work from 9 to 5", "memory", "memory", "store"
-            ),
-            IntentExample(
-                "remember I like working out at 6am", "memory", "memory", "store"
-            ),
-            IntentExample(
-                "remember my birthday is March 15th", "memory", "memory", "store"
-            ),
+            IntentExample("remember that I prefer coffee over tea", "memory", "memory", "store"),
+            IntentExample("save this: my favorite color is blue", "memory", "memory", "store"),
+            IntentExample("keep in mind that I work from 9 to 5", "memory", "memory", "store"),
+            IntentExample("remember I like working out at 6am", "memory", "memory", "store"),
+            IntentExample("remember my birthday is March 15th", "memory", "memory", "store"),
             IntentExample(
                 "what do you remember about my preferences",
                 "memory",
@@ -578,37 +538,25 @@ class SemanticIntentClassifier:
                 "memory",
                 "recall",
             ),
-            IntentExample(
-                "do you remember what I said about coffee", "memory", "memory", "recall"
-            ),
-            IntentExample(
-                "what do you know about my schedule", "memory", "memory", "recall"
-            ),
+            IntentExample("do you remember what I said about coffee", "memory", "memory", "recall"),
+            IntentExample("what do you know about my schedule", "memory", "memory", "recall"),
             IntentExample(
                 "search our previous conversations about work",
                 "memory",
                 "memory",
                 "search",
             ),
-            IntentExample(
-                "find what we discussed about the project", "memory", "memory", "search"
-            ),
+            IntentExample("find what we discussed about the project", "memory", "memory", "search"),
             IntentExample(
                 "look up our conversation history about meetings",
                 "memory",
                 "memory",
                 "search",
             ),
-            IntentExample(
-                "what did we talk about yesterday", "memory", "memory", "search"
-            ),
-            IntentExample(
-                "find our conversation about the budget", "memory", "memory", "search"
-            ),
+            IntentExample("what did we talk about yesterday", "memory", "memory", "search"),
+            IntentExample("find our conversation about the budget", "memory", "memory", "search"),
             IntentExample("forget my coffee preference", "memory", "memory", "delete"),
-            IntentExample(
-                "clear what you know about my schedule", "memory", "memory", "delete"
-            ),
+            IntentExample("clear what you know about my schedule", "memory", "memory", "delete"),
         ]
 
         self.examples = default_examples
@@ -652,9 +600,7 @@ class SemanticIntentClassifier:
             centroid = vecs.mean(axis=0).astype(np.float32)
             norm = np.linalg.norm(centroid)
             self.intent_centroids[key] = centroid / norm if norm > 1e-9 else centroid
-        logger.debug(
-            "[Centroids] Built %d intent prototype vectors", len(self.intent_centroids)
-        )
+        logger.debug("[Centroids] Built %d intent prototype vectors", len(self.intent_centroids))
 
     def _build_intent_hierarchy(self):
         """Build hierarchical intent structure"""
@@ -666,9 +612,7 @@ class SemanticIntentClassifier:
         # Create hierarchy nodes
         for plugin, intents in plugin_intents.items():
             if plugin not in self.intent_hierarchy:
-                self.intent_hierarchy[plugin] = IntentHierarchy(
-                    name=plugin, plugins={plugin}
-                )
+                self.intent_hierarchy[plugin] = IntentHierarchy(name=plugin, plugins={plugin})
 
     def update_conversation_context(self, query: str, max_context: int = 5):
         """
@@ -708,9 +652,7 @@ class SemanticIntentClassifier:
             cached = self.cache.get(text)
             if cached:
                 logger.debug(f"Cache hit for query: {text[:50]}")
-                return [
-                    (IntentExample.from_dict(cached["example"]), cached["confidence"])
-                ]
+                return [(IntentExample.from_dict(cached["example"]), cached["confidence"])]
 
         if not self.examples or self.example_embeddings is None:
             logger.warning("No examples or embeddings available")
@@ -742,8 +684,7 @@ class SemanticIntentClassifier:
 
             # Calculate cosine similarity with all examples
             similarities = np.dot(self.example_embeddings, text_embedding) / (
-                np.linalg.norm(self.example_embeddings, axis=1)
-                * np.linalg.norm(text_embedding)
+                np.linalg.norm(self.example_embeddings, axis=1) * np.linalg.norm(text_embedding)
             )
 
             # Get top-k most similar examples
@@ -798,9 +739,7 @@ class SemanticIntentClassifier:
             logger.error(f"Failed to classify intent: {e}")
             return []
 
-    def get_best_match(
-        self, text: str, threshold: float = 0.4
-    ) -> Optional[Tuple[IntentExample, float]]:
+    def get_best_match(self, text: str, threshold: float = 0.4) -> Optional[Tuple[IntentExample, float]]:
         """
         Get the single best matching intent
 
@@ -816,9 +755,7 @@ class SemanticIntentClassifier:
             return results[0]
         return None
 
-    def add_example(
-        self, text: str, intent: str, plugin: str, action: str, confidence: float = 1.0
-    ):
+    def add_example(self, text: str, intent: str, plugin: str, action: str, confidence: float = 1.0):
         """Add a new example to improve classification"""
         example = IntentExample(text, intent, plugin, action, confidence)
         self.examples.append(example)
@@ -843,9 +780,7 @@ class SemanticIntentClassifier:
         except Exception as e:
             logger.error(f"Failed to save intent examples: {e}")
 
-    def get_plugin_action(
-        self, text: str, threshold: float = 0.4
-    ) -> Optional[Dict[str, any]]:
+    def get_plugin_action(self, text: str, threshold: float = 0.4) -> Optional[Dict[str, any]]:
         """
         Convenience method to get plugin and action for text
 
@@ -880,9 +815,7 @@ class SemanticIntentClassifier:
 
         if self.example_embeddings is not None:
             # Calculate average confidence across recent queries
-            stats["avg_embedding_norm"] = float(
-                np.mean(np.linalg.norm(self.example_embeddings, axis=1))
-            )
+            stats["avg_embedding_norm"] = float(np.mean(np.linalg.norm(self.example_embeddings, axis=1)))
 
         return stats
 
@@ -903,9 +836,7 @@ class SemanticIntentClassifier:
 
         # If incorrect, could add as new training example
         if not was_correct:
-            logger.info(
-                f"Incorrect classification logged: '{query}' -> {plugin}:{action}"
-            )
+            logger.info(f"Incorrect classification logged: '{query}' -> {plugin}:{action}")
 
 
 # Singleton instance
@@ -986,9 +917,7 @@ class IntentCostMatrix:
     def set_cost(self, decision: str, true_intent: str, value: float) -> None:
         self._overrides[(decision, true_intent)] = float(value)
 
-    def update_from_error_log(
-        self, original_intent: str, corrected_intent: str, alpha: float = 0.1
-    ) -> None:
+    def update_from_error_log(self, original_intent: str, corrected_intent: str, alpha: float = 0.1) -> None:
         """EMA update: router chose *original* but correct was *corrected_intent*.
 
         Gradually increases the cost for that (original, corrected) pair so the
@@ -1112,10 +1041,7 @@ class BayesianIntentRouter:
         # (#6) Apply user prior boosts before normalization so frequently-used
         # intents get a proportionally higher posterior.
         if user_priors:
-            calibrated = [
-                (c, cal * (1.0 + user_priors.get(c.intent, 0.0)))
-                for c, cal in calibrated
-            ]
+            calibrated = [(c, cal * (1.0 + user_priors.get(c.intent, 0.0))) for c, cal in calibrated]
         total = sum(p for _, p in calibrated) or 1.0
         posteriors = [(c, p / total) for c, p in calibrated]
 
@@ -1124,8 +1050,7 @@ class BayesianIntentRouter:
 
         for candidate, _ in posteriors:
             regret = sum(
-                posterior * self.cost_matrix.cost(candidate.intent, hyp.intent)
-                for hyp, posterior in posteriors
+                posterior * self.cost_matrix.cost(candidate.intent, hyp.intent) for hyp, posterior in posteriors
             )
             if best is None or regret < best[1]:
                 second = best

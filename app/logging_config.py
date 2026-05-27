@@ -7,9 +7,7 @@ import contextvars
 from typing import Any, Dict
 
 
-_trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "alice_trace_id", default=""
-)
+_trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("alice_trace_id", default="")
 
 
 def set_trace_id(trace_id: str) -> None:

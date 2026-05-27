@@ -24,9 +24,7 @@ class AuditScore:
         self.timestamp = None
         self.overall_score = 0.0
 
-    def add_dimension_score(
-        self, dimension: ScoringDimension, score: int, reasoning: str
-    ):
+    def add_dimension_score(self, dimension: ScoringDimension, score: int, reasoning: str):
         """Add a dimension score with reasoning"""
         self.scores[dimension] = score
         self.reasoning[dimension] = reasoning
@@ -81,9 +79,7 @@ class OllamaAuditor:
 
         # Score each dimension
         for dimension, rubric in rubrics.items():
-            dim_score, reasoning = self._score_dimension(
-                dimension, rubric, query, response
-            )
+            dim_score, reasoning = self._score_dimension(dimension, rubric, query, response)
             score.add_dimension_score(dimension, dim_score, reasoning)
 
         # Calculate overall
@@ -92,10 +88,7 @@ class OllamaAuditor:
         # Store in history
         self.audit_history.append(score)
 
-        logger.info(
-            f"Audited {domain}: {score.overall_score:.1f}/5.0 "
-            f"({len(score.scores)} dimensions)"
-        )
+        logger.info(f"Audited {domain}: {score.overall_score:.1f}/5.0 ({len(score.scores)} dimensions)")
 
         return score
 
@@ -187,11 +180,7 @@ Output JSON: {{"score": <1-5>, "reasoning": "<explanation>"}}
         # Per-dimension stats
         dimension_stats = {}
         for dimension in ScoringDimension:
-            dim_scores = [
-                a.scores.get(dimension, 0)
-                for a in domain_audits
-                if dimension in a.scores
-            ]
+            dim_scores = [a.scores.get(dimension, 0) for a in domain_audits if dimension in a.scores]
             if dim_scores:
                 dimension_stats[dimension.value] = {
                     "avg": sum(dim_scores) / len(dim_scores),

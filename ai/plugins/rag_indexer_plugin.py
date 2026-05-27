@@ -26,9 +26,7 @@ class RAGIndexerPlugin(PluginInterface):
         super().__init__()
         self.name = "RAGIndexerPlugin"
         self.version = "1.0.0"
-        self.description = (
-            "Indexes documents from configured directories for semantic search"
-        )
+        self.description = "Indexes documents from configured directories for semantic search"
         self.enabled = True
 
         self.memory_system = memory_system
@@ -254,11 +252,7 @@ class RAGIndexerPlugin(PluginInterface):
 
         for root, dirs, files in os.walk(directory):
             # Filter out excluded directories
-            dirs[:] = [
-                d
-                for d in dirs
-                if not any(pattern in d for pattern in self.config["exclude_patterns"])
-            ]
+            dirs[:] = [d for d in dirs if not any(pattern in d for pattern in self.config["exclude_patterns"])]
 
             root_path = Path(root)
 
@@ -270,10 +264,7 @@ class RAGIndexerPlugin(PluginInterface):
                     continue
 
                 # Check if file should be excluded
-                if any(
-                    pattern in str(file_path)
-                    for pattern in self.config["exclude_patterns"]
-                ):
+                if any(pattern in str(file_path) for pattern in self.config["exclude_patterns"]):
                     continue
 
                 try:
@@ -329,9 +320,7 @@ class RAGIndexerPlugin(PluginInterface):
             directory_path = Path(directory_str)
             if directory_path.exists():
                 doc_count = self._count_indexed_from_directory(directory_path)
-                directory_stats.append(
-                    {"directory": directory_str, "documents": doc_count}
-                )
+                directory_stats.append({"directory": directory_str, "documents": doc_count})
 
         return {
             "success": True,

@@ -224,9 +224,7 @@ def test_repeated_execution_failures_pause_autonomy_and_escalate():
         "reason": "failure_rate_spike",
         "recommended_action": "pause_autonomy_and_escalate",
     }
-    decision = dispatcher.dispatch(
-        event=event, goal_summary={"goals": []}, active_goal_id="goal-ops"
-    )
+    decision = dispatcher.dispatch(event=event, goal_summary={"goals": []}, active_goal_id="goal-ops")
 
     assert decision.outcome == OUTCOME_ESCALATE_AND_STOP
     assert decision.pause_autonomy is True

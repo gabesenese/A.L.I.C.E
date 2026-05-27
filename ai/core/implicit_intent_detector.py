@@ -96,8 +96,6 @@ class ImplicitIntentDetector:
         matches.sort(key=lambda m: m.confidence, reverse=True)
         return matches
 
-    def best(
-        self, text: str, *, recent_topic: str = ""
-    ) -> Optional[ImplicitIntentMatch]:
+    def best(self, text: str, *, recent_topic: str = "") -> Optional[ImplicitIntentMatch]:
         matches = self.detect(text, recent_topic=recent_topic)
         return matches[0] if matches else None

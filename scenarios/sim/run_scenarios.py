@@ -122,9 +122,7 @@ class ScenarioRunner:
         # LLM components
         llm_config = LLMConfig(model=llm_model)
         self.llm = LocalLLMEngine(llm_config)
-        self.llm_gateway = get_llm_gateway(
-            llm_engine=self.llm, learning_engine=self.learning_engine
-        )
+        self.llm_gateway = get_llm_gateway(llm_engine=self.llm, learning_engine=self.learning_engine)
 
         # Conversational engine
         self.conversational_engine = get_conversational_engine(
@@ -152,11 +150,7 @@ class ScenarioRunner:
             Route name (CONVERSATIONAL/TOOL/RAG/LLM_FALLBACK/CLARIFICATION)
         """
         intent = nlp_result.intent if hasattr(nlp_result, "intent") else "unknown"
-        confidence = (
-            nlp_result.intent_confidence
-            if hasattr(nlp_result, "intent_confidence")
-            else 0.0
-        )
+        confidence = nlp_result.intent_confidence if hasattr(nlp_result, "intent_confidence") else 0.0
         text_lower = user_input.lower()
 
         # Clarification patterns (vague or meta questions)
@@ -275,8 +269,7 @@ class ScenarioRunner:
         if (
             "remember" in text_lower
             or "recall" in text_lower
-            or intent
-            in ["memory:recall", "memory:search", "recall_memory", "search_memory"]
+            or intent in ["memory:recall", "memory:search", "recall_memory", "search_memory"]
         ):
             return "RAG"
 
@@ -364,9 +357,7 @@ class ScenarioRunner:
 
             # Process with NLP
             nlp_result = self.nlp.process(step.user_input)
-            actual_intent = (
-                nlp_result.intent if hasattr(nlp_result, "intent") else "unknown"
-            )
+            actual_intent = nlp_result.intent if hasattr(nlp_result, "intent") else "unknown"
 
             # Map intent from NLP output to scenario expectation format
             mapped_intent = INTENT_MAPPING.get(actual_intent, actual_intent)
@@ -375,9 +366,7 @@ class ScenarioRunner:
             actual_route = self._determine_route(step.user_input, nlp_result)
 
             # Get Alice's response and track LLM usage
-            alice_response, llm_used = self._get_alice_response(
-                step.user_input, actual_route
-            )
+            alice_response, llm_used = self._get_alice_response(step.user_input, actual_route)
 
             # Compare with teacher if enabled
             teacher_response = None
@@ -411,9 +400,7 @@ class ScenarioRunner:
                 route_match=(actual_route == step.expected_route.value),
                 intent_match=(mapped_intent == step.expected_intent),
                 needs_learning=needs_learning,
-                confidence=nlp_result.intent_confidence
-                if hasattr(nlp_result, "intent_confidence")
-                else 0.0,
+                confidence=nlp_result.intent_confidence if hasattr(nlp_result, "intent_confidence") else 0.0,
             )
 
             scenario_results.append(result)
@@ -421,12 +408,8 @@ class ScenarioRunner:
             # Log result
             route_status = "OK" if result.route_match else "ERR"
             intent_status = "OK" if result.intent_match else "ERR"
-            logger.info(
-                f"    Route: {route_status} {actual_route} (expected: {step.expected_route.value})"
-            )
-            logger.info(
-                f"    Intent: {intent_status} {mapped_intent} (expected: {step.expected_intent})"
-            )
+            logger.info(f"    Route: {route_status} {actual_route} (expected: {step.expected_route.value})")
+            logger.info(f"    Intent: {intent_status} {mapped_intent} (expected: {step.expected_intent})")
             logger.info(f"    Alice: {alice_response[:80]}...")
 
             if teacher_response:
@@ -449,9 +432,7 @@ class ScenarioRunner:
 
         return "unknown"
 
-    def run_all(
-        self, domains: Optional[List[str]] = None, tags: Optional[List[str]] = None
-    ) -> None:
+    def run_all(self, domains: Optional[List[str]] = None, tags: Optional[List[str]] = None) -> None:
         """
         Run all scenarios (optionally filtered by domain/tags)
 
@@ -513,9 +494,7 @@ class ScenarioRunner:
             for item in self.training_data:
                 f.write(json.dumps(item) + "\n")
 
-        logger.info(
-            f"\n[SAVED] Saved {len(self.training_data)} interactions to {output_file}"
-        )
+        logger.info(f"\n[SAVED] Saved {len(self.training_data)} interactions to {output_file}")
 
         # Generate report
         self._generate_report()
@@ -535,15 +514,9 @@ class ScenarioRunner:
         logger.info("[REPORT] SCENARIO RUNNER REPORT")
         logger.info("=" * 70)
         logger.info(f"Total Steps: {total}")
-        logger.info(
-            f"Route Accuracy: {route_matches}/{total} ({route_matches / total * 100:.1f}%)"
-        )
-        logger.info(
-            f"Intent Accuracy: {intent_matches}/{total} ({intent_matches / total * 100:.1f}%)"
-        )
-        logger.info(
-            f"Learning Opportunities: {needs_learning} ({needs_learning / total * 100:.1f}%)"
-        )
+        logger.info(f"Route Accuracy: {route_matches}/{total} ({route_matches / total * 100:.1f}%)")
+        logger.info(f"Intent Accuracy: {intent_matches}/{total} ({intent_matches / total * 100:.1f}%)")
+        logger.info(f"Learning Opportunities: {needs_learning} ({needs_learning / total * 100:.1f}%)")
 
         # Route distribution
         route_dist = {}
@@ -574,9 +547,7 @@ class ScenarioRunner:
 
 def main():
     """Main entry point for scenario runner"""
-    parser = argparse.ArgumentParser(
-        description="Run conversation scenarios for A.L.I.C.E testing and training"
-    )
+    parser = argparse.ArgumentParser(description="Run conversation scenarios for A.L.I.C.E testing and training")
     parser.add_argument(
         "--policy",
         type=str,
@@ -584,25 +555,19 @@ def main():
         default="minimal",
         help="LLM policy mode",
     )
-    parser.add_argument(
-        "--model", type=str, default="llama3.1:8b", help="LLM model to use"
-    )
+    parser.add_argument("--model", type=str, default="llama3.1:8b", help="LLM model to use")
     parser.add_argument(
         "--no-teacher",
         action="store_true",
         help="Disable teacher mode (faster but less learning data)",
     )
-    parser.add_argument(
-        "--domains", nargs="+", help="Only run scenarios from these domains"
-    )
+    parser.add_argument("--domains", nargs="+", help="Only run scenarios from these domains")
     parser.add_argument("--tags", nargs="+", help="Only run scenarios with these tags")
 
     args = parser.parse_args()
 
     # Create runner
-    runner = ScenarioRunner(
-        llm_policy=args.policy, llm_model=args.model, use_teacher=not args.no_teacher
-    )
+    runner = ScenarioRunner(llm_policy=args.policy, llm_model=args.model, use_teacher=not args.no_teacher)
 
     # Run scenarios
     runner.run_all(domains=args.domains, tags=args.tags)

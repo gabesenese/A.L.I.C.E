@@ -15,8 +15,7 @@ def test_validator_rejects_bad_assistant_and_consultant_greetings():
         "Want a quick status sweep and a concrete plan?"
     )
     bad_2 = (
-        "Quiet hours, Gabriel. Let's keep it minimal and high-value. "
-        "Give me the target and I'll map the shortest path."
+        "Quiet hours, Gabriel. Let's keep it minimal and high-value. Give me the target and I'll map the shortest path."
     )
     assert is_valid_startup_greeting(bad_1) is False
     assert is_valid_startup_greeting(bad_2) is False
@@ -24,9 +23,7 @@ def test_validator_rejects_bad_assistant_and_consultant_greetings():
 
 def test_validator_accepts_good_curated_greetings():
     assert is_valid_startup_greeting("Morning, Gabriel.\n\nWe have a plan. Allegedly.")
-    assert is_valid_startup_greeting(
-        "Late night, Gabriel.\n\nLet's keep this clever, not chaotic."
-    )
+    assert is_valid_startup_greeting("Late night, Gabriel.\n\nLet's keep this clever, not chaotic.")
 
 
 def test_get_greeting_does_not_call_network(monkeypatch):

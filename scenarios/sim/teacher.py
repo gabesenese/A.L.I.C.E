@@ -45,9 +45,7 @@ class TeacherMode:
         self.llm = LocalLLMEngine(self.llm_config)
         logger.info(f"Teacher mode initialized with model: {model}")
 
-    def get_ideal_response(
-        self, user_input: str, context: Optional[Dict[str, Any]] = None
-    ) -> Optional[str]:
+    def get_ideal_response(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """
         Get ideal response from teacher for a user input
 
@@ -80,9 +78,7 @@ class TeacherMode:
             logger.error(f"Teacher mode error: {e}")
             return None
 
-    def compare_responses(
-        self, user_input: str, alice_response: str, expected_route: str
-    ) -> Dict[str, Any]:
+    def compare_responses(self, user_input: str, alice_response: str, expected_route: str) -> Dict[str, Any]:
         """
         Compare Alice's response to ideal teacher response
 
@@ -94,9 +90,7 @@ class TeacherMode:
         Returns:
             Comparison result with teacher response and deviation flags
         """
-        teacher_response = self.get_ideal_response(
-            user_input, context={"expected_route": expected_route}
-        )
+        teacher_response = self.get_ideal_response(user_input, context={"expected_route": expected_route})
 
         if not teacher_response:
             return {
@@ -115,9 +109,7 @@ class TeacherMode:
         deviation_type = None
 
         # Length deviation (one is 2x+ longer than the other)
-        if len(alice_lower) > 2 * len(teacher_lower) or len(teacher_lower) > 2 * len(
-            alice_lower
-        ):
+        if len(alice_lower) > 2 * len(teacher_lower) or len(teacher_lower) > 2 * len(alice_lower):
             needs_learning = True
             deviation_type = "length_mismatch"
 
@@ -135,9 +127,7 @@ class TeacherMode:
 
         # If less than 30% word overlap, flag it
         if common_words:
-            overlap_ratio = len(common_words) / max(
-                len(teacher_words), len(alice_words)
-            )
+            overlap_ratio = len(common_words) / max(len(teacher_words), len(alice_words))
             if overlap_ratio < 0.3:
                 needs_learning = True
                 if not deviation_type:
@@ -150,9 +140,7 @@ class TeacherMode:
             "alice_response": alice_response,
         }
 
-    def should_flag_for_learning(
-        self, alice_route: str, expected_route: str, comparison: Dict[str, Any]
-    ) -> bool:
+    def should_flag_for_learning(self, alice_route: str, expected_route: str, comparison: Dict[str, Any]) -> bool:
         """
         Determine if this interaction should be flagged for learning
 

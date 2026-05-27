@@ -227,9 +227,7 @@ class RealtimeLearningLogger:
         try:
             lines = log_file.read_text(encoding="utf-8").splitlines()
             if len(lines) > self._max_log_lines:
-                log_file.write_text(
-                    "\n".join(lines[-self._max_log_lines :]) + "\n", encoding="utf-8"
-                )
+                log_file.write_text("\n".join(lines[-self._max_log_lines :]) + "\n", encoding="utf-8")
         except Exception:
             pass
 
@@ -259,10 +257,7 @@ class RealtimeLearningLogger:
 
             # Calculate learning velocity (errors per hour)
             current_hour = datetime.now().strftime("%Y-%m-%d %H:00")
-            if (
-                not metrics["errors_per_hour"]
-                or metrics["errors_per_hour"][-1]["hour"] != current_hour
-            ):
+            if not metrics["errors_per_hour"] or metrics["errors_per_hour"][-1]["hour"] != current_hour:
                 metrics["errors_per_hour"].append({"hour": current_hour, "count": 1})
             else:
                 metrics["errors_per_hour"][-1]["count"] += 1
@@ -380,9 +375,7 @@ class RealtimeLearningLogger:
 
             # Replace old file with cleaned version
             temp_file.replace(log_file)
-            logger.info(
-                f"[RealtimeLogger] Cleaned {log_file.name}, kept {kept} entries"
-            )
+            logger.info(f"[RealtimeLogger] Cleaned {log_file.name}, kept {kept} entries")
 
 
 # Global singleton

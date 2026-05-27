@@ -233,13 +233,9 @@ class ProactiveAssistant:
             }
             from ai.infrastructure.event_bus import EventPriority
 
-            priority = EventPriority[
-                priority_map.get(reminder.priority, "normal").upper()
-            ]
+            priority = EventPriority[priority_map.get(reminder.priority, "normal").upper()]
             self.notification_callback(reminder.message, priority)
-            logger.info(
-                f"[ProactiveAssistant] Delivered reminder: {reminder.message[:50]}"
-            )
+            logger.info(f"[ProactiveAssistant] Delivered reminder: {reminder.message[:50]}")
 
     def add_reminder(
         self,
@@ -258,9 +254,7 @@ class ProactiveAssistant:
             context=context or {},
         )
         self._save_reminders()
-        logger.debug(
-            f"[ProactiveAssistant] Added reminder: {message[:50]} at {trigger_time}"
-        )
+        logger.debug(f"[ProactiveAssistant] Added reminder: {message[:50]} at {trigger_time}")
 
     def list_reminders(self) -> List[Reminder]:
         """Return pending (not yet delivered) reminders sorted by trigger time."""
@@ -277,9 +271,7 @@ class ProactiveAssistant:
             if not reminder.delivered and keyword_lower in reminder.message.lower():
                 del self.reminders[rid]
                 self._save_reminders()
-                logger.info(
-                    f"[ProactiveAssistant] Cancelled reminder: {reminder.message[:50]}"
-                )
+                logger.info(f"[ProactiveAssistant] Cancelled reminder: {reminder.message[:50]}")
                 return True
         return False
 
@@ -323,15 +315,11 @@ class ProactiveAssistant:
                     context=item.get("context", {}),
                     delivered=False,
                 )
-            logger.info(
-                f"[ProactiveAssistant] Loaded {len(self.reminders)} pending reminder(s) from disk"
-            )
+            logger.info(f"[ProactiveAssistant] Loaded {len(self.reminders)} pending reminder(s) from disk")
         except Exception as exc:
             logger.warning(f"[ProactiveAssistant] Failed to load reminders: {exc}")
 
-    def track_incomplete_task(
-        self, task_id: str, description: str, context: Dict = None
-    ):
+    def track_incomplete_task(self, task_id: str, description: str, context: Dict = None):
         """Track a task that was started but may not be complete"""
         self.incomplete_tasks[task_id] = IncompleteTask(
             task_id=task_id,
@@ -378,9 +366,7 @@ class ProactiveAssistant:
                     start = start.strftime("%I:%M %p")
                 elif start:
                     start = str(start)
-                briefing += (
-                    f"  • {start} - {summary}\n" if start else f"  • {summary}\n"
-                )
+                briefing += f"  • {start} - {summary}\n" if start else f"  • {summary}\n"
 
             return briefing
         except Exception as e:
@@ -395,12 +381,7 @@ class ProactiveAssistant:
         if self.notes_plugin:
             try:
                 notes = self.notes_plugin.manager.get_all_notes()
-                overdue = [
-                    n
-                    for n in notes
-                    if n.due_date
-                    and datetime.fromisoformat(n.due_date) < datetime.now()
-                ]
+                overdue = [n for n in notes if n.due_date and datetime.fromisoformat(n.due_date) < datetime.now()]
                 if overdue:
                     suggestions.append(f"You have {len(overdue)} overdue note(s)")
             except Exception:
@@ -408,9 +389,7 @@ class ProactiveAssistant:
 
         # Check for incomplete tasks
         if self.incomplete_tasks:
-            suggestions.append(
-                f"You have {len(self.incomplete_tasks)} incomplete task(s)"
-            )
+            suggestions.append(f"You have {len(self.incomplete_tasks)} incomplete task(s)")
 
         return suggestions
 
@@ -444,9 +423,7 @@ def get_proactive_assistant(
 # ---------------------------------------------------------------------------
 
 
-def parse_reminder_time(
-    text: str, now: Optional[datetime] = None
-) -> Optional[datetime]:
+def parse_reminder_time(text: str, now: Optional[datetime] = None) -> Optional[datetime]:
     """Parse a natural-language time expression from *text* and return an
     absolute ``datetime``.  Returns ``None`` when no time could be parsed.
 
@@ -522,9 +499,7 @@ def parse_reminder_time(
         return target
 
     if is_tomorrow:
-        return (base + timedelta(days=1)).replace(
-            hour=9, minute=0, second=0, microsecond=0
-        )
+        return (base + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
 
     return None
 

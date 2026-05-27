@@ -81,9 +81,7 @@ class SessionSummarizer:
         if "goals" in metadata:
             self.active_goals = metadata["goals"]
         if "topics" in metadata:
-            self.main_topics = list(set(self.main_topics + metadata.get("topics", [])))[
-                :10
-            ]
+            self.main_topics = list(set(self.main_topics + metadata.get("topics", [])))[:10]
         if "decision" in metadata:
             self.key_decisions.append(metadata["decision"])
         if "user_preferences" in metadata:
@@ -151,9 +149,7 @@ class SessionSummarizer:
         """Update the top-10 semantic facts kept in scope."""
         # Preserve existing facts, add new ones, keep top 10
         self.top_10_facts = list(set(self.top_10_facts + new_facts))[:10]
-        logger.info(
-            f"[Session] Updated top-10 facts: {len(self.top_10_facts)} facts in scope"
-        )
+        logger.info(f"[Session] Updated top-10 facts: {len(self.top_10_facts)} facts in scope")
 
     def get_session_context(self) -> Dict[str, Any]:
         """Get current session context for LLM/reasoning."""
@@ -188,10 +184,7 @@ Key facts: {", ".join(latest.top_10_facts[:5])}
 
     def goal_is_tracked(self, goal: str) -> bool:
         """Check if a goal is currently tracked."""
-        return any(
-            goal.lower() in g.lower() or g.lower() in goal.lower()
-            for g in self.active_goals
-        )
+        return any(goal.lower() in g.lower() or g.lower() in goal.lower() for g in self.active_goals)
 
     def add_goal(self, goal: str) -> None:
         """Add a goal to active goals."""

@@ -22,9 +22,7 @@ except ImportError:
     from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(message)s", datefmt="%H:%M:%S"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
 
@@ -198,9 +196,7 @@ class ALICEReloader(FileSystemEventHandler):
             current_time = time.time()
             time_since_last = current_time - self.last_reload_time
             if time_since_last < self.debounce_seconds:
-                logger.debug(
-                    f"Debouncing reload (last reload {time_since_last:.2f}s ago)"
-                )
+                logger.debug(f"Debouncing reload (last reload {time_since_last:.2f}s ago)")
                 return
 
             self.last_reload_time = current_time
@@ -278,9 +274,7 @@ class ALICERunner:
 
         try:
             # Start in same terminal
-            self.process = subprocess.Popen(
-                cmd, stdout=sys.stdout, stderr=sys.stderr, stdin=sys.stdin, bufsize=0
-            )
+            self.process = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, stdin=sys.stdin, bufsize=0)
 
             self.restart_count += 1
             logger.info("ALICE running")
@@ -447,9 +441,7 @@ def run_dev_mode(
             observer.start()
             print(f"[DEV]  File watcher active ({watched_count} directories)")
             print("[DEV]     Auto-reload enabled - edit any .py file to trigger reload")
-            print(
-                f"[DEV]      Grace period: {event_handler.startup_grace_period}s after startup\n"
-            )
+            print(f"[DEV]      Grace period: {event_handler.startup_grace_period}s after startup\n")
         else:
             logger.warning("No directories found to watch!")
             observer = None
@@ -507,9 +499,7 @@ Examples:
         help="LLM model to use (default: llama3.1:8b)",
     )
 
-    parser.add_argument(
-        "--no-watch", action="store_true", help="Disable file watching (no auto-reload)"
-    )
+    parser.add_argument("--no-watch", action="store_true", help="Disable file watching (no auto-reload)")
 
     parser.add_argument(
         "--no-thinking",

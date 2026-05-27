@@ -42,11 +42,7 @@ class StructuredLogger:
             if enable_json:
                 console_handler.setFormatter(JSONFormatter())
             else:
-                console_handler.setFormatter(
-                    logging.Formatter(
-                        "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-                    )
-                )
+                console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
             self.logger.addHandler(console_handler)
 
         # File handler
@@ -58,9 +54,7 @@ class StructuredLogger:
             file_handler.setFormatter(
                 JSONFormatter()
                 if enable_json
-                else logging.Formatter(
-                    "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-                )
+                else logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
             )
             self.logger.addHandler(file_handler)
 
@@ -79,9 +73,7 @@ class StructuredLogger:
         """Get current context"""
         return getattr(self.context, "data", {}).copy()
 
-    def _log(
-        self, level: str, message: str, extra: Optional[Dict] = None, exc_info=None
-    ):
+    def _log(self, level: str, message: str, extra: Optional[Dict] = None, exc_info=None):
         """Internal logging method with context"""
         log_data = {
             "message": message,
@@ -260,17 +252,13 @@ def configure_logging(
         else:
             # Update existing instance: strip or add console handlers to match enable_console
             inst = _loggers[name]
-            inst.logger.handlers = [
-                h for h in inst.logger.handlers if isinstance(h, logging.FileHandler)
-            ]
+            inst.logger.handlers = [h for h in inst.logger.handlers if isinstance(h, logging.FileHandler)]
             if enable_console:
                 ch = logging.StreamHandler(sys.stdout)
                 ch.setFormatter(
                     JSONFormatter()
                     if enable_json
-                    else logging.Formatter(
-                        "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-                    )
+                    else logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
                 )
                 inst.logger.addHandler(ch)
         return _loggers[name]

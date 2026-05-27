@@ -192,9 +192,7 @@ class TurnLogger:
         try:
             lines = self.log_path.read_text(encoding="utf-8").splitlines()
             if len(lines) > self._MAX_LOG_LINES:
-                self.log_path.write_text(
-                    "\n".join(lines[-self._MAX_LOG_LINES :]) + "\n", encoding="utf-8"
-                )
+                self.log_path.write_text("\n".join(lines[-self._MAX_LOG_LINES :]) + "\n", encoding="utf-8")
         except Exception:
             pass
 

@@ -114,26 +114,16 @@ class PerformanceMonitor:
                 "negative_signals": signal_counts["negative"],
                 "avg_score": round(avg_score, 2),
                 "signal_rate": {
-                    "positive": round(signal_counts["positive"] / len(entries) * 100, 1)
-                    if entries
-                    else 0,
-                    "improvement": round(
-                        signal_counts["improvement"] / len(entries) * 100, 1
-                    )
-                    if entries
-                    else 0,
-                    "negative": round(signal_counts["negative"] / len(entries) * 100, 1)
-                    if entries
-                    else 0,
+                    "positive": round(signal_counts["positive"] / len(entries) * 100, 1) if entries else 0,
+                    "improvement": round(signal_counts["improvement"] / len(entries) * 100, 1) if entries else 0,
+                    "negative": round(signal_counts["negative"] / len(entries) * 100, 1) if entries else 0,
                 },
             }
 
             stats["overall"]["total_queries_24h"] += len(entries)
 
         if accuracy_scores:
-            stats["overall"]["avg_accuracy"] = round(
-                statistics.mean(accuracy_scores), 2
-            )
+            stats["overall"]["avg_accuracy"] = round(statistics.mean(accuracy_scores), 2)
 
         return stats
 
@@ -159,9 +149,7 @@ def print_dashboard():
     # Domain-specific
     print("\nDOMAIN METRICS:")
     print("-" * 80)
-    print(
-        f"  {'Domain':<20} {'Queries':<10} {'Accuracy':<12} {'Pos%':<10} {'Imp%':<10} {'Neg%':<10}"
-    )
+    print(f"  {'Domain':<20} {'Queries':<10} {'Accuracy':<12} {'Pos%':<10} {'Imp%':<10} {'Neg%':<10}")
     print("-" * 80)
 
     for domain in sorted(stats["domains"].keys()):

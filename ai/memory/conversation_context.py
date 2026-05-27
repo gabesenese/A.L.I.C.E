@@ -58,9 +58,7 @@ class ConversationContextManager:
     - Temporal awareness (recent vs old context)
     """
 
-    def __init__(
-        self, max_turns: int = 50, context_window: int = 10, recency_decay: float = 0.5
-    ):
+    def __init__(self, max_turns: int = 50, context_window: int = 10, recency_decay: float = 0.5):
         self.max_turns = max_turns
         self.context_window = context_window
         self.recency_decay = recency_decay
@@ -74,12 +72,8 @@ class ConversationContextManager:
         self.topic_history: List[Tuple[str, int]] = []  # (topic, turn_id)
 
         # Entity tracking for reference resolution
-        self.mentioned_entities: Dict[
-            str, List[int]
-        ] = {}  # entity -> [turn_ids where mentioned]
-        self.entity_types: Dict[
-            str, str
-        ] = {}  # entity -> type (person, file, concept, etc)
+        self.mentioned_entities: Dict[str, List[int]] = {}  # entity -> [turn_ids where mentioned]
+        self.entity_types: Dict[str, str] = {}  # entity -> type (person, file, concept, etc)
 
         # Salience tracking (what's currently important)
         self.salient_entities: List[str] = []
@@ -200,9 +194,7 @@ class ConversationContextManager:
                 entity_scores[entity] += recency_multiplier
 
         # Sort by score and take top entities
-        sorted_entities = sorted(
-            entity_scores.items(), key=lambda x: x[1], reverse=True
-        )
+        sorted_entities = sorted(entity_scores.items(), key=lambda x: x[1], reverse=True)
 
         self.salient_entities = [entity for entity, score in sorted_entities[:5]]
 
@@ -220,9 +212,7 @@ class ConversationContextManager:
             else:
                 self.last_object = entity_name
 
-    def resolve_reference(
-        self, reference: str, context_turns: int = 3
-    ) -> Optional[str]:
+    def resolve_reference(self, reference: str, context_turns: int = 3) -> Optional[str]:
         """
         Resolve a pronoun or reference to an entity.
 
@@ -309,9 +299,7 @@ class ConversationContextManager:
         duration_seconds = last_turn.timestamp - first_turn.timestamp
         return duration_seconds / 60.0
 
-    def find_relevant_context(
-        self, query: str, max_turns: int = 5
-    ) -> List[ConversationTurn]:
+    def find_relevant_context(self, query: str, max_turns: int = 5) -> List[ConversationTurn]:
         """
         Find conversation turns relevant to a query.
 
@@ -430,13 +418,9 @@ class ConversationContextManager:
 _context_manager = None
 
 
-def get_context_manager(
-    max_turns: int = 50, context_window: int = 10
-) -> ConversationContextManager:
+def get_context_manager(max_turns: int = 50, context_window: int = 10) -> ConversationContextManager:
     """Get or create global conversation context manager"""
     global _context_manager
     if _context_manager is None:
-        _context_manager = ConversationContextManager(
-            max_turns=max_turns, context_window=context_window
-        )
+        _context_manager = ConversationContextManager(max_turns=max_turns, context_window=context_window)
     return _context_manager

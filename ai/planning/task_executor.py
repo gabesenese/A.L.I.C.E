@@ -26,9 +26,7 @@ logger = logging.getLogger(__name__)
 class TaskResult:
     """Result of task execution"""
 
-    def __init__(
-        self, success: bool, message: str, data: Any = None, error: Optional[str] = None
-    ):
+    def __init__(self, success: bool, message: str, data: Any = None, error: Optional[str] = None):
         self.success = success
         self.message = message
         self.data = data
@@ -66,9 +64,7 @@ class TaskExecutor:
             "dd if=/dev/zero",
         ]
 
-        logger.info(
-            f"[OK] Task Executor initialized (System: {self.system}, Safe Mode: {safe_mode})"
-        )
+        logger.info(f"[OK] Task Executor initialized (System: {self.system}, Safe Mode: {safe_mode})")
 
     def execute_command(
         self,
@@ -90,9 +86,7 @@ class TaskExecutor:
             TaskResult with command output
         """
         # Safety check
-        if self.safe_mode and any(
-            dangerous in command.lower() for dangerous in self.dangerous_commands
-        ):
+        if self.safe_mode and any(dangerous in command.lower() for dangerous in self.dangerous_commands):
             logger.warning(f" Blocked dangerous command: {command}")
             return TaskResult(
                 success=False,
@@ -125,9 +119,7 @@ class TaskExecutor:
 
             return TaskResult(
                 success=success,
-                message=(
-                    "Command executed successfully" if success else "Command failed"
-                ),
+                message=("Command executed successfully" if success else "Command failed"),
                 data={
                     "stdout": result.stdout,
                     "stderr": result.stderr,
@@ -137,14 +129,10 @@ class TaskExecutor:
 
         except subprocess.TimeoutExpired:
             logger.error(f"[ERROR] Command timeout: {command}")
-            return TaskResult(
-                success=False, message="Command timed out", error="Timeout"
-            )
+            return TaskResult(success=False, message="Command timed out", error="Timeout")
         except Exception as e:
             logger.error(f"[ERROR] Command error: {e}")
-            return TaskResult(
-                success=False, message="Command execution failed", error=str(e)
-            )
+            return TaskResult(success=False, message="Command execution failed", error=str(e))
 
     def open_application(self, app_name: str) -> TaskResult:
         """
@@ -173,21 +161,15 @@ class TaskExecutor:
 
             if result.success:
                 logger.info(f"[OK] Opened application: {app_name}")
-                return TaskResult(
-                    success=True, message=f"Opened {app_name}", data={"app": app_name}
-                )
+                return TaskResult(success=True, message=f"Opened {app_name}", data={"app": app_name})
             else:
                 return result
 
         except Exception as e:
             logger.error(f"[ERROR] Error opening {app_name}: {e}")
-            return TaskResult(
-                success=False, message=f"Failed to open {app_name}", error=str(e)
-            )
+            return TaskResult(success=False, message=f"Failed to open {app_name}", error=str(e))
 
-    def file_operation(
-        self, operation: str, source: str, destination: Optional[str] = None
-    ) -> TaskResult:
+    def file_operation(self, operation: str, source: str, destination: Optional[str] = None) -> TaskResult:
         """
         Perform file operations
 
@@ -247,9 +229,7 @@ class TaskExecutor:
                     )
 
                 shutil.move(source, destination)
-                return TaskResult(
-                    success=True, message=f"Moved: {source} → {destination}"
-                )
+                return TaskResult(success=True, message=f"Moved: {source} → {destination}")
 
             elif operation == "read":
                 with open(source, "r", encoding="utf-8") as f:
@@ -282,9 +262,7 @@ class TaskExecutor:
             )
         except Exception as e:
             logger.error(f"[ERROR] File operation error: {e}")
-            return TaskResult(
-                success=False, message="File operation failed", error=str(e)
-            )
+            return TaskResult(success=False, message="File operation failed", error=str(e))
 
     def get_system_info(self) -> TaskResult:
         """Get system information"""
@@ -306,15 +284,11 @@ class TaskExecutor:
                     cpu_info = result.data.get("stdout", "").strip()
                     info["cpu_details"] = cpu_info
 
-            return TaskResult(
-                success=True, message="System information retrieved", data=info
-            )
+            return TaskResult(success=True, message="System information retrieved", data=info)
 
         except Exception as e:
             logger.error(f"[ERROR] Error getting system info: {e}")
-            return TaskResult(
-                success=False, message="Failed to get system info", error=str(e)
-            )
+            return TaskResult(success=False, message="Failed to get system info", error=str(e))
 
     def control_volume(self, action: str, level: Optional[int] = None) -> TaskResult:
         """
@@ -360,9 +334,7 @@ class TaskExecutor:
 
         except Exception as e:
             logger.error(f"[ERROR] Volume control error: {e}")
-            return TaskResult(
-                success=False, message="Volume control failed", error=str(e)
-            )
+            return TaskResult(success=False, message="Volume control failed", error=str(e))
 
     def schedule_task(
         self,
@@ -504,9 +476,7 @@ if __name__ == "__main__":
     print("1. Getting system information...")
     result = executor.get_system_info()
     if result.success:
-        print(
-            f"   [OK] System: {result.data.get('system')} {result.data.get('release')}"
-        )
+        print(f"   [OK] System: {result.data.get('system')} {result.data.get('release')}")
 
     # Test 2: File operations
     print("\n2. Testing file operations...")

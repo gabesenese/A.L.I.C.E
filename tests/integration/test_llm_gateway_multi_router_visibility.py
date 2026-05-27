@@ -91,9 +91,7 @@ def test_gateway_reports_model_roles_and_last_route(monkeypatch):
     assert "last_route" in stats
     assert isinstance(stats.get("model_roles", {}), dict)
     assert isinstance(stats.get("last_route", {}), dict)
-    assert set(["fast", "reasoning", "coding"]).issubset(
-        set(stats.get("model_roles", {}).keys())
-    )
+    assert set(["fast", "reasoning", "coding"]).issubset(set(stats.get("model_roles", {}).keys()))
 
     reset_gateway()
 

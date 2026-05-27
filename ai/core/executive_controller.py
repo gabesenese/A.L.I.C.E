@@ -111,9 +111,7 @@ class ReasoningState:
 
 @dataclass
 class ExecutiveDecision:
-    action: (
-        str  # use_plugin | use_llm | ask_clarification | ignore | answer_direct | defer
-    )
+    action: str  # use_plugin | use_llm | ask_clarification | ignore | answer_direct | defer
     reason: str
     store_memory: bool = True
     clarification_question: str = ""
@@ -156,23 +154,15 @@ class TurnExecutionContract:
         return {
             "task_type": str(self.task_type or TaskType.CONVERSATION.value),
             "goal": str(self.goal or ""),
-            "constraints": [
-                str(x) for x in list(self.constraints or []) if str(x).strip()
-            ],
+            "constraints": [str(x) for x in list(self.constraints or []) if str(x).strip()],
             "chosen_route": str(self.chosen_route or RouteChoice.LLM.value),
-            "success_criteria": [
-                str(x) for x in list(self.success_criteria or []) if str(x).strip()
-            ],
+            "success_criteria": [str(x) for x in list(self.success_criteria or []) if str(x).strip()],
             "next_action": str(self.next_action or ""),
-            "next_action_type": str(
-                continuation.get("action_type") or NextActionType.RESPOND.value
-            ),
+            "next_action_type": str(continuation.get("action_type") or NextActionType.RESPOND.value),
             "continuation_payload": dict(continuation.get("payload") or {}),
             "retry_target": str(continuation.get("retry_target") or ""),
             "blocking_reason": str(continuation.get("blocking_reason") or ""),
-            "next_action_owner": str(
-                continuation.get("owner") or NextActionOwner.EXECUTIVE.value
-            ),
+            "next_action_owner": str(continuation.get("owner") or NextActionOwner.EXECUTIVE.value),
             "continuation": continuation,
         }
 
@@ -192,9 +182,7 @@ class TurnStateMachineResult:
             "state": str(self.state or TaskType.CONVERSATION.value),
             "chosen_route": str(self.chosen_route or RouteChoice.LLM.value),
             "should_try_plugins": bool(self.should_try_plugins),
-            "terminal_action": str(
-                self.terminal_action or TerminalAction.PROCEED.value
-            ),
+            "terminal_action": str(self.terminal_action or TerminalAction.PROCEED.value),
             "contract": self.contract.as_dict() if self.contract else {},
         }
 
@@ -221,9 +209,7 @@ class TurnExecutionOutcome:
             "needs_retry": bool(self.needs_retry),
             "needs_escalation": bool(self.needs_escalation),
             "recommended_next_action": str(self.recommended_next_action or ""),
-            "verification_confidence": max(
-                0.0, min(1.0, float(self.verification_confidence or 0.0))
-            ),
+            "verification_confidence": max(0.0, min(1.0, float(self.verification_confidence or 0.0))),
             "issues": [str(x) for x in list(self.issues or []) if str(x).strip()],
             "metadata": dict(self.metadata or {}),
         }
@@ -243,9 +229,7 @@ class PostExecutionStateMachineResult:
     def as_dict(self) -> Dict[str, Any]:
         return {
             "phase": str(self.phase or PostExecutionPhase.EXECUTED.value),
-            "terminal_action": str(
-                self.terminal_action or TerminalAction.PROCEED.value
-            ),
+            "terminal_action": str(self.terminal_action or TerminalAction.PROCEED.value),
             "should_retry": bool(self.should_retry),
             "should_replan": bool(self.should_replan),
             "contract": self.contract.as_dict() if self.contract else {},
@@ -368,14 +352,10 @@ class ExecutiveController:
         entities = entities or {}
         conversation_state = conversation_state or {}
 
-        hidden_snapshot = dict(
-            conversation_state.get("hidden_situation_snapshot") or {}
-        )
+        hidden_snapshot = dict(conversation_state.get("hidden_situation_snapshot") or {})
         hidden_goal_state = dict(hidden_snapshot.get("goal_state") or {})
         priority_goal = dict(hidden_goal_state.get("priority_goal") or {})
-        current_goal = dict(
-            conversation_state.get("current_goal") or priority_goal or {}
-        )
+        current_goal = dict(conversation_state.get("current_goal") or priority_goal or {})
 
         raw_goal_stack: List[Dict[str, Any]] = []
         for candidate in (
@@ -401,12 +381,7 @@ class ExecutiveController:
             current_goal = dict(priority_goal)
 
         goal_status = (
-            str(
-                current_goal.get("status")
-                or priority_goal.get("status")
-                or hidden_goal_state.get("status")
-                or ""
-            )
+            str(current_goal.get("status") or priority_goal.get("status") or hidden_goal_state.get("status") or "")
             .strip()
             .lower()
         )
@@ -419,10 +394,7 @@ class ExecutiveController:
 
         goal_blockers: List[str] = []
         raw_blockers = (
-            current_goal.get("blockers")
-            or priority_goal.get("blockers")
-            or hidden_goal_state.get("blockers")
-            or []
+            current_goal.get("blockers") or priority_goal.get("blockers") or hidden_goal_state.get("blockers") or []
         )
         if isinstance(raw_blockers, list):
             for blocker in raw_blockers:
@@ -436,27 +408,17 @@ class ExecutiveController:
 
         goal_active_count = int(hidden_goal_state.get("active_goal_count") or 0)
         if goal_active_count <= 0:
-            goal_active_count = (
-                len(raw_goal_stack) if raw_goal_stack else (1 if priority_goal else 0)
-            )
+            goal_active_count = len(raw_goal_stack) if raw_goal_stack else (1 if priority_goal else 0)
 
         topic = str(
-            entities.get("topic")
-            or conversation_state.get("conversation_topic")
-            or priority_goal.get("title")
-            or ""
+            entities.get("topic") or conversation_state.get("conversation_topic") or priority_goal.get("title") or ""
         ).strip()
 
         conversation_goal = str(
-            conversation_state.get("conversation_goal")
-            or hidden_goal_state.get("status")
-            or ""
+            conversation_state.get("conversation_goal") or hidden_goal_state.get("status") or ""
         ).strip()
         user_goal = str(
-            conversation_state.get("user_goal")
-            or entities.get("goal")
-            or priority_goal.get("title")
-            or ""
+            conversation_state.get("user_goal") or entities.get("goal") or priority_goal.get("title") or ""
         ).strip()
         depth_level = int(conversation_state.get("depth_level") or 0)
         intent_plausibility = max(
@@ -465,23 +427,13 @@ class ExecutiveController:
         )
         planner_hint = str(conversation_state.get("planner_hint") or "").strip().lower()
         planner_depth = int(conversation_state.get("planner_depth") or 1)
-        route_bias = (
-            str(conversation_state.get("route_bias") or "balanced").strip().lower()
-        )
+        route_bias = str(conversation_state.get("route_bias") or "balanced").strip().lower()
         tool_budget = int(conversation_state.get("tool_budget") or 1)
-        pending_followup_slot = bool(
-            conversation_state.get("pending_followup_slot", False)
-        )
-        pending_followup_slot_name = str(
-            conversation_state.get("pending_followup_slot_name") or ""
-        ).strip()
-        pending_followup_slot_state = dict(
-            conversation_state.get("pending_followup_slot_state") or {}
-        )
+        pending_followup_slot = bool(conversation_state.get("pending_followup_slot", False))
+        pending_followup_slot_name = str(conversation_state.get("pending_followup_slot_name") or "").strip()
+        pending_followup_slot_state = dict(conversation_state.get("pending_followup_slot_state") or {})
 
-        plan = self._derive_plan(
-            intent=intent, topic=topic, depth_level=depth_level, user_input=user_input
-        )
+        plan = self._derive_plan(intent=intent, topic=topic, depth_level=depth_level, user_input=user_input)
 
         return ReasoningState(
             user_intent=intent or "unknown",
@@ -542,9 +494,7 @@ class ExecutiveController:
             chosen_route = RouteChoice.LLM.value
 
         goal = str(state.user_goal or state.topic or state.source_text).strip()[:200]
-        constraints: List[str] = [
-            str(x).strip() for x in list(state.goal_blockers or []) if str(x).strip()
-        ]
+        constraints: List[str] = [str(x).strip() for x in list(state.goal_blockers or []) if str(x).strip()]
         if state.route_bias and state.route_bias != "balanced":
             constraints.append(f"route_bias:{state.route_bias}")
         if int(state.tool_budget or 1) <= 0:
@@ -557,46 +507,33 @@ class ExecutiveController:
                 "missing detail captured",
                 "next route can be decided confidently",
             ]
-            next_action = (
-                decision.clarification_question.strip()
-                or "ask one targeted clarifying question"
-            )
+            next_action = decision.clarification_question.strip() or "ask one targeted clarifying question"
         elif task_type == TaskType.BLOCKED_ESCALATED.value:
             success_criteria = [
                 "blocker identified",
                 "escalation path selected",
             ]
-            next_action = (
-                str(state.goal_next_action or "").strip()
-                or "request operator/user intervention"
-            )
+            next_action = str(state.goal_next_action or "").strip() or "request operator/user intervention"
         elif task_type == TaskType.DIRECT_TOOL_ACTION.value:
             success_criteria = [
                 "tool call succeeds",
                 "result returned to user clearly",
             ]
-            next_action = (
-                str(state.goal_next_action or "").strip()
-                or "execute requested tool and verify outcome"
-            )
+            next_action = str(state.goal_next_action or "").strip() or "execute requested tool and verify outcome"
         elif task_type == TaskType.AUTONOMOUS_FOLLOW_THROUGH.value:
             success_criteria = [
                 "active goal advances",
                 "state updated for continuity",
             ]
             next_action = (
-                str(state.goal_next_action or "").strip()
-                or "continue the active goal without extra prompting"
+                str(state.goal_next_action or "").strip() or "continue the active goal without extra prompting"
             )
         elif task_type == TaskType.MULTI_STEP_TASK.value:
             success_criteria = [
                 "step outcome validated",
                 "next step remains actionable",
             ]
-            next_action = (
-                str(state.goal_next_action or "").strip()
-                or "continue planned execution and verify progress"
-            )
+            next_action = str(state.goal_next_action or "").strip() or "continue planned execution and verify progress"
         else:
             success_criteria = [
                 "answer is directly relevant",
@@ -714,9 +651,7 @@ class ExecutiveController:
             needs_retry=bool(needs_retry),
             needs_escalation=bool(needs_escalation),
             recommended_next_action=next_action,
-            verification_confidence=max(
-                0.0, min(1.0, float(verification_confidence or 0.0))
-            ),
+            verification_confidence=max(0.0, min(1.0, float(verification_confidence or 0.0))),
             issues=[str(x) for x in list(issues or []) if str(x).strip()],
             metadata=dict(metadata or {}),
         )
@@ -742,11 +677,7 @@ class ExecutiveController:
                 contract,
                 action_type=NextActionType.ESCALATE.value,
                 owner=NextActionOwner.EXECUTIVE.value,
-                blocking_reason=(
-                    ", ".join(outcome.issues)
-                    if outcome.issues
-                    else "verification_failure"
-                ),
+                blocking_reason=(", ".join(outcome.issues) if outcome.issues else "verification_failure"),
                 next_action="request escalation or operator intervention",
             )
         elif outcome.needs_retry:
@@ -761,10 +692,7 @@ class ExecutiveController:
             )
         elif outcome.verification_passed:
             phase = PostExecutionPhase.VERIFIED.value
-            if (
-                pre_execution.chosen_route == RouteChoice.TOOL.value
-                and outcome.goal_advanced
-            ):
+            if pre_execution.chosen_route == RouteChoice.TOOL.value and outcome.goal_advanced:
                 phase = PostExecutionPhase.COMPLETED.value
                 contract = self._contract_with_continuation(
                     contract,
@@ -772,10 +700,7 @@ class ExecutiveController:
                     owner=NextActionOwner.EXECUTIVE.value,
                     next_action="goal advanced; continue with the next planned step",
                 )
-            elif (
-                pre_execution.chosen_route == RouteChoice.TOOL.value
-                and not outcome.goal_advanced
-            ):
+            elif pre_execution.chosen_route == RouteChoice.TOOL.value and not outcome.goal_advanced:
                 phase = PostExecutionPhase.REPLANNED.value
                 should_replan = True
                 contract = self._contract_with_continuation(
@@ -798,11 +723,7 @@ class ExecutiveController:
                 contract,
                 action_type=NextActionType.REPLAN.value,
                 owner=NextActionOwner.EXECUTIVE.value,
-                blocking_reason=(
-                    ", ".join(outcome.issues)
-                    if outcome.issues
-                    else "unverified_outcome"
-                ),
+                blocking_reason=(", ".join(outcome.issues) if outcome.issues else "unverified_outcome"),
                 next_action="replan due to unverified execution",
             )
 
@@ -914,11 +835,7 @@ class ExecutiveController:
         if len(candidates) > 1:
             top = float(candidates[0].get("score", 0.0))
             second = float(candidates[1].get("score", 0.0))
-            if (
-                (top - second) < 0.06
-                and plausibility < 0.68
-                and not has_explicit_action_cue
-            ):
+            if (top - second) < 0.06 and plausibility < 0.68 and not has_explicit_action_cue:
                 return {
                     "block": True,
                     "reason": "pre_route_ambiguous_candidates",
@@ -972,10 +889,7 @@ class ExecutiveController:
                 store_memory=True,
             )
 
-        if (
-            self._is_answerability_direct_question(state.source_text)
-            and not has_explicit_action_cue
-        ):
+        if self._is_answerability_direct_question(state.source_text) and not has_explicit_action_cue:
             return ExecutiveDecision(
                 action="answer_direct",
                 reason="answerability_gate_direct_question",
@@ -984,9 +898,7 @@ class ExecutiveController:
 
         normalized_intent = (state.user_intent or "").lower().strip()
         rich_conceptual = self._is_rich_conceptual_request(state.source_text)
-        conceptual_build = self._is_conceptual_build_architecture_prompt(
-            state.source_text
-        )
+        conceptual_build = self._is_conceptual_build_architecture_prompt(state.source_text)
 
         if conceptual_build:
             return ExecutiveDecision(
@@ -1033,10 +945,7 @@ class ExecutiveController:
                 store_memory=True,
             )
 
-        if (
-            normalized_intent == "conversation:clarification_needed"
-            and state.confidence >= 0.45
-        ):
+        if normalized_intent == "conversation:clarification_needed" and state.confidence >= 0.45:
             return ExecutiveDecision(
                 action="use_llm",
                 reason="clarification_answer_requested",
@@ -1060,18 +969,14 @@ class ExecutiveController:
 
         # Minimal executive kernel (4 decisions):
         # ACT, ANSWER, ASK, WAIT/DEFER
-        act_score = max(
-            float(scores.get("tools", 0.0)), float(scores.get("search", 0.0))
-        )
+        act_score = max(float(scores.get("tools", 0.0)), float(scores.get("search", 0.0)))
         answer_score = max(
             float(scores.get("llm", 0.0)),
             float(scores.get("memory", 0.0)),
             float(scores.get("rag", 0.0)),
         )
         ask_score = float(scores.get("clarify", 0.0))
-        wait_score = max(
-            float(scores.get("defer", 0.0)), float(scores.get("reject", 0.0))
-        )
+        wait_score = max(float(scores.get("defer", 0.0)), float(scores.get("reject", 0.0)))
 
         if (
             normalized_intent.startswith("conversation:")
@@ -1112,18 +1017,10 @@ class ExecutiveController:
                 store_memory=False,
             )
         if act_score >= max(answer_score, ask_score, wait_score):
-            winner = (
-                "search"
-                if float(scores.get("search", 0.0)) > float(scores.get("tools", 0.0))
-                else "tools"
-            )
-            return ExecutiveDecision(
-                action="use_plugin", reason=f"score_{winner}", store_memory=True
-            )
+            winner = "search" if float(scores.get("search", 0.0)) > float(scores.get("tools", 0.0)) else "tools"
+            return ExecutiveDecision(action="use_plugin", reason=f"score_{winner}", store_memory=True)
 
-        return ExecutiveDecision(
-            action="use_llm", reason="score_llm", store_memory=True
-        )
+        return ExecutiveDecision(action="use_llm", reason="score_llm", store_memory=True)
 
     def _is_help_opener(self, state: ReasoningState) -> bool:
         # Help-openers should not downgrade routing decisions.
@@ -1156,9 +1053,7 @@ class ExecutiveController:
         if not has_task:
             return False
 
-        has_build_verb = bool(
-            re.search(r"\b(create|created|build|built|make|made)\b", low)
-        )
+        has_build_verb = bool(re.search(r"\b(create|created|build|built|make|made)\b", low))
 
         has_constraint = any(
             cue in low
@@ -1298,9 +1193,7 @@ class ExecutiveController:
             return False
 
         slot_state = dict(getattr(state, "pending_followup_slot_state", {}) or {})
-        expected_shape = (
-            str(slot_state.get("expected_answer_shape") or "").strip().lower()
-        )
+        expected_shape = str(slot_state.get("expected_answer_shape") or "").strip().lower()
 
         text = str(state.source_text or "").strip().lower()
         if not text or "?" in text:
@@ -1372,11 +1265,7 @@ class ExecutiveController:
                 "for beginners",
             )
         )
-        topic_tokens = [
-            t
-            for t in re.findall(r"\b[a-z0-9']+\b", text)
-            if t not in self.SEMANTIC_STOPWORDS
-        ]
+        topic_tokens = [t for t in re.findall(r"\b[a-z0-9']+\b", text) if t not in self.SEMANTIC_STOPWORDS]
         if not has_ask or len(topic_tokens) < 2:
             return False
         if has_format:
@@ -1384,10 +1273,7 @@ class ExecutiveController:
         # Self-contained definitional/comparison requests should be answer-first.
         if "?" in text:
             return True
-        return any(
-            cue in text
-            for cue in ("difference between", "compare", "define", "what is", "what's")
-        )
+        return any(cue in text for cue in ("difference between", "compare", "define", "what is", "what's"))
 
     def _is_open_ended_learning_goal(self, text: str, intent: str) -> bool:
         """Detect exploratory learning prompts that should be refined, not hard-rejected."""
@@ -1473,10 +1359,7 @@ class ExecutiveController:
         if len(tokens) < 3:
             return False
 
-        if any(
-            tok in {"something", "anything", "stuff", "whatever", "idk"}
-            for tok in tokens
-        ):
+        if any(tok in {"something", "anything", "stuff", "whatever", "idk"} for tok in tokens):
             return False
 
         if re.search(r"\b(help\s+me|do\s+this|do\s+that|build\s+me|make\s+me)\b", low):
@@ -1517,9 +1400,7 @@ class ExecutiveController:
             return False
 
         normalized_intent = (state.user_intent or "").lower().strip()
-        if not normalized_intent.startswith(
-            "conversation:"
-        ) and normalized_intent not in {
+        if not normalized_intent.startswith("conversation:") and normalized_intent not in {
             "greeting",
             "thanks",
             "farewell",
@@ -1555,9 +1436,7 @@ class ExecutiveController:
         # Only allow help/clarification intents through deterministic native path
         # when the actual utterance is genuinely short/simple.
         if normalized_intent == "conversation:clarification_needed":
-            return bool(self.SIMPLE_NATIVE_RE.match(text)) and (
-                not self._is_rich_conceptual_request(text)
-            )
+            return bool(self.SIMPLE_NATIVE_RE.match(text)) and (not self._is_rich_conceptual_request(text))
 
         if normalized_intent == "conversation:help":
             return False
@@ -1614,9 +1493,7 @@ class ExecutiveController:
             "could we",
             "strategy",
         )
-        if any(
-            cue in text_lower for cue in conversational_cues
-        ) and not normalized_intent.startswith("conversation:"):
+        if any(cue in text_lower for cue in conversational_cues) and not normalized_intent.startswith("conversation:"):
             return {
                 "veto": True,
                 "reason": "conversational_input_not_actionable",
@@ -1649,9 +1526,7 @@ class ExecutiveController:
 
         return {"veto": False, "reason": "allowed"}
 
-    def should_use_planner(
-        self, state: ReasoningState, scores: Dict[str, float]
-    ) -> bool:
+    def should_use_planner(self, state: ReasoningState, scores: Dict[str, float]) -> bool:
         """Executive authority for when planning is required before response."""
         intent = (state.user_intent or "").lower()
         text = (state.source_text or "").lower()
@@ -1677,9 +1552,7 @@ class ExecutiveController:
             return True
         return False
 
-    def uncertainty_behavior(
-        self, state: ReasoningState, scores: Dict[str, float]
-    ) -> str:
+    def uncertainty_behavior(self, state: ReasoningState, scores: Dict[str, float]) -> str:
         """Return proceed | clarify | defer | reject based on confidence and score ambiguity."""
         conf = max(0.0, min(1.0, float(state.confidence)))
         plausibility = max(0.0, min(1.0, float(state.intent_plausibility)))
@@ -1763,19 +1636,11 @@ class ExecutiveController:
         interruption_cost = float(axes["user_interruption_cost"])
 
         act_score = can_act_now * safe_to_act * enough_information * target_confidence
-        answer_score = (
-            expected_progress
-            * max(target_confidence, 0.45)
-            * max(enough_information, 0.45)
-        )
+        answer_score = expected_progress * max(target_confidence, 0.45) * max(enough_information, 0.45)
         if can_act_now >= 0.50:
             # When execution is clearly available, bias the kernel toward ACT over ANSWER.
             answer_score *= 0.78
-        ask_score = (
-            (1.0 - enough_information)
-            * max(can_act_now, 0.45)
-            * (1.0 - (0.45 * interruption_cost))
-        )
+        ask_score = (1.0 - enough_information) * max(can_act_now, 0.45) * (1.0 - (0.45 * interruption_cost))
         wait_score = (1.0 - safe_to_act) * max(can_act_now, 0.45)
 
         scores = {
@@ -1791,9 +1656,7 @@ class ExecutiveController:
 
         scores["tools"] = act_score
         scores["search"] = act_score * (
-            1.05
-            if ("search" in text_intent or "research" in text or "look up" in text)
-            else 0.45
+            1.05 if ("search" in text_intent or "research" in text or "look up" in text) else 0.45
         )
         scores["llm"] = answer_score
         scores["memory"] = (0.70 * answer_score) + (0.20 if state.topic else 0.0)
@@ -1854,11 +1717,7 @@ class ExecutiveController:
         plausibility = max(0.0, min(1.0, float(state.intent_plausibility)))
         goal_status = str(getattr(state, "goal_status", "") or "").strip().lower()
         goal_next_action = str(getattr(state, "goal_next_action", "") or "").strip()
-        goal_blockers = [
-            str(x).strip()
-            for x in list(getattr(state, "goal_blockers", []) or [])
-            if str(x).strip()
-        ]
+        goal_blockers = [str(x).strip() for x in list(getattr(state, "goal_blockers", []) or []) if str(x).strip()]
         goal_blocked = bool(goal_blockers) or goal_status in {
             "blocked",
             "stalled",
@@ -1924,15 +1783,9 @@ class ExecutiveController:
             target_confidence -= 0.04
 
         if can_act_now >= 0.50:
-            expected_mission_progress = (
-                0.10
-                + (0.55 * safe_to_act * enough_information)
-                + (0.35 * target_confidence)
-            )
+            expected_mission_progress = 0.10 + (0.55 * safe_to_act * enough_information) + (0.35 * target_confidence)
         else:
-            expected_mission_progress = (
-                0.25 + (0.45 * target_confidence) + (0.30 * enough_information)
-            )
+            expected_mission_progress = 0.25 + (0.45 * target_confidence) + (0.30 * enough_information)
         if self._is_clear_informational_request(state):
             expected_mission_progress += 0.10
         if has_goal_next_action and not goal_blocked:
@@ -2005,9 +1858,7 @@ class ExecutiveController:
         elif top_route in ("llm", "memory"):
             routing_preference = "llm_first"
 
-        max_tool_hops = (
-            0 if not allow_tools else max(1, min(3, int(state.tool_budget or 1)))
-        )
+        max_tool_hops = 0 if not allow_tools else max(1, min(3, int(state.tool_budget or 1)))
         return {
             "routing_preference": routing_preference,
             "thinking_depth": thinking_depth,
@@ -2073,15 +1924,9 @@ class ExecutiveController:
             normalized_intent,
         )
         if not resp:
-            fallback_action = (
-                "safe_reply"
-                if (answerable_question or open_learning_goal)
-                else "clarify"
-            )
+            fallback_action = "safe_reply" if (answerable_question or open_learning_goal) else "clarify"
             fallback_reason = (
-                "llm_failed_after_answer_directly"
-                if answerable_question
-                else "clarification_due_to_missing_parameter"
+                "llm_failed_after_answer_directly" if answerable_question else "clarification_due_to_missing_parameter"
             )
             return {
                 "accepted": False,
@@ -2109,9 +1954,7 @@ class ExecutiveController:
         resp_tokens = set(self._tokens(resp))
         overlap = 0.0
         if user_tokens:
-            overlap = len(user_tokens.intersection(resp_tokens)) / max(
-                len(user_tokens), 1
-            )
+            overlap = len(user_tokens.intersection(resp_tokens)) / max(len(user_tokens), 1)
 
         uncertain_markers = (
             "i'm not sure",
@@ -2121,9 +1964,7 @@ class ExecutiveController:
             "i don't know",
             "not certain",
         )
-        uncertain_penalty = (
-            0.35 if any(m in resp.lower() for m in uncertain_markers) else 0.0
-        )
+        uncertain_penalty = 0.35 if any(m in resp.lower() for m in uncertain_markers) else 0.0
 
         generic_markers = (
             "it depends",
@@ -2131,44 +1972,25 @@ class ExecutiveController:
             "there are many factors",
             "cannot be determined",
         )
-        generic_penalty = (
-            0.20 if any(m in resp.lower() for m in generic_markers) else 0.0
-        )
+        generic_penalty = 0.20 if any(m in resp.lower() for m in generic_markers) else 0.0
 
-        score = max(
-            0.0, min(1.0, 0.55 + (0.55 * overlap) - uncertain_penalty - generic_penalty)
-        )
+        score = max(0.0, min(1.0, 0.55 + (0.55 * overlap) - uncertain_penalty - generic_penalty))
         plan_adherence = self._response_plan_adherence(resp, context)
         goal_alignment = float((context or {}).get("goal_alignment", 1.0) or 1.0)
         goal_alignment = max(0.0, min(1.0, goal_alignment))
         plan = (context or {}).get("response_plan", {}) or {}
-        required_sections = (
-            plan.get("required_sections", []) if isinstance(plan, dict) else []
-        )
-        format_hint = (
-            str(plan.get("format_hint", "")).lower() if isinstance(plan, dict) else ""
-        )
+        required_sections = plan.get("required_sections", []) if isinstance(plan, dict) else []
+        format_hint = str(plan.get("format_hint", "")).lower() if isinstance(plan, dict) else ""
         _needs_steps = (
             ("steps" in required_sections)
             or ("numbered" in format_hint)
-            or (
-                str(plan.get("response_type", "")).lower()
-                in ("instruction", "troubleshooting")
-            )
+            or (str(plan.get("response_type", "")).lower() in ("instruction", "troubleshooting"))
         )
-        _has_steps = any(f"{i}." in resp.lower() for i in range(1, 6)) or (
-            "step" in resp.lower()
-        )
+        _has_steps = any(f"{i}." in resp.lower() for i in range(1, 6)) or ("step" in resp.lower())
         if _needs_steps and not _has_steps:
-            _fallback_action = (
-                "revise_answer"
-                if (answerable_question or open_learning_goal)
-                else "safe_reply"
-            )
+            _fallback_action = "revise_answer" if (answerable_question or open_learning_goal) else "safe_reply"
             _fallback_reason = (
-                "llm_failed_after_answer_directly"
-                if answerable_question
-                else "low_confidence_answer_needs_refinement"
+                "llm_failed_after_answer_directly" if answerable_question else "low_confidence_answer_needs_refinement"
             )
             return {
                 "accepted": False,
@@ -2193,17 +2015,11 @@ class ExecutiveController:
             return {
                 "accepted": True,
                 "score": score,
-                "reason": (
-                    "accepted"
-                    if plan_adherence >= 0.60
-                    else "accepted_low_plan_adherence"
-                ),
+                "reason": ("accepted" if plan_adherence >= 0.60 else "accepted_low_plan_adherence"),
                 "fallback_action": "",
             }
 
-        fallback_action = (
-            "clarify" if (overlap < 0.2 or plan_adherence < 0.45) else "safe_reply"
-        )
+        fallback_action = "clarify" if (overlap < 0.2 or plan_adherence < 0.45) else "safe_reply"
         if answerable_question or open_learning_goal:
             fallback_action = "revise_answer"
 
@@ -2222,9 +2038,7 @@ class ExecutiveController:
         return {
             "accepted": False,
             "score": score,
-            "reason": (
-                "low_alignment" if goal_alignment >= 0.35 else "goal_misalignment"
-            ),
+            "reason": ("low_alignment" if goal_alignment >= 0.35 else "goal_misalignment"),
             "fallback_action": fallback_action,
             "fallback_reason": fallback_reason,
         }
@@ -2353,9 +2167,9 @@ class ExecutiveController:
             "encapsulation",
             "oop",
         }
-        if programming_drift_terms.intersection(
-            response_tokens
-        ) and not programming_drift_terms.intersection(set(user_anchors)):
+        if programming_drift_terms.intersection(response_tokens) and not programming_drift_terms.intersection(
+            set(user_anchors)
+        ):
             return {
                 "accepted": False,
                 "score": 0.0,
@@ -2476,20 +2290,12 @@ class ExecutiveController:
             lines.append(f"- plan: {' | '.join(state.plan)}")
         return "\n".join(lines)
 
-    def _derive_plan(
-        self, intent: str, topic: str, depth_level: int, user_input: str
-    ) -> List[str]:
+    def _derive_plan(self, intent: str, topic: str, depth_level: int, user_input: str) -> List[str]:
         lowered_intent = (intent or "").lower()
         lowered_input = (user_input or "").lower()
 
-        if lowered_intent.startswith("learning:") or lowered_intent.startswith(
-            "question:"
-        ):
-            if (
-                depth_level >= 3
-                or "example" in lowered_input
-                or "code" in lowered_input
-            ):
+        if lowered_intent.startswith("learning:") or lowered_intent.startswith("question:"):
+            if depth_level >= 3 or "example" in lowered_input or "code" in lowered_input:
                 return [
                     "explain succinctly",
                     "give concrete example",

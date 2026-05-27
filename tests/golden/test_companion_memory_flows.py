@@ -4,11 +4,7 @@ from tests.integration.test_contract_pipeline import _FakeAlice
 
 
 def _structured_rows(alice):
-    return [
-        row
-        for row in alice.memory._stored
-        if (row.get("context") or {}).get("memory_schema") == "personal_v1"
-    ]
+    return [row for row in alice.memory._stored if (row.get("context") or {}).get("memory_schema") == "personal_v1"]
 
 
 def test_a_personal_update_then_personal_recall_is_grounded():
@@ -36,9 +32,7 @@ def test_b_mixed_turn_keeps_code_route_and_recall_mentions_shopping():
     assert first.metadata["route"] == "local"
     assert first.metadata["intent"] == "code:request"
     structured = _structured_rows(alice)
-    assert any(
-        (r.get("context") or {}).get("domain") == "personal_life" for r in structured
-    )
+    assert any((r.get("context") or {}).get("domain") == "personal_life" for r in structured)
 
     second = pipeline.run_turn("what did I talk about my personal life?", "u1", 2)
     assert second.metadata["response_type"] == "personal_memory_grounded"

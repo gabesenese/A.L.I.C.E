@@ -176,9 +176,7 @@ class RichTerminalUI:
                 unused.append((opener, context, prompt, signature))
 
         if not unused:
-            self.used_greetings = {
-                sig for sig in self.used_greetings if sig[0] != period
-            }
+            self.used_greetings = {sig for sig in self.used_greetings if sig[0] != period}
             for opener, context, prompt in combos:
                 signature = (period, opener, context, prompt)
                 unused.append((opener, context, prompt, signature))
@@ -222,11 +220,7 @@ class RichTerminalUI:
         lines_padded = [line.ljust(art_width) for line in ascii_lines]
         # Center the whole block (one unit), not line-by-line
         try:
-            width = (
-                getattr(self.console.size, "width", None)
-                or getattr(self.console, "width", 80)
-                or 80
-            )
+            width = getattr(self.console.size, "width", None) or getattr(self.console, "width", 80) or 80
         except Exception:
             width = 80
         margin = max(0, (width - art_width) // 2)
@@ -255,9 +249,7 @@ class RichTerminalUI:
 System ready. Type [{self.colors["accent"]}]/help[/{self.colors["accent"]}] for available commands
 """
 
-        info_panel = Panel(
-            info_text, border_style=self.colors["dim_border"], box=box.MINIMAL
-        )
+        info_panel = Panel(info_text, border_style=self.colors["dim_border"], box=box.MINIMAL)
         self.console.print(info_panel, justify="center")
         self.console.print()
 
@@ -283,9 +275,7 @@ System ready. Type [{self.colors["accent"]}]/help[/{self.colors["accent"]}] for 
     @contextmanager
     def thinking_spinner(self):
         """Context manager that shows an animated spinner while ALICE is processing."""
-        spinner = Spinner(
-            "dots2", text=f"[{self.colors['info']}]thinking…[/{self.colors['info']}]"
-        )
+        spinner = Spinner("dots2", text=f"[{self.colors['info']}]thinking…[/{self.colors['info']}]")
         with Live(spinner, console=self.console, transient=True, refresh_per_second=12):
             yield
 
@@ -336,9 +326,7 @@ System ready. Type [{self.colors["accent"]}]/help[/{self.colors["accent"]}] for 
             "Risks",
             "Approach",
         )
-        heading_pattern = re.compile(
-            r"\b(" + "|".join(re.escape(label) for label in section_labels) + r"):"
-        )
+        heading_pattern = re.compile(r"\b(" + "|".join(re.escape(label) for label in section_labels) + r"):")
         heading_matches = list(heading_pattern.finditer(normalized))
         if len(heading_matches) >= 2:
             structured = normalized
@@ -352,9 +340,7 @@ System ready. Type [{self.colors["accent"]}]/help[/{self.colors["accent"]}] for 
             if "\n" in structured:
                 return structured
 
-        sentences = [
-            s.strip() for s in re.split(r"(?<=[.!?])\s+", normalized) if s.strip()
-        ]
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", normalized) if s.strip()]
         if len(sentences) < 2:
             return value
 
@@ -382,8 +368,7 @@ System ready. Type [{self.colors["accent"]}]/help[/{self.colors["accent"]}] for 
         has_markdown = any(m in display_text for m in _MD_MARKERS)
         # Numbered list: lines starting with digit+dot (e.g. "1. Item")
         has_numbered = any(
-            line.lstrip().startswith(tuple(f"{i}." for i in range(1, 20)))
-            for line in display_text.splitlines()
+            line.lstrip().startswith(tuple(f"{i}." for i in range(1, 20))) for line in display_text.splitlines()
         )
 
         if has_markdown or has_numbered:
@@ -424,9 +409,7 @@ System ready. Type [{self.colors["accent"]}]/help[/{self.colors["accent"]}] for 
 
     def print_error(self, text):
         """Display error message"""
-        self.console.print(
-            f"[{self.colors['error']}]ERROR:[/{self.colors['error']}] {text}"
-        )
+        self.console.print(f"[{self.colors['error']}]ERROR:[/{self.colors['error']}] {text}")
         self.console.print()
 
     def print_info(self, text):

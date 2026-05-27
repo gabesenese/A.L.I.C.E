@@ -93,9 +93,7 @@ class EntityNormalizer:
                     )
                 )
             except re.error as e:
-                logger.warning(
-                    f"[NORMALIZER] Invalid pattern {rule_def['pattern']}: {e}"
-                )
+                logger.warning(f"[NORMALIZER] Invalid pattern {rule_def['pattern']}: {e}")
 
         # Load user rules if available
         if self.user_rules_path and self.user_rules_path.exists():
@@ -120,9 +118,7 @@ class EntityNormalizer:
             except Exception as e:
                 logger.error(f"[NORMALIZER] Failed to load user rules: {e}")
 
-    def normalize(
-        self, entity: str, category: Optional[str] = None
-    ) -> NormalizedEntity:
+    def normalize(self, entity: str, category: Optional[str] = None) -> NormalizedEntity:
         """
         Normalize an entity using applicable rules.
 
@@ -204,10 +200,7 @@ class EntityNormalizer:
             "this week": now.date().isoformat(),
             "next week": (now + timedelta(weeks=1)).date().isoformat(),
             "this month": now.replace(day=1).date().isoformat(),
-            "next month": (now.replace(day=1) + timedelta(days=32))
-            .replace(day=1)
-            .date()
-            .isoformat(),
+            "next month": (now.replace(day=1) + timedelta(days=32)).replace(day=1).date().isoformat(),
         }
 
         if entity_lower in RELATIVE_MAP:
@@ -249,9 +242,7 @@ class EntityNormalizer:
             confidence=1.0,
         )
 
-    def normalize_batch(
-        self, entities: List[str], category: Optional[str] = None
-    ) -> List[NormalizedEntity]:
+    def normalize_batch(self, entities: List[str], category: Optional[str] = None) -> List[NormalizedEntity]:
         """Efficiently normalize multiple entities."""
         return [self.normalize(e, category) for e in entities]
 

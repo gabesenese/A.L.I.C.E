@@ -96,18 +96,14 @@ def test_companion_daemon_records_cycle_and_notifies_for_stale_goal():
     notifications = []
     world = _WorldState()
     journal = _Journal(summary={"success": 1, "failed": 0})
-    goal_system = _GoalSystem(
-        [_Goal(updated_at=now - 7200, next_step="Run the companion tests")]
-    )
+    goal_system = _GoalSystem([_Goal(updated_at=now - 7200, next_step="Run the companion tests")])
     daemon = CompanionDaemon(
         state_api=_StateAPI(),
         world_state_memory=world,
         execution_journal=journal,
         goal_system=goal_system,
         proactive_assistant=_ProactiveAssistant(),
-        notify_callback=lambda message, priority="normal": notifications.append(
-            (message, priority)
-        ),
+        notify_callback=lambda message, priority="normal": notifications.append((message, priority)),
         config=CompanionDaemonConfig(
             stale_goal_seconds=3600,
             notification_cooldown_seconds=600,
@@ -140,9 +136,7 @@ def test_companion_daemon_suppresses_repeated_notifications_during_cooldown():
         execution_journal=_Journal(),
         goal_system=_GoalSystem([_Goal(updated_at=1000.0)]),
         proactive_assistant=_ProactiveAssistant(),
-        notify_callback=lambda message, priority="normal": notifications.append(
-            (message, priority)
-        ),
+        notify_callback=lambda message, priority="normal": notifications.append((message, priority)),
         config=CompanionDaemonConfig(
             stale_goal_seconds=60,
             notification_cooldown_seconds=600,
@@ -167,9 +161,7 @@ def test_companion_daemon_prioritizes_blocked_goals():
         execution_journal=_Journal(),
         goal_system=_GoalSystem([_Goal(blockers=["needs user approval"])]),
         proactive_assistant=_ProactiveAssistant(),
-        notify_callback=lambda message, priority="normal": notifications.append(
-            (message, priority)
-        ),
+        notify_callback=lambda message, priority="normal": notifications.append((message, priority)),
         clock=lambda: 10_000.0,
     )
 

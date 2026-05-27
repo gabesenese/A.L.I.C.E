@@ -77,9 +77,7 @@ class IdentityStore:
         stance = stance.strip()[:200]
         now = _now_iso()
         with _lock, self._conn() as conn:
-            row = conn.execute(
-                "SELECT evidence_count FROM alice_opinions WHERE topic = ?", (topic,)
-            ).fetchone()
+            row = conn.execute("SELECT evidence_count FROM alice_opinions WHERE topic = ?", (topic,)).fetchone()
             if row:
                 new_count = int(row["evidence_count"]) + 1
                 conn.execute(

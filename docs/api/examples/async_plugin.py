@@ -63,9 +63,7 @@ class AsyncAPIPlugin(PluginInterface):
 
         return False
 
-    def execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         """
         Execute async operation.
 
@@ -80,9 +78,7 @@ class AsyncAPIPlugin(PluginInterface):
                 asyncio.set_event_loop(loop)
 
             # Run async operation
-            result = loop.run_until_complete(
-                self._async_execute(intent, query, entities, context)
-            )
+            result = loop.run_until_complete(self._async_execute(intent, query, entities, context))
 
             return result
 
@@ -104,17 +100,13 @@ class AsyncAPIPlugin(PluginInterface):
                 "response": f"Error: {str(e)}",
             }
 
-    async def _async_execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    async def _async_execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         """
         Actual async implementation.
         """
         try:
             # Simulate async API call with timeout
-            data = await asyncio.wait_for(
-                self._fetch_data_async(query), timeout=self.timeout
-            )
+            data = await asyncio.wait_for(self._fetch_data_async(query), timeout=self.timeout)
 
             return {
                 "success": True,
@@ -190,9 +182,7 @@ if __name__ == "__main__":
             print(" Plugin initialized")
 
             # Single async call
-            result = plugin.execute(
-                intent="fetch", query="test data", entities={}, context={}
-            )
+            result = plugin.execute(intent="fetch", query="test data", entities={}, context={})
             print(f" Single fetch: {result['data']}")
 
             # Multiple concurrent calls

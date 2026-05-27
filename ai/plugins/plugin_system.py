@@ -56,9 +56,7 @@ class PluginInterface(ABC):
         pass
 
     @abstractmethod
-    def execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         """
         Execute plugin functionality
 
@@ -149,9 +147,7 @@ class PluginManager:
                 return False
         return False
 
-    def execute_for_intent(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Optional[Dict]:
+    def execute_for_intent(self, intent: str, query: str, entities: Dict, context: Dict) -> Optional[Dict]:
         """
         Find and execute appropriate plugin for the given intent
         Uses semantic classification to understand user intent when available
@@ -162,9 +158,7 @@ class PluginManager:
         # First, try semantic classification if available
         if self.use_semantic and self.intent_classifier and query:
             try:
-                semantic_result = self.intent_classifier.get_plugin_action(
-                    query, threshold=0.45
-                )
+                semantic_result = self.intent_classifier.get_plugin_action(query, threshold=0.45)
 
                 if semantic_result and semantic_result["confidence"] > 0.5:
                     plugin_name = semantic_result["plugin"]
@@ -200,17 +194,13 @@ class PluginManager:
                             )
                             try:
                                 # Execute plugin with semantic action hint
-                                result = plugin.execute(
-                                    intent, query, entities, context
-                                )
+                                result = plugin.execute(intent, query, entities, context)
                                 result = self._normalize_plugin_result(result)
                                 result["plugin"] = actual_plugin_name
                                 result["semantic_match"] = semantic_result
                                 return result
                             except Exception as e:
-                                logger.error(
-                                    f"[ERROR] Plugin execution error ({actual_plugin_name}): {e}"
-                                )
+                                logger.error(f"[ERROR] Plugin execution error ({actual_plugin_name}): {e}")
                                 # Fall through to traditional matching
             except Exception as e:
                 logger.warning(f"Semantic classification error: {e}")
@@ -349,9 +339,7 @@ class WeatherPlugin(PluginInterface):
         ):
             return True
 
-        time_range_entities = (
-            entities.get("TIME_RANGE", []) if isinstance(entities, dict) else []
-        )
+        time_range_entities = entities.get("TIME_RANGE", []) if isinstance(entities, dict) else []
         if time_range_entities:
             return True
 
@@ -375,15 +363,11 @@ class WeatherPlugin(PluginInterface):
                     name = result.get("name", location)
                     # Validate coordinates are present and numeric
                     if lat is None or lon is None:
-                        logger.error(
-                            f"Geocoding returned incomplete coordinates for {location!r}"
-                        )
+                        logger.error(f"Geocoding returned incomplete coordinates for {location!r}")
                         return None
                     return lat, lon, name
                 else:
-                    logger.error(
-                        f"Geocoding returned no results for {location!r}: {data!r}"
-                    )
+                    logger.error(f"Geocoding returned no results for {location!r}: {data!r}")
         except Exception as e:
             logger.error(f"Geocoding error for {location!r}: {e}")
         return None
@@ -436,18 +420,14 @@ class WeatherPlugin(PluginInterface):
 
             # Ensure context is a dict (main may pass a string summary)
             if not isinstance(context, dict):
-                logger.debug(
-                    f"Weather plugin received non-dict context: {type(context)}"
-                )
+                logger.debug(f"Weather plugin received non-dict context: {type(context)}")
                 context = {}
 
             # Get location from context
             location = context.get("location")
             city = context.get("city")
 
-            logger.info(
-                f"Weather plugin - Location from context: city={city}, location={location}"
-            )
+            logger.info(f"Weather plugin - Location from context: city={city}, location={location}")
 
             # Prefer city over full location string
             if city and city != "Unknown":
@@ -461,20 +441,14 @@ class WeatherPlugin(PluginInterface):
             if "in" in words:
                 idx = words.index("in")
                 if idx + 1 < len(words):
-                    location = self._clean_location_candidate(
-                        " ".join(words[idx + 1 :]).strip("?!.")
-                    )
-                    logger.info(
-                        f"Weather plugin - Extracted location from query: {location}"
-                    )
+                    location = self._clean_location_candidate(" ".join(words[idx + 1 :]).strip("?!."))
+                    logger.info(f"Weather plugin - Extracted location from query: {location}")
 
             # If still no location, try fallback detection
             if not location:
                 location = self._detect_location_fallback()
                 if location:
-                    logger.info(
-                        f"Weather plugin - Using IP fallback location: {location}"
-                    )
+                    logger.info(f"Weather plugin - Using IP fallback location: {location}")
 
             # If still no location, provide helpful response
             if not location:
@@ -582,17 +556,11 @@ class WeatherPlugin(PluginInterface):
                 humidity = current.get("relative_humidity_2m")
                 wind = current.get("wind_speed_10m")
                 weather_code = current.get("weather_code")
-                condition = (
-                    weather_codes.get(weather_code)
-                    if weather_code is not None
-                    else None
-                )
+                condition = weather_codes.get(weather_code) if weather_code is not None else None
 
                 # If no usable data came back, treat as a no-data response
                 if temp is None and condition is None:
-                    logger.warning(
-                        f"Weather API returned no usable data for {location_name}"
-                    )
+                    logger.warning(f"Weather API returned no usable data for {location_name}")
                     return {
                         "success": False,
                         "response": None,
@@ -619,9 +587,7 @@ class WeatherPlugin(PluginInterface):
                     },
                 }
             else:
-                logger.warning(
-                    f"Weather API returned HTTP {response.status_code} for {location_name}"
-                )
+                logger.warning(f"Weather API returned HTTP {response.status_code} for {location_name}")
                 return {
                     "success": False,
                     "response": None,
@@ -668,9 +634,7 @@ class WeatherPlugin(PluginInterface):
                     },
                 }
             except requests.exceptions.ConnectionError as e:
-                logger.warning(
-                    f"Forecast API connection error for {location_name}: {e}"
-                )
+                logger.warning(f"Forecast API connection error for {location_name}: {e}")
                 return {
                     "success": False,
                     "response": None,
@@ -682,9 +646,7 @@ class WeatherPlugin(PluginInterface):
                 }
 
             if response.status_code != 200:
-                logger.warning(
-                    f"Forecast API returned HTTP {response.status_code} for {location_name}"
-                )
+                logger.warning(f"Forecast API returned HTTP {response.status_code} for {location_name}")
                 return {
                     "success": False,
                     "response": None,
@@ -852,9 +814,7 @@ class FileOperationsPlugin(PluginInterface):
             response = "I can help you create a file. What would you like to name it?"
         elif "delete" in query_lower or "remove" in query_lower:
             action = "delete"
-            response = (
-                "Which file would you like me to delete? Please provide the file path."
-            )
+            response = "Which file would you like me to delete? Please provide the file path."
         elif "list" in query_lower or "show" in query_lower:
             action = "list"
             response = "I'll list the files in your current directory."
@@ -937,11 +897,7 @@ class SystemControlPlugin(PluginInterface):
                     apps_data = json.loads(result.stdout)
                     if isinstance(apps_data, list):
                         for app in apps_data:
-                            if (
-                                isinstance(app, dict)
-                                and app.get("Name")
-                                and app.get("Path")
-                            ):
+                            if isinstance(app, dict) and app.get("Name") and app.get("Path"):
                                 name_lower = app["Name"].lower()
                                 self._installed_apps[name_lower] = app["Path"]
                     elif isinstance(apps_data, dict) and apps_data.get("Name"):
@@ -1031,9 +987,7 @@ class SystemControlPlugin(PluginInterface):
             # Extract app name - look for word after "open", "launch", "start"
             import re
 
-            app_match = re.search(
-                r"\b(?:open|launch|start)\s+(.+?)(?:\s|$)", query_lower
-            )
+            app_match = re.search(r"\b(?:open|launch|start)\s+(.+?)(?:\s|$)", query_lower)
             if app_match:
                 app_name = app_match.group(1).strip()
 
@@ -1324,8 +1278,7 @@ class CapabilityGraph:
             return [
                 name
                 for name, cap in self._nodes.items()
-                if intent in cap.handles_intents
-                or any(intent.startswith(h.rstrip("*")) for h in cap.handles_intents)
+                if intent in cap.handles_intents or any(intent.startswith(h.rstrip("*")) for h in cap.handles_intents)
             ]
 
     def can_execute(self, plugin_name: str, available_slots: Set[str]) -> bool:
@@ -1368,9 +1321,7 @@ class CapabilityGraph:
         available_slots: Optional[Set[str]] = None,
     ) -> Optional[str]:
         slots = available_slots or set()
-        candidates = [
-            p for p in self.plugins_for_intent(intent) if self.can_execute(p, slots)
-        ]
+        candidates = [p for p in self.plugins_for_intent(intent) if self.can_execute(p, slots)]
         if not candidates:
             return None
 

@@ -46,9 +46,7 @@ class RepetitionDetector:
     def __init__(self, window_size: int = 10):
         self.query_history = defaultdict(lambda: deque(maxlen=window_size))
 
-    def check_repetition(
-        self, user_id: str, intent_type: str, query_hash: str
-    ) -> Tuple[int, Optional[float]]:
+    def check_repetition(self, user_id: str, intent_type: str, query_hash: str) -> Tuple[int, Optional[float]]:
         """
         Returns: (repetition_count, time_since_last_in_seconds)
         """
@@ -118,10 +116,7 @@ class ResponseVarianceEngine:
             user_input = turn.get("user_input", "").lower()
 
             # Frustration indicators
-            if any(
-                word in user_input
-                for word in ["what", "why", "didn't", "wrong", "again"]
-            ):
+            if any(word in user_input for word in ["what", "why", "didn't", "wrong", "again"]):
                 frustration_signals += 1
             if "!" in user_input or "?!" in user_input:
                 frustration_signals += 1
@@ -131,10 +126,7 @@ class ResponseVarianceEngine:
             # Excitement indicators
             if "!!" in user_input:
                 excitement_signals += 1
-            if any(
-                word in user_input
-                for word in ["awesome", "great", "perfect", "thanks", "love"]
-            ):
+            if any(word in user_input for word in ["awesome", "great", "perfect", "thanks", "love"]):
                 excitement_signals += 1
 
             # Confusion indicators
@@ -203,30 +195,22 @@ class ResponseVarianceEngine:
 
         return constraints
 
-    def _get_recent_similar_responses(
-        self, user_id: str, intent_type: str, n: int = 3
-    ) -> List[str]:
+    def _get_recent_similar_responses(self, user_id: str, intent_type: str, n: int = 3) -> List[str]:
         """Get recent responses for similar intents (to avoid repetition)"""
         history = self.response_history[user_id]
         similar = [resp for resp_intent, resp in history if resp_intent == intent_type]
         return similar[-n:] if similar else []
 
-    def _generate_with_variance(
-        self, context: ResponseContext, constraints: Dict
-    ) -> str:
+    def _generate_with_variance(self, context: ResponseContext, constraints: Dict) -> str:
         """Generate response with variance using LLM"""
         # Get inspiration from past successful responses (not templates)
-        similar_responses = self._get_recent_similar_responses(
-            context.user_id, context.intent_type, n=3
-        )
+        similar_responses = self._get_recent_similar_responses(context.user_id, context.intent_type, n=3)
 
         # Build generation prompt
         prompt_parts = []
 
         # Core instruction
-        prompt_parts.append(
-            "Generate a natural, conversational response for this situation:"
-        )
+        prompt_parts.append("Generate a natural, conversational response for this situation:")
         prompt_parts.append(f"Intent: {context.intent_type}")
         prompt_parts.append(f"Data: {context.data}")
 
@@ -256,9 +240,7 @@ class ResponseVarianceEngine:
 
         # Verbosity constraint
         if constraints["max_length"] < 100:
-            prompt_parts.append(
-                f"Keep response under {constraints['max_length']} characters. Be concise."
-            )
+            prompt_parts.append(f"Keep response under {constraints['max_length']} characters. Be concise.")
 
         prompt = "\n".join(prompt_parts)
 
@@ -277,9 +259,7 @@ class ResponseVarianceEngine:
         # Final fallback: basic structured response
         return self._generate_basic_response(context, constraints)
 
-    def _generate_from_learned_patterns(
-        self, context: ResponseContext, constraints: Dict
-    ) -> str:
+    def _generate_from_learned_patterns(self, context: ResponseContext, constraints: Dict) -> str:
         """Generate using learned successful patterns"""
         # This uses phrasing learner to blend successful past patterns
         # Not templates, but learned semantic structures
@@ -299,17 +279,13 @@ class ResponseVarianceEngine:
 
         return self._generate_basic_response(context, constraints)
 
-    def _apply_pattern_features(
-        self, context: ResponseContext, pattern: Dict, constraints: Dict
-    ) -> str:
+    def _apply_pattern_features(self, context: ResponseContext, pattern: Dict, constraints: Dict) -> str:
         """Apply learned pattern features to generate new response"""
         # This is a placeholder - actual implementation would use
         # pattern features (length, structure, tone) to guide generation
         return self._generate_basic_response(context, constraints)
 
-    def _generate_basic_response(
-        self, context: ResponseContext, constraints: Dict
-    ) -> str:
+    def _generate_basic_response(self, context: ResponseContext, constraints: Dict) -> str:
         """Fallback: generate basic structured response"""
         data = context.data
         intent = context.intent_type
@@ -369,27 +345,21 @@ class ResponseVarianceEngine:
         """Compatibility wrapper for different LLM engine APIs."""
         max_tokens = constraints.get("max_length", 200) // 4
 
-        if hasattr(self.llm_generator, "generate") and callable(
-            getattr(self.llm_generator, "generate")
-        ):
+        if hasattr(self.llm_generator, "generate") and callable(getattr(self.llm_generator, "generate")):
             return self.llm_generator.generate(
                 prompt=prompt,
                 max_tokens=max_tokens,
                 temperature=0.8,
             )
 
-        if hasattr(self.llm_generator, "chat") and callable(
-            getattr(self.llm_generator, "chat")
-        ):
+        if hasattr(self.llm_generator, "chat") and callable(getattr(self.llm_generator, "chat")):
             return self.llm_generator.chat(prompt, use_history=False)
 
         raise AttributeError(
             "LLM generator must provide either 'generate(prompt=...)' or 'chat(user_input, use_history=...)'"
         )
 
-    def _get_successful_patterns(
-        self, intent_type: str, n: int = 5
-    ) -> List[Dict[str, Any]]:
+    def _get_successful_patterns(self, intent_type: str, n: int = 5) -> List[Dict[str, Any]]:
         """Compatibility wrapper for phrasing learner pattern access APIs."""
         if not self.phrasing_learner:
             return []
@@ -463,8 +433,7 @@ class ResponseVarianceEngine:
             timestamp=time.time(),
             user_reaction=user_reaction,
             quality_score=quality_score,
-            led_to_clarification="what" in user_reaction.lower()
-            or "?" in user_reaction,
+            led_to_clarification="what" in user_reaction.lower() or "?" in user_reaction,
             led_to_success="thanks" in user_reaction.lower() or user_reaction == "",
         )
 
@@ -481,9 +450,7 @@ class ResponseVarianceEngine:
         reaction_lower = user_reaction.lower()
 
         # Positive signals
-        if any(
-            word in reaction_lower for word in ["thanks", "perfect", "great", "awesome"]
-        ):
+        if any(word in reaction_lower for word in ["thanks", "perfect", "great", "awesome"]):
             return 0.9
 
         # Neutral (no follow-up) is good
@@ -495,9 +462,7 @@ class ResponseVarianceEngine:
             return 0.5
 
         # Negative signals
-        if any(
-            word in reaction_lower for word in ["wrong", "no", "didn't", "never mind"]
-        ):
+        if any(word in reaction_lower for word in ["wrong", "no", "didn't", "never mind"]):
             return 0.2
 
         return 0.6  # Default
@@ -507,10 +472,8 @@ class ResponseVarianceEngine:
         # Extract features from successful response
         features = {
             "length": len(response.split()),
-            "has_examples": "for example" in response.lower()
-            or "like" in response.lower(),
-            "has_confirmation": "here" in response.lower()
-            or "found" in response.lower(),
+            "has_examples": "for example" in response.lower() or "like" in response.lower(),
+            "has_confirmation": "here" in response.lower() or "found" in response.lower(),
             "directness": 1.0 if len(response.split()) < 15 else 0.5,
         }
 

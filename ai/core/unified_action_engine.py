@@ -184,9 +184,7 @@ class UnifiedActionEngine:
             return result
 
         simulation_gate = self._run_simulation_gate(request)
-        if simulation_gate.get("required") and not simulation_gate.get(
-            "allowed", False
-        ):
+        if simulation_gate.get("required") and not simulation_gate.get("allowed", False):
             result = ActionResult(
                 success=False,
                 status="simulation_blocked",
@@ -194,10 +192,7 @@ class UnifiedActionEngine:
                 action=request.action,
                 goal_satisfied=False,
                 data={},
-                error=str(
-                    simulation_gate.get("reason")
-                    or "I need a safer plan before running this action."
-                ),
+                error=str(simulation_gate.get("reason") or "I need a safer plan before running this action."),
                 retryable=True,
                 confidence=max(0.0, min(1.0, float(request.confidence or 0.0))),
                 side_effects=[],
@@ -222,11 +217,7 @@ class UnifiedActionEngine:
             return result
 
         intent = self._compose_intent(request)
-        raw_query = (
-            request.params.get("_raw_query")
-            if isinstance(request.params, dict)
-            else None
-        )
+        raw_query = request.params.get("_raw_query") if isinstance(request.params, dict) else None
         max_attempts = max(1, min(4, int(request.retry_budget) + 1))
         plan_steps = self.planner.decompose(request)
         last_result: Optional[ActionResult] = None
@@ -253,21 +244,14 @@ class UnifiedActionEngine:
             )
 
             result_dict = tool_outcome.result or {}
-            status = str(
-                result_dict.get("status")
-                or ("success" if result_dict.get("success") else "failed")
-            )
+            status = str(result_dict.get("status") or ("success" if result_dict.get("success") else "failed"))
             plugin = str(result_dict.get("plugin") or request.plugin or "unknown")
             action = str(result_dict.get("action") or request.action or "unknown")
             success = bool(result_dict.get("success", False))
-            verified = bool(
-                (result_dict.get("verification") or {}).get("accepted", False)
-            )
+            verified = bool((result_dict.get("verification") or {}).get("accepted", False))
 
             goal_report = self.goal_verifier.verify(request, result_dict).to_dict()
-            goal_satisfied = bool(
-                success and verified and goal_report.get("goal_satisfied", False)
-            )
+            goal_satisfied = bool(success and verified and goal_report.get("goal_satisfied", False))
 
             state_updates = self._build_state_updates(
                 request=request,
@@ -280,9 +264,7 @@ class UnifiedActionEngine:
             )
 
             confidence = self._coerce_confidence(
-                result_dict.get(
-                    "confidence", request.confidence or (1.0 if success else 0.2)
-                )
+                result_dict.get("confidence", request.confidence or (1.0 if success else 0.2))
             )
             recovery_path = self.planner.recovery_path(
                 retry_count=attempt_idx,
@@ -301,15 +283,8 @@ class UnifiedActionEngine:
                 plugin=plugin,
                 action=action,
                 goal_satisfied=goal_satisfied,
-                data=(
-                    result_dict.get("data")
-                    if isinstance(result_dict.get("data"), dict)
-                    else {}
-                ),
-                error=str(
-                    result_dict.get("message") or result_dict.get("response") or ""
-                )
-                or None,
+                data=(result_dict.get("data") if isinstance(result_dict.get("data"), dict) else {}),
+                error=str(result_dict.get("message") or result_dict.get("response") or "") or None,
                 retryable=bool(result_dict.get("retryable", not success)),
                 confidence=confidence,
                 side_effects=list(result_dict.get("side_effects") or []),
@@ -322,9 +297,7 @@ class UnifiedActionEngine:
             if recommendation:
                 last_result.state_updates["recovery_recommendation"] = recommendation
                 if not last_result.recovery_path:
-                    last_result.recovery_path = str(
-                        recommendation.get("next_step") or "clarify_then_continue"
-                    )
+                    last_result.recovery_path = str(recommendation.get("next_step") or "clarify_then_continue")
 
             self._record_journal(
                 "attempt",
@@ -358,9 +331,7 @@ class UnifiedActionEngine:
         if rollback_outcome:
             last_result.state_updates["rollback"] = rollback_outcome
             last_result.recovery_path = (
-                "rollback_success"
-                if rollback_outcome.get("success", False)
-                else "rollback_failed_escalate"
+                "rollback_success" if rollback_outcome.get("success", False) else "rollback_failed_escalate"
             )
 
         self.world_state_memory.update_from_action(request, last_result)
@@ -399,33 +370,18 @@ class UnifiedActionEngine:
                 assistant._internal_reasoning_state.update(updates)
                 verification = updates.get("verification")
                 if isinstance(verification, dict):
-                    assistant._internal_reasoning_state["tool_verification"] = (
-                        verification
-                    )
+                    assistant._internal_reasoning_state["tool_verification"] = verification
                 if isinstance(result.verification_report, dict):
-                    assistant._internal_reasoning_state["goal_verification"] = dict(
-                        result.verification_report
-                    )
+                    assistant._internal_reasoning_state["goal_verification"] = dict(result.verification_report)
                 if result.ambiguity_flags:
-                    assistant._internal_reasoning_state["action_ambiguity"] = list(
-                        result.ambiguity_flags
-                    )
+                    assistant._internal_reasoning_state["action_ambiguity"] = list(result.ambiguity_flags)
                 if result.recovery_path:
-                    assistant._internal_reasoning_state["action_recovery_path"] = (
-                        result.recovery_path
-                    )
+                    assistant._internal_reasoning_state["action_recovery_path"] = result.recovery_path
 
-            if (
-                hasattr(assistant, "world_state_memory")
-                and assistant.world_state_memory is not None
-            ):
-                assistant._internal_reasoning_state["world_state"] = (
-                    assistant.world_state_memory.snapshot()
-                )
+            if hasattr(assistant, "world_state_memory") and assistant.world_state_memory is not None:
+                assistant._internal_reasoning_state["world_state"] = assistant.world_state_memory.snapshot()
             else:
-                assistant._internal_reasoning_state["world_state"] = (
-                    self.world_state_memory.snapshot()
-                )
+                assistant._internal_reasoning_state["world_state"] = self.world_state_memory.snapshot()
         except Exception:
             return
 
@@ -447,9 +403,7 @@ class UnifiedActionEngine:
         request.params = request.params or {}
         request.source_intent = str(request.source_intent or "").strip()
         request.confidence = self._coerce_confidence(request.confidence)
-        request.expected_outcome = str(
-            request.expected_outcome or request.goal or ""
-        ).strip()
+        request.expected_outcome = str(request.expected_outcome or request.goal or "").strip()
         request.target_spec = request.target_spec or {}
         request.risk_level = str(request.risk_level or "medium").strip().lower()
         request.retry_budget = max(0, min(3, int(request.retry_budget or 0)))
@@ -509,30 +463,19 @@ class UnifiedActionEngine:
             return False
 
         # Read-only flows can proceed if confidence is acceptable and target is clear.
-        if (
-            request.action in {"read", "list", "search"}
-            and request.confidence >= 0.6
-            and not missing_target
-        ):
+        if request.action in {"read", "list", "search"} and request.confidence >= 0.6 and not missing_target:
             return False
 
-        return bool(
-            low_confidence or missing_target or not self._has_explicit_approval(request)
-        )
+        return bool(low_confidence or missing_target or not self._has_explicit_approval(request))
 
     def _has_explicit_approval(self, request: ActionRequest) -> bool:
         params = request.params or {}
         if bool(params.get("_approval_token")):
             return True
         raw_query = str(params.get("_raw_query") or "").lower()
-        return any(
-            token in raw_query
-            for token in ("confirm", "approved", "go ahead", "yes do it")
-        )
+        return any(token in raw_query for token in ("confirm", "approved", "go ahead", "yes do it"))
 
-    def _should_retry(
-        self, request: ActionRequest, result: ActionResult, attempt_idx: int
-    ) -> bool:
+    def _should_retry(self, request: ActionRequest, result: ActionResult, attempt_idx: int) -> bool:
         if attempt_idx >= request.retry_budget:
             return False
         if not result.retryable:
@@ -541,12 +484,7 @@ class UnifiedActionEngine:
             return False
         if result.goal_satisfied:
             return False
-        if (
-            str((result.verification_report or {}).get("recommended_next_action") or "")
-            .strip()
-            .lower()
-            == "retry"
-        ):
+        if str((result.verification_report or {}).get("recommended_next_action") or "").strip().lower() == "retry":
             return True
         if result.ambiguity_flags:
             return False
@@ -585,25 +523,16 @@ class UnifiedActionEngine:
         if risk_level not in {"medium", "high", "critical"}:
             return {"required": False, "allowed": True, "reason": "low_risk"}
 
-        risk_value = {"medium": 0.55, "high": 0.78, "critical": 0.92}.get(
-            risk_level, 0.40
-        )
+        risk_value = {"medium": 0.55, "high": 0.78, "critical": 0.92}.get(risk_level, 0.40)
         action_low = str(request.action or "").strip().lower()
-        cost = (
-            0.55
-            if action_low in {"delete", "execute", "write", "update", "append"}
-            else 0.30
-        )
+        cost = 0.55 if action_low in {"delete", "execute", "write", "update", "append"} else 0.30
         candidate = {
             "action_id": f"{request.plugin}:{request.action}",
             "expected_gain": max(0.1, min(1.0, float(request.confidence or 0.5))),
             "risk": risk_value,
             "cost": cost,
             "confidence": max(0.05, min(1.0, float(request.confidence or 0.5))),
-            "reversible": bool(
-                str(request.rollback_policy or "none").lower()
-                in {"auto", "best_effort", "immediate"}
-            ),
+            "reversible": bool(str(request.rollback_policy or "none").lower() in {"auto", "best_effort", "immediate"}),
         }
 
         report: Dict[str, Any] = {}
@@ -657,9 +586,7 @@ class UnifiedActionEngine:
             "report": report,
         }
 
-    def _maybe_rollback(
-        self, request: ActionRequest, result: ActionResult
-    ) -> Optional[Dict[str, Any]]:
+    def _maybe_rollback(self, request: ActionRequest, result: ActionResult) -> Optional[Dict[str, Any]]:
         policy = str(request.rollback_policy or "none").lower()
         if policy not in {"auto", "best_effort", "immediate"}:
             return None
@@ -667,9 +594,7 @@ class UnifiedActionEngine:
         if result.goal_satisfied:
             return None
 
-        if not result.side_effects and not result.verification_report.get(
-            "partial_success", False
-        ):
+        if not result.side_effects and not result.verification_report.get("partial_success", False):
             return None
 
         preview_only = bool((request.params or {}).get("_rollback_preview_only", False))
@@ -745,10 +670,7 @@ class UnifiedActionEngine:
         if bool(params.get("_rollback_approval_token", False)):
             return True
         raw_query = str(params.get("_raw_query") or "").lower()
-        return any(
-            token in raw_query
-            for token in ("confirm rollback", "approve rollback", "yes rollback")
-        )
+        return any(token in raw_query for token in ("confirm rollback", "approve rollback", "yes rollback"))
 
     def _compose_intent(self, request: ActionRequest) -> str:
         source_intent = str(request.source_intent or "").strip()
@@ -776,9 +698,7 @@ class UnifiedActionEngine:
         simulation_report: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         goal_report = dict(goal_report or {})
-        recommended_next = (
-            str(goal_report.get("recommended_next_action") or "").strip().lower()
-        )
+        recommended_next = str(goal_report.get("recommended_next_action") or "").strip().lower()
         payload = {
             "verification": dict(tool_result.get("verification") or {}),
             "goal_verification": goal_report,

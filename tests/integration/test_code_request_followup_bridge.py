@@ -7,9 +7,7 @@ from app.main import ALICE
 
 class _StubSelfReflection:
     class _CodeFile:
-        def __init__(
-            self, path: str, name: str, lines: int, module_type: str, content: str
-        ):
+        def __init__(self, path: str, name: str, lines: int, module_type: str, content: str):
             self.path = path
             self.name = name
             self.lines = lines
@@ -56,18 +54,14 @@ def _build_alice_stub():
         "timestamp": None,
         "file_count": 0,
     }
-    alice._generate_natural_response = (
-        lambda alice_response, tone, context, user_input: "CAPABILITY_OK"
-    )
+    alice._generate_natural_response = lambda alice_response, tone, context, user_input: "CAPABILITY_OK"
     return alice
 
 
 def test_code_access_followup_list_it_routes_to_codebase_listing():
     alice = _build_alice_stub()
 
-    first = ALICE._handle_code_request(
-        alice, "do you have acess to your internal code?", {}
-    )
+    first = ALICE._handle_code_request(alice, "do you have acess to your internal code?", {})
     second = ALICE._handle_code_request(alice, "list it to me", {})
 
     assert first == "CAPABILITY_OK"
@@ -80,9 +74,7 @@ def test_code_access_followup_list_it_routes_to_codebase_listing():
 def test_code_access_followup_list_it_for_me_routes_to_codebase_listing():
     alice = _build_alice_stub()
 
-    first = ALICE._handle_code_request(
-        alice, "are you able to see your internal code?", {}
-    )
+    first = ALICE._handle_code_request(alice, "are you able to see your internal code?", {})
     second = ALICE._handle_code_request(alice, "list it for me", {})
 
     assert first == "CAPABILITY_OK"
@@ -94,9 +86,7 @@ def test_code_access_followup_list_it_for_me_routes_to_codebase_listing():
 def test_code_access_phrase_are_you_able_to_see_routes_to_capability_answer():
     alice = _build_alice_stub()
 
-    first = ALICE._handle_code_request(
-        alice, "are you able to see your internal code?", {}
-    )
+    first = ALICE._handle_code_request(alice, "are you able to see your internal code?", {})
 
     assert first == "CAPABILITY_OK"
     assert alice.code_context["last_action"] == "code_access_confirmed"

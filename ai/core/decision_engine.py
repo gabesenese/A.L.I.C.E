@@ -95,9 +95,7 @@ class DecisionEngine:
 
         return evaluated
 
-    def _weighted_sum(
-        self, options: List[Decision], criteria: List[Criterion]
-    ) -> List[Decision]:
+    def _weighted_sum(self, options: List[Decision], criteria: List[Criterion]) -> List[Decision]:
         """Weighted Sum Model - simple but effective"""
         for option in options:
             total_utility = 0.0
@@ -119,9 +117,7 @@ class DecisionEngine:
 
         return options
 
-    def _topsis(
-        self, options: List[Decision], criteria: List[Criterion]
-    ) -> List[Decision]:
+    def _topsis(self, options: List[Decision], criteria: List[Criterion]) -> List[Decision]:
         """
         TOPSIS - finds option closest to ideal and farthest from worst.
         More sophisticated than weighted sum.
@@ -163,17 +159,13 @@ class DecisionEngine:
 
             # Calculate relative closeness to ideal
             if distance_to_ideal + distance_to_anti_ideal > 0:
-                option.utility = distance_to_anti_ideal / (
-                    distance_to_ideal + distance_to_anti_ideal
-                )
+                option.utility = distance_to_anti_ideal / (distance_to_ideal + distance_to_anti_ideal)
             else:
                 option.utility = 0.5
 
         return options
 
-    def _utility_theory(
-        self, options: List[Decision], criteria: List[Criterion]
-    ) -> List[Decision]:
+    def _utility_theory(self, options: List[Decision], criteria: List[Criterion]) -> List[Decision]:
         """
         Utility theory with risk adjustment.
         Uses logarithmic utility function for risk-averse behavior.
@@ -242,9 +234,7 @@ class DecisionEngine:
             criteria_coverage = len(decision.scores) / max(1, len(evaluated[0].scores))
             decision.confidence *= criteria_coverage
 
-    def probabilistic_choice(
-        self, options: List[Decision], temperature: float = 1.0
-    ) -> Decision:
+    def probabilistic_choice(self, options: List[Decision], temperature: float = 1.0) -> Decision:
         """
         Make a probabilistic choice using softmax distribution.
         Higher temperature = more exploration, lower = more exploitation.
@@ -311,9 +301,7 @@ class DecisionEngine:
             confidence = score2 / (score1 + score2)
             return option2, confidence
 
-    def learn_from_outcome(
-        self, decision: Decision, actual_utility: float, context: Dict[str, Any] = None
-    ):
+    def learn_from_outcome(self, decision: Decision, actual_utility: float, context: Dict[str, Any] = None):
         """
         Learn from decision outcomes to improve future choices.
 
@@ -335,11 +323,7 @@ class DecisionEngine:
 
         # Simple learning: could adjust criterion weights based on prediction errors
         # For now, just log for future analysis
-        logger.info(
-            f"Decision outcome: {decision.name}, "
-            f"predicted={decision.utility:.3f}, "
-            f"actual={actual_utility:.3f}"
-        )
+        logger.info(f"Decision outcome: {decision.name}, predicted={decision.utility:.3f}, actual={actual_utility:.3f}")
 
     def get_performance_metrics(self) -> Dict[str, float]:
         """Calculate decision-making performance metrics"""
@@ -361,9 +345,7 @@ class RiskAssessment:
     """
 
     @staticmethod
-    def calculate_risk_score(
-        probability: float, impact: float, mitigation: float = 0.0
-    ) -> float:
+    def calculate_risk_score(probability: float, impact: float, mitigation: float = 0.0) -> float:
         """
         Calculate risk score using standard risk matrix.
 

@@ -173,9 +173,7 @@ def attribute_turn_to_goal(
         for goal in active:
             goal_text = f"{goal.description} {goal.next_action or ''}"
             goal_tokens = _tokenize(goal_text)
-            score = _similarity(turn_tokens, goal_tokens) + _intent_boost(
-                intent, goal_tokens
-            )
+            score = _similarity(turn_tokens, goal_tokens) + _intent_boost(intent, goal_tokens)
             if score > best_score:
                 best_score = score
                 best_goal_id = goal.goal_id
@@ -225,9 +223,7 @@ def get_attributed_goal_context(
         for goal in active:
             goal_text = f"{goal.description} {goal.next_action or ''}"
             goal_tokens = _tokenize(goal_text)
-            score = _similarity(turn_tokens, goal_tokens) + _intent_boost(
-                intent, goal_tokens
-            )
+            score = _similarity(turn_tokens, goal_tokens) + _intent_boost(intent, goal_tokens)
             if score > best_score:
                 best_score = score
                 best_goal = goal

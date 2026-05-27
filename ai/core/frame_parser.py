@@ -77,9 +77,7 @@ _CREATE_NOTE_EXPLICIT_EVIDENCE_PATTERNS: Tuple[re.Pattern, ...] = (
 )
 
 
-def _has_negation_before(
-    text_lower: str, keyword: str, window: int = _NEG_WINDOW
-) -> bool:
+def _has_negation_before(text_lower: str, keyword: str, window: int = _NEG_WINDOW) -> bool:
     """Return True if a negation word appears in the *window* chars before *keyword*."""
     idx = text_lower.find(keyword)
     if idx < 0:
@@ -89,10 +87,7 @@ def _has_negation_before(
 
 
 def _has_create_note_explicit_evidence(text_lower: str) -> bool:
-    return any(
-        pattern.search(text_lower)
-        for pattern in _CREATE_NOTE_EXPLICIT_EVIDENCE_PATTERNS
-    )
+    return any(pattern.search(text_lower) for pattern in _CREATE_NOTE_EXPLICIT_EVIDENCE_PATTERNS)
 
 
 def _keyword_matches_with_boundaries(text_lower: str, keyword: str) -> bool:
@@ -590,9 +585,7 @@ class FrameParser:
             return None
 
         # Sort: confidence desc, then priority asc (lower = more specific)
-        candidates.sort(
-            key=lambda r: (-r.confidence, _FRAME_INDEX[r.frame_name].priority)
-        )
+        candidates.sort(key=lambda r: (-r.confidence, _FRAME_INDEX[r.frame_name].priority))
 
         best = candidates[0]
         logger.debug(
@@ -612,10 +605,7 @@ class FrameParser:
         if not text:
             return []
         text_norm = text.lower().strip()
-        results = [
-            self._score_frame(text_norm, text, frame, context or {})
-            for frame in self._frames
-        ]
+        results = [self._score_frame(text_norm, text, frame, context or {}) for frame in self._frames]
         results = [r for r in results if r.confidence > 0.25]
         results.sort(key=lambda r: (-r.confidence, _FRAME_INDEX[r.frame_name].priority))
         return results
@@ -680,9 +670,7 @@ class FrameParser:
         # ── Context-aware boosts ─────────────────────────────────────────────
         last_plugin = context.get("last_plugin")
         last_intent = context.get("last_intent", "")
-        last_domain = (
-            last_intent.split(":")[0] if ":" in last_intent else last_plugin or ""
-        )
+        last_domain = last_intent.split(":")[0] if ":" in last_intent else last_plugin or ""
         word_count = len(text_lower.split())
 
         if last_plugin == frame.plugin:
@@ -698,9 +686,7 @@ class FrameParser:
         # don't penalise for it being absent in the current short utterance.
         prior_entities: Dict[str, Any] = context.get("last_entities") or {}
         if prior_entities and frame.required_slots:
-            inherited: List[str] = [
-                rs for rs in frame.required_slots if rs in prior_entities
-            ]
+            inherited: List[str] = [rs for rs in frame.required_slots if rs in prior_entities]
             # Each inherited required slot cancels out would-be penalty (+0.08 each)
             score += len(inherited) * 0.08
 
@@ -824,9 +810,7 @@ class FrameParser:
         "create a note about the meeting and then send an email to bob"
         → [FrameMatchResult(CREATE_NOTE, …), FrameMatchResult(COMPOSE_EMAIL, …)]
         """
-        parts = [
-            p.strip() for p in self._COMPOUND_SEP.split(text) if len(p.strip()) > 7
-        ]
+        parts = [p.strip() for p in self._COMPOUND_SEP.split(text) if len(p.strip()) > 7]
 
         if len(parts) < 2:
             result = self.parse(text, context)
@@ -881,9 +865,7 @@ class FrameParser:
         try:
             import yaml  # type: ignore[import]
         except ImportError:
-            logger.debug(
-                "[FrameParser] PyYAML not installed; YAML frame loading skipped"
-            )
+            logger.debug("[FrameParser] PyYAML not installed; YAML frame loading skipped")
             return
 
         for yaml_path in sorted(frames_dir.glob("*.yaml")):

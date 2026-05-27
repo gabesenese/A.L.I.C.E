@@ -73,8 +73,7 @@ class UsageAnalytics:
             if response_time_ms:
                 self.session_stats["total_response_time"] += response_time_ms
                 self.session_stats["avg_response_time"] = (
-                    self.session_stats["total_response_time"]
-                    / self.session_stats["total_interactions"]
+                    self.session_stats["total_response_time"] / self.session_stats["total_interactions"]
                 )
 
             if not success:
@@ -163,9 +162,7 @@ class UsageAnalytics:
                             daily_stats["plugins"][entry["plugin"]] += 1
 
                         if entry.get("response_time_ms"):
-                            daily_stats["total_response_time"] += entry[
-                                "response_time_ms"
-                            ]
+                            daily_stats["total_response_time"] += entry["response_time_ms"]
 
                         if not entry.get("success", True):
                             daily_stats["errors"] += 1
@@ -182,16 +179,13 @@ class UsageAnalytics:
 
             if daily_stats["total_interactions"] > 0:
                 daily_stats["avg_response_time"] = (
-                    daily_stats["total_response_time"]
-                    / daily_stats["total_interactions"]
+                    daily_stats["total_response_time"] / daily_stats["total_interactions"]
                 )
 
             # Convert Counter to dict for JSON serialization
             daily_stats["intents"] = dict(daily_stats["intents"])
             daily_stats["plugins"] = dict(daily_stats["plugins"])
-            daily_stats["hourly_distribution"] = dict(
-                daily_stats["hourly_distribution"]
-            )
+            daily_stats["hourly_distribution"] = dict(daily_stats["hourly_distribution"])
 
             return daily_stats
 
@@ -222,9 +216,7 @@ class UsageAnalytics:
             weekly_stats["total_interactions"] += daily["total_interactions"]
             weekly_stats["total_response_time"] += daily["total_response_time"]
 
-            weekly_stats["daily_breakdown"][current_date.strftime("%Y-%m-%d")] = daily[
-                "total_interactions"
-            ]
+            weekly_stats["daily_breakdown"][current_date.strftime("%Y-%m-%d")] = daily["total_interactions"]
 
             for intent, count in daily["intents"].items():
                 weekly_stats["top_intents"][intent] += count
@@ -235,9 +227,7 @@ class UsageAnalytics:
             current_date += timedelta(days=1)
 
         if weekly_stats["total_interactions"] > 0:
-            weekly_stats["avg_response_time"] = (
-                weekly_stats["total_response_time"] / weekly_stats["total_interactions"]
-            )
+            weekly_stats["avg_response_time"] = weekly_stats["total_response_time"] / weekly_stats["total_interactions"]
 
         # Get top 10 intents and plugins
         weekly_stats["top_intents"] = dict(weekly_stats["top_intents"].most_common(10))
@@ -275,9 +265,7 @@ class UsageAnalytics:
                         all_time_stats["plugins"][entry["plugin"]] += 1
 
                     if entry.get("response_time_ms"):
-                        all_time_stats["total_response_time"] += entry[
-                            "response_time_ms"
-                        ]
+                        all_time_stats["total_response_time"] += entry["response_time_ms"]
 
                     if not entry.get("success", True):
                         all_time_stats["errors"] += 1
@@ -296,8 +284,7 @@ class UsageAnalytics:
 
             if all_time_stats["total_interactions"] > 0:
                 all_time_stats["avg_response_time"] = (
-                    all_time_stats["total_response_time"]
-                    / all_time_stats["total_interactions"]
+                    all_time_stats["total_response_time"] / all_time_stats["total_interactions"]
                 )
 
             # Convert to dict and get top 15
@@ -353,9 +340,7 @@ class UsageAnalytics:
 
         if today["intents"]:
             lines.append("  Top Intents Today:")
-            for intent, count in sorted(
-                today["intents"].items(), key=lambda x: x[1], reverse=True
-            )[:5]:
+            for intent, count in sorted(today["intents"].items(), key=lambda x: x[1], reverse=True)[:5]:
                 lines.append(f"    - {intent}: {count}")
         lines.append("")
 

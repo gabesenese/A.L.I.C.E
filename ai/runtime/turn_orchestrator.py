@@ -36,9 +36,7 @@ def _verification_fallback(
 ) -> str:
     if reason == "tool_failed":
         tool = str(diagnostics.get("tool") or "")
-        error_type = str(
-            diagnostics.get("error") or diagnostics.get("error_type") or ""
-        )
+        error_type = str(diagnostics.get("error") or diagnostics.get("error_type") or "")
         try:
             from ai.runtime.fallback_policy import get_fallback_graph, get_retry_memory
 
@@ -57,7 +55,9 @@ def _verification_fallback(
         except Exception:
             pass
         if tool and error_type:
-            return f"The {tool} action ran into an issue ({error_type}). Try rephrasing or check that the target exists."
+            return (
+                f"The {tool} action ran into an issue ({error_type}). Try rephrasing or check that the target exists."
+            )
         if tool:
             return f"The {tool} action didn't complete successfully. Try again or rephrase what you need."
         return "That action didn't complete successfully. Try rephrasing or providing more detail."
@@ -85,16 +85,12 @@ def _verification_fallback(
         if close:
             suggestion = close[0] if isinstance(close[0], str) else str(close[0])
             return f"I couldn't find that file. Did you mean {suggestion}?"
-        return (
-            "I couldn't find that file in the workspace. Check the name and try again."
-        )
+        return "I couldn't find that file in the workspace. Check the name and try again."
 
     if proposed_text:
         return proposed_text
 
-    return (
-        "I wasn't able to complete that — try rephrasing with a more specific action."
-    )
+    return "I wasn't able to complete that — try rephrasing with a more specific action."
 
 
 @dataclass(frozen=True)
@@ -137,13 +133,9 @@ class TurnOrchestrator:
         user_id: str,
         turn_number: int,
     ) -> RoutePhaseResult:
-        decision = self.boundaries.routing.route(
-            RouterRequest(user_input=user_input, turn_number=turn_number)
-        )
+        decision = self.boundaries.routing.route(RouterRequest(user_input=user_input, turn_number=turn_number))
 
-        resolved_input = str(
-            (decision.metadata or {}).get("resolved_input") or user_input
-        )
+        resolved_input = str((decision.metadata or {}).get("resolved_input") or user_input)
         memory = self.boundaries.memory.recall(
             MemoryRequest(
                 query=resolved_input,
@@ -191,21 +183,13 @@ class TurnOrchestrator:
         if explicit_target:
             target_file = explicit_target
         elif operator_context.get("inferred_target_file"):
-            target_file = str(
-                operator_context.get("inferred_target_file") or ""
-            ).strip()
+            target_file = str(operator_context.get("inferred_target_file") or "").strip()
         else:
-            match = re.search(
-                r"([a-zA-Z0-9_./\\-]+\.[a-zA-Z0-9]{1,8})\b", resolved_input
-            )
+            match = re.search(r"([a-zA-Z0-9_./\\-]+\.[a-zA-Z0-9]{1,8})\b", resolved_input)
             if match:
                 target_file = str(match.group(1))
 
-        tool_name = (
-            decision.intent.split(":", 1)[0]
-            if ":" in decision.intent
-            else decision.intent
-        )
+        tool_name = decision.intent.split(":", 1)[0] if ":" in decision.intent else decision.intent
 
         # Resolve location for the weather plugin from operator/session context.
         # The plugin accepts "city" or "location" keys in its context dict.
@@ -239,13 +223,9 @@ class TurnOrchestrator:
                         "turn_plan": turn_plan,
                         "operator_state": dict(operator_state or {}),
                         "active_mode": str(
-                            operator_state.get("active_mode")
-                            or operator_context.get("active_mode")
-                            or ""
+                            operator_state.get("active_mode") or operator_context.get("active_mode") or ""
                         ),
-                        "active_objective": str(
-                            operator_state.get("active_objective") or ""
-                        ),
+                        "active_objective": str(operator_state.get("active_objective") or ""),
                         "previous_intent": str(operator_state.get("last_intent") or ""),
                         **_location_ctx,
                     },
@@ -255,11 +235,7 @@ class TurnOrchestrator:
 
         # For known weather error codes, synthesise a direct clarifying response via
         # the FallbackGraph instead of handing a bare failure to the LLM.
-        if (
-            tool_result is not None
-            and not tool_result.success
-            and tool_name == "weather"
-        ):
+        if tool_result is not None and not tool_result.success and tool_name == "weather":
             # error may be "weather:no_location" (full message_code) or just "no_location"
             _raw_err = str(
                 (tool_result.data or {}).get("error")
@@ -344,8 +320,7 @@ class TurnOrchestrator:
         if verification is not None and not verification.accepted:
             _intent_for_fallback = str(
                 verify_phase.proposed_response.metadata.get("intent", "")
-                if verify_phase.proposed_response
-                and verify_phase.proposed_response.metadata
+                if verify_phase.proposed_response and verify_phase.proposed_response.metadata
                 else ""
             )
             response_text = _verification_fallback(
@@ -392,12 +367,8 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
     disabled for diagnostics.
     """
 
-    if not hasattr(alice, "structured_logger") and callable(
-        getattr(alice, "_process_input_internal", None)
-    ):
-        return sanitize_internal_process_output(
-            alice, user_input=user_input, use_voice=use_voice
-        )
+    if not hasattr(alice, "structured_logger") and callable(getattr(alice, "_process_input_internal", None)):
+        return sanitize_internal_process_output(alice, user_input=user_input, use_voice=use_voice)
 
     # Tool chaining — compound queries execute multiple plugins before the pipeline
     plugin_manager = getattr(alice, "plugins", None)
@@ -434,11 +405,7 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
                 user_id=str(getattr(alice, "user_name", "") or "User"),
                 turn_number=int(getattr(alice, "_turn_count", 0) or 0),
             )
-            if (
-                result
-                and getattr(result, "handled", False)
-                and getattr(result, "response_text", "")
-            ):
+            if result and getattr(result, "handled", False) and getattr(result, "response_text", ""):
                 meta = dict(getattr(result, "metadata", {}) or {})
                 structured_logger = getattr(alice, "structured_logger", None)
                 if structured_logger is not None:
@@ -449,9 +416,7 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
                             trace_id=str(meta.get("trace_id") or ""),
                             route=str(meta.get("route") or ""),
                             intent=str(meta.get("intent") or ""),
-                            verification_reason=str(
-                                ((meta.get("verification") or {}).get("reason")) or ""
-                            ),
+                            verification_reason=str(((meta.get("verification") or {}).get("reason")) or ""),
                         )
                     except Exception:
                         pass
@@ -469,8 +434,6 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
 
     internal = getattr(alice, "_process_input_internal", None)
     if callable(internal):
-        return sanitize_internal_process_output(
-            alice, user_input=user_input, use_voice=use_voice
-        )
+        return sanitize_internal_process_output(alice, user_input=user_input, use_voice=use_voice)
 
     raise RuntimeError("No active turn pipeline is configured.")

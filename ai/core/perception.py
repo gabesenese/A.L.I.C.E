@@ -104,17 +104,13 @@ class Perception:
     ) -> PerceptionResult:
         mood = self._infer_mood(query)
         ambiguity = self._calc_ambiguity(query)
-        followup_domain = self._detect_followup_domain(
-            query, last_intent, conversation_topics or []
-        )
+        followup_domain = self._detect_followup_domain(query, last_intent, conversation_topics or [])
         needs_clarif, clarif_q = self._clarification_need(query, ambiguity)
         hints: Dict[str, Any] = {
             "mood": mood,
             "ambiguity": ambiguity,
             "followup_domain": followup_domain,
-            "response_length": (
-                "brief" if mood in ("frustrated", "urgent") else "normal"
-            ),
+            "response_length": ("brief" if mood in ("frustrated", "urgent") else "normal"),
             "empathy": mood in ("frustrated", "negative"),
         }
         return PerceptionResult(
@@ -196,11 +192,7 @@ class Perception:
             return domain
 
         generic_cues = {"and", "also", "that", "this", "it", "then", "what about"}
-        if (
-            generic_cues & clean_words
-            and query.intent_confidence < 0.55
-            and len(clean_words) <= 4
-        ):
+        if generic_cues & clean_words and query.intent_confidence < 0.55 and len(clean_words) <= 4:
             return domain
         return None
 
@@ -210,14 +202,8 @@ class Perception:
         ambiguity: float,
     ) -> Tuple[bool, Optional[str]]:
         parsed_cmd = query.parsed_command or {}
-        modifiers = (
-            parsed_cmd
-            if isinstance(parsed_cmd, dict)
-            else getattr(parsed_cmd, "modifiers", {})
-        )
-        disamb = modifiers.get("disambiguation") or modifiers.get("modifiers", {}).get(
-            "disambiguation"
-        )
+        modifiers = parsed_cmd if isinstance(parsed_cmd, dict) else getattr(parsed_cmd, "modifiers", {})
+        disamb = modifiers.get("disambiguation") or modifiers.get("modifiers", {}).get("disambiguation")
         if disamb and disamb.get("needs_clarification"):
             return True, disamb.get("question")
         if (

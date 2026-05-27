@@ -13,9 +13,7 @@ def test_arbiter_rejects_unsafe_file_tool_and_selects_safe_local_candidate():
                 confidence=0.95,
                 source="tool",
             ),
-            RouteCandidate(
-                route="local", intent="code:request", confidence=0.90, source="local"
-            ),
+            RouteCandidate(route="local", intent="code:request", confidence=0.90, source="local"),
         ],
     )
     assert out["route"] == "local"

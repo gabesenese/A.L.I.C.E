@@ -167,15 +167,9 @@ class PersistentTaskQueue:
 
     def next_pending_task(self) -> Optional[Task]:
         with self._lock:
-            completed = {
-                t.task_id
-                for t in self._tasks.values()
-                if t.status == TaskStatus.COMPLETED
-            }
+            completed = {t.task_id for t in self._tasks.values() if t.status == TaskStatus.COMPLETED}
             candidates = [
-                t
-                for t in self._tasks.values()
-                if t.status == TaskStatus.PENDING and self._deps_satisfied(t, completed)
+                t for t in self._tasks.values() if t.status == TaskStatus.PENDING and self._deps_satisfied(t, completed)
             ]
         if not candidates:
             return None
@@ -185,9 +179,7 @@ class PersistentTaskQueue:
             key=lambda t: (self._effective_priority(t, now), t.created_at, t.task_id),
         )
 
-    def mark_task(
-        self, task_id: str, status: TaskStatus, result: Any = None, error: str = ""
-    ) -> bool:
+    def mark_task(self, task_id: str, status: TaskStatus, result: Any = None, error: str = "") -> bool:
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None:
@@ -240,9 +232,7 @@ class PersistentTaskQueue:
             self._running = True
             self._tick_seconds = max(0.05, float(tick_seconds or 0.25))
 
-        self._thread = threading.Thread(
-            target=self._loop, name="persistent-task-queue", daemon=True
-        )
+        self._thread = threading.Thread(target=self._loop, name="persistent-task-queue", daemon=True)
         self._thread.start()
 
     def stop_background_loop(self, timeout: float = 2.0) -> None:
@@ -288,10 +278,7 @@ class PersistentTaskQueue:
         return all(dep in completed for dep in (task.dependencies or []))
 
     def _has_dependency_cycle(self) -> bool:
-        graph = {
-            task_id: list(task.dependencies or [])
-            for task_id, task in self._tasks.items()
-        }
+        graph = {task_id: list(task.dependencies or []) for task_id, task in self._tasks.items()}
         seen: set[str] = set()
         in_stack: set[str] = set()
 

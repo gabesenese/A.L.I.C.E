@@ -52,9 +52,7 @@ logger = logging.getLogger(__name__)
 class EntityMention:
     """A single entity observed in one dialogue turn."""
 
-    entity_type: (
-        str  # NOTE_REF | EMAIL_REF | EVENT_REF | RESULT_SET | SONG_REF | PERSON_REF
-    )
+    entity_type: str  # NOTE_REF | EMAIL_REF | EVENT_REF | RESULT_SET | SONG_REF | PERSON_REF
     value: Any  # str for single entity, list for RESULT_SET
     turn_index: int  # which dialogue turn
     plugin: str = ""  # which plugin produced this entity
@@ -72,12 +70,8 @@ class ResolvedText:
     resolved_value: Any  # the actual value substituted
     confidence: float  # 0.0–1.0
     substitution_map: Dict[str, str] = field(default_factory=dict)
-    candidates: List[Any] = field(
-        default_factory=list
-    )  # Alternative resolutions (ambiguity)
-    needs_clarification: bool = (
-        False  # True if confidence < threshold with multiple candidates
-    )
+    candidates: List[Any] = field(default_factory=list)  # Alternative resolutions (ambiguity)
+    needs_clarification: bool = False  # True if confidence < threshold with multiple candidates
 
 
 # ---------------------------------------------------------------------------
@@ -119,13 +113,9 @@ class DialogueMemory:
             extra=extra or {},
         )
         self._chain.append(mention)
-        logger.debug(
-            "[COREF-MEM] recorded %s=%r turn=%d", entity_type, value, self._turn
-        )
+        logger.debug("[COREF-MEM] recorded %s=%r turn=%d", entity_type, value, self._turn)
 
-    def record_result_set(
-        self, entity_type: str, values: List[str], plugin: str = "notes"
-    ) -> None:
+    def record_result_set(self, entity_type: str, values: List[str], plugin: str = "notes") -> None:
         """Convenience: record a list result (e.g. search results)."""
         self.record(
             entity_type="RESULT_SET",
@@ -234,9 +224,7 @@ _ORDINAL_MAP: Dict[str, int] = {
 }
 
 # Pronoun groups
-_GENERIC_PRONOUNS = frozenset(
-    ["it", "that", "this", "the result", "this one", "that one"]
-)
+_GENERIC_PRONOUNS = frozenset(["it", "that", "this", "the result", "this one", "that one"])
 _DOMAIN_PHRASES = frozenset(
     [
         "the note",
@@ -274,18 +262,14 @@ class AdvancedCoreferenceResolver:
 
     # Ordinal: "the second one", "the 3rd note", "note number 2"
     _RE_ORDINAL = re.compile(
-        r"\bthe\s+("
-        + "|".join(re.escape(k) for k in _ORDINAL_MAP)
-        + r")\s+(?:one|note|file|result)?\b"
+        r"\bthe\s+(" + "|".join(re.escape(k) for k in _ORDINAL_MAP) + r")\s+(?:one|note|file|result)?\b"
         r"|(?:note|result)\s+(?:number\s+)?#?(\d+)\b",
         re.IGNORECASE,
     )
 
     # Attribute: "the one tagged X", "the one from yesterday"
     _RE_ATTRIBUTE_TAG = re.compile(r"\bthe\s+one\s+tagged\s+([\w,\s]+?)(?:\s|$)", re.I)
-    _RE_ATTRIBUTE_WORD = re.compile(
-        r"\bthe\s+one\s+(?:about|with|from|mentioning)\s+(.+?)(?:\s|$)", re.I
-    )
+    _RE_ATTRIBUTE_WORD = re.compile(r"\bthe\s+one\s+(?:about|with|from|mentioning)\s+(.+?)(?:\s|$)", re.I)
 
     # Recency: "the last one", "the previous note"
     _RE_RECENCY = re.compile(
@@ -297,14 +281,10 @@ class AdvancedCoreferenceResolver:
     _RE_DESCRIPTIVE = re.compile(r"\bthe\s+(\w+)\s+(?:one|note|file|result)\b", re.I)
 
     # Domain pronouns
-    _RE_DOMAIN = re.compile(
-        r"\b(" + "|".join(re.escape(p) for p in _DOMAIN_PHRASES) + r")\b", re.I
-    )
+    _RE_DOMAIN = re.compile(r"\b(" + "|".join(re.escape(p) for p in _DOMAIN_PHRASES) + r")\b", re.I)
 
     # Generic pronouns
-    _RE_PRONOUN = re.compile(
-        r"\b(" + "|".join(re.escape(p) for p in _GENERIC_PRONOUNS) + r")\b", re.I
-    )
+    _RE_PRONOUN = re.compile(r"\b(" + "|".join(re.escape(p) for p in _GENERIC_PRONOUNS) + r")\b", re.I)
 
     # Idiomatic vague phrases that must NOT trigger coref resolution
     _RE_NO_RESOLVE = re.compile(
@@ -333,14 +313,10 @@ class AdvancedCoreferenceResolver:
                 confidence=0.0,
             )
         original = text
-        text, sub_map, etype, evalue, conf, candidates = self._apply_resolutions(
-            text, context
-        )
+        text, sub_map, etype, evalue, conf, candidates = self._apply_resolutions(text, context)
 
         resolved = text != original
-        needs_clarification = (
-            conf < self.ambiguity_threshold and len(candidates) > 1 and resolved
-        )
+        needs_clarification = conf < self.ambiguity_threshold and len(candidates) > 1 and resolved
 
         return ResolvedText(
             text=text,
@@ -542,9 +518,7 @@ class AdvancedCoreferenceResolver:
             pass
         return None
 
-    def _find_by_attribute(
-        self, attribute: str, attribute_type: str, result_set: List[str]
-    ) -> Optional[str]:
+    def _find_by_attribute(self, attribute: str, attribute_type: str, result_set: List[str]) -> Optional[str]:
         """Find a note in the entity chain that matches an attribute."""
         for mention in reversed(self.memory.all_of_type("NOTE_REF")):
             if attribute_type == "tags":
@@ -557,9 +531,7 @@ class AdvancedCoreferenceResolver:
                 return title
         return None
 
-    def _find_all_by_attribute(
-        self, attribute: str, attribute_type: str, result_set: List[str]
-    ) -> List[str]:
+    def _find_all_by_attribute(self, attribute: str, attribute_type: str, result_set: List[str]) -> List[str]:
         """Find ALL notes matching an attribute (for ambiguity detection)."""
         matches = []
         seen = set()
@@ -640,7 +612,5 @@ class LegacyCoreferenceResolverCompat:
                 ctx["last_note_title"] = str(notes[-1])
                 # Sync result set into memory if not already there
                 if not self._memory.get_result_set() and notes:
-                    self._memory.record_result_set(
-                        "RESULT_SET", [str(n) for n in notes]
-                    )
+                    self._memory.record_result_set("RESULT_SET", [str(n) for n in notes])
         return self._engine.resolve_text(text, ctx)

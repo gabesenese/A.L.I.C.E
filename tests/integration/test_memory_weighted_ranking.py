@@ -15,9 +15,7 @@ def _ts(hours_ago: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
 
 
-def test_weighted_memory_ranking_prefers_recent_confident_reliable(
-    monkeypatch, tmp_path
-) -> None:
+def test_weighted_memory_ranking_prefers_recent_confident_reliable(monkeypatch, tmp_path) -> None:
     mem = MemorySystem(data_dir=str(tmp_path / "memory"))
 
     entry_map = {
@@ -80,22 +78,14 @@ def test_weighted_memory_ranking_prefers_recent_confident_reliable(
         },
     ]
 
-    monkeypatch.setattr(
-        mem, "recall_memory", lambda query, top_k=5, min_similarity=0.35: base_results
-    )
-    monkeypatch.setattr(
-        mem, "_get_memory_by_id", lambda memory_id: entry_map[memory_id]
-    )
+    monkeypatch.setattr(mem, "recall_memory", lambda query, top_k=5, min_similarity=0.35: base_results)
+    monkeypatch.setattr(mem, "_get_memory_by_id", lambda memory_id: entry_map[memory_id])
 
     ranked = mem.recall_memory_weighted("help me with setup", top_k=3)
 
     assert len(ranked) == 3
     assert ranked[0]["id"] == "b"
-    assert (
-        ranked[0]["weighted_score"]
-        >= ranked[1]["weighted_score"]
-        >= ranked[2]["weighted_score"]
-    )
+    assert ranked[0]["weighted_score"] >= ranked[1]["weighted_score"] >= ranked[2]["weighted_score"]
 
 
 def test_get_context_for_llm_uses_weighted_top_memories(monkeypatch, tmp_path) -> None:
@@ -116,9 +106,7 @@ def test_get_context_for_llm_uses_weighted_top_memories(monkeypatch, tmp_path) -
         },
     ]
 
-    monkeypatch.setattr(
-        mem, "recall_memory_weighted", lambda query, top_k=3: weighted[:top_k]
-    )
+    monkeypatch.setattr(mem, "recall_memory_weighted", lambda query, top_k=3: weighted[:top_k])
 
     context = mem.get_context_for_llm("what did we decide", max_memories=2)
 

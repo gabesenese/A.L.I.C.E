@@ -59,10 +59,7 @@ try:
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
-    logger.warning(
-        "[PolicyTrainer] scikit-learn not available. "
-        "Policy trainer will not produce learned models."
-    )
+    logger.warning("[PolicyTrainer] scikit-learn not available. Policy trainer will not produce learned models.")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -180,8 +177,7 @@ class PolicyTrainer:
         labelled = [r for r in records if r.get("outcome_reward") is not None]
         if len(labelled) < _MIN_TRAINING_SAMPLES:
             logger.info(
-                "[PolicyTrainer] Only %d labelled samples — skipping training "
-                "(need ≥ %d).",
+                "[PolicyTrainer] Only %d labelled samples — skipping training (need ≥ %d).",
                 len(labelled),
                 _MIN_TRAINING_SAMPLES,
             )
@@ -209,9 +205,7 @@ class PolicyTrainer:
             y_confidence.append(cautious)
 
         if len(X) < _MIN_TRAINING_SAMPLES:
-            logger.info(
-                "[PolicyTrainer] After filtering, only %d valid samples.", len(X)
-            )
+            logger.info("[PolicyTrainer] After filtering, only %d valid samples.", len(X))
             return False
 
         try:
@@ -220,9 +214,7 @@ class PolicyTrainer:
                     ("scaler", StandardScaler()),
                     (
                         "clf",
-                        LogisticRegression(
-                            max_iter=300, C=1.0, class_weight="balanced"
-                        ),
+                        LogisticRegression(max_iter=300, C=1.0, class_weight="balanced"),
                     ),
                 ]
             )
@@ -233,9 +225,7 @@ class PolicyTrainer:
                     ("scaler", StandardScaler()),
                     (
                         "clf",
-                        LogisticRegression(
-                            max_iter=300, C=1.0, class_weight="balanced"
-                        ),
+                        LogisticRegression(max_iter=300, C=1.0, class_weight="balanced"),
                     ),
                 ]
             )
@@ -278,9 +268,7 @@ class PolicyTrainer:
         if model is None:
             return None
         try:
-            feats = [
-                _encode_features(mood, sentiment, urgency, intent_conf, frame_conf)
-            ]
+            feats = [_encode_features(mood, sentiment, urgency, intent_conf, frame_conf)]
             prob = model.predict_proba(feats)[0][1]
             return float(prob)
         except Exception as exc:
@@ -305,9 +293,7 @@ class PolicyTrainer:
         if model is None:
             return None
         try:
-            feats = [
-                _encode_features(mood, sentiment, urgency, intent_conf, frame_conf)
-            ]
+            feats = [_encode_features(mood, sentiment, urgency, intent_conf, frame_conf)]
             prob = model.predict_proba(feats)[0][1]
             return float(prob)
         except Exception as exc:
@@ -318,9 +304,7 @@ class PolicyTrainer:
     def is_ready(self) -> bool:
         """True when both models have been trained/loaded."""
         with self._lock:
-            return (
-                self._clarify_model is not None and self._confidence_model is not None
-            )
+            return self._clarify_model is not None and self._confidence_model is not None
 
     # ------------------------------------------------------------------
     # Persistence
@@ -346,9 +330,7 @@ class PolicyTrainer:
             with self._lock:
                 self._clarify_model = payload.get("clarify")
                 self._confidence_model = payload.get("confidence")
-            logger.info(
-                "[PolicyTrainer] Loaded policy models from %s.", self.model_path
-            )
+            logger.info("[PolicyTrainer] Loaded policy models from %s.", self.model_path)
         except Exception as exc:
             logger.warning("[PolicyTrainer] Could not load models: %s", exc)
 

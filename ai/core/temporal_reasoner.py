@@ -23,9 +23,7 @@ class TemporalTask:
 
 
 class TemporalReasoner:
-    def parse_temporal_task(
-        self, text: str, *, now: Optional[datetime] = None
-    ) -> Optional[TemporalTask]:
+    def parse_temporal_task(self, text: str, *, now: Optional[datetime] = None) -> Optional[TemporalTask]:
         text = (text or "").strip()
         if not text:
             return None

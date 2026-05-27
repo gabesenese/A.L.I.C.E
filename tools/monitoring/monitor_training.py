@@ -66,15 +66,9 @@ print(f"  Estimated improvement:     +{improvement_pct}%")
 print(f"  Projected new rate:        {min(baseline_rate + improvement_pct, 100):.0f}%")
 
 print("\n  Test coverage added:")
-print(
-    f"    - Email tests:       {len(before_results.get('results', {}).get('email_tests', []))} tests"
-)
-print(
-    f"    - Calendar tests:    {len(before_results.get('results', {}).get('calendar_tests', []))} tests"
-)
-print(
-    f"    - Multi-turn tests:  {len(before_results.get('results', {}).get('multiturn_tests', []))} tests"
-)
+print(f"    - Email tests:       {len(before_results.get('results', {}).get('email_tests', []))} tests")
+print(f"    - Calendar tests:    {len(before_results.get('results', {}).get('calendar_tests', []))} tests")
+print(f"    - Multi-turn tests:  {len(before_results.get('results', {}).get('multiturn_tests', []))} tests")
 
 # ===== PHASE 3: GENERATE REPORT =====
 section("PHASE 3: TRAINING REPORT")

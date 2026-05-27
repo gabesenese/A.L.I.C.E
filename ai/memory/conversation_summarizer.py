@@ -44,9 +44,7 @@ class ConversationSummarizer:
     - Memory-efficient summarization
     """
 
-    def __init__(
-        self, llm_engine=None, llm_gateway=None, data_dir: str = "data/context"
-    ):
+    def __init__(self, llm_engine=None, llm_gateway=None, data_dir: str = "data/context"):
         self.llm_engine = llm_engine  # Kept for backward compatibility
         self.llm_gateway = llm_gateway  # Preferred: use gateway for policy enforcement
         self.data_dir = data_dir
@@ -110,9 +108,7 @@ class ConversationSummarizer:
 
         # Current session highlights
         if len(self.current_session_turns) >= 3:
-            current_summary = self._generate_quick_summary(
-                self.current_session_turns[-5:]
-            )
+            current_summary = self._generate_quick_summary(self.current_session_turns[-5:])
             context_parts.append(f"Recent context: {current_summary}")
 
         return " | ".join(context_parts) if context_parts else ""
@@ -174,12 +170,8 @@ class ConversationSummarizer:
 
         # Add session stats
         session_duration = datetime.now() - self.session_start_time
-        summary_parts.append(
-            f"Session Duration: {int(session_duration.total_seconds() / 60)} minutes"
-        )
-        summary_parts.append(
-            f"Current Session Turns: {len(self.current_session_turns)}"
-        )
+        summary_parts.append(f"Session Duration: {int(session_duration.total_seconds() / 60)} minutes")
+        summary_parts.append(f"Current Session Turns: {len(self.current_session_turns)}")
 
         # Add topics and entities
         context = self.get_detailed_context()
@@ -191,11 +183,7 @@ class ConversationSummarizer:
             entities = context["mentioned_entities"][:8]
             summary_parts.append(f"Mentioned: {', '.join(entities)}")
 
-        return (
-            "\n".join(summary_parts)
-            if summary_parts
-            else "No conversation to summarize."
-        )
+        return "\n".join(summary_parts) if summary_parts else "No conversation to summarize."
 
     def force_summarize_session(self) -> Optional[ConversationSummary]:
         """Manually trigger summarization of current session"""
@@ -217,9 +205,7 @@ class ConversationSummarizer:
 
             # Maintain summary history limit
             if len(self.conversation_summaries) > self.summary_history_limit:
-                self.conversation_summaries = self.conversation_summaries[
-                    -self.summary_history_limit :
-                ]
+                self.conversation_summaries = self.conversation_summaries[-self.summary_history_limit :]
 
             # Clear current turns (keep last 3 for continuity)
             self.current_session_turns = self.current_session_turns[-3:]
@@ -227,9 +213,7 @@ class ConversationSummarizer:
             # Save summaries to disk
             self._save_summary_history()
 
-            logger.info(
-                f"Created conversation summary: {summary.summary_text[:100]}..."
-            )
+            logger.info(f"Created conversation summary: {summary.summary_text[:100]}...")
 
     def _create_summary(self, turns: List[Dict]) -> Optional[ConversationSummary]:
         """Create a structured summary from conversation turns"""
@@ -322,12 +306,7 @@ class ConversationSummarizer:
         all_text = ""
 
         for turn in turns:
-            all_text += (
-                " "
-                + turn.get("user_input", "")
-                + " "
-                + turn.get("assistant_response", "")
-            )
+            all_text += " " + turn.get("user_input", "") + " " + turn.get("assistant_response", "")
 
         all_text = all_text.lower()
 
@@ -391,20 +370,12 @@ class ConversationSummarizer:
             response = turn.get("assistant_response", "").lower()
 
             # User provided information
-            if any(
-                phrase in user_input
-                for phrase in ["my", "i am", "i have", "i need", "my name is"]
-            ):
+            if any(phrase in user_input for phrase in ["my", "i am", "i have", "i need", "my name is"]):
                 key_points.append(f"User mentioned: {turn['user_input'][:100]}")
 
             # Assistant provided help
-            if any(
-                phrase in response
-                for phrase in ["here", "found", "completed", "saved", "created"]
-            ):
-                key_points.append(
-                    f"Assistant provided: {turn['assistant_response'][:100]}"
-                )
+            if any(phrase in response for phrase in ["here", "found", "completed", "saved", "created"]):
+                key_points.append(f"Assistant provided: {turn['assistant_response'][:100]}")
 
         return key_points[-8:]  # Top 8 key points
 
@@ -431,9 +402,7 @@ class ConversationSummarizer:
         else:
             return "neutral"
 
-    def _generate_summary_text(
-        self, turns: List[Dict], topics: List[str], key_points: List[str]
-    ) -> str:
+    def _generate_summary_text(self, turns: List[Dict], topics: List[str], key_points: List[str]) -> str:
         """Generate a natural language summary"""
 
         if self.llm_gateway or self.llm_engine:
@@ -490,9 +459,7 @@ Summary:"""
             logger.error(f"LLM summarization failed: {e}")
             return self._rule_based_summarize(turns, [], [])
 
-    def _rule_based_summarize(
-        self, turns: List[Dict], topics: List[str], key_points: List[str]
-    ) -> str:
+    def _rule_based_summarize(self, turns: List[Dict], topics: List[str], key_points: List[str]) -> str:
         """Generate summary using rule-based approach"""
 
         if not turns:
@@ -517,9 +484,9 @@ Summary:"""
         if not self.current_session_turns:
             return "neutral"
 
-        avg_user_length = sum(
-            len(turn.get("user_input", "")) for turn in self.current_session_turns
-        ) / len(self.current_session_turns)
+        avg_user_length = sum(len(turn.get("user_input", "")) for turn in self.current_session_turns) / len(
+            self.current_session_turns
+        )
 
         if avg_user_length > 100:
             return "detailed"
@@ -532,9 +499,7 @@ Summary:"""
         """Save conversation summaries to disk"""
         try:
             summaries_path = os.path.join(self.data_dir, "conversation_summaries.json")
-            summaries_data = [
-                summary.to_dict() for summary in self.conversation_summaries
-            ]
+            summaries_data = [summary.to_dict() for summary in self.conversation_summaries]
 
             with open(summaries_path, "w", encoding="utf-8") as f:
                 json.dump(summaries_data, f, indent=2)
@@ -558,9 +523,7 @@ Summary:"""
                     summary = ConversationSummary(**data)
                     self.conversation_summaries.append(summary)
 
-                logger.info(
-                    f"Loaded {len(self.conversation_summaries)} conversation summaries"
-                )
+                logger.info(f"Loaded {len(self.conversation_summaries)} conversation summaries")
 
         except Exception as e:
             logger.error(f"Error loading conversation summaries: {e}")

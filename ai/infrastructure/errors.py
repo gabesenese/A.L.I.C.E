@@ -70,9 +70,7 @@ class EntityExtractionError(NLPError):
     def __init__(self, message: str, missing_entities: list = None, **kwargs):
         context = kwargs.pop("context", {})
         context["missing_entities"] = missing_entities or []
-        super().__init__(
-            message, severity=ErrorSeverity.WARNING, context=context, **kwargs
-        )
+        super().__init__(message, severity=ErrorSeverity.WARNING, context=context, **kwargs)
 
     def _default_user_message(self) -> str:
         missing = ", ".join(self.context.get("missing_entities", []))
@@ -151,9 +149,7 @@ class OllamaConnectionError(LLMError):
     """Cannot connect to Ollama service"""
 
     def __init__(self, message: str = "Cannot connect to Ollama", **kwargs):
-        super().__init__(
-            message, severity=ErrorSeverity.ERROR, recoverable=True, **kwargs
-        )
+        super().__init__(message, severity=ErrorSeverity.ERROR, recoverable=True, **kwargs)
 
     def _default_user_message(self) -> str:
         return "I can't reach the AI service. Make sure Ollama is running."
@@ -205,9 +201,7 @@ class ConfigurationError(ALICEError):
     """System configuration errors"""
 
     def __init__(self, message: str, **kwargs):
-        super().__init__(
-            message, severity=ErrorSeverity.CRITICAL, recoverable=False, **kwargs
-        )
+        super().__init__(message, severity=ErrorSeverity.CRITICAL, recoverable=False, **kwargs)
 
     def _default_user_message(self) -> str:
         return "There's a configuration problem. Please check the system setup."

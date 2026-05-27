@@ -95,23 +95,17 @@ class TestNotesTitleFollowup:
         assert result.get("success") is True
 
         assert plugin.telemetry_log_path.exists()
-        telemetry_lines = (
-            plugin.telemetry_log_path.read_text(encoding="utf-8").strip().splitlines()
-        )
+        telemetry_lines = plugin.telemetry_log_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(telemetry_lines) >= 1
         telemetry_entry = json.loads(telemetry_lines[-1])
         assert telemetry_entry.get("action") == "list_notes"
 
         assert plugin.learning_state_path.exists()
-        learning_state = json.loads(
-            plugin.learning_state_path.read_text(encoding="utf-8")
-        )
+        learning_state = json.loads(plugin.learning_state_path.read_text(encoding="utf-8"))
         assert "action_token_weights" in learning_state
 
     def test_search_guardrail_requests_query_clarification(self, plugin):
-        result = plugin.execute(
-            intent="notes:search", query="search notes", entities={}, context={}
-        )
+        result = plugin.execute(intent="notes:search", query="search notes", entities={}, context={})
 
         assert result.get("success") is False
         assert result.get("action") == "search_notes"
@@ -131,14 +125,10 @@ class TestNotesTitleFollowup:
             }
         }
 
-        result = plugin.execute(
-            intent="notes:list", query="show notes", entities={}, context=context
-        )
+        result = plugin.execute(intent="notes:list", query="show notes", entities={}, context=context)
         assert result.get("success") is True
 
-        telemetry_lines = (
-            plugin.telemetry_log_path.read_text(encoding="utf-8").strip().splitlines()
-        )
+        telemetry_lines = plugin.telemetry_log_path.read_text(encoding="utf-8").strip().splitlines()
         telemetry_entry = json.loads(telemetry_lines[-1])
         assert telemetry_entry.get("event_id")
         assert telemetry_entry.get("intent") == "notes:list"
@@ -151,15 +141,11 @@ class TestNotesTitleFollowup:
         plugin.execute(intent="notes:list", query="show notes", entities={}, context={})
         plugin.execute(intent="notes:list", query="show notes", entities={}, context={})
 
-        telemetry_lines = (
-            plugin.telemetry_log_path.read_text(encoding="utf-8").strip().splitlines()
-        )
+        telemetry_lines = plugin.telemetry_log_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(telemetry_lines) == 1
 
     def test_get_note_content_returns_full_content_payload(self, plugin):
-        plugin.manager.create_note(
-            title="Release Plan", content="Line 1\nLine 2\n- action"
-        )
+        plugin.manager.create_note(title="Release Plan", content="Line 1\nLine 2\n- action")
 
         result = plugin.execute(
             intent="conversation:general",
@@ -268,9 +254,7 @@ class TestNotesTitleFollowup:
         assert result.get("success") is True
         assert result.get("action") == "get_note_content"
         assert result.get("data", {}).get("note_title") == "Test"
-        assert "Plural notes phrase content" in result.get("data", {}).get(
-            "content", ""
-        )
+        assert "Plural notes phrase content" in result.get("data", {}).get("content", "")
 
     def test_read_it_followup_after_list_notes(self, plugin):
         plugin.manager.create_note(title="Test Note", content="Follow-up read content")
@@ -337,10 +321,7 @@ class TestNotesTitleFollowup:
         assert followup.get("success") is True
         assert followup.get("action") == "delete_note"
         assert followup.get("data", {}).get("archived") is True
-        assert (
-            followup.get("data", {}).get("diagnostics", {}).get("resolution_path")
-            == "disambiguation_selection"
-        )
+        assert followup.get("data", {}).get("diagnostics", {}).get("resolution_path") == "disambiguation_selection"
 
     def test_disambiguation_selection_by_title_keyword(self, plugin):
         plugin.manager.create_note(title="Grocery List", content="milk")
@@ -368,9 +349,7 @@ class TestNotesTitleFollowup:
 
     def test_disambiguation_selection_by_tag_hint(self, plugin):
         plugin.manager.create_note(title="Project Tasks", content="code", tags=["work"])
-        plugin.manager.create_note(
-            title="Project Tasks Personal", content="gym", tags=["personal"]
-        )
+        plugin.manager.create_note(title="Project Tasks Personal", content="gym", tags=["personal"])
 
         ambiguous = plugin.execute(
             intent="conversation:general",

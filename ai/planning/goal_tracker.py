@@ -56,11 +56,7 @@ class ToolCall:
     def to_dict(self):
         return {
             **asdict(self),
-            "status": (
-                self.status.value
-                if isinstance(self.status, ToolCallStatus)
-                else self.status
-            ),
+            "status": (self.status.value if isinstance(self.status, ToolCallStatus) else self.status),
         }
 
 
@@ -143,11 +139,7 @@ class GoalRecord:
             "id": self.id,
             "description": self.description,
             "intent": self.intent,
-            "status": (
-                self.status.value
-                if isinstance(self.status, GoalStatus)
-                else self.status
-            ),
+            "status": (self.status.value if isinstance(self.status, GoalStatus) else self.status),
             "tool_sequence": self.get_tool_sequence(),
             "success": self.success,
             "subgoal_count": len(self.subgoals),
@@ -168,19 +160,13 @@ class GoalTracker:
         self.history_file = history_file
         self.active_goals: Dict[str, GoalRecord] = {}
         self.goal_counter = 0
-        self.tool_sequence_stats: Dict[
-            Tuple[Tuple[str, str], ...], Dict[str, Any]
-        ] = {}  # Sequence → success rate
-        self.intent_sequence_stats: Dict[
-            str, Dict[Tuple[Tuple[str, str], ...], Dict[str, Any]]
-        ] = {}
+        self.tool_sequence_stats: Dict[Tuple[Tuple[str, str], ...], Dict[str, Any]] = {}  # Sequence → success rate
+        self.intent_sequence_stats: Dict[str, Dict[Tuple[Tuple[str, str], ...], Dict[str, Any]]] = {}
 
         os.makedirs(os.path.dirname(history_file) or ".", exist_ok=True)
         self._load_history()
 
-    def _normalize_sequence(
-        self, sequence: Optional[List[Any]]
-    ) -> Tuple[Tuple[str, str], ...]:
+    def _normalize_sequence(self, sequence: Optional[List[Any]]) -> Tuple[Tuple[str, str], ...]:
         """Normalize sequence values loaded from JSON into hashable ((tool, action), ...)."""
         if not sequence:
             return tuple()
@@ -258,11 +244,7 @@ class GoalTracker:
                     "id": goal.id,
                     "description": goal.description,
                     "intent": goal.intent,
-                    "status": (
-                        goal.status.value
-                        if isinstance(goal.status, GoalStatus)
-                        else str(goal.status)
-                    ),
+                    "status": (goal.status.value if isinstance(goal.status, GoalStatus) else str(goal.status)),
                     "created_at": goal.created_at,
                     "subgoal_count": len(goal.subgoals),
                     "tool_call_count": len(goal.tool_call_sequence),
@@ -355,9 +337,7 @@ class GoalTracker:
         goal.add_tool_call(tool_call)
 
         status_str = "" if status == ToolCallStatus.SUCCESS else ""
-        logger.info(
-            f"[GoalTracker] Tool call {status_str}: {tool_name}.{action} (in goal {goal_id})"
-        )
+        logger.info(f"[GoalTracker] Tool call {status_str}: {tool_name}.{action} (in goal {goal_id})")
 
     def complete_goal(self, goal_id: str, success: bool):
         """
@@ -400,9 +380,7 @@ class GoalTracker:
 
         if goal.intent not in self.intent_sequence_stats:
             self.intent_sequence_stats[goal.intent] = {}
-        self._update_stats_bucket(
-            self.intent_sequence_stats[goal.intent], sequence, goal.success
-        )
+        self._update_stats_bucket(self.intent_sequence_stats[goal.intent], sequence, goal.success)
 
         stats = self.tool_sequence_stats[sequence]
 
@@ -430,17 +408,13 @@ class GoalTracker:
                         if not sequence:
                             continue
                         success = bool(record.get("success"))
-                        self._update_stats_bucket(
-                            self.tool_sequence_stats, sequence, success
-                        )
+                        self._update_stats_bucket(self.tool_sequence_stats, sequence, success)
 
                         intent = str(record.get("intent") or "").strip()
                         if intent:
                             if intent not in self.intent_sequence_stats:
                                 self.intent_sequence_stats[intent] = {}
-                            self._update_stats_bucket(
-                                self.intent_sequence_stats[intent], sequence, success
-                            )
+                            self._update_stats_bucket(self.intent_sequence_stats[intent], sequence, success)
                     except Exception as e:
                         logger.warning(f"Failed to load history record: {e}")
 
@@ -486,14 +460,10 @@ class GoalTracker:
         intent_bucket = self.intent_sequence_stats.get(intent, {})
         source_bucket = intent_bucket if intent_bucket else self.tool_sequence_stats
 
-        successful_sequences = [
-            seq for seq, stats in source_bucket.items() if stats["success_rate"] > 0.7
-        ]
+        successful_sequences = [seq for seq, stats in source_bucket.items() if stats["success_rate"] > 0.7]
 
         if successful_sequences:
-            logger.info(
-                f"[GoalTracker] Recommending {len(successful_sequences)} sequences for {intent}"
-            )
+            logger.info(f"[GoalTracker] Recommending {len(successful_sequences)} sequences for {intent}")
             return successful_sequences[:3]  # Top 3 recommendations
 
         return None
@@ -501,12 +471,9 @@ class GoalTracker:
     def get_statistics(self) -> Dict[str, Any]:
         """Get statistics about tracked goals and sequences"""
         total_sequences = len(self.tool_sequence_stats)
-        successful_sequences = sum(
-            1 for s in self.tool_sequence_stats.values() if s["success_rate"] > 0.5
-        )
+        successful_sequences = sum(1 for s in self.tool_sequence_stats.values() if s["success_rate"] > 0.5)
         avg_success_rate = (
-            sum(s["success_rate"] for s in self.tool_sequence_stats.values())
-            / total_sequences
+            sum(s["success_rate"] for s in self.tool_sequence_stats.values()) / total_sequences
             if total_sequences > 0
             else 0
         )

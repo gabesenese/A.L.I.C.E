@@ -188,17 +188,13 @@ class CognitiveOrchestrator:
         self.event_bus = event_bus or get_event_bus()
         self.goal_tracker = goal_tracker or get_goal_tracker()
         self.reflection_engine = reflection_engine or get_reflection_engine()
-        self.response_quality_tracker = (
-            response_quality_tracker or get_response_quality_tracker()
-        )
+        self.response_quality_tracker = response_quality_tracker or get_response_quality_tracker()
         self.executive_controller = executive_controller
         self.conversation_state_tracker = conversation_state_tracker
         self.response_planner = response_planner
 
         self.tick_interval_seconds = max(0.05, float(tick_interval_seconds or 5.0))
-        self.reasoning_importance_threshold = max(
-            0.0, min(1.0, float(reasoning_importance_threshold or 0.74))
-        )
+        self.reasoning_importance_threshold = max(0.0, min(1.0, float(reasoning_importance_threshold or 0.74)))
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -374,9 +370,7 @@ class CognitiveOrchestrator:
                 horizon_days=max(1, int(horizon_days or 30)),
                 milestones=list(milestones or []),
                 state=GOAL_ACTIVE,
-                priority_score=float(
-                    (metadata or {}).get("priority_score", 0.6) or 0.6
-                ),
+                priority_score=float((metadata or {}).get("priority_score", 0.6) or 0.6),
                 metadata=dict(metadata or {}),
             )
 
@@ -411,9 +405,7 @@ class CognitiveOrchestrator:
             if not success:
                 goal.state = GOAL_BLOCKED
                 goal.metadata["last_blocker"] = str(action_label or "unknown_action")
-                goal.metadata["stagnation_turns"] = (
-                    int(goal.metadata.get("stagnation_turns", 0)) + 1
-                )
+                goal.metadata["stagnation_turns"] = int(goal.metadata.get("stagnation_turns", 0)) + 1
                 goal.last_updated = time.time()
                 return {"updated": True, "state": goal.state, "progress": goal.progress}
 
@@ -429,9 +421,7 @@ class CognitiveOrchestrator:
             if matched:
                 goal.completed_milestones.append(matched)
             elif goal.milestones:
-                remaining = [
-                    m for m in goal.milestones if m not in goal.completed_milestones
-                ]
+                remaining = [m for m in goal.milestones if m not in goal.completed_milestones]
                 if remaining:
                     goal.completed_milestones.append(remaining[0])
 
@@ -513,15 +503,9 @@ class CognitiveOrchestrator:
             self._latest_improvement_plan = plan
         for item in plan:
             self._enqueue_improvement_task(
-                description=str(
-                    item.get("reason")
-                    or item.get("action_id")
-                    or "improve system behavior"
-                ),
+                description=str(item.get("reason") or item.get("action_id") or "improve system behavior"),
                 source="reflection",
-                priority=(
-                    0.9 if str(item.get("priority") or "").lower() == "high" else 0.65
-                ),
+                priority=(0.9 if str(item.get("priority") or "").lower() == "high" else 0.65),
             )
 
         if plan:
@@ -558,9 +542,7 @@ class CognitiveOrchestrator:
         with self._lock:
             rec = self._failure_log.get(kind)
             if rec is None:
-                rec = FailureRecord(
-                    failure_type=kind, frequency=0, suspected_cause=suspected
-                )
+                rec = FailureRecord(failure_type=kind, frequency=0, suspected_cause=suspected)
                 self._failure_log[kind] = rec
             rec.frequency += 1
             rec.last_occurrence = time.time()
@@ -608,24 +590,19 @@ class CognitiveOrchestrator:
                 if "routing" in desc:
                     failure_bonus += min(
                         0.20,
-                        failures.get("routing_mistake", FailureRecord("x")).frequency
-                        * 0.05,
+                        failures.get("routing_mistake", FailureRecord("x")).frequency * 0.05,
                     )
                 if "plausibility" in desc or "intent" in desc:
                     failure_bonus += min(
                         0.20,
-                        failures.get("weak_knowledge", FailureRecord("x")).frequency
-                        * 0.04,
+                        failures.get("weak_knowledge", FailureRecord("x")).frequency * 0.04,
                     )
                 if "planning" in desc:
                     failure_bonus += min(
                         0.20,
-                        failures.get("overgeneralization", FailureRecord("x")).frequency
-                        * 0.04,
+                        failures.get("overgeneralization", FailureRecord("x")).frequency * 0.04,
                     )
-                task.priority = max(
-                    0.0, min(1.0, float(task.priority) + urgency_bonus + failure_bonus)
-                )
+                task.priority = max(0.0, min(1.0, float(task.priority) + urgency_bonus + failure_bonus))
                 task.updated_at = now_ts
             self._improvement_queue.sort(key=lambda t: t.priority, reverse=True)
 
@@ -844,13 +821,9 @@ class CognitiveOrchestrator:
         with self._lock:
             self._cognitive_state.last_importance_score = score
             if self._improvement_queue:
-                self._cognitive_state.current_priority = self._improvement_queue[
-                    0
-                ].description
+                self._cognitive_state.current_priority = self._improvement_queue[0].description
             elif self._cognitive_state.active_goal:
-                self._cognitive_state.current_priority = (
-                    self._cognitive_state.active_goal
-                )
+                self._cognitive_state.current_priority = self._cognitive_state.active_goal
         return {"importance_score": score}
 
     def _schedule_improvements_if_needed(self, now_ts: float) -> Dict[str, Any]:
@@ -870,17 +843,14 @@ class CognitiveOrchestrator:
             active_goal = self._cognitive_state.active_goal
             queue_len = len(self._improvement_queue)
 
-        repeated_failure = bool(recent_problem) and any(
-            rec.frequency >= 3 for rec in self._failure_log.values()
-        )
+        repeated_failure = bool(recent_problem) and any(rec.frequency >= 3 for rec in self._failure_log.values())
         goal_blocked = bool(active_goal) and queue_len >= 2 and importance >= 0.55
         major_context_shift = False
         if self.conversation_state_tracker is not None:
             try:
                 state = self.conversation_state_tracker.get_state_summary()
                 major_context_shift = (
-                    len(state.get("intent_chain", [])[-3:]) >= 3
-                    and len(set(state.get("intent_chain", [])[-3:])) >= 3
+                    len(state.get("intent_chain", [])[-3:]) >= 3 and len(set(state.get("intent_chain", [])[-3:])) >= 3
                 )
             except Exception:
                 major_context_shift = False
@@ -913,9 +883,7 @@ class CognitiveOrchestrator:
 
     def _integrate_with_runtime_systems(self, *, triggers: Dict[str, bool]) -> None:
         """Push lightweight updates into runtime subsystems without calling the LLM."""
-        if self.executive_controller is not None and triggers.get(
-            "repeated_failure_pattern"
-        ):
+        if self.executive_controller is not None and triggers.get("repeated_failure_pattern"):
             try:
                 self.executive_controller.apply_reflection(
                     {
@@ -939,9 +907,7 @@ class CognitiveOrchestrator:
                 priority=EventPriority.NORMAL,
             )
 
-        if self.conversation_state_tracker is not None and triggers.get(
-            "major_context_shift"
-        ):
+        if self.conversation_state_tracker is not None and triggers.get("major_context_shift"):
             self.event_bus.emit_custom(
                 "cognition.conversation_shift",
                 {
@@ -965,9 +931,7 @@ class CognitiveOrchestrator:
             ):
                 goal.state = GOAL_BLOCKED
             if age > stale_after_seconds and goal.progress < 1.0:
-                goal.state = (
-                    GOAL_ABANDONED if age > (stale_after_seconds * 2.0) else goal.state
-                )
+                goal.state = GOAL_ABANDONED if age > (stale_after_seconds * 2.0) else goal.state
                 stale_info = {
                     "goal_id": goal.goal_id,
                     "description": goal.description,
@@ -1002,23 +966,15 @@ class CognitiveOrchestrator:
                     goal_id="conversation_goal",
                     description=goal_desc,
                     horizon_days=14,
-                    milestones=[
-                        sg.get("desc", "")
-                        for sg in status.get("subgoals", [])
-                        if sg.get("desc")
-                    ],
+                    milestones=[sg.get("desc", "") for sg in status.get("subgoals", []) if sg.get("desc")],
                     state=GOAL_ACTIVE,
                     priority_score=0.7,
                     progress=float(status.get("progress_score", 0.0) or 0.0),
                 )
             else:
                 goal.description = goal_desc
-                goal.progress = float(
-                    status.get("progress_score", goal.progress) or goal.progress
-                )
-                goal.state = (
-                    GOAL_COMPLETED if goal.progress >= 1.0 else GOAL_PROGRESSING
-                )
+                goal.progress = float(status.get("progress_score", goal.progress) or goal.progress)
+                goal.state = GOAL_COMPLETED if goal.progress >= 1.0 else GOAL_PROGRESSING
                 goal.last_updated = time.time()
 
     def _update_goal_lifecycle_on_turn(self, *, user_input: str, intent: str) -> None:
@@ -1033,12 +989,8 @@ class CognitiveOrchestrator:
                 stagnation_turns = int(goal.metadata.get("stagnation_turns", 0) or 0)
                 prev_progress = float(goal.progress)
                 if overlap > 0.18:
-                    goal.state = (
-                        GOAL_PROGRESSING if goal.progress > 0.0 else GOAL_ACTIVE
-                    )
-                    goal.priority_score = min(
-                        1.0, max(goal.priority_score, 0.55 + overlap)
-                    )
+                    goal.state = GOAL_PROGRESSING if goal.progress > 0.0 else GOAL_ACTIVE
+                    goal.priority_score = min(1.0, max(goal.priority_score, 0.55 + overlap))
                     goal.last_updated = time.time()
                     goal.related_conversations.append(turn_ref)
                     goal.metadata["drift_turns"] = 0
@@ -1099,8 +1051,7 @@ class CognitiveOrchestrator:
         with self._lock:
             if self._immediate_feedback:
                 guidance["feedback_adjustments"] = {
-                    k: {"penalty": float(v.get("penalty", 0.0))}
-                    for k, v in self._immediate_feedback.items()
+                    k: {"penalty": float(v.get("penalty", 0.0))} for k, v in self._immediate_feedback.items()
                 }
                 to_delete = []
                 for k, v in self._immediate_feedback.items():
@@ -1137,9 +1088,7 @@ class CognitiveOrchestrator:
         return {
             "running": bool(self._running),
             "tick_interval_seconds": float(self.tick_interval_seconds),
-            "reasoning_importance_threshold": float(
-                self.reasoning_importance_threshold
-            ),
+            "reasoning_importance_threshold": float(self.reasoning_importance_threshold),
             "tracked_turns": int(turn_count),
             "project_goals": goals,
             "failure_log": failures,

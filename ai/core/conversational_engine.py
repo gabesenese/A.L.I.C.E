@@ -166,11 +166,7 @@ class ConversationalEngine:
         recent = getattr(self, "recent_responses", ()) or []
         max_recent = getattr(self, "max_recent", 10)
         not_recent = [c for c in normalized_candidates if c not in recent]
-        choice = (
-            random.choice(not_recent)
-            if not_recent
-            else random.choice(normalized_candidates)
-        )
+        choice = random.choice(not_recent) if not_recent else random.choice(normalized_candidates)
         recent.insert(0, choice)
         self.recent_responses = recent[:max_recent]
         return choice
@@ -180,9 +176,7 @@ class ConversationalEngine:
         """Lowercased token set for robust intent cue checks."""
         return set(re.findall(r"\b[a-z']+\b", (text or "").lower()))
 
-    def can_handle(
-        self, user_input: str, intent: str, context: ConversationalContext
-    ) -> bool:
+    def can_handle(self, user_input: str, intent: str, context: ConversationalContext) -> bool:
         """
         Check if A.L.I.C.E can handle this conversationally without Ollama.
         Returns True ONLY for very simple, repetitive patterns where LLM would be overkill.
@@ -192,10 +186,7 @@ class ConversationalEngine:
         input_tokens = self._token_set(user_input)
 
         # ONLY handle simple greetings - let LLM handle everything else
-        if (
-            bool(input_tokens & {"hi", "hey", "hello", "yo", "sup"})
-            and len(input_lower.split()) <= 4
-        ):
+        if bool(input_tokens & {"hi", "hey", "hello", "yo", "sup"}) and len(input_lower.split()) <= 4:
             # Must be primarily a greeting, not a question
             greeting_options = self._unique_candidates(self.learned_greetings)
             if "?" not in input_lower and len(greeting_options) >= 2:
@@ -204,9 +195,7 @@ class ConversationalEngine:
         # Personal events acknowledgment (birthday, anniversary) - these are simple confirmations
         if bool(input_tokens & {"birthday", "anniversary"}):
             # Only if it's a statement like "my birthday is..." not a question
-            if "?" not in input_lower and any(
-                word in input_tokens for word in ["my", "is", "on"]
-            ):
+            if "?" not in input_lower and any(word in input_tokens for word in ["my", "is", "on"]):
                 if any(k.startswith("ack_") for k in self.learned_responses.keys()):
                     return True
 
@@ -216,12 +205,8 @@ class ConversationalEngine:
         if input_lower in ("thanks", "thx", "ty", "thank you"):
             if self.training_collector:
                 try:
-                    examples = self.training_collector.get_training_data(
-                        min_quality=0.7, max_examples=30
-                    )
-                    has_thanks_patterns = any(
-                        "thank" in ex.user_input.lower() for ex in examples
-                    )
+                    examples = self.training_collector.get_training_data(min_quality=0.7, max_examples=30)
+                    has_thanks_patterns = any("thank" in ex.user_input.lower() for ex in examples)
                     return has_thanks_patterns
                 except Exception:
                     pass
@@ -274,9 +259,7 @@ class ConversationalEngine:
             "no worries",
             "anytime",
         }
-        if input_lower in _ACK_PHRASES or (
-            intent == "conversation:ack" and len(input_lower.split()) <= 4
-        ):
+        if input_lower in _ACK_PHRASES or (intent == "conversation:ack" and len(input_lower.split()) <= 4):
             return True
 
     def generate_response(self, context: ConversationalContext) -> Optional[str]:
@@ -311,24 +294,18 @@ class ConversationalEngine:
                 )
 
                 detector = PersonalEventsDetector(
-                    user_name=(
-                        context.world_state.user_name if context.world_state else "User"
-                    )
+                    user_name=(context.world_state.user_name if context.world_state else "User")
                 )
                 storage = PersonalEventsStorage()
 
                 events = detector.detect_events(user_input)
                 for event in events:
                     storage.add_event(event)
-                    logger.info(
-                        f"Stored personal event: {event.description} on {event.date}"
-                    )
+                    logger.info(f"Stored personal event: {event.description} on {event.date}")
 
                 # Respond with acknowledgment
                 if "ack_birthday" in self.learned_responses:
-                    return self._pick_non_repeating(
-                        self.learned_responses["ack_birthday"]
-                    )
+                    return self._pick_non_repeating(self.learned_responses["ack_birthday"])
             except Exception as e:
                 logger.error(f"Error detecting birthday: {e}")
 
@@ -340,23 +317,17 @@ class ConversationalEngine:
                 )
 
                 detector = PersonalEventsDetector(
-                    user_name=(
-                        context.world_state.user_name if context.world_state else "User"
-                    )
+                    user_name=(context.world_state.user_name if context.world_state else "User")
                 )
                 storage = PersonalEventsStorage()
 
                 events = detector.detect_events(user_input)
                 for event in events:
                     storage.add_event(event)
-                    logger.info(
-                        f"Stored personal event: {event.description} on {event.date}"
-                    )
+                    logger.info(f"Stored personal event: {event.description} on {event.date}")
 
                 if "ack_anniversary" in self.learned_responses:
-                    return self._pick_non_repeating(
-                        self.learned_responses["ack_anniversary"]
-                    )
+                    return self._pick_non_repeating(self.learned_responses["ack_anniversary"])
             except Exception as e:
                 logger.error(f"Error detecting anniversary: {e}")
 
@@ -364,19 +335,11 @@ class ConversationalEngine:
         if input_lower in ("thanks", "thx", "ty", "thank you"):
             if self.training_collector:
                 try:
-                    examples = self.training_collector.get_training_data(
-                        min_quality=0.7, max_examples=30
-                    )
+                    examples = self.training_collector.get_training_data(min_quality=0.7, max_examples=30)
                     thanks_responses = []
                     for ex in examples:
-                        if any(
-                            word in ex.user_input.lower()
-                            for word in ["thank", "thanks"]
-                        ):
-                            if (
-                                ex.assistant_response
-                                and len(ex.assistant_response) < 60
-                            ):
+                        if any(word in ex.user_input.lower() for word in ["thank", "thanks"]):
+                            if ex.assistant_response and len(ex.assistant_response) < 60:
                                 thanks_responses.append(ex.assistant_response)
                     if thanks_responses:
                         return self._pick_non_repeating(thanks_responses)
@@ -399,9 +362,7 @@ class ConversationalEngine:
 _conversational_engine: Optional[ConversationalEngine] = None
 
 
-def get_conversational_engine(
-    memory_system=None, training_collector=None, world_state=None
-) -> ConversationalEngine:
+def get_conversational_engine(memory_system=None, training_collector=None, world_state=None) -> ConversationalEngine:
     """Get singleton conversational engine"""
     global _conversational_engine
     if _conversational_engine is None:

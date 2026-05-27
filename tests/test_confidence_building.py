@@ -70,13 +70,9 @@ def build_confidence():
             alice.process_input(question)
 
             # Check confidence
-            can_answer, conf = alice.knowledge_engine.can_answer_independently(
-                question, "conversation:question"
-            )
+            can_answer, conf = alice.knowledge_engine.can_answer_independently(question, "conversation:question")
 
-            print(
-                f"Confidence: {conf:.2f} {'[CAN ANSWER INDEPENDENTLY]' if can_answer else ''}"
-            )
+            print(f"Confidence: {conf:.2f} {'[CAN ANSWER INDEPENDENTLY]' if can_answer else ''}")
 
             # Small delay to not overwhelm Ollama
             if i < repeat_count - 1:
@@ -84,9 +80,7 @@ def build_confidence():
 
         # Show what Alice learned from this scenario
         stats = alice.knowledge_engine.get_stats()
-        print(
-            f"  Entities: {stats['total_entities']}, Relationships: {stats['total_relationships']}"
-        )
+        print(f"  Entities: {stats['total_entities']}, Relationships: {stats['total_relationships']}")
 
     print()
     print("=" * 70)
@@ -107,9 +101,7 @@ def build_confidence():
     for entity, count in stats["top_entities"][:10]:
         entity_info = alice.knowledge_engine.get_entity_info(entity)
         if entity_info:
-            print(
-                f"  - {entity}: {count} mentions, confidence: {entity_info['confidence']:.2f}"
-            )
+            print(f"  - {entity}: {count} mentions, confidence: {entity_info['confidence']:.2f}")
     print()
 
     # Show topic confidence levels
@@ -139,9 +131,7 @@ def build_confidence():
     ]
 
     for question in test_questions:
-        can_answer, conf = alice.knowledge_engine.can_answer_independently(
-            question, "conversation:question"
-        )
+        can_answer, conf = alice.knowledge_engine.can_answer_independently(question, "conversation:question")
         status = "YES - Independent" if can_answer else "NO - Needs Ollama"
         print(f"{question:.<40} {conf:.2f} [{status}]")
 

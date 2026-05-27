@@ -75,9 +75,7 @@ class SpeechEngine:
                 self._recognizer.pause_threshold = 0.8
                 logger.info(" Speech recognizer initialized")
             except ImportError:
-                logger.error(
-                    " speech_recognition not installed. Run: pip install SpeechRecognition"
-                )
+                logger.error(" speech_recognition not installed. Run: pip install SpeechRecognition")
         return self._recognizer
 
     @property
@@ -154,9 +152,7 @@ class SpeechEngine:
             logger.error(f" Speech error: {e}")
             print(f"ALICE: {text}")  # Fallback
 
-    def listen(
-        self, timeout: Optional[int] = None, phrase_timeout: Optional[int] = None
-    ) -> Optional[str]:
+    def listen(self, timeout: Optional[int] = None, phrase_timeout: Optional[int] = None) -> Optional[str]:
         """
         Listen for speech input
 
@@ -182,21 +178,15 @@ class SpeechEngine:
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
 
                 # Listen for audio
-                audio = self.recognizer.listen(
-                    source, timeout=timeout, phrase_time_limit=phrase_timeout
-                )
+                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_timeout)
 
                 logger.info("Processing audio...")
 
                 # Recognize speech
                 if self.config.stt_engine == "google":
-                    text = self.recognizer.recognize_google(
-                        audio, language=self.config.language
-                    )
+                    text = self.recognizer.recognize_google(audio, language=self.config.language)
                 elif self.config.stt_engine == "whisper":
-                    text = self.recognizer.recognize_whisper(
-                        audio, language=self.config.language
-                    )
+                    text = self.recognizer.recognize_whisper(audio, language=self.config.language)
                 else:
                     text = self.recognizer.recognize_google(audio)
 
@@ -220,9 +210,7 @@ class SpeechEngine:
                 logger.error(f" Speech recognition error: {sr_error}")
                 return None
 
-    def listen_for_wake_word(
-        self, callback: Callable[[str], None], background: bool = True
-    ):
+    def listen_for_wake_word(self, callback: Callable[[str], None], background: bool = True):
         """
         Continuously listen for wake word
 
@@ -232,9 +220,7 @@ class SpeechEngine:
         """
 
         def wake_word_loop():
-            logger.info(
-                f" Listening for wake words: {', '.join(self.config.wake_words)}"
-            )
+            logger.info(f" Listening for wake words: {', '.join(self.config.wake_words)}")
             self.is_listening = True
 
             while self.is_listening:
@@ -251,9 +237,7 @@ class SpeechEngine:
                                 self.wake_word_detected = True
 
                                 # Remove wake word from text
-                                command = text_lower.replace(
-                                    wake_word.lower(), ""
-                                ).strip()
+                                command = text_lower.replace(wake_word.lower(), "").strip()
 
                                 # Call callback with command
                                 callback(command if command else text)

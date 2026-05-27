@@ -53,12 +53,8 @@ class PlanExecutor:
         # Reasoning-layer response actions
         self._action_handlers["response.explain"] = self._execute_response_explain
         self._action_handlers["response.example"] = self._execute_response_example
-        self._action_handlers["response.check_understanding"] = (
-            self._execute_response_check_understanding
-        )
-        self._action_handlers["response.deeper_material"] = (
-            self._execute_response_deeper_material
-        )
+        self._action_handlers["response.check_understanding"] = self._execute_response_check_understanding
+        self._action_handlers["response.deeper_material"] = self._execute_response_deeper_material
 
     def execute(self, plan: ExecutionPlan) -> Dict[str, Any]:
         """
@@ -91,9 +87,7 @@ class PlanExecutor:
                 if next_step is None:
                     # No executable steps left but not complete = deadlock
                     if not plan.is_complete:
-                        raise RuntimeError(
-                            "Plan deadlock: no executable steps remaining"
-                        )
+                        raise RuntimeError("Plan deadlock: no executable steps remaining")
                     break
 
                 # Execute step
@@ -168,9 +162,7 @@ class PlanExecutor:
 
             return {"success": False, "error": str(e)}
 
-    def _resolve_params(
-        self, params: Dict[str, Any], step_results: Dict[int, Any]
-    ) -> Dict[str, Any]:
+    def _resolve_params(self, params: Dict[str, Any], step_results: Dict[int, Any]) -> Dict[str, Any]:
         """
         Resolve parameter references like {{step_1_result}}
 
@@ -391,21 +383,16 @@ class PlanExecutor:
             "depending on the object receiving it."
         )
 
-    def _execute_response_check_understanding(
-        self, action: str, params: Dict[str, Any]
-    ) -> str:
+    def _execute_response_check_understanding(self, action: str, params: Dict[str, Any]) -> str:
         """Add a comprehension check question."""
         topic = (params.get("topic") or "this topic").strip()
         return f"Quick check: In your own words, how would you explain {topic} to a friend?"
 
-    def _execute_response_deeper_material(
-        self, action: str, params: Dict[str, Any]
-    ) -> str:
+    def _execute_response_deeper_material(self, action: str, params: Dict[str, Any]) -> str:
         """Return next-step study guidance and assemble a final planned response."""
         topic = (params.get("topic") or "this topic").strip()
         return (
-            "Next step: Compare two implementations of the same interface and identify "
-            f"how each one applies {topic}."
+            f"Next step: Compare two implementations of the same interface and identify how each one applies {topic}."
         )
 
 

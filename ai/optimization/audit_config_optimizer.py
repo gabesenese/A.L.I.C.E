@@ -103,8 +103,7 @@ class ConfigOptimizer:
                 # Good improvement - may need harder queries
                 suggestions["adjustments"][f"{domain}_query_difficulty"] = {
                     "current": self.config["query_generation"]["queries_per_skill"],
-                    "suggested": self.config["query_generation"]["queries_per_skill"]
-                    + 1,
+                    "suggested": self.config["query_generation"]["queries_per_skill"] + 1,
                     "reason": f"{domain} improved by {improvement:.2f}, ready for harder cases",
                 }
                 suggestions["explanation"].append(
@@ -118,22 +117,16 @@ class ConfigOptimizer:
                     "suggested": "remedial",
                     "reason": f"{domain} did not improve, needs different approach",
                 }
-                suggestions["explanation"].append(
-                    f"{domain} did not improve. Use remedial training."
-                )
+                suggestions["explanation"].append(f"{domain} did not improve. Use remedial training.")
 
             else:
-                suggestions["explanation"].append(
-                    f"~ {domain} showed minimal improvement (+{improvement:.2f})"
-                )
+                suggestions["explanation"].append(f"~ {domain} showed minimal improvement (+{improvement:.2f})")
 
         # Analyze dimension improvements
         for dimension, improvement in dimension_improvements.items():
             if improvement < 0.1:
                 # This dimension is struggling - increase its weight
-                current_weight = self.config["auditing"]["dimension_weights"].get(
-                    dimension, 0.7
-                )
+                current_weight = self.config["auditing"]["dimension_weights"].get(dimension, 0.7)
 
                 suggestions["adjustments"][f"{dimension}_weight"] = {
                     "current": current_weight,
@@ -147,24 +140,16 @@ class ConfigOptimizer:
         # Overall assessment
         if suggestions["overall_improvement"] > 0.3:
             suggestions["overall_assessment"] = "strong"
-            suggestions["explanation"].append(
-                "\n Strong overall improvement. Continue current strategy."
-            )
+            suggestions["explanation"].append("\n Strong overall improvement. Continue current strategy.")
         elif suggestions["overall_improvement"] > 0.0:
             suggestions["overall_assessment"] = "positive"
-            suggestions["explanation"].append(
-                "\nPositive improvement. Maintain current strategy."
-            )
+            suggestions["explanation"].append("\nPositive improvement. Maintain current strategy.")
         elif suggestions["overall_improvement"] == 0:
             suggestions["overall_assessment"] = "stagnant"
-            suggestions["explanation"].append(
-                "\nNo improvement. Consider adjusting training approach."
-            )
+            suggestions["explanation"].append("\nNo improvement. Consider adjusting training approach.")
         else:
             suggestions["overall_assessment"] = "negative"
-            suggestions["explanation"].append(
-                "\n Performance declined. Review training data quality."
-            )
+            suggestions["explanation"].append("\n Performance declined. Review training data quality.")
 
         return suggestions
 

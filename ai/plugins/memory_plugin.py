@@ -35,9 +35,7 @@ class MemoryPlugin(PluginInterface):
         super().__init__()
         self.name = "Memory Plugin"
         self.version = "1.0.0"
-        self.description = (
-            "Store, recall, and search user preferences and conversation history"
-        )
+        self.description = "Store, recall, and search user preferences and conversation history"
         self.enabled = True
         self.capabilities = [
             "store_preference",
@@ -94,9 +92,7 @@ class MemoryPlugin(PluginInterface):
         ]
         return intent in memory_intents
 
-    def execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         """Execute memory operation based on intent"""
         try:
             # Use the existing handle_request method
@@ -125,9 +121,7 @@ class MemoryPlugin(PluginInterface):
     def is_enabled(self) -> bool:
         return self.enabled
 
-    def handle_request(
-        self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def handle_request(self, intent: str, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle memory operation requests
 
@@ -140,9 +134,7 @@ class MemoryPlugin(PluginInterface):
             Response dictionary with result
         """
         try:
-            action = (
-                intent.split(":")[-1] if ":" in intent else entities.get("action", "")
-            )
+            action = intent.split(":")[-1] if ":" in intent else entities.get("action", "")
 
             if action == "store":
                 return self._store_preference(entities, context)
@@ -167,15 +159,9 @@ class MemoryPlugin(PluginInterface):
                 "error": str(e),
             }
 
-    def _store_preference(
-        self, entities: Dict[str, Any], context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _store_preference(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Store a user preference or fact"""
-        content = (
-            entities.get("content")
-            or entities.get("text")
-            or context.get("user_input", "")
-        )
+        content = entities.get("content") or entities.get("text") or context.get("user_input", "")
 
         if not content:
             return {"success": False, "message": "No content to store"}
@@ -193,9 +179,7 @@ class MemoryPlugin(PluginInterface):
             }
 
             # Use memory system's add method
-            success = self.memory.add_episodic_memory(
-                content=content, metadata={"topic": topic, "type": "preference"}
-            )
+            success = self.memory.add_episodic_memory(content=content, metadata={"topic": topic, "type": "preference"})
 
             if success:
                 return {
@@ -213,9 +197,7 @@ class MemoryPlugin(PluginInterface):
                 "message": f"Failed to store preference: {str(e)}",
             }
 
-    def _recall_memory(
-        self, entities: Dict[str, Any], context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _recall_memory(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Recall specific information"""
         topic = entities.get("topic") or entities.get("query") or entities.get("about")
 
@@ -265,9 +247,7 @@ class MemoryPlugin(PluginInterface):
             logger.error(f"Error recalling memory: {e}")
             return {"success": False, "message": f"Failed to recall memory: {str(e)}"}
 
-    def _search_memory(
-        self, entities: Dict[str, Any], context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _search_memory(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Search conversation history"""
         query = entities.get("query") or entities.get("topic") or entities.get("about")
 
@@ -298,9 +278,7 @@ class MemoryPlugin(PluginInterface):
             logger.error(f"Error searching memory: {e}")
             return {"success": False, "message": f"Failed to search memory: {str(e)}"}
 
-    def _delete_memory(
-        self, entities: Dict[str, Any], context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _delete_memory(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Delete specific memory or preference"""
         topic = entities.get("topic") or entities.get("about")
 

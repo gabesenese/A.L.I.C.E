@@ -20,9 +20,7 @@ class LLMCallType(Enum):
 
     QUERY_KNOWLEDGE = "query_knowledge"  # Alice asks Ollama for factual information
     PARSE_INPUT = "parse_input"  # Alice asks Ollama to parse complex natural language
-    PHRASE_RESPONSE = (
-        "phrase_response"  # Alice asks Ollama to phrase her thought naturally
-    )
+    PHRASE_RESPONSE = "phrase_response"  # Alice asks Ollama to phrase her thought naturally
     PHRASE_MICRO = "phrase_micro"  # Short polish only, no new content
     PHRASE_STRUCTURED = "phrase_structured"  # Rewrite structured payload only
     AUDIT_LOGIC = "audit_logic"  # Alice asks Ollama to verify her reasoning
@@ -91,9 +89,7 @@ class LLMPolicy:
         self.denied_calls = 0
         self.approved_calls = 0
 
-    def can_call_llm(
-        self, call_type: LLMCallType, user_input: str = ""
-    ) -> tuple[bool, str]:
+    def can_call_llm(self, call_type: LLMCallType, user_input: str = "") -> tuple[bool, str]:
         """
         Check if LLM call is allowed by policy
 
@@ -226,9 +222,7 @@ class LLMPolicy:
 
     def record_call(self, call_type: LLMCallType, user_input: str, llm_response: str):
         """Alias for record_llm_call (simplified interface for gateway)"""
-        self.record_llm_call(
-            call_type, user_input, llm_response, approved_by_user=False
-        )
+        self.record_llm_call(call_type, user_input, llm_response, approved_by_user=False)
 
     def get_recent_calls(self, minutes: int = 60) -> list[LLMCallRecord]:
         """Get LLM calls from last N minutes"""
@@ -271,11 +265,7 @@ class LLMPolicy:
         for user_input, count in input_counts.most_common():
             if count >= 3:
                 # Find the most common LLM response for this input
-                responses = [
-                    r.llm_response
-                    for r in self.call_history
-                    if r.user_input.lower() == user_input
-                ]
+                responses = [r.llm_response for r in self.call_history if r.user_input.lower() == user_input]
                 most_common_response = Counter(responses).most_common(1)[0][0]
                 suggestions.append((user_input, most_common_response))
 

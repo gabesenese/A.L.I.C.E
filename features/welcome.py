@@ -153,8 +153,7 @@ def _load_approved_greetings() -> dict[str, list[str]]:
         valid_items = [
             str(item)
             for item in items
-            if isinstance(item, str)
-            and is_valid_startup_greeting(item, require_name_placeholder=True)
+            if isinstance(item, str) and is_valid_startup_greeting(item, require_name_placeholder=True)
         ]
         if valid_items:
             output[period] = valid_items

@@ -173,12 +173,8 @@ class CompanionDaemon:
                 "last_tick_at": self._last_tick_at,
                 "last_error": self._last_error,
                 "last_decisions": [dict(item) for item in self._last_decisions],
-                "active_goal_count": len(
-                    list((self._last_observation or {}).get("active_goals") or [])
-                ),
-                "pending_reminder_count": len(
-                    list((self._last_observation or {}).get("pending_reminders") or [])
-                ),
+                "active_goal_count": len(list((self._last_observation or {}).get("active_goals") or [])),
+                "pending_reminder_count": len(list((self._last_observation or {}).get("pending_reminders") or [])),
             }
 
     def run_once(self, *, reason: str = "manual") -> List[CompanionDaemonDecision]:
@@ -272,15 +268,11 @@ class CompanionDaemon:
             pending_reminders=pending_reminders,
         )
 
-    def _decide(
-        self, observation: CompanionObservation
-    ) -> List[CompanionDaemonDecision]:
+    def _decide(self, observation: CompanionObservation) -> List[CompanionDaemonDecision]:
         decisions: List[CompanionDaemonDecision] = []
         now = float(observation.captured_at or self._clock())
 
-        pending_approvals = list(
-            (observation.world_state or {}).get("pending_approvals") or []
-        )
+        pending_approvals = list((observation.world_state or {}).get("pending_approvals") or [])
         if pending_approvals:
             count = len(pending_approvals)
             decisions.append(
@@ -305,10 +297,7 @@ class CompanionDaemon:
                     CompanionDaemonDecision(
                         decision_type="ask",
                         key=f"companion:blocked_goal:{goal_id}",
-                        message=(
-                            f"Goal '{title}' is blocked: {blocker_text}. "
-                            "I need direction before continuing."
-                        ),
+                        message=(f"Goal '{title}' is blocked: {blocker_text}. I need direction before continuing."),
                         reason="goal_blocked",
                         priority="high",
                         requires_approval=False,
@@ -320,9 +309,7 @@ class CompanionDaemon:
             updated_at = self._to_timestamp(goal.get("updated_at"))
             next_action = str(goal.get("next_action") or "").strip()
             if not next_action:
-                next_action = str(
-                    (goal.get("next_step") or {}).get("description") or ""
-                ).strip()
+                next_action = str((goal.get("next_step") or {}).get("description") or "").strip()
             if updated_at and next_action:
                 idle_seconds = max(0.0, now - updated_at)
                 if idle_seconds >= float(self.config.stale_goal_seconds):
@@ -331,10 +318,7 @@ class CompanionDaemon:
                         CompanionDaemonDecision(
                             decision_type="ask",
                             key=f"companion:stale_goal:{goal_id}",
-                            message=(
-                                f"Goal '{title}' has been idle for {idle_hours}h. "
-                                f"Next step: {next_action}"
-                            ),
+                            message=(f"Goal '{title}' has been idle for {idle_hours}h. Next step: {next_action}"),
                             reason="goal_stale_with_next_action",
                             priority="normal",
                             metadata={
@@ -379,11 +363,7 @@ class CompanionDaemon:
             trigger_ts = self._to_timestamp(reminder.get("trigger_time"))
             if not trigger_ts:
                 continue
-            if (
-                now
-                <= trigger_ts
-                <= now + float(self.config.upcoming_reminder_window_seconds)
-            ):
+            if now <= trigger_ts <= now + float(self.config.upcoming_reminder_window_seconds):
                 message = str(reminder.get("message") or "Reminder")
                 when = datetime.fromtimestamp(trigger_ts).strftime("%H:%M")
                 decisions.append(
@@ -437,9 +417,7 @@ class CompanionDaemon:
                 data["next_step"] = self._normalize_step(next_step)
 
         if not data.get("next_action") and isinstance(data.get("next_step"), dict):
-            data["next_action"] = str(
-                (data.get("next_step") or {}).get("description") or ""
-            ).strip()
+            data["next_action"] = str((data.get("next_step") or {}).get("description") or "").strip()
         return _json_safe(data)
 
     def _normalize_step(self, step: Any) -> Dict[str, Any]:
@@ -488,14 +466,10 @@ class CompanionDaemon:
         plugins = dict((snapshot or {}).get("plugins") or {})
         failed_plugins = list(plugins.get("failed_plugins") or [])
         if failed_plugins:
-            messages.append(
-                f"failed plugins: {', '.join(map(str, failed_plugins[:3]))}"
-            )
+            messages.append(f"failed plugins: {', '.join(map(str, failed_plugins[:3]))}")
         return messages
 
-    def _emit_notifications(
-        self, decisions: List[CompanionDaemonDecision], *, now: float
-    ) -> None:
+    def _emit_notifications(self, decisions: List[CompanionDaemonDecision], *, now: float) -> None:
         for decision in decisions:
             if decision.decision_type not in {"notify", "ask"}:
                 continue
@@ -537,9 +511,7 @@ class CompanionDaemon:
                 "last_run_reason": reason,
                 "last_decisions": decisions,
                 "active_goal_count": len(list(observation.get("active_goals") or [])),
-                "pending_reminder_count": len(
-                    list(observation.get("pending_reminders") or [])
-                ),
+                "pending_reminder_count": len(list(observation.get("pending_reminders") or [])),
                 "journal_summary": dict(observation.get("journal_summary") or {}),
             }
         )
@@ -552,12 +524,8 @@ class CompanionDaemon:
                 "decision_count": len(decisions),
                 "decisions": decisions,
                 "observation": {
-                    "active_goal_count": len(
-                        list(observation.get("active_goals") or [])
-                    ),
-                    "pending_reminder_count": len(
-                        list(observation.get("pending_reminders") or [])
-                    ),
+                    "active_goal_count": len(list(observation.get("active_goals") or [])),
+                    "pending_reminder_count": len(list(observation.get("pending_reminders") or [])),
                     "journal_summary": dict(observation.get("journal_summary") or {}),
                 },
                 "timestamp": now,
@@ -565,9 +533,7 @@ class CompanionDaemon:
         )
 
     def _record_world_state(self, data: Dict[str, Any]) -> None:
-        if not self.world_state_memory or not hasattr(
-            self.world_state_memory, "set_environment_state"
-        ):
+        if not self.world_state_memory or not hasattr(self.world_state_memory, "set_environment_state"):
             return
         try:
             self.world_state_memory.set_environment_state(

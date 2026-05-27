@@ -73,12 +73,8 @@ class ProjectMemoryState:
             last_recommended_action=dict(data.get("last_recommended_action") or {}),
             suggested_next_files=list(data.get("suggested_next_files") or []),
             user_corrections=list(data.get("user_corrections") or []),
-            design_constraints=list(
-                data.get("design_constraints") or _default_design_constraints()
-            ),
-            last_self_improvement_event_id=str(
-                data.get("last_self_improvement_event_id") or ""
-            ),
+            design_constraints=list(data.get("design_constraints") or _default_design_constraints()),
+            last_self_improvement_event_id=str(data.get("last_self_improvement_event_id") or ""),
             last_hypothesis_id=str(data.get("last_hypothesis_id") or ""),
             last_patch_plan_id=str(data.get("last_patch_plan_id") or ""),
             last_audit_report_id=str(data.get("last_audit_report_id") or ""),
@@ -103,9 +99,7 @@ def _read_all() -> Dict[str, Any]:
 
 def _write_all(payload: Dict[str, Any]) -> None:
     PROJECT_MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PROJECT_MEMORY_PATH.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8"
-    )
+    PROJECT_MEMORY_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
 
 
 def load_project_state(user_id: str = "default") -> ProjectMemoryState:
@@ -120,9 +114,7 @@ def save_project_state(state: ProjectMemoryState, user_id: str = "default") -> N
     _write_all(data)
 
 
-def update_project_state(
-    updates: Dict[str, Any], user_id: str = "default"
-) -> ProjectMemoryState:
+def update_project_state(updates: Dict[str, Any], user_id: str = "default") -> ProjectMemoryState:
     state = load_project_state(user_id)
     for key, value in dict(updates or {}).items():
         if not hasattr(state, key):
@@ -168,9 +160,7 @@ def record_failure(
         "known_blockers": [detail] if detail else [],
     }
     if evidence:
-        payload["known_blockers"] = [
-            f"{detail} | evidence={json.dumps(evidence, ensure_ascii=True)}"
-        ]
+        payload["known_blockers"] = [f"{detail} | evidence={json.dumps(evidence, ensure_ascii=True)}"]
     return update_project_state(payload, user_id=user_id)
 
 
@@ -194,9 +184,7 @@ def record_file_changed(path: str, user_id: str = "default") -> ProjectMemorySta
     return update_project_state({"files_changed": [str(path or "")]}, user_id=user_id)
 
 
-def record_test_run(
-    command: str, success: bool, detail: str = "", user_id: str = "default"
-) -> ProjectMemoryState:
+def record_test_run(command: str, success: bool, detail: str = "", user_id: str = "default") -> ProjectMemoryState:
     entry = {
         "command": str(command or ""),
         "success": bool(success),
@@ -210,9 +198,7 @@ def record_test_run(
 
 
 def record_user_correction(text: str, user_id: str = "default") -> ProjectMemoryState:
-    return update_project_state(
-        {"user_corrections": [str(text or "")]}, user_id=user_id
-    )
+    return update_project_state({"user_corrections": [str(text or "")]}, user_id=user_id)
 
 
 def get_next_context_summary(user_id: str = "default") -> Dict[str, Any]:
@@ -223,9 +209,7 @@ def get_next_context_summary(user_id: str = "default") -> Dict[str, Any]:
         "last_failure": state.last_failure,
         "last_success": state.last_success,
         "known_blockers": list(state.known_blockers or [])[:5],
-        "last_inspected_file": (
-            state.files_inspected[-1] if state.files_inspected else ""
-        ),
+        "last_inspected_file": (state.files_inspected[-1] if state.files_inspected else ""),
         "next_recommended_action": state.next_recommended_action,
         "last_recommended_action": dict(state.last_recommended_action or {}),
         "last_self_improvement_event_id": state.last_self_improvement_event_id,
@@ -235,9 +219,7 @@ def get_next_context_summary(user_id: str = "default") -> Dict[str, Any]:
     }
 
 
-def record_improvement_audit(
-    report_summary: Dict[str, Any], user_id: str = "default"
-) -> ProjectMemoryState:
+def record_improvement_audit(report_summary: Dict[str, Any], user_id: str = "default") -> ProjectMemoryState:
     data = dict(report_summary or {})
     return update_project_state(
         {
@@ -245,12 +227,9 @@ def record_improvement_audit(
             "last_hypothesis_id": str(data.get("hypothesis_id") or ""),
             "last_patch_plan_id": str(data.get("patch_plan_id") or ""),
             "last_audit_report_id": str(data.get("audit_report_id") or ""),
-            "self_improvement_status": str(
-                data.get("status") or "audit_report_recorded"
-            ),
+            "self_improvement_status": str(data.get("status") or "audit_report_recorded"),
             "next_recommended_action": str(
-                data.get("next_recommended_action")
-                or "Review audit report and approve implementation scope."
+                data.get("next_recommended_action") or "Review audit report and approve implementation scope."
             ),
             "last_recommended_action": dict(data.get("last_recommended_action") or {}),
         },

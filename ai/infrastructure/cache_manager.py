@@ -64,9 +64,7 @@ class CircuitBreaker:
 
             if self.failure_count >= self.failure_threshold:
                 self.state = "open"
-                logger.error(
-                    f"[CircuitBreaker] OPENED after {self.failure_count} failures"
-                )
+                logger.error(f"[CircuitBreaker] OPENED after {self.failure_count} failures")
 
             raise
 
@@ -119,9 +117,7 @@ class CacheManager:
                 self.redis_client.ping()
                 logger.info(f"[Cache] Connected to Redis at {redis_host}:{redis_port}")
             except (RedisError, RedisConnectionError) as e:
-                logger.warning(
-                    f"[Cache] Redis connection failed: {e}, using in-memory fallback"
-                )
+                logger.warning(f"[Cache] Redis connection failed: {e}, using in-memory fallback")
                 self.redis_client = None
         else:
             logger.info("[Cache] Using in-memory fallback cache")
@@ -199,9 +195,7 @@ class CacheManager:
             serialized = self._serialize(value)
 
             if self.redis_client and self.circuit_breaker:
-                result = self.circuit_breaker.call(
-                    self.redis_client.set, cache_key, serialized, ex=ttl, nx=nx
-                )
+                result = self.circuit_breaker.call(self.redis_client.set, cache_key, serialized, ex=ttl, nx=nx)
             elif self.redis_client:
                 result = self.redis_client.set(cache_key, serialized, ex=ttl, nx=nx)
             else:
@@ -230,9 +224,7 @@ class CacheManager:
             elif self.redis_client:
                 result = self.redis_client.delete(cache_key)
             else:
-                result = (
-                    1 if self.fallback_cache.pop(cache_key, None) is not None else 0
-                )
+                result = 1 if self.fallback_cache.pop(cache_key, None) is not None else 0
 
             self.stats["deletes"] += 1
             return bool(result)
@@ -256,9 +248,7 @@ class CacheManager:
             else:
                 # Fallback pattern matching
                 prefix = self._make_key(namespace, "")
-                keys_to_delete = [
-                    k for k in self.fallback_cache.keys() if k.startswith(prefix)
-                ]
+                keys_to_delete = [k for k in self.fallback_cache.keys() if k.startswith(prefix)]
                 for key in keys_to_delete:
                     del self.fallback_cache[key]
                     count += 1
@@ -273,9 +263,7 @@ class CacheManager:
     def get_stats(self) -> dict:
         """Get cache statistics"""
         total_requests = self.stats["hits"] + self.stats["misses"]
-        hit_rate = (
-            (self.stats["hits"] / total_requests * 100) if total_requests > 0 else 0
-        )
+        hit_rate = (self.stats["hits"] / total_requests * 100) if total_requests > 0 else 0
 
         stats = {
             **self.stats,
@@ -310,9 +298,7 @@ class CacheManager:
             return 0
 
 
-def cached(
-    namespace: str, ttl: Optional[int] = None, key_func: Optional[Callable] = None
-):
+def cached(namespace: str, ttl: Optional[int] = None, key_func: Optional[Callable] = None):
     """
     Decorator for caching function results
 

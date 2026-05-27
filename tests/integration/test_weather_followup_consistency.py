@@ -18,9 +18,7 @@ def _make_alice_stub(entities):
     alice.conversation_summary = [{"intent": "weather:current"}]
     alice._think = lambda *args, **kwargs: None
     alice._alice_direct_phrase = lambda _rtype, payload: payload
-    alice._generate_natural_response = (
-        lambda payload, _tone, _context, _user_input: payload
-    )
+    alice._generate_natural_response = lambda payload, _tone, _context, _user_input: payload
     return alice
 
 
@@ -66,9 +64,7 @@ def test_clothing_followup_prefers_newest_weather_snapshot_and_yes_no_flag():
         }
     )
 
-    result = alice._handle_weather_followup(
-        "should i bring a scarf too or no?", "weather:current"
-    )
+    result = alice._handle_weather_followup("should i bring a scarf too or no?", "weather:current")
 
     assert isinstance(result, dict)
     assert result.get("type") == "weather_advice"
@@ -96,9 +92,7 @@ def test_umbrella_typo_followup_maps_to_umbrella_item():
 
     alice = _make_alice_stub({"current_weather": rainy_current})
 
-    result = alice._handle_weather_followup(
-        "should i bring an umbrela?", "weather:forecast"
-    )
+    result = alice._handle_weather_followup("should i bring an umbrela?", "weather:forecast")
 
     assert isinstance(result, dict)
     assert result.get("type") == "weather_advice"
@@ -131,9 +125,7 @@ def test_rain_tomorrow_question_returns_yes_no_outlook_phrase():
 
     alice = _make_alice_stub({"weather_forecast": fresh_forecast})
 
-    result = alice._handle_weather_followup(
-        "is it gonna rain tomorrow?", "weather:forecast"
-    )
+    result = alice._handle_weather_followup("is it gonna rain tomorrow?", "weather:forecast")
 
     assert isinstance(result, str)
     low = result.lower()
@@ -198,9 +190,7 @@ def test_time_range_followup_ignores_stale_stored_forecast_snapshot():
     alice = _make_alice_stub({})
     alice.live_state_service = _StaleLiveStateStub()
 
-    result = alice._handle_weather_followup(
-        "is it raining tomorrow?", "weather:forecast"
-    )
+    result = alice._handle_weather_followup("is it raining tomorrow?", "weather:forecast")
 
     # Stale snapshot should be ignored so normal weather routing can fetch fresh data.
     assert result is None

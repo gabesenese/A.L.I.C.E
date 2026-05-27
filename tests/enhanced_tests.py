@@ -69,9 +69,7 @@ def test_intent(category, query, expected_keywords=None, test_type="standard"):
 
         # Check for expected keywords if provided
         if expected_keywords:
-            found_keywords = sum(
-                1 for kw in expected_keywords if kw.lower() in response.lower()
-            )
+            found_keywords = sum(1 for kw in expected_keywords if kw.lower() in response.lower())
             if found_keywords < len(expected_keywords) * 0.5:
                 print(f"   PARTIAL: Missing keywords in: {response[:60]}")
                 test_results[f"{category}_tests"].append(
@@ -184,18 +182,13 @@ for scenario in multiturn_scenarios:
         try:
             response = alice.handle_input(query)
 
-            has_error = any(
-                err in response.lower()
-                for err in ["i don't know", "sorry", "error", "couldn't", "unable"]
-            )
+            has_error = any(err in response.lower() for err in ["i don't know", "sorry", "error", "couldn't", "unable"])
 
             if has_error:
                 print("     FAIL")
                 scenario_passed = False
             else:
-                found_keywords = sum(
-                    1 for kw in keywords if kw.lower() in response.lower()
-                )
+                found_keywords = sum(1 for kw in keywords if kw.lower() in response.lower())
                 if found_keywords >= len(keywords) * 0.5:
                     print("     PASS")
                 else:

@@ -95,9 +95,7 @@ class OllamaTeacherComparison:
             Teacher's ideal response
         """
         if not self.llm_engine:
-            logger.warning(
-                "[TeacherComparison] Ollama not available, skipping teacher response"
-            )
+            logger.warning("[TeacherComparison] Ollama not available, skipping teacher response")
             return None
 
         try:
@@ -149,9 +147,7 @@ class OllamaTeacherComparison:
             Dict with quality metrics
         """
         if not teacher_response:
-            teacher_response = self.get_teacher_response(
-                user_input, intent, {"domain": domain}
-            )
+            teacher_response = self.get_teacher_response(user_input, intent, {"domain": domain})
 
         if not teacher_response:
             return {"comparison_possible": False, "quality_score": None}
@@ -160,9 +156,7 @@ class OllamaTeacherComparison:
         similarity = self._calculate_similarity(alice_response, teacher_response)
 
         # Content quality checks
-        quality_score = self._score_response_quality(
-            alice_response, teacher_response, similarity, intent, domain
-        )
+        quality_score = self._score_response_quality(alice_response, teacher_response, similarity, intent, domain)
 
         # Check if responses convey same intent
         semantic_match = self._check_semantic_match(alice_response, teacher_response)
@@ -254,9 +248,7 @@ class OllamaTeacherComparison:
 
         # Both polite greetings
         greetings = ["hello", "hi", "hey", "greetings", "welcome"]
-        if all(word in text1.lower() for word in ["hello"]) and any(
-            word in text2.lower() for word in greetings
-        ):
+        if all(word in text1.lower() for word in ["hello"]) and any(word in text2.lower() for word in greetings):
             return True
 
         # Both offer help
@@ -276,9 +268,7 @@ class OllamaTeacherComparison:
 
         return False
 
-    def _addresses_intent(
-        self, response: str, teacher_response: str, intent: Optional[str]
-    ) -> bool:
+    def _addresses_intent(self, response: str, teacher_response: str, intent: Optional[str]) -> bool:
         """
         Check if both responses address the intent appropriately
         """
@@ -332,9 +322,7 @@ class OllamaTeacherComparison:
 
         old_avg_domain = self.scores["by_domain"][domain]["avg_quality"]
         count_domain = self.scores["by_domain"][domain]["count"] + 1
-        self.scores["by_domain"][domain]["avg_quality"] = (
-            old_avg_domain * (count_domain - 1) + quality
-        ) / count_domain
+        self.scores["by_domain"][domain]["avg_quality"] = (old_avg_domain * (count_domain - 1) + quality) / count_domain
         self.scores["by_domain"][domain]["count"] = count_domain
 
         # Track by intent
@@ -344,9 +332,7 @@ class OllamaTeacherComparison:
 
         old_avg_intent = self.scores["by_intent"][intent]["avg_quality"]
         count_intent = self.scores["by_intent"][intent]["count"] + 1
-        self.scores["by_intent"][intent]["avg_quality"] = (
-            old_avg_intent * (count_intent - 1) + quality
-        ) / count_intent
+        self.scores["by_intent"][intent]["avg_quality"] = (old_avg_intent * (count_intent - 1) + quality) / count_intent
         self.scores["by_intent"][intent]["count"] = count_intent
 
     def get_quality_report(self) -> Dict[str, Any]:
@@ -366,9 +352,7 @@ class OllamaTeacherComparison:
         if not self.comparison_log.exists():
             return []
 
-        pattern_quality = defaultdict(
-            lambda: {"count": 0, "total_quality": 0.0, "examples": []}
-        )
+        pattern_quality = defaultdict(lambda: {"count": 0, "total_quality": 0.0, "examples": []})
 
         try:
             with open(self.comparison_log, "r", encoding="utf-8", errors="ignore") as f:
@@ -409,9 +393,7 @@ class OllamaTeacherComparison:
                             "intent": intent,
                             "avg_quality": avg_quality,
                             "occurrence_count": data["count"],
-                            "sample_inputs": [
-                                ex["user_input"] for ex in data["examples"][:3]
-                            ],
+                            "sample_inputs": [ex["user_input"] for ex in data["examples"][:3]],
                         }
                     )
 
@@ -420,9 +402,7 @@ class OllamaTeacherComparison:
 
         return high_quality_patterns
 
-    def identify_problem_patterns(
-        self, max_quality: float = 0.5, min_occurrences: int = 3
-    ) -> List[Dict[str, Any]]:
+    def identify_problem_patterns(self, max_quality: float = 0.5, min_occurrences: int = 3) -> List[Dict[str, Any]]:
         """
         Find patterns where Alice consistently underperforms
         Flag for manual intervention or rule updates
@@ -433,9 +413,7 @@ class OllamaTeacherComparison:
         if not self.comparison_log.exists():
             return []
 
-        pattern_quality = defaultdict(
-            lambda: {"count": 0, "total_quality": 0.0, "examples": []}
-        )
+        pattern_quality = defaultdict(lambda: {"count": 0, "total_quality": 0.0, "examples": []})
 
         try:
             with open(self.comparison_log, "r", encoding="utf-8", errors="ignore") as f:
@@ -495,9 +473,7 @@ class OllamaTeacherComparison:
 
         return problem_patterns
 
-    def run_comparison_cycle(
-        self, training_items: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def run_comparison_cycle(self, training_items: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Run full comparison cycle for a batch of training items
 
@@ -507,9 +483,7 @@ class OllamaTeacherComparison:
         Returns:
             Summary of comparisons
         """
-        logger.info(
-            f"[TeacherComparison] Starting comparison cycle for {len(training_items)} items..."
-        )
+        logger.info(f"[TeacherComparison] Starting comparison cycle for {len(training_items)} items...")
 
         comparisons_done = 0
         comparisons_failed = 0

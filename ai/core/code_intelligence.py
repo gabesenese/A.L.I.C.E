@@ -112,9 +112,7 @@ class CodeAnalyzer:
         # Get return type if annotated
         return_type = None
         if node.returns:
-            return_type = (
-                ast.unparse(node.returns) if hasattr(ast, "unparse") else "annotated"
-            )
+            return_type = ast.unparse(node.returns) if hasattr(ast, "unparse") else "annotated"
 
         # Extract docstring
         docstring = ast.get_docstring(node)
@@ -235,20 +233,12 @@ class CodeAnalyzer:
         """Calculate code quality metrics"""
         lines = code.split("\n")
         total_lines = len(lines)
-        code_lines = len(
-            [
-                line
-                for line in lines
-                if line.strip() and not line.strip().startswith("#")
-            ]
-        )
+        code_lines = len([line for line in lines if line.strip() and not line.strip().startswith("#")])
         comment_lines = len([line for line in lines if line.strip().startswith("#")])
 
         # Average function complexity
         if analysis["functions"]:
-            avg_complexity = sum(f["complexity"] for f in analysis["functions"]) / len(
-                analysis["functions"]
-            )
+            avg_complexity = sum(f["complexity"] for f in analysis["functions"]) / len(analysis["functions"])
         else:
             avg_complexity = 1.0
 
@@ -256,11 +246,7 @@ class CodeAnalyzer:
         documented_functions = len([f for f in analysis["functions"] if f["docstring"]])
         documented_classes = len([c for c in analysis["classes"] if c["docstring"]])
         total_definitions = len(analysis["functions"]) + len(analysis["classes"])
-        doc_ratio = (
-            (documented_functions + documented_classes) / total_definitions
-            if total_definitions > 0
-            else 0.0
-        )
+        doc_ratio = (documented_functions + documented_classes) / total_definitions if total_definitions > 0 else 0.0
 
         return {
             "total_lines": total_lines,
@@ -268,9 +254,7 @@ class CodeAnalyzer:
             "comment_lines": comment_lines,
             "comment_ratio": comment_lines / total_lines if total_lines > 0 else 0.0,
             "avg_complexity": avg_complexity,
-            "max_complexity": max(
-                (f["complexity"] for f in analysis["functions"]), default=1
-            ),
+            "max_complexity": max((f["complexity"] for f in analysis["functions"]), default=1),
             "function_count": len(analysis["functions"]),
             "class_count": len(analysis["classes"]),
             "doc_ratio": doc_ratio,
@@ -334,24 +318,18 @@ class CodeAnalyzer:
         # Comment suggestions
         if metrics.get("comment_ratio", 0) < 0.05:
             suggestions.append(
-                "Very few comments. Add comments to explain complex logic and "
-                "non-obvious implementations."
+                "Very few comments. Add comments to explain complex logic and non-obvious implementations."
             )
 
         # Function length suggestions
-        long_functions = [
-            f for f in analysis.get("functions", []) if f.get("lines", 0) > 50
-        ]
+        long_functions = [f for f in analysis.get("functions", []) if f.get("lines", 0) > 50]
         if long_functions:
             suggestions.append(
-                f"Found {len(long_functions)} long functions (>50 lines). "
-                "Consider refactoring for better readability."
+                f"Found {len(long_functions)} long functions (>50 lines). Consider refactoring for better readability."
             )
 
         # Class design suggestions
-        large_classes = [
-            c for c in analysis.get("classes", []) if c.get("method_count", 0) > 20
-        ]
+        large_classes = [c for c in analysis.get("classes", []) if c.get("method_count", 0) > 20]
         if large_classes:
             suggestions.append(
                 f"Found {len(large_classes)} large classes (>20 methods). "
@@ -453,9 +431,7 @@ class CodeGenerator:
 ''',
         }
 
-    def generate_function(
-        self, name: str, args: List[str], description: str, return_type: str = "Any"
-    ) -> str:
+    def generate_function(self, name: str, args: List[str], description: str, return_type: str = "Any") -> str:
         """Generate a function template"""
         arg_docs = "\n        ".join(f"{arg}: Description of {arg}" for arg in args)
         args_str = ", ".join(args)

@@ -26,9 +26,7 @@ class AsyncEvaluationWrapper:
     Ollama evaluates after response is returned.
     """
 
-    def __init__(
-        self, ollama_evaluator=None, response_formulator=None, realtime_logger=None
-    ):
+    def __init__(self, ollama_evaluator=None, response_formulator=None, realtime_logger=None):
         self.ollama_evaluator = ollama_evaluator
         self.response_formulator = response_formulator
         self.realtime_logger = realtime_logger
@@ -75,9 +73,7 @@ class AsyncEvaluationWrapper:
         try:
             import threading
 
-            thread = threading.Thread(
-                target=self._process_evaluation, args=(evaluation_task,), daemon=True
-            )
+            thread = threading.Thread(target=self._process_evaluation, args=(evaluation_task,), daemon=True)
             thread.start()
         except Exception as e:
             logger.error(f"Failed to queue evaluation: {e}")
@@ -110,10 +106,7 @@ class AsyncEvaluationWrapper:
             if evaluation.failed and evaluation.suggested_improvement:
                 self._apply_learning(task, evaluation)
 
-            logger.debug(
-                f"[AsyncEval] Evaluated: {task['action']} "
-                f"score={evaluation.overall_score}/100"
-            )
+            logger.debug(f"[AsyncEval] Evaluated: {task['action']} score={evaluation.overall_score}/100")
 
         except Exception as e:
             logger.error(f"[AsyncEval] Error processing evaluation: {e}")

@@ -62,9 +62,7 @@ class Relationship:
 
     source_id: str
     target_id: str
-    relationship_type: (
-        str  # 'mentioned_with', 'created', 'modified', 'related_to', etc.
-    )
+    relationship_type: str  # 'mentioned_with', 'created', 'modified', 'related_to', etc.
     created_at: float
     strength: float = 1.0  # 0.0 to 1.0, increases with repeated co-occurrence
     metadata: Dict[str, Any] = None
@@ -118,18 +116,14 @@ class ContextGraph:
 
         # Core graph structures
         self.entities: Dict[str, Entity] = {}
-        self.relationships: Dict[
-            Tuple[str, str, str], Relationship
-        ] = {}  # (source, target, type) -> relationship
+        self.relationships: Dict[Tuple[str, str, str], Relationship] = {}  # (source, target, type) -> relationship
 
         # Conversation history (chronological)
         self.conversation_history: deque = deque(maxlen=100)
 
         # Quick lookups
         self.entity_by_type: Dict[str, Set[str]] = defaultdict(set)
-        self.entity_relationships: Dict[str, Set[str]] = defaultdict(
-            set
-        )  # entity_id -> related entity_ids
+        self.entity_relationships: Dict[str, Set[str]] = defaultdict(set)  # entity_id -> related entity_ids
 
         # Temporal decay settings
         self.decay_rate = 0.95  # How fast old entities fade
@@ -147,9 +141,7 @@ class ContextGraph:
         """Generate unique ID for a conversation turn"""
         return f"turn_{int(time.time() * 1000)}"
 
-    def add_entity(
-        self, entity_type: str, value: Any, metadata: Optional[Dict] = None
-    ) -> Entity:
+    def add_entity(self, entity_type: str, value: Any, metadata: Optional[Dict] = None) -> Entity:
         """
         Add or update an entity in the graph
         Returns the entity (new or existing)
@@ -245,9 +237,7 @@ class ContextGraph:
 
                 # Create relationships between entities in same turn
                 for existing_id in entity_ids[:-1]:
-                    self.add_relationship(
-                        existing_id, entity.entity_id, "mentioned_with"
-                    )
+                    self.add_relationship(existing_id, entity.entity_id, "mentioned_with")
 
         # Create conversation turn
         turn = ConversationTurn(
@@ -335,9 +325,7 @@ class ContextGraph:
         candidates.sort(key=relevance_score, reverse=True)
         return candidates[:limit]
 
-    def get_conversation_history(
-        self, limit: int = 10, user_id: Optional[str] = None
-    ) -> List[ConversationTurn]:
+    def get_conversation_history(self, limit: int = 10, user_id: Optional[str] = None) -> List[ConversationTurn]:
         """Get recent conversation turns"""
         turns = list(self.conversation_history)
 
@@ -362,9 +350,7 @@ class ContextGraph:
         # Time-based queries
         if "today" in query_lower:
             time_threshold = time.time() - 86400
-            entities = [
-                e for e in self.entities.values() if e.last_mentioned >= time_threshold
-            ]
+            entities = [e for e in self.entities.values() if e.last_mentioned >= time_threshold]
             results["entities"] = [e.to_dict() for e in entities[:10]]
 
         elif "last" in query_lower or "recent" in query_lower:
@@ -390,12 +376,8 @@ class ContextGraph:
 
         summary = {
             "user_id": user_id,
-            "recent_topics": list(
-                set([e.value for e in recent_entities if e.entity_type == "topic"])
-            )[:5],
-            "recent_locations": list(
-                set([e.value for e in recent_entities if e.entity_type == "location"])
-            )[:3],
+            "recent_topics": list(set([e.value for e in recent_entities if e.entity_type == "topic"]))[:5],
+            "recent_locations": list(set([e.value for e in recent_entities if e.entity_type == "location"]))[:3],
             "conversation_history": [
                 {
                     "user": turn.user_input,
@@ -405,9 +387,7 @@ class ContextGraph:
                 }
                 for turn in recent_turns
             ],
-            "entity_counts": {
-                etype: len(entities) for etype, entities in self.entity_by_type.items()
-            },
+            "entity_counts": {etype: len(entities) for etype, entities in self.entity_by_type.items()},
             "last_intent": recent_turns[-1].intent if recent_turns else None,
         }
 
@@ -429,20 +409,14 @@ class ContextGraph:
                 # This could adjust internal weights/scores
                 # For now, just log very old entities
                 if hours_ago > 168:  # 1 week
-                    logger.debug(
-                        f"Entity {entity.entity_id} hasn't been mentioned in {hours_ago:.1f} hours"
-                    )
+                    logger.debug(f"Entity {entity.entity_id} hasn't been mentioned in {hours_ago:.1f} hours")
 
     def clear_old_data(self, older_than_days: int = 30):
         """Remove entities and turns older than specified days"""
         cutoff_time = time.time() - (older_than_days * 86400)
 
         # Remove old entities
-        to_remove = [
-            eid
-            for eid, entity in self.entities.items()
-            if entity.last_mentioned < cutoff_time
-        ]
+        to_remove = [eid for eid, entity in self.entities.items() if entity.last_mentioned < cutoff_time]
 
         for eid in to_remove:
             entity = self.entities[eid]
@@ -450,17 +424,11 @@ class ContextGraph:
             del self.entities[eid]
 
             # Remove relationships
-            to_remove_rels = [
-                key
-                for key in self.relationships.keys()
-                if key[0] == eid or key[1] == eid
-            ]
+            to_remove_rels = [key for key in self.relationships.keys() if key[0] == eid or key[1] == eid]
             for key in to_remove_rels:
                 del self.relationships[key]
 
-        logger.info(
-            f"Cleared {len(to_remove)} old entities (older than {older_than_days} days)"
-        )
+        logger.info(f"Cleared {len(to_remove)} old entities (older than {older_than_days} days)")
 
     def _load_graph(self):
         """Load graph from disk"""
@@ -485,9 +453,7 @@ class ContextGraph:
                     self.entity_relationships[rel.target_id].add(rel.source_id)
 
                 logger.info(
-                    f"Loaded context graph: "
-                    f"{len(self.entities)} entities, "
-                    f"{len(self.relationships)} relationships"
+                    f"Loaded context graph: {len(self.entities)} entities, {len(self.relationships)} relationships"
                 )
             except Exception as e:
                 logger.error(f"Failed to load context graph: {e}")
@@ -507,9 +473,7 @@ class ContextGraph:
                 if hasattr(obj, "to_dict"):
                     return obj.to_dict()
                 if hasattr(obj, "__dict__"):
-                    return {
-                        k: v for k, v in obj.__dict__.items() if not k.startswith("_")
-                    }
+                    return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
                 return str(obj)
 
             with open(graph_file, "w") as f:
@@ -528,13 +492,9 @@ class ContextGraph:
         return {
             "total_entities": len(self.entities),
             "total_relationships": len(self.relationships),
-            "entities_by_type": {
-                etype: len(entities) for etype, entities in self.entity_by_type.items()
-            },
+            "entities_by_type": {etype: len(entities) for etype, entities in self.entity_by_type.items()},
             "conversation_turns": len(self.conversation_history),
-            "avg_mentions_per_entity": sum(
-                e.mention_count for e in self.entities.values()
-            )
+            "avg_mentions_per_entity": sum(e.mention_count for e in self.entities.values())
             / max(1, len(self.entities)),
         }
 
@@ -649,8 +609,7 @@ class ForwardChainingRuleEngine:
                     e
                     for e in graph.outgoing_edges(node.node_id)
                     if e.relation == rule.relation
-                    and rule.tail_tag
-                    in (graph.get_node(e.to_id) or GraphNode("", "")).tags
+                    and rule.tail_tag in (graph.get_node(e.to_id) or GraphNode("", "")).tags
                 ]
                 if len(matching) >= rule.min_count:
                     rule.action(graph, node.node_id)
@@ -733,12 +692,7 @@ class WorldGraph:
 
     def edges_of_relation(self, relation: str) -> List[GraphEdge]:
         with self._wg_lock:
-            return [
-                e
-                for edges in self._out_edges.values()
-                for e in edges
-                if e.relation == relation
-            ]
+            return [e for edges in self._out_edges.values() for e in edges if e.relation == relation]
 
     def update_from_turn(
         self,
@@ -784,11 +738,7 @@ class WorldGraph:
                     added += 1
             for topic in topics or []:
                 tid = f"topic:{topic.lower()}"
-                self.upsert_node(
-                    GraphNode(
-                        node_id=tid, node_type=NodeType.TOPIC, attrs={"name": topic}
-                    )
-                )
+                self.upsert_node(GraphNode(node_id=tid, node_type=NodeType.TOPIC, attrs={"name": topic}))
                 self.add_edge(
                     GraphEdge(
                         from_id=user_id,
@@ -812,11 +762,7 @@ class WorldGraph:
         return bool(node and node.attrs.get("may_be_overwhelmed"))
 
     def preferred_artists(self, user_id: str = "alice_user") -> List[str]:
-        return [
-            e.to_id.split(":", 1)[-1]
-            for e in self.outgoing_edges(user_id)
-            if e.relation == RelationType.PREFERS
-        ]
+        return [e.to_id.split(":", 1)[-1] for e in self.outgoing_edges(user_id) if e.relation == RelationType.PREFERS]
 
     def stats(self) -> Dict[str, int]:
         with self._wg_lock:

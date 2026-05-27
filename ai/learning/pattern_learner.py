@@ -44,11 +44,7 @@ class UserPattern:
     @property
     def is_reliable(self) -> bool:
         """Is this pattern reliable enough to suggest?"""
-        return (
-            self.confidence > 0.6
-            and self.acceptance_rate > 0.5
-            and self.occurrences >= 3
-        )
+        return self.confidence > 0.6 and self.acceptance_rate > 0.5 and self.occurrences >= 3
 
 
 class PatternLearner:
@@ -107,9 +103,7 @@ class PatternLearner:
 
         # Learn contextual patterns
         system_state = context.get("system_state", "unknown")
-        self._context_actions[system_state].append(
-            {"action": action, "timestamp": now.isoformat()}
-        )
+        self._context_actions[system_state].append({"action": action, "timestamp": now.isoformat()})
 
         # Update existing patterns or create new ones
         self._update_patterns(action, temporal_key, context)
@@ -179,9 +173,7 @@ class PatternLearner:
                         last_seen=now,
                     )
 
-    def get_suggestions(
-        self, context: Dict[str, Any] = None
-    ) -> List[Tuple[UserPattern, str]]:
+    def get_suggestions(self, context: Dict[str, Any] = None) -> List[Tuple[UserPattern, str]]:
         """
         Get proactive suggestions based on learned patterns
 
@@ -213,10 +205,7 @@ class PatternLearner:
             if pattern.pattern_type == "temporal":
                 trigger = pattern.trigger_conditions
 
-                if (
-                    trigger.get("day_of_week") == day_of_week
-                    and trigger.get("hour") == hour
-                ):
+                if trigger.get("day_of_week") == day_of_week and trigger.get("hour") == hour:
                     suggestion = self._format_suggestion(pattern)
                     suggestions.append((pattern, suggestion))
 
@@ -291,10 +280,7 @@ class PatternLearner:
         for pattern in self.patterns.values():
             by_type[pattern.pattern_type] += 1
 
-        total_suggestions = sum(
-            p.suggestion_accepted + p.suggestion_rejected
-            for p in self.patterns.values()
-        )
+        total_suggestions = sum(p.suggestion_accepted + p.suggestion_rejected for p in self.patterns.values())
 
         total_accepted = sum(p.suggestion_accepted for p in self.patterns.values())
 
@@ -304,9 +290,7 @@ class PatternLearner:
             "patterns_by_type": dict(by_type),
             "total_suggestions_made": total_suggestions,
             "total_accepted": total_accepted,
-            "overall_acceptance_rate": (
-                total_accepted / total_suggestions if total_suggestions > 0 else 0.0
-            ),
+            "overall_acceptance_rate": (total_accepted / total_suggestions if total_suggestions > 0 else 0.0),
         }
 
     def _save_patterns(self):
@@ -325,9 +309,7 @@ class PatternLearner:
                     "confidence": p.confidence,
                     "occurrences": p.occurrences,
                     "last_seen": p.last_seen.isoformat() if p.last_seen else None,
-                    "last_suggested": (
-                        p.last_suggested.isoformat() if p.last_suggested else None
-                    ),
+                    "last_suggested": (p.last_suggested.isoformat() if p.last_suggested else None),
                     "suggestion_accepted": p.suggestion_accepted,
                     "suggestion_rejected": p.suggestion_rejected,
                 }
@@ -355,16 +337,8 @@ class PatternLearner:
                     expected_action=p["expected_action"],
                     confidence=p["confidence"],
                     occurrences=p["occurrences"],
-                    last_seen=(
-                        datetime.fromisoformat(p["last_seen"])
-                        if p["last_seen"]
-                        else None
-                    ),
-                    last_suggested=(
-                        datetime.fromisoformat(p["last_suggested"])
-                        if p["last_suggested"]
-                        else None
-                    ),
+                    last_seen=(datetime.fromisoformat(p["last_seen"]) if p["last_seen"] else None),
+                    last_suggested=(datetime.fromisoformat(p["last_suggested"]) if p["last_suggested"] else None),
                     suggestion_accepted=p["suggestion_accepted"],
                     suggestion_rejected=p["suggestion_rejected"],
                 )

@@ -9,12 +9,8 @@ def test_route_arbiter_prefers_operator_next_step_with_active_objective():
         user_input="what's next?",
         active_mode="alice_project_operator",
         active_objective="Improve agentic companion operator runtime",
-        operator_state={
-            "active_objective": "Improve agentic companion operator runtime"
-        },
-        project_memory={
-            "active_objective": "Improve agentic companion operator runtime"
-        },
+        operator_state={"active_objective": "Improve agentic companion operator runtime"},
+        project_memory={"active_objective": "Improve agentic companion operator runtime"},
         continuation_context=True,
         candidates=[
             RouteCandidate(

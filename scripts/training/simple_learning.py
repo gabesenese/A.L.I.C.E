@@ -88,9 +88,7 @@ def generate_test_queries(domain: str, count: int = 2) -> list:
         return []
 
     # Parse responses (should be one per line)
-    queries = [
-        q.strip() for q in response.split("\n") if q.strip() and len(q.strip()) > 10
-    ]
+    queries = [q.strip() for q in response.split("\n") if q.strip() and len(q.strip()) > 10]
     print(f"generated {len(queries)}")
     return queries[:count]
 
@@ -152,11 +150,7 @@ Respond with just a number 1-5 and brief reason."""
     return {
         "score": score,
         "audit_text": audit,
-        "grade": "positive"
-        if score >= 4.0
-        else "improvement"
-        if score >= 3.0
-        else "negative",
+        "grade": "positive" if score >= 4.0 else "improvement" if score >= 3.0 else "negative",
     }
 
 
@@ -425,9 +419,7 @@ def main(show_output=True):
             print("\nNext steps:")
             print("  1. Check progress: python scripts/simple_learning.py --progress")
             print("  2. Run again: python scripts/simple_learning.py")
-            print(
-                "  3. Continuous learning: python scripts/simple_learning.py --continuous"
-            )
+            print("  3. Continuous learning: python scripts/simple_learning.py --continuous")
 
     if show_output:
         print()
@@ -449,12 +441,8 @@ Examples:
         """,
     )
 
-    parser.add_argument(
-        "--progress", action="store_true", help="Show learning progress and exit"
-    )
-    parser.add_argument(
-        "--continuous", action="store_true", help="Run learning cycles continuously"
-    )
+    parser.add_argument("--progress", action="store_true", help="Show learning progress and exit")
+    parser.add_argument("--continuous", action="store_true", help="Run learning cycles continuously")
     parser.add_argument(
         "--interval",
         type=int,

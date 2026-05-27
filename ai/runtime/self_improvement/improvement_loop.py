@@ -46,9 +46,7 @@ class ImprovementLoop:
     def classify(self, event: BehaviorEvent) -> FailureClassification:
         return classify_failure(event)
 
-    def hypothesize(
-        self, event: BehaviorEvent, classification: FailureClassification
-    ) -> ImprovementHypothesis:
+    def hypothesize(self, event: BehaviorEvent, classification: FailureClassification) -> ImprovementHypothesis:
         return build_hypothesis(event, classification)
 
     def plan_patch(self, hypothesis: ImprovementHypothesis) -> PatchPlan:
@@ -127,11 +125,7 @@ class ImprovementLoop:
     def record_outcome(self, outcome: Dict[str, Any]) -> None:
         summary = dict(outcome or {})
         update_project_state(
-            {
-                "last_success": str(
-                    summary.get("result") or "self_improvement_outcome_recorded"
-                )
-            },
+            {"last_success": str(summary.get("result") or "self_improvement_outcome_recorded")},
             user_id=self.user_id,
         )
 
@@ -153,23 +147,13 @@ class ImprovementLoop:
         events = read_behavior_events(limit=500)
         reports = read_audit_reports(limit=500)
         audited_event_ids = {
-            str((row.get("event") or {}).get("event_id") or "")
-            for row in reports
-            if isinstance(row, dict)
+            str((row.get("event") or {}).get("event_id") or "") for row in reports if isinstance(row, dict)
         }
-        pending_events = [
-            row
-            for row in events
-            if str(row.get("event_id") or "") not in audited_event_ids
-        ]
+        pending_events = [row for row in events if str(row.get("event_id") or "") not in audited_event_ids]
         return {
             "pending_event_count": len(pending_events),
             "audit_report_count": len(reports),
             "latest_event_id": str(events[-1].get("event_id") or "") if events else "",
-            "latest_report_id": str(reports[-1].get("report_id") or "")
-            if reports
-            else "",
-            "pending_event_ids": [
-                str(row.get("event_id") or "") for row in pending_events[-10:]
-            ],
+            "latest_report_id": str(reports[-1].get("report_id") or "") if reports else "",
+            "pending_event_ids": [str(row.get("event_id") or "") for row in pending_events[-10:]],
         }

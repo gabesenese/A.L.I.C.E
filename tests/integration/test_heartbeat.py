@@ -104,9 +104,17 @@ def test_heartbeat_alerts_for_imminent_meeting(tmp_path):
     model = WorldModel(tmp_path / "world_model.json")
     now = datetime.now(timezone.utc)
     in_ten_minutes = (now + timedelta(minutes=10)).isoformat()
-    model.update_upcoming_calendar([
-        {"title": "Sprint planning", "start": in_ten_minutes, "end": in_ten_minutes, "location": "", "all_day": "False"},
-    ])
+    model.update_upcoming_calendar(
+        [
+            {
+                "title": "Sprint planning",
+                "start": in_ten_minutes,
+                "end": in_ten_minutes,
+                "location": "",
+                "all_day": "False",
+            },
+        ]
+    )
 
     output = []
     heartbeat = Heartbeat(
@@ -125,9 +133,11 @@ def test_heartbeat_no_alert_for_all_day_events(tmp_path):
     model = WorldModel(tmp_path / "world_model.json")
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
-    model.update_upcoming_calendar([
-        {"title": "Holiday", "start": today, "end": today, "location": "", "all_day": "True"},
-    ])
+    model.update_upcoming_calendar(
+        [
+            {"title": "Holiday", "start": today, "end": today, "location": "", "all_day": "True"},
+        ]
+    )
 
     output = []
     heartbeat = Heartbeat(

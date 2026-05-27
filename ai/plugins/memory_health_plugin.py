@@ -48,9 +48,7 @@ class MemoryHealthPlugin(PluginInterface):
     def can_handle(self, intent: str, entities: Dict, query: str = "") -> bool:
         return intent == "memory:test"
 
-    def execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         try:
             result = subprocess.run(
                 [sys.executable, str(_SCRIPT)],
@@ -99,9 +97,7 @@ class MemoryHealthPlugin(PluginInterface):
     @staticmethod
     def _parse_output(output: str) -> tuple:
         """Return (passed, total, result_lines) from health check stdout."""
-        lines = [
-            ln.strip() for ln in output.splitlines() if "[PASS]" in ln or "[FAIL]" in ln
-        ]
+        lines = [ln.strip() for ln in output.splitlines() if "[PASS]" in ln or "[FAIL]" in ln]
         passed = sum(1 for ln in lines if "[PASS]" in ln)
         return passed, len(lines), lines
 

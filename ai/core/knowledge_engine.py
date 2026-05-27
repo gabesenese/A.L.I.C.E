@@ -119,9 +119,7 @@ class ConceptLearning:
         )
 
         # Increase confidence with more examples
-        self.concepts[concept]["confidence"] = min(
-            0.95, 0.3 + (len(self.concepts[concept]["examples"]) * 0.1)
-        )
+        self.concepts[concept]["confidence"] = min(0.95, 0.3 + (len(self.concepts[concept]["examples"]) * 0.1))
 
     def learn_word_association(self, word1: str, word2: str):
         """Learn that two words are related (co-occur frequently)"""
@@ -347,11 +345,7 @@ class KnowledgeEngine:
         if entities:
             response_lower = response.lower()
             for val in entities.values():
-                if (
-                    isinstance(val, str)
-                    and val.strip()
-                    and val.lower() in response_lower
-                ):
+                if isinstance(val, str) and val.strip() and val.lower() in response_lower:
                     entity_boost = 0.2
                     break
 
@@ -398,9 +392,7 @@ class KnowledgeEngine:
         unique_ratio = len(set(tokens)) / max(len(tokens), 1)
         return unique_ratio < 0.45
 
-    def _extract_relationship_candidates_from_text(
-        self, text: str
-    ) -> List[Tuple[str, str, str]]:
+    def _extract_relationship_candidates_from_text(self, text: str) -> List[Tuple[str, str, str]]:
         """Extract coarse relationship triples from text for contradiction checks."""
         candidates: List[Tuple[str, str, str]] = []
         relationship_patterns = [
@@ -436,9 +428,7 @@ class KnowledgeEngine:
                         return True
         return False
 
-    def _extract_and_learn_entities(
-        self, user_input: str, response: str, entities: Dict[str, Any]
-    ):
+    def _extract_and_learn_entities(self, user_input: str, response: str, entities: Dict[str, Any]):
         """Extract entities from conversation and learn about them"""
         combined_text = f"{user_input} {response}"
 
@@ -476,9 +466,7 @@ class KnowledgeEngine:
             self.entities[name] = entity
             logger.debug(f"[Learning] New entity: {name} ({entity_type})")
 
-    def _learn_relationships(
-        self, user_input: str, response: str, entities: Dict[str, Any]
-    ):
+    def _learn_relationships(self, user_input: str, response: str, entities: Dict[str, Any]):
         """Learn relationships between entities"""
         # Simple relationship extraction
         # Pattern: X is Y, X created Y, X lives in Y, etc.
@@ -514,9 +502,7 @@ class KnowledgeEngine:
                 rel.evidence_count += 1
                 rel.confidence = min(0.99, rel.confidence + 0.1)
                 rel.last_confirmed = datetime.now()
-                logger.debug(
-                    f"[Learning] Strengthened: {subject} {predicate} {obj} (confidence: {rel.confidence:.2f})"
-                )
+                logger.debug(f"[Learning] Strengthened: {subject} {predicate} {obj} (confidence: {rel.confidence:.2f})")
                 return
 
         # New relationship
@@ -533,13 +519,9 @@ class KnowledgeEngine:
 
         # Learn intent patterns
         if intent and response:
-            self.concepts.learn_concept(
-                concept=intent, example=user_input, context={"response": response[:100]}
-            )
+            self.concepts.learn_concept(concept=intent, example=user_input, context={"response": response[:100]})
 
-    def _learn_response_strategy(
-        self, user_input: str, response: str, intent: str, context: Dict[str, Any]
-    ):
+    def _learn_response_strategy(self, user_input: str, response: str, intent: str, context: Dict[str, Any]):
         """Learn what kinds of responses work for different intents"""
         if intent and response:
             # Store successful response patterns
@@ -565,23 +547,17 @@ class KnowledgeEngine:
             current = self.topic_confidence[topic]
             self.topic_confidence[topic] = min(0.95, current + 0.02)
 
-    def can_answer_independently(
-        self, question: str, intent: str
-    ) -> Tuple[bool, float]:
+    def can_answer_independently(self, question: str, intent: str) -> Tuple[bool, float]:
         """
         Check if Alice can answer this question from her own knowledge.
         Returns (can_answer, confidence)
         """
         # Check entities mentioned in question
         question.lower().split()
-        relevant_entities = [
-            e for e in self.entities.values() if e.name.lower() in question.lower()
-        ]
+        relevant_entities = [e for e in self.entities.values() if e.name.lower() in question.lower()]
 
         # Check if we have learned responses for this intent
-        has_responses = (
-            intent in self.learned_responses and len(self.learned_responses[intent]) > 2
-        )
+        has_responses = intent in self.learned_responses and len(self.learned_responses[intent]) > 2
 
         # Check topic confidence
         topic = intent.split(":")[0] if ":" in intent else intent
@@ -589,10 +565,7 @@ class KnowledgeEngine:
 
         # Calculate overall confidence
         entity_conf = (
-            sum(e.confidence for e in relevant_entities)
-            / max(len(relevant_entities), 1)
-            if relevant_entities
-            else 0.0
+            sum(e.confidence for e in relevant_entities) / max(len(relevant_entities), 1) if relevant_entities else 0.0
         )
         response_conf = 0.5 if has_responses else 0.0
 
@@ -623,10 +596,7 @@ class KnowledgeEngine:
         relevant_rels = []
 
         for rel in self.relationships:
-            if (
-                rel.subject.lower() == entity_lower
-                or rel.object.lower() == entity_lower
-            ):
+            if rel.subject.lower() == entity_lower or rel.object.lower() == entity_lower:
                 relevant_rels.append(rel.to_dict())
 
         return relevant_rels
@@ -637,9 +607,7 @@ class KnowledgeEngine:
             # Save entities
             entities_path = self.storage_path / "entities.json"
             with open(entities_path, "w") as f:
-                entities_data = {
-                    name: entity.to_dict() for name, entity in self.entities.items()
-                }
+                entities_data = {name: entity.to_dict() for name, entity in self.entities.items()}
                 json.dump(entities_data, f, indent=2)
 
             # Save relationships
@@ -654,10 +622,7 @@ class KnowledgeEngine:
                 json.dump(
                     {
                         "concepts": self.concepts.concepts,
-                        "word_associations": {
-                            k: dict(v)
-                            for k, v in self.concepts.word_associations.items()
-                        },
+                        "word_associations": {k: dict(v) for k, v in self.concepts.word_associations.items()},
                         "learned_responses": dict(self.learned_responses),
                         "topic_confidence": dict(self.topic_confidence),
                     },
@@ -676,19 +641,14 @@ class KnowledgeEngine:
             if entities_path.exists():
                 with open(entities_path) as f:
                     entities_data = json.load(f)
-                    self.entities = {
-                        name: Entity.from_dict(data)
-                        for name, data in entities_data.items()
-                    }
+                    self.entities = {name: Entity.from_dict(data) for name, data in entities_data.items()}
 
             # Load relationships
             rels_path = self.storage_path / "relationships.json"
             if rels_path.exists():
                 with open(rels_path) as f:
                     rels_data = json.load(f)
-                    self.relationships = [
-                        Relationship.from_dict(data) for data in rels_data
-                    ]
+                    self.relationships = [Relationship.from_dict(data) for data in rels_data]
 
             # Load concepts
             concepts_path = self.storage_path / "concepts.json"
@@ -698,17 +658,10 @@ class KnowledgeEngine:
                     self.concepts.concepts = data.get("concepts", {})
                     self.concepts.word_associations = defaultdict(
                         lambda: defaultdict(int),
-                        {
-                            k: defaultdict(int, v)
-                            for k, v in data.get("word_associations", {}).items()
-                        },
+                        {k: defaultdict(int, v) for k, v in data.get("word_associations", {}).items()},
                     )
-                    self.learned_responses = defaultdict(
-                        list, data.get("learned_responses", {})
-                    )
-                    self.topic_confidence = defaultdict(
-                        float, data.get("topic_confidence", {})
-                    )
+                    self.learned_responses = defaultdict(list, data.get("learned_responses", {}))
+                    self.topic_confidence = defaultdict(float, data.get("topic_confidence", {}))
 
         except Exception as e:
             logger.error(f"[KnowledgeEngine] Error loading knowledge: {e}")
@@ -720,9 +673,7 @@ class KnowledgeEngine:
             "total_relationships": len(self.relationships),
             "total_concepts": len(self.concepts.concepts),
             "learned_intents": len(self.learned_responses),
-            "topics_confident_in": len(
-                [t for t, c in self.topic_confidence.items() if c > 0.7]
-            ),
+            "topics_confident_in": len([t for t, c in self.topic_confidence.items() if c > 0.7]),
             "top_entities": sorted(
                 [(e.name, e.mention_count) for e in self.entities.values()],
                 key=lambda x: x[1],

@@ -208,41 +208,23 @@ class ToneTrajectoryEngine:
         user_lower = user_input.lower()
 
         # Check for explicit tone requests
-        if any(
-            phrase in user_lower
-            for phrase in ["be formal", "formal tone", "professional"]
-        ):
+        if any(phrase in user_lower for phrase in ["be formal", "formal tone", "professional"]):
             return ToneStyle.FORMAL
 
-        if any(
-            phrase in user_lower for phrase in ["casual", "chill", "relax", "just chat"]
-        ):
+        if any(phrase in user_lower for phrase in ["casual", "chill", "relax", "just chat"]):
             return ToneStyle.CASUAL
 
-        if any(
-            phrase in user_lower
-            for phrase in ["be brief", "short answer", "tldr", "concise"]
-        ):
+        if any(phrase in user_lower for phrase in ["be brief", "short answer", "tldr", "concise"]):
             return ToneStyle.CONCISE
 
-        if any(
-            phrase in user_lower
-            for phrase in ["explain", "detailed", "full explanation", "deep dive"]
-        ):
+        if any(phrase in user_lower for phrase in ["explain", "detailed", "full explanation", "deep dive"]):
             return ToneStyle.VERBOSE
 
         # Infer from communication style
-        has_contractions = (
-            "'ve" in user_input or "'s" in user_input or "n't" in user_input
-        )
-        is_technical = any(
-            word in user_lower
-            for word in ["api", "algorithm", "architecture", "refactor"]
-        )
+        has_contractions = "'ve" in user_input or "'s" in user_input or "n't" in user_input
+        is_technical = any(word in user_lower for word in ["api", "algorithm", "architecture", "refactor"])
         is_long = len(user_input) > 200
-        is_empathetic = any(
-            word in user_lower for word in ["feel", "frustrated", "stuck", "hard"]
-        )
+        is_empathetic = any(word in user_lower for word in ["feel", "frustrated", "stuck", "hard"])
 
         if is_empathetic:
             return ToneStyle.WARM
@@ -316,9 +298,7 @@ Maintain consistency with this tone throughout.
             issues.append("sentences are too short for verbose style")
 
         # Check for personhood claims consistency
-        has_personhood = any(
-            phrase in response for phrase in ["I think", "I believe", "I feel"]
-        )
+        has_personhood = any(phrase in response for phrase in ["I think", "I believe", "I feel"])
         if char.personhood_claims and not has_personhood and len(response) > 100:
             score -= 0.05  # Optional penalty for missing personhood in long response
 
@@ -359,11 +339,7 @@ Maintain consistency with this tone throughout.
         """Get a report on session tone consistency."""
         return {
             "current_tone": self.current_tone.value if self.current_tone else None,
-            "characteristics": (
-                self.session_characteristics.to_dict()
-                if self.session_characteristics
-                else None
-            ),
+            "characteristics": (self.session_characteristics.to_dict() if self.session_characteristics else None),
             "consistency_score": round(self.tone_consistency_score, 3),
             "responses_evaluated": len(self.response_history),
             "is_locked": self.current_tone is not None,

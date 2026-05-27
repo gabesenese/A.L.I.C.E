@@ -110,9 +110,7 @@ class EventBus:
             if event_type in self._subscribers:
                 if callback in self._subscribers[event_type]:
                     self._subscribers[event_type].remove(callback)
-                    logger.debug(
-                        f"Unsubscribed {callback.__name__} from {event_type.value}"
-                    )
+                    logger.debug(f"Unsubscribed {callback.__name__} from {event_type.value}")
 
     def publish(self, event: Event):
         """
@@ -171,9 +169,7 @@ class EventBus:
         )
         self.publish(event)
 
-    def get_history(
-        self, event_type: EventType = None, limit: int = 100
-    ) -> List[Event]:
+    def get_history(self, event_type: EventType = None, limit: int = 100) -> List[Event]:
         """
         Get event history
 
@@ -241,9 +237,7 @@ class EventBus:
                 )
                 callback(event)
             except Exception as e:
-                logger.error(
-                    f"Error calling subscriber for custom event {event_name}: {e}"
-                )
+                logger.error(f"Error calling subscriber for custom event {event_name}: {e}")
 
     def subscribe_to_custom(self, event_name: str, callback: Callable):
         """

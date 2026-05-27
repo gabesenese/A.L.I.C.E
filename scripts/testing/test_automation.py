@@ -111,9 +111,7 @@ def test_auto_corrections():
             corrections = json.load(f)
         if isinstance(corrections, dict):
             corrections = list(corrections.values())
-        print(
-            f"\nCorrections stored: {len(corrections)} total in memory/corrections.json"
-        )
+        print(f"\nCorrections stored: {len(corrections)} total in memory/corrections.json")
         if corrections:
             recent = next(
                 (item for item in reversed(corrections) if isinstance(item, dict)),
@@ -229,10 +227,7 @@ def test_dangerous_domain_blocking():
             review_patterns = list(review_patterns.values()) if review_patterns else []
 
         # Should be in review, not promoted
-        code_exec_in_review = any(
-            isinstance(p, dict) and p.get("intent") == "code_execution"
-            for p in review_patterns
-        )
+        code_exec_in_review = any(isinstance(p, dict) and p.get("intent") == "code_execution" for p in review_patterns)
 
         if code_exec_in_review:
             print("[OK] Dangerous domain correctly staged for review")

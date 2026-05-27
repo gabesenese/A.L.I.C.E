@@ -32,9 +32,7 @@ class MockPlugin(PluginInterface):
     def can_handle(self, intent: str, entities: Dict, query: str = None) -> bool:
         return intent == "test" or "test" in intent.lower()
 
-    def execute(
-        self, intent: str, query: str, entities: Dict, context: Dict
-    ) -> Dict[str, Any]:
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
         self.execution_count += 1
         return {
             "success": True,
@@ -76,9 +74,7 @@ class TestPluginExecution:
 
     def test_plugin_execution(self, populated_manager):
         """Plugins should execute correctly"""
-        result = populated_manager.execute_for_intent(
-            intent="test", query="test query", entities={}, context={}
-        )
+        result = populated_manager.execute_for_intent(intent="test", query="test query", entities={}, context={})
 
         assert result is not None
         assert result["success"] is True
@@ -88,9 +84,7 @@ class TestPluginExecution:
     def test_plugin_can_handle_matching(self, populated_manager):
         """Plugin matching should work correctly"""
         # Should match "test" intent
-        result = populated_manager.execute_for_intent(
-            intent="test", query="run test", entities={}, context={}
-        )
+        result = populated_manager.execute_for_intent(intent="test", query="run test", entities={}, context={})
 
         assert result is not None
         assert result["plugin"] == "MockPlugin"
@@ -106,9 +100,7 @@ class TestPluginExecution:
             def initialize(self) -> bool:
                 return True
 
-            def can_handle(
-                self, intent: str, entities: Dict, query: str = None
-            ) -> bool:
+            def can_handle(self, intent: str, entities: Dict, query: str = None) -> bool:
                 return intent == "fail"
 
             def execute(self, intent: str, query: str, entities: Dict, context: Dict):
@@ -120,9 +112,7 @@ class TestPluginExecution:
         plugin_manager.register_plugin(FailingPlugin())
 
         # Should not crash, should return None or error result
-        result = plugin_manager.execute_for_intent(
-            intent="fail", query="fail", entities={}, context={}
-        )
+        result = plugin_manager.execute_for_intent(intent="fail", query="fail", entities={}, context={})
 
         # Either returns None or an error structure
         assert result is None or result.get("success") is False
@@ -135,9 +125,7 @@ class TestPluginExecution:
         assert populated_manager.plugins["MockPlugin"].enabled is False
 
         # Should not execute when disabled
-        result = populated_manager.execute_for_intent(
-            intent="test", query="test", entities={}, context={}
-        )
+        result = populated_manager.execute_for_intent(intent="test", query="test", entities={}, context={})
 
         assert result is None  # No plugin handled it
 
@@ -146,9 +134,7 @@ class TestPluginExecution:
         assert populated_manager.plugins["MockPlugin"].enabled is True
 
         # Should execute again
-        result = populated_manager.execute_for_intent(
-            intent="test", query="test", entities={}, context={}
-        )
+        result = populated_manager.execute_for_intent(intent="test", query="test", entities={}, context={})
 
         assert result is not None
 
@@ -172,9 +158,7 @@ class TestPluginExecution:
         plugin_manager.register_plugin(low, priority=100)
         plugin_manager.register_plugin(high, priority=10)
 
-        result = plugin_manager.execute_for_intent(
-            intent="test", query="test", entities={}, context={}
-        )
+        result = plugin_manager.execute_for_intent(intent="test", query="test", entities={}, context={})
 
         # Should execute, priority order is respected internally
         assert result is not None

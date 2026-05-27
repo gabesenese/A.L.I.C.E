@@ -72,13 +72,7 @@ def update_thresholds(updates: Dict[str, float]) -> None:
     """Write updated thresholds to file and refresh cache."""
     global _cached
     current = get_thresholds()
-    current.update(
-        {
-            key: float(value)
-            for key, value in (updates or {}).items()
-            if key in DEFAULT_THRESHOLDS
-        }
-    )
+    current.update({key: float(value) for key, value in (updates or {}).items() if key in DEFAULT_THRESHOLDS})
     _threshold_dir.mkdir(parents=True, exist_ok=True)
     try:
         with open(_threshold_file, "w", encoding="utf-8") as f:
@@ -93,15 +87,11 @@ def update_thresholds(updates: Dict[str, float]) -> None:
 
 
 def get_tool_path_confidence() -> float:
-    return get_thresholds().get(
-        "tool_path_confidence", DEFAULT_THRESHOLDS["tool_path_confidence"]
-    )
+    return get_thresholds().get("tool_path_confidence", DEFAULT_THRESHOLDS["tool_path_confidence"])
 
 
 def get_goal_path_confidence() -> float:
-    return get_thresholds().get(
-        "goal_path_confidence", DEFAULT_THRESHOLDS["goal_path_confidence"]
-    )
+    return get_thresholds().get("goal_path_confidence", DEFAULT_THRESHOLDS["goal_path_confidence"])
 
 
 def get_ask_threshold() -> float:

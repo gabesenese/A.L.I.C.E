@@ -14,9 +14,7 @@ def test_next_step_from_durable_state_is_grounded():
             "last_failure": "routing misroute in next-step handling",
             "files_inspected": ["ai/runtime/contract_pipeline.py"],
         },
-        project_memory={
-            "active_objective": "Improve agentic companion operator runtime"
-        },
+        project_memory={"active_objective": "Improve agentic companion operator runtime"},
         local_execution={},
         available_files=[
             "ai/core/routing/route_arbiter.py",
