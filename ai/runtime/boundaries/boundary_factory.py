@@ -2429,9 +2429,30 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 except Exception:
                     pass
 
-                # Weather responses use the formatted tool string directly —
-                # LLM paraphrasing introduced wrong day labels and fabricated
-                # meteorological details not present in the data.
+                # Add a conversational layer via LLM, but the data string must be
+                # used verbatim — the LLM may only append a natural follow-up.
+                is_weather_turn = (
+                    str(req.decision.intent or "").startswith("weather:")
+                    or str(req.tool_result.tool_name or "").lower().startswith("weather")
+                )
+                if is_weather_turn:
+                    try:
+                        _weather_prompt = (
+                            f'The user said: "{req.user_input}"\n\n'
+                            f"Weather data:\n{tool_response}\n\n"
+                            "Reply in 1-2 sentences. Copy the weather data above exactly as written — "
+                            "do not rephrase it, do not change any day label, do not add any detail "
+                            "not present in the data. "
+                            "If the user's message includes personal context (like having plans or an event), "
+                            "add one brief natural follow-up question at the end."
+                        )
+                        _llm_text = str(
+                            alice.llm.chat(_weather_prompt, intent="weather_wrap", use_history=False) or ""
+                        ).strip()
+                        if _llm_text:
+                            tool_response = _llm_text
+                    except Exception:
+                        pass
 
                 return ResponseOutput(
                     text=_surface_text(

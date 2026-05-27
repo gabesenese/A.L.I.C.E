@@ -275,34 +275,8 @@ def _has_continuation_cue(text: str) -> bool:
 
 
 def _fallback_greeting(*, user_name: str, recent_greeting_texts: list[str]) -> str:
-    import random
-
     first = _first_name(user_name) or "there"
-    candidates = [
-        f"Hey {first}. Good to see you. How are you?",
-        f"Hey {first}. Good to hear from you. How's it going?",
-        f"Hey {first}. Nice to hear from you. How are you doing?",
-        f"Hey {first}. How are things going?",
-        f"Hey {first}. What's up?",
-        f"Hey {first}. How've you been?",
-        f"Hey {first}. Everything good?",
-        f"Hey {first}. How's your day?",
-        f"Hey {first}. You doing alright?",
-        f"Hey {first}. How are you holding up?",
-        f"Hey {first}. What's new?",
-        f"Hey {first}. How's everything?",
-        f"Hey {first}. Keeping busy?",
-        f"{first}. Good to see you.",
-        f"{first}. How's it going?",
-        f"Hey {first}. How are you doing?",
-        f"Hey {first}. What brings you by?",
-        f"Hey {first}. Good to have you here.",
-        f"Hey {first}. How are things?",
-        f"Hey {first}. What's going on?",
-    ]
-    available = [c for c in candidates if not _is_repeated_greeting(c, recent_greeting_texts)]
-    pool = available if available else candidates
-    return random.choice(pool)
+    return f"Hey {first}."
 
 
 def _try_constrained_llm_greeting(
