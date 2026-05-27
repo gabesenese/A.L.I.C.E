@@ -20,8 +20,6 @@ class ConversationStyleMirror:
     """Per-session message-length tracker with auto-constraint derivation."""
 
     _WINDOW = 5  # number of recent messages to consider
-    _BRIEF_THRESHOLD = 15  # avg user words below this → apply brief constraint
-    _TERSE_THRESHOLD = 8  # avg user words below this → apply very brief constraint
     _MULTI_Q_THRESHOLD = 2  # questions per message above this → prefer bullets
 
     def __init__(self) -> None:
@@ -38,24 +36,18 @@ class ConversationStyleMirror:
     def derive_auto_constraints(self, user_id: str) -> Dict[str, Any]:
         """Return a constraints dict for AdaptiveResponseStyle based on user history.
 
-        Returns empty dict when there isn't enough data to act on.
+        Only derives format hints (e.g. bullet points for multi-question messages).
+        Word-count mirroring is intentionally removed — response length should come
+        from the content, not from matching the user's message brevity.
         """
         uid = str(user_id or "default")
         history = list(self._history.get(uid, []))
         if len(history) < 2:
             return {}
 
-        avg_words = sum(w for w, _ in history) / len(history)
         avg_questions = sum(q for _, q in history) / len(history)
 
         constraints: Dict[str, Any] = {}
-
-        if avg_words <= self._TERSE_THRESHOLD:
-            constraints["max_words"] = 40
-            constraints["response_length"] = "brief"
-        elif avg_words <= self._BRIEF_THRESHOLD:
-            constraints["max_words"] = 80
-            constraints["response_length"] = "brief"
 
         if avg_questions >= self._MULTI_Q_THRESHOLD:
             constraints["format"] = "bullet_points"
@@ -67,10 +59,8 @@ class ConversationStyleMirror:
         history = list(self._history.get(uid, []))
         if not history:
             return {}
-        avg_words = sum(w for w, _ in history) / len(history)
         avg_q = sum(q for _, q in history) / len(history)
         return {
-            "avg_words": round(avg_words, 1),
             "avg_questions": round(avg_q, 2),
             "samples": len(history),
         }

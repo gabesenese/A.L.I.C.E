@@ -225,6 +225,10 @@ def validate_chat_greeting(
         "good to see you again",
         "nice to reconnect",
         "nice to connect with you",
+        "up late again",
+        "up early again",
+        "staying up late",
+        "burning the midnight",
     )
     if any(token in low for token in banned_tokens):
         return GreetingValidationResult(False, ["banned_content"], "")
@@ -332,17 +336,13 @@ def _try_constrained_llm_greeting(
             else ""
         )
         time_rules = (
-            f"Current time period: {time_period}. Local time: {local_time_label or 'unknown'}.\n"
-            "Do not mention morning, afternoon, evening, or night unless it matches the current time period.\n"
-            "If unsure, avoid time-of-day words entirely.\n"
+            "Do not reference the time of day at all — no morning, afternoon, evening, night, early, late, or schedule observations.\n"
         )
-        if not time_period:
-            time_rules += "Time period is unknown. Do not use morning, afternoon, evening, tonight, or night.\n"
         return (
             f"Write Alice's opening reply to {user_name or 'Gabriel'}.\n"
             "Alice is a direct, dry, invested companion — not a warm assistant. She has presence and personality.\n"
             "Be present and brief. 1-2 sentences. Direct, dry, a little wit if it fits naturally.\n"
-            "React to what Gabriel said or what's actually happening — don't perform warmth.\n"
+            "Just show up. Acknowledge him naturally — don't comment on the time of day, don't make assumptions about his schedule, don't imply a pattern you weren't told about.\n"
             "Do not sound like a customer-service assistant or a chatbot.\n"
             "Do not force a task prompt.\n"
             f"Repeated_greeting={repeated_greeting}; greeting_count={greeting_count}; variant={variant}.\n\n"

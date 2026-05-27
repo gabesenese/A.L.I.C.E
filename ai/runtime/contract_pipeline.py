@@ -1356,22 +1356,8 @@ class ContractPipeline:
         except Exception:
             pass
 
-        # Proactive intelligence — deliver highest-priority pending insight if one exists
-        try:
-            from ai.planning.proactive_intelligence import get_proactive_intelligence
-
-            _pi = get_proactive_intelligence()
-            _pending = _pi.get_pending_insights(priority_threshold=2)
-            if _pending:
-                _insight = _pending[0]
-                _insight_text = str(_insight.message or "").strip()
-                if _insight_text and response_text:
-                    response_text = response_text.rstrip() + "\n\n" + _insight_text
-                    if _insight.suggested_action:
-                        response_text += " " + str(_insight.suggested_action)
-                _insight.delivered = True
-        except Exception:
-            pass
+        # Proactive intelligence injection removed — it was appending goal-redirect text
+        # ("let's get back to X") to unrelated responses, overriding the user's actual request.
 
         # Foundation 4 — session briefing on the very first turn of a new session
         if not self._briefing_sent:

@@ -698,30 +698,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             lines.append("Relevant context from memory:")
             lines.extend(mem_lines)
 
-        # Unresolved threads (what Gabriel might be expecting a follow-up on)
-        try:
-            _threads = list(
-                (
-                    getattr(alice, "_companion_state_cache", None)
-                    and getattr(
-                        getattr(alice, "_companion_state_cache", None),
-                        "memory_domains",
-                        None,
-                    )
-                    and getattr(
-                        getattr(alice, "_companion_state_cache", None).memory_domains,
-                        "unresolved_threads",
-                        [],
-                    )
-                )
-                or []
-            )
-            if _threads:
-                thread_strs = [str(t) for t in _threads[:2] if t]
-                if thread_strs:
-                    lines.append("Open threads: " + "; ".join(thread_strs))
-        except Exception:
-            pass
+        # Unresolved threads block removed — "Open threads: ..." was surfacing
+        # internal jargon as literal text in conversation responses.
 
         # Goal observations — only for project/code turns, not casual or tool queries
         _project_intent = any(

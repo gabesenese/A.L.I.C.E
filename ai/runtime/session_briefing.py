@@ -96,23 +96,8 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
     except Exception:
         pass
 
-    # Open tasks — only from explicit task/intention sources, not raw conversation
-    try:
-        _GOOD_TASK_SOURCES = {"open_task_signal", "ambient", "intention_unresolved"}
-        goal_texts = {g.description.lower() for g in active}
-        open_tasks = list(snapshot.get("environment", {}).get("open_tasks") or [])
-        novel_tasks = [
-            t
-            for t in open_tasks
-            if t.get("text")
-            and t.get("source") in _GOOD_TASK_SOURCES
-            and not any(goal_frag in t["text"].lower() for goal_frag in goal_texts)
-        ]
-        if novel_tasks:
-            task_lines = [f"  • {t['text']}" for t in novel_tasks[:2]]
-            parts.append("Open threads:\n" + "\n".join(task_lines))
-    except Exception:
-        pass
+    # Open tasks section removed — the formatted "Open threads:" list was surfacing
+    # internal task-tracker jargon directly in conversation responses.
 
     # Emotional continuity — gentle follow-up on recent state signals
     try:
