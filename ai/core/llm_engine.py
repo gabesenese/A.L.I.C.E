@@ -170,6 +170,14 @@ def _build_companion_context(intent: str = "", user_query: str = "") -> str:
     """
     parts: List[str] = []
 
+    # Current date — always first so the LLM never has to guess what day it is
+    try:
+        from datetime import date as _today_date
+        _today = _today_date.today()
+        parts.append(f"Today: {_today.strftime('%A, %B %d, %Y')}")
+    except Exception:
+        pass
+
     # Foundation 2 — ALICE's persistent self with accumulated opinions (always first)
     try:
         from ai.identity.alice_identity import build_self_block

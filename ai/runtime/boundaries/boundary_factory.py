@@ -616,25 +616,105 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             except Exception:
                 pass
 
-        # Active objective / what we're working on — always surface so ALICE stays anchored
-        objective = str(operator_state.get("active_objective") or "").strip()
-        current_focus = str(operator_state.get("current_focus") or "").strip()
+        # Compute project-intent flag early so both objective and goal-observation
+        # blocks can use it without a forward-reference.
+        _project_intent = any(
+            _intent.startswith(pfx) for pfx in ("code:", "file:", "plugin:", "notes:")
+        ) or _intent in (
+            "conversation:goal_statement",
+            "conversation:project_work_session",
+        )
 
-        # Fall back to goal engine if operator_state has nothing
-        if not objective:
+        # User's location — always inject so LLM never has to guess
+        _home_city = ""
+        try:
+            _home_city = str(
+                getattr(getattr(getattr(alice, "context", None), "user_prefs", None), "city", "") or ""
+            ).strip()
+            if _home_city:
+                lines.append(f"Gabriel's city: {_home_city}")
+        except Exception:
+            pass
+
+        # Proactive travel context — if a destination city is mentioned and differs from
+        # the user's home city, compute approximate driving distance/time and inject it
+        # so the LLM can mention it naturally without being asked.
+        if _home_city and user_input:
             try:
-                from ai.goals.goal_engine import get_goal_engine
+                import re as _re
+                # Find all "in/to/at/near <word>" candidates, pick the first that isn't
+                # a generic word — geocode confirms it's a real place.
+                _GENERIC = {
+                    "a", "an", "the", "my", "your", "our", "their", "this", "that",
+                    "here", "there", "work", "home", "school", "store", "town",
+                    "restaurant", "cafe", "bar", "mall", "park", "downtown",
+                }
+                _candidates = _re.findall(
+                    r"\b(?:in|to|at|near)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\b",
+                    user_input,
+                    _re.IGNORECASE,
+                )
+                _dest_city = ""
+                for _cand in _candidates:
+                    _cand = _cand.strip()
+                    if _cand.lower() not in _GENERIC and len(_cand) >= 3:
+                        _dest_city = _cand.title()  # normalize to Title Case for geocoder
+                        break
+                if _dest_city and _dest_city.lower() != _home_city.lower():
+                    import requests as _requests
 
-                _top = get_goal_engine().top_goal()
-                if _top:
-                    objective = str(_top.description or "").strip()
+                    def _geocode(city: str):
+                        r = _requests.get(
+                            "https://nominatim.openstreetmap.org/search",
+                            params={"q": city, "format": "json", "limit": 1},
+                            headers={"User-Agent": "A.L.I.C.E/1.0"},
+                            timeout=4,
+                        )
+                        data = r.json() if r.status_code == 200 else []
+                        return (float(data[0]["lat"]), float(data[0]["lon"])) if data else None
+
+                    _home_coords = _geocode(_home_city)
+                    _dest_coords = _geocode(_dest_city)
+                    if _home_coords and _dest_coords:
+                        from math import radians, cos, sin, asin, sqrt
+                        _lat1, _lon1 = map(radians, _home_coords)
+                        _lat2, _lon2 = map(radians, _dest_coords)
+                        _dlat, _dlon = _lat2 - _lat1, _lon2 - _lon1
+                        _a = sin(_dlat / 2) ** 2 + cos(_lat1) * cos(_lat2) * sin(_dlon / 2) ** 2
+                        _straight_km = 6371 * 2 * asin(sqrt(_a))
+                        _road_km = round(_straight_km * 1.3)  # road-distance factor
+                        _mins = round(_road_km / 90 * 60)     # 90 km/h average Ontario highway
+                        _h, _m = divmod(_mins, 60)
+                        _time_str = f"{_h}h {_m}m" if _h else f"{_m}m"
+                        lines.append(
+                            f"Travel context: {_home_city} → {_dest_city} is roughly "
+                            f"{_road_km} km by road, about {_time_str} drive. "
+                            f"Mention this proactively since Gabriel is going there."
+                        )
             except Exception:
                 pass
 
-        if objective:
-            lines.append(f"Current focus: {objective}")
-        if current_focus and current_focus != objective:
-            lines.append(f"Active task: {current_focus}")
+        # Active objective / what we're working on — only for project/code turns
+        # (casual, weather, and personal turns must not surface goal reminders)
+        if _project_intent:
+            objective = str(operator_state.get("active_objective") or "").strip()
+            current_focus = str(operator_state.get("current_focus") or "").strip()
+
+            # Fall back to goal engine if operator_state has nothing
+            if not objective:
+                try:
+                    from ai.goals.goal_engine import get_goal_engine
+
+                    _top = get_goal_engine().top_goal()
+                    if _top:
+                        objective = str(_top.description or "").strip()
+                except Exception:
+                    pass
+
+            if objective:
+                lines.append(f"Current focus: {objective}")
+            if current_focus and current_focus != objective:
+                lines.append(f"Active task: {current_focus}")
 
         # Learned preferences (brevity, tone, format)
         try:
@@ -678,14 +758,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         # Unresolved threads block removed — "Open threads: ..." was surfacing
         # internal jargon as literal text in conversation responses.
 
-        # Goal observations — only for project/code turns, not casual or tool queries
-        _project_intent = any(
-            _intent.startswith(pfx) for pfx in ("code:", "file:", "plugin:", "notes:")
-        ) or _intent in (
-            "conversation:goal_statement",
-            "conversation:project_work_session",
-        )
-
+        # Goal observations — only for project/code turns (gated by _project_intent above)
         if _project_intent:
             # Stale goals, blockers
             try:
@@ -1075,8 +1148,23 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 else:
                     _day_labels[_d.isoformat()] = _d.strftime("%A")
 
-            # Weekend filter: only show Saturday (5) and Sunday (6)
-            if "weekend" in user_input.lower():
+            _input_low = user_input.lower()
+            # Specific-weekday filter — match named days (saturday, sunday, monday…)
+            _WEEKDAY_NAMES = {
+                "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+                "friday": 4, "saturday": 5, "sunday": 6,
+            }
+            _target_weekday = next(
+                (wd for name, wd in _WEEKDAY_NAMES.items() if name in _input_low), None
+            )
+            if _target_weekday is not None:
+                def _matches_weekday(d: dict) -> bool:
+                    try:
+                        return _date.fromisoformat(str(d.get("date") or "")).weekday() == _target_weekday
+                    except Exception:
+                        return False
+                day_slice = [d for d in forecast_days if _matches_weekday(d)]
+            elif "weekend" in _input_low:
                 def _is_weekend(d: dict) -> bool:
                     try:
                         return _date.fromisoformat(str(d.get("date") or "")).weekday() in (5, 6)

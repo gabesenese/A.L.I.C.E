@@ -55,8 +55,8 @@ class HeartbeatDecision:
 @dataclass(frozen=True)
 class HeartbeatConfig:
     interval_seconds: float = 60.0
-    min_interrupt_gap_seconds: float = 10 * 60
-    stale_intention_seconds: float = 2 * 60 * 60
+    min_interrupt_gap_seconds: float = 4 * 60 * 60   # at most once every 4 hours
+    stale_intention_seconds: float = 8 * 60 * 60     # only surface after 8 h of inactivity
     checkin_gap_seconds: float = 90 * 60
     active_recent_seconds: float = 2 * 60 * 60
     stale_task_seconds: float = 24 * 60 * 60

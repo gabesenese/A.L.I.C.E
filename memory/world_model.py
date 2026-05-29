@@ -382,7 +382,7 @@ class WorldModel:
         user["last_active"] = now
         user["mood_signal"] = self._infer_mood(text, response)
 
-        if self.resolution_pattern.search(text) or tool_success is True:
+        if self.resolution_pattern.search(text):
             self._resolve_oldest_open_thread()
 
         new_goals = self._extract_records(

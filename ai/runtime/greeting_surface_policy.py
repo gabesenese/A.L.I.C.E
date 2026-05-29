@@ -211,9 +211,12 @@ def validate_chat_greeting(text: str, *, pure_greeting: bool = True) -> Greeting
         "long time no chat",
         "long time no see",
         "been a while",
+        "you're back",
+        "you are back",
         "welcome back",
         "good to see you again",
         "nice to reconnect",
+        "eating at you",
         "nice to connect with you",
         "up late again",
         "up early again",
@@ -438,6 +441,13 @@ def validate_greeting_candidate(
             "you are online",
             "you're online",
             "system online",
+        ),
+        "continuity_presence_claim": (
+            "you're back",
+            "you are back",
+        ),
+        "emotional_assumption": (
+            "eating at you",
         ),
     }
     for reason, tokens in banned_map.items():
