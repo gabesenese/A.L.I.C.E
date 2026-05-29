@@ -347,9 +347,10 @@ def _try_constrained_llm_greeting(
 
     def _generate(prompt: str) -> str:
         try:
-            return str(llm_generate(prompt=prompt) or "").strip()
+            raw = str(llm_generate(prompt=prompt) or "").strip()
         except TypeError:
-            return str(llm_generate(prompt) or "").strip()
+            raw = str(llm_generate(prompt) or "").strip()
+        return raw.strip("\"'")
 
     last_reasons: list[str] = []
     continuity_meta: dict[str, Any] = {}
