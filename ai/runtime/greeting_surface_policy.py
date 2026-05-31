@@ -274,8 +274,24 @@ def _has_continuation_cue(text: str) -> bool:
     return any(cue in text for cue in cues)
 
 
+_FALLBACK_POOL = [
+    "Hey {name}. What's the move?",
+    "Alright — what are we building or breaking?",
+    "Hey. Give me the target.",
+    "Yo {name}. What are we tackling?",
+    "Hey. What's on deck?",
+    "Alright {name}. What are we doing?",
+]
+
+
 def _fallback_greeting(*, user_name: str, recent_greeting_texts: list[str]) -> str:
-    return "Hey."
+    fname = _first_name(user_name) or "Gabriel"
+    recent_norms = {_normalize_greeting_text(t) for t in recent_greeting_texts if t}
+    for candidate in _FALLBACK_POOL:
+        rendered = candidate.replace("{name}", fname)
+        if _normalize_greeting_text(rendered) not in recent_norms:
+            return rendered
+    return f"Hey {fname}. What's the move?"
 
 
 def _try_constrained_llm_greeting(
@@ -310,9 +326,12 @@ def _try_constrained_llm_greeting(
             f"Write Alice's opening reply to {user_name or 'Gabriel'}.\n"
             "Alice is a direct, dry, invested companion — not a warm assistant. She has presence and personality.\n"
             "Be present and brief. 1-2 sentences. Direct, dry, a little wit if it fits naturally.\n"
+            "The reply must feel like you actually showed up with something to say — not vague dominance filler.\n"
+            "Good examples: 'Hey Gabriel. What's the move?' / 'Alright — what are we building or breaking?' / 'Hey. Give me the target.' / 'Yo Gabriel. What are we tackling?'\n"
+            "Bad examples (reject these patterns): 'You're up.' / 'Go on.' / 'Shoot.' / 'Yeah?' / 'Talk.' — these are dead air.\n"
+            "You may ask ONE short direct question. It must NOT be 'How can I help?', 'What can I do?', 'What do you need?', or any helpdesk phrasing.\n"
             "Just show up. Acknowledge him naturally — don't comment on the time of day, don't make assumptions about his schedule, don't imply a pattern you weren't told about.\n"
             "Do not sound like a customer-service assistant or a chatbot.\n"
-            "Do not force a task prompt.\n"
             f"Repeated_greeting={repeated_greeting}; greeting_count={greeting_count}; variant={variant}.\n\n"
             "Current user message:\n"
             f"{user_input}\n\n"
@@ -378,6 +397,7 @@ def _try_constrained_llm_greeting(
             user_input=user_input,
             time_period=time_period,
             allow_focus_reference=allow_focus_reference,
+            user_name=user_name,
         )
         if not validation.valid:
             last_reasons = list(validation.reasons)
@@ -403,11 +423,22 @@ def validate_greeting_candidate(
     user_input: str,
     time_period: str,
     allow_focus_reference: bool,
+    user_name: str = "",
 ) -> GreetingValidationResult:
     validation = validate_chat_greeting(candidate, pure_greeting=True)
     if not validation.valid:
         return validation
     low = str(candidate or "").lower()
+
+    # Reject low-signal filler (≤ 3 words, no meaningful question, no user name).
+    # Catches: "You're up." "Go on." "Shoot." "Yeah?" "Hey." "Talk."
+    _fname = _first_name(user_name).lower()
+    _has_name = bool(_fname and _fname in low)
+    _word_count = len(candidate.split())
+    _has_real_question = "?" in candidate and _word_count > 1
+    if _word_count <= 3 and not _has_name and not _has_real_question:
+        return GreetingValidationResult(False, ["low_signal_greeting"], "")
+
     reasons: list[str] = []
     if _has_time_period_mismatch(candidate, time_period):
         reasons.append("time_period_mismatch")
