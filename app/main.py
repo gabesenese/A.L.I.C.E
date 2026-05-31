@@ -1954,7 +1954,8 @@ class ALICE:
             text = text[: max_chars - 3].rstrip() + "..."
 
         # Enforce one-line concise output for micro conversational routes.
-        if route in {"wake_word", "farewell", "greeting", "ollama_phrase_micro"}:
+        # "greeting" intentionally excluded — greetings may span 2 sentences.
+        if route in {"wake_word", "farewell", "ollama_phrase_micro"}:
             text = text.split("\n", 1)[0].strip()
 
         if route in {"fast_llm_lane", "fast_llm_publish"}:

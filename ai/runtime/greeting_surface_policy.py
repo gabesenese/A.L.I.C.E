@@ -325,11 +325,12 @@ def _try_constrained_llm_greeting(
         return (
             f"Write Alice's opening reply to {user_name or 'Gabriel'}.\n"
             "Alice is a direct, dry, invested companion — not a warm assistant. She has presence and personality.\n"
-            "Be present and brief. 1-2 sentences. Direct, dry, a little wit if it fits naturally.\n"
+            "Aim for 2 sentences — greet him and pull him forward. Do not minimize to one question fragment.\n"
             "The reply must feel like you actually showed up with something to say — not vague dominance filler.\n"
             "Good examples: 'Hey Gabriel. What's the move?' / 'Alright — what are we building or breaking?' / 'Hey. Give me the target.' / 'Yo Gabriel. What are we tackling?'\n"
-            "Bad examples (reject these patterns): 'You're up.' / 'Go on.' / 'Shoot.' / 'Yeah?' / 'Talk.' — these are dead air.\n"
+            "Bad examples (reject these): 'You're up.' / 'Go on.' / 'What's stuck?' / 'What's up?' — dead air or presumptuous.\n"
             "You may ask ONE short direct question. It must NOT be 'How can I help?', 'What can I do?', 'What do you need?', or any helpdesk phrasing.\n"
+            "Do not assume the user has a problem, is stuck, seems off, or has something weighing on them.\n"
             "Just show up. Acknowledge him naturally — don't comment on the time of day, don't make assumptions about his schedule, don't imply a pattern you weren't told about.\n"
             "Do not sound like a customer-service assistant or a chatbot.\n"
             f"Repeated_greeting={repeated_greeting}; greeting_count={greeting_count}; variant={variant}.\n\n"
@@ -435,7 +436,8 @@ def validate_greeting_candidate(
     _fname = _first_name(user_name).lower()
     _has_name = bool(_fname and _fname in low)
     _word_count = len(candidate.split())
-    _has_real_question = "?" in candidate and _word_count > 1
+    # A "real question" must have at least 3 words — "What's stuck?" (2 words) is still dead air.
+    _has_real_question = "?" in candidate and _word_count >= 3
     if _word_count <= 3 and not _has_name and not _has_real_question:
         return GreetingValidationResult(False, ["low_signal_greeting"], "")
 
@@ -488,6 +490,15 @@ def validate_greeting_candidate(
             "you seem",
             "you look",
             "you sound",
+            "what's stuck",
+            "whats stuck",
+            "what's wrong",
+            "whats wrong",
+            "what's up",
+            "what's going on",
+            "what happened",
+            "everything ok",
+            "you okay",
         ),
     }
     for reason, tokens in banned_map.items():
