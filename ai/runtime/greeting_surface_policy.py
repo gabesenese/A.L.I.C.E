@@ -482,6 +482,12 @@ def validate_greeting_candidate(
         ),
         "emotional_assumption": (
             "eating at you",
+            "on your mind",
+            "something to say",
+            "got something",
+            "you seem",
+            "you look",
+            "you sound",
         ),
     }
     for reason, tokens in banned_map.items():
