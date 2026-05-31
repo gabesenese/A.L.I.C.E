@@ -551,25 +551,10 @@ class CompanionRuntimeLoop:
         response_text: str,
         policy: PolicyDecision,
     ) -> str:
-        text = str(response_text or "").strip()
-        if not text:
-            return ""
-
-        if policy.decision_type == "follow_up":
-            follow_up_suffix = "If you want, I can keep tracking this thread and follow up next turn."
-            if follow_up_suffix.lower() not in text.lower():
-                return f"{text} {follow_up_suffix}"
-
-        return text
+        return str(response_text or "").strip()
 
     def default_follow_up_question(self, *, policy: PolicyDecision) -> str:
-        if policy.decision_type == "clarify":
-            return "What exact outcome should I target next?"
-        if policy.decision_type == "follow_up":
-            return "Want me to keep this thread active and check in next turn?"
-        if policy.decision_type == "act":
-            return "Do you want me to run another action for this?"
-        return "What should we tackle next?"
+        return ""
 
     def update_after_turn(
         self,

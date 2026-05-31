@@ -27,24 +27,14 @@ def generate_session_briefing(user_id: str = "gabriel") -> str:
     parts: list[str] = []
     now = datetime.now(timezone.utc)
 
-    # --- Identity / greeting ---
+    # --- Identity ---
     identity = None
     try:
         from ai.identity.user_identity import load_identity
 
         identity = load_identity(user_id)
-        name = identity.name if identity.name else user_id.capitalize()
     except Exception:
-        name = user_id.capitalize()
-
-    hour = now.hour
-    if hour < 12:
-        salutation = "Good morning"
-    elif hour < 18:
-        salutation = "Good afternoon"
-    else:
-        salutation = "Good evening"
-    parts.append(f"{salutation}, {name}.")
+        pass
 
     # --- World model (calendar, email, tasks) ---
     snapshot: dict = {}

@@ -903,9 +903,7 @@ class ContractPipeline:
             elif is_conversational_turn and response_text:
                 pass  # keep the LLM's response — verification errors don't apply to casual conversation
             else:
-                response_text = (
-                    "I could not verify that result safely. Please rephrase the request or provide more detail."
-                )
+                pass  # respond_phase already set a specific fallback for this failure
             self._maybe_record_behavior_event(
                 user_id=user_id,
                 source="verification_failure",
@@ -1221,18 +1219,10 @@ class ContractPipeline:
 
                 _briefing = generate_session_briefing(str(user_id or "gabriel"))
                 if _briefing:
-                    # Strip the opening salutation line (ALICE already greeted)
-                    _lines = _briefing.splitlines()
-                    _body_lines = [
-                        ln
-                        for ln in _lines
-                        if not any(ln.startswith(p) for p in ("Good morning", "Good afternoon", "Good evening"))
-                    ]
-                    _body = "\n".join(_body_lines).strip()
-                    if _body and response_text:
-                        response_text = response_text.rstrip() + "\n\n" + _body
-                    elif _body:
-                        response_text = _body
+                    if response_text:
+                        response_text = response_text.rstrip() + "\n\n" + _briefing
+                    else:
+                        response_text = _briefing
             except Exception:
                 pass
 

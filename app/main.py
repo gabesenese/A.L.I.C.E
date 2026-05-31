@@ -6369,49 +6369,12 @@ class ALICE:
         if normalized in {"conversation:general", "conversation:question"}:
             if re.fullmatch(r"(?:bye|goodbye|see you)\??", text):
                 return self._get_farewell()
-            if re.fullmatch(r"(?:hi|hello|hey|yo)[!.?]*", text):
-                return "Hey. What would you like to work on?"
-            if re.search(r"\bhow\s+(?:are\s+you|is\s+it\s+going)\b", text):
-                return "I am doing well and ready to help. What are you working on?"
-            if re.fullmatch(r"(?:thanks|thank you|thx)[!.?]*", text):
-                return "Anytime."
 
         if normalized in {"conversation:ack", "conversation:acknowledgment"}:
             return None
-        if normalized == "status_inquiry":
-            return "I am doing well and ready to help."
-        if normalized == "thanks":
-            return "Anytime."
-        if normalized == "conversation:clarification_needed":
-            if self._should_answer_first_without_clarification(user_input, normalized):
-                return None
-            return "I can help. What exact result do you want?"
         if normalized == "conversation:goal_statement":
             signal = self._extract_goal_statement_signal(user_input)
             return self._goal_statement_alignment_response(user_input, signal)
-        if normalized == "conversation:help":
-            # Keep help turns on full reasoning/planning rather than scaffold prompts.
-            return None
-        if normalized == "conversation:help_opener":
-            return self._native_help_opener_response(user_input)
-        if normalized == "greeting":
-            user_name = getattr(self.context.user_prefs, "name", "") if getattr(self, "context", None) else ""
-            asked_how = bool(
-                re.search(
-                    r"\bhow\s+(are\s+you|is\s+it\s+going)\b",
-                    str(user_input or ""),
-                    re.IGNORECASE,
-                )
-            )
-            learned = self._learned_greeting_response(
-                user_input=user_input,
-                user_name=user_name,
-                asked_how=asked_how,
-            )
-            if learned and not self._greeting_is_time_inappropriate(learned):
-                return learned
-            greeting = self._get_greeting()
-            return greeting or "Hi. What should we work on?"
         return None
 
     def _self_answer_first_can_override(self, action: str) -> bool:
@@ -6468,40 +6431,6 @@ class ALICE:
                 "block_llm": False,
                 "reason": "answer_first_direct",
                 "response": "",
-            }
-
-        text = str(user_input or "").strip()
-        tokens = re.findall(r"\b[a-z']+\b", text.lower())
-        short_enough = len(tokens) <= 20
-        low_risk_intent = str(intent or "").startswith("conversation:") or intent in {
-            "greeting",
-            "thanks",
-        }
-        no_tool_needed = (not has_explicit_action_cue) and (not has_active_goal)
-        no_missing_knowledge = not any(
-            cue in text.lower()
-            for cue in (
-                "what is",
-                "why",
-                "how does",
-                "compare",
-                "explain",
-            )
-        )
-        under_two_sentence_direct = short_enough and len(text) > 0
-
-        if (
-            under_two_sentence_direct
-            and low_risk_intent
-            and no_tool_needed
-            and no_missing_knowledge
-            and not self._should_answer_first_without_clarification(user_input, intent)
-        ):
-            direct = "I can help. What exact result do you want?"
-            return {
-                "block_llm": True,
-                "reason": "self_answer_first",
-                "response": direct,
             }
 
         return {"block_llm": False, "reason": "allow_llm", "response": ""}
@@ -10158,13 +10087,17 @@ class ALICE:
             return learned
 
         # Fallback to Gateway for natural greeting generation
-        prompt = f"""Generate a brief, natural greeting for the user who just started the session.
-Context:
+        prompt = f"""You are ALICE, Gabriel's AI companion — not an assistant, not a chatbot.
+Generate a single brief opening line to start the session. Context:
 - User's name: {name}
 - Time of day: {time_context}
-- This is the opening greeting
 
-Generate only the greeting (1 sentence), no other text. Be friendly and offer to help."""
+Rules:
+- Do NOT say "How can I help", "What would you like to work on", or any service-desk opener
+- Do NOT ask how you can assist
+- No hollow affirmations ("Great!", "Sure!", "Absolutely!")
+- Be present, dry, direct — like someone who actually knows him
+- One line only. No preamble."""
 
         try:
             llm_response = self.llm_gateway.request(

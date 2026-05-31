@@ -541,11 +541,12 @@ def test_self_answer_first_gate_uses_non_structured_answer_for_learn_more_agenti
 def test_native_scaffold_handles_simple_conversation_openers_without_llm():
     alice = ALICE.__new__(ALICE)
 
-    assert alice._native_scaffold_response("how are you?", "status_inquiry") is not None
-    assert alice._native_scaffold_response("how are you?", "conversation:general") is not None
-    assert alice._native_scaffold_response("hello", "conversation:general") is not None
+    # These are now handled by the LLM for more natural responses
+    assert alice._native_scaffold_response("how are you?", "status_inquiry") is None
+    assert alice._native_scaffold_response("how are you?", "conversation:general") is None
+    assert alice._native_scaffold_response("hello", "conversation:general") is None
     assert alice._native_scaffold_response("can you help me?", "conversation:help") is None
-    assert alice._native_scaffold_response("thanks", "conversation:general") is not None
+    assert alice._native_scaffold_response("thanks", "conversation:general") is None
 
 
 def test_native_scaffold_does_not_flatten_beginner_explanation_help_request():
@@ -1021,7 +1022,8 @@ def test_explicit_greeting_detector_and_native_greeting_path_for_hi_alice() -> N
     alice.context = None
 
     assert alice._is_explicit_greeting_input("hi alice") is True
-    assert alice._native_scaffold_response("hi alice", "greeting") is not None
+    # Greeting is now handled by the LLM via the greeting policy, not native scaffold
+    assert alice._native_scaffold_response("hi alice", "greeting") is None
 
 
 def test_explicit_greeting_detector_accepts_minor_name_typo() -> None:
@@ -1156,7 +1158,7 @@ def test_two_turn_llm_fallback_finalization_skips_publish_polish_and_runs_single
     }
 
     greeting = alice._native_scaffold_response("hi alice", "greeting")
-    assert greeting is not None
+    assert greeting is None  # greeting is now handled by LLM via greeting policy
 
     alice._deterministic_fallback_once = (
         lambda _u, _i: "Agentic AI uses goals, planning, tool execution, and verification loops."

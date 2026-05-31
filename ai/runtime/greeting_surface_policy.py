@@ -115,10 +115,7 @@ def render_grounded_greeting(
         validation_reasons.extend(llm_reasons or ["unsafe_llm_greeting_rejected"])
 
     if _looks_assistant_like_task_prompt(rendered):
-        rendered = _fallback_greeting(
-            user_name=user_name,
-            recent_greeting_texts=recent_greeting_texts,
-        )
+        rendered = ""
         generated_by = "fallback"
         style = "llm_failure_minimal"
         reason = "assistant_like_task_prompt"
@@ -278,8 +275,7 @@ def _has_continuation_cue(text: str) -> bool:
 
 
 def _fallback_greeting(*, user_name: str, recent_greeting_texts: list[str]) -> str:
-    first = _first_name(user_name) or "there"
-    return f"Hey {first}."
+    return ""
 
 
 def _try_constrained_llm_greeting(

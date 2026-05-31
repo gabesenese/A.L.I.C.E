@@ -645,7 +645,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                 assistant_message = str((result.get("message") or {}).get("content") or "").strip()
                 if not assistant_message:
                     logger.warning("LLM returned an empty chat response")
-                    return "I received an empty response from the model. Please try again."
+                    return ""
 
                 # Store in conversation history
                 self.conversation_history.append({"role": "user", "content": user_input})
@@ -746,7 +746,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
 
             if not full_response.strip():
                 logger.warning("Streaming returned no content")
-                yield "\n\n[WARNING] I received no output from the model. Try /stream to toggle mode or pull a local model."
+                yield "\n\n[WARNING] No output from the model — check Ollama is running and the model is loaded."
                 return
 
             # Store in history
@@ -754,12 +754,11 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             self.conversation_history.append({"role": "assistant", "content": full_response})
 
         except requests.exceptions.Timeout:
-            yield "\n\n[TIMEOUT] Response timeout. Please try a shorter query."
+            logger.error("Stream chat timeout")
         except requests.exceptions.ConnectionError:
-            yield "\n\n[WARNING] Cannot connect to Ollama. Make sure it's running."
+            logger.error("Stream chat connection error — Ollama unreachable")
         except Exception as e:
             logger.error(f"Error in stream chat: {e}")
-            yield "\n\nI encountered an error. Please try again."
 
     async def achat(
         self,
@@ -916,11 +915,13 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                 return result["message"]["content"]
             else:
                 logger.error(f"Knowledge query failed: {response.status_code}")
-                return "I couldn't retrieve that information right now."
+                raise RuntimeError(f"Knowledge query failed: {response.status_code}")
 
+        except RuntimeError:
+            raise
         except Exception as e:
             logger.error(f"Error in knowledge query: {e}")
-            return "I encountered an error accessing my knowledge base."
+            raise
 
     def parse_complex_input(self, user_input: str) -> Dict[str, Any]:
         """

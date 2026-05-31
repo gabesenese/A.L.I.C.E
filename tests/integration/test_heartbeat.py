@@ -23,7 +23,7 @@ def test_heartbeat_interrupts_for_stale_intention_once_until_resolved(tmp_path):
     clock = _Clock("2026-05-17T11:01:00+00:00")
     heartbeat = Heartbeat(
         world_model=model,
-        config=HeartbeatConfig(min_interrupt_gap_seconds=0),
+        config=HeartbeatConfig(min_interrupt_gap_seconds=0, stale_intention_seconds=2 * 60 * 60),
         output=output.append,
         clock=clock,
     )
