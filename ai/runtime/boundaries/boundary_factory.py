@@ -422,21 +422,39 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         text = str(user_input or "").lower().strip()
         return "let's think through" in text or "lets think through" in text
 
+    # Fresh session declarations: user is starting, not continuing a previous action.
+    # These should ALWAYS route to conversation:project_work_session, never operator:continue.
+    _FRESH_SESSION_PATTERNS = (
+        r"\blet[' ]?s work on alice\b",
+        r"\bready to work on (?:our )?(?:ai project|ai|alice|the project)\b",
+        r"\bi[' ]?m ready to work on the project\b",
+        r"\bimprove alice\b",
+        r"\bmake alice (?:more )?agentic\b",
+        r"\blet[' ]?s focus on (?:my ai project|alice|making alice)\b",
+        r"\bturn alice into\b",
+    )
+
+    # Continuation phrases: user explicitly wants to resume a prior action.
+    # These escalate to operator:continue only when a session objective already exists.
+    _CONTINUATION_SESSION_PATTERNS = (
+        r"\blet[' ]?s continue working on alice\b",
+        r"\bback to working on alice\b",
+        r"\blet[' ]?s get back to alice\b",
+        r"\blet[' ]?s continue the ai project\b",
+        r"\bready to keep building alice\b",
+        r"\bkeep moving (?:alice|her) toward\b",
+        r"\bcompare alice to\b",
+    )
+
+    def _looks_like_session_fresh_start(user_input: str) -> bool:
+        text = str(user_input or "").lower().strip()
+        return bool(text) and any(re.search(p, text) for p in _FRESH_SESSION_PATTERNS)
+
     def _looks_like_project_work_session_start(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
         if not text:
             return False
-        patterns = (
-            r"\bready to work on (?:our )?(?:ai project|ai|alice|the project)\b",
-            r"\blet[' ]?s work on alice\b",
-            r"\blet[' ]?s continue working on alice\b",
-            r"\bi[' ]?m ready to work on the project\b",
-            r"\bready to keep building alice\b",
-            r"\blet[' ]?s continue the ai project\b",
-            r"\bback to working on alice\b",
-            r"\blet[' ]?s get back to alice\b",
-        )
-        return any(re.search(pat, text) for pat in patterns)
+        return any(re.search(p, text) for p in _CONTINUATION_SESSION_PATTERNS)
 
     def _is_recommendation_approval_phrase(user_input: str) -> bool:
         text = str(user_input or "").lower().strip()
@@ -1624,10 +1642,24 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
+        if _looks_like_session_fresh_start(req.user_input):
+            # "lets work on alice tonight" / "ready to work on alice" — these are session
+            # DECLARATIONS, not continuations. Always route conversationally regardless of
+            # any persisted active_objective (which may be from a prior session on disk).
+            return RouterDecision(
+                route="llm",
+                intent="conversation:project_work_session",
+                confidence=0.9,
+                decision_band="execute",
+                metadata={
+                    "reason": "session_fresh_start_declaration",
+                    "resolved_input": req.user_input,
+                },
+            )
+
         if _looks_like_project_work_session_start(req.user_input):
-            # Only escalate to operator:continue when THIS session established an objective.
-            # _session_objective is captured from alice._operator_state BEFORE sync with disk,
-            # so it's only truthy if a prior turn in this session set the objective.
+            # Continuation phrases ("back to alice", "let's continue") — only escalate to
+            # operator:continue when this session already established an objective.
             if bool(_session_objective):
                 return RouterDecision(
                     route="local",
@@ -1635,7 +1667,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     confidence=0.93,
                     decision_band="execute",
                     metadata={
-                        "reason": "project_work_session_start_with_active_objective",
+                        "reason": "project_work_session_continuation_with_active_objective",
                         "resolved_input": req.user_input,
                         "operator_state": state,
                     },
@@ -1646,7 +1678,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 confidence=0.9,
                 decision_band="execute",
                 metadata={
-                    "reason": "project_work_session_start",
+                    "reason": "project_work_session_continuation_no_prior_objective",
                     "resolved_input": req.user_input,
                 },
             )
