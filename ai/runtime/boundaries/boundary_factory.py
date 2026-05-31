@@ -48,6 +48,36 @@ from ai.runtime.operator_state import (
 )
 
 
+_SHAMING_PATTERNS: tuple[str, ...] = (
+    "you're stalling",
+    "you are stalling",
+    "haven't seen any real progress",
+    "have not seen any real progress",
+    "no real progress",
+    "i haven't seen",
+    "i have not seen",
+    "what's holding you back",
+    "what is holding you back",
+    "still haven't started",
+    "still have not started",
+    "you keep avoiding",
+    "you're avoiding",
+    "you are avoiding",
+    "you're procrastinating",
+    "you are procrastinating",
+)
+
+
+def _strip_shaming(text: str) -> str:
+    """Remove sentences containing scolding/nagging patterns before publish."""
+    low = str(text or "").lower()
+    if not any(p in low for p in _SHAMING_PATTERNS):
+        return text
+    sentences = re.split(r"(?<=[.!?])\s+", str(text).strip())
+    kept = [s for s in sentences if not any(p in s.lower() for p in _SHAMING_PATTERNS)]
+    return " ".join(kept).strip()
+
+
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
     """Create runtime boundaries backed by current ALICE components."""
 
@@ -619,11 +649,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         # Compute project-intent flag early so both objective and goal-observation
         # blocks can use it without a forward-reference.
         _project_intent = any(
-            _intent.startswith(pfx) for pfx in ("code:", "file:", "plugin:", "notes:")
-        ) or _intent in (
-            "conversation:goal_statement",
-            "conversation:project_work_session",
-        )
+            _intent.startswith(pfx) for pfx in ("code:", "file:", "plugin:", "notes:", "operator:")
+        ) or _intent == "conversation:project_work_session"
 
         # User's location — always inject so LLM never has to guess
         _home_city = ""
@@ -2706,7 +2733,18 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 )
                 # Detect dry/dismissive short responses: under 50 words with no follow-up
                 _is_too_short = len(llm_text.split()) < 50 and "?" not in llm_text
-                if _is_discussion and (_is_hedge or _is_question_only or _is_too_short):
+                # Short follow-ups ("why?", "how so?", "what do you mean") don't need
+                # a forced 3-4 sentence take — a direct 1-2 sentence reply is fine.
+                _user_words = str(req.user_input or "").strip().lower().split()
+                _is_short_followup = (
+                    len(_user_words) <= 6
+                    and bool(_user_words)
+                    and _user_words[0] in {
+                        "why", "how", "what", "huh", "really", "ok", "okay",
+                        "and", "but", "so", "wait", "meaning", "elaborate",
+                    }
+                )
+                if _is_discussion and (_is_hedge or _is_question_only or _is_too_short) and not _is_short_followup:
                     _retry_ctx = (
                         (_companion_ctx + "\n\n" if _companion_ctx else "")
                         + "IMPORTANT: Your previous response was too brief or didn't engage with the substance of what was asked. "
@@ -2743,7 +2781,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 memory_items=list(req.memory.items or []),
                 operator_state=operator_state,
             )
-            llm_text = str(continuity.text or "").strip()
+            llm_text = _strip_shaming(str(continuity.text or "").strip())
             low_input = str(req.user_input or "").lower()
             continuation_cue = any(
                 cue in low_input

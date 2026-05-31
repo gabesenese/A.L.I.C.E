@@ -439,6 +439,12 @@ def validate_greeting_candidate(
     if _word_count <= 3 and not _has_name and not _has_real_question:
         return GreetingValidationResult(False, ["low_signal_greeting"], "")
 
+    # On pure-greeting turns, reject any candidate that mentions a proper noun
+    # that isn't the user name or "Alice" — blocks hallucinated locations/topics.
+    if _is_pure_greeting(str(user_input or "").strip().lower()):
+        if _has_hallucinated_entity(candidate, user_name):
+            return GreetingValidationResult(False, ["hallucinated_entity_in_greeting"], "")
+
     reasons: list[str] = []
     if _has_time_period_mismatch(candidate, time_period):
         reasons.append("time_period_mismatch")
@@ -579,6 +585,34 @@ def _has_time_period_mismatch(text: str, time_period: str) -> bool:
 def _first_name(user_name: str) -> str:
     name = str(user_name or "").strip()
     return name.split()[0] if name else ""
+
+
+# Capitalized contractions of "I" that are not proper nouns.
+_COMMON_INTERNAL_CAPS: frozenset[str] = frozenset({"im", "ive", "ill", "id", "its"})
+
+
+def _has_hallucinated_entity(candidate: str, user_name: str) -> bool:
+    """Return True if the candidate contains a sentence-internal capitalized word
+    that is neither the user name nor 'Alice'.  Catches location / topic hallucination
+    on pure greeting turns (e.g. 'The weather in Oakville looks rough.')."""
+    _fname_lower = _first_name(user_name).lower() if user_name else ""
+    _allowed: frozenset[str] = frozenset(
+        filter(None, {"alice", "gabriel", _fname_lower, _fname_lower + "s"})
+    )
+    _words = candidate.split()
+    _at_start = True  # first word is always a sentence/clause opener
+    for _w in _words:
+        _bare = re.sub(r"[^a-zA-Z]", "", _w)
+        if _at_start:
+            # Update: does this word end a sentence or is a dash?
+            _at_start = bool(re.search(r"[.!?]$", _w)) or _w in {"—", "–", "-"}
+            continue
+        # Sentence-internal word — flag any Capitalized (not ALL-CAPS) word we don't recognise
+        if len(_bare) >= 2 and _bare[0].isupper() and not _bare.isupper():
+            if _bare.lower() not in _allowed and _bare.lower() not in _COMMON_INTERNAL_CAPS:
+                return True
+        _at_start = bool(re.search(r"[.!?]$", _w)) or _w in {"—", "–", "-"}
+    return False
 
 
 def _looks_assistant_like_task_prompt(text: str) -> bool:

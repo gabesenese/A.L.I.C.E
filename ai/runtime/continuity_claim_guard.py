@@ -14,6 +14,11 @@ _CLAIM_PATTERNS = (
     r"\bi remember you were\b",
     r"\bour previous conversation was about\b",
     r"\bconversation history suggests\b",
+    # Schedule/pattern assumptions — imply knowledge of the user's routine
+    r"\bwhen we last spoke\b",
+    r"\bthan usual\b",
+    r"\bas usual\b",
+    r"\bstill on your mind\b",
 )
 _CLAIM_RE = re.compile("|".join(_CLAIM_PATTERNS), re.IGNORECASE)
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
