@@ -1441,6 +1441,17 @@ class ContractPipeline:
         }
         if any(greeting_policy.values()):
             metadata_payload["greeting_metadata"] = greeting_policy
+
+        # Global empty-output guard — never emit silence to the user
+        if not str(response_text or "").strip():
+            _route_for_guard = str(decision.route or "").lower()
+            if _route_for_guard in {"tool", "plugin"}:
+                response_text = "That didn't go through. Try again or give me a different target."
+            elif _route_for_guard in {"greeting"}:
+                response_text = "Hey."
+            else:
+                response_text = "Model gave me nothing. Retry?"
+
         return PipelineResult(
             handled=bool(response_text),
             response_text=response_text,

@@ -755,8 +755,10 @@ Be present. Be direct. Be the AI that actually stays in the room."""
 
         except requests.exceptions.Timeout:
             logger.error("Stream chat timeout")
+            yield "\n\n[TIMEOUT] Response timed out — try a shorter query."
         except requests.exceptions.ConnectionError:
             logger.error("Stream chat connection error — Ollama unreachable")
+            yield "\n\n[OFFLINE] Can't reach Ollama. Make sure it's running."
         except Exception as e:
             logger.error(f"Error in stream chat: {e}")
 
