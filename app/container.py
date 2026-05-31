@@ -78,12 +78,59 @@ def _build_boundaries(nlp: NLPProcessor, llm: LocalLLMEngine, settings: Settings
                 pass
         memory_store.append(dict(item))
 
+    _registry: Any = None
+
     def tool_fn(invocation: ToolInvocation) -> ToolResult:
+        nonlocal _registry
+        if _registry is None:
+            try:
+                from ai.plugins.registry import build_unified_registry
+                _registry = build_unified_registry()
+            except Exception:
+                _registry = object()  # sentinel — skip on repeated failures
+
+        from ai.plugins.registry import PluginRegistry
+
+        if not isinstance(_registry, PluginRegistry):
+            return ToolResult(
+                success=False,
+                tool_name=invocation.tool_name,
+                action=invocation.action,
+                error="Plugin registry unavailable",
+                confidence=0.0,
+            )
+
+        text = f"{invocation.tool_name} {invocation.action}"
+        tokens = [invocation.tool_name, invocation.action] + list((invocation.params or {}).keys())
+        scores = _registry.score_all(text, tokens)
+        best = max(scores, key=scores.get) if scores else None
+
+        if best and scores[best] > 0.3:
+            plugin = _registry.get(best)
+            try:
+                import asyncio
+                result = asyncio.run(plugin.execute(invocation.action, dict(invocation.params or {})))
+                return ToolResult(
+                    success=bool(result.get("success", True)),
+                    tool_name=invocation.tool_name,
+                    action=invocation.action,
+                    data=result,
+                    confidence=scores[best],
+                )
+            except Exception as exc:
+                return ToolResult(
+                    success=False,
+                    tool_name=invocation.tool_name,
+                    action=invocation.action,
+                    error=str(exc),
+                    confidence=0.0,
+                )
+
         return ToolResult(
             success=False,
             tool_name=invocation.tool_name,
             action=invocation.action,
-            error="Tool execution not wired in API mode yet",
+            error=f"No plugin handles: {invocation.tool_name}/{invocation.action}",
             confidence=0.0,
         )
 

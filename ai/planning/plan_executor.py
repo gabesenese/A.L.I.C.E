@@ -9,6 +9,7 @@ import logging
 import re
 
 from .task_planner import ExecutionPlan, StepStatus, PlanStatus
+from .artifact import Artifact
 from ai.infrastructure.event_bus import get_event_bus, EventType, EventPriority
 from ai.infrastructure.system_state import get_state_tracker
 
@@ -76,8 +77,9 @@ class PlanExecutor:
         self.state_tracker.start_task(task_id)
         plan.status = PlanStatus.EXECUTING
 
-        completed_steps = set()
-        step_results = {}
+        completed_steps: set = set()
+        step_results: Dict[Any, Any] = {}
+        artifacts: List[Artifact] = []
 
         try:
             while not plan.is_complete and not plan.has_failed:
@@ -105,11 +107,19 @@ class PlanExecutor:
                     # Execute action
                     result = self._execute_action(next_step.action, params)
 
-                    # Store result
+                    # Store result and emit artifact
                     next_step.result = result
                     next_step.status = StepStatus.COMPLETED
                     step_results[next_step.step_id] = result
                     completed_steps.add(next_step.step_id)
+                    artifacts.append(
+                        Artifact(
+                            step_id=str(next_step.step_id),
+                            kind="tool_output" if next_step.action.startswith("plugin.") else "text",
+                            content=result,
+                            evidence={"action": next_step.action, "params": dict(next_step.params or {})},
+                        )
+                    )
 
                     logger.info(f"Step {next_step.step_id} completed successfully")
 
@@ -153,6 +163,7 @@ class PlanExecutor:
                 "success": True,
                 "result": final_result,
                 "all_results": step_results,
+                "artifacts": [a.to_dict() for a in artifacts],
             }
 
         except Exception as e:

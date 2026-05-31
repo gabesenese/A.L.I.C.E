@@ -2784,6 +2784,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     ).strip()
                 except Exception:
                     llm_text = str(llm_text or "").strip()
+            if not llm_text:
+                _route_guard = str(req.decision.route or "").lower()
+                llm_text = "Hey." if _route_guard == "greeting" else "I don't have a response right now. Try again?"
+
             return ResponseOutput(
                 text=llm_text,
                 confidence=max(0.45, float(req.decision.confidence or 0.45)),

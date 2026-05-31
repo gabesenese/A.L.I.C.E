@@ -2,12 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
 import re
 import sys
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
 from memory.world_model import WorldModel, get_world_model
+
+logger = logging.getLogger(__name__)
+
+# Read-only actions the heartbeat may execute without user approval.
+_SAFE_ACTIONS: frozenset[str] = frozenset({
+    "system.health",
+    "calendar.list",
+    "notes.list",
+})
 
 _VAGUE_TEXT = re.compile(
     r"^(?:some(?:thing|body|where|how|times?)?|some\s+(?:stuff|things?)|"
@@ -79,11 +89,13 @@ class Heartbeat:
         config: HeartbeatConfig | None = None,
         output: Callable[[str], None] | None = None,
         clock: Callable[[], datetime] | None = None,
+        tool_fn: Callable[[str, Dict[str, Any]], Dict[str, Any]] | None = None,
     ) -> None:
         self.world_model = world_model or get_world_model()
         self.config = config or HeartbeatConfig()
         self.output = output or self._stdout_output
         self.clock = clock or _now
+        self.tool_fn = tool_fn
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.RLock()
@@ -118,6 +130,8 @@ class Heartbeat:
 
     def run_once(self) -> List[HeartbeatDecision]:
         with self._lock:
+            if self.tool_fn is not None:
+                self._refresh_safe_data()
             decisions = self.evaluate()
             emitted: List[HeartbeatDecision] = []
             for decision in decisions:
@@ -271,6 +285,28 @@ class Heartbeat:
                 for d in self._last_decisions
             ],
         }
+
+    def _refresh_safe_data(self) -> None:
+        """Call whitelisted read-only tools and push fresh data into world_model."""
+        if self.tool_fn is None:
+            return
+        for action in _SAFE_ACTIONS:
+            try:
+                result = self.tool_fn(action, {})
+                if not isinstance(result, dict):
+                    continue
+                data = result.get("data") or result
+                if action == "system.health" and isinstance(data, dict):
+                    health = data.get("system_health") or data
+                    if health and isinstance(health, dict):
+                        self.world_model._state.setdefault("environment", {})["system_health"] = health
+                        self.world_model.save()
+                elif action == "calendar.list" and isinstance(data, dict):
+                    events = data.get("events") or data.get("calendar_events") or []
+                    if isinstance(events, list):
+                        self.world_model.update_upcoming_calendar(events)
+            except Exception as exc:
+                logger.debug("Heartbeat safe-action %s failed: %s", action, exc)
 
     def _loop(self) -> None:
         while not self._stop_event.is_set():
