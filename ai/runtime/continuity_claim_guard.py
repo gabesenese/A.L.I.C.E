@@ -19,6 +19,26 @@ _CLAIM_PATTERNS = (
     r"\bthan usual\b",
     r"\bas usual\b",
     r"\bstill on your mind\b",
+    # Assertions about what the user is currently doing or feeling. These read as
+    # recall and are invented just as easily: "you're still stuck on that routing
+    # refactor" was produced for a user who had never mentioned a routing refactor.
+    r"\byou'?re still\b",
+    r"\byou'?ve been\b",
+    r"\byou have been\b",
+    r"\byou keep\b",
+    r"\byou were (?:working|building|fixing|debugging|stuck|deep)\b",
+    r"\bi can tell (?:you|that)\b",
+    r"\bi know you'?(?:re|ve)\b",
+    r"\bstill (?:stuck|grinding|buried|deep)\b",
+    # Claims of having observed the user over time. Same fabrication, first person:
+    # "I've noticed you're using SQLite again" about a user who never said so.
+    r"\bi'?ve noticed\b",
+    r"\bi notice\b",
+    r"\bi'?ve seen you\b",
+    r"\bi see you'?(?:re|ve)\b",
+    r"\blately\b",
+    r"\bthese days\b",
+    r"\bevery time you\b",
 )
 _CLAIM_RE = re.compile("|".join(_CLAIM_PATTERNS), re.IGNORECASE)
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")

@@ -215,32 +215,16 @@ def decide_next_step(
                 )
             )
         else:
+            # Reasons say why a file is worth opening next, not what is inside it.
+            # The previous wording asserted each file's behaviour ("it decides what
+            # Alice should do after each safe step") for files that had not been read,
+            # so a suggestion was delivered as though it were knowledge.
             followups = (
-                (
-                    "ai/runtime/next_step_policy.py",
-                    "It decides what Alice should do after each safe step.",
-                    0.76,
-                ),
-                (
-                    "ai/runtime/operator_state.py",
-                    "It stores active objective, current focus, inspected files, and recommendations.",
-                    0.74,
-                ),
-                (
-                    "ai/runtime/response_momentum_policy.py",
-                    "It shapes whether Alice advances with momentum or drifts into passive responses.",
-                    0.72,
-                ),
-                (
-                    "ai/runtime/contract_pipeline.py",
-                    "It coordinates route -> execute -> verify -> respond handoff.",
-                    0.7,
-                ),
-                (
-                    "ai/memory/project_memory.py",
-                    "It persists durable objective and recommendation state across turns.",
-                    0.68,
-                ),
+                ("ai/runtime/next_step_policy.py", "Next in the runtime path, not read yet.", 0.76),
+                ("ai/runtime/operator_state.py", "Holds the state this objective reads from, not read yet.", 0.74),
+                ("ai/runtime/response_momentum_policy.py", "Shapes the reply surface, not read yet.", 0.72),
+                ("ai/runtime/contract_pipeline.py", "Coordinates the turn, not read yet.", 0.7),
+                ("ai/memory/project_memory.py", "Persists this objective between turns, not read yet.", 0.68),
             )
             for path, reason_text, conf in followups:
                 if path.lower() in inspected_set:

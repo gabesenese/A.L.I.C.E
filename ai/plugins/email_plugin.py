@@ -37,6 +37,28 @@ SCOPES = [
 
 AUTH_TIMEOUT_SECONDS = 20
 
+# Several plugin instances are built per process (discovery, the unified registry,
+# and the legacy adapter). Each one hitting a rejected refresh token printed the same
+# stack of errors, so the state is remembered here and reported once, actionably.
+_reauthorization_needed = False
+
+
+def _mark_reauthorization_needed(detail: str) -> None:
+    global _reauthorization_needed
+    if _reauthorization_needed:
+        return
+    _reauthorization_needed = True
+    logger.warning(
+        "Gmail is disconnected (%s). Email features are off. To reconnect, delete "
+        "config/cred/gmail_token.pickle and restart with ALICE_ALLOW_INTERACTIVE_AUTH=1.",
+        detail,
+    )
+
+
+def reset_reauthorization_state() -> None:
+    global _reauthorization_needed
+    _reauthorization_needed = False
+
 
 class GmailPlugin:
     """Gmail integration for reading and sending emails.
@@ -84,6 +106,8 @@ class GmailPlugin:
 
     def _authenticate(self):
         """Authenticate with Gmail API using OAuth2"""
+        if _reauthorization_needed:
+            return
         if not GMAIL_AVAILABLE:
             logger.warning(
                 "[WARNING] Gmail dependencies not available. Install requirements-integrations.txt to enable Gmail."
@@ -102,21 +126,17 @@ class GmailPlugin:
                 try:
                     self.creds.refresh(Request())
                     logger.info("[OK] Gmail credentials refreshed")
-                except Exception as e:
-                    logger.error(f"[ERROR] Failed to refresh credentials: {e}")
+                except Exception as exc:
+                    _mark_reauthorization_needed(f"refresh rejected ({exc})")
                     self.creds = None
 
             if not self.creds:
                 if not creds_path.exists():
-                    logger.warning("[WARNING] Gmail credentials not found. Run setup first.")
-                    logger.info("Get credentials from: https://console.cloud.google.com/apis/credentials")
+                    _mark_reauthorization_needed("no credentials file")
                     return
 
                 if not interactive_auth_allowed():
-                    logger.warning(
-                        "[WARNING] Gmail needs re-authorization. Restart with ALICE_ALLOW_INTERACTIVE_AUTH=1 to "
-                        "grant it in a browser. Gmail stays disabled until then."
-                    )
+                    _mark_reauthorization_needed("interactive authorization not enabled")
                     return
 
                 try:
