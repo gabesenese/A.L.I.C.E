@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
+import time
+import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+_SAVE_LOCK = threading.Lock()
+_REPLACE_ATTEMPTS = 5
+_REPLACE_BACKOFF_SECONDS = 0.05
 
 
 DEFAULT_PERSONALITY: Dict[str, Any] = {
@@ -125,10 +133,33 @@ class WorldModel:
         return merged
 
     def save(self) -> None:
-        self._state["updated_at"] = _now_iso()
-        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(json.dumps(self._state, indent=2, sort_keys=True), encoding="utf-8")
-        tmp.replace(self.path)
+        """Persist the model, tolerating concurrent writers and Windows file locks.
+
+        A fixed .tmp name let two writers clobber each other's staging file, and on
+        Windows os.replace raises PermissionError whenever anything else holds the
+        target open, including a virus scanner reading the file just written.
+        """
+        with _SAVE_LOCK:
+            self._state["updated_at"] = _now_iso()
+            payload = json.dumps(self._state, indent=2, sort_keys=True)
+            tmp = self.path.with_suffix(f"{self.path.suffix}.{uuid.uuid4().hex}.tmp")
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(payload, encoding="utf-8")
+            try:
+                for attempt in range(_REPLACE_ATTEMPTS):
+                    try:
+                        os.replace(tmp, self.path)
+                        return
+                    except PermissionError:
+                        if attempt == _REPLACE_ATTEMPTS - 1:
+                            raise
+                        time.sleep(_REPLACE_BACKOFF_SECONDS * (attempt + 1))
+            finally:
+                if tmp.exists():
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
 
     def snapshot(self) -> Dict[str, Any]:
         return deepcopy(self._state)

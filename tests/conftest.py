@@ -2,6 +2,12 @@
 
 import atexit
 import logging
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
+os.environ.setdefault("ALICE_ENABLE_BACKGROUND_SERVICES", "0")
 
 import pytest
 import pytest_asyncio
@@ -12,6 +18,9 @@ from ai.runtime.contract_pipeline import ContractPipeline
 
 from app.main import app
 from app.api.dependencies import get_pipeline
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "data"
 
 
 def pytest_configure(config):
@@ -27,6 +36,57 @@ def pytest_configure(config):
         atexit.unregister(fake_tensor.dump_cache_stats)
     except Exception:
         pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def restore_data_directory():
+    """Return data/ to its pre-session contents when the run finishes.
+
+    Tests write learned state, journals, and goals into data/, so each run started
+    from whatever the previous run left behind. Test order is fixed, yet the set of
+    failures changed between identical runs, because the suite was effectively
+    iterating on its own leftover state. Restoring afterwards makes every run start
+    from the same baseline, so a failure means the same thing twice.
+    """
+    if not DATA_DIR.exists():
+        yield
+        return
+
+    snapshot_root = Path(tempfile.mkdtemp(prefix="alice-data-snapshot-"))
+    snapshot = snapshot_root / "data"
+    shutil.copytree(DATA_DIR, snapshot)
+    original = {p.relative_to(snapshot) for p in snapshot.rglob("*") if p.is_file()}
+    try:
+        yield
+    finally:
+        for relative in original:
+            target = DATA_DIR / relative
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(snapshot / relative, target)
+            except OSError:
+                pass
+        for path in list(DATA_DIR.rglob("*")):
+            if path.is_file() and path.relative_to(DATA_DIR) not in original:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+        shutil.rmtree(snapshot_root, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def isolate_project_memory(tmp_path, monkeypatch):
+    """Give every test its own project memory store.
+
+    data/project_memory.json is keyed by user id and persists between runs, so a
+    test that drives a turn leaves operator state, recommendations, and inspected
+    files behind for whatever runs next. That made the suite order dependent: the
+    set of failures changed between identical runs while each test passed alone.
+    """
+    import ai.memory.project_memory as project_memory
+
+    monkeypatch.setattr(project_memory, "PROJECT_MEMORY_PATH", tmp_path / "project_memory.json")
 
 
 @pytest.fixture

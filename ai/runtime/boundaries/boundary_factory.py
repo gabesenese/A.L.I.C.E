@@ -1643,9 +1643,23 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if _looks_like_session_fresh_start(req.user_input):
-            # "lets work on alice tonight" / "ready to work on alice" — these are session
-            # DECLARATIONS, not continuations. Always route conversationally regardless of
-            # any persisted active_objective (which may be from a prior session on disk).
+            # "lets work on alice tonight" / "ready to work on alice" are session
+            # DECLARATIONS, not continuations, so a persisted active_objective left on
+            # disk by an earlier session must not pull them into an operator loop.
+            # An objective established during THIS session is different: the user is
+            # restating an intent already underway, so continuing is the correct move.
+            if bool(_session_objective):
+                return RouterDecision(
+                    route="local",
+                    intent="operator:continue",
+                    confidence=0.9,
+                    decision_band="execute",
+                    metadata={
+                        "reason": "session_fresh_start_with_live_session_objective",
+                        "resolved_input": req.user_input,
+                        "operator_state": state,
+                    },
+                )
             return RouterDecision(
                 route="llm",
                 intent="conversation:project_work_session",

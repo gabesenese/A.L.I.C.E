@@ -13,6 +13,7 @@ from brain.ambient_monitor import get_ambient_monitor
 from brain.task_scheduler import TaskScheduler
 
 from ai.infrastructure.rbac import get_rbac_engine
+from ai.infrastructure.runtime_flags import background_services_enabled
 from ai.infrastructure.approval_ledger import get_approval_ledger
 from ai.roadmap import get_roadmap_completion_stack
 from ai.integration.git_manager import get_git_manager
@@ -853,12 +854,15 @@ class ALICE:
             self.roadmap_stack = get_roadmap_completion_stack()
             self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
             self.heartbeat = Heartbeat()
-            self.heartbeat.start()
             self.ambient_monitor = get_ambient_monitor()
-            self.ambient_monitor.start()
             self.task_scheduler = TaskScheduler()
             self.task_scheduler.register_callback(self._on_scheduled_task)
-            self.task_scheduler.start()
+            if background_services_enabled():
+                self.heartbeat.start()
+                self.ambient_monitor.start()
+                self.task_scheduler.start()
+            else:
+                logger.info("Background companion services disabled for this process")
             self.execution_journal = get_execution_journal(storage_path="data/action_journal.jsonl")
             self.entity_registry = get_entity_registry(storage_path="data/entity_registry.json")
             self.turn_state_assembler = TurnStateAssembler(self.world_state_memory)

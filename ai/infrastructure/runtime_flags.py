@@ -33,3 +33,13 @@ def is_enabled(name: str) -> bool:
     if raw in {"0", "false", "no", "off"}:
         return False
     return name not in QUARANTINED_SUBSYSTEMS
+
+
+def background_services_enabled() -> bool:
+    """Whether heartbeat, ambient monitoring, and companion daemons may run.
+
+    These threads mutate shared goal, world, and memory state on their own schedule.
+    A test process must be able to switch them off, otherwise results depend on
+    thread timing rather than on the code under test.
+    """
+    return is_enabled("background_services")
