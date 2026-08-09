@@ -6,6 +6,63 @@ import re
 from typing import Any, Dict, List
 
 
+# Alice has no camera and no microphone trained on the room. Anything about how the
+# user looks, what they are wearing, or what is around them cannot be grounded by
+# any amount of evidence, so it is removed on sight rather than checked against
+# memory. Prompted for weather, she told a user he was "not exactly dressed for
+# overcast skies".
+_SENSORY_CLAIM_PATTERNS = (
+    r"\byou'?re (?:not )?(?:exactly )?dressed\b",
+    r"\byou are (?:not )?(?:exactly )?dressed\b",
+    r"\byou'?re wearing\b",
+    r"\bwhat you'?re wearing\b",
+    r"\byou look (?:tired|great|good|rough|well|happy|sad|stressed)\b",
+    r"\byou seem (?:tired|stressed|upset|happy|nervous)\b",
+    r"\byour (?:face|outfit|posture|expression|desk|room|screen)\b",
+    r"\bbehind you\b",
+    r"\bi can see\b",
+    r"\bfrom the looks of (?:it|you)\b",
+)
+
+_SENSORY_CLAIM_RE = re.compile("|".join(_SENSORY_CLAIM_PATTERNS), re.IGNORECASE)
+
+# Words that start a sentence or are otherwise capitalised without naming anything.
+_PROPER_NOUN_STOPWORDS = {
+    "i", "i'm", "i've", "alice", "gabriel", "ok", "okay", "yes", "no", "not",
+    # Pronouns and determiners, which are capitalised whenever they follow a colon
+    # or a dash. Treating "You" as a name flagged every grounded memory recall.
+    "you", "your", "yours", "we", "our", "ours", "they", "their", "them",
+    "he", "him", "his", "she", "her", "hers", "it", "its", "this", "that",
+    "these", "those", "there", "here", "who", "what", "when", "where", "why",
+    "how", "the", "and", "but", "still", "also", "just", "then", "than",
+    "some", "any", "all", "both", "each", "every", "more", "most", "much",
+    "let", "let's", "lets", "sure", "well", "maybe", "nothing", "something",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+}
+
+_PROPER_NOUN_RE = re.compile(r"(?<![.!?]\s)(?<!^)\b([A-Z][a-z]{2,})\b")
+_SECOND_PERSON_RE = re.compile(r"\byou\b|\byour\b|\byou'?re\b", re.IGNORECASE)
+
+
+def _proper_nouns(sentence: str) -> List[str]:
+    """Names mentioned inside a sentence, ignoring the capitalised first word."""
+    body = str(sentence or "").strip()
+    if not body:
+        return []
+    words = body.split()
+    found: List[str] = []
+    for word in words[1:]:
+        token = word.strip(".,!?;:'\"()")
+        if not token or not token[0].isupper() or len(token) < 3:
+            continue
+        if token.lower() in _PROPER_NOUN_STOPWORDS:
+            continue
+        if token.isupper():
+            continue
+        found.append(token.lower())
+    return found
+
+
 _CLAIM_PATTERNS = (
     r"\blast time we talked about\b",
     r"\bwe were discussing\b",
@@ -245,6 +302,7 @@ def assess_continuity_claims(
     memory_items: List[Dict[str, Any]],
     operator_state: Dict[str, Any] | None,
     min_structured_confidence: float = 0.7,
+    evidence_text: str = "",
 ) -> ContinuityGuardResult:
     content = str(text or "").strip()
     if not content:
@@ -275,8 +333,39 @@ def assess_continuity_claims(
     if operator_active:
         evidence_sources.append("operator_state")
 
+    # Names Alice is allowed to use: anything the user just said, anything a tool
+    # returned this turn, plus stored memory and operator state.
+    grounded_tokens = set(_tokens(str(evidence_text or "")))
+    grounded_tokens |= state_tokens
+    for item in all_items:
+        grounded_tokens |= _tokens(str(item.get("content") or ""))
+        grounded_tokens |= _tokens(_memory_item_topic_text(item))
+
     kept: List[str] = []
     for sentence in sentences:
+        if _SENSORY_CLAIM_RE.search(sentence):
+            claim = sentence.strip()
+            detected.append(claim)
+            unsupported.append(claim)
+            claim_topic_tokens_map[claim] = []
+            overlap_passed_by_claim[claim] = False
+            rejection_reasons[claim] = ["no_sensor_for_this_claim"]
+            continue
+
+        # A name the user never used, in a sentence addressed to them, is invented.
+        # "are you heading out for that drive to Oakville?" reads as recall and was
+        # produced for a user who had never mentioned Oakville or a drive.
+        if _SECOND_PERSON_RE.search(sentence):
+            invented = [name for name in _proper_nouns(sentence) if name not in grounded_tokens]
+            if invented:
+                claim = sentence.strip()
+                detected.append(claim)
+                unsupported.append(claim)
+                claim_topic_tokens_map[claim] = sorted(invented)
+                overlap_passed_by_claim[claim] = False
+                rejection_reasons[claim] = ["ungrounded_proper_noun"]
+                continue
+
         if _CLAIM_RE.search(sentence):
             claim = sentence.strip()
             detected.append(claim)

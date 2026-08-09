@@ -102,6 +102,22 @@ _REQUEST_VERBS = (
 )
 
 
+def _turn_evidence_text(req: Any) -> str:
+    """Everything Alice legitimately knows this turn: what was said, and what tools returned.
+
+    A name she uses must come from somewhere. Without this, a city returned by the
+    weather tool would look as invented as a city she made up.
+    """
+    parts = [str(getattr(req, "user_input", "") or "")]
+    tool_result = getattr(req, "tool_result", None)
+    if tool_result is not None:
+        parts.append(str(getattr(tool_result, "response", "") or ""))
+        data = getattr(tool_result, "data", None)
+        if isinstance(data, dict):
+            parts.append(" ".join(str(value) for value in data.values() if isinstance(value, (str, int, float))))
+    return " ".join(part for part in parts if part).strip()
+
+
 def _looks_like_small_talk(req: Any) -> bool:
     """Short pleasantries with no request in them should not trigger a lookup.
 
@@ -3133,6 +3149,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 text=llm_text,
                 memory_items=list(req.memory.items or []),
                 operator_state=operator_state,
+                evidence_text=_turn_evidence_text(req),
             )
             llm_text = _strip_shaming(str(continuity.text or "").strip())
             low_input = str(req.user_input or "").lower()
@@ -3299,6 +3316,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 text=response_text,
                 memory_items=list(req.memory.items or []),
                 operator_state=operator_state,
+                evidence_text=_turn_evidence_text(req),
             )
             if continuity.unsupported_continuity_claim:
                 return VerifierResult(
