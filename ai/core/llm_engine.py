@@ -762,13 +762,81 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         except Exception as e:
             logger.error(f"Error in stream chat: {e}")
 
+    @staticmethod
+    def _parse_tool_calls(message: Dict[str, Any]) -> List[ToolCall]:
+        parsed: List[ToolCall] = []
+        for entry in list(message.get("tool_calls") or []):
+            function = dict((entry or {}).get("function") or {})
+            name = str(function.get("name") or "").strip()
+            if not name:
+                continue
+            arguments = function.get("arguments")
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except (ValueError, TypeError):
+                    arguments = {}
+            if not isinstance(arguments, dict):
+                arguments = {}
+            parsed.append(ToolCall(name=name, arguments={k: v for k, v in arguments.items() if v is not None}))
+        return parsed
+
+    def chat_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> ChatResponse:
+        """Single /api/chat round trip that can return tool calls.
+
+        Unlike chat(), this takes the full message list so a caller can append tool
+        results and call again, which is what an agent loop needs.
+        """
+        if self._available_models:
+            self._ensure_active_model_available(self._available_models)
+
+        options: Dict[str, Any] = {
+            "temperature": self._resolve_temperature(temperature),
+            "num_gpu": 1,
+            "num_thread": 16,
+            "num_ctx": 8192,
+        }
+        if max_tokens:
+            options["num_predict"] = int(max_tokens)
+
+        payload: Dict[str, Any] = {
+            "model": self.config.active_model,
+            "messages": list(messages or []),
+            "stream": False,
+            "options": options,
+        }
+        if tools:
+            payload["tools"] = list(tools)
+
+        response = requests.post(
+            f"{self.config.base_url}/api/chat",
+            json=payload,
+            timeout=self.config.timeout,
+        )
+        if response.status_code != 200:
+            logger.error("LLM tool call error: %s - %s", response.status_code, response.text[:200])
+            raise Exception(f"LLM API error: {response.status_code}")
+
+        result = response.json()
+        message = dict(result.get("message") or {})
+        return ChatResponse(
+            content=str(message.get("content") or "").strip(),
+            tool_calls=self._parse_tool_calls(message),
+            raw=result,
+        )
+
     async def achat(
         self,
         messages: List[ChatMessage],
         tools: Optional[List[Dict[str, Any]]] = None,
         stream: bool = False,
     ) -> ChatResponse:
-        _ = tools
         if stream:
             chunks = []
             prompt = messages[-1].content if messages else ""
@@ -776,9 +844,8 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                 chunks.append(chunk)
             return ChatResponse(content="".join(chunks))
 
-        prompt = messages[-1].content if messages else ""
-        content = await asyncio.to_thread(self.chat, prompt)
-        return ChatResponse(content=content)
+        payload = [{"role": m.role, "content": m.content} for m in (messages or [])]
+        return await asyncio.to_thread(self.chat_with_tools, payload, tools)
 
     async def astream_chat(
         self,
