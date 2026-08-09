@@ -9,11 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.bootstrap import create_app
 from app.runtime_modes import RuntimeModeConfig, resolve_runtime_mode
 from brain.heartbeat import Heartbeat
-from brain.ambient_monitor import AmbientMonitor
+from brain.ambient_monitor import get_ambient_monitor
 from brain.task_scheduler import TaskScheduler
-
-app = create_app()
-
 
 from ai.infrastructure.rbac import get_rbac_engine
 from ai.infrastructure.approval_ledger import get_approval_ledger
@@ -857,7 +854,7 @@ class ALICE:
             self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
             self.heartbeat = Heartbeat()
             self.heartbeat.start()
-            self.ambient_monitor = AmbientMonitor()
+            self.ambient_monitor = get_ambient_monitor()
             self.ambient_monitor.start()
             self.task_scheduler = TaskScheduler()
             self.task_scheduler.register_callback(self._on_scheduled_task)
@@ -11580,5 +11577,24 @@ def main():
         print(f"\n[ERROR] Error: {e}")
         sys.exit(1)
 
-        return ALICE
-    raise AttributeError(name)
+
+_ASGI_APP = None
+
+
+def __getattr__(name: str):
+    """Build the ASGI app on first access.
+
+    Importing this module must stay cheap: the container now builds a real ALICE,
+    and constructing one at import time would deadlock, since the container imports
+    ALICE from this very module.
+    """
+    global _ASGI_APP
+    if name == "app":
+        if _ASGI_APP is None:
+            _ASGI_APP = create_app()
+        return _ASGI_APP
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+if __name__ == "__main__":
+    main()
