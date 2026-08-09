@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any, Dict, List
@@ -48,6 +49,8 @@ from ai.runtime.operator_state import (
 )
 
 
+_logger = logging.getLogger(__name__)
+
 _SHAMING_PATTERNS: tuple[str, ...] = (
     "you're stalling",
     "you are stalling",
@@ -76,6 +79,53 @@ def _strip_shaming(text: str) -> str:
     sentences = re.split(r"(?<=[.!?])\s+", str(text).strip())
     kept = [s for s in sentences if not any(p in s.lower() for p in _SHAMING_PATTERNS)]
     return " ".join(kept).strip()
+
+
+def _is_workspace_turn(req: Any) -> bool:
+    """Turns about the codebase, where a canned narrative used to stand in for real work."""
+    intent = str(getattr(req.decision, "intent", "") or "")
+    route = str(getattr(req.decision, "route", "") or "")
+    if intent.startswith("code:"):
+        return True
+    if intent.startswith("operator:") and route == "local":
+        return True
+    return False
+
+
+def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any]) -> Any:
+    """Let the model reach for a real tool before falling back to plain generation.
+
+    Returns None whenever the loop is unavailable or chose not to act, so every
+    existing conversational path stays exactly as it was.
+    """
+    llm = getattr(alice, "llm", None)
+    if llm is None or not hasattr(llm, "chat_with_tools"):
+        return None
+
+    from ai.contracts import ResponseOutput
+    from ai.core.react_loop import ReactLoop
+
+    try:
+        loop = ReactLoop(llm, plugin_manager=getattr(alice, "plugins", None))
+        result = loop.run(str(req.user_input or ""))
+    except Exception as exc:
+        _logger.warning("Tool grounded answer unavailable, falling back to generation: %s", exc)
+        return None
+
+    if not result.used_tools or not str(result.answer or "").strip():
+        return None
+
+    return ResponseOutput(
+        text=str(result.answer).strip(),
+        confidence=0.9,
+        metadata={
+            "type": "tool_grounded_answer",
+            "tools_used": [step.tool for step in result.steps],
+            "tool_steps": [step.to_dict() for step in result.steps],
+            "stopped_reason": result.stopped_reason,
+            "operator_state_present": bool(operator_state),
+        },
+    )
 
 
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
@@ -2374,6 +2424,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"type": "deterministic_location"},
             )
 
+        if _is_workspace_turn(req):
+            grounded_local = _try_tool_grounded_answer(alice, req, operator_state)
+            if grounded_local is not None:
+                return grounded_local
+
         if req.decision.route == "local" and req.tool_result is not None and not req.tool_result.success:
             data = dict(req.tool_result.data or {})
             op_ctx = dict(data.get("operator_context") or {})
@@ -2716,6 +2771,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     "memory_answer_verification": verification,
                 },
             )
+
+        grounded = _try_tool_grounded_answer(alice, req, operator_state)
+        if grounded is not None:
+            return grounded
 
         llm_text = ""
         if getattr(alice, "llm", None):
