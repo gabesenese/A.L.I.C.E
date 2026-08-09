@@ -42,6 +42,7 @@ from ai.runtime.dominant_intent_resolver import (
 from ai.runtime.anti_overclarification_policy import (
     should_answer_instead_of_clarify,
 )
+from ai.runtime.response_discipline import apply_response_discipline
 from ai.runtime.local_action_executor import LocalActionExecutor
 from ai.runtime.operator_state import (
     sync_operator_state_with_project_memory,
@@ -112,7 +113,9 @@ def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, An
         _logger.warning("Tool grounded answer unavailable, falling back to generation: %s", exc)
         return None
 
-    if not result.used_tools or not str(result.answer or "").strip():
+    # A grounded answer needs actual grounding. If the lookup found nothing, fall back
+    # to normal conversation rather than letting "no results" become the whole reply.
+    if not result.used_tools or not result.produced_evidence or not str(result.answer or "").strip():
         return None
 
     return ResponseOutput(
@@ -2772,10 +2775,6 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
-        grounded = _try_tool_grounded_answer(alice, req, operator_state)
-        if grounded is not None:
-            return grounded
-
         llm_text = ""
         if getattr(alice, "llm", None):
             try:
@@ -2836,8 +2835,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     and len(llm_text.split()) < 25
                     and not any(c in llm_text for c in [".", "!", ":"])
                 )
-                # Detect dry/dismissive short responses: under 50 words with no follow-up
-                _is_too_short = len(llm_text.split()) < 50 and "?" not in llm_text
+                # A short answer is not a defect. Retrying on brevity taught her to pad:
+                # any reply under 50 words was forced into a 3-4 sentence "take", which is
+                # how a one word confirmation turned into an essay. Only a non-answer,
+                # meaning an empty or near-empty reply, is worth a second pass.
+                _is_too_short = len(llm_text.split()) < 4
                 # Short follow-ups ("why?", "how so?", "what do you mean") don't need
                 # a forced 3-4 sentence take — a direct 1-2 sentence reply is fine.
                 _user_words = str(req.user_input or "").strip().lower().split()
@@ -2852,10 +2854,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 if _is_discussion and (_is_hedge or _is_question_only or _is_too_short) and not _is_short_followup:
                     _retry_ctx = (
                         (_companion_ctx + "\n\n" if _companion_ctx else "")
-                        + "IMPORTANT: Your previous response was too brief or didn't engage with the substance of what was asked. "
-                        "You MUST lead with your own take, insight, or analysis — at least 3-4 sentences. "
-                        "Do NOT hedge, deflect, or just define terms. "
-                        "Pick an angle and develop it — Gabriel can redirect if needed."
+                        + "IMPORTANT: Your previous response hedged or did not answer. "
+                        "Give your actual take in one to three sentences. "
+                        "Do not hedge, deflect, or define terms. "
+                        "Do not pad, and do not open with a compliment."
                     )
                     try:
                         _retry = str(
@@ -2869,7 +2871,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         ).strip()
                     except TypeError:
                         _retry = str(alice.llm.chat(req.user_input, use_history=False) or "").strip()
-                    if _retry and len(_retry) > len(llm_text):
+                    if _retry:
                         llm_text = _retry
 
                 # Strip trailing question on brainstorm/discussion turns — let the take stand.
@@ -2877,6 +2879,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     _sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", llm_text) if s.strip()]
                     if len(_sentences) > 1 and _sentences[-1].endswith("?"):
                         llm_text = " ".join(_sentences[:-1])
+
+                llm_text = apply_response_discipline(llm_text, max_sentences=5 if _is_discussion else 4)
             except Exception:
                 llm_text = ""
 

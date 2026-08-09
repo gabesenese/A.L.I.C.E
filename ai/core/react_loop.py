@@ -37,7 +37,9 @@ SYSTEM_PROMPT = (
     "4. Answer in at most four sentences unless asked for detail. No preamble, no restating "
     "the question, no offers to help further.\n"
     "5. Never mention tools, tool calls, or how you obtained the information. State the finding "
-    "directly, as if you simply looked."
+    "directly, as if you simply looked.\n"
+    "6. Only call a tool when the message actually asks for information a tool provides. "
+    "Conversation, acknowledgements, corrections, and opinions are answered directly, with no tool."
 )
 
 
@@ -49,6 +51,7 @@ class LoopStep:
     success: bool = False
     summary: str = ""
     error: str = ""
+    productive: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -58,7 +61,26 @@ class LoopStep:
             "success": self.success,
             "summary": self.summary,
             "error": self.error,
+            "productive": self.productive,
         }
+
+
+def _is_productive(execution: catalog.ToolExecution) -> bool:
+    """Whether the call actually found something worth grounding an answer in.
+
+    A lookup that returns nothing must not hijack the reply. Without this, a passing
+    remark sends the model to a tool, the tool finds nothing, and the whole turn
+    becomes "there are no notes about that".
+    """
+    if not execution.success:
+        return False
+    data = execution.data or {}
+    for key in ("total_files", "match_count", "line_count"):
+        if key in data:
+            return int(data.get(key) or 0) > 0
+    if "content" in data:
+        return bool(str(data.get("content") or "").strip())
+    return bool(str(execution.summary or "").strip())
 
 
 @dataclass
@@ -69,11 +91,16 @@ class ReactResult:
     stopped_reason: str = ""
     pending_approval: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def produced_evidence(self) -> bool:
+        return any(step.productive for step in self.steps)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "answer": self.answer,
             "steps": [s.to_dict() for s in self.steps],
             "used_tools": self.used_tools,
+            "produced_evidence": self.produced_evidence,
             "stopped_reason": self.stopped_reason,
             "pending_approval": dict(self.pending_approval),
             "tool_names": [s.tool for s in self.steps],
@@ -187,6 +214,7 @@ class ReactLoop:
                         success=execution.success,
                         summary=execution.summary,
                         error=execution.error,
+                        productive=_is_productive(execution),
                     )
                 )
 
