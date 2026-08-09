@@ -3,12 +3,14 @@ Gmail Integration Plugin for A.L.I.C.E
 Handles email reading, searching, and sending
 """
 
-import os
 import logging
 import pickle
-from typing import Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from typing import Any, Dict, List, Optional
 from email.mime.text import MIMEText
 import base64
+
+from ai.infrastructure.paths import credential_path, interactive_auth_allowed
 
 try:
     from google.auth.transport.requests import Request
@@ -33,15 +35,52 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
 ]
 
+AUTH_TIMEOUT_SECONDS = 20
+
 
 class GmailPlugin:
-    """Gmail integration for reading and sending emails"""
+    """Gmail integration for reading and sending emails.
+
+    Authentication is deferred until the first call that needs the API, and never
+    starts an interactive browser flow unless ALICE_ALLOW_INTERACTIVE_AUTH is set.
+    Constructing this plugin performs no network or filesystem work.
+    """
 
     def __init__(self):
-        self.service = None
+        self._service: Optional[Any] = None
+        self._auth_attempted = False
         self.creds = None
         self.user_email = None
-        self._authenticate()
+
+    @property
+    def service(self) -> Optional[Any]:
+        if self._service is None and not self._auth_attempted:
+            self._auth_attempted = True
+            self._authenticate_with_timeout()
+        return self._service
+
+    @staticmethod
+    def is_configured() -> bool:
+        if not GMAIL_AVAILABLE:
+            return False
+        return credential_path("gmail_token.pickle").exists() or credential_path("gmail_credentials.json").exists()
+
+    def reset_authentication(self) -> None:
+        self._service = None
+        self._auth_attempted = False
+        self.creds = None
+        self.user_email = None
+
+    def _authenticate_with_timeout(self) -> None:
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gmail-auth")
+        try:
+            executor.submit(self._authenticate).result(timeout=AUTH_TIMEOUT_SECONDS)
+        except FutureTimeoutError:
+            logger.error("[ERROR] Gmail authentication timed out after %ss; Gmail stays disabled", AUTH_TIMEOUT_SECONDS)
+        except Exception as e:
+            logger.error(f"[ERROR] Gmail authentication failed: {e}")
+        finally:
+            executor.shutdown(wait=False)
 
     def _authenticate(self):
         """Authenticate with Gmail API using OAuth2"""
@@ -51,15 +90,13 @@ class GmailPlugin:
             )
             return
 
-        token_path = "config/cred/gmail_token.pickle"
-        creds_path = "config/cred/gmail_credentials.json"
+        token_path = credential_path("gmail_token.pickle")
+        creds_path = credential_path("gmail_credentials.json")
 
-        # Load saved credentials
-        if os.path.exists(token_path):
+        if token_path.exists():
             with open(token_path, "rb") as token:
                 self.creds = pickle.load(token)
 
-        # Refresh or get new credentials
         if not self.creds or not self.creds.valid:
             if self.creds and self.creds.expired and self.creds.refresh_token:
                 try:
@@ -70,29 +107,35 @@ class GmailPlugin:
                     self.creds = None
 
             if not self.creds:
-                if not os.path.exists(creds_path):
+                if not creds_path.exists():
                     logger.warning("[WARNING] Gmail credentials not found. Run setup first.")
                     logger.info("Get credentials from: https://console.cloud.google.com/apis/credentials")
                     return
 
+                if not interactive_auth_allowed():
+                    logger.warning(
+                        "[WARNING] Gmail needs re-authorization. Restart with ALICE_ALLOW_INTERACTIVE_AUTH=1 to "
+                        "grant it in a browser. Gmail stays disabled until then."
+                    )
+                    return
+
                 try:
-                    flow = InstalledAppFlow.from_client_secrets_file(creds_path, SCOPES)
+                    flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), SCOPES)
                     self.creds = flow.run_local_server(port=0)
                     logger.info("[OK] Gmail authentication successful")
                 except Exception as e:
                     logger.error(f"[ERROR] Authentication failed: {e}")
                     return
 
-            # Save credentials
+            token_path.parent.mkdir(parents=True, exist_ok=True)
             with open(token_path, "wb") as token:
                 pickle.dump(self.creds, token)
 
-        # Build service
         try:
-            self.service = build("gmail", "v1", credentials=self.creds)
-            # Get user email
-            profile = self.service.users().getProfile(userId="me").execute()
+            service = build("gmail", "v1", credentials=self.creds)
+            profile = service.users().getProfile(userId="me").execute()
             self.user_email = profile.get("emailAddress")
+            self._service = service
             logger.info(f"[OK] Gmail connected: {self.user_email}")
         except Exception as e:
             logger.error(f"[ERROR] Failed to build Gmail service: {e}")

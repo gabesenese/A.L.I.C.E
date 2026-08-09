@@ -920,10 +920,10 @@ class ALICE:
             logger.info("Loading Gmail integration...")
             try:
                 self.gmail = GmailPlugin()
-                if self.gmail.service:
-                    logger.info(f"[OK] Gmail connected: {self.gmail.user_email}")
+                if self.gmail.is_configured():
+                    logger.info("[OK] Gmail credentials present; connecting on first use")
                 else:
-                    logger.warning("[WARNING] Gmail not configured - run setup")
+                    logger.warning("[WARNING] Gmail not configured, run setup")
                     self.gmail = None
             except Exception as e:
                 logger.warning(f"[WARNING] Gmail not available: {e}")

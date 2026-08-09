@@ -39,6 +39,7 @@ except ImportError:
     )
     GOOGLE_AVAILABLE = False
 
+from ai.infrastructure.paths import credential_path, interactive_auth_allowed
 from ai.plugins.plugin_system import PluginInterface
 import logging
 
@@ -82,8 +83,8 @@ class CalendarPlugin(PluginInterface):
         ]
 
         # Credentials and service
-        self.credentials_file = "config/cred/calendar_credentials.json"
-        self.token_file = "config/cred/calendar_token.pickle"
+        self.credentials_file = str(credential_path("calendar_credentials.json"))
+        self.token_file = str(credential_path("calendar_token.pickle"))
         self.service = None
         self.user_timezone = "America/Toronto"  # Default, can be configured
 
@@ -220,6 +221,13 @@ class CalendarPlugin(PluginInterface):
                 else:
                     if not os.path.exists(self.credentials_file):
                         logger.warning("Calendar credentials file not found. Calendar features disabled.")
+                        return None
+
+                    if not interactive_auth_allowed():
+                        logger.warning(
+                            "Calendar needs re-authorization. Restart with ALICE_ALLOW_INTERACTIVE_AUTH=1 to "
+                            "grant it in a browser. Calendar stays disabled until then."
+                        )
                         return None
 
                     flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, SCOPES)
