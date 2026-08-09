@@ -79,9 +79,20 @@ class ToolExecution:
 
 
 def _resolve_inside_project(candidate: str) -> Optional[Path]:
+    """Resolve a path and return it only if it lands inside the project.
+
+    An absolute path must never be quietly reinterpreted as a relative one: stripping
+    the leading separator turned '/etc/passwd' into '<project>/etc/passwd', which
+    reads as contained while hiding that the caller asked to leave the workspace.
+    """
     root = project_root().resolve()
+    raw = str(candidate or "").strip()
+    if not raw:
+        return None
     try:
-        target = (root / str(candidate or "").strip().lstrip("/\\")).resolve()
+        path = Path(raw)
+        rooted = path.is_absolute() or raw.startswith(("/", "\\"))
+        target = path.resolve() if rooted else (root / path).resolve()
     except (OSError, ValueError):
         return None
     if target == root or root in target.parents:
@@ -135,6 +146,91 @@ def _read_workspace_file(path: str, max_chars: int = MAX_FILE_CHARS) -> Dict[str
         "line_count": text.count("\n") + 1,
         "content": text[:max_chars],
         "truncated": len(text) > max_chars,
+    }
+
+
+def _write_workspace_file(path: str, content: str, overwrite: bool = False) -> Dict[str, Any]:
+    target = _resolve_inside_project(path)
+    if target is None:
+        return {"success": False, "error": f"Path is outside the workspace: {path}"}
+
+    root = project_root().resolve()
+    existed = target.is_file()
+    if existed and not overwrite:
+        return {
+            "success": False,
+            "error": (
+                f"{path} already exists. Use edit_workspace_file to change part of it, "
+                "or pass overwrite=true to replace the whole file deliberately."
+            ),
+        }
+    previous = target.read_text(encoding="utf-8", errors="replace") if existed else ""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(str(content or ""), encoding="utf-8")
+    return {
+        "success": True,
+        "path": str(target.relative_to(root)).replace("\\", "/"),
+        "created": not existed,
+        "bytes_written": len(str(content or "").encode("utf-8")),
+        "previous_line_count": previous.count("\n") + 1 if existed else 0,
+    }
+
+
+def _edit_workspace_file(path: str, find: str, replace: str) -> Dict[str, Any]:
+    target = _resolve_inside_project(path)
+    if target is None:
+        return {"success": False, "error": f"Path is outside the workspace: {path}"}
+    if not target.is_file():
+        return {"success": False, "error": f"No such file in the workspace: {path}"}
+
+    original = target.read_text(encoding="utf-8", errors="replace")
+    occurrences = original.count(str(find or ""))
+    if not str(find or ""):
+        return {"success": False, "error": "The text to find must not be empty."}
+    if occurrences == 0:
+        return {"success": False, "error": "That exact text was not found in the file."}
+    if occurrences > 1:
+        return {
+            "success": False,
+            "error": f"That text appears {occurrences} times. Provide more surrounding context so it is unique.",
+        }
+
+    root = project_root().resolve()
+    target.write_text(original.replace(str(find), str(replace or ""), 1), encoding="utf-8")
+    return {
+        "success": True,
+        "path": str(target.relative_to(root)).replace("\\", "/"),
+        "replacements": 1,
+    }
+
+
+def _run_command(command: str, timeout: int = 120) -> Dict[str, Any]:
+    import subprocess
+
+    text = str(command or "").strip()
+    if not text:
+        return {"success": False, "error": "A command is required."}
+    try:
+        completed = subprocess.run(
+            text,
+            shell=True,
+            cwd=str(project_root()),
+            capture_output=True,
+            text=True,
+            timeout=max(1, min(int(timeout or 120), 600)),
+        )
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"Command timed out: {text}"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+    return {
+        "success": completed.returncode == 0,
+        "command": text,
+        "exit_code": completed.returncode,
+        "stdout": (completed.stdout or "")[-MAX_FILE_CHARS:],
+        "stderr": (completed.stderr or "")[-2000:],
+        "error": "" if completed.returncode == 0 else f"exit code {completed.returncode}",
     }
 
 
@@ -228,6 +324,64 @@ CATALOG: List[ToolSpec] = [
             "required": ["query"],
         },
         handler=_search_workspace,
+    ),
+    ToolSpec(
+        name="write_workspace_file",
+        description=(
+            "Create a NEW file in the project. This refuses to touch a file that already exists, "
+            "because writing partial content over an existing file destroys the rest of it. "
+            "To change an existing file use edit_workspace_file. Only pass overwrite when you "
+            "intend to replace an entire file and have its full new contents."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Project relative path to write."},
+                "content": {"type": "string", "description": "Full file contents."},
+                "overwrite": {
+                    "type": "boolean",
+                    "description": "Set true only to deliberately replace an entire existing file.",
+                },
+            },
+            "required": ["path", "content"],
+        },
+        risk=RISK_WRITE,
+        handler=_write_workspace_file,
+    ),
+    ToolSpec(
+        name="edit_workspace_file",
+        description=(
+            "Replace one exact block of text in an existing project file. "
+            "The text to find must appear exactly once, so include enough surrounding context."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Project relative path to edit."},
+                "find": {"type": "string", "description": "Exact text to replace, unique in the file."},
+                "replace": {"type": "string", "description": "Replacement text."},
+            },
+            "required": ["path", "find", "replace"],
+        },
+        risk=RISK_WRITE,
+        handler=_edit_workspace_file,
+    ),
+    ToolSpec(
+        name="run_command",
+        description=(
+            "Run a shell command in the project directory and return its output. "
+            "Use for tests, linters, and git inspection, for example 'pytest -q' or 'git status'."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "The command line to run."},
+                "timeout": {"type": "integer", "description": "Seconds to wait before giving up."},
+            },
+            "required": ["command"],
+        },
+        risk=RISK_WRITE,
+        handler=_run_command,
     ),
     ToolSpec(
         name="get_system_status",

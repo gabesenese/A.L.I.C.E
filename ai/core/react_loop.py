@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ai.core import tool_catalog as catalog
+from ai.runtime.trust_tiers import TIER_CONFIRM, TIER_REFUSE, classify
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,8 @@ class ReactResult:
     used_tools: bool = False
     stopped_reason: str = ""
     pending_approval: Dict[str, Any] = field(default_factory=dict)
+    refused: Dict[str, Any] = field(default_factory=dict)
+    checkpoint: str = ""
 
     @property
     def produced_evidence(self) -> bool:
@@ -103,6 +106,8 @@ class ReactResult:
             "produced_evidence": self.produced_evidence,
             "stopped_reason": self.stopped_reason,
             "pending_approval": dict(self.pending_approval),
+            "refused": dict(self.refused),
+            "checkpoint": self.checkpoint,
             "tool_names": [s.tool for s in self.steps],
         }
 
@@ -131,12 +136,14 @@ class ReactLoop:
         max_steps: int = DEFAULT_MAX_STEPS,
         deadline_seconds: float = DEFAULT_DEADLINE_SECONDS,
         allow_write_tools: bool = False,
+        checkpoint_writes: bool = True,
     ) -> None:
         self.llm = llm_engine
         self.plugin_manager = plugin_manager
         self.max_steps = max(1, int(max_steps))
         self.deadline_seconds = float(deadline_seconds)
         self.allow_write_tools = bool(allow_write_tools)
+        self.checkpoint_writes = bool(checkpoint_writes)
 
     def run(
         self,
@@ -191,14 +198,29 @@ class ReactLoop:
                     messages.append({"role": "tool", "name": call.name, "content": f"ERROR: unknown tool {call.name}"})
                     continue
 
-                if spec.risk != catalog.RISK_READ and not self.allow_write_tools:
+                decision = classify(spec.name, call.arguments)
+                if decision.tier == TIER_REFUSE:
+                    result.refused = {
+                        "tool": spec.name,
+                        "arguments": dict(call.arguments),
+                        "reason": decision.reason,
+                    }
+                    result.stopped_reason = "refused"
+                    return result
+
+                if decision.tier == TIER_CONFIRM or (spec.risk != catalog.RISK_READ and not self.allow_write_tools):
                     result.pending_approval = {
                         "tool": spec.name,
                         "arguments": dict(call.arguments),
                         "risk": spec.risk,
+                        "reason": decision.reason,
+                        "summary": decision.summary,
                     }
                     result.stopped_reason = "approval_required"
                     return result
+
+                if spec.risk != catalog.RISK_READ:
+                    self._ensure_checkpoint(result)
 
                 execution = catalog.execute_tool(
                     call.name,
@@ -245,6 +267,27 @@ class ReactLoop:
 
         _ = max_risk
         return result
+
+    def _ensure_checkpoint(self, result: ReactResult) -> None:
+        """Stash a restore point before the first write of a turn.
+
+        Reversibility is what makes unattended writes acceptable: a bad edit is
+        undone rather than prevented by a prompt the user would learn to click past.
+        """
+        if result.checkpoint or not self.checkpoint_writes:
+            return
+        try:
+            from ai.integration.git_manager import get_git_manager
+
+            manager = get_git_manager()
+            manager.resolve_repo_root()
+            if not manager.has_changes().success:
+                return
+            created = manager.create_checkpoint("alice-agent-loop")
+            if created.success:
+                result.checkpoint = "stash@{0}"
+        except Exception as exc:
+            logger.warning("Could not create a checkpoint before writing: %s", exc)
 
     def _final_answer(self, messages: List[Dict[str, Any]]) -> str:
         """Ask for a plain answer once the budget stops further tool use."""
