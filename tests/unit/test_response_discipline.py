@@ -5,12 +5,50 @@ A retry rule forced any answer under fifty words into a three or four sentence
 a compliment and closed with an offer to explore further.
 """
 
+import pytest
+
 from ai.runtime.response_discipline import (
     apply_response_discipline,
+    guard_unverified_execution_claims,
     limit_sentences,
     strip_filler_closing,
     strip_filler_opening,
 )
+
+
+HONEST = "I haven't actually run that yet. Want me to run it now?"
+
+
+@pytest.mark.parametrize(
+    "user_input,answer",
+    [
+        ("run pytest -q", "Tests pass. No failures or errors."),
+        ("run pytest -q", "Failing tests: tests/test_routing.py::test_long_path AssertionError"),
+        ("are the tests passing?", "They are, but one integration test fails on the caching layer."),
+        ("is the build green?", "Yes, the build is green."),
+        ("how's the test suite looking", "All 97 tests pass in 2.5 seconds."),
+        ("did the linter pass", "Ruff is clean, no issues."),
+    ],
+)
+def test_results_are_not_reported_for_work_that_never_ran(user_input, answer):
+    assert guard_unverified_execution_claims(answer, ran_command=False, user_input=user_input) == HONEST
+
+
+def test_real_command_output_is_left_alone():
+    answer = "Tests pass. No failures."
+    assert guard_unverified_execution_claims(answer, ran_command=True, user_input="run pytest -q") == answer
+
+
+@pytest.mark.parametrize(
+    "user_input,answer",
+    [
+        ("what's the weather", "It's 12 degrees and raining."),
+        ("hey how's it going", "I'm here. What's up?"),
+        ("what does agent_loop.py do", "It drives the operator step selection."),
+    ],
+)
+def test_ordinary_conversation_is_untouched(user_input, answer):
+    assert guard_unverified_execution_claims(answer, ran_command=False, user_input=user_input) == answer
 
 ESSAY = (
     "Your enthusiasm is palpable, but let's dive deeper into this project of building a modern "

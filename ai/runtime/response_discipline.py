@@ -85,6 +85,56 @@ def limit_sentences(text: str, max_sentences: int = DEFAULT_MAX_SENTENCES) -> st
     return " ".join(sentences[:max_sentences])
 
 
+_EXECUTION_CLAIMS = re.compile(
+    r"\b(?:"
+    r"tests?\s+(?:are\s+)?(?:pass(?:ed|ing)?|fail(?:ed|ing)?)"
+    r"|all\s+tests?\s+\w+"
+    r"|no\s+(?:test\s+)?(?:failures|errors)"
+    r"|\d+\s+tests?\s+(?:ran|passed|failed)"
+    r"|test\s+suite\s+\w+"
+    r"|build\s+(?:succeeded|passed|failed)"
+    r"|suite\s+is\s+green"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def claims_execution_happened(text: str) -> bool:
+    return bool(_EXECUTION_CLAIMS.search(str(text or "")))
+
+
+_RUN_REQUEST = re.compile(r"^\s*(?:run|execute|please run|go ahead and run|kick off)\b", re.IGNORECASE)
+
+# Questions about the state of a build or test run. Answering these from the model
+# rather than from a command is guessing, and it guesses confidently.
+_EXECUTION_QUESTION = re.compile(
+    r"\b(?:tests?|test\s+suite|build|ci|pipeline|lint(?:er)?|coverage)\b.{0,40}?"
+    r"\b(?:pass(?:ing|ed)?|fail(?:ing|ed)?|green|red|broken|clean|ok|working|succeed(?:ing|ed)?)\b",
+    re.IGNORECASE,
+)
+
+
+def asks_to_run_something(user_input: str) -> bool:
+    text = str(user_input or "")
+    return bool(_RUN_REQUEST.match(text) or _EXECUTION_QUESTION.search(text))
+
+
+def guard_unverified_execution_claims(text: str, ran_command: bool = False, user_input: str = "") -> str:
+    """Refuse to report the result of work that was never done.
+
+    Asked to run the tests without actually running them, the model reported passing
+    tests, a duration, and a flaky test fixed "last week", then on another turn
+    invented failing test names and assertion errors. Chasing each phrasing is a
+    losing game, so an explicit request to run something is also gated: if no command
+    executed, there is no result to report, whatever the wording.
+    """
+    if ran_command:
+        return text
+    if asks_to_run_something(user_input) or claims_execution_happened(text):
+        return "I haven't actually run that yet. Want me to run it now?"
+    return text
+
+
 def apply_response_discipline(text: str, max_sentences: int = DEFAULT_MAX_SENTENCES) -> str:
     """Remove padding and cap length at a sentence boundary, never mid sentence."""
     original = str(text or "").strip()

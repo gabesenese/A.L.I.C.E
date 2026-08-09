@@ -8,7 +8,7 @@ import os
 import re
 from typing import Any, Dict, Optional
 
-from ai.runtime.response_authority import sanitize_internal_process_output
+from ai.runtime.response_authority import is_authoritative, sanitize_internal_process_output
 from ai.contracts import (
     MemoryRequest,
     ResponseRequest,
@@ -283,6 +283,7 @@ class TurnOrchestrator:
         route_phase: RoutePhaseResult,
         execute_phase: ExecutePhaseResult,
         trace_id: str,
+        user_id: str = "default",
     ) -> VerifyPhaseResult:
         proposed = self.boundaries.response.generate(
             ResponseRequest(
@@ -290,7 +291,10 @@ class TurnOrchestrator:
                 decision=route_phase.decision,
                 memory=route_phase.memory,
                 tool_result=execute_phase.tool_result,
-                metadata={"resolved_input": route_phase.resolved_input},
+                metadata={
+                    "resolved_input": route_phase.resolved_input,
+                    "user_id": str(user_id or "default"),
+                },
             )
         )
 
@@ -317,7 +321,9 @@ class TurnOrchestrator:
         verification = verify_phase.verification
         proposed = verify_phase.proposed_response
 
-        if verification is not None and not verification.accepted:
+        if verification is not None and not verification.accepted and not is_authoritative(
+            proposed.metadata if proposed else None
+        ):
             _intent_for_fallback = str(
                 verify_phase.proposed_response.metadata.get("intent", "")
                 if verify_phase.proposed_response and verify_phase.proposed_response.metadata

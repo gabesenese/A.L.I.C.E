@@ -42,7 +42,10 @@ from ai.runtime.dominant_intent_resolver import (
 from ai.runtime.anti_overclarification_policy import (
     should_answer_instead_of_clarify,
 )
-from ai.runtime.response_discipline import apply_response_discipline
+from ai.runtime.response_discipline import (
+    apply_response_discipline,
+    guard_unverified_execution_claims,
+)
 from ai.runtime.local_action_executor import LocalActionExecutor
 from ai.runtime.operator_state import (
     sync_operator_state_with_project_memory,
@@ -93,6 +96,30 @@ def _is_workspace_turn(req: Any) -> bool:
     return False
 
 
+_REQUEST_VERBS = (
+    "run", "create", "edit", "write", "make", "add", "list", "find", "search", "show",
+    "read", "open", "check", "look", "fix", "delete", "remove", "install", "build", "test",
+)
+
+
+def _looks_like_small_talk(req: Any) -> bool:
+    """Short pleasantries with no request in them should not trigger a lookup.
+
+    Offered a tool surface on every turn, an 8B model reaches for one constantly:
+    "hey how's it going" came back with a count of the user's saved notes.
+    """
+    intent = str(getattr(req.decision, "intent", "") or "")
+    if not intent.startswith("conversation:"):
+        return False
+    text = str(getattr(req, "user_input", "") or "").strip().lower()
+    if "?" in text:
+        return False
+    words = text.replace(",", " ").split()
+    if len(words) > 8:
+        return False
+    return not any(word.strip(".!") in _REQUEST_VERBS for word in words)
+
+
 def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any]) -> Any:
     """Let the model reach for a real tool before falling back to plain generation.
 
@@ -102,33 +129,233 @@ def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, An
     llm = getattr(alice, "llm", None)
     if llm is None or not hasattr(llm, "chat_with_tools"):
         return None
+    if _looks_like_small_talk(req):
+        return None
 
     from ai.contracts import ResponseOutput
     from ai.core.react_loop import ReactLoop
 
+    user_id = str((req.metadata or {}).get("user_id") or "default")
     try:
-        loop = ReactLoop(llm, plugin_manager=getattr(alice, "plugins", None))
+        loop = ReactLoop(
+            llm,
+            plugin_manager=getattr(alice, "plugins", None),
+            allow_write_tools=True,
+        )
         result = loop.run(str(req.user_input or ""))
     except Exception as exc:
         _logger.warning("Tool grounded answer unavailable, falling back to generation: %s", exc)
         return None
+
+    if result.stopped_reason == "refused" and result.refused:
+        return ResponseOutput(
+            text=f"I won't run that. {_refusal_reason_text(result.refused)}",
+            confidence=1.0,
+            metadata={"type": "tool_refused", "refused": dict(result.refused)},
+        )
+
+    if result.stopped_reason == "approval_required" and result.pending_approval:
+        return _request_approval(result.pending_approval, user_id=user_id)
+
+    # Something was changed on disk. That must be reported even if the model went
+    # quiet, otherwise a completed write looks to the user like nothing happened.
+    if result.wrote_anything and not str(result.answer or "").strip():
+        done = [f"{_describe_action(s.tool, s.arguments)}" for s in result.steps if s.success]
+        return ResponseOutput(
+            text="Done. " + ", ".join(done) + "." if done else "Done.",
+            confidence=0.9,
+            metadata={
+                "type": "tool_grounded_write",
+                "tools_used": [s.tool for s in result.steps],
+                "wrote_anything": True,
+            },
+        )
 
     # A grounded answer needs actual grounding. If the lookup found nothing, fall back
     # to normal conversation rather than letting "no results" become the whole reply.
     if not result.used_tools or not result.produced_evidence or not str(result.answer or "").strip():
         return None
 
+    # Show real command output rather than trusting the model to relay it. Asked to
+    # run pytest, an 8B model reported passing tests, timings, and a flaky test fixed
+    # "last week" from a run that collected no tests at all.
+    answer_text = str(result.answer).strip()
+    command_output = "\n\n".join(step.output for step in result.steps if step.output)
+    if command_output:
+        answer_text = f"{command_output}\n\n{answer_text}".strip()
+
     return ResponseOutput(
-        text=str(result.answer).strip(),
+        text=answer_text,
         confidence=0.9,
         metadata={
             "type": "tool_grounded_answer",
             "tools_used": [step.tool for step in result.steps],
             "tool_steps": [step.to_dict() for step in result.steps],
             "stopped_reason": result.stopped_reason,
+            "wrote_anything": result.wrote_anything,
+            "checkpoint": result.checkpoint,
             "operator_state_present": bool(operator_state),
         },
     )
+
+
+_REFUSAL_TEXT = {
+    "destructive_command": "That command destroys data and I don't have an undo for it.",
+    "unknown_tool": "That isn't something I can do.",
+}
+
+
+def _refusal_reason_text(refused: Dict[str, Any]) -> str:
+    return _REFUSAL_TEXT.get(str(refused.get("reason") or ""), "It falls outside what I'll do unattended.")
+
+
+_APPROVAL_PROMPT = {
+    "writes_outside_workspace": "That writes outside the project directory",
+    "overwrites_existing_file": "That replaces the whole file, losing what's already there",
+    "command_not_allowlisted": "That runs a command I don't execute unattended",
+    "leaves_this_machine": "That sends something off this machine",
+}
+
+
+def _request_approval(pending: Dict[str, Any], *, user_id: str) -> Any:
+    """Record the action so a later yes can run it, and say precisely what it is."""
+    from ai.contracts import ResponseOutput
+    from ai.infrastructure.approval_ledger import get_approval_ledger
+    from ai.runtime import pending_actions
+
+    tool = str(pending.get("tool") or "")
+    arguments = dict(pending.get("arguments") or {})
+    reason = str(pending.get("reason") or "")
+    detail = _describe_action(tool, arguments)
+
+    approval_id = ""
+    try:
+        request = get_approval_ledger().create_request(
+            action=tool,
+            scope=tool,
+            summary=detail,
+        )
+        approval_id = request.approval_id
+    except Exception as exc:
+        _logger.warning("Could not open an approval request: %s", exc)
+
+    try:
+        pending_actions.record(
+            user_id=user_id,
+            tool=tool,
+            arguments=arguments,
+            approval_id=approval_id,
+            reason=reason,
+            summary=detail,
+        )
+    except Exception as exc:
+        _logger.warning("Could not store the pending action: %s", exc)
+        return None
+
+    lead = _APPROVAL_PROMPT.get(reason, "That needs your go-ahead")
+    return ResponseOutput(
+        text=f"{lead}. I want to {detail}. Want me to?",
+        confidence=1.0,
+        requires_follow_up=True,
+        follow_up_question="Want me to?",
+        metadata={
+            "type": "approval_requested",
+            "approval_id": approval_id,
+            "tool": tool,
+            "reason": reason,
+        },
+    )
+
+
+def _describe_action(tool: str, arguments: Dict[str, Any]) -> str:
+    if tool == "run_command":
+        return f"run `{arguments.get('command', '')}`"
+    path = str(arguments.get("path") or "")
+    if tool == "write_workspace_file":
+        return f"replace {path}" if arguments.get("overwrite") else f"create {path}"
+    if tool == "edit_workspace_file":
+        return f"edit {path}"
+    return f"{tool.replace('_', ' ')} {path}".strip()
+
+
+def _resolve_pending_action(alice: Any, req: Any, user_id: str) -> Any:
+    """Run, or drop, the action Alice previously asked permission for."""
+    from ai.contracts import ResponseOutput
+    from ai.core import tool_catalog as catalog
+    from ai.infrastructure.approval_ledger import get_approval_ledger
+    from ai.runtime import pending_actions
+
+    action = pending_actions.get(user_id)
+    if action is None:
+        return None
+
+    text = str(req.user_input or "").strip().lower()
+    if _is_rejection_phrase(text):
+        pending_actions.clear(user_id)
+        try:
+            get_approval_ledger().reject(approval_id=action.approval_id, confirmation_text=text)
+        except Exception:
+            pass
+        return ResponseOutput(
+            text="Dropped it.",
+            confidence=1.0,
+            metadata={"type": "approval_rejected", "tool": action.tool},
+        )
+
+    if not _is_approval_phrase(text):
+        return None
+
+    try:
+        get_approval_ledger().confirm(approval_id=action.approval_id, confirmation_text=text)
+    except Exception as exc:
+        _logger.warning("Could not record approval: %s", exc)
+
+    pending_actions.clear(user_id)
+    execution = catalog.execute_tool(
+        action.tool,
+        action.arguments,
+        plugin_manager=getattr(alice, "plugins", None),
+    )
+
+    if execution.success:
+        message = f"Done. {action.describe().capitalize()}."
+        if action.tool == "run_command":
+            tail = str((execution.data or {}).get("stdout") or "").strip().splitlines()
+            if tail:
+                message = "Done.\n" + "\n".join(tail[-12:])
+    else:
+        message = f"That failed: {execution.error or 'no reason given'}"
+
+    return ResponseOutput(
+        text=message,
+        confidence=1.0,
+        metadata={
+            "type": "approved_action_executed",
+            "tool": action.tool,
+            "success": execution.success,
+            "approval_id": action.approval_id,
+        },
+    )
+
+
+_APPROVAL_PHRASES = {
+    "yes", "y", "yeah", "yep", "yup", "ok", "okay", "sure", "do it", "go ahead",
+    "proceed", "confirm", "confirmed", "approved", "go for it", "sounds good",
+    "please do", "run it", "do that", "make it so",
+}
+
+_REJECTION_PHRASES = {
+    "no", "nope", "nah", "don't", "dont", "cancel", "stop", "skip it", "leave it",
+    "never mind", "nevermind", "forget it", "no thanks", "don't do that",
+}
+
+
+def _is_approval_phrase(text: str) -> bool:
+    return str(text or "").strip().strip(".!").lower() in _APPROVAL_PHRASES
+
+
+def _is_rejection_phrase(text: str) -> bool:
+    return str(text or "").strip().strip(".!").lower() in _REJECTION_PHRASES
 
 
 def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
@@ -2377,6 +2604,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
+        # An outstanding permission request owns the next turn: a bare "yes" means
+        # that action and nothing else.
+        settled = _resolve_pending_action(alice, req, str((req.metadata or {}).get("user_id") or "default"))
+        if settled is not None:
+            return settled
+
         if greeting_turn:
             return _build_grounded_greeting()
 
@@ -2775,6 +3008,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
+        grounded = _try_tool_grounded_answer(alice, req, operator_state)
+        if grounded is not None:
+            return grounded
+
         llm_text = ""
         if getattr(alice, "llm", None):
             try:
@@ -2881,6 +3118,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         llm_text = " ".join(_sentences[:-1])
 
                 llm_text = apply_response_discipline(llm_text, max_sentences=5 if _is_discussion else 4)
+                # Reaching this path means no command was executed this turn, so any
+                # claim about test or build results would be invented.
+                llm_text = guard_unverified_execution_claims(
+                    llm_text,
+                    ran_command=False,
+                    user_input=str(req.user_input or ""),
+                )
             except Exception:
                 llm_text = ""
 

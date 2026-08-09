@@ -39,8 +39,11 @@ SYSTEM_PROMPT = (
     "the question, no offers to help further.\n"
     "5. Never mention tools, tool calls, or how you obtained the information. State the finding "
     "directly, as if you simply looked.\n"
-    "6. Only call a tool when the message actually asks for information a tool provides. "
-    "Conversation, acknowledgements, corrections, and opinions are answered directly, with no tool."
+    "6. Call a tool when the message asks for information a tool can look up, or asks you to "
+    "make a change: create or edit a file, run a command, save a note. Do the work, do not "
+    "describe how it could be done.\n"
+    "7. Plain conversation, acknowledgements, corrections, and opinions are answered directly, "
+    "with no tool."
 )
 
 
@@ -53,6 +56,7 @@ class LoopStep:
     summary: str = ""
     error: str = ""
     productive: bool = False
+    output: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -63,7 +67,20 @@ class LoopStep:
             "summary": self.summary,
             "error": self.error,
             "productive": self.productive,
+            "output": self.output,
         }
+
+
+def _command_output(execution: catalog.ToolExecution) -> str:
+    """Verbatim terminal text, kept so the user sees it rather than a paraphrase."""
+    if execution.tool != "run_command":
+        return ""
+    data = execution.data or {}
+    body = str(data.get("stdout") or "").strip() or str(data.get("stderr") or "").strip()
+    if not body:
+        return f"$ {data.get('command', '')}\nexit code {data.get('exit_code', '')}, no output"
+    tail = body.splitlines()[-12:]
+    return f"$ {data.get('command', '')}\n" + "\n".join(tail)
 
 
 def _is_productive(execution: catalog.ToolExecution) -> bool:
@@ -75,6 +92,8 @@ def _is_productive(execution: catalog.ToolExecution) -> bool:
     """
     if not execution.success:
         return False
+    if execution.tool in catalog.WRITE_TOOLS:
+        return True
     data = execution.data or {}
     for key in ("total_files", "match_count", "line_count"):
         if key in data:
@@ -93,6 +112,11 @@ class ReactResult:
     pending_approval: Dict[str, Any] = field(default_factory=dict)
     refused: Dict[str, Any] = field(default_factory=dict)
     checkpoint: str = ""
+    rolled_back: bool = False
+
+    @property
+    def wrote_anything(self) -> bool:
+        return any(step.tool in catalog.WRITE_TOOLS and step.success for step in self.steps)
 
     @property
     def produced_evidence(self) -> bool:
@@ -113,9 +137,22 @@ class ReactResult:
 
 
 def _observation_text(execution: catalog.ToolExecution) -> str:
+    data = execution.data or {}
+    if execution.tool == "run_command" and data:
+        # A non-zero exit is information, not something to hide. Reporting only
+        # "ERROR: exit code 5" left the model to guess, and it guessed test results.
+        stdout = str(data.get("stdout") or "").strip()
+        stderr = str(data.get("stderr") or "").strip()
+        parts = [f"$ {data.get('command', '')}", f"exit code {data.get('exit_code', '')}"]
+        if stdout:
+            parts.append(f"stdout:\n{stdout}")
+        if stderr:
+            parts.append(f"stderr:\n{stderr}")
+        if not stdout and not stderr:
+            parts.append("no output")
+        return "\n".join(parts)
     if not execution.success:
         return f"ERROR: {execution.error or 'tool failed'}"
-    data = execution.data or {}
     if execution.tool == "list_workspace_files":
         files = data.get("files") or []
         header = f"{data.get('total_files', len(files))} files under {data.get('scope', '.')}"
@@ -125,6 +162,8 @@ def _observation_text(execution: catalog.ToolExecution) -> str:
     if execution.tool == "search_workspace":
         lines = [f"{m['path']}:{m['line']}: {m['text']}" for m in (data.get("matches") or [])]
         return f"{data.get('match_count', 0)} matches\n" + "\n".join(lines)
+    if execution.tool in ("write_workspace_file", "edit_workspace_file"):
+        return f"{execution.tool} succeeded on {data.get('path', '')}"
     return execution.summary or str(data)
 
 
@@ -144,6 +183,7 @@ class ReactLoop:
         self.deadline_seconds = float(deadline_seconds)
         self.allow_write_tools = bool(allow_write_tools)
         self.checkpoint_writes = bool(checkpoint_writes)
+        self._backups: Dict[Any, Optional[str]] = {}
 
     def run(
         self,
@@ -164,6 +204,7 @@ class ReactLoop:
         result = ReactResult()
         started = time.perf_counter()
         seen_calls: set[tuple] = set()
+        self._backups.clear()
 
         for index in range(1, self.max_steps + 1):
             if time.perf_counter() - started > self.deadline_seconds:
@@ -220,7 +261,7 @@ class ReactLoop:
                     return result
 
                 if spec.risk != catalog.RISK_READ:
-                    self._ensure_checkpoint(result)
+                    self._checkpoint_file(result, call.arguments)
 
                 execution = catalog.execute_tool(
                     call.name,
@@ -237,8 +278,17 @@ class ReactLoop:
                         summary=execution.summary,
                         error=execution.error,
                         productive=_is_productive(execution),
+                        output=_command_output(execution),
                     )
                 )
+                self._journal(spec.name, call.arguments, execution)
+
+                # A write that fails leaves the workspace half changed. Put it back
+                # rather than continuing from an unknown state.
+                if spec.name in catalog.WRITE_TOOLS and not execution.success and result.wrote_anything:
+                    if self.rollback(result):
+                        result.stopped_reason = "rolled_back_after_failed_write"
+                        return result
 
                 signature = (spec.name, tuple(sorted(call.arguments.items(), key=lambda kv: str(kv[0]))))
                 if signature in seen_calls:
@@ -268,26 +318,64 @@ class ReactLoop:
         _ = max_risk
         return result
 
-    def _ensure_checkpoint(self, result: ReactResult) -> None:
-        """Stash a restore point before the first write of a turn.
+    @staticmethod
+    def _journal(tool: str, arguments: Dict[str, Any], execution: catalog.ToolExecution) -> None:
+        try:
+            from ai.core.execution_journal import get_execution_journal
 
-        Reversibility is what makes unattended writes acceptable: a bad edit is
-        undone rather than prevented by a prompt the user would learn to click past.
+            get_execution_journal().record(
+                {
+                    "source": "react_loop",
+                    "action": tool,
+                    "status": "success" if execution.success else "failed",
+                    "arguments": dict(arguments or {}),
+                    "summary": execution.summary,
+                    "error": execution.error,
+                }
+            )
+        except Exception as exc:
+            logger.debug("Execution journal unavailable: %s", exc)
+
+    def rollback(self, result: ReactResult) -> bool:
+        """Put every file this turn touched back exactly as it was."""
+        if not self._backups:
+            return False
+        restored = 0
+        for path, previous in list(self._backups.items()):
+            try:
+                if previous is None:
+                    if path.exists():
+                        path.unlink()
+                else:
+                    path.write_text(previous, encoding="utf-8")
+                restored += 1
+            except OSError as exc:
+                logger.warning("Could not restore %s: %s", path, exc)
+        self._backups.clear()
+        result.rolled_back = restored > 0
+        result.checkpoint = ""
+        return result.rolled_back
+
+    def _checkpoint_file(self, result: ReactResult, arguments: Dict[str, Any]) -> None:
+        """Copy a file's current contents before it is changed.
+
+        Reversibility is what makes unattended writes acceptable, but it has to be
+        scoped to what Alice is about to touch. Stashing the whole repository, which
+        is what an earlier version did, swallows the user's own uncommitted work.
         """
-        if result.checkpoint or not self.checkpoint_writes:
+        if not self.checkpoint_writes:
+            return
+        raw = str(arguments.get("path") or "").strip()
+        if not raw:
+            return
+        target = catalog._resolve_inside_project(raw)
+        if target is None or target in self._backups:
             return
         try:
-            from ai.integration.git_manager import get_git_manager
-
-            manager = get_git_manager()
-            manager.resolve_repo_root()
-            if not manager.has_changes().success:
-                return
-            created = manager.create_checkpoint("alice-agent-loop")
-            if created.success:
-                result.checkpoint = "stash@{0}"
-        except Exception as exc:
-            logger.warning("Could not create a checkpoint before writing: %s", exc)
+            self._backups[target] = target.read_text(encoding="utf-8") if target.is_file() else None
+            result.checkpoint = f"{len(self._backups)} file(s)"
+        except OSError as exc:
+            logger.warning("Could not checkpoint %s: %s", target, exc)
 
     def _final_answer(self, messages: List[Dict[str, Any]]) -> str:
         """Ask for a plain answer once the budget stops further tool use."""

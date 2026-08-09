@@ -441,6 +441,8 @@ CATALOG: List[ToolSpec] = [
 
 _BY_NAME: Dict[str, ToolSpec] = {spec.name: spec for spec in CATALOG}
 
+WRITE_TOOLS = frozenset(spec.name for spec in CATALOG if spec.risk != RISK_READ)
+
 
 def get_spec(name: str) -> Optional[ToolSpec]:
     return _BY_NAME.get(str(name or "").strip())

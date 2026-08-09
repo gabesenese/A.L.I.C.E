@@ -8,6 +8,25 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from ai.runtime.fallback_policy import RuntimeFallbackPolicy, FallbackDecision
 
+# Responses that report work Alice actually performed, or ask permission to perform.
+# These outrank every guard downstream: a plugin failing elsewhere in the turn does
+# not make a completed file write untrue, and replacing the text with a generic
+# fallback tells the user nothing happened when something did.
+AUTHORITATIVE_RESPONSE_TYPES = frozenset(
+    {
+        "tool_grounded_answer",
+        "tool_grounded_write",
+        "approval_requested",
+        "approved_action_executed",
+        "approval_rejected",
+        "tool_refused",
+    }
+)
+
+
+def is_authoritative(metadata: Optional[Dict[str, Any]]) -> bool:
+    return str((metadata or {}).get("type") or "") in AUTHORITATIVE_RESPONSE_TYPES
+
 
 @dataclass(frozen=True)
 class ResponseAuthorityOutcome:

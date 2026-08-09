@@ -808,6 +808,7 @@ class ContractPipeline:
                 route_phase=route_phase,
                 execute_phase=execute_phase,
                 trace_id=trace_id,
+                user_id=user_id,
             )
             verification = verify_phase.verification
 
@@ -1115,16 +1116,29 @@ class ContractPipeline:
             operator_state_payload["suggested_next_files"] = list(next_step.suggested_next_files or [])
         if str(next_step.next_recommended_action or "").strip():
             operator_state_payload["next_recommended_action"] = str(next_step.next_recommended_action or "")
-        response_text = apply_response_momentum(
-            user_input=user_input,
-            response_text=response_text,
-            intent=str(decision.intent or ""),
-            route=str(decision.route or ""),
-            operator_state=operator_state_payload,
-            project_memory=load_project_state(str(user_id or "default")).to_dict(),
-            local_execution=local_exec_payload,
-            next_step=str(next_step.next_recommended_action or ""),
-        )
+        # Momentum rewrites the reply with a suggested next move. That must not
+        # overwrite a reply that reports something Alice actually did, or asks
+        # permission to do it: the user would see a canned next step instead of the
+        # outcome, or instead of the question they were meant to answer.
+        _authoritative_types = {
+            "tool_grounded_answer",
+            "tool_grounded_write",
+            "approval_requested",
+            "approved_action_executed",
+            "approval_rejected",
+            "tool_refused",
+        }
+        if str((respond_metadata or {}).get("type") or "") not in _authoritative_types:
+            response_text = apply_response_momentum(
+                user_input=user_input,
+                response_text=response_text,
+                intent=str(decision.intent or ""),
+                route=str(decision.route or ""),
+                operator_state=operator_state_payload,
+                project_memory=load_project_state(str(user_id or "default")).to_dict(),
+                local_execution=local_exec_payload,
+                next_step=str(next_step.next_recommended_action or ""),
+            )
 
         # Clarification feedback: when a previous clarification is now resolved,
         # record the Q&A pair to boost confidence for this intent in future turns
