@@ -5,7 +5,7 @@ Controls when and how LLM calls are made to minimize dependency
 
 import logging
 import os
-from typing import Optional, Dict, Any
+from typing import Any, Callable, Dict, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from enum import Enum
@@ -203,7 +203,7 @@ class LLMPolicy:
         self,
         call_type: LLMCallType,
         user_input: str,
-        get_user_approval_func: Optional[callable] = None,
+        get_user_approval_func: Optional[Callable[[str], bool]] = None,
     ) -> tuple[bool, str]:
         """
         Request permission to call LLM

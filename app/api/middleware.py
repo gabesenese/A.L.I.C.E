@@ -6,14 +6,22 @@ from uuid import uuid4
 from fastapi import FastAPI, Request, Response
 from starlette.middleware.cors import CORSMiddleware
 
+from app.config import get_settings
 from app.logging_config import set_trace_id
 
 
 def register_middleware(app: FastAPI) -> None:
+    settings = get_settings()
+    # `allow_origins=["*"]` together with `allow_credentials=True` is a
+    # combination the CORS spec forbids: a browser refuses a wildcard on a
+    # credentialed request, so the permissive-looking setting actually blocked
+    # every cross-origin call it was meant to allow. Credentials are only
+    # enabled when real origins are named.
+    origins = settings.cors_origins_list
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=origins != ["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )
