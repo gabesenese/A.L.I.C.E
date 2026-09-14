@@ -11,6 +11,7 @@ This gateway enforces:
 All code should call LLMGateway.request() instead of llm.chat() directly.
 """
 
+import re
 import inspect
 import logging
 import json
@@ -89,6 +90,21 @@ class LLMResponse:
     route_source: Optional[str] = None
 
 
+# A question this matches has no question mark — the caller checks for that
+# separately — so the signal is an interrogative *opening* the sentence.
+#
+# The original test was a substring scan, which sent "that is somewhat
+# surprising" to the knowledge engine because "somewhat" contains "what". Word
+# boundaries alone are not enough either: "I know how it feels" really does
+# contain "how". Only the position distinguishes a question from a sentence that
+# mentions one, and being wrong here means a conversational aside is answered by
+# a prompt that opens "You are a knowledge engine. No personality, just facts."
+_INTERROGATIVE_RE = re.compile(
+    r"^\s*(?:so|but|and|ok|okay|well|hey)?[\s,]*\b(?:what|why|how|when|where|who|which)\b",
+    re.IGNORECASE,
+)
+
+
 class LLMGateway:
     """
     Single gateway for all LLM access
@@ -149,6 +165,55 @@ class LLMGateway:
         }
 
         logger.info("[LLMGateway] Initialized - All LLM calls now gated with advanced telemetry")
+
+    # How much room the decoder gets, by what the turn is for. A joke, a weather
+    # readout and a file listing were all decoded at the same setting, which is
+    # why the same open-ended question came back in near-identical words twice —
+    # the tell scripts/quality_harness.py --feel reports as "verbatim on repeat".
+    _TEMPERATURE_BY_CALL = {
+        LLMCallType.CHITCHAT: 0.85,
+        LLMCallType.GENERATION: 0.8,
+        LLMCallType.PHRASE_RESPONSE: 0.75,
+        LLMCallType.PHRASE_MICRO: 0.6,
+        LLMCallType.PHRASE_STRUCTURED: 0.6,
+        LLMCallType.QUERY_KNOWLEDGE: 0.4,
+        LLMCallType.PARSE_INPUT: 0.2,
+        LLMCallType.AUDIT_LOGIC: 0.2,
+        LLMCallType.INTENT_CLASSIFICATION: 0.2,
+    }
+
+    # Conversation wants more variation than an explanation, which wants more
+    # than a lookup. Applied only when the caller did not ask for something.
+    _TEMPERATURE_BY_INTENT_PREFIX = {
+        "conversation": 0.85,
+        "learning": 0.6,
+        "code": 0.35,
+        "weather": 0.3,
+        "notes": 0.3,
+        "file_operations": 0.3,
+        "system": 0.3,
+    }
+
+    def _temperature_for(
+        self,
+        call_type: "LLMCallType",
+        intent: str = "",
+        override: Optional[float] = None,
+    ) -> Optional[float]:
+        """Resolve the sampling temperature for one call.
+
+        An explicit override always wins; then the intent, when it is one whose
+        register differs from the call type's default; then the call type.
+        """
+        if override is not None:
+            return override
+
+        prefix = str(intent or "").split(":", 1)[0].strip().lower()
+        if call_type in (LLMCallType.CHITCHAT, LLMCallType.GENERATION, LLMCallType.PHRASE_RESPONSE):
+            by_intent = self._TEMPERATURE_BY_INTENT_PREFIX.get(prefix)
+            if by_intent is not None:
+                return by_intent
+        return self._TEMPERATURE_BY_CALL.get(call_type)
 
     def request(
         self,
@@ -265,11 +330,20 @@ class LLMGateway:
                         model_used=str(routed.get("model") or ""),
                     )
 
+            # Resolved once so every branch below decodes at the same considered
+            # setting. request() accepted a temperature and then dropped it on
+            # every path except intent classification.
+            sampling = self._temperature_for(
+                call_type,
+                intent=str((context or {}).get("intent") or ""),
+                override=temperature,
+            )
+
             # Tool-based routing: Alice uses Ollama as a tool
             if call_type == LLMCallType.QUERY_KNOWLEDGE:
                 # Alice asks Ollama for factual knowledge
                 question = prompt if prompt else user_input
-                response = self.llm.query_knowledge(question)
+                response = self.llm.query_knowledge(question, temperature=sampling)
 
             elif call_type == LLMCallType.PARSE_INPUT:
                 # Alice asks Ollama to parse complex input
@@ -282,7 +356,7 @@ class LLMGateway:
                 alice_thought = context.get("alice_thought", prompt) if context else prompt
                 tone = context.get("tone", "warm and helpful") if context else "warm and helpful"
                 phrasing_context = {"user_name": (context.get("user_name", "the user") if context else "the user")}
-                response = self.llm.phrase_with_tone(alice_thought, tone, phrasing_context)
+                response = self.llm.phrase_with_tone(alice_thought, tone, phrasing_context, temperature=sampling)
 
             elif call_type == LLMCallType.PHRASE_MICRO:
                 source_text = str(context.get("alice_thought", prompt) if context else prompt).strip()
@@ -296,6 +370,7 @@ class LLMGateway:
                     micro_prompt,
                     tone,
                     {"user_name": "", "allow_user_name": False},
+                    temperature=sampling,
                 )
 
             elif call_type == LLMCallType.PHRASE_STRUCTURED:
@@ -310,6 +385,7 @@ class LLMGateway:
                     rewrite_prompt,
                     tone,
                     {"user_name": "", "allow_user_name": False},
+                    temperature=sampling,
                 )
 
             elif call_type == LLMCallType.AUDIT_LOGIC:
@@ -321,7 +397,7 @@ class LLMGateway:
                 response = json.dumps(audit_result, indent=2)  # Return as formatted JSON
 
             elif call_type == LLMCallType.INTENT_CLASSIFICATION:
-                response = self._classify_intent(prompt or user_input, temperature)
+                response = self._classify_intent(prompt or user_input, sampling)
 
             elif call_type == LLMCallType.GENERATION:
                 response = self._generation_last_resort(
@@ -330,6 +406,7 @@ class LLMGateway:
                     use_history=use_history,
                     context=context,
                     output_mode=output_mode,
+                    temperature=sampling,
                 )
 
             else:
@@ -338,6 +415,7 @@ class LLMGateway:
                     prompt,
                     use_history=use_history,
                     mode=output_mode,
+                    temperature=sampling,
                 )
 
             # Record successful call
@@ -614,6 +692,7 @@ Be conversational and helpful. Do not mention the tool name or technical details
         use_history: bool,
         context: Optional[Dict[str, Any]],
         output_mode: str = "final_answer_only",
+        temperature: Optional[float] = None,
     ) -> str:
         """Try the cheap knowledge path, then fall back to broad generation.
 
@@ -626,11 +705,23 @@ Be conversational and helpful. Do not mention the tool name or technical details
         """
         base_text = str(user_input or prompt or "").strip()
 
-        if base_text.endswith("?") or any(q in base_text.lower() for q in ("what", "why", "how", "when", "where")):
+        if base_text.endswith("?") or _INTERROGATIVE_RE.search(base_text):
             try:
                 knowledge = self._knowledge_assist(base_text).strip()
                 if knowledge:
-                    return knowledge
+                    # The lookup is evidence, not the reply. Returning it directly
+                    # handed the user the knowledge engine's own output — which is
+                    # prompted as "no personality, just facts" — so a question got
+                    # an encyclopedia entry: accurate, flat, third-person, with no
+                    # continuity with anything already said. Passing it as context
+                    # lets the path that carries Alice's voice do the answering.
+                    return self.llm.chat(
+                        prompt,
+                        use_history=use_history,
+                        mode=output_mode,
+                        temperature=temperature,
+                        context=f"Known facts, use these rather than guessing:\n{knowledge}",
+                    )
             except Exception as e:
                 logger.debug(f"[LLMGateway] Knowledge assist unavailable: {e}")
 
@@ -638,6 +729,7 @@ Be conversational and helpful. Do not mention the tool name or technical details
             prompt,
             use_history=use_history,
             mode=output_mode,
+            temperature=temperature,
         )
 
     def get_statistics(self) -> Dict[str, Any]:

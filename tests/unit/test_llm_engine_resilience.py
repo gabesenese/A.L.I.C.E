@@ -427,7 +427,7 @@ class _StubEngine:
         self.generated = generated
         self.calls = []
 
-    def query_knowledge(self, question, timeout=None):
+    def query_knowledge(self, question, timeout=None, temperature=None):
         self.calls.append(("query_knowledge", timeout))
         if not self.knowledge:
             raise RuntimeError("no knowledge")
@@ -447,6 +447,7 @@ class _StubEngine:
 
     def chat(self, prompt, use_history=False, mode=None, **kwargs):
         self.calls.append(("chat", None))
+        self.chat_kwargs = dict(kwargs)
         return "chat-response"
 
 
@@ -486,10 +487,16 @@ def test_the_knowledge_assist_runs_on_a_shorter_leash_than_generation(monkeypatc
         user_input="what is a monad",
     )
 
-    assert result.response.startswith("a monad is")
     ((_, assist_timeout),) = [call for call in engine.calls if call[0] == "query_knowledge"]
     assert assist_timeout is not None
     assert assist_timeout < engine.config.timeout
+
+    # The lookup is evidence, not the reply. Returning it raw handed the user the
+    # knowledge engine's own output, which is prompted "no personality, just
+    # facts" — an encyclopedia entry where an answer should be. It is passed as
+    # context so the path carrying Alice's voice does the answering.
+    assert result.response == "chat-response"
+    assert "a monad is" in str(engine.chat_kwargs.get("context") or "")
 
 
 def test_intent_classification_reaches_the_engine_instead_of_raising(monkeypatch):
@@ -504,7 +511,10 @@ def test_intent_classification_reaches_the_engine_instead_of_raising(monkeypatch
     assert result is not None, "classification used to return None for every query"
     assert result.intent == "notes"
     assert result.confidence == pytest.approx(0.93)
-    assert ("generate", None) in engine.calls
+
+    ((_, classify_temperature),) = [call for call in engine.calls if call[0] == "generate"]
+    # Structured classification wants the same answer every time.
+    assert classify_temperature is not None and classify_temperature <= 0.25
 
 
 def test_self_consistency_passes_its_temperature_through_the_gateway(monkeypatch):

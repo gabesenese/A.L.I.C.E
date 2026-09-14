@@ -1079,7 +1079,9 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             mode=mode,
         )
 
-    def query_knowledge(self, question: str, timeout: Optional[float] = None) -> str:
+    def query_knowledge(
+        self, question: str, timeout: Optional[float] = None, temperature: Optional[float] = None
+    ) -> str:
         """
         Alice asks Ollama for knowledge about a topic.
         Ollama acts as a knowledge source - no personality, just facts.
@@ -1104,7 +1106,9 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                 "messages": messages,
                 "stream": False,
                 "options": {
-                    "temperature": 0.3,  # Lower temp for factual accuracy
+                    # Facts want determinism, but a caller that knows this lookup
+                    # is feeding a conversational reply can ask for more room.
+                    "temperature": self._resolve_temperature(temperature if temperature is not None else 0.3),
                     "num_gpu": 1,
                     "num_thread": 16,
                     "num_ctx": 4096,
@@ -1181,7 +1185,9 @@ Input: {user_input}"""
             logger.error(f"Error in parse_complex_input: {e}")
             return {"intent": "error", "entities": {}, "error": str(e)}
 
-    def phrase_with_tone(self, content: str, tone: str, context: Dict = None) -> str:
+    def phrase_with_tone(
+        self, content: str, tone: str, context: Dict = None, temperature: Optional[float] = None
+    ) -> str:
         """
         Alice asks Ollama to phrase her structured thought with natural language.
         Ollama acts as a phrasing assistant - makes Alice's thoughts sound natural.
@@ -1235,7 +1241,7 @@ Please phrase this naturally using the specified tone. Keep Alice's personality 
                     "messages": messages,
                     "stream": False,
                     "options": {
-                        "temperature": 0.7,  # Higher temp for natural variation
+                        "temperature": self._resolve_temperature(temperature if temperature is not None else 0.7),
                         "num_gpu": 1,
                         "num_thread": 16,
                         "num_ctx": 4096,
