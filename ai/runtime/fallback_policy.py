@@ -168,10 +168,16 @@ class FallbackGraph:
                 requires_user=False,
             ),
         ],
+        # "Falling back to language model response" described the plumbing, not
+        # the situation: it named an internal route to someone who asked a
+        # question and told them nothing about their request. The replacement
+        # states only what happened, because this message is often concatenated
+        # with the specific error — anything promising an answer reads as a
+        # contradiction when the detail that follows says the data is missing.
         ("default", "tool_failed"): [
             FallbackStep(
                 "use_llm",
-                "Falling back to language model response.",
+                "I couldn't get that from the tool.",
                 requires_user=False,
             ),
         ],

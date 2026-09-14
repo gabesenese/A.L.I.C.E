@@ -2964,7 +2964,10 @@ class ALICE:
             )
             if routed:
                 return routed
-        return "I misunderstood that response path. Please repeat your request in one line and I will answer directly."
+        # "I misunderstood that response path" is Alice's own vocabulary, not the
+        # user's — it names an internal routing concept to someone who just
+        # asked a question and describes a failure they cannot act on.
+        return "I didn't follow that. Say it once more and I'll answer directly."
 
     def _prevent_unsolicited_summary(
         self,
@@ -11285,93 +11288,6 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             guidance_parts.append(f"Style note: {guidance['style_improvement']}")
 
         return "\n".join(guidance_parts)
-
-    # Compatibility: integration tests and legacy runtime wiring rely on these agentic helpers.
-    def _agentic_loop_perceive(self, state):
-        return {
-            "input": str((state or {}).get("input_text") or ""),
-            "intent": str((state or {}).get("intent") or ""),
-        }
-
-    def _agentic_loop_reason(self, state):
-        return {
-            "lane": "tool"
-            if str((state or {}).get("intent", "")).startswith(("notes:", "weather:", "file_operations:"))
-            else "llm"
-        }
-
-    def _agentic_loop_goal(self, state):
-        goal = str((state or {}).get("goal") or "").strip()
-        return {"goal": goal or "respond_usefully"}
-
-    def _agentic_loop_decide(self, state):
-        intent = str((state or {}).get("intent") or "")
-        if float((state or {}).get("confidence", 0.0) or 0.0) < 0.3:
-            return {"action": "ask_clarification", "route": "clarify"}
-        if ":" in intent and not intent.startswith("conversation:"):
-            return {"action": "verify_tool_outcome", "route": "tool"}
-        return {"action": "respond", "route": "llm"}
-
-    def _agentic_loop_execute(self, state):
-        return {"ok": True, "route": str((state or {}).get("route") or "llm")}
-
-    def _agentic_loop_learn(self, state):
-        return {"stored": bool((state or {}).get("success", False))}
-
-    def _run_agentic_control_cycle(
-        self,
-        *,
-        user_input: str,
-        intent: str,
-        entities: Dict[str, Any],
-        response: str,
-        route: str,
-        success: bool,
-        confidence: float,
-        plugin_result: Any,
-        goal: str,
-    ) -> Dict[str, Any]:
-        if not getattr(self, "agentic_loop", None):
-            return {}
-        state = {
-            "input_text": user_input,
-            "intent": intent,
-            "entities": dict(entities or {}),
-            "response": response,
-            "route": route,
-            "success": bool(success),
-            "confidence": float(confidence or 0.0),
-            "plugin_result": plugin_result,
-            "goal": goal,
-        }
-        report = self.agentic_loop.run_once(state)
-        self._last_agentic_cycle_report = dict(report or {})
-        self._internal_reasoning_state["agentic_loop"] = dict(report or {})
-        if getattr(self, "context", None):
-            self.context.update_system_status(
-                "agentic_loop",
-                dict(report.get("memory", {}) if isinstance(report, dict) else {}),
-            )
-        return dict(report or {})
-
-    def _agentic_primary_authority_decision(
-        self,
-        *,
-        user_input: str,
-        intent: str,
-        entities: Dict[str, Any],
-        intent_confidence: float,
-        has_action_cue: bool,
-        has_active_goal: bool,
-        execution_mode: str,
-        force_plugins_for_notes: bool,
-        pending_action: Any,
-    ) -> Dict[str, Any]:
-        if str(intent or "") == "conversation:clarification_needed" and float(intent_confidence or 0.0) < 0.35:
-            return {"action": "ask_clarification", "route": "clarify"}
-        if has_action_cue or (":" in str(intent or "") and not str(intent).startswith("conversation:")):
-            return {"action": "use_plugin", "route": "tool"}
-        return {"action": "use_llm", "route": "llm"}
 
     def _handle_companion_command(self, command: str) -> None:
         daemon = getattr(self, "companion_daemon", None)
