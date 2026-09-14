@@ -70,6 +70,68 @@ WEATHER_FACT_PATTERN = re.compile(
 
 WEATHER_TOOLS = {"get_current_weather", "weather", "weather:current", "weather:forecast"}
 
+# -- conversational feel -----------------------------------------------------
+#
+# The complaint these measure is "it feels like I'm talking to a terminal". That
+# is not one defect; it is an accumulation of registers. Each pattern below is a
+# way text announces it was assembled rather than said.
+
+# Status-line and report vocabulary. A person does not say "acknowledged".
+TERMINAL_REGISTER = (
+    r"\backnowledged\b",
+    r"\bplease provide\b",
+    r"\bplease specify\b",
+    r"\bi am unable to\b",
+    r"\bunable to comply\b",
+    r"\binvalid (?:input|request|command)\b",
+    r"\b(?:operation|request|task) (?:completed|failed) successfully\b",
+    r"^\s*\[(?:ok|error|warning|info|done)\]",
+    r"^\s*(?:status|result|output|summary)\s*:",
+    r"={4,}|-{4,}",
+    r"\bas an ai\b",
+)
+
+# A reply that only hedges has taken no position at all.
+HEDGE_PATTERNS = (
+    r"it (?:really )?depends",
+    r"there (?:is|are) no (?:one|single) (?:right )?answer",
+    r"both (?:have|has) (?:their )?(?:pros and cons|advantages)",
+    r"that'?s a (?:great|good|complex|nuanced) question",
+    r"it'?s hard to say",
+)
+
+# Every turn ending in an offer to help is a script, not a conversation.
+TRAILING_OFFER = re.compile(
+    r"(?:let me know|would you like|shall i|do you want me to|"
+    r"i can (?:help|assist)|feel free to)\b[^.!?]*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+
+# Three or more numbered or bulleted items in a row is a document, not an answer.
+LIST_SHAPE = re.compile(r"(?:^|\n)\s*(?:[-*•]|\d+[.)])\s+\S", re.MULTILINE)
+
+# A syllabus: "1) Foundations ... 2) Practical ... 3) Advanced".
+SYLLABUS = re.compile(r"\b(?:phase|step|week|module|stage)\s*\d|\b\d\)\s*\w+:", re.IGNORECASE)
+
+# Openings that restate the question instead of answering it.
+RESTATEMENT = re.compile(
+    r"^\s*(?:you(?:'re| are) asking|so,? you want|to answer your question|"
+    r"regarding your question|in response to your)",
+    re.IGNORECASE,
+)
+
+# Losing the thread: answering a follow-up by asking what it refers to.
+LOST_THREAD = re.compile(
+    r"(?:what|which)\s+(?:do you mean|are you referring to|is \"?it\"?)|"
+    r"could you (?:clarify|specify|tell me more about) (?:what|which)|"
+    r"i(?:'m| am) not sure what (?:you mean|\"?it\"? refers)",
+    re.IGNORECASE,
+)
+
+
+def _matches_any(patterns, text: str) -> List[str]:
+    return [p for p in patterns if re.search(p, text, re.IGNORECASE | re.MULTILINE)]
+
 
 @dataclass
 class TurnResult:
@@ -167,6 +229,33 @@ def _check(result: TurnResult, checks: Dict[str, Any]) -> None:
         if cited and not grounded:
             result.failures.append(f"stated a weather figure ({cited.group(0).strip()!r}) without reading it")
 
+    # -- conversational feel --------------------------------------------------
+
+    if checks.get("no_terminal_register"):
+        for pattern in _matches_any(TERMINAL_REGISTER, text):
+            result.failures.append(f"status-report register, not speech: {pattern}")
+
+    if checks.get("no_hedge_only") and _matches_any(HEDGE_PATTERNS, text):
+        # Hedging is only a failure when it is the whole reply. A hedge followed
+        # by an actual position is a person being careful.
+        without_hedge = text
+        for pattern in HEDGE_PATTERNS:
+            without_hedge = re.sub(pattern, "", without_hedge, flags=re.IGNORECASE)
+        if len(without_hedge.split()) < max(12, result.word_count // 3):
+            result.failures.append("hedged without taking a position")
+
+    if checks.get("no_bullet_dump") and len(LIST_SHAPE.findall(text)) >= 3:
+        result.failures.append("answered a human moment with a bulleted list")
+
+    if checks.get("no_numbered_syllabus") and SYLLABUS.search(text):
+        result.failures.append("delivered a syllabus rather than an explanation")
+
+    if checks.get("no_lost_thread") and LOST_THREAD.search(text):
+        result.failures.append("lost the thread: asked what the follow-up referred to")
+
+    if checks.get("no_restatement") and RESTATEMENT.search(text):
+        result.failures.append("opened by restating the question")
+
 
 def run_suite(
     suite: Dict[str, Any],
@@ -238,6 +327,89 @@ def run_suite(
     return results
 
 
+def feel_report(results: List[TurnResult]) -> Dict[str, Any]:
+    """Statistics that expose assembly rather than generation.
+
+    No single reply proves Alice reads like a terminal. The tell is in the
+    aggregate: replies that are all the same length, all end in an offer to
+    help, all open the same way, and repeat verbatim when the same question is
+    asked twice. These measure the shape of a whole conversation.
+    """
+    answered = [r for r in results if r.response.strip()]
+    if not answered:
+        return {"note": "no replies to analyse"}
+
+    lengths = [r.word_count for r in answered]
+    openings = [" ".join(r.response.split()[:4]).lower() for r in answered]
+    endings_with_offer = [r.id for r in answered if TRAILING_OFFER.search(r.response)]
+    endings_with_question = [r.id for r in answered if r.response.strip().endswith("?")]
+    list_shaped = [r.id for r in answered if len(LIST_SHAPE.findall(r.response)) >= 3]
+    terminal_register = [r.id for r in answered if _matches_any(TERMINAL_REGISTER, r.response)]
+    restating = [r.id for r in answered if RESTATEMENT.search(r.response)]
+
+    # Identical replies to the same prompt mean nothing was generated.
+    by_prompt: Dict[str, List[str]] = {}
+    for result in answered:
+        by_prompt.setdefault(result.prompt.strip().lower(), []).append(result.response.strip())
+    repeated = {p: v for p, v in by_prompt.items() if len(v) > 1}
+    verbatim_repeats = [p for p, v in repeated.items() if len(set(v)) == 1]
+
+    duplicate_openings = len(openings) - len(set(openings))
+    spread = (max(lengths) - min(lengths)) if len(lengths) > 1 else 0
+
+    return {
+        "replies": len(answered),
+        "median_words": int(statistics.median(lengths)),
+        "word_range": f"{min(lengths)}-{max(lengths)}",
+        "length_spread": spread,
+        "uniform_length": spread <= 12 and len(lengths) > 3,
+        "identical_openings": duplicate_openings,
+        "ends_with_offer_to_help": f"{len(endings_with_offer)}/{len(answered)}",
+        "ends_with_question": f"{len(endings_with_question)}/{len(answered)}",
+        "bulleted_answers": f"{len(list_shaped)}/{len(answered)}",
+        "status_report_register": f"{len(terminal_register)}/{len(answered)}",
+        "restates_the_question": f"{len(restating)}/{len(answered)}",
+        "verbatim_on_repeat": len(verbatim_repeats),
+        "repeated_prompts_seen": len(repeated),
+    }
+
+
+def print_feel_report(report: Dict[str, Any]) -> None:
+    print("\n" + "=" * 68)
+    print("CONVERSATIONAL FEEL")
+    print("=" * 68)
+    for key, value in report.items():
+        print(f"  {key.replace('_', ' '):<26} {value}")
+
+    tells = []
+    if report.get("uniform_length"):
+        tells.append("every reply is nearly the same length — a cap or a template, not a thought")
+    if int(str(report.get("identical_openings", 0))) > 1:
+        tells.append("replies open with the same words — assembled from a fixed frame")
+    if report.get("verbatim_on_repeat"):
+        tells.append("the same question twice gave a byte-identical reply — nothing was generated")
+    for metric, label in (
+        ("ends_with_offer_to_help", "almost every reply ends offering further help — a script, not a conversation"),
+        ("bulleted_answers", "most answers are lists — a document, not speech"),
+        ("status_report_register", "replies use status-report vocabulary"),
+        ("restates_the_question", "replies open by restating the question"),
+    ):
+        raw = str(report.get(metric, "0/1"))
+        try:
+            hit, total = (int(part) for part in raw.split("/"))
+        except ValueError:
+            continue
+        if total and hit / total >= 0.5:
+            tells.append(label)
+
+    if tells:
+        print("\n  What reads as a terminal:")
+        for tell in tells:
+            print(f"    - {tell}")
+    else:
+        print("\n  No aggregate tells detected.")
+
+
 def summarise(results: List[TurnResult]) -> Dict[str, Any]:
     if not results:
         return {}
@@ -298,6 +470,11 @@ def main() -> int:
     parser.add_argument("--json", type=Path, help="Write the full run here for later comparison.")
     parser.add_argument("--compare", type=Path, help="Compare this run against a previous --json file.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Print every response, not just failures.")
+    parser.add_argument(
+        "--feel",
+        action="store_true",
+        help="Also print aggregate conversational-feel statistics across the whole run.",
+    )
     args = parser.parse_args()
 
     if not args.suite.exists():
@@ -315,11 +492,16 @@ def main() -> int:
     summary = summarise(results)
     print_report(results, summary)
 
+    feel = feel_report(results) if args.feel else None
+    if feel:
+        print_feel_report(feel)
+
     if args.json:
         payload = {
             "suite": suite.get("name", args.suite.stem),
             "model": args.model or "default",
             "summary": summary,
+            "feel": feel,
             "results": [{**asdict(r), "passed": r.passed, "word_count": r.word_count} for r in results],
         }
         args.json.write_text(json.dumps(payload, indent=2))
