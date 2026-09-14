@@ -171,7 +171,7 @@ JSON response:"""
             logger.warning("No LLM gateway available for intent classification")
             return None
 
-        from ai.core.llm_gateway import LLMCallType
+        from ai.core.llm_policy import LLMCallType
 
         prompt = self._build_cot_prompt(query, context)
 
@@ -194,7 +194,10 @@ JSON response:"""
                 return None
 
         except Exception as e:
-            logger.error(f"Error in LLM intent classification: {e}")
+            # Name the exception type: this path spent a long time returning None
+            # for every query because the call referenced an enum member that did
+            # not exist, and "Error in ..." alone never made that legible.
+            logger.error(f"Error in LLM intent classification: {type(e).__name__}: {e}")
             return None
 
     def _classify_with_self_consistency(self, prompt: str, query: str, num_samples: int) -> Optional[LLMIntentResult]:
@@ -209,7 +212,7 @@ JSON response:"""
         Returns:
             Most consistent LLMIntentResult
         """
-        from ai.core.llm_gateway import LLMCallType
+        from ai.core.llm_policy import LLMCallType
         from collections import Counter
 
         results = []
@@ -229,10 +232,11 @@ JSON response:"""
                     if result:
                         results.append(result)
             except Exception as e:
-                logger.warning(f"Error generating sample {i + 1}: {e}")
+                logger.warning(f"Error generating sample {i + 1}: {type(e).__name__}: {e}")
                 continue
 
         if not results:
+            logger.warning(f"Self-consistency produced no usable classification across {num_samples} samples")
             return None
 
         # Find most common intent

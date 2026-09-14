@@ -15,6 +15,13 @@ from complexity import score_prompt
 from models import CodingModel, FastModel, ReasoningModel
 from models.base import Model
 
+# A tag listing either answers at once or the server is down; it never needs the
+# generation budget.
+HEALTH_TIMEOUT_SECONDS = 2.0
+# Role availability changes when someone pulls or removes a model, not between
+# two turns of a conversation, so one probe covers a burst of requests.
+HEALTH_TTL_SECONDS = 10.0
+
 
 class ModelRouter:
     """Select and execute model roles based on task type + complexity."""
@@ -44,13 +51,22 @@ class ModelRouter:
             "coding": True,
         }
         self._health_error: str = ""
-        self.refresh_role_health()
+        # Construction stays offline; the first caller that needs role health pays
+        # for the probe, and only once per TTL.
+        self._health_checked_at: Optional[float] = None
 
     def describe_models(self) -> Dict[str, str]:
         return {role: str(getattr(model, "model_name", role)) for role, model in self.models.items()}
 
+    def _role_health_fresh(self) -> Dict[str, bool]:
+        """Role health, re-probing only when the last answer has gone stale."""
+        if self._health_checked_at is None or (time.monotonic() - self._health_checked_at) >= HEALTH_TTL_SECONDS:
+            return self.refresh_role_health()
+        return dict(self._role_health)
+
     def refresh_role_health(self) -> Dict[str, bool]:
         """Detect whether each routed model appears in local Ollama tags."""
+        self._health_checked_at = time.monotonic()
         if os.getenv("ALICE_MULTI_LLM_MOCK", "0") == "1":
             self._role_health = {role: True for role in self.models.keys()}
             self._health_error = ""
@@ -59,7 +75,7 @@ class ModelRouter:
         available_models: set[str] = set()
         self._health_error = ""
         try:
-            resp = requests.get("http://localhost:11434/api/tags", timeout=3)
+            resp = requests.get("http://localhost:11434/api/tags", timeout=HEALTH_TIMEOUT_SECONDS)
             resp.raise_for_status()
             payload = resp.json() if isinstance(resp.json(), dict) else {}
             for item in list(payload.get("models") or []):
@@ -93,6 +109,7 @@ class ModelRouter:
         return all(bool(v) for v in (self._role_health or {}).values())
 
     def runtime_status(self) -> Dict[str, Any]:
+        self._role_health_fresh()
         counts = {role: self._recent_roles.count(role) for role in ("fast", "reasoning", "coding")}
         total = max(1, sum(counts.values()))
         shares = {k: round(v / total, 3) for k, v in counts.items()}
@@ -166,7 +183,7 @@ class ModelRouter:
 
     def generate(self, request: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         context = dict(context or {})
-        self.refresh_role_health()
+        self._role_health_fresh()
 
         if self.require_all_roles and not self.all_roles_ready():
             missing_roles = [r for r, ok in (self._role_health or {}).items() if not ok]

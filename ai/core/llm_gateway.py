@@ -11,11 +11,12 @@ This gateway enforces:
 All code should call LLMGateway.request() instead of llm.chat() directly.
 """
 
+import inspect
 import logging
 import json
 import os
 import sys
-from typing import Optional, Dict, Any
+from typing import Any, Callable, Dict, Optional
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -27,7 +28,7 @@ if __package__ in (None, ""):
     if _PROJECT_ROOT not in sys.path:
         sys.path.insert(0, _PROJECT_ROOT)
 
-from ai.core.llm_policy import get_llm_policy, LLMCallType
+from ai.core.llm_policy import DEFAULT_TRANSPORT_POLICY, get_llm_policy, LLMCallType
 from ai.models.simple_formatters import FormatterRegistry
 from ai.learning.data_redaction import sanitize_for_learning, redact_text
 
@@ -41,6 +42,22 @@ logger = logging.getLogger(__name__)
 
 # Path to logged interactions file
 LOGGED_INTERACTIONS_PATH = "data/training/logged_interactions.jsonl"
+
+# Classification answers a routing question, so it gets a tight cap rather than
+# the generation budget — a slow arbitration is worse than no arbitration.
+INTENT_CLASSIFICATION_MAX_TOKENS = 256
+
+
+def _accepts_timeout(fn: Callable[..., Any]) -> bool:
+    """Whether an engine method takes a per-call timeout override.
+
+    The gateway is written against a duck-typed engine (production code and test
+    doubles both), so the optional override is offered, not assumed.
+    """
+    try:
+        return "timeout" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 @dataclass
@@ -142,6 +159,7 @@ class LLMGateway:
         user_input: str = "",
         tool_name: Optional[str] = None,
         tool_data: Optional[Dict[str, Any]] = None,
+        temperature: Optional[float] = None,
     ) -> LLMResponse:
         """
         Request LLM generation (with policy enforcement)
@@ -154,6 +172,7 @@ class LLMGateway:
             user_input: Original user input
             tool_name: Name of tool if formatting tool output
             tool_data: Tool output data if formatting
+            temperature: Optional per-call sampling override
 
         Returns:
             LLMResponse with result or denial reason
@@ -300,6 +319,9 @@ class LLMGateway:
                     logic_chain = [logic_chain]
                 audit_result = self.llm.audit_logic(logic_chain)
                 response = json.dumps(audit_result, indent=2)  # Return as formatted JSON
+
+            elif call_type == LLMCallType.INTENT_CLASSIFICATION:
+                response = self._classify_intent(prompt or user_input, temperature)
 
             elif call_type == LLMCallType.GENERATION:
                 response = self._generation_last_resort(
@@ -558,6 +580,32 @@ The {tool_name} tool returned this data:
 Please provide a natural, concise response to the user based on this data.
 Be conversational and helpful. Do not mention the tool name or technical details."""
 
+    def _classify_intent(self, prompt: str, temperature: Optional[float]) -> str:
+        """Ask the model to arbitrate an ambiguous intent.
+
+        Goes through generate() rather than chat() because classification wants
+        the bare prompt: chat() wraps every call in Alice's persona and companion
+        context, which is exactly the material a JSON classifier should not see.
+        """
+        generate = getattr(self.llm, "generate", None)
+        if callable(generate):
+            return str(
+                generate(
+                    prompt,
+                    temperature=temperature,
+                    max_tokens=INTENT_CLASSIFICATION_MAX_TOKENS,
+                )
+                or ""
+            )
+        return str(self.llm.chat(prompt, use_history=False, temperature=temperature) or "")
+
+    def _knowledge_assist(self, question: str) -> str:
+        """Cheap pre-flight answer, capped so it cannot spend the whole turn."""
+        query_knowledge = self.llm.query_knowledge
+        if _accepts_timeout(query_knowledge):
+            return str(query_knowledge(question, timeout=DEFAULT_TRANSPORT_POLICY.assist_timeout) or "")
+        return str(query_knowledge(question) or "")
+
     def _generation_last_resort(
         self,
         *,
@@ -567,38 +615,25 @@ Be conversational and helpful. Do not mention the tool name or technical details
         context: Optional[Dict[str, Any]],
         output_mode: str = "final_answer_only",
     ) -> str:
-        """Attempt structured assist paths before broad generation."""
-        ctx = dict(context or {})
+        """Try the cheap knowledge path, then fall back to broad generation.
+
+        This used to run three sequential round trips at the full generation
+        timeout each, up to six minutes before the user saw a character. Two of
+        them could never pay off: the parse leg built a context blob nothing read,
+        and the audit leg looked for a `suggested_response` key that AUDITOR_PROMPT
+        never asks the model to produce. What is left is one capped assist plus the
+        generation that was always going to happen.
+        """
         base_text = str(user_input or prompt or "").strip()
 
-        # 1) Parse assist first for ambiguous/complex language.
-        try:
-            parsed = self.llm.parse_complex_input(base_text)
-            if isinstance(parsed, dict) and parsed:
-                ctx["parsed"] = parsed
-        except Exception:
-            pass
-
-        # 2) Knowledge assist for direct question-like prompts.
         if base_text.endswith("?") or any(q in base_text.lower() for q in ("what", "why", "how", "when", "where")):
             try:
-                knowledge = str(self.llm.query_knowledge(base_text) or "").strip()
+                knowledge = self._knowledge_assist(base_text).strip()
                 if knowledge:
                     return knowledge
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[LLMGateway] Knowledge assist unavailable: {e}")
 
-        # 3) Audit assist to tighten logic before full generation.
-        try:
-            audit = self.llm.audit_logic([base_text, json.dumps(ctx, default=str)])
-            if isinstance(audit, dict) and not bool(audit.get("has_errors", False)):
-                suggestion = str(audit.get("suggested_response") or "").strip()
-                if suggestion:
-                    return suggestion
-        except Exception:
-            pass
-
-        # 4) Last resort: broad generation.
         return self.llm.chat(
             prompt,
             use_history=use_history,

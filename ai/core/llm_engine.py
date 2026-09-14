@@ -10,12 +10,20 @@ import logging
 import re
 import asyncio
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any, Generator
+from typing import AsyncGenerator, List, Dict, Optional, Any, Generator
 import sys
 import io
+import shutil
 import subprocess
 import time
 import os
+
+from ai.core.llm_policy import DEFAULT_TRANSPORT_POLICY, LLMTransportPolicy
+
+# How long to wait for `ollama --version` before writing a candidate path off.
+EXECUTABLE_PROBE_SECONDS = 2.0
+# How often to re-poll a just-spawned `ollama serve` for its listening port.
+AUTOSTART_POLL_SECONDS = 0.25
 
 
 def _configure_stdio_utf8() -> None:
@@ -116,6 +124,7 @@ class LLMConfig:
         max_history: int = 30,  # Increased from 20 for better context retention
         timeout: int = 90,  # 90s timeout for llama3.3:70b reliability
         use_fine_tuned: bool = True,  # Use fine-tuned model if available
+        transport: Optional[LLMTransportPolicy] = None,
     ):
         self.model = model
         self.base_url = base_url
@@ -123,36 +132,27 @@ class LLMConfig:
         self.max_history = max_history
         self.timeout = timeout
         self.use_fine_tuned = use_fine_tuned
+        self.transport = transport or DEFAULT_TRANSPORT_POLICY
         self._fine_tuned_model = None
-        self._check_fine_tuned_model()
+        self._fine_tuned_checked = False
 
-    def _check_fine_tuned_model(self) -> None:
-        """Check if fine-tuned model exists and use it"""
+    def resolve_fine_tuned_model(self, model_names: List[str]) -> None:
+        """Pick the fine-tuned variant out of an already-fetched tag listing.
+
+        Takes the model names rather than fetching them, so this costs no network
+        of its own: the engine's connection check already has the list, and
+        construction can stay offline instead of probing for a server.
+        """
+        self._fine_tuned_checked = True
         if not self.use_fine_tuned:
             return
 
-        try:
-            import requests
-            from requests.adapters import HTTPAdapter
-            from requests.packages.urllib3.util.retry import Retry
-
-            session = requests.Session()
-            retry = Retry(connect=1, backoff_factor=0)
-            adapter = HTTPAdapter(max_retries=retry)
-            session.mount("http://", adapter)
-
-            response = session.get(f"{self.base_url}/api/tags", timeout=0.5)
-            if response.status_code == 200:
-                models = response.json().get("models", [])
-                fine_tuned_name = f"alice-{self.model.replace(':', '-')}"
-                for model_info in models:
-                    model_name = model_info.get("name", "")
-                    if fine_tuned_name in model_name:
-                        self._fine_tuned_model = model_name
-                        logger.info(f"[LLM] Using fine-tuned model: {model_name}")
-                        return
-        except (requests.RequestException, Exception):
-            pass
+        fine_tuned_name = f"alice-{self.model.replace(':', '-')}"
+        for model_name in model_names:
+            if fine_tuned_name in model_name:
+                self._fine_tuned_model = model_name
+                logger.info(f"[LLM] Using fine-tuned model: {model_name}")
+                return
 
         logger.info(f"[LLM] Using base model: {self.model} (fine-tuned not found)")
 
@@ -354,6 +354,11 @@ class LocalLLMEngine:
         self.config = config or LLMConfig()
         self.conversation_history = []
         self._available_models: List[str] = []
+        # Construction stays offline. Probing Ollama here cost every caller a
+        # blocking service start before they had asked for anything.
+        self._service_probed = False
+        self._service_ready = False
+        self._autostart_attempted = False
         self.system_prompt = """You are A.L.I.C.E — Gabriel's AI companion. Not an assistant. Not a chatbot. A companion.
 
 You know Gabriel. You've been with him through his projects, his late nights, his goals. When he talks to you, he's not submitting a ticket — he's talking to someone who pays attention and gives a damn about how things turn out.
@@ -391,47 +396,49 @@ Honesty:
 
 Be present. Be direct. Be the AI that actually stays in the room."""
 
-        # Check GPU availability and connection
-        self._ensure_ollama_running()
-
-        # Re-check fine-tuned model after Ollama is running
-        if hasattr(self.config, "_check_fine_tuned_model"):
-            self.config._check_fine_tuned_model()
+    @property
+    def transport(self) -> LLMTransportPolicy:
+        return getattr(self.config, "transport", None) or DEFAULT_TRANSPORT_POLICY
 
     def _find_ollama_executable(self) -> Optional[str]:
-        """Find Ollama executable path using smart detection"""
-        possible_paths = [
-            os.path.expanduser("~/AppData/Local/Programs/Ollama/ollama.exe"),
-            "C:\\Program Files\\Ollama\\ollama.exe",
-            "C:\\Program Files (x86)\\Ollama\\ollama.exe",
-            "ollama.exe",  # If in PATH
-            "ollama",  # Unix style if somehow present
-        ]
+        """Locate the Ollama binary without paying a subprocess probe per candidate."""
+        candidates: List[str] = []
+        on_path = shutil.which("ollama") or shutil.which("ollama.exe")
+        if on_path:
+            candidates.append(on_path)
+        if os.name == "nt":
+            candidates.extend(
+                [
+                    os.path.expanduser("~/AppData/Local/Programs/Ollama/ollama.exe"),
+                    "C:\\Program Files\\Ollama\\ollama.exe",
+                    "C:\\Program Files (x86)\\Ollama\\ollama.exe",
+                ]
+            )
 
-        for path in possible_paths:
-            if os.path.exists(path) or (path in ["ollama.exe", "ollama"]):
-                try:
-                    # Test if executable works
-                    result = subprocess.run([path, "--version"], capture_output=True, timeout=5)
-                    if result.returncode == 0:
-                        logger.info(f"Ollama found at: {path}")
-                        return path
-                except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as e:
-                    logger.debug(f"Failed to test Ollama at {path}: {e}")
-                    continue
+        for path in candidates:
+            if not os.path.exists(path):
+                continue
+            try:
+                result = subprocess.run([path, "--version"], capture_output=True, timeout=EXECUTABLE_PROBE_SECONDS)
+            except (subprocess.SubprocessError, OSError) as e:
+                logger.debug(f"Failed to test Ollama at {path}: {e}")
+                continue
+            if result.returncode == 0:
+                logger.info(f"Ollama found at: {path}")
+                return path
         return None
 
     def _is_ollama_running(self) -> bool:
         """Check if Ollama service is already running"""
         try:
-            response = requests.get(f"{self.config.base_url}/api/tags", timeout=2)
+            response = requests.get(f"{self.config.base_url}/api/tags", timeout=self.transport.health_timeout)
             return response.status_code == 200
-        except (requests.RequestException, ConnectionError, TimeoutError) as e:
+        except (requests.RequestException, OSError) as e:
             logger.debug(f"Ollama not running or unreachable: {e}")
             return False
 
     def _start_ollama_service(self) -> bool:
-        """Start Ollama service automatically"""
+        """Spawn `ollama serve` and wait a short, bounded time for it to bind."""
         ollama_path = self._find_ollama_executable()
         if not ollama_path:
             logger.error("Ollama executable not found. Please install Ollama.")
@@ -440,7 +447,6 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         try:
             logger.info("Initializing Ollama service...")
 
-            # Start Ollama serve in background
             if os.name == "nt":  # Windows
                 subprocess.Popen([ollama_path, "serve"], creationflags=subprocess.CREATE_NO_WINDOW)
             else:  # Unix-like
@@ -450,58 +456,84 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                     stderr=subprocess.DEVNULL,
                 )
 
-            # Wait for service to come online (with timeout)
-            logger.info("Waiting for service initialization...")
-            for attempt in range(15):  # 15 seconds max
+            # A local server either binds its port within a couple of seconds or it
+            # is not coming up at all. The old 15x1s wait only made "Ollama is down"
+            # take fifteen seconds to say, and it ran twice per failed turn.
+            deadline = time.monotonic() + float(self.transport.autostart_wait)
+            while time.monotonic() < deadline:
                 if self._is_ollama_running():
                     logger.info("Ollama service online")
                     return True
-                time.sleep(1)
-                if attempt % 3 == 0:
-                    logger.info(f"Still initializing... ({attempt + 1}/15)")
+                time.sleep(AUTOSTART_POLL_SECONDS)
 
-            logger.error("Service failed to start within timeout")
+            logger.error("Service failed to start within %.1fs", self.transport.autostart_wait)
             return False
 
         except Exception as e:
             logger.error(f"Failed to start Ollama: {e}")
             return False
 
-    def _ensure_ollama_running(self) -> bool:
-        """Ensure Ollama is running, start if needed"""
+    def _ensure_ollama_running(self, allow_autostart: bool = True) -> bool:
+        """Ensure Ollama is reachable, starting it at most once per process."""
         if self._is_ollama_running():
-            logger.info("Ollama service already running")
             return self._check_connection()
 
+        if not allow_autostart or getattr(self, "_autostart_attempted", False):
+            # Re-spawning a server that already declined to come up just pays the
+            # start budget again on every turn.
+            return False
+
+        self._autostart_attempted = True
         logger.info("Ollama service not detected, auto-starting...")
         if self._start_ollama_service():
             return self._check_connection()
-        else:
-            logger.error("Could not establish Ollama connection")
-            logger.info("[MANUAL] Please run manually: ollama serve")
-            return False
+
+        logger.error("Could not establish Ollama connection")
+        logger.info("[MANUAL] Please run manually: ollama serve")
+        return False
+
+    def _ensure_service_probed(self) -> bool:
+        """Run the one-time reachability check on first use instead of at construction.
+
+        This is also what populates the local model list, so the automatic
+        fallback to an available model still happens — just later, and only for
+        callers that actually want a generation.
+        """
+        if getattr(self, "_service_probed", False):
+            return bool(getattr(self, "_service_ready", False))
+
+        self._service_probed = True
+        # No auto-start here: a probe is a side effect the caller did not ask for.
+        # Spawning a server belongs to the failure path of a real generation.
+        self._service_ready = self._ensure_ollama_running(allow_autostart=False)
+        return bool(self._service_ready)
 
     def _check_connection(self) -> bool:
-        """Check if Ollama server is running and GPU is available"""
+        """Check if Ollama server is running and a usable model is present"""
         try:
-            response = requests.get(f"{self.config.base_url}/api/tags", timeout=5)
-            if response.status_code == 200:
-                models = response.json().get("models", [])
-                model_names = [m["name"] for m in models]
-                self._available_models = list(model_names)
+            response = requests.get(f"{self.config.base_url}/api/tags", timeout=self.transport.health_timeout)
+            if response.status_code != 200:
+                logger.error("Ollama tag listing returned HTTP %s", response.status_code)
+                return False
 
-                logger.info("Ollama connection established")
-                logger.info(f"Available models: {', '.join(model_names) if model_names else 'None'}")
+            models = response.json().get("models", [])
+            model_names = [str((m or {}).get("name") or "") for m in models]
+            model_names = [name for name in model_names if name]
+            self._available_models = list(model_names)
 
-                if not model_names:
-                    logger.error("No local models available. Run: ollama pull llama3.1:8b")
-                    return False
+            logger.info("Ollama connection established")
+            logger.info(f"Available models: {', '.join(model_names) if model_names else 'None'}")
 
-                self._ensure_active_model_available(model_names)
-                logger.info(f"Model {self.config.active_model} ready")
-                logger.info("GPU acceleration enabled")
+            if not model_names:
+                logger.error("No local models available. Run: ollama pull llama3.1:8b")
+                return False
 
-                return True
+            if not getattr(self.config, "_fine_tuned_checked", True):
+                self.config.resolve_fine_tuned_model(model_names)
+            self._ensure_active_model_available(model_names)
+            logger.info(f"Model {self.config.active_model} ready")
+
+            return True
         except requests.exceptions.ConnectionError:
             logger.error("Cannot connect to Ollama")
             return False
@@ -573,6 +605,98 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             logger.debug("Personality prompt shaping unavailable: %s", exc)
             return prompt
 
+    def _post_with_retry(
+        self,
+        url: str,
+        payload: Dict[str, Any],
+        *,
+        timeout: Optional[float] = None,
+        what: str = "request",
+    ) -> Dict[str, Any]:
+        """POST to Ollama, retrying only the failures a retry can actually fix.
+
+        Connection resets and read timeouts are worth another attempt; a 4xx is
+        the server rejecting this exact request, so resending it only burns the
+        budget. Attempts are counted rather than recursive: a server that answers
+        /api/tags but resets /api/chat used to send chat() into itself until the
+        interpreter ran out of stack.
+        """
+        transport = self.transport
+        attempts = max(1, int(transport.max_attempts))
+        request_timeout = float(timeout if timeout is not None else self.config.timeout)
+        last_error: Optional[BaseException] = None
+
+        for attempt in range(1, attempts + 1):
+            try:
+                response = requests.post(url, json=payload, timeout=request_timeout)
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+                last_error = exc
+                if isinstance(exc, requests.exceptions.ConnectionError) and attempt == 1:
+                    logger.error("[A.L.I.C.E.] Connection lost - attempting auto-restart...")
+                    self._ensure_ollama_running()
+            else:
+                if response.status_code == 200:
+                    return dict(response.json() or {})
+
+                body = str(getattr(response, "text", "") or "")[:200]
+                if not transport.should_retry_status(response.status_code):
+                    logger.error("LLM %s error: %s - %s", what, response.status_code, body)
+                    raise Exception(f"LLM API error: {response.status_code}")
+
+                last_error = Exception(f"LLM API error: {response.status_code}")
+                logger.warning(
+                    "LLM %s transient error %s (attempt %d/%d)",
+                    what,
+                    response.status_code,
+                    attempt,
+                    attempts,
+                )
+
+            if attempt < attempts:
+                time.sleep(transport.backoff_seconds(attempt))
+
+        if isinstance(last_error, requests.exceptions.Timeout):
+            logger.error("Request timeout after %d attempts", attempts)
+            raise Exception("Request timeout - please try again") from last_error
+        if isinstance(last_error, requests.exceptions.ConnectionError):
+            logger.error("Ollama unreachable after %d attempts", attempts)
+            raise Exception("Service temporarily unavailable - Ollama not running") from last_error
+        raise Exception(str(last_error) if last_error else f"LLM {what} failed")
+
+    def _build_chat_messages(
+        self,
+        user_input: str,
+        *,
+        use_history: bool,
+        mode: Optional[str],
+        context: Optional[str],
+        intent: str,
+    ) -> List[Dict[str, str]]:
+        """Assemble the /api/chat message list for a single turn."""
+        messages = [{"role": "system", "content": self._build_system_prompt(intent=intent, user_query=user_input)}]
+
+        # Inject companion context (memory, goals, personality) as a second system message
+        if context and str(context).strip():
+            messages.append({"role": "system", "content": str(context).strip()})
+
+        if str(mode or "").strip().lower() == "final_answer_only":
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Output mode is final_answer_only. "
+                        "Return only the final user-facing answer. "
+                        "Do not output analysis, key points, plans, context labels, or internal reasoning."
+                    ),
+                }
+            )
+
+        if use_history:
+            messages.extend(self.conversation_history[-self.config.max_history :])
+
+        messages.append({"role": "user", "content": user_input})
+        return messages
+
     def chat(
         self,
         user_input: str,
@@ -590,93 +714,54 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             use_history: Include conversation history for context
             temperature: Optional per-call temperature override
             mode: Optional output mode (e.g. "final_answer_only")
+            context: Extra system-level context for this turn
+            intent: Routed intent, used to shape the system prompt
 
         Returns:
             Assistant's response
         """
-        try:
-            if self._available_models:
-                self._ensure_active_model_available(self._available_models)
+        self._ensure_service_probed()
+        if self._available_models:
+            self._ensure_active_model_available(self._available_models)
 
-            # Build message history
-            messages = [{"role": "system", "content": self._build_system_prompt(intent=intent, user_query=user_input)}]
+        # Built once and reused across retries, so a retry can never silently drop
+        # the companion context or intent the caller passed in.
+        messages = self._build_chat_messages(
+            user_input,
+            use_history=use_history,
+            mode=mode,
+            context=context,
+            intent=intent,
+        )
 
-            # Inject companion context (memory, goals, personality) as a second system message
-            if context and str(context).strip():
-                messages.append({"role": "system", "content": str(context).strip()})
-
-            if str(mode or "").strip().lower() == "final_answer_only":
-                messages.append(
-                    {
-                        "role": "system",
-                        "content": (
-                            "Output mode is final_answer_only. "
-                            "Return only the final user-facing answer. "
-                            "Do not output analysis, key points, plans, context labels, or internal reasoning."
-                        ),
-                    }
-                )
-
-            if use_history:
-                messages.extend(self.conversation_history[-self.config.max_history :])
-
-            messages.append({"role": "user", "content": user_input})
-
-            # Call Ollama API with GPU optimization
-            # Use fine-tuned model if available, otherwise base model
-            active_model = self.config.active_model
-            response = requests.post(
-                f"{self.config.base_url}/api/chat",
-                json={
-                    "model": active_model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {
-                        "temperature": self._resolve_temperature(temperature),
-                        "num_gpu": 1,  # Use GPU
-                        "num_thread": 16,  # Utilize your i7-14700K cores
-                        "num_ctx": 4096,  # Context window
-                    },
+        result = self._post_with_retry(
+            f"{self.config.base_url}/api/chat",
+            {
+                "model": self.config.active_model,
+                "messages": messages,
+                "stream": False,
+                "options": {
+                    "temperature": self._resolve_temperature(temperature),
+                    "num_gpu": 1,  # Use GPU
+                    "num_thread": 16,  # Utilize your i7-14700K cores
+                    "num_ctx": 4096,  # Context window
                 },
-                timeout=self.config.timeout,
-            )
+            },
+            what="chat",
+        )
 
-            if response.status_code == 200:
-                result = response.json()
-                assistant_message = str((result.get("message") or {}).get("content") or "").strip()
-                if not assistant_message:
-                    logger.warning("LLM returned an empty chat response")
-                    return ""
+        assistant_message = str((result.get("message") or {}).get("content") or "").strip()
+        if not assistant_message:
+            logger.warning("LLM returned an empty chat response")
+            return ""
 
-                # Store in conversation history
-                self.conversation_history.append({"role": "user", "content": user_input})
-                self.conversation_history.append({"role": "assistant", "content": assistant_message})
+        self.conversation_history.append({"role": "user", "content": user_input})
+        self.conversation_history.append({"role": "assistant", "content": assistant_message})
 
-                # Log token usage if available
-                if "eval_count" in result:
-                    logger.debug(f"Tokens generated: {result.get('eval_count', 'N/A')}")
+        if "eval_count" in result:
+            logger.debug(f"Tokens generated: {result.get('eval_count', 'N/A')}")
 
-                return assistant_message
-            else:
-                logger.error(f"LLM API error: {response.status_code} - {response.text}")
-                raise Exception(f"LLM API error: {response.status_code}")
-
-        except requests.exceptions.Timeout:
-            logger.error("Request timeout")
-            raise Exception("Request timeout - please try again")
-        except requests.exceptions.ConnectionError:
-            logger.error("[A.L.I.C.E.] Connection lost - attempting auto-restart...")
-            if self._ensure_ollama_running():
-                return self.chat(
-                    user_input,
-                    use_history,
-                    temperature=temperature,
-                    mode=mode,
-                )  # Retry once
-            raise Exception("Service temporarily unavailable - Ollama not running")
-        except Exception as e:
-            logger.error(f"Error in LLM chat: {e}")
-            raise
+        return assistant_message
 
     def stream_chat(self, user_input: str) -> Generator[str, None, None]:
         """
@@ -689,6 +774,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             Response chunks as they're generated
         """
         try:
+            self._ensure_service_probed()
             if self._available_models:
                 self._ensure_active_model_available(self._available_models)
 
@@ -794,6 +880,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         Unlike chat(), this takes the full message list so a caller can append tool
         results and call again, which is what an agent loop needs.
         """
+        self._ensure_service_probed()
         if self._available_models:
             self._ensure_active_model_available(self._available_models)
 
@@ -815,16 +902,11 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         if tools:
             payload["tools"] = list(tools)
 
-        response = requests.post(
+        result = self._post_with_retry(
             f"{self.config.base_url}/api/chat",
-            json=payload,
-            timeout=self.config.timeout,
+            payload,
+            what="tool call",
         )
-        if response.status_code != 200:
-            logger.error("LLM tool call error: %s - %s", response.status_code, response.text[:200])
-            raise Exception(f"LLM API error: {response.status_code}")
-
-        result = response.json()
         message = dict(result.get("message") or {})
         return ChatResponse(
             content=str(message.get("content") or "").strip(),
@@ -852,10 +934,18 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         self,
         messages: List[ChatMessage],
         tools: Optional[List[Dict[str, Any]]] = None,
-    ) -> Generator[str, None, None]:
+    ) -> AsyncGenerator[str, None]:
         _ = tools
         prompt = messages[-1].content if messages else ""
-        for chunk in self.stream_chat(prompt):
+        # stream_chat drives requests.iter_lines(), which blocks. Iterating it
+        # straight from a coroutine stalls every other task on the loop for as
+        # long as the model takes to answer, so each pull happens in a thread.
+        chunks = self.stream_chat(prompt)
+        done = object()
+        while True:
+            chunk = await asyncio.to_thread(next, chunks, done)
+            if chunk is done:
+                return
             yield chunk
 
     async def embed(self, text: str) -> List[float]:
@@ -867,14 +957,20 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                     "model": "nomic-embed-text",
                     "prompt": text,
                 },
-                timeout=self.config.timeout,
+                timeout=self.transport.assist_timeout,
             )
-            if response.status_code == 200:
-                payload = response.json()
-                return list(payload.get("embedding") or [])
-        except Exception:
+        except (requests.RequestException, OSError) as e:
+            logger.warning("Embedding request failed: %s", e)
             return []
-        return []
+
+        if response.status_code != 200:
+            logger.warning("Embedding request returned HTTP %s", response.status_code)
+            return []
+        try:
+            return list((response.json() or {}).get("embedding") or [])
+        except ValueError as e:
+            logger.warning("Embedding response was not JSON: %s", e)
+            return []
 
     def generate(
         self,
@@ -908,6 +1004,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             )
 
         try:
+            self._ensure_service_probed()
             options = {
                 "temperature": self._resolve_temperature(temperature),
                 "num_gpu": 1,
@@ -946,52 +1043,41 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             mode=mode,
         )
 
-    def query_knowledge(self, question: str) -> str:
+    def query_knowledge(self, question: str, timeout: Optional[float] = None) -> str:
         """
         Alice asks Ollama for knowledge about a topic.
         Ollama acts as a knowledge source - no personality, just facts.
 
         Args:
             question: The factual question Alice needs answered
+            timeout: Per-call timeout override, for callers that use this as a
+                cheap pre-flight and cannot afford the full generation budget
 
         Returns:
             Factual answer from knowledge base
         """
-        try:
-            messages = [
-                {"role": "system", "content": KNOWLEDGE_PROMPT},
-                {"role": "user", "content": question},
-            ]
+        messages = [
+            {"role": "system", "content": KNOWLEDGE_PROMPT},
+            {"role": "user", "content": question},
+        ]
 
-            active_model = self.config.active_model
-            response = requests.post(
-                f"{self.config.base_url}/api/chat",
-                json={
-                    "model": active_model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.3,  # Lower temp for factual accuracy
-                        "num_gpu": 1,
-                        "num_thread": 16,
-                        "num_ctx": 4096,
-                    },
+        result = self._post_with_retry(
+            f"{self.config.base_url}/api/chat",
+            {
+                "model": self.config.active_model,
+                "messages": messages,
+                "stream": False,
+                "options": {
+                    "temperature": 0.3,  # Lower temp for factual accuracy
+                    "num_gpu": 1,
+                    "num_thread": 16,
+                    "num_ctx": 4096,
                 },
-                timeout=self.config.timeout,
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                return result["message"]["content"]
-            else:
-                logger.error(f"Knowledge query failed: {response.status_code}")
-                raise RuntimeError(f"Knowledge query failed: {response.status_code}")
-
-        except RuntimeError:
-            raise
-        except Exception as e:
-            logger.error(f"Error in knowledge query: {e}")
-            raise
+            },
+            timeout=timeout,
+            what="knowledge query",
+        )
+        return str((result.get("message") or {}).get("content") or "")
 
     def parse_complex_input(self, user_input: str) -> Dict[str, Any]:
         """
@@ -1151,7 +1237,10 @@ Please phrase this naturally using the specified tone. Keep Alice's personality 
             logic_chain: Alice's chain of reasoning steps
 
         Returns:
-            Audit result with errors, inconsistencies, and suggestions
+            Audit result. `audit_ran` says whether the check actually happened;
+            `has_errors` is only meaningful when it did, and is None otherwise.
+            The old contract reported `has_errors: False` for a check that never
+            ran, so a dead Ollama read as "the reasoning is fine".
         """
         try:
             reasoning_text = "\n".join([f"{i + 1}. {step}" for i, step in enumerate(logic_chain)])
@@ -1188,31 +1277,40 @@ Provide:
                 timeout=self.config.timeout,
             )
 
-            if response.status_code == 200:
-                result = response.json()
-                content = result["message"]["content"]
-
-                # Try to parse structured response
-                try:
-                    import json
-
-                    return json.loads(content)
-                except (json.JSONDecodeError, ValueError, TypeError) as e:
-                    logger.debug(f"Failed to parse audit response as JSON: {e}")
-                    # Fallback: analyze content for issues
-                    has_errors = any(word in content.lower() for word in ["error", "incorrect", "inconsistent", "flaw"])
-                    return {
-                        "has_errors": has_errors,
-                        "raw_audit": content,
-                        "suggestions": [],
-                    }
-            else:
+            if response.status_code != 200:
                 logger.error(f"Audit request failed: {response.status_code}")
-                return {"has_errors": False, "audit_failed": True}
+                return {
+                    "audit_ran": False,
+                    "has_errors": None,
+                    "error": f"HTTP {response.status_code}",
+                }
+
+            result = response.json()
+            content = str((result.get("message") or {}).get("content") or "")
+
+            # Try to parse structured response
+            try:
+                parsed = json.loads(content)
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                logger.debug(f"Failed to parse audit response as JSON: {e}")
+                # Fallback: analyze content for issues
+                has_errors = any(word in content.lower() for word in ["error", "incorrect", "inconsistent", "flaw"])
+                return {
+                    "audit_ran": True,
+                    "has_errors": has_errors,
+                    "raw_audit": content,
+                    "suggestions": [],
+                }
+
+            if not isinstance(parsed, dict):
+                return {"audit_ran": True, "has_errors": False, "raw_audit": content}
+            parsed.setdefault("has_errors", False)
+            parsed["audit_ran"] = True
+            return parsed
 
         except Exception as e:
             logger.error(f"Error in audit_logic: {e}")
-            return {"has_errors": False, "error": str(e)}
+            return {"audit_ran": False, "has_errors": None, "error": str(e)}
 
     def clear_history(self) -> None:
         """Clear conversation history"""

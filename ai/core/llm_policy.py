@@ -4,6 +4,7 @@ Controls when and how LLM calls are made to minimize dependency
 """
 
 import logging
+import os
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ class LLMCallType(Enum):
     PHRASE_MICRO = "phrase_micro"  # Short polish only, no new content
     PHRASE_STRUCTURED = "phrase_structured"  # Rewrite structured payload only
     AUDIT_LOGIC = "audit_logic"  # Alice asks Ollama to verify her reasoning
+    INTENT_CLASSIFICATION = "intent_classification"  # Alice asks Ollama to arbitrate an ambiguous intent
 
     # Legacy types (deprecated - will be removed)
     CHITCHAT = "chitchat"  # DEPRECATED: Use learned patterns instead
@@ -44,6 +46,63 @@ class LLMCallRecord:
     approved_by_user: bool = False
 
 
+@dataclass(frozen=True)
+class LLMTransportPolicy:
+    """Timeouts and retry budget for talking to the local model server.
+
+    Probing and generating have opposite latency profiles: a tag listing either
+    answers in milliseconds or not at all, while a 70B generation can
+    legitimately run for a minute. Sharing one timeout between them makes a dead
+    server look slow and a slow model look dead.
+    """
+
+    health_timeout: float = 2.0
+    assist_timeout: float = 30.0
+    generation_timeout: float = 90.0
+    max_attempts: int = 3
+    backoff_base: float = 0.25
+    backoff_cap: float = 2.0
+    autostart_wait: float = 3.0
+
+    def backoff_seconds(self, attempt: int) -> float:
+        """Delay before the retry that follows attempt number `attempt` (1-based)."""
+        exponent = max(0, int(attempt) - 1)
+        return min(float(self.backoff_cap), float(self.backoff_base) * (2.0**exponent))
+
+    def should_retry_status(self, status_code: Any) -> bool:
+        """A 4xx says the request itself is wrong, so resending it repeats the mistake."""
+        try:
+            code = int(status_code)
+        except (TypeError, ValueError):
+            return False
+        return 500 <= code <= 599
+
+
+DEFAULT_TRANSPORT_POLICY = LLMTransportPolicy()
+
+
+# The model runs on this machine. There is no bill and no shared quota, so a
+# calls-per-minute cap protects nothing a human-paced session would hit — one
+# turn can legitimately make several calls once the agent loop chains tools.
+# While the counter was broken the limit was fictional and 10/min looked safe;
+# with it counting, 10/min denies Alice the ability to think after two turns.
+# What the ceiling is actually for is catching a runaway loop, so it sits well
+# above any real conversation. Set ALICE_LLM_MAX_CALLS_PER_MINUTE to override;
+# 0 or less disables the check.
+DEFAULT_MAX_CALLS_PER_MINUTE = 120
+
+
+def _configured_rate_limit(default: int) -> int:
+    raw = str(os.getenv("ALICE_LLM_MAX_CALLS_PER_MINUTE", "")).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(f"Ignoring non-numeric ALICE_LLM_MAX_CALLS_PER_MINUTE={raw!r}")
+        return default
+
+
 class LLMPolicy:
     """
     Global LLM budget and policy enforcement
@@ -57,7 +116,7 @@ class LLMPolicy:
 
     def __init__(
         self,
-        max_calls_per_minute: int = 10,
+        max_calls_per_minute: int = DEFAULT_MAX_CALLS_PER_MINUTE,
         allow_llm_for_chitchat: bool = False,
         allow_llm_for_tools: bool = False,
         allow_llm_for_generation: bool = True,
@@ -106,8 +165,9 @@ class LLMPolicy:
             self.calls_this_minute = 0
             self.last_minute_reset = now
 
-        # Check rate limit
-        if self.calls_this_minute >= self.max_calls_per_minute:
+        # Check rate limit. A ceiling of zero or less means no limit, which is the
+        # sensible setting for a model running on this machine.
+        if self.max_calls_per_minute > 0 and self.calls_this_minute >= self.max_calls_per_minute:
             self.denied_calls += 1
             return False, f"Rate limit exceeded ({self.max_calls_per_minute} calls/min)"
 
@@ -119,6 +179,7 @@ class LLMPolicy:
             LLMCallType.PHRASE_MICRO,
             LLMCallType.PHRASE_STRUCTURED,
             LLMCallType.AUDIT_LOGIC,
+            LLMCallType.INTENT_CLASSIFICATION,
         ]:
             return True, "Allowed - Alice is using Ollama as a tool"
 
@@ -174,10 +235,10 @@ class LLMPolicy:
             self.approved_calls += 1
             logger.info("LLM call approved by user")
 
-        # Increment counters
-        self.calls_this_minute += 1
-        self.total_calls += 1
-
+        # Counting happens in record_llm_call, once the call has actually been made.
+        # Counting approvals here instead left calls_this_minute at 0 for every
+        # caller that goes straight through can_call_llm, so the rate limit never
+        # tripped; counting in both places would double-count the callers that don't.
         return True, "Approved"
 
     def _get_approval_message(self, call_type: LLMCallType, user_input: str) -> str:
@@ -190,6 +251,7 @@ class LLMPolicy:
             LLMCallType.PHRASE_MICRO: "I need short phrasing polish only. Proceed?",
             LLMCallType.PHRASE_STRUCTURED: "I need a structured rewrite only. Proceed?",
             LLMCallType.AUDIT_LOGIC: "I want to verify my reasoning logic. Proceed with audit?",
+            LLMCallType.INTENT_CLASSIFICATION: "I'm not sure what you're asking for. Should I work it out with AI?",
             # Legacy types (backward compatibility)
             LLMCallType.CHITCHAT: "I don't have a learned response for that. Would you like me to use AI to answer it? (This helps me learn!)",
             LLMCallType.TOOL_FORMATTING: "I have the information but need to format it nicely. Proceed with AI help?",
@@ -206,7 +268,7 @@ class LLMPolicy:
         llm_response: str,
         approved_by_user: bool = False,
     ):
-        """Record an LLM call for tracking"""
+        """Record an LLM call for tracking, and count it against the rate limit."""
         record = LLMCallRecord(
             timestamp=datetime.now(),
             call_type=call_type,
@@ -215,6 +277,13 @@ class LLMPolicy:
             approved_by_user=approved_by_user,
         )
         self.call_history.append(record)
+
+        now = record.timestamp
+        if (now - self.last_minute_reset).total_seconds() >= 60:
+            self.calls_this_minute = 0
+            self.last_minute_reset = now
+        self.calls_this_minute += 1
+        self.total_calls += 1
 
         # Keep only last 100 records
         if len(self.call_history) > 100:
@@ -282,7 +351,7 @@ def get_llm_policy() -> LLMPolicy:
     if _llm_policy_instance is None:
         # Default: restrictive policy
         _llm_policy_instance = LLMPolicy(
-            max_calls_per_minute=10,
+            max_calls_per_minute=_configured_rate_limit(DEFAULT_MAX_CALLS_PER_MINUTE),
             allow_llm_for_chitchat=False,  # Use learned patterns
             allow_llm_for_tools=False,  # Use simple formatters
             allow_llm_for_generation=True,  # Allow for complex tasks
@@ -313,7 +382,7 @@ def configure_minimal_policy():
     """
     global _llm_policy_instance
     _llm_policy_instance = LLMPolicy(
-        max_calls_per_minute=5,  # Very restrictive rate limit
+        max_calls_per_minute=_configured_rate_limit(30),  # Tight, but not so tight it stalls a turn
         allow_llm_for_chitchat=False,  # Never use LLM for chitchat - learn patterns
         allow_llm_for_tools=False,  # Never use LLM for tool formatting - use simple formatters
         allow_llm_for_generation=True,  # Allow LLM for complex generation (with approval)
