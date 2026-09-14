@@ -2356,37 +2356,22 @@ class ALICE:
             context_types.insert(0, "goal")
             self._think(f"Goal context → {goal.description[:50]}...")
 
-        # 0.5. Self-Reflection Capability - ALWAYS include when user asks about code/access
-        code_keywords = [
-            "code",
-            "improve",
-            "analyze",
-            "read file",
-            "my code",
-            "your code",
-            "alice code",
-            "show code",
-            "list files",
-            "access to",
-            "internal code",
-            "codebase",
-            "see code",
-            "have access",
-            "can you see",
-            "your files",
-        ]
-        if any(word in user_input.lower() for word in code_keywords):
-            codebase_summary = self.self_reflection.get_codebase_summary()
-            reflection_context = (
-                "CRITICAL: You ARE A.L.I.C.E, an AI system with read-only access to your own codebase. "
-            )
-            reflection_context += f"Your codebase is at {codebase_summary['base_path']} with {codebase_summary['total_files']} Python files. "
-            reflection_context += "You can read files, analyze code, search, and suggest improvements through the self_reflection system. "
-            reflection_context += "When asked about code access, confirm you have it and offer to read/analyze files. "
-            reflection_context += "You are NOT a generic LLM - you are A.L.I.C.E with self-reflection capabilities!"
-            context_parts.insert(1, reflection_context)  # After goal, before personalization
-            context_types.insert(1, "self_reflection")
-            self._think("Self-reflection context added")
+        # A block here used to fire on any input containing "code", "analyze",
+        # "access to" or "can you see", and told the model:
+        #
+        #     "When asked about code access, confirm you have it and offer to
+        #      read/analyze files."
+        #
+        # That is an instruction to talk about looking instead of looking —
+        # written into the prompt, and the exact failure docs/north_star.md names
+        # as this project's recurring bug. Asked what was in a file, Alice would
+        # announce her capabilities and offer to read it.
+        #
+        # The agent loop already advertises list_workspace_files,
+        # read_workspace_file and search_workspace as real tool schemas, and the
+        # persona's tool addendum says a question about her own code is answered
+        # by reading it. A model discovering it can look is strictly better than
+        # one told to say that it can.
 
         # 0.7. Recent plugin data (e.g., weather from last query)
         weather_relevant = bool(

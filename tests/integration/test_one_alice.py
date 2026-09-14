@@ -13,7 +13,10 @@ import re
 
 import pytest
 
-pytestmark = pytest.mark.xfail(
+# Applied per test rather than to the module, so a marker can come off the
+# moment its defect is fixed. A strict xfail that starts passing is reported as
+# a failure, which is the signal that the fix landed.
+SPLIT_IDENTITY = pytest.mark.xfail(
     strict=True, reason="Alice's identity is split across five prompts; see docs/north_star.md"
 )
 
@@ -37,6 +40,7 @@ def _personas():
     }
 
 
+@SPLIT_IDENTITY
 def test_every_user_facing_prompt_says_who_she_is():
     """A prompt whose identity is "You are a concise assistant" produces a concise
     assistant. The user opens Alice and is greeted by a generic short-answer bot."""
@@ -44,6 +48,7 @@ def test_every_user_facing_prompt_says_who_she_is():
     assert not anonymous, f"prompts with no identity: {anonymous}"
 
 
+@SPLIT_IDENTITY
 def test_every_user_facing_prompt_knows_who_it_is_talking_to():
     """Continuity is the whole point of a companion. A prompt that does not name
     the user cannot behave like one."""
@@ -51,6 +56,7 @@ def test_every_user_facing_prompt_knows_who_it_is_talking_to():
     assert not strangers, f"prompts that do not know the user: {strangers}"
 
 
+@SPLIT_IDENTITY
 def test_the_phrasing_path_is_not_told_it_is_not_alice():
     """PHRASER_PROMPT tells the model it is a text formatter and must not add
     personality, and the caller then hands it Alice's personality block. Told to
@@ -75,6 +81,7 @@ def _persona_text() -> str:
     return match.group(1)
 
 
+@SPLIT_IDENTITY
 def test_the_persona_is_not_mostly_prohibitions():
     """The persona enumerates everything Alice must not say and almost nothing she
     should sound like. For a model optimising against dozens of prohibitions, the
@@ -86,6 +93,7 @@ def test_the_persona_is_not_mostly_prohibitions():
     assert negatives <= 8, f"{negatives} negative constraints in a {words}-word persona"
 
 
+@SPLIT_IDENTITY
 def test_the_persona_shows_rather_than_only_tells():
     """An 8B local model imitates far better than it follows. A persona with no
     worked example of an actual Alice reply gives it nothing to copy."""
@@ -94,18 +102,38 @@ def test_the_persona_shows_rather_than_only_tells():
     assert has_example, "the persona contains no example exchange to imitate"
 
 
+def _code_without_comments(path) -> str:
+    """Source with comment lines dropped.
+
+    A comment that quotes a removed prompt string reads identically to the
+    string itself, so a plain grep cannot tell "we deleted this" from "this is
+    still here". Only live code counts.
+    """
+    kept = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        kept.append(line.split("  #", 1)[0])
+    return "\n".join(kept)
+
+
 def test_the_prompt_does_not_instruct_her_to_offer_instead_of_act():
-    """app/main.py builds a block ending "confirm you have it and offer to
-    read/analyze files" — an instruction to talk about looking rather than look,
-    which is the exact failure docs/north_star.md names as the recurring bug."""
+    """app/main.py built a block ending with an instruction to confirm she has
+    code access and offer to read files — talking about looking rather than
+    looking, the exact failure docs/north_star.md names as the recurring bug."""
     from pathlib import Path
 
     source = Path(__file__).resolve().parents[2] / "app" / "main.py"
-    text = source.read_text(encoding="utf-8")
-    offenders = re.findall(r"offer to read/analyze files|confirm you have it", text, re.I)
+    offenders = re.findall(
+        r"offer to read/analyze files|confirm you have it",
+        _code_without_comments(source),
+        re.I,
+    )
     assert not offenders, f"prompt instructs her to offer rather than act: {offenders}"
 
 
+@SPLIT_IDENTITY
 def test_personality_is_addressed_to_alice_not_about_her():
     """build_personality_system_instructions emits "Current ALICE personality
     drift:" followed by dials. That is a monitoring readout describing a system
@@ -119,6 +147,7 @@ def test_personality_is_addressed_to_alice_not_about_her():
     )
 
 
+@SPLIT_IDENTITY
 def test_stated_user_interests_are_plausible_interests():
     """The live block currently lists "wednesday" and "forecast" among the topics
     Gabriel cares about. A day of the week is not an interest; it is a word that
