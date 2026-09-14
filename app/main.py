@@ -6327,58 +6327,51 @@ class ALICE:
 
         return " | ".join(context_parts) if context_parts else ""
 
+    # Session state lives in JSON, not pickle: unpickling executes whatever the
+    # file says to, and in the Docker image data/ is a bind mount.
+    CONVERSATION_STATE_PATH = "data/conversation_state.json"
+    CONTEXT_STATE_PATH = "data/context_state.json"
+
     def _load_conversation_state(self):
-        """Load conversation state from previous session"""
-        import pickle
-        import os
+        """Load conversation state from the previous session."""
+        from ai.infrastructure.state_file import load_json, retire_pickle_state
 
-        state_file = "data/conversation_state.pkl"
+        retire_pickle_state("data/conversation_state.pkl")
+        retire_pickle_state("data/context_state.pkl")
 
-        if os.path.exists(state_file):
+        state = load_json(self.CONVERSATION_STATE_PATH)
+        if state:
             try:
-                with open(state_file, "rb") as f:
-                    state = pickle.load(f)
+                if "conversation_summary" in state:
+                    self.conversation_summary = list(state["conversation_summary"])[-5:]  # Last 5 only
+                if "conversation_topics" in state:
+                    self.conversation_topics = list(state["conversation_topics"])[-5:]
+                if "referenced_items" in state:
+                    self.referenced_items = state["referenced_items"]
+                if state.get("conversation_state_tracker") and getattr(self, "conversation_state_tracker", None):
+                    self.conversation_state_tracker.load_state(state["conversation_state_tracker"])
 
-                    # Restore conversation summary (only recent ones)
-                    if "conversation_summary" in state:
-                        self.conversation_summary = state["conversation_summary"][-5:]  # Last 5 only
+                # Restore adaptive routing weights (with decay toward neutral)
+                if getattr(self, "executive_controller", None):
+                    self.executive_controller.load_weights("data/executive_routing_weights.json")
 
-                    # Restore topics
-                    if "conversation_topics" in state:
-                        self.conversation_topics = state["conversation_topics"][-5:]
-
-                    # Restore referenced items
-                    if "referenced_items" in state:
-                        self.referenced_items = state["referenced_items"]
-
-                    if "conversation_state_tracker" in state and getattr(self, "conversation_state_tracker", None):
-                        self.conversation_state_tracker.load_state(state["conversation_state_tracker"])
-
-                    # Restore adaptive routing weights (with decay toward neutral)
-                    if getattr(self, "executive_controller", None):
-                        self.executive_controller.load_weights("data/executive_routing_weights.json")
-
-                    logger.info("[OK] Previous conversation context restored")
+                logger.info("[OK] Previous conversation context restored")
             except Exception as e:
-                logger.warning(f"[WARNING] Could not load conversation state: {e}")
+                logger.warning(f"[WARNING] Could not restore conversation state: {e}")
 
-        # Load advanced context state if available
+        # Entity registry and pronoun stack. This used to read
+        # data/advanced_context_state.pkl while the save wrote
+        # data/context_state.pkl, so the two never met and context never
+        # survived a restart.
         if self.advanced_context:
-            advanced_state_file = "data/advanced_context_state.pkl"
-            if os.path.exists(advanced_state_file):
-                try:
-                    self.advanced_context.load_state(advanced_state_file)
-                    logger.info("[OK] Advanced context state restored")
-                except Exception as e:
-                    logger.warning(f"[WARNING] Could not load advanced context state: {e}")
+            try:
+                self.advanced_context.load_state(self.CONTEXT_STATE_PATH)
+            except Exception as e:
+                logger.warning(f"[WARNING] Could not load context state: {e}")
 
     def _save_conversation_state(self):
-        """Save conversation state for next session"""
-        import pickle
-        import os
-
-        os.makedirs("data", exist_ok=True)
-        state_file = "data/conversation_state.pkl"
+        """Save conversation state for the next session."""
+        from ai.infrastructure.state_file import save_json_atomic
 
         try:
             state = {
@@ -6392,18 +6385,15 @@ class ALICE:
                 ),
                 "timestamp": datetime.now().isoformat(),
             }
-
-            with open(state_file, "wb") as f:
-                pickle.dump(state, f)
+            save_json_atomic(self.CONVERSATION_STATE_PATH, state)
 
             # Persist adaptive routing weights for cumulative learning
             if getattr(self, "executive_controller", None):
                 self.executive_controller.save_weights("data/executive_routing_weights.json")
 
-            # Save context state if available
+            # Written to the path _load_conversation_state actually reads.
             if self.context:
-                context_state_file = "data/context_state.pkl"
-                self.context.save_state(context_state_file)
+                self.context.save_state(self.CONTEXT_STATE_PATH)
 
             logger.info("[OK] Conversation state saved")
         except Exception as e:

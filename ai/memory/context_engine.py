@@ -8,10 +8,11 @@ import json
 import os
 import logging
 import re
-import pickle
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 from dataclasses import dataclass, asdict, field
+
+from ai.infrastructure.state_file import load_json, retire_pickle_state, save_json_atomic
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -230,10 +231,11 @@ class ContextEngine:
                     self.user_prefs = UserPreferences(**data)
                 logger.info(f"Loaded preferences for {self.user_prefs.name}")
 
-            memory_path = os.path.join(self.data_dir, "semantic_memory.pkl")
-            if os.path.exists(memory_path):
-                with open(memory_path, "rb") as f:
-                    self.semantic_memory = pickle.load(f)
+            retire_pickle_state(os.path.join(self.data_dir, "semantic_memory.pkl"))
+            memory_path = os.path.join(self.data_dir, "semantic_memory.json")
+            loaded = load_json(memory_path)
+            if loaded:
+                self.semantic_memory = loaded
                 logger.info(f"Loaded {len(self.semantic_memory)} memory entries")
 
         except Exception as e:
@@ -242,16 +244,13 @@ class ContextEngine:
     def save_context(self):
         """Save context to disk"""
         try:
-            # Save user preferences
-            prefs_path = os.path.join(self.data_dir, "user_prefs.json")
-            with open(prefs_path, "w", encoding="utf-8") as f:
-                prefs_dict = asdict(self.user_prefs)
-                json.dump(prefs_dict, f, indent=2)
+            # Save user preferences. Written atomically: open(..., "w") empties
+            # the file first, so an interrupted save left it blank, which reads
+            # back on the next start as a user with no preferences at all.
+            save_json_atomic(os.path.join(self.data_dir, "user_prefs.json"), asdict(self.user_prefs))
 
             # Save semantic memory
-            memory_path = os.path.join(self.data_dir, "semantic_memory.pkl")
-            with open(memory_path, "wb") as f:
-                pickle.dump(self.semantic_memory, f)
+            save_json_atomic(os.path.join(self.data_dir, "semantic_memory.json"), self.semantic_memory)
 
             logger.info("Context saved successfully")
 
@@ -748,16 +747,20 @@ class ContextEngine:
             "timestamp": datetime.now().isoformat(),
         }
 
-        with open(filepath, "wb") as f:
-            pickle.dump(state, f)
+        # JSON, not pickle: this dict is already made of strings, numbers and
+        # plain containers, and unpickling on load would execute whatever the
+        # file said to. Written atomically so an interrupted save cannot leave
+        # the entity registry truncated.
+        save_json_atomic(filepath, state)
 
         logger.info(f"Context state saved to {filepath}")
 
     def load_state(self, filepath: str):
         """Load context state from file"""
         try:
-            with open(filepath, "rb") as f:
-                state = pickle.load(f)
+            state = load_json(filepath)
+            if not state:
+                return
 
             # Restore entities
             for eid, entity_data in state.get("entities", {}).items():
