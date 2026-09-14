@@ -135,19 +135,17 @@ python test_init.py
 
 ## Docker
 
-Default compose path is intentionally minimal (alice service).
-Optional profiles:
-
-1. `llm` for local Ollama service
-2. `ops` for Redis cache service
-
-Examples:
+`docker compose up --build` starts Alice plus a local Ollama and waits for the
+model server to report healthy.
 
 ```bash
 docker compose up --build
-docker compose --profile llm up --build
-docker compose --profile ops up --build
+docker compose --profile gpu up --build   # attach an NVIDIA GPU to Ollama
 ```
+
+The GPU is opt-in because a `reservations.devices` block is a hard requirement
+rather than a preference: with it always on, `docker compose up` fails outright
+on any machine without an NVIDIA card instead of running on CPU.
 
 ## Repository Notes
 

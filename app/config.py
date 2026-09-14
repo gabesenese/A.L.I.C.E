@@ -7,6 +7,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Runtime configuration, read from ALICE_* environment variables or .env.
+
+    Every field here is read by something. A setting nobody reads is worse than
+    no setting: it invites an operator to configure behavior that will not
+    change. `memory_backend`, `chroma_host`, `chroma_port`, `enable_vision`,
+    `enable_web_search`, `json_logs` and `default_safety_level` were all in that
+    state and have been removed — the chroma ones outlived the only module that
+    imported chromadb.
+
+    If you add a field, wire it up in the same change.
+    """
+
     # Ollama.
     # An explicit alias replaces the env_prefix rather than adding to it, so
     # declaring alias="OLLAMA_HOST" meant the prefixed name never worked —
@@ -17,35 +29,21 @@ class Settings(BaseSettings):
         default="http://localhost:11434",
         validation_alias=AliasChoices("ALICE_OLLAMA_HOST", "OLLAMA_HOST"),
     )
-    ollama_model: str = "llama3.3:70b"
-    ollama_embedding_model: str = "nomic-embed-text"
-
-    # Pipeline
-    max_history: int = 30
-    temperature: float = 0.7
-    max_tokens: int = 4096
+    # A 70B model is not a default a local assistant can assume; it needs ~40GB
+    # of RAM to run at all. The CLI already defaulted to llama3.1:8b, so the two
+    # entry points disagreed about which model Alice runs.
+    ollama_model: str = "llama3.1:8b"
 
     # Features
     enable_voice: bool = False
-    enable_vision: bool = False
-    enable_web_search: bool = False
     runtime_mode: str = "minimal"
-
-    # Memory
-    memory_backend: str = "chroma"
-    chroma_host: str = "chroma"
-    chroma_port: int = 8000
 
     # Logging
     log_level: str = "INFO"
-    json_logs: bool = True
 
     # HTTP API. Comma-separated list of allowed origins; "*" disables
     # credentialed cross-origin requests (see app/api/middleware).
     cors_origins: str = "*"
-
-    # Safety
-    default_safety_level: int = 1
 
     model_config = SettingsConfigDict(
         env_prefix="ALICE_",

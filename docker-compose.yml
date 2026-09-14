@@ -8,8 +8,6 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
-      chroma:
-        condition: service_started
     volumes:
       - ./data:/app/data
 
@@ -17,6 +15,24 @@ services:
     image: ollama/ollama:latest
     volumes:
       - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Opt-in GPU. A `reservations.devices` block for an nvidia driver is a hard
+  # requirement, not a preference: on a machine without one — every Mac, and
+  # most Linux desktops — `docker compose up` fails outright rather than falling
+  # back to CPU. A local assistant has to start on the machine it is on.
+  #
+  #   docker compose --profile gpu up --build
+  #
+  # runs the same Ollama with the GPU attached instead.
+  ollama-gpu:
+    extends:
+      service: ollama
+    profiles: ["gpu"]
     deploy:
       resources:
         reservations:
@@ -24,17 +40,6 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  chroma:
-    image: chromadb/chroma:latest
-    volumes:
-      - chroma_data:/chroma/chroma
 
 volumes:
   ollama_models:
-  chroma_data:
