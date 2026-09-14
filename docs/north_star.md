@@ -170,7 +170,50 @@ feature.
 Before adding a layer, check whether the existing one is actually wired up. It
 is frequently not.
 
-### 9. If you cannot measure it, you cannot claim it.
+### 9. One character, composed per path. Never copied.
+
+Alice had five system prompts on five paths a real turn could take, and the
+character the repo had actually written reached exactly one of them. The greeting
+ran on "You are a concise assistant". The agent loop ran on six numbered rules
+with no name and no memory. The phrasing path was told, in as many words, that it
+was a text formatter and must not add personality — and a model told to be a
+formatter formats, which is what a rendered field reads like.
+
+Nobody decided that. It happened because each path was written where it was
+needed, and prompts are easy to copy.
+
+So: `ai/core/persona.py` holds the character, and every user-facing path composes
+it. A path may add what is different about *that turn* — it has tools, it is
+saying a payload it already has, it should be brief. The moment it says who is
+speaking, it is a second persona and the two start drifting. `tests/integration/
+test_one_alice.py` enumerates the paths and fails if a new one appears with its
+own identity.
+
+Two consequences worth stating, because they are not obvious:
+
+**Show, do not tell.** An 8B local model imitates far better than it follows.
+Most of the persona is worked exchanges for that reason, and the examples are
+deliberately uneven in length — terse examples alone teach terseness, which reads
+as curt rather than direct.
+
+**A prohibition is not free.** The old persona was 777 words carrying 25
+"never"s. A model optimising against that many rules finds that the shortest bare
+declarative sentence violates the fewest, so it avoided sounding like a chatbot by
+sounding like nothing. Constraints that are really quality checks — "never invent
+a file path" — belong next to the grounding checks, where a violation can be
+measured, not in a prompt paying rent on every turn.
+
+**Adjectives arriving after the examples win.** The drift engine appended
+"Personality calibration: elaborate responses are welcome; casual tone is
+preferred; light humor is welcome", and `brain/personality.py` appended "show
+active curiosity; ask one well-chosen follow-up". Both landed *after* the worked
+exchanges, in the strongest recency position of the turn, and on an 8B the last
+positive instruction usually wins. That single follow-up line was most of why
+every reply ended with an offer to help. Learned signal has to shape behaviour —
+what she volunteers, how readily she reaches for a tool — not a longer string of
+adjectives at the end of the prompt.
+
+### 10. If you cannot measure it, you cannot claim it.
 
 `scripts/quality_harness.py` runs real turns against a real model and checks them
 mechanically. Any claim about Alice being "better" should be a diff between two

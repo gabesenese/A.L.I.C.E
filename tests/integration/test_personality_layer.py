@@ -1,3 +1,5 @@
+import pytest
+
 from ai.contracts import RouterDecision
 from ai.runtime.companion_runtime import (
     CompanionRuntimeLoop,
@@ -46,7 +48,12 @@ def test_interests_grow_after_topic_appears_three_times(tmp_path):
     assert "runtime" in model.get_personality()["interests"]
 
 
-def test_personality_prompt_translates_weights_to_instructions(tmp_path):
+def test_the_drift_layer_appends_facts_not_adjectives(tmp_path):
+    """It used to emit "Current ALICE personality drift:" and then dials —
+    directness, humor, concern sensitivity — appended after the persona's worked
+    exchanges, where on an 8B the last positive instruction wins. What survives is
+    the part that is a fact about the user rather than a tone knob aimed at Alice.
+    """
     model = WorldModel(tmp_path / "world_model.json")
     model.update_personality(
         {
@@ -61,9 +68,21 @@ def test_personality_prompt_translates_weights_to_instructions(tmp_path):
     prompt = apply_personality_to_system_prompt("Base prompt", world_model=model)
 
     assert prompt.startswith("Base prompt")
-    assert "Current ALICE personality drift" in prompt
-    assert "be direct, concise, and practical" in prompt
     assert "heartbeat" in prompt
+    assert "personality drift" not in prompt.lower()
+    for adjective in ("concise", "humor", "wit", "direct", "follow-up"):
+        assert adjective not in prompt.lower(), f"{adjective!r} overrides the persona from recency position"
+
+
+def test_the_dials_are_still_learned_even_though_they_no_longer_shape_prose(tmp_path):
+    """Reviving them means a behavioural lever, not a longer string of adjectives,
+    so the learned values have to survive the change that stopped rendering them."""
+    model = WorldModel(tmp_path / "world_model.json")
+    model.update_personality({"directness": 0.8, "humor_threshold": 0.8})
+
+    stored = model.get_personality()
+    assert stored["directness"] == pytest.approx(0.8)
+    assert stored["humor_threshold"] == pytest.approx(0.8)
 
 
 def test_companion_runtime_updates_personality_after_turn(tmp_path):
@@ -110,7 +129,10 @@ def test_companion_runtime_updates_personality_after_turn(tmp_path):
     assert model.get_personality_meta()["short_response_streak"] == 2
 
 
-def test_personality_instruction_function_bounds_bad_payload():
+def test_a_bad_payload_adds_nothing_rather_than_raising():
+    """Out-of-range dials and a non-numeric one used to be clamped and described.
+    Nothing describes them now, so the only contract left is that a malformed
+    personality cannot take down the turn that was building a system prompt."""
     instructions = personality_to_system_instructions(
         {
             "curiosity_weight": 10,
@@ -120,5 +142,10 @@ def test_personality_instruction_function_bounds_bad_payload():
         }
     )
 
-    assert "Current ALICE personality drift" in instructions
-    assert "Follow-up behavior" in instructions
+    assert instructions == ""
+
+
+def test_interests_are_the_one_thing_the_layer_still_contributes():
+    assert personality_to_system_instructions({"interests": ["heartbeat", "embeddings"]}) == (
+        "He has been working on: heartbeat, embeddings."
+    )

@@ -49,16 +49,21 @@ LOGGED_INTERACTIONS_PATH = "data/training/logged_interactions.jsonl"
 INTENT_CLASSIFICATION_MAX_TOKENS = 256
 
 
-def _accepts_timeout(fn: Callable[..., Any]) -> bool:
-    """Whether an engine method takes a per-call timeout override.
+def _accepts(fn: Callable[..., Any], parameter: str) -> bool:
+    """Whether an engine method takes a given optional keyword.
 
     The gateway is written against a duck-typed engine (production code and test
-    doubles both), so the optional override is offered, not assumed.
+    doubles both), so optional arguments are offered, not assumed.
     """
     try:
-        return "timeout" in inspect.signature(fn).parameters
+        return parameter in inspect.signature(fn).parameters
     except (TypeError, ValueError):
         return False
+
+
+def _accepts_timeout(fn: Callable[..., Any]) -> bool:
+    """Whether an engine method takes a per-call timeout override."""
+    return _accepts(fn, "timeout")
 
 
 @dataclass
@@ -341,9 +346,16 @@ class LLMGateway:
 
             # Tool-based routing: Alice uses Ollama as a tool
             if call_type == LLMCallType.QUERY_KNOWLEDGE:
-                # Alice asks Ollama for factual knowledge
+                # A lookup whose answer is the reply, so it is said in Alice's
+                # voice. The pre-flight lookup in _knowledge_assist is the other
+                # case: its result feeds a generation that speaks, so it stays
+                # plain.
                 question = prompt if prompt else user_input
-                response = self.llm.query_knowledge(question, temperature=sampling)
+                lookup = self.llm.query_knowledge
+                if _accepts(lookup, "voiced"):
+                    response = lookup(question, temperature=sampling, voiced=True)
+                else:
+                    response = lookup(question, temperature=sampling)
 
             elif call_type == LLMCallType.PARSE_INPUT:
                 # Alice asks Ollama to parse complex input

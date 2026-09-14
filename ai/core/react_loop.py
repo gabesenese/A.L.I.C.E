@@ -17,31 +17,28 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from ai.core import persona
 from ai.core import tool_catalog as catalog
+from ai.runtime.response_discipline import strip_speaker_label
 from ai.runtime.trust_tiers import TIER_CONFIRM, TIER_REFUSE, classify
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_STEPS = 6
 DEFAULT_DEADLINE_SECONDS = 90.0
-MAX_OBSERVATION_CHARS = 4000
+# Six observations at 4000 characters is roughly 6000 tokens, against a num_ctx
+# of 8192 shared with the system prompt and ~700 tokens of tool schemas. A long
+# chain overflowed, and Ollama trims from the front — which is where the
+# grounding rules live. The tail of a file dump is worth less than "never guess",
+# so the observation budget gives way first.
+MAX_OBSERVATION_CHARS = 2500
 
-SYSTEM_PROMPT = (
-    "You are Alice, operating on Gabriel's machine. You have tools that read the real "
-    "filesystem and real services.\n"
-    "Rules:\n"
-    "1. If a question can be answered by a tool, call the tool. Never guess file names, "
-    "file contents, note contents, or system values.\n"
-    "2. After a tool returns, answer from what it actually returned. If it returned nothing "
-    "useful, say so plainly.\n"
-    "3. Chain tools when needed: list or search first, then read what you found.\n"
-    "4. Answer in at most four sentences unless asked for detail. No preamble, no restating "
-    "the question, no offers to help further.\n"
-    "5. Never mention tools, tool calls, or how you obtained the information. State the finding "
-    "directly, as if you simply looked.\n"
-    "6. Only call a tool when the message actually asks for information a tool provides. "
-    "Conversation, acknowledgements, corrections, and opinions are answered directly, with no tool."
-)
+# The loop used to run on six numbered rules with no name and no memory, so once
+# ordinary turns started reaching it, most substantive questions were answered by
+# a voice that knew nothing about the user. It is the same Alice as the
+# conversational path now — same character text, byte for byte — narrowed to what
+# is different about a turn that can go and look. See ai/core/persona.py.
+SYSTEM_PROMPT = persona.for_tools()
 
 
 @dataclass
@@ -188,7 +185,7 @@ class ReactLoop:
                 break
 
             if not response.tool_calls:
-                result.answer = response.content
+                result.answer = strip_speaker_label(response.content)
                 result.stopped_reason = result.stopped_reason or "answered"
                 break
 
@@ -308,11 +305,15 @@ class ReactLoop:
         closing = list(messages) + [
             {
                 "role": "system",
-                "content": "Answer now from the tool results above, in at most four sentences. Do not call more tools.",
+                # No sentence cap here. This line sits in the strongest recency
+                # position of the whole turn, and capping it at four sentences is
+                # what turned a finding into a status line; the voice prompt
+                # already governs length.
+                "content": "Answer now from the tool results above. Do not call more tools.",
             }
         ]
         try:
-            return self.llm.chat_with_tools(closing, tools=None).content
+            return strip_speaker_label(self.llm.chat_with_tools(closing, tools=None).content)
         except Exception as exc:
             # An empty answer here is indistinguishable from "the model had nothing
             # to say", and the caller treats it as a reason to fall back to plain
