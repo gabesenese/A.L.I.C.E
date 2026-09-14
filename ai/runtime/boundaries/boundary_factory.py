@@ -2980,11 +2980,15 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         except Exception:
                             pass
 
-                # Strip trailing question on brainstorm/discussion turns — let the take stand.
-                if _is_discussion and llm_text.endswith("?"):
-                    _sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", llm_text) if s.strip()]
-                    if len(_sentences) > 1 and _sentences[-1].endswith("?"):
-                        llm_text = " ".join(_sentences[:-1])
+                # A trailing question used to be stripped here "so the take can
+                # stand" — but the guard required more than one sentence, so it
+                # only ever fired when a take had *already* been given and Alice
+                # then asked something back. That is not a question diluting an
+                # answer; that is the reciprocity that makes an exchange a
+                # conversation, and deleting it is most of what makes a reply
+                # land like output. The case the comment describes — a question
+                # standing in *for* an answer — is caught above by
+                # _is_question_only, which regenerates the turn instead.
 
                 llm_text = apply_response_discipline(llm_text, max_sentences=5 if _is_discussion else 4)
             except Exception:

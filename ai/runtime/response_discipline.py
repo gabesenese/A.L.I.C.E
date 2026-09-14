@@ -37,13 +37,17 @@ _FILLER_INTERJECTIONS = (
     r"got it",
 )
 
+# Servile sign-offs that carry no content. "What do you think?" is deliberately
+# not here: it is a real question, and stripping it removed the reciprocity that
+# makes an exchange two-way rather than a lookup returning a value. An offer to
+# go and do something ("would you like me to…") does stay, because Alice can
+# simply go and do it.
 _FILLER_CLOSINGS = (
     r"let me know if (?:you|there)",
     r"(?:feel free to|don'?t hesitate to) (?:ask|reach out|let me know)",
     r"i'?m here (?:to help|if you)",
     r"would you like (?:me to|to explore)",
     r"hope (?:this|that) helps",
-    r"what (?:do you think|are your thoughts)",
 )
 
 _OPENING_RE = re.compile(
