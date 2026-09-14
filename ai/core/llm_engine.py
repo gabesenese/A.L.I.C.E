@@ -697,6 +697,25 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         messages.append({"role": "user", "content": user_input})
         return messages
 
+    def record_exchange(self, user_input: str, assistant_message: str) -> None:
+        """Add one real exchange to the transcript Alice replays to herself."""
+        self.conversation_history.append({"role": "user", "content": str(user_input or "")})
+        self.conversation_history.append({"role": "assistant", "content": str(assistant_message or "")})
+
+    def amend_last_reply(self, assistant_message: str) -> bool:
+        """Rewrite the last assistant turn in place.
+
+        A caller that regenerates a reply — the retry gate does this when the
+        first pass hedged — should leave the transcript holding what the user was
+        actually shown, not a duplicated question with two different answers
+        under it.
+        """
+        for entry in reversed(self.conversation_history):
+            if isinstance(entry, dict) and entry.get("role") == "assistant":
+                entry["content"] = str(assistant_message or "")
+                return True
+        return False
+
     def chat(
         self,
         user_input: str,
@@ -705,6 +724,7 @@ Be present. Be direct. Be the AI that actually stays in the room."""
         mode: Optional[str] = None,
         context: Optional[str] = None,
         intent: str = "",
+        record_history: Optional[bool] = None,
     ) -> str:
         """
         Send message to LLM with GPU acceleration
@@ -716,6 +736,9 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             mode: Optional output mode (e.g. "final_answer_only")
             context: Extra system-level context for this turn
             intent: Routed intent, used to shape the system prompt
+            record_history: Whether this exchange becomes part of the transcript.
+                Defaults to ``use_history``, because a caller that does not want
+                the conversation as input is, almost always, not having one.
 
         Returns:
             Assistant's response
@@ -744,7 +767,12 @@ Be present. Be direct. Be the AI that actually stays in the room."""
                     "temperature": self._resolve_temperature(temperature),
                     "num_gpu": 1,  # Use GPU
                     "num_thread": 16,  # Utilize your i7-14700K cores
-                    "num_ctx": 4096,  # Context window
+                    # The system prompt, companion context and identity blocks run
+                    # well past a thousand tokens on their own, so at 4096 the
+                    # conversation was squeezed out of its own context window and
+                    # Alice lost the thread inside a single sitting.
+                    # chat_with_tools already asks for 8192.
+                    "num_ctx": 8192,
                 },
             },
             what="chat",
@@ -755,8 +783,16 @@ Be present. Be direct. Be the AI that actually stays in the room."""
             logger.warning("LLM returned an empty chat response")
             return ""
 
-        self.conversation_history.append({"role": "user", "content": user_input})
-        self.conversation_history.append({"role": "assistant", "content": assistant_message})
+        # Only a real exchange belongs in the transcript. These appends used to run
+        # unconditionally, so every internal prompt — goal extraction, plan
+        # generation, greeting scaffolds, the response-variance engine, the
+        # training evaluators — landed in the history Alice replays to herself as
+        # "what we were talking about". She then imitated its register, which is
+        # how an assistant starts answering in an editor's voice for no reason the
+        # user can see. It compounds: the more machinery runs, the more of her
+        # apparent conversational style is machinery talking to itself.
+        if use_history if record_history is None else record_history:
+            self.record_exchange(user_input, assistant_message)
 
         if "eval_count" in result:
             logger.debug(f"Tokens generated: {result.get('eval_count', 'N/A')}")

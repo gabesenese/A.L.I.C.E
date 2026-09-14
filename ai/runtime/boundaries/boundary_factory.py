@@ -2972,6 +2972,13 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         _retry = str(alice.llm.chat(req.user_input, use_history=False) or "").strip()
                     if _retry:
                         llm_text = _retry
+                        # The first pass was recorded; the user is shown this one.
+                        # Leaving both would put the question in the transcript
+                        # twice with two different answers under it.
+                        try:
+                            alice.llm.amend_last_reply(_retry)
+                        except Exception:
+                            pass
 
                 # Strip trailing question on brainstorm/discussion turns — let the take stand.
                 if _is_discussion and llm_text.endswith("?"):
