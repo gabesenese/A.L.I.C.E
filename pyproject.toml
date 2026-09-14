@@ -21,8 +21,6 @@ ignore = ["E501"]
 "ai/plugins/*.py" = ["E402"]
 "ai/memory/*.py" = ["E402"]
 "ai/training/**/*.py" = ["E402"]
-# Unfinished skeleton — suppress until implemented
-"speech/speech_model.py" = ["F401", "F821", "F823"]
 # Optional dependency try/except imports
 "ai/infrastructure/database_pool.py" = ["F401"]
 "ai/core/nlp_processor.py" = ["F401"]
