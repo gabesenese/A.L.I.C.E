@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import re
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from ai.infrastructure.runtime_flags import publish_polish_enabled
 from ai.runtime.fallback_policy import RuntimeFallbackPolicy, FallbackDecision
 
 
@@ -93,6 +94,7 @@ def finalize_conversational_surface(
     text = str(response or "")
     if (
         apply_publish_style
+        and publish_polish_enabled()
         and route not in {"llm_fallback", "contract_tool_response"}
         and callable(getattr(alice, "_publish_with_fast_llm_style", None))
     ):
