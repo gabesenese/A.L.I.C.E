@@ -30,6 +30,7 @@ from ai.contracts import (
     validate_tool_result_payload,
     ToolSchemaValidationError,
 )
+from ai.infrastructure.runtime_flags import is_enabled
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
 from ai.memory.personal_memory import PersonalMemoryStore
 from ai.memory.project_memory import load_project_state, update_project_state
@@ -93,6 +94,32 @@ def _is_workspace_turn(req: Any) -> bool:
     return False
 
 
+# Conversational turns get a tighter budget than workspace ones. Looking something
+# up mid-conversation is one or two lookups; anything longer is the model casting
+# about, and the user is waiting on a reply either way.
+_CONVERSATIONAL_TOOL_STEPS = 3
+_CONVERSATIONAL_TOOL_DEADLINE_SECONDS = 30.0
+
+
+def _may_reach_for_tools(req: Any) -> bool:
+    """Whether the model gets to see the tool surface on this turn.
+
+    The catalog has always held tools for weather, notes and system state, but
+    only codebase turns ever reached the loop, so the model was never given the
+    chance to call them — those turns could only act when the keyword router
+    recognised an intent and dispatched a plugin. A question phrased outside the
+    patterns got a chat reply about the thing rather than the thing itself.
+
+    Turns already routed to a tool or plugin are left alone: that dispatch has
+    the answer in hand and a second opinion would only cost a round trip.
+    """
+    if _is_workspace_turn(req):
+        return True
+    if not is_enabled("conversational_tool_use"):
+        return False
+    return str(getattr(req.decision, "route", "") or "") == "llm"
+
+
 def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any]) -> Any:
     """Let the model reach for a real tool before falling back to plain generation.
 
@@ -106,8 +133,20 @@ def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, An
     from ai.contracts import ResponseOutput
     from ai.core.react_loop import ReactLoop
 
+    workspace_turn = _is_workspace_turn(req)
     try:
-        loop = ReactLoop(llm, plugin_manager=getattr(alice, "plugins", None))
+        loop = ReactLoop(
+            llm,
+            plugin_manager=getattr(alice, "plugins", None),
+            **(
+                {}
+                if workspace_turn
+                else {
+                    "max_steps": _CONVERSATIONAL_TOOL_STEPS,
+                    "deadline_seconds": _CONVERSATIONAL_TOOL_DEADLINE_SECONDS,
+                }
+            ),
+        )
         result = loop.run(str(req.user_input or ""))
     except Exception as exc:
         _logger.warning("Tool grounded answer unavailable, falling back to generation: %s", exc)
@@ -2456,7 +2495,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"type": "deterministic_location"},
             )
 
-        if _is_workspace_turn(req):
+        if _may_reach_for_tools(req):
             grounded_local = _try_tool_grounded_answer(alice, req, operator_state)
             if grounded_local is not None:
                 return grounded_local

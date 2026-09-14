@@ -93,6 +93,10 @@ class ReactResult:
     pending_approval: Dict[str, Any] = field(default_factory=dict)
     refused: Dict[str, Any] = field(default_factory=dict)
     checkpoint: str = ""
+    # Set when tools ran but no closing answer could be composed from them. Kept
+    # apart from stopped_reason so it cannot mask why the loop stopped in the
+    # first place, which is the more useful fact.
+    final_answer_failed: bool = False
 
     @property
     def produced_evidence(self) -> bool:
@@ -108,6 +112,7 @@ class ReactResult:
             "pending_approval": dict(self.pending_approval),
             "refused": dict(self.refused),
             "checkpoint": self.checkpoint,
+            "final_answer_failed": self.final_answer_failed,
             "tool_names": [s.tool for s in self.steps],
         }
 
@@ -151,8 +156,13 @@ class ReactLoop:
         context: Optional[str] = None,
         tool_names: Optional[List[str]] = None,
     ) -> ReactResult:
+        # Advertise only what this loop is actually allowed to run. The ceiling was
+        # computed and then thrown away in favour of RISK_OUTWARD, so with writes
+        # disabled the model was still shown write and outward tools, asked for one,
+        # and had the whole turn discarded as "approval_required" — the user's
+        # request vanished and they got ordinary chat back instead.
         max_risk = catalog.RISK_WRITE if self.allow_write_tools else catalog.RISK_READ
-        tools = catalog.build_tool_schemas(names=tool_names, max_risk=catalog.RISK_OUTWARD)
+        tools = catalog.build_tool_schemas(names=tool_names, max_risk=max_risk)
         if not tools:
             return ReactResult(stopped_reason="no_tools_available")
 
@@ -219,6 +229,22 @@ class ReactLoop:
                     result.stopped_reason = "approval_required"
                     return result
 
+                # Check for a repeat before running it, not after. Executing first
+                # and then saying "you already called this" still ran the command a
+                # second time, which for run_command means the side effect happened
+                # twice while the model was told to ignore the result.
+                signature = (spec.name, tuple(sorted(call.arguments.items(), key=lambda kv: str(kv[0]))))
+                if signature in seen_calls:
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "name": spec.name,
+                            "content": "You already called this tool with these arguments. Answer from the earlier result.",
+                        }
+                    )
+                    continue
+                seen_calls.add(signature)
+
                 if spec.risk != catalog.RISK_READ:
                     self._ensure_checkpoint(result)
 
@@ -240,18 +266,6 @@ class ReactLoop:
                     )
                 )
 
-                signature = (spec.name, tuple(sorted(call.arguments.items(), key=lambda kv: str(kv[0]))))
-                if signature in seen_calls:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "name": spec.name,
-                            "content": "You already called this tool with these arguments. Answer from the earlier result.",
-                        }
-                    )
-                    continue
-                seen_calls.add(signature)
-
                 messages.append(
                     {
                         "role": "tool",
@@ -264,8 +278,8 @@ class ReactLoop:
 
         if not result.answer and result.steps and result.stopped_reason != "approval_required":
             result.answer = self._final_answer(messages)
+            result.final_answer_failed = not result.answer
 
-        _ = max_risk
         return result
 
     def _ensure_checkpoint(self, result: ReactResult) -> None:
@@ -299,5 +313,10 @@ class ReactLoop:
         ]
         try:
             return self.llm.chat_with_tools(closing, tools=None).content
-        except Exception:
+        except Exception as exc:
+            # An empty answer here is indistinguishable from "the model had nothing
+            # to say", and the caller treats it as a reason to fall back to plain
+            # conversation. Say why in the log so a dead model is not read as one
+            # that simply declined to answer.
+            logger.warning("Could not compose a final answer from tool results: %s", exc)
             return ""
