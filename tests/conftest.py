@@ -76,6 +76,26 @@ def restore_data_directory():
 
 
 @pytest.fixture(autouse=True)
+def isolate_memory_store(tmp_path, monkeypatch):
+    """Give every test its own memory database.
+
+    SQLiteMemoryStore's path was a bare constant, so the whole suite wrote to
+    data/memory/alice.db — the user's real memories. Two consequences, both
+    observed. Tests mutated live user data on every run. And several pytest
+    workers plus a background agent hitting one SQLite file produced "database
+    disk image is malformed", after which MemorySystem._load_memories catches the
+    error and the process runs with recall silently disabled — which is also how
+    a test that passes alone fails in a full run.
+    """
+    import ai.memory.memory_store as memory_store
+
+    monkeypatch.setenv("ALICE_MEMORY_DB", str(tmp_path / "alice.db"))
+    monkeypatch.setattr(memory_store, "_memory_store", None, raising=False)
+    yield
+    memory_store._memory_store = None
+
+
+@pytest.fixture(autouse=True)
 def isolate_project_memory(tmp_path, monkeypatch):
     """Give every test its own project memory store.
 

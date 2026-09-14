@@ -1,6 +1,7 @@
 """Recall bookkeeping: the index must not double, and a failed load must be loud."""
 
 import logging
+import sqlite3
 
 import numpy as np
 import pytest
@@ -98,3 +99,78 @@ def test_the_index_is_cleared_before_a_reload(monkeypatch):
     # Even on the failure path the stale index must not survive and be mistaken
     # for current memory.
     assert system.vector_store.ids == []
+
+
+# -- a load that fails transiently -------------------------------------------
+
+
+def _system():
+    system = MemorySystem.__new__(MemorySystem)
+    system.vector_store = VectorStore(dimension=3)
+    system.load_failed = False
+    return system
+
+
+def test_a_transient_failure_is_retried_rather_than_costing_the_session(monkeypatch):
+    """ "database is locked" and "database disk image is malformed" while another
+    process is mid-write are usually gone a moment later. Giving up on the first
+    one means starting up convinced a long-time user is a stranger, for the whole
+    session, over a lock that cleared in 400ms."""
+    system = _system()
+    attempts = {"n": 0}
+
+    def flaky():
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise sqlite3.OperationalError("database is locked")
+        raise AssertionError("should not reach a third call in this test")
+
+    monkeypatch.setattr("ai.memory.memory_store.get_memory_store", flaky)
+    monkeypatch.setattr(MemorySystem, "_LOAD_RETRY_SECONDS", 0.0)
+
+    system._load_memories()
+
+    assert attempts["n"] == 3, "gave up before exhausting the retries"
+
+
+def test_recovering_on_a_retry_clears_the_failure_flag(monkeypatch):
+    system = _system()
+    attempts = {"n": 0}
+
+    class _Store:
+        def count(self):
+            return 1
+
+        def get_all(self, _kind):
+            return []
+
+    def flaky():
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return _Store()
+
+    monkeypatch.setattr("ai.memory.memory_store.get_memory_store", flaky)
+    monkeypatch.setattr(MemorySystem, "_LOAD_RETRY_SECONDS", 0.0)
+    monkeypatch.setattr(MemorySystem, "_load_document_registry", lambda self: None)
+
+    system._load_memories()
+
+    assert system.load_failed is False
+    assert attempts["n"] == 2
+
+
+def test_a_permanent_failure_still_gives_up_and_says_so(monkeypatch, caplog):
+    system = _system()
+
+    def always_broken():
+        raise sqlite3.DatabaseError("database disk image is malformed")
+
+    monkeypatch.setattr("ai.memory.memory_store.get_memory_store", always_broken)
+    monkeypatch.setattr(MemorySystem, "_LOAD_RETRY_SECONDS", 0.0)
+
+    with caplog.at_level(logging.ERROR, logger="ai.memory.memory_system"):
+        system._load_memories()
+
+    assert system.load_failed is True
+    assert any(record.levelno >= logging.ERROR for record in caplog.records)

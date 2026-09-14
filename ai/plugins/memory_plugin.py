@@ -17,7 +17,6 @@ Supports commands like:
 
 import logging
 from typing import Dict, List, Optional, Any
-from datetime import datetime
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -159,6 +158,28 @@ class MemoryPlugin(PluginInterface):
                 "error": str(e),
             }
 
+    # -- the seam between a sentence and the store ---------------------------
+    #
+    # Every call below used to name a method the memory system does not have:
+    # add_episodic_memory, get_recent_memories, search_memories. Each raised
+    # AttributeError into a blanket `except Exception` and came back as a polite
+    # failure string, so "remember that I prefer coffee" answered "Failed to
+    # store preference: 'MemorySystem' object has no attribute
+    # 'add_episodic_memory'" for as long as the plugin has existed. The real API
+    # is store_memory / recall_memory / get_all_memories / _remove_memory_by_id.
+
+    def _recall_is_available(self) -> bool:
+        """Whether an empty result means "nothing stored" or "cannot see".
+
+        docs/north_star.md rule 4: a confident false answer is the worst outcome
+        because the user cannot tell. "I don't have any memories about that" when
+        the memories exist and the load failed is exactly that, wearing the shape
+        of an honest "I don't know".
+        """
+        return not getattr(self.memory, "load_failed", False)
+
+    _UNREACHABLE = "I can't reach my memory this session — it failed to load, so I can't tell you what's in it."
+
     def _store_preference(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Store a user preference or fact"""
         content = entities.get("content") or entities.get("text") or context.get("user_input", "")
@@ -166,86 +187,109 @@ class MemoryPlugin(PluginInterface):
         if not content:
             return {"success": False, "message": "No content to store"}
 
+        topic = entities.get("topic") or "general"
         try:
-            # Extract key-value if possible
-            topic = entities.get("topic") or "general"
-
-            # Store as episodic memory
-            {
-                "content": content,
-                "topic": topic,
-                "timestamp": datetime.now().isoformat(),
-                "type": "preference",
-            }
-
-            # Use memory system's add method
-            success = self.memory.add_episodic_memory(content=content, metadata={"topic": topic, "type": "preference"})
-
-            if success:
-                return {
-                    "success": True,
-                    "message": f"I'll remember that: {content}",
-                    "stored": content,
-                }
-            else:
-                return {"success": False, "message": "Failed to store preference"}
-
+            memory_id = self.memory.store_memory(
+                content=content,
+                memory_type="episodic",
+                context={"topic": topic, "source": "explicit_request"},
+                tags=["preference", topic] if topic != "general" else ["preference"],
+                # Something he asked to be remembered outranks a turn that merely
+                # happened, and importance is what survives consolidation.
+                importance=0.8,
+            )
         except Exception as e:
             logger.error(f"Error storing preference: {e}")
-            return {
-                "success": False,
-                "message": f"Failed to store preference: {str(e)}",
-            }
+            return {"success": False, "message": f"Failed to store preference: {e}"}
+
+        if not memory_id:
+            return {"success": False, "message": "Failed to store preference"}
+        return {
+            "success": True,
+            "message": f"I'll remember that: {content}",
+            "stored": content,
+            "memory_id": memory_id,
+        }
+
+    def _find(self, topic: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Semantic recall, falling back to a substring scan.
+
+        Recall is embedding-backed, and the embedding model is optional — on a
+        machine without it every lookup returns nothing, which reads as "you
+        never told me that". A literal scan is worse than semantic search and far
+        better than silence.
+        """
+        try:
+            hits = self.memory.recall_memory(topic, top_k=limit, min_similarity=0.35)
+        except Exception as e:
+            logger.warning(f"Semantic recall unavailable ({e}); falling back to a literal scan")
+            hits = []
+        if hits:
+            return hits
+
+        needle = str(topic or "").strip().lower()
+        if not needle:
+            return []
+        return [m for m in self.memory.get_all_memories(limit=200) if needle in str(m.get("content", "")).lower()][
+            :limit
+        ]
+
+    @staticmethod
+    def _summarise(memories: List[Dict[str, Any]], limit: int = 3) -> str:
+        return "\n".join(f"- {m.get('content', '')}" for m in memories[:limit])
 
     def _recall_memory(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Recall specific information"""
+        available = self._recall_is_available()
         topic = entities.get("topic") or entities.get("query") or entities.get("about")
 
-        if not topic:
-            # Return general summary
-            try:
-                memories = self.memory.get_recent_memories(limit=5)
-                if memories:
-                    summary = "\n".join([f"- {m.get('content', '')}" for m in memories])
-                    return {
-                        "success": True,
-                        "message": f"Here's what I remember:\n{summary}",
-                        "memories": memories,
-                        "count": len(memories),
-                    }
-                else:
-                    return {
-                        "success": True,
-                        "message": "I don't have any specific memories stored yet.",
-                        "memories": [],
-                        "count": 0,
-                    }
-            except Exception:
-                return {"success": False, "message": "Unable to recall memories"}
+        if not available:
+            return {
+                "success": False,
+                "message": self._UNREACHABLE,
+                "memories": [],
+                "count": 0,
+                "recall_available": False,
+            }
 
         try:
-            # Search for specific topic
-            results = self.memory.search_memories(query=topic, limit=5)
-
-            if results:
-                summary = "\n".join([f"- {r.get('content', '')}" for r in results[:3]])
+            if not topic:
+                memories = self.memory.get_all_memories(limit=5)
+                if not memories:
+                    return {
+                        "success": True,
+                        "message": "Nothing stored yet.",
+                        "memories": [],
+                        "count": 0,
+                        "recall_available": True,
+                    }
                 return {
                     "success": True,
-                    "message": f"Here's what I remember about {topic}:\n{summary}",
-                    "memories": results,
-                    "count": len(results),
+                    "message": f"Here's what I remember:\n{self._summarise(memories, limit=5)}",
+                    "memories": memories,
+                    "count": len(memories),
+                    "recall_available": True,
                 }
-            else:
+
+            results = self._find(topic)
+            if not results:
                 return {
                     "success": True,
                     "message": f"I don't have any memories about {topic}.",
                     "memories": [],
                     "count": 0,
+                    "recall_available": True,
                 }
-
+            return {
+                "success": True,
+                "message": f"Here's what I remember about {topic}:\n{self._summarise(results)}",
+                "memories": results,
+                "count": len(results),
+                "recall_available": True,
+            }
         except Exception as e:
             logger.error(f"Error recalling memory: {e}")
-            return {"success": False, "message": f"Failed to recall memory: {str(e)}"}
+            return {"success": False, "message": f"Failed to recall memory: {e}", "recall_available": True}
 
     def _search_memory(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Search conversation history"""
@@ -254,59 +298,79 @@ class MemoryPlugin(PluginInterface):
         if not query:
             return {"success": False, "message": "No search query specified"}
 
+        if not self._recall_is_available():
+            return {
+                "success": False,
+                "message": self._UNREACHABLE,
+                "results": [],
+                "count": 0,
+                "recall_available": False,
+            }
+
         try:
-            # Search using memory system
-            results = self.memory.search_memories(query=query, limit=10)
-
-            if results:
-                summary = "\n".join([f"- {r.get('content', '')}" for r in results[:5]])
-                return {
-                    "success": True,
-                    "message": f"Found {len(results)} results for '{query}':\n{summary}",
-                    "results": results,
-                    "count": len(results),
-                }
-            else:
-                return {
-                    "success": True,
-                    "message": f"No conversations found about '{query}'.",
-                    "results": [],
-                    "count": 0,
-                }
-
+            results = self._find(query, limit=10)
         except Exception as e:
             logger.error(f"Error searching memory: {e}")
-            return {"success": False, "message": f"Failed to search memory: {str(e)}"}
+            return {"success": False, "message": f"Failed to search memory: {e}", "recall_available": True}
+
+        if not results:
+            return {
+                "success": True,
+                "message": f"Nothing about '{query}'.",
+                "results": [],
+                "count": 0,
+                "recall_available": True,
+            }
+        return {
+            "success": True,
+            "message": f"Found {len(results)} results for '{query}':\n{self._summarise(results, limit=5)}",
+            "results": results,
+            "count": len(results),
+            "recall_available": True,
+        }
 
     def _delete_memory(self, entities: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-        """Delete specific memory or preference"""
+        """Delete specific memory or preference.
+
+        This used to count the matches, return "Cleared N memory entries about
+        X", and delete nothing — with a comment saying deletion "would need to be
+        implemented". On a request to forget something, a false confirmation is
+        the one outcome with no recovery: he believes it is gone and stops asking.
+        """
         topic = entities.get("topic") or entities.get("about")
 
         if not topic:
             return {"success": False, "message": "No topic specified for deletion"}
 
+        if not self._recall_is_available():
+            return {"success": False, "message": self._UNREACHABLE, "deleted_count": 0, "recall_available": False}
+
         try:
-            # Search for matching memories
-            matches = self.memory.search_memories(query=topic, limit=5)
-
-            if matches:
-                # Delete the matches (assuming memory system has delete method)
-                deleted_count = len(matches)
-
-                # Note: Actual deletion would need to be implemented in memory_system.py
-                # For now, just return success message
+            matches = self._find(topic)
+            if not matches:
                 return {
                     "success": True,
-                    "message": f"Cleared {deleted_count} memory entries about {topic}.",
-                    "deleted_count": deleted_count,
-                }
-            else:
-                return {
-                    "success": True,
-                    "message": f"No memories found about {topic} to delete.",
+                    "message": f"Nothing stored about {topic}.",
                     "deleted_count": 0,
+                    "recall_available": True,
                 }
 
+            deleted = [m for m in matches if m.get("id") and self.memory._remove_memory_by_id(m["id"])]
         except Exception as e:
             logger.error(f"Error deleting memory: {e}")
-            return {"success": False, "message": f"Failed to delete memory: {str(e)}"}
+            return {"success": False, "message": f"Failed to delete memory: {e}", "recall_available": True}
+
+        if not deleted:
+            return {
+                "success": False,
+                "message": f"Found {len(matches)} entries about {topic} but could not remove them.",
+                "deleted_count": 0,
+                "recall_available": True,
+            }
+        noun = "entry" if len(deleted) == 1 else "entries"
+        return {
+            "success": True,
+            "message": f"Deleted {len(deleted)} {noun} about {topic}.",
+            "deleted_count": len(deleted),
+            "recall_available": True,
+        }

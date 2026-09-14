@@ -5,6 +5,7 @@ Abstract storage interface for memory entries
 
 import json
 import pickle
+import os
 import sqlite3
 from abc import ABC, abstractmethod
 from contextlib import contextmanager, suppress
@@ -377,7 +378,13 @@ class SQLiteMemoryStore(MemoryStore):
     _DEFAULT_DB = "data/memory/alice.db"
 
     def __init__(self, db_path: Optional[str] = None) -> None:
-        self.db_path = Path(db_path or self._DEFAULT_DB)
+        # ALICE_MEMORY_DB exists because the path was a bare constant, so every
+        # test that touched the memory system wrote to the user's live database.
+        # That is data loss waiting to happen on its own, and running several
+        # processes against one SQLite file is also how it ends up reporting
+        # "database disk image is malformed" — after which the session runs with
+        # no recall at all.
+        self.db_path = Path(db_path or os.getenv("ALICE_MEMORY_DB") or self._DEFAULT_DB)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
         logger.info(f"[SQLiteMemoryStore] Ready at {self.db_path}")

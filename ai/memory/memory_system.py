@@ -16,6 +16,7 @@ import math
 import pickle
 import importlib
 import random
+import time
 import threading
 from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime, timezone
@@ -1414,8 +1415,24 @@ class MemorySystem:
         except Exception as e:
             logger.error(f"[Memory] _save_memories failed: {e}")
 
+    # A load that fails costs the whole session's recall, and the two ways it
+    # fails in practice — "database is locked" and "database disk image is
+    # malformed" while another process is mid-write — are usually gone a moment
+    # later. Three tries over about a second is cheap next to starting up
+    # convinced a long-time user is a stranger.
+    _LOAD_ATTEMPTS = 3
+    _LOAD_RETRY_SECONDS = 0.4
+
     def _load_memories(self):
         """Load memories from SQLite, migrating from memories.json on first run."""
+        for attempt in range(1, self._LOAD_ATTEMPTS + 1):
+            if self._load_memories_once(attempt):
+                return
+            if attempt < self._LOAD_ATTEMPTS:
+                time.sleep(self._LOAD_RETRY_SECONDS * attempt)
+
+    def _load_memories_once(self, attempt: int = 1) -> bool:
+        """One load attempt. Returns whether it succeeded."""
         # Rebuilt from scratch each time: the vector index is repopulated below,
         # and a reload that only appended left every memory in it twice.
         self.vector_store.clear()
@@ -1471,19 +1488,29 @@ class MemorySystem:
 
             self._load_document_registry()
             self.load_failed = False
+            if attempt > 1:
+                logger.info(f"[Memory] Recovered on attempt {attempt}; recall is available.")
+            return True
 
         except Exception as e:
             # A failed load leaves every bucket empty, which is indistinguishable
             # from a first run — Alice greets a long-time user as a stranger and
             # nothing says why. Startup should still survive it, so this stays
-            # non-fatal, but it is an error and it is recorded.
+            # non-fatal, but it is an error and it is recorded. MemoryPlugin reads
+            # load_failed so that "I don't have any memories about that" is not
+            # said over memories that are simply unreachable.
             self.load_failed = True
+            if attempt < self._LOAD_ATTEMPTS:
+                logger.warning(f"[Memory] Load attempt {attempt} failed ({type(e).__name__}: {e}); retrying.")
+                return False
             logger.error(
-                f"[Memory] Could not load memories ({type(e).__name__}: {e}). "
+                f"[Memory] Could not load memories after {attempt} attempts "
+                f"({type(e).__name__}: {e}). "
                 "Alice is running with no recall this session; stored memories are NOT lost, "
                 "but nothing new will be recalled until this is fixed.",
                 exc_info=True,
             )
+            return False
 
     def __enter__(self):
         """Context manager enter"""
