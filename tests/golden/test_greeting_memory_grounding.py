@@ -238,8 +238,9 @@ def test_p_morning_phrase_rejected_in_evening():
         session_state={},
         user_input="hi alice",
         local_time=at_531pm,
-        llm_generate=lambda *args,
-        **kwargs: "Hey Gabriel! It's great to connect with you today. How's your morning going so far?",
+        llm_generate=lambda *args, **kwargs: (
+            "Hey Gabriel! It's great to connect with you today. How's your morning going so far?"
+        ),
     )
     assert "morning" not in result.text.lower()
     assert "time_period_mismatch" in result.validation_reasons

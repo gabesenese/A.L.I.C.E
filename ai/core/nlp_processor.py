@@ -27,19 +27,12 @@ from collections import OrderedDict, defaultdict, deque, Counter
 from pathlib import Path
 import threading
 
-# Core NLP libraries
-try:
-    nltk_mod = importlib.import_module("nltk")
-    sentiment_mod = importlib.import_module("nltk.sentiment")
-    word_tokenize = nltk_mod.word_tokenize
-    SentimentIntensityAnalyzer = sentiment_mod.SentimentIntensityAnalyzer
-except ImportError:  # pragma: no cover
-
-    def word_tokenize(text: str):
-        return text.split()
-
-    SentimentIntensityAnalyzer = None
-    logging.warning("[WARN] NLTK not available. Using basic tokenization and neutral sentiment.")
+# Core NLP libraries.
+# NLTK's corpora are a separate download from the pip package, and both
+# word_tokenize() and SentimentIntensityAnalyzer() raise LookupError at call
+# time when a corpus is missing. ai.core.nltk_support resolves that lazily and
+# falls back to a regex tokenizer / neutral sentiment instead of crashing.
+from ai.core.nltk_support import get_sentiment_analyzer, tokenize as word_tokenize
 
 try:
     sklearn_text = importlib.import_module("sklearn.feature_extraction.text")
@@ -1463,7 +1456,7 @@ class NLPProcessor:
         self._initialized = True
 
         # Core components
-        self.sentiment_analyzer = SentimentIntensityAnalyzer() if SentimentIntensityAnalyzer else None
+        self.sentiment_analyzer = get_sentiment_analyzer()
         self.vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2)) if TfidfVectorizer else None
 
         # Advanced components
@@ -1581,6 +1574,7 @@ class NLPProcessor:
         # Semantic intent classifier
         self.semantic_classifier = None
         self._semantic_classifier_init_attempted = False
+        self._semantic_classifier_lock = threading.Lock()
         self.llm_gateway = None
         self.llm_intent_classifier = None
 
@@ -1708,24 +1702,32 @@ class NLPProcessor:
         self._correction_keys: Optional[List[str]] = None
 
     def _ensure_semantic_classifier(self):
-        """Lazily initialize semantic classifier only when needed."""
+        """Lazily initialize semantic classifier only when needed.
+
+        Guarded by a lock because startup warms this on a background thread while
+        the first real turn may ask for it at the same moment. Unsynchronised,
+        both would sail past the attempted flag and load the model twice.
+        """
         if self.semantic_classifier is not None:
             return self.semantic_classifier
 
-        if self._semantic_classifier_init_attempted:
-            return None
+        with self._semantic_classifier_lock:
+            if self.semantic_classifier is not None:
+                return self.semantic_classifier
+            if self._semantic_classifier_init_attempted:
+                return None
 
-        self._semantic_classifier_init_attempted = True
-        if not SEMANTIC_CLASSIFIER_AVAILABLE:
-            return None
+            self._semantic_classifier_init_attempted = True
+            if not SEMANTIC_CLASSIFIER_AVAILABLE:
+                return None
 
-        try:
-            self.semantic_classifier = get_intent_classifier()
-            logger.info("[OK] Semantic intent classifier loaded (lazy)")
-            return self.semantic_classifier
-        except Exception as e:
-            logger.warning(f"[WARN] Failed to load semantic classifier: {e}")
-            return None
+            try:
+                self.semantic_classifier = get_intent_classifier()
+                logger.info("[OK] Semantic intent classifier loaded (lazy)")
+                return self.semantic_classifier
+            except Exception as e:
+                logger.warning(f"[WARN] Failed to load semantic classifier: {e}")
+                return None
 
     def attach_llm_gateway(self, llm_gateway: Any) -> None:
         """Attach LLM gateway for optional low-confidence intent arbitration."""

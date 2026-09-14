@@ -76,6 +76,32 @@ def restore_data_directory():
 
 
 @pytest.fixture(autouse=True)
+def isolate_memory_store(tmp_path, monkeypatch):
+    """Give every test its own memory database.
+
+    SQLiteMemoryStore's path was a bare constant, so the whole suite wrote to
+    data/memory/alice.db — the user's real memories. Two consequences, both
+    observed. Tests mutated live user data on every run. And several pytest
+    workers plus a background agent hitting one SQLite file produced "database
+    disk image is malformed", after which MemorySystem._load_memories catches the
+    error and the process runs with recall silently disabled — which is also how
+    a test that passes alone fails in a full run.
+    """
+    import ai.goals.goal_store as goal_store
+    import ai.memory.memory_store as memory_store
+
+    monkeypatch.setenv("ALICE_MEMORY_DB", str(tmp_path / "alice.db"))
+    monkeypatch.setattr(memory_store, "_memory_store", None, raising=False)
+    # GoalStore writes goals into the same file, behind its own singleton, so
+    # leaving it alone means the goal stack Gabriel is actually working from
+    # accumulates whatever strings the suite feeds through a turn.
+    monkeypatch.setattr(goal_store, "_store", None, raising=False)
+    yield
+    memory_store._memory_store = None
+    goal_store._store = None
+
+
+@pytest.fixture(autouse=True)
 def isolate_project_memory(tmp_path, monkeypatch):
     """Give every test its own project memory store.
 
@@ -87,6 +113,42 @@ def isolate_project_memory(tmp_path, monkeypatch):
     import ai.memory.project_memory as project_memory
 
     monkeypatch.setattr(project_memory, "PROJECT_MEMORY_PATH", tmp_path / "project_memory.json")
+
+
+@pytest.fixture(autouse=True)
+def reset_routing_confidence_singletons(tmp_path, monkeypatch):
+    """Isolate the learned signals that shift routing confidence between tests.
+
+    Behavioral priors and intent success rates reach routing through
+    process-wide singletons backed by files under data/, so the turns one test
+    drives raise the priors the next test routes under. That moved borderline
+    turns across a decision band and made the suite order dependent: tests
+    passed alone and failed in the same file. Clearing the singletons is not
+    enough on its own — they reload the same accumulated profile from disk — so
+    each test also gets its own profile directory.
+    """
+    import ai.core.confidence_fusion as confidence_fusion
+    import ai.learning.user_profile_engine as user_profile_engine
+    import ai.optimization.clarification_feedback_loop as clarification_feedback_loop
+
+    def _clear():
+        user_profile_engine._profile_engine = None
+        clarification_feedback_loop._loop = None
+        confidence_fusion._fusion = None
+        confidence_fusion.ConfidenceFusion._rates_cache = {}
+        confidence_fusion.ConfidenceFusion._rates_stamp = None
+
+    _clear()
+    profiles_dir = tmp_path / "user_profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    real_get = user_profile_engine.get_profile_engine
+    monkeypatch.setattr(
+        user_profile_engine,
+        "get_profile_engine",
+        lambda storage_path=str(profiles_dir): real_get(storage_path=storage_path),
+    )
+    yield
+    _clear()
 
 
 @pytest.fixture

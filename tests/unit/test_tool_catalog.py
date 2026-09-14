@@ -53,7 +53,9 @@ def test_missing_required_argument_is_reported():
     assert "path" in result.error
 
 
-@pytest.mark.parametrize("escape", ["../../../../Windows/System32/drivers/etc/hosts", "/etc/passwd", "../../.ssh/id_rsa"])
+@pytest.mark.parametrize(
+    "escape", ["../../../../Windows/System32/drivers/etc/hosts", "/etc/passwd", "../../.ssh/id_rsa"]
+)
 def test_reads_outside_the_workspace_are_blocked(escape):
     result = tc.execute_tool("read_workspace_file", {"path": escape})
     assert result.success is False

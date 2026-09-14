@@ -21,13 +21,13 @@ import math
 import os
 import time
 import hashlib
-import io
-import contextlib
 from typing import Dict, List, Tuple, Optional, Set
 from dataclasses import dataclass, asdict, field
 from collections import defaultdict, deque
 import threading
 import numpy as np
+
+from ai.core.quiet_model_load import is_retryable_load_error, quiet_model_load
 
 logger = logging.getLogger(__name__)
 
@@ -352,16 +352,8 @@ class SemanticIntentClassifier:
                 logger.info(f"Loading semantic model: {self.model_name} (attempt {attempt + 1}/{max_retries})")
                 # Set longer timeout for model download
                 os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "60"  # 60 seconds timeout
-                os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 
-                logging.getLogger("paddlenlp").setLevel(logging.ERROR)
-                logging.getLogger("paddlenlp.transformers").setLevel(logging.ERROR)
-                logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
-
-                with (
-                    contextlib.redirect_stdout(io.StringIO()),
-                    contextlib.redirect_stderr(io.StringIO()),
-                ):
+                with quiet_model_load():
                     self.model = SentenceTransformer(
                         self.model_name,
                         device="cpu",  # Explicitly use CPU to avoid GPU issues
@@ -369,18 +361,23 @@ class SemanticIntentClassifier:
                 logger.info("Semantic intent classifier loaded successfully")
                 return
             except Exception as e:
-                if attempt < max_retries - 1:
+                last_attempt = attempt >= max_retries - 1
+                if not last_attempt and is_retryable_load_error(e):
                     logger.warning(f"Failed to load semantic model (attempt {attempt + 1}): {e}")
                     logger.info(f"Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
+                    continue
+
+                if not last_attempt:
+                    logger.warning(f"Semantic model unavailable and retrying will not help: {e}")
                 else:
                     logger.error(f"Failed to load semantic model after {max_retries} attempts: {e}")
-                    logger.warning(
-                        "Semantic intent classifier will be disabled. A.L.I.C.E will use pattern-based matching only."
-                    )
-                    self.model = None  # Set to None instead of raising
-                    return
+                logger.warning(
+                    "Semantic intent classifier will be disabled. A.L.I.C.E will use pattern-based matching only."
+                )
+                self.model = None  # Set to None instead of raising
+                return
 
     def _load_examples(self):
         """Load intent examples from file or create defaults"""

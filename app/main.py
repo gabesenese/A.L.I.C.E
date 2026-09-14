@@ -1,3 +1,5 @@
+import importlib
+import threading
 import os
 import sys
 import logging
@@ -6,14 +8,13 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.bootstrap import create_app
 from app.runtime_modes import RuntimeModeConfig, resolve_runtime_mode
 from brain.heartbeat import Heartbeat
 from brain.ambient_monitor import get_ambient_monitor
 from brain.task_scheduler import TaskScheduler
 
 from ai.infrastructure.rbac import get_rbac_engine
-from ai.infrastructure.runtime_flags import background_services_enabled
+from ai.infrastructure.runtime_flags import background_services_enabled, scripted_overrides_enabled
 from ai.infrastructure.approval_ledger import get_approval_ledger
 from ai.roadmap import get_roadmap_completion_stack
 from ai.integration.git_manager import get_git_manager
@@ -64,7 +65,7 @@ from ai.optimization.system_monitor import get_system_monitor
 from ai.planning.task_planner import get_planner
 from ai.planning.plan_executor import initialize_executor
 from ai.planning.planner import ReasoningPlanner
-from ai.planning.task import PersistentTaskQueue, Task, TaskStatus as QueueTaskStatus
+from ai.planning.task import PersistentTaskQueue, Task
 from ai.core.reasoning_engine import (
     get_reasoning_engine,
 )
@@ -117,7 +118,6 @@ from ai.core.turn_state_assembler import TurnStateAssembler
 from ai.core.turn_state_diff import generate_turn_diff
 from ai.core.world_state_memory import get_world_state_memory
 from ai.core.execution_journal import get_execution_journal
-from ai.core.goal_object import goal_from_any
 from ai.core.bounded_autonomy_manager import AutonomyLoop, get_bounded_autonomy_manager
 from ai.core.autonomy_dispatcher import (
     TinyAutonomyDispatcher,
@@ -163,9 +163,6 @@ from ai.runtime.response_authority import (
     finalize_conversational_surface,
 )
 from ai.runtime.turn_orchestrator import run_default_turn
-from ai.reasoning.routing_decision_logger import (
-    RoutingDecisionLogger,
-)
 
 # ===== 10 TIER IMPROVEMENTS (LAZY IMPORT UNDER QUARANTINE FLAGS) =====
 
@@ -403,12 +400,19 @@ class ALICE:
             # 1. NLP Processor
             logger.info("Loading NLP processor...")
             self.nlp = NLPProcessor()
-            # Pre-warm the semantic classifier so the first user query has no cold-start delay
-            try:
-                self.nlp._ensure_semantic_classifier()
-                logger.info("Semantic classifier pre-warmed.")
-            except Exception:
-                pass  # non-fatal; will lazy-load on first real query
+            # Warm the semantic classifier off the critical path. Loading it means
+            # importing torch and reading a sentence-transformers model, and when the
+            # model is not cached it retries three times with backoff — minutes of
+            # blocking before the prompt appears, on a machine that is offline for
+            # exactly the reason someone runs a local assistant. The classifier is
+            # lazy by design; this only removes the cold start for the first query
+            # that actually needs it.
+            self._classifier_warm_thread = threading.Thread(
+                target=self._warm_semantic_classifier,
+                name="alice-classifier-warm",
+                daemon=True,
+            )
+            self._classifier_warm_thread.start()
             # Shared session objects from NLP stack
             self.dialogue_memory = getattr(self.nlp, "dialogue_memory", None)
             self.fp_store = getattr(self.nlp, "_fp_store", None)
@@ -687,89 +691,115 @@ class ALICE:
                 self.foundations = None
                 self.structured_logger.error(f"Foundation systems failed: {e}", component="foundations")
 
-            # 4.0.5. ===== 10 TIER IMPROVEMENTS INITIALIZATION =====
+            # 4.0.5. ===== TIER IMPROVEMENTS INITIALIZATION =====
+            # Each of these is quarantined by default (see ai/infrastructure/runtime_flags)
+            # and is built only when its flag is set. The log used to announce
+            # "All 10 tier improvements initialized successfully, active_systems=10"
+            # unconditionally, so the ordinary startup — where every flag is off and
+            # nothing is constructed — still reported ten active subsystems.
             if self.runtime_mode_config.enable_advanced_tiers:
-                logger.info("Initializing 10 Tier Improvements (quarantine-aware)...")
-                try:
-                    logger.info("  - Tier 1: Initializing long-session coherence...")
-                    if is_enabled("session_summarizer"):
-                        from ai.memory.session_summarizer import SessionSummarizer
-
-                        self.session_summarizer = SessionSummarizer(summarize_every_n_turns=5)
-
-                    logger.info("  - Tier 1: Initializing capability constraints...")
-                    if is_enabled("capability_constraints"):
-                        from ai.infrastructure.capability_constraints import (
-                            CapabilityConstraintsLedger,
+                logger.info("Initializing tier improvements (quarantine-aware)...")
+                tier_specs = [
+                    (
+                        "session_summarizer",
+                        "session_summarizer",
+                        "ai.memory.session_summarizer",
+                        "SessionSummarizer",
+                        {"summarize_every_n_turns": 5},
+                    ),
+                    (
+                        "capability_constraints",
+                        "capability_constraints",
+                        "ai.infrastructure.capability_constraints",
+                        "CapabilityConstraintsLedger",
+                        {},
+                    ),
+                    (
+                        "result_quality_scorer",
+                        "result_quality_scorer",
+                        "ai.core.result_quality_scorer",
+                        "ResultQualityScorer",
+                        {},
+                    ),
+                    (
+                        "goal_alignment_tracker",
+                        "goal_alignment_tracker",
+                        "ai.learning.goal_alignment_tracker",
+                        "GoalAlignmentTracker",
+                        {},
+                    ),
+                    (
+                        "tone_trajectory_engine",
+                        "tone_trajectory_engine",
+                        "ai.learning.tone_trajectory_engine",
+                        "ToneTrajectoryEngine",
+                        {},
+                    ),
+                    (
+                        "pattern_based_nudger",
+                        "pattern_nudger",
+                        "ai.proactivity.pattern_based_nudger",
+                        "PatternBasedNudger",
+                        {},
+                    ),
+                    (
+                        "system_state_api",
+                        "system_state_api",
+                        "ai.introspection.system_state_api",
+                        "SystemStateAPI",
+                        {},
+                    ),
+                    (
+                        "weak_spot_detector",
+                        "weak_spot_detector",
+                        "ai.learning.weak_spot_detector",
+                        "WeakSpotDetector",
+                        {},
+                    ),
+                    (
+                        "multi_goal_arbitrator",
+                        "multi_goal_arbitrator",
+                        "ai.goals.multi_goal_arbitrator",
+                        "MultiGoalArbitrator",
+                        {},
+                    ),
+                    (
+                        "routing_decision_logger",
+                        "routing_decision_logger",
+                        "ai.reasoning.routing_decision_logger",
+                        "RoutingDecisionLogger",
+                        {},
+                    ),
+                ]
+                active_tiers: List[str] = []
+                for flag, attribute, module_path, class_name, tier_kwargs in tier_specs:
+                    if not is_enabled(flag):
+                        continue
+                    try:
+                        module = importlib.import_module(module_path)
+                        setattr(self, attribute, getattr(module, class_name)(**tier_kwargs))
+                        active_tiers.append(flag)
+                    except Exception as e:
+                        # One tier failing is no reason to lose the rest, and it must
+                        # not be counted among the active ones.
+                        logger.error(f"[ERROR] Tier improvement {flag} failed to initialize: {e}")
+                        self.structured_logger.error(
+                            f"Tier improvement {flag} failed: {e}", component="tier_improvements"
                         )
-
-                        self.capability_constraints = CapabilityConstraintsLedger()
-
-                    logger.info("  - Tier 1: Initializing result quality scorer...")
-                    if is_enabled("result_quality_scorer"):
-                        from ai.core.result_quality_scorer import ResultQualityScorer
-
-                        self.result_quality_scorer = ResultQualityScorer()
-
-                    logger.info("  - Tier 1: Initializing goal alignment tracker...")
-                    if is_enabled("goal_alignment_tracker"):
-                        from ai.learning.goal_alignment_tracker import (
-                            GoalAlignmentTracker,
-                        )
-
-                        self.goal_alignment_tracker = GoalAlignmentTracker()
-
-                    logger.info("  - Tier 2: Initializing tone trajectory engine...")
-                    if is_enabled("tone_trajectory_engine"):
-                        from ai.learning.tone_trajectory_engine import (
-                            ToneTrajectoryEngine,
-                        )
-
-                        self.tone_trajectory_engine = ToneTrajectoryEngine()
-
-                    logger.info("  - Tier 2: Initializing pattern-based nudger...")
-                    if is_enabled("pattern_based_nudger"):
-                        from ai.proactivity.pattern_based_nudger import (
-                            PatternBasedNudger,
-                        )
-
-                        self.pattern_nudger = PatternBasedNudger()
-
-                    logger.info("  - Tier 3: Initializing system state API...")
-                    if is_enabled("system_state_api"):
-                        from ai.introspection.system_state_api import SystemStateAPI
-
-                        self.system_state_api = SystemStateAPI()
-
-                    logger.info("  - Tier 3: Initializing weak-spot detector...")
-                    if is_enabled("weak_spot_detector"):
-                        from ai.learning.weak_spot_detector import WeakSpotDetector
-
-                        self.weak_spot_detector = WeakSpotDetector()
-
-                    logger.info("  - Tier 4: Initializing multi-goal arbitrator...")
-                    if is_enabled("multi_goal_arbitrator"):
-                        from ai.goals.multi_goal_arbitrator import MultiGoalArbitrator
-
-                        self.multi_goal_arbitrator = MultiGoalArbitrator()
-
-                    logger.info("  - Tier 4: Initializing routing decision logger...")
-                    if is_enabled("routing_decision_logger"):
-                        self.routing_decision_logger = RoutingDecisionLogger()
-
-                    self.structured_logger.info(
-                        "All 10 tier improvements initialized successfully",
-                        component="tier_improvements",
-                        active_systems=10,
+                self.structured_logger.info(
+                    "Tier improvements initialized",
+                    component="tier_improvements",
+                    active_systems=len(active_tiers),
+                    active=list(active_tiers),
+                    available=len(tier_specs),
+                )
+                if active_tiers:
+                    logger.info(
+                        f"[OK] {len(active_tiers)}/{len(tier_specs)} tier improvements active: "
+                        f"{', '.join(active_tiers)}"
                     )
-                    logger.info("[OK] All 10 Tier Improvements active - advanced capabilities enabled")
-                except Exception as e:
-                    logger.error(f"[ERROR] Tier improvements initialization failed: {e}")
-                    import traceback
-
-                    traceback.print_exc()
-                    self.structured_logger.error(f"Tier improvements failed: {e}", component="tier_improvements")
-                    # Don't fail startup if improvements fail - these are enhancements
+                else:
+                    logger.info(f"[OK] No tier improvements active ({len(tier_specs)} available, all quarantined)")
             # ===== END 10 TIER IMPROVEMENTS =====
 
             # Inject LLM engine into autonomous agent now that it's loaded
@@ -1028,6 +1058,18 @@ class ALICE:
             logger.error(f"[ERROR] Initialization failed: {e}")
             raise
 
+    def _warm_semantic_classifier(self) -> None:
+        """Load the semantic intent classifier in the background.
+
+        Failure here is not worth surfacing: the classifier is optional and the
+        NLP layer falls back to pattern matching without it.
+        """
+        try:
+            self.nlp._ensure_semantic_classifier()
+            logger.info("Semantic classifier warmed.")
+        except Exception as e:
+            logger.debug(f"Semantic classifier warm-up skipped: {e}")
+
     def _run_startup_doctor(self) -> None:
         """Run profile-based startup diagnostics and persist a health summary."""
         enabled_raw = os.getenv("ALICE_STARTUP_DOCTOR", "1").strip().lower()
@@ -1201,630 +1243,6 @@ class ALICE:
         self.memory_consolidator = MemoryConsolidator()
         self.cross_session_pattern_detector = CrossSessionPatternDetector()
         self.system_design_response_guard = SystemDesignResponseGuard()
-
-    def _select_tone(self, intent: str, context: Any, user_input: str) -> str:
-        """
-        Alice's personality is CODED here.
-        She decides her own tone based on the situation.
-        This is Alice's emotional intelligence - coded, not prompted.
-
-        Args:
-            intent: The classified intent
-            context: Conversational context
-            user_input: Original user input
-
-        Returns:
-            Tone identifier for phrasing
-        """
-        # ── Interaction policy overrides (mood-driven) ────────────────────────
-        # If the perception layer detected a strong mood this turn, honour it
-        # before falling back to Alice's content-based tone selection.
-        policy = getattr(self, "_last_policy", None)
-        if policy is not None:
-            if policy.tone == "empathetic":
-                return "calm and understanding"
-            if policy.tone == "direct":
-                return "professional and precise"
-            if policy.tone == "encouraging":
-                return "casual and friendly"
-
-        # ── Response knob bandit override ─────────────────────────────────────
-        # Consult the learned style policy.  High empathy → calm tone; high
-        # directness → precise tone.  Only overrides when the bandit has enough
-        # signal (arm.count check is inside propose()).
-        try:
-            if getattr(self, "knob_bandit", None) is not None:
-                _sentiment_label = getattr(self, "_last_sentiment", None) or "neutral"
-                _topic = self.conversation_topics[-1] if getattr(self, "conversation_topics", None) else ""
-                _key, _knobs = self.knob_bandit.propose(
-                    intent=intent,
-                    sentiment=_sentiment_label,
-                    topic=_topic,
-                )
-                self._knob_context_key = _key
-                self._last_knobs = _knobs
-                if _knobs.empathy_level > 0.70:
-                    return "calm and understanding"
-                if _knobs.directness > 0.75 and _knobs.formality > 0.6:
-                    return "professional and precise"
-        except Exception:
-            pass
-
-        # Alice's core personality (consistent and reliable)
-        base_tone = "warm and helpful"
-
-        # Adjust based on context (Alice's situational awareness)
-        if intent.startswith("error:") or intent.startswith("problem:"):
-            return "professional and supportive"
-
-        elif user_input.isupper() or user_input.count("!") > 2:
-            # User seems upset or excited - de-escalate with calm tone
-            return "calm and understanding"
-
-        elif intent.startswith("casual:") or intent in [
-            "greeting",
-            "chitchat",
-            "farewell",
-        ]:
-            return "casual and friendly"
-
-        elif intent.startswith("technical:") or intent.startswith("code:"):
-            return "professional and precise"
-
-        elif intent.startswith("creative:") or "write" in intent or "create" in intent:
-            return "enthusiastic and supportive"
-
-        else:
-            return base_tone
-
-    def _formulate_response(
-        self, user_input: str, intent: str, entities: Dict[str, Any], context: Any
-    ) -> Dict[str, Any]:
-        """
-        Alice's core intelligence formulates a structured response.
-        This is WHERE ALICE THINKS - using her coded logic, not LLM delegation.
-
-        Process:
-        1. Understand what user wants (reasoning)
-        2. Check Alice's knowledge/memory
-        3. Decide response type and content
-        4. Return structured thought (not natural language yet)
-
-        Args:
-            user_input: User's message
-            intent: Classified intent
-            entities: Extracted entities
-            context: Conversational context (can have plugin_data)
-
-        Returns:
-            Structured response dict with:
-            - type: Response type (capability_answer, knowledge_answer, etc.)
-            - content: Main content/data
-            - reasoning: Chain of reasoning (optional)
-            - confidence: Confidence score
-        """
-        # Step 0: Check if plugin provided data - formulate based on that + user question
-        plugin_data = (
-            getattr(context, "plugin_data", None)
-            if hasattr(context, "plugin_data")
-            else context.get("plugin_data")
-            if isinstance(context, dict)
-            else None
-        )
-
-        if plugin_data:
-            # Alice analyzes plugin data in context of user's question
-            return self._formulate_from_plugin_data(user_input, intent, entities, plugin_data)
-        # Step 0.5: Self-analysis requests - Alice should read her own code and formulate real insights
-        input_lower = user_input.lower()
-        if self._is_location_query(user_input):
-            location_payload = self._build_location_payload()
-            return {
-                "type": "location_report",
-                **location_payload,
-                "confidence": 0.98,
-                "source": "context_engine",
-            }
-
-        self_analysis_phrases = [
-            "go through your code",
-            "analyze your code",
-            "review your code",
-            "look at your code",
-            "read your code",
-            "check your code",
-            "analyze yourself",
-            "review yourself",
-            "improvements",
-            "what can we improve",
-            "what can you improve",
-            "suggest improvements",
-        ]
-
-        # Check if this is a comprehensive self-analysis request
-        if any(phrase in input_lower for phrase in self_analysis_phrases):
-            # This should trigger actual code reading, not LLM hallucination
-            return {
-                "type": "self_analysis_needed",
-                "query": user_input,
-                "confidence": 0.9,
-            }
-
-        # Step 1: Check if Alice can answer from her own knowledge
-        # Alice's knowledge engine - learns from every interaction
-        can_answer, confidence = self.knowledge_engine.can_answer_independently(user_input, intent)
-        if can_answer and confidence > 0.7:
-            # Alice knows this! Answer from her own knowledge
-            return {
-                "type": "knowledge_answer",
-                "question": user_input,
-                "intent": intent,
-                "confidence": confidence,
-                "source": "alice_knowledge",  # Alice's own learning, not Ollama
-            }
-
-        # Step 2: Capability questions - Alice knows her own capabilities from registry
-        if "capability" in intent or any(
-            phrase in user_input.lower()
-            for phrase in [
-                "can you",
-                "do you have access",
-                "are you able to",
-                "can you access",
-            ]
-        ):
-            # Extract what capability is being asked about
-            capability_key = self._identify_capability_from_input(user_input)
-
-            if capability_key and capability_key in self.capabilities:
-                capability = self.capabilities[capability_key]
-                return {
-                    "type": "capability_answer",
-                    "can_do": capability["available"],
-                    "details": capability.get("description", ""),
-                    "operations": capability.get("operations", []),
-                    "examples": capability.get("examples", []),
-                    "confidence": 0.95,
-                }
-
-        # Step 2: Check Alice's memory for relevant information
-        try:
-            relevant_memories = self.memory.recall_relevant(user_input, top_k=3)
-        except Exception:
-            relevant_memories = []
-
-        # Step 3: Knowledge questions - Alice might need to query her knowledge tool
-        if intent.startswith("question:") and "knowledge" in intent:
-            return {
-                "type": "knowledge_query_needed",
-                "query": user_input,
-                "confidence": 0.7,
-            }
-
-        # Step 4: Reasoning/analysis tasks - Alice uses her reasoning engine
-        if intent.startswith("reasoning:") or intent.startswith("analyze:"):
-            reasoning_chain = self._apply_reasoning(user_input, entities, context)
-            return {
-                "type": "reasoning_result",
-                "conclusion": reasoning_chain[-1] if reasoning_chain else "Analysis complete",
-                "reasoning": reasoning_chain,
-                "confidence": 0.8,
-            }
-
-        # Step 5: General conversational response
-        return {
-            "type": "general_response",
-            "content": user_input,  # Will be processed by conversational engine
-            "memories": relevant_memories,
-            "confidence": 0.6,
-        }
-
-    def _formulate_from_plugin_data(
-        self,
-        user_input: str,
-        intent: str,
-        entities: Dict[str, Any],
-        plugin_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Alice formulates an intelligent response based on plugin data + user's question.
-        This is Alice THINKING about the data, not just formatting it.
-
-        Example:
-        - User: "should I wear a layer?"
-        - Plugin: {temperature: -19.2, condition: "clear"}
-        - Alice thinks: "Very cold → yes, definitely wear layers"
-        - Returns: {type: 'weather_advice', ...}
-
-        Args:
-            user_input: User's original question
-            intent: Classified intent
-            entities: Extracted entities
-            plugin_data: Data from plugin execution
-
-        Returns:
-            Structured thought about how to answer based on data
-        """
-        input_lower = user_input.lower()
-        umbrella_aliases = ["umbrella", "umbrela", "umberella", "umbralla"]
-
-        def _forecast_from_reasoning_state() -> Optional[Dict[str, Any]]:
-            engine = getattr(self, "reasoning_engine", None)
-            if not engine or not hasattr(engine, "get_entity"):
-                return None
-            entity = engine.get_entity("weather_forecast")
-            if entity is None:
-                return None
-            data = getattr(entity, "data", None)
-            return dict(data or {}) if isinstance(data, dict) else None
-
-        if self._is_location_query(user_input):
-            return {
-                "type": "location_report",
-                **self._build_location_payload(),
-                "confidence": 0.98,
-                "source": "context_engine",
-            }
-
-        # Detect weather by CONTENT as well as intent — NLP sometimes misfires
-        # (e.g. intent='music:pause') but the WeatherPlugin still succeeds.
-        _is_weather_data = (
-            intent.startswith("weather")
-            or "forecast" in plugin_data
-            or ("temperature" in plugin_data and "condition" in plugin_data)
-        )
-
-        # Weather-related formulations
-        if _is_weather_data:
-            temp = plugin_data.get("temperature")
-            condition = plugin_data.get("condition", "").lower()
-            location = plugin_data.get("location", "")
-            forecast = plugin_data.get("forecast")  # Check for forecast data
-
-            # Round temperature to whole number for cleaner display
-            if temp is not None:
-                temp = round(temp)
-
-            # Check if we recently gave weather info (avoid repetition)
-            # "Still" only makes sense when the immediately preceding turn was
-            # also a weather response — not whenever weather appeared anywhere.
-            recent_weather_given = False
-            if hasattr(self, "conversation_summary") and self.conversation_summary:
-                last_turn = self.conversation_summary[-1]
-                if last_turn.get("intent", "").startswith("weather"):
-                    recent_weather_given = True
-
-            # User asking about clothing/layers/what to wear
-            if any(
-                word in input_lower
-                for word in [
-                    "wear",
-                    "layer",
-                    "coat",
-                    "jacket",
-                    "dress",
-                    "clothing",
-                    "bring",
-                    "scarf",
-                    "hat",
-                    "gloves",
-                    "boots",
-                    "sweater",
-                    "hoodie",
-                ]
-                + umbrella_aliases
-            ):
-                # Detect what specific item they're asking about
-                clothing_item = None
-                item_keywords = {
-                    "scarf": ["scarf", "scarves"],
-                    "coat": ["coat"],
-                    "jacket": ["jacket"],
-                    "hat": ["hat", "beanie", "toque"],
-                    "gloves": ["glove", "gloves", "mitten", "mittens"],
-                    "boots": ["boot", "boots"],
-                    "sweater": ["sweater", "jumper"],
-                    "hoodie": ["hoodie", "sweatshirt"],
-                    "umbrella": umbrella_aliases,
-                    "layers": ["layer", "layers"],
-                }
-
-                for item, keywords in item_keywords.items():
-                    if any(kw in input_lower for kw in keywords):
-                        clothing_item = item
-                        break
-
-                # Handle forecast-based advice (weekly forecast)
-                if forecast and isinstance(forecast, list) and len(forecast) > 0:
-                    # Analyze the week's temperature range
-                    all_temps = []
-                    for day in forecast:
-                        if "low" in day:
-                            all_temps.append(round(day["low"]))
-                        if "high" in day:
-                            all_temps.append(round(day["high"]))
-
-                    if all_temps:
-                        min_temp = min(all_temps)
-                        max_temp = max(all_temps)
-
-                        # Just pass the data - let A.L.I.C.E formulate the response
-                        return {
-                            "type": "weather_advice",
-                            "temperature": min_temp,
-                            "temp_range": f"{min_temp}°C to {max_temp}°C",
-                            "location": location,
-                            "is_forecast": True,
-                            "clothing_item": clothing_item,  # Pass the item for context
-                            "user_question": user_input,  # Let LLM see original question
-                            "confidence": 0.95,
-                        }
-
-                # Handle current weather advice
-                elif temp is not None:
-                    # Just pass the data - let A.L.I.C.E formulate the response
-                    return {
-                        "type": "weather_advice",
-                        "temperature": temp,
-                        "condition": condition,
-                        "location": location,
-                        "clothing_item": clothing_item,  # Pass the item for context
-                        "user_question": user_input,  # Let LLM see original question
-                        "is_followup": recent_weather_given,
-                        "confidence": 0.95,
-                    }
-
-            # User asking about specific conditions (rain, snow, etc.)
-            elif any(word in input_lower for word in ["rain", "snow", "storm", "sunny", "cloud"]):
-                # Check if question word suggests yes/no answer
-                is_question = any(word in input_lower for word in ["will", "is", "going to", "gonna"])
-
-                if is_question:
-                    # Alice provides yes/no answer with reasoning
-                    if "rain" in input_lower:
-                        will_rain = "rain" in condition or "drizzle" in condition or "shower" in condition
-                        return {
-                            "type": "weather_prediction",
-                            "answer": "yes" if will_rain else "no",
-                            "condition": condition,
-                            "location": location,
-                            "confidence": 0.9,
-                        }
-                    elif "snow" in input_lower:
-                        will_snow = "snow" in condition
-                        return {
-                            "type": "weather_prediction",
-                            "answer": "yes" if will_snow else "no",
-                            "condition": condition,
-                            "location": location,
-                            "confidence": 0.9,
-                        }
-
-            # General weather query - provide comprehensive info
-            if temp is not None:
-                return {
-                    "type": "weather_report",
-                    "temperature": temp,
-                    "condition": condition,
-                    "location": location,
-                    "full_data": plugin_data,
-                    "is_followup": recent_weather_given,
-                    "confidence": 0.9,
-                }
-
-            # Forecast data (no current temperature) — Alice formats directly
-            if forecast and isinstance(forecast, list) and len(forecast) > 0:
-                return {
-                    "type": "weather_forecast",
-                    "forecast": forecast,
-                    "location": location,
-                    "user_input": user_input,
-                    "confidence": 0.9,
-                }
-
-            # Weather plugin explicit failure taxonomy
-            weather_error = (plugin_data.get("error") or "").strip().lower()
-            if weather_error == "no_location":
-                return {
-                    "type": "operation_failure",
-                    "operation": "weather_lookup",
-                    "error": "no location available. Tell me your city, or set it with /location <City>.",
-                    "confidence": 0.75,
-                }
-            if weather_error == "unknown_location":
-                _bad_location = plugin_data.get("location")
-                _msg = f"unknown location: {_bad_location}" if _bad_location else "unknown location"
-                return {
-                    "type": "operation_failure",
-                    "operation": "weather_lookup",
-                    "error": _msg,
-                    "confidence": 0.7,
-                }
-            if weather_error in {
-                "timeout",
-                "connection_error",
-                "fetch_failed",
-                "no_data",
-            }:
-                return {
-                    "type": "operation_failure",
-                    "operation": "weather_lookup",
-                    "error": f"weather service temporary issue ({weather_error})",
-                    "confidence": 0.65,
-                }
-
-            # No data at all
-            return {
-                "type": "operation_failure",
-                "operation": "weather_lookup",
-                "error": "no data returned",
-                "confidence": 0.5,
-            }
-
-        # Note/file operations — detect by intent OR by the action the plugin returned
-        # (NLP occasionally misfires but the plugin still succeeds; always trust the action)
-        _NOTE_ACTIONS = {
-            "count_notes",
-            "list_notes",
-            "get_note_content",
-            "summarize_note",
-            "create_note",
-            "delete_note",
-            "edit_note",
-            "append_note",
-            "add_to_note",
-            "search_notes",
-            "search_notes_content",
-            "list_archived_notes",
-            "pin_note",
-            "unpin_note",
-            "archive_note",
-            "unarchive_note",
-            "get_note_title",
-            "link_notes",
-            "set_priority",
-            "set_category",
-        }
-        _action_from_data = plugin_data.get("action", plugin_data.get("operation", "unknown"))
-        if intent.startswith("note") or intent.startswith("file") or _action_from_data in _NOTE_ACTIONS:
-            action = _action_from_data
-            success = plugin_data.get("success", False)
-
-            if action == "count_notes":
-                return {
-                    "type": "notes_count",
-                    "total": plugin_data.get("total", 0),
-                    "todos": plugin_data.get("todos", 0),
-                    "ideas": plugin_data.get("ideas", 0),
-                    "meetings": plugin_data.get("meetings", 0),
-                    "pinned": plugin_data.get("pinned", 0),
-                    "archived": plugin_data.get("archived", 0),
-                    "confidence": 0.95,
-                }
-            if action == "list_notes":
-                return {
-                    "type": "notes_listing",
-                    "note_count": plugin_data.get("count", 0),
-                    "notes": plugin_data.get("notes", []),
-                    "has_more": plugin_data.get("has_more", False),
-                    "confidence": 0.95,
-                }
-            if action == "get_note_content":
-                return {
-                    "type": "note_content",
-                    "title": plugin_data.get("note_title", ""),
-                    "content": plugin_data.get("content", ""),
-                    "tags": plugin_data.get("tags", []),
-                    "confidence": 0.95,
-                }
-            if action == "summarize_note":
-                return {
-                    "type": "note_summary",
-                    "title": plugin_data.get("note_title", ""),
-                    "summary": plugin_data.get("summary", {}),
-                    "confidence": 0.95,
-                }
-
-            if success:
-                return {
-                    "type": "operation_success",
-                    "operation": action,
-                    "details": plugin_data,
-                    "user_question": user_input,
-                    "confidence": 0.95,
-                }
-            else:
-                return {
-                    "type": "operation_failure",
-                    "operation": action,
-                    "error": plugin_data.get("error", "Operation failed"),
-                    "user_question": user_input,
-                    "confidence": 0.9,
-                }
-
-        # Calendar events
-        elif intent.startswith("calendar") or intent.startswith("schedule"):
-            events = plugin_data.get("events", [])
-            if events:
-                return {
-                    "type": "calendar_info",
-                    "event_count": len(events),
-                    "events": events,
-                    "confidence": 0.95,
-                }
-
-        # Generic plugin response - Alice provides what she can
-        return {"type": "plugin_result", "data": plugin_data, "confidence": 0.7}
-
-    def _apply_reasoning(self, user_input: str, entities: Dict[str, Any], context: Any) -> list:
-        """
-        Alice's reasoning logic (coded, not delegated to LLM).
-        Returns chain of reasoning steps.
-
-        Args:
-            user_input: User's message
-            entities: Extracted entities
-            context: Conversational context
-
-        Returns:
-            List of reasoning steps
-        """
-        reasoning_chain = []
-
-        # Example: Debugging logic
-        if "debug" in user_input.lower() or "error" in user_input.lower():
-            reasoning_chain.append("User needs debugging help")
-            reasoning_chain.append("Looking for error patterns in context")
-
-            # Alice would apply her debugging rules here
-            reasoning_chain.append("Analyzing recent conversation for code context")
-
-        # Example: Explanation logic
-        elif "how" in user_input.lower() or "why" in user_input.lower():
-            reasoning_chain.append("User wants an explanation")
-            reasoning_chain.append("Need to provide logical breakdown")
-
-        # Default: general analysis
-        else:
-            reasoning_chain.append("Analyzing user request")
-            reasoning_chain.append("Formulating response based on context")
-
-        return reasoning_chain
-
-    def _identify_capability_from_input(self, user_input: str) -> Optional[str]:
-        """
-        Identify which capability the user is asking about.
-
-        Args:
-            user_input: User's message
-
-        Returns:
-            Capability key or None
-        """
-        input_lower = user_input.lower()
-
-        # Map input patterns to capability keys
-        capability_patterns = {
-            "codebase_access": ["code", "codebase", "source", "file", "python"],
-            "email_access": ["email", "gmail", "mail", "inbox"],
-            "calendar": ["calendar", "schedule", "event", "meeting"],
-            "weather": ["weather", "forecast", "temperature"],
-            "file_operations": ["file", "document", "folder"],
-            "notes": ["note", "notes"],
-            "maps": ["directions", "map", "location", "navigate"],
-            "time": ["time", "date", "timer", "reminder"],
-            "web_search": ["search", "look up", "find"],
-            "memory": ["remember", "recall", "memory"],
-            "reasoning": ["analyze", "think", "reason", "debug"],
-            "self_reflection": ["how do you", "explain your", "your system"],
-        }
-
-        # Find best match
-        for capability_key, patterns in capability_patterns.items():
-            if any(pattern in input_lower for pattern in patterns):
-                return capability_key
-
-        return None
 
     def _is_location_query(self, user_input: str) -> bool:
         """Detect explicit location requests that should bypass LLM phrasing."""
@@ -2715,137 +2133,6 @@ class ALICE:
         if self.speech and priority.value >= EventPriority.NORMAL.value:
             self.speech.speak(message)
 
-    def _log_action_for_learning(self, action: str, context: Dict[str, Any] = None):
-        """
-        Log user action to pattern learner
-
-        Args:
-            action: Action taken (e.g., "review_notes:finance")
-            context: Current context (time, state, etc.)
-        """
-        if not self.pattern_learner:
-            return
-
-        # Build context
-        full_context = context or {}
-        full_context.update(
-            {
-                "day": datetime.now().strftime("%A"),
-                "hour": datetime.now().hour,
-                "system_state": self.state_tracker.get_status().value if self.state_tracker else "unknown",
-            }
-        )
-
-        # Log the action
-        self.pattern_learner.observe_action(action, full_context)
-
-    def _check_proactive_suggestions(self) -> Optional[str]:
-        """
-        Check if we should make proactive suggestions
-
-        Returns:
-            Suggestion text or None
-        """
-        if not self.pattern_learner:
-            return None
-
-        # Get context
-        context = {
-            "system_state": self.state_tracker.get_status().value if self.state_tracker else "unknown",
-            "running_apps": self.system_monitor.get_running_apps() if self.system_monitor else [],
-        }
-
-        # Get suggestions
-        suggestions = self.pattern_learner.get_suggestions(context)
-
-        merged_suggestions: List[str] = []
-        if suggestions:
-            # Store pattern ID for tracking acceptance
-            pattern, suggestion_text = suggestions[0]
-            self._last_suggestion_pattern = pattern.pattern_id
-            merged_suggestions.append(str(suggestion_text))
-        if self.activity_monitor:
-            proactive = self.activity_monitor.proactive_suggestions()
-            if proactive:
-                merged_suggestions.extend(proactive)
-        if self.proactive_interruption_manager:
-            selected = self.proactive_interruption_manager.select(merged_suggestions)
-            if selected:
-                return f" {selected[0]}"
-        elif merged_suggestions:
-            return f" {merged_suggestions[0]}"
-
-        return None
-
-    def _track_activity_signal(self, intent: str, user_input: str) -> None:
-        """Track lightweight user activity classes for proactive monitoring."""
-        if not self.activity_monitor:
-            return
-        intent = (intent or "").lower()
-        text = (user_input or "").lower()
-
-        if intent.startswith("email:") or "email" in text:
-            self.activity_monitor.observe("email")
-        if intent.startswith("learning:") or "study" in text or "learn" in text:
-            self.activity_monitor.observe("study")
-        if "error" in text or "traceback" in text or "debug" in text:
-            self.activity_monitor.observe("debug")
-
-    def _collect_secondary_intents(self, nlp_result: Any) -> List[Dict[str, Any]]:
-        """Extract secondary/compound intents from NLP modifiers."""
-        if not nlp_result or not getattr(nlp_result, "parsed_command", None):
-            return []
-        modifiers = getattr(nlp_result.parsed_command, "modifiers", {}) or {}
-        secondary = modifiers.get("secondary_intents", []) or []
-        if secondary:
-            return [dict(item) for item in secondary if isinstance(item, dict)]
-
-        compound = modifiers.get("compound_frames", []) or []
-        out: List[Dict[str, Any]] = []
-        for frame in compound:
-            if not isinstance(frame, dict):
-                continue
-            plugin = str(frame.get("plugin") or "").strip()
-            action = str(frame.get("action") or "").strip()
-            if plugin:
-                out.append(
-                    {
-                        "intent": f"{plugin}:{action or 'general'}",
-                        "confidence": float(frame.get("confidence", 0.6) or 0.6),
-                        "text": str(frame.get("slot_evidence") or ""),
-                    }
-                )
-        return out
-
-    def _execute_secondary_intents(
-        self,
-        secondary_intents: List[Dict[str, Any]],
-        entities: Dict[str, Any],
-        context_summary: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
-        """Execute secondary compound intents sequentially using plugin dispatch."""
-        if not secondary_intents or not getattr(self, "plugins", None):
-            return []
-
-        outcomes: List[Dict[str, Any]] = []
-        for item in secondary_intents[:3]:
-            sec_intent = str(item.get("intent") or "").strip()
-            sec_text = str(item.get("text") or "").strip() or sec_intent
-            if not sec_intent:
-                continue
-            try:
-                result = self.plugins.execute_for_intent(sec_intent, sec_text, entities, context_summary)
-                outcomes.append(
-                    {
-                        "intent": sec_intent,
-                        "success": bool(result and result.get("success")),
-                        "plugin": (result or {}).get("plugin", ""),
-                    }
-                )
-            except Exception:
-                outcomes.append({"intent": sec_intent, "success": False, "plugin": ""})
-        return outcomes
-
     def _apply_response_style_constraints(self, response: str) -> str:
         """Apply user preference constraints and adaptive verbosity formatting."""
         if not response:
@@ -2921,7 +2208,10 @@ class ALICE:
             )
             if routed:
                 return routed
-        return "I misunderstood that response path. Please repeat your request in one line and I will answer directly."
+        # "I misunderstood that response path" is Alice's own vocabulary, not the
+        # user's — it names an internal routing concept to someone who just
+        # asked a question and describes a failure they cannot act on.
+        return "I didn't follow that. Say it once more and I'll answer directly."
 
     def _prevent_unsolicited_summary(
         self,
@@ -2937,311 +2227,6 @@ class ALICE:
 
         self._think("Response drift detected: unsolicited summary suppressed")
         return self._fallback_from_intent(intent, plugin_result)
-
-    def _handle_advanced_reasoning_queries(self, user_input: str) -> Optional[str]:
-        """Handle advanced reasoning prompts directly for transparency and speed."""
-        text = str(user_input or "").strip()
-        lowered = text.lower()
-
-        if self.system_design_response_guard:
-            direct = self.system_design_response_guard.direct_answer(text)
-            if direct:
-                return direct
-
-        if self.causal_inference_engine and any(
-            k in lowered for k in ("why did", "root cause", "cause of", "why is this failing")
-        ):
-            analysis = self.causal_inference_engine.infer(text)
-            causes = analysis.get("likely_causes", [])
-            checks = analysis.get("recommended_checks", [])
-            return "Likely causes:\n- " + "\n- ".join(causes) + "\n\nNext checks:\n- " + "\n- ".join(checks)
-
-        if self.hypothetical_scenario_generator and any(k in lowered for k in ("what if", "scenario", "hypothetical")):
-            scenarios = self.hypothetical_scenario_generator.generate(text, max_scenarios=3)
-            if scenarios:
-                lines = ["Hypothetical outcomes:"]
-                for sc in scenarios:
-                    lines.append(f"- {sc.get('name')}: {sc.get('impact')}")
-                return "\n".join(lines)
-
-        if self.decision_constraint_solver and "choose between" in lowered:
-            options = [
-                {"name": "option_a", "speed": 0.9, "quality": 0.7, "risk": 0.4},
-                {"name": "option_b", "speed": 0.7, "quality": 0.9, "risk": 0.3},
-            ]
-            ranked = self.decision_constraint_solver.solve(
-                options,
-                soft_weights={"quality": 0.55, "speed": 0.30, "risk": -0.15},
-            )
-            if ranked:
-                top = ranked[0]
-                return f"Constraint analysis suggests {top.get('name')} (score={float(top.get('constraint_score', 0.0)):.2f})."
-
-        return None
-
-    def _handle_operator_request(self, user_input: str) -> Optional[str]:
-        """Handle safe operator commands for repository and build/test workflows."""
-        text = str(user_input or "").strip()
-        lowered = text.lower()
-
-        if lowered.startswith("operator reject "):
-            parts = text.split(maxsplit=2)
-            if len(parts) < 3:
-                return "Usage: operator reject <approval_id>"
-            approval_id = parts[2].strip()
-            if getattr(self, "approval_ledger", None):
-                self.approval_ledger.reject(
-                    approval_id=approval_id,
-                    confirmation_text=text,
-                    actor="user",
-                )
-            self.pending_operator_actions.pop(approval_id, None)
-            return f"Approval {approval_id} rejected."
-
-        if lowered.startswith("operator approve "):
-            parts = text.split(maxsplit=2)
-            if len(parts) < 3:
-                return "Usage: operator approve <approval_id>"
-            approval_id = parts[2].strip()
-            pending = self.pending_operator_actions.get(approval_id)
-            if not pending:
-                return f"No pending operator action found for {approval_id}."
-
-            if getattr(self, "approval_ledger", None):
-                rec = self.approval_ledger.confirm(
-                    approval_id=approval_id,
-                    confirmation_text=text,
-                    actor="user",
-                )
-                if rec is None:
-                    self.pending_operator_actions.pop(approval_id, None)
-                    return f"Approval {approval_id} is no longer valid (expired or missing)."
-
-            action = pending.get("action")
-            if action == "controlled_commit":
-                if not getattr(self, "operator_workflow", None):
-                    return "Operator workflow is not initialized."
-                message = pending.get("commit_message") or "operator commit"
-                result = self.operator_workflow.run_controlled_commit_workflow(message)
-                self.pending_operator_actions.pop(approval_id, None)
-                return result.render()
-
-            self.pending_operator_actions.pop(approval_id, None)
-            return f"Approved {approval_id}, but no executable action payload was found."
-
-        if any(
-            k in lowered
-            for k in (
-                "operator workflow",
-                "repo health",
-                "repository health check",
-                "run health workflow",
-            )
-        ):
-            if not getattr(self, "operator_workflow", None):
-                return "Operator workflow is not initialized."
-            include_tests = any(k in lowered for k in ("with tests", "and tests", "full"))
-            if getattr(self, "roadmap_stack", None):
-
-                def _branch_handler(_step, _state):
-                    res = self.git_manager.current_branch()
-                    return {"success": res.success, "output": res.output or res.error}
-
-                def _status_handler(_step, _state):
-                    res = self.git_manager.status_short()
-                    return {"success": res.success, "output": res.output or res.error}
-
-                def _build_handler(_step, _state):
-                    res = self.build_runner.run_python_build()
-                    return {"success": res.success, "output": res.output or res.error}
-
-                def _tests_handler(_step, _state):
-                    res = self.build_runner.run_python_tests()
-                    return {"success": res.success, "output": res.output or res.error}
-
-                steps = [
-                    {"name": "branch", "tool": "git_branch"},
-                    {"name": "status", "tool": "git_status", "depends_on": ["branch"]},
-                    {"name": "build", "tool": "py_build", "depends_on": ["status"]},
-                ]
-                if include_tests:
-                    steps.append({"name": "tests", "tool": "py_tests", "depends_on": ["build"]})
-
-                handlers = {
-                    "git_branch": _branch_handler,
-                    "git_status": _status_handler,
-                    "py_build": _build_handler,
-                    "py_tests": _tests_handler,
-                }
-                chain_results = self.roadmap_stack.chain_engine.run(steps, handlers)
-                failed = next(
-                    (r for r in chain_results if not r.get("success", False) and not r.get("skipped", False)),
-                    None,
-                )
-                if failed:
-                    replan = self.roadmap_stack.replanner.replan(
-                        [str(s.get("name")) for s in steps],
-                        str(failed.get("name")),
-                        str(failed.get("error") or failed.get("output") or "unknown"),
-                    )
-                    self._internal_reasoning_state["operator_replan"] = replan
-
-            wf = self.operator_workflow.run_repo_health_workflow(include_tests=include_tests)
-            return wf.render()
-
-        if lowered.startswith("git "):
-            if not getattr(self, "git_manager", None):
-                return "Git manager is not initialized."
-
-            if lowered.startswith("git status"):
-                status = self.git_manager.status_short()
-                if not status.success:
-                    return f"Git status failed: {status.error or status.output}"
-                return status.output or "Working tree is clean."
-
-            if lowered.startswith("git diff"):
-                diff_res = self.git_manager.diff_unstaged()
-                if not diff_res.success:
-                    return f"Git diff failed: {diff_res.error or diff_res.output}"
-                out = diff_res.output or "No unstaged diff."
-                return "\n".join(out.splitlines()[:200])
-
-            if lowered.startswith("git log"):
-                log_res = self.git_manager.recent_commits(limit=8)
-                if not log_res.success:
-                    return f"Git log failed: {log_res.error or log_res.output}"
-                return log_res.output or "No commits found."
-
-            if lowered.startswith("git branch"):
-                branch_res = self.git_manager.current_branch()
-                if not branch_res.success:
-                    return f"Git branch lookup failed: {branch_res.error or branch_res.output}"
-                return f"Current branch: {branch_res.output}"
-
-            if lowered.startswith("git commit"):
-                return "For controlled writes, use: operator commit <message>."
-
-            return "Only safe git reads are enabled right now: git status, git diff, git log, git branch."
-
-        if lowered.startswith("operator commit "):
-            message = text[len("operator commit ") :].strip()
-            if not message:
-                return "Provide a commit message: operator commit <message>."
-            if not getattr(self, "approval_ledger", None):
-                return "Approval ledger is not initialized."
-            req = self.approval_ledger.create_request(
-                action="controlled_commit",
-                scope="write",
-                summary=f"Commit all current repository changes with message: {message}",
-            )
-            self.pending_operator_actions[req.approval_id] = {
-                "action": "controlled_commit",
-                "commit_message": message,
-                "created_at": req.created_at,
-            }
-            return (
-                "Approval required for high-impact action.\n"
-                f"- approval_id: {req.approval_id}\n"
-                f"- summary: {req.summary}\n"
-                f"- expires_in_seconds: {int(req.expires_at - req.created_at)}\n"
-                f"Reply with: operator approve {req.approval_id}"
-            )
-
-        if any(k in lowered for k in ("run tests", "run test suite", "pytest", "test project")):
-            if not getattr(self, "build_runner", None):
-                return "Build runner is not initialized."
-            test_res = self.build_runner.run_python_tests()
-            body = test_res.output or test_res.error
-            body = "\n".join((body or "").splitlines()[:220])
-            if test_res.success:
-                return body or "Tests passed."
-            return f"Tests failed (exit={test_res.exit_code}):\n{body}"
-
-        if any(k in lowered for k in ("run build", "build project", "build check", "compile project")):
-            if not getattr(self, "build_runner", None):
-                return "Build runner is not initialized."
-            build_res = self.build_runner.run_python_build()
-            body = build_res.output or build_res.error
-            body = "\n".join((body or "").splitlines()[:200])
-            if build_res.success:
-                return body or "Build check passed."
-            return f"Build check failed (exit={build_res.exit_code}):\n{body}"
-
-        return None
-
-    def _validate_tool_invocation_schema(
-        self,
-        *,
-        intent: Any,
-        user_input: Any,
-        entities: Any,
-        context_summary: Any,
-    ) -> Optional[str]:
-        if not isinstance(intent, str) or not intent.strip():
-            return "intent must be a non-empty string"
-        if not isinstance(user_input, str) or not user_input.strip():
-            return "user_input must be a non-empty string"
-        if entities is not None and not isinstance(entities, dict):
-            return "entities must be a dict"
-        if not isinstance(context_summary, dict):
-            return "context_summary must be a dict"
-        return None
-
-    def _handle_explain_command(self, user_input: str) -> Optional[str]:
-        """Expose compact reasoning trace for transparency commands."""
-        text = (user_input or "").strip().lower()
-        if text not in {
-            "/explain",
-            "explain reasoning",
-            "why did you say that",
-            "why that response",
-        }:
-            return None
-
-        rs = dict(getattr(self, "_internal_reasoning_state", {}) or {})
-        if not rs:
-            return "I do not have a recent reasoning trace yet. Ask me something first, then run /explain."
-
-        lines = ["Reasoning trace:"]
-        lines.append(
-            f"1) Intent: {rs.get('user_intent', 'unknown')} (confidence={float(rs.get('confidence', 0.0)):.2f})"
-        )
-        lines.append(f"2) Plausibility: {float(rs.get('intent_plausibility', 1.0)):.2f}")
-        candidates = rs.get("intent_candidates", []) or []
-        if candidates:
-            ranked_intents = sorted(
-                candidates,
-                key=lambda c: float(c.get("score", c.get("confidence", 0.0)) or 0.0),
-                reverse=True,
-            )[:3]
-            alt = ", ".join(
-                f"{c.get('intent', 'unknown')} ({float(c.get('score', c.get('confidence', 0.0)) or 0.0):.2f})"
-                for c in ranked_intents
-            )
-            lines.append(f"3) Candidate intents: {alt}")
-        scores = rs.get("decision_scores", {}) or {}
-        if scores:
-            top = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:3]
-            top_text = ", ".join(f"{k}={float(v):.2f}" for k, v in top)
-            lines.append(f"4) Top routes: {top_text}")
-        runtime_controls = rs.get("runtime_controls", {}) or {}
-        if runtime_controls:
-            lines.append(
-                "5) Tipping factors: "
-                + ", ".join(
-                    [
-                        f"routing={runtime_controls.get('routing_preference', 'balanced')}",
-                        f"allow_tools={bool(runtime_controls.get('allow_tools', True))}",
-                        f"thinking_depth={int(runtime_controls.get('thinking_depth', 1) or 1)}",
-                    ]
-                )
-            )
-        if rs.get("reasoning_planner", {}):
-            rp = rs.get("reasoning_planner", {}) or {}
-            lines.append(f"6) Plan: id={rp.get('plan_id', 'n/a')} critical_path={rp.get('critical_path', 'n/a')}")
-        if rs.get("learning_decision"):
-            lines.append(f"7) Learning decision: {rs.get('learning_decision')}")
-        return "\n".join(lines)
 
     def _promote_learning_goal_intent(
         self, user_input: str, intent: str, entities: Dict[str, Any]
@@ -3275,39 +2260,6 @@ class ALICE:
 
         self._think(f"Reasoning goal detected → planning study flow for: {entities.get('topic', 'topic')}")
         return "learning:study_topic", entities
-
-    def _explicit_study_template_request(self, user_input: str) -> bool:
-        text = str(user_input or "").lower()
-        cues = (
-            "help me study",
-            "teach me step by step",
-            "step-by-step tutorial",
-            "tutorial",
-            "lesson",
-            "quiz me",
-            "give me a quiz",
-        )
-        return any(c in text for c in cues)
-
-    def _verify_planned_execution_payload(
-        self,
-        *,
-        intent: str,
-        result: Any,
-        all_results: Dict[str, Any] | Dict[int, Any] | None,
-    ) -> bool:
-        verifier = getattr(self, "execution_verifier", None)
-        if verifier is None:
-            verifier = get_execution_verifier()
-
-        report = verifier.verify_task_result(
-            intent=intent,
-            result=result,
-            all_results=all_results,
-        )
-        self._internal_reasoning_state["task_verification"] = report.to_dict()
-        self._think(f"Task verification -> accepted={report.accepted} confidence={report.confidence:.2f}")
-        return bool(report.accepted)
 
     def _normalize_entities_for_planning(self, entities: Dict[str, Any]) -> Dict[str, Any]:
         """Convert NLP entities into planner-safe primitive values."""
@@ -3348,162 +2300,6 @@ class ALICE:
             normalized_entities[str(key)] = _normalize(raw_value)
         return normalized_entities
 
-    def _use_planner_executor(self, intent: str, entities: Dict[str, Any], query: str) -> Optional[str]:
-        """
-        Use task planner and executor for complex tasks
-
-        Args:
-            intent: Detected intent
-            entities: Extracted entities
-            query: User's query
-
-        Returns:
-            Response or None if not planned
-        """
-        normalized_intent = str(intent or "").lower().strip()
-        # Planner/task queue is the primary path for conversational reasoning turns.
-        plannable_prefixes = (
-            "learning:",
-            "conversation:question",
-            "conversation:help",
-            "conversation:goal_statement",
-            "question",
-            "study_topic",
-        )
-
-        if not any(normalized_intent.startswith(prefix) for prefix in plannable_prefixes):
-            return None
-
-        # Conversational help/goal turns should stay in fast lane unless there is
-        # an explicit tutorial intent or a concrete action cue.
-        if normalized_intent in ("conversation:help", "conversation:goal_statement"):
-            if not self._explicit_study_template_request(query) and not self._has_explicit_action_cue(query):
-                return None
-
-        if intent in (
-            "study_topic",
-            "learning:study_topic",
-        ) and not self._explicit_study_template_request(query):
-            # Hard gate: only enter study template flow when user explicitly asks for studying/tutorial mode.
-            return None
-
-        entities = self._normalize_entities_for_planning(entities or {})
-        entities.setdefault("query", query)
-
-        try:
-            if self.reasoning_planner and self.persistent_task_queue:
-                reasoning_task = self.reasoning_planner.create_task_representation(
-                    query,
-                    context={"intent": intent, "entities": dict(entities or {})},
-                )
-                reasoning_plan = self.reasoning_planner.create_plan(reasoning_task)
-                self._internal_reasoning_state["reasoning_planner"] = {
-                    "task_id": reasoning_task.task_id,
-                    "plan_id": reasoning_plan.plan_id,
-                    "critical_path": self.reasoning_planner.estimate_critical_path(reasoning_plan),
-                    "trace": self.reasoning_planner.debug_trace_view(reasoning_plan),
-                }
-
-                queued_task = self.persistent_task_queue.create_task(
-                    kind="execute_plan",
-                    payload={
-                        "intent": intent,
-                        "entities": self._normalize_entities_for_planning(entities or {}),
-                    },
-                    priority=2,
-                    max_attempts=2,
-                )
-
-                queue_result = self._await_queue_task_result(queued_task.task_id, timeout_seconds=4.0)
-                if queue_result and queue_result.get("success"):
-                    all_results = queue_result.get("all_results", {}) or {}
-                    if not self._verify_planned_execution_payload(
-                        intent=intent,
-                        result=queue_result.get("result"),
-                        all_results=all_results,
-                    ):
-                        logger.warning("Queued planner result failed verification; falling back")
-                        return None
-                    if intent in ("study_topic", "learning:study_topic"):
-                        explain = all_results.get(1, "")
-                        example = all_results.get(2, "")
-                        check = all_results.get(3, "")
-                        deeper = all_results.get(4, "")
-
-                        parts = []
-                        if explain:
-                            parts.append(f"1) Concept\n{explain}")
-                        if example:
-                            parts.append(f"2) Example\n{example}")
-                        if check:
-                            parts.append(f"3) Check\n{check}")
-                        if deeper:
-                            parts.append(f"4) Next Step\n{deeper}")
-                        if parts:
-                            return "\n\n".join(parts)
-                    return queue_result.get("result")
-
-            # Create execution plan
-            context = {
-                "user_prefs": vars(self.context.user_prefs),
-                "system_state": self.state_tracker.get_status().value if self.state_tracker else "unknown",
-            }
-
-            plan = self.planner.create_plan(intent, entities, context)
-
-            # Validate plan
-            if not self.planner.validate_plan(plan):
-                logger.error(f"Invalid plan for intent {intent}")
-                return None
-
-            # Log plan explanation
-            logger.info(f"Execution plan:\n{self.planner.explain_plan(plan)}")
-
-            # Execute plan
-            result = self.plan_executor.execute(plan)
-
-            if result["success"]:
-                if intent in ("study_topic", "learning:study_topic"):
-                    all_results = result.get("all_results", {}) or {}
-                    if not self._verify_planned_execution_payload(
-                        intent=intent,
-                        result=result.get("result"),
-                        all_results=all_results,
-                    ):
-                        logger.warning("Direct planner result failed verification")
-                        return None
-                    explain = all_results.get(1, "")
-                    example = all_results.get(2, "")
-                    check = all_results.get(3, "")
-                    deeper = all_results.get(4, "")
-
-                    parts = []
-                    if explain:
-                        parts.append(f"1) Concept\n{explain}")
-                    if example:
-                        parts.append(f"2) Example\n{example}")
-                    if check:
-                        parts.append(f"3) Check\n{check}")
-                    if deeper:
-                        parts.append(f"4) Next Step\n{deeper}")
-                    if parts:
-                        return "\n\n".join(parts)
-                if not self._verify_planned_execution_payload(
-                    intent=intent,
-                    result=result.get("result"),
-                    all_results=result.get("all_results", {}),
-                ):
-                    logger.warning("Planner result failed verification")
-                    return None
-                return result.get("result")
-            else:
-                logger.error(f"Plan execution failed: {result.get('error')}")
-                return None
-
-        except Exception as e:
-            logger.error(f"Planner/executor error: {e}")
-            return None
-
     def _execute_plan_queue_task(self, task: Task) -> Dict[str, Any]:
         """Execute one queued planning task with the legacy planner/executor path."""
         payload = dict(task.payload or {})
@@ -3528,30 +2324,6 @@ class ALICE:
             "result": result.get("result"),
             "all_results": result.get("all_results", {}),
         }
-
-    def _await_queue_task_result(self, task_id: str, timeout_seconds: float = 4.0) -> Optional[Dict[str, Any]]:
-        """Wait briefly for a queued task to finish and return normalized result."""
-        if not self.persistent_task_queue:
-            return None
-
-        deadline = time.time() + max(0.1, float(timeout_seconds or 4.0))
-        while time.time() < deadline:
-            tasks = self.persistent_task_queue.list_tasks()
-            queued = next((t for t in tasks if t.task_id == task_id), None)
-            if queued is None:
-                return None
-            if queued.status == QueueTaskStatus.COMPLETED:
-                payload = queued.result if isinstance(queued.result, dict) else {}
-                return {
-                    "success": True,
-                    "result": payload.get("result"),
-                    "all_results": payload.get("all_results", {}),
-                }
-            if queued.status == QueueTaskStatus.FAILED:
-                logger.error(f"Queued planner task failed: {queued.error}")
-                return None
-            time.sleep(0.05)
-        return None
 
     def _build_llm_context(self, user_input: str, intent: str = "", entities: Dict = None, goal_res=None) -> str:
         """Build enhanced context for LLM with smart caching and adaptive selection"""
@@ -3584,37 +2356,22 @@ class ALICE:
             context_types.insert(0, "goal")
             self._think(f"Goal context → {goal.description[:50]}...")
 
-        # 0.5. Self-Reflection Capability - ALWAYS include when user asks about code/access
-        code_keywords = [
-            "code",
-            "improve",
-            "analyze",
-            "read file",
-            "my code",
-            "your code",
-            "alice code",
-            "show code",
-            "list files",
-            "access to",
-            "internal code",
-            "codebase",
-            "see code",
-            "have access",
-            "can you see",
-            "your files",
-        ]
-        if any(word in user_input.lower() for word in code_keywords):
-            codebase_summary = self.self_reflection.get_codebase_summary()
-            reflection_context = (
-                "CRITICAL: You ARE A.L.I.C.E, an AI system with read-only access to your own codebase. "
-            )
-            reflection_context += f"Your codebase is at {codebase_summary['base_path']} with {codebase_summary['total_files']} Python files. "
-            reflection_context += "You can read files, analyze code, search, and suggest improvements through the self_reflection system. "
-            reflection_context += "When asked about code access, confirm you have it and offer to read/analyze files. "
-            reflection_context += "You are NOT a generic LLM - you are A.L.I.C.E with self-reflection capabilities!"
-            context_parts.insert(1, reflection_context)  # After goal, before personalization
-            context_types.insert(1, "self_reflection")
-            self._think("Self-reflection context added")
+        # A block here used to fire on any input containing "code", "analyze",
+        # "access to" or "can you see", and told the model:
+        #
+        #     "When asked about code access, confirm you have it and offer to
+        #      read/analyze files."
+        #
+        # That is an instruction to talk about looking instead of looking —
+        # written into the prompt, and the exact failure docs/north_star.md names
+        # as this project's recurring bug. Asked what was in a file, Alice would
+        # announce her capabilities and offer to read it.
+        #
+        # The agent loop already advertises list_workspace_files,
+        # read_workspace_file and search_workspace as real tool schemas, and the
+        # persona's tool addendum says a question about her own code is answered
+        # by reading it. A model discovering it can look is strictly better than
+        # one told to say that it can.
 
         # 0.7. Recent plugin data (e.g., weather from last query)
         weather_relevant = bool(
@@ -3928,93 +2685,6 @@ class ALICE:
         self.context_cache.put(user_input, intent or "", entities or {}, full_context)
         return full_context
 
-    def _self_critique_and_regenerate(
-        self,
-        user_input: str,
-        intent: str,
-        entities: Dict[str, Any],
-        response: str,
-        goal_res: Any = None,
-    ) -> str:
-        """Second-pass quality check with one-shot regeneration on failure."""
-        if not response or not getattr(self, "response_self_critic", None):
-            return response
-
-        memory_snapshot = None
-        try:
-            if getattr(self, "reasoning_engine", None):
-                memory_snapshot = self.reasoning_engine.snapshot()
-        except Exception:
-            memory_snapshot = None
-
-        critique = self.response_self_critic.assess(
-            user_input=user_input,
-            intent=intent,
-            entities=entities or {},
-            response=response,
-            memory_snapshot=memory_snapshot,
-        )
-        if critique.passed:
-            return self._clamp_final_response(
-                response,
-                tone="professional and precise",
-                response_type="knowledge_answer" if "question" in str(intent or "") else "general_response",
-                route="self_critique_pass",
-                user_input=user_input,
-            )
-
-        self._think(f"Self-critique failed -> regenerating once ({', '.join(critique.fail_reasons[:3])})")
-
-        if not getattr(self, "llm_gateway", None):
-            return response
-
-        try:
-            regen_prompt = (
-                "Revise this draft answer so it matches intent/topic, avoids unsupported claims, "
-                "and stays consistent with memory snapshot. Keep it concise.\n\n"
-                f"User input: {user_input}\n"
-                f"Intent: {intent}\n"
-                f"Entities: {entities or {}}\n"
-                f"Memory snapshot: {memory_snapshot or {}}\n"
-                f"Draft answer: {response}\n"
-                f"Failures: {', '.join(critique.fail_reasons)}\n"
-                "Return only the revised answer."
-            )
-            regen = self.llm_gateway.request(
-                prompt=regen_prompt,
-                call_type=LLMCallType.PHRASE_STRUCTURED,
-                use_history=False,
-                user_input=user_input,
-                context={
-                    "structured_payload": regen_prompt,
-                    "intent": intent,
-                    "entities": entities or {},
-                    "goal": goal_res.goal if (goal_res and getattr(goal_res, "goal", None)) else None,
-                    "self_critique": critique.fail_reasons,
-                },
-            )
-            if regen.success and regen.response:
-                revised = self._clamp_final_response(
-                    regen.response.strip(),
-                    tone="professional and precise",
-                    response_type="general_response",
-                    route="self_critique_regen",
-                    user_input=user_input,
-                )
-                critique2 = self.response_self_critic.assess(
-                    user_input=user_input,
-                    intent=intent,
-                    entities=entities or {},
-                    response=revised,
-                    memory_snapshot=memory_snapshot,
-                )
-                if critique2.passed or len(critique2.fail_reasons) < len(critique.fail_reasons):
-                    return revised
-        except Exception as e:
-            logger.debug(f"Self-critique regeneration failed: {e}")
-
-        return response
-
     def _think(self, msg: str) -> None:
         """Emit a thinking-step line when debug mode is on (dev mode)."""
         if getattr(self, "debug", False):
@@ -4087,54 +2757,6 @@ class ALICE:
             return False
 
         return bool(self._has_explicit_action_cue(text))
-
-    def _is_conversational_input(self, user_input: str, intent: str) -> bool:
-        """Check if this is a pure conversational input (no commands/actions)"""
-        input_lower = user_input.lower()
-
-        # Only narrow intents should hit the fast conversational path.
-        # Broad buckets like conversation:general/question stay on normal routing
-        # to avoid intercepting knowledge/tool-adjacent queries.
-        conversational_intents = [
-            "conversation:ack",
-            "conversation:goal_statement",
-            "greeting",
-            "farewell",
-            "thanks",
-            "status_inquiry",
-        ]
-
-        # If not one of these intents, not pure conversation
-        if intent not in conversational_intents:
-            return False
-
-        # Check for action words that would indicate this needs plugins
-        action_words = [
-            "open",
-            "launch",
-            "play",
-            "send",
-            "create",
-            "delete",
-            "search",
-            "show",
-            "list",
-            "check",
-            "email",
-            "note",
-            "calendar",
-            "weather",
-            "time",
-            "find",
-            "remind",
-            "file",
-            "document",
-        ]
-
-        if any(word in input_lower for word in action_words):
-            return False
-
-        return True
 
     def _is_conversational_fast_lane_turn(
         self,
@@ -4387,123 +3009,6 @@ class ALICE:
 
         return False
 
-    def _run_fast_llm_lane(
-        self,
-        *,
-        user_input: str,
-        user_input_processed: str,
-        intent: str,
-        entities: Dict[str, Any],
-        goal_res: Any,
-    ) -> Optional[str]:
-        """Use llm_engine as the default conversational surface for non-action turns."""
-        llm_input = str(user_input_processed or user_input or "").strip()
-        if not llm_input:
-            return None
-
-        if self._is_agent_algorithm_question(llm_input):
-            direct = self._deterministic_knowledge_fallback(llm_input, intent)
-            if direct:
-                return self._clamp_final_response(
-                    direct,
-                    tone="helpful",
-                    response_type="general_response",
-                    route="fast_llm_lane",
-                    user_input=user_input,
-                )
-
-        _project_ideation_turn = self._is_project_ideation_turn(llm_input, intent)
-        if _project_ideation_turn:
-            lane_prompt = (
-                "You are A.L.I.C.E in project-ideation mode. "
-                "Answer in natural prose only. "
-                "If the user asks a specific, answerable question, do not ask for clarification. Answer directly first. "
-                "Silently do three things: acknowledge the goal, propose 3-5 concrete project directions, "
-                "and ask one useful narrowing question. "
-                "Avoid vague clarification wording such as 'what exact result do you want', "
-                "'please clarify your request', or similar dead-end prompts. "
-                "Do not mention intent classification, entities, internal reasoning, response plans, or templates. "
-                "Do not use section labels, headings, or numbering unless the user explicitly asks for a list. "
-                "Keep it practical and forward-moving. "
-                "Do not mention model internals or conversation history.\n\n"
-                f"User request: {llm_input}"
-            )
-        else:
-            lane_prompt = (
-                "You are A.L.I.C.E. Answer naturally in 2-4 concise sentences. "
-                "If the user asks a specific, answerable question, do not ask for clarification. Answer directly first. "
-                "Be direct and practical. Do not mention being trained, model internals, "
-                "or conversation history unless the user explicitly asks about them. "
-                "Do not invent prior-session details.\n\n"
-                f"User request: {llm_input}"
-            )
-
-        if goal_res and goal_res.goal and self._should_attach_goal_context(llm_input, intent):
-            goal_note = (
-                f"\n[Context: Help the user move toward this goal while staying natural: {goal_res.goal.description}]"
-            )
-            lane_prompt = lane_prompt + goal_note
-
-        try:
-            response = self.llm.chat(
-                lane_prompt,
-                use_history=not _project_ideation_turn,
-                temperature=0.45,
-            )
-        except Exception as e:
-            logger.debug("Fast LLM lane failed: %s", e)
-            return None
-
-        response_text = str(response or "").strip()
-        if not response_text:
-            return None
-
-        response_text = self._clamp_final_response(
-            response_text,
-            tone="helpful",
-            response_type="general_response",
-            route="fast_llm_lane",
-            user_input=user_input,
-        )
-        response_text = self._apply_response_style_constraints(response_text)
-        response_text = self._prevent_unsolicited_summary(
-            user_input=user_input,
-            intent=intent,
-            response=response_text,
-            plugin_result=None,
-        )
-        response_text = self._sanitize_fast_lane_response(
-            response=response_text,
-            user_input=user_input,
-            intent=intent,
-        )
-
-        if self.phrasing_learner:
-            try:
-                thought_type = str(intent or "conversation:help").strip().lower()
-                if thought_type in {"conversation:general", "conversation:question"}:
-                    thought_type = "conversation:help"
-                self.phrasing_learner.record_phrasing(
-                    alice_thought={
-                        "type": thought_type,
-                        "data": {
-                            "user_input": str(user_input or "").strip(),
-                            "intent": str(intent or "").strip(),
-                        },
-                    },
-                    ollama_phrasing=response_text,
-                    context={
-                        "tone": "helpful",
-                        "intent": str(intent or "").strip(),
-                        "route": "fast_llm_lane",
-                        "user_input": str(user_input or "").strip(),
-                    },
-                )
-            except Exception:
-                pass
-
-        return response_text
-
     def _contains_fast_lane_meta_leakage(self, text: str) -> bool:
         """Detect prompt/plan scaffolding leakage in user-facing text."""
         low = str(text or "").lower().strip()
@@ -4692,14 +3197,22 @@ class ALICE:
                 or "or" in _out_low
             )
 
-            if _has_meta_leak or _has_dead_end or not _has_options_signal or len(out) < 70:
+            # Meta leakage is a real defect in the text — internal labels that
+            # must not reach the user — so it is suppressed either way. The rest
+            # of this test is about shape, not correctness: shorter than 70
+            # characters, no comma, no "or". A direct answer that happened to be
+            # brief was discarded and a menu put in its place.
+            if _has_meta_leak:
                 out = self._project_ideation_guidance_response(user_input)
-            elif "?" not in out:
-                out = out.rstrip(". ") + " " + self._project_ideation_narrowing_question(user_input)
+            elif scripted_overrides_enabled():
+                if _has_dead_end or not _has_options_signal or len(out) < 70:
+                    out = self._project_ideation_guidance_response(user_input)
+                elif "?" not in out:
+                    out = out.rstrip(". ") + " " + self._project_ideation_narrowing_question(user_input)
         elif _has_meta_leak:
             out = ""
 
-        if out and self._looks_abrupt_fast_lane_ending(out):
+        if out and scripted_overrides_enabled() and self._looks_abrupt_fast_lane_ending(out):
             repaired = self._deterministic_knowledge_fallback(user_input, intent)
             if repaired:
                 out = repaired
@@ -4942,216 +3455,6 @@ class ALICE:
             r"\bi need help with\b",
         ]
         return any(re.search(pat, text) for pat in help_patterns)
-
-    def _promote_help_opener_intent(
-        self,
-        user_input: str,
-        intent: str,
-        entities: Dict[str, Any],
-        intent_confidence: float,
-    ) -> Tuple[str, Dict[str, Any], float]:
-        """Split generic help-openers from substantive goal/project statements."""
-        normalized_intent = str(intent or "").lower().strip()
-        if normalized_intent not in {"conversation:help", "conversation:general"}:
-            return intent, dict(entities or {}), float(intent_confidence or 0.0)
-        if self._is_project_ideation_request(user_input):
-            return intent, dict(entities or {}), float(intent_confidence or 0.0)
-        if not self._is_help_opener_input(user_input, normalized_intent):
-            return intent, dict(entities or {}), float(intent_confidence or 0.0)
-
-        out_entities = dict(entities or {})
-        out_entities.setdefault("help_mode", "opener")
-        if normalized_intent != "conversation:help_opener":
-            self._think(f"Help opener recognized: {normalized_intent or 'unknown'} -> conversation:help_opener")
-        return (
-            "conversation:help_opener",
-            out_entities,
-            max(float(intent_confidence or 0.0), 0.82),
-        )
-
-    def _native_help_opener_response(self, user_input: str) -> str:
-        """Native response policy for generic help-openers: acknowledge + narrow + one question."""
-        text = str(user_input or "").lower()
-        if self._is_beginner_explanation_request(text):
-            return "Absolutely. I can explain step by step at beginner level. Tell me the topic you want first, and I will keep it simple."
-        if "project" in text and "ai" in text:
-            return "Of course. What part of your AI project do you want help with first?"
-        if "project" in text:
-            return "Of course. What part of your project do you want help with first?"
-        return "Of course. What exact part do you want help with first?"
-
-    def _arm_help_narrowing_slot(self, user_input: str, prompt_response: str) -> None:
-        """Store a pending narrowing slot for short follow-up answers."""
-        text = str(user_input or "").lower()
-        parent_topic = "ai_project" if ("project" in text and "ai" in text) else "project"
-        slot_state = {
-            "active": True,
-            "type": "narrowing",
-            "slot_type": "help_narrowing",
-            "slot": "project_subdomain",
-            "parent_topic": parent_topic,
-            "parent_intent": "conversation:help",
-            "parent_request": str(user_input or ""),
-            "prompt": str(prompt_response or ""),
-            "expected_answer_shape": "short_topic_or_subdomain",
-            "last_narrowing_question": "What exact part do you want help with first?",
-        }
-        self._pending_conversation_slot = dict(slot_state)
-        if getattr(self, "nlp", None) and getattr(self.nlp, "context", None):
-            self.nlp.context.pending_clarification = dict(slot_state)
-
-        if getattr(self, "conversation_state_tracker", None):
-            try:
-                self.conversation_state_tracker.set_pending_followup_slot(slot_state)
-                self.conversation_state_tracker.set_pending_clarification(slot_state)
-            except Exception:
-                pass
-
-        if getattr(self, "world_state_memory", None):
-            try:
-                self.world_state_memory.set_pending_clarification(slot_state)
-            except Exception:
-                pass
-
-    def _arm_route_choice_slot(
-        self,
-        prompt_response: str,
-        *,
-        parent_request: str = "",
-        parent_intent: str = "conversation:help",
-    ) -> None:
-        """Store a pending route-choice slot for clarification follow-ups."""
-        slot_state = {
-            "active": True,
-            "type": "route_choice",
-            "slot_type": "route_choice",
-            "slot": "route_choice",
-            "parent_topic": "conversation",
-            "parent_intent": str(parent_intent or "conversation:help"),
-            "parent_request": str(parent_request or ""),
-            "prompt": str(prompt_response or ""),
-            "expected_answer_shape": "single_token",
-            "allowed_values": ["explanation", "direct_action", "quick_search"],
-            "last_narrowing_question": "Do you want an explanation, a direct action, or a quick search?",
-        }
-        self._pending_conversation_slot = dict(slot_state)
-        if getattr(self, "nlp", None) and getattr(self.nlp, "context", None):
-            self.nlp.context.pending_clarification = dict(slot_state)
-
-        if getattr(self, "conversation_state_tracker", None):
-            try:
-                self.conversation_state_tracker.set_pending_followup_slot(slot_state)
-                self.conversation_state_tracker.set_pending_clarification(slot_state)
-            except Exception:
-                pass
-
-        if getattr(self, "world_state_memory", None):
-            try:
-                self.world_state_memory.set_pending_clarification(slot_state)
-            except Exception:
-                pass
-
-    def _arm_topic_branch_slot(
-        self,
-        prompt_response: str,
-        *,
-        parent_request: str,
-        parent_intent: str = "conversation:question",
-        parent_topic: str = "topic",
-        allowed_values: Optional[List[str]] = None,
-    ) -> None:
-        """Store a pending branch-selection slot for domain follow-up choices."""
-        slot_state = {
-            "active": True,
-            "type": "topic_branch",
-            "slot_type": "topic_branch",
-            "slot": "topic_branch",
-            "parent_topic": str(parent_topic or "topic"),
-            "parent_intent": str(parent_intent or "conversation:question"),
-            "parent_request": str(parent_request or ""),
-            "prompt": str(prompt_response or ""),
-            "expected_answer_shape": "short_topic_or_branch",
-            "allowed_values": list(allowed_values or []),
-            "last_narrowing_question": str(prompt_response or ""),
-        }
-        self._pending_conversation_slot = dict(slot_state)
-        if getattr(self, "nlp", None) and getattr(self.nlp, "context", None):
-            self.nlp.context.pending_clarification = dict(slot_state)
-
-        if getattr(self, "conversation_state_tracker", None):
-            try:
-                self.conversation_state_tracker.set_pending_followup_slot(slot_state)
-                self.conversation_state_tracker.set_pending_clarification(slot_state)
-            except Exception:
-                pass
-
-        if getattr(self, "world_state_memory", None):
-            try:
-                self.world_state_memory.set_pending_clarification(slot_state)
-            except Exception:
-                pass
-
-    def _pending_help_slot_followup_response(self, slot_value: str) -> str:
-        low = str(slot_value or "").lower().strip()
-        if "nlp" in low:
-            return "Good, NLP is a strong focus. Do you want help with intent routing, entity extraction, embeddings, or conversation flow first?"
-        if "memory" in low:
-            return "Great, memory is a strong focus. Do you want to start with short-term context, long-term storage, or retrieval quality first?"
-        if "vision" in low:
-            return "Great, vision is a strong focus. Do you want to start with OCR, scene understanding, or multimodal grounding first?"
-        return f"Got it. For {slot_value}, do you want to start with foundations, architecture, or debugging first?"
-
-    def _pending_route_choice_followup_response(self, choice: str) -> str:
-        """Native response path for route-choice clarifications."""
-        picked = str(choice or "").strip().lower()
-        if picked == "explanation":
-            return "Great. I will stay in explanation mode. Tell me the topic and I will break it down step by step."
-        if picked == "direct_action":
-            return "Understood. Tell me the exact action you want me to run, and I will execute it directly."
-        if picked == "quick_search":
-            return "Sure. Tell me what you want me to search for, and I will do a quick lookup."
-        return "Tell me whether you want an explanation, a direct action, or a quick search."
-
-    def _clear_pending_conversation_slot_state(self, selected_reference: str = "") -> None:
-        self._pending_conversation_slot = {}
-        if getattr(self, "nlp", None) and getattr(self.nlp, "context", None):
-            self.nlp.context.pending_clarification = {}
-        if getattr(self, "conversation_state_tracker", None):
-            try:
-                self.conversation_state_tracker.clear_pending_followup_slot()
-                self.conversation_state_tracker.clear_pending_clarification()
-                if selected_reference:
-                    self.conversation_state_tracker.set_selected_object_reference(selected_reference)
-            except Exception:
-                pass
-        if getattr(self, "world_state_memory", None):
-            try:
-                self.world_state_memory.clear_pending_clarification()
-                if selected_reference:
-                    self.world_state_memory.set_selected_object_reference(selected_reference)
-            except Exception:
-                pass
-
-    def _resolve_quick_search_from_clarification(self, query: str) -> str:
-        q = str(query or "").strip()
-        if not q:
-            return "Tell me what you want me to search for, and I will do a quick lookup."
-
-        plugin_result = None
-        if getattr(self, "plugins", None):
-            try:
-                plugin_result = self.plugins.execute_for_intent(
-                    intent="search",
-                    query=q,
-                    entities={"query": q},
-                    context={"source": "clarification_resolver"},
-                )
-            except Exception:
-                plugin_result = None
-
-        if isinstance(plugin_result, dict) and plugin_result.get("success"):
-            return str(plugin_result.get("response") or f"I'll search the web for '{q}'.")
-        return f"I'll run a quick search for '{q}'."
 
     def _extract_goal_statement_signal(self, user_input: str) -> Dict[str, Any]:
         """Extract strategic goal/vision statements from declarative project direction turns."""
@@ -5503,160 +3806,6 @@ class ALICE:
             enriched_entities,
             max(float(intent_confidence or 0.0), signal_confidence),
         )
-
-    def _goal_to_authoritative_record(self, raw_goal: Any) -> Dict[str, Any]:
-        """Normalize any goal-like runtime object into one authoritative record."""
-        base = goal_from_any(raw_goal).to_dict()
-
-        if isinstance(raw_goal, dict):
-            description = str(raw_goal.get("description") or raw_goal.get("title") or "").strip()
-            intent = str(raw_goal.get("intent") or raw_goal.get("kind") or "").strip()
-            entities = dict(raw_goal.get("entities") or raw_goal.get("context") or {})
-            progress = float(raw_goal.get("progress") or 0.0)
-            next_action = str(raw_goal.get("next_action") or "").strip()
-        else:
-            description = str(getattr(raw_goal, "description", "") or getattr(raw_goal, "title", "") or "").strip()
-            intent = str(
-                getattr(raw_goal, "intent", "")
-                or getattr(raw_goal, "kind", "")
-                or getattr(getattr(raw_goal, "metadata", {}), "get", lambda *_: "")("intent")
-                or ""
-            ).strip()
-            entities = dict(getattr(raw_goal, "entities", {}) or getattr(raw_goal, "context", {}) or {})
-            progress = float(getattr(raw_goal, "progress", 0.0) or 0.0)
-            next_action = str(getattr(raw_goal, "next_action", "") or "").strip()
-
-        if (not next_action) and hasattr(raw_goal, "get_next_step"):
-            try:
-                _step = raw_goal.get_next_step()
-                if _step is not None:
-                    next_action = str(getattr(_step, "description", "") or "").strip()
-            except Exception:
-                pass
-
-        if not intent or ":" not in intent:
-            intent = str(base.get("kind") or "conversation:question")
-
-        return {
-            **base,
-            "description": description or str(base.get("title") or ""),
-            "intent": intent,
-            "entities": entities,
-            "progress": max(0.0, min(1.0, progress)),
-            "next_action": next_action or str(base.get("next_action") or ""),
-        }
-
-    def _authoritative_goal_stack(
-        self,
-        goal_res: Any = None,
-        preferred_goal: Any = None,
-    ) -> List[Dict[str, Any]]:
-        """Return active goals in priority order for this turn."""
-        raw_goals: List[Any] = []
-        if preferred_goal is not None:
-            raw_goals.append(preferred_goal)
-        if goal_res is not None and getattr(goal_res, "goal", None) is not None:
-            raw_goals.append(goal_res.goal)
-
-        if getattr(self, "reasoning_engine", None) is not None:
-            _active = getattr(self.reasoning_engine, "active_goal", None)
-            if _active is not None:
-                raw_goals.append(_active)
-            _stack = list(getattr(self.reasoning_engine, "_goal_stack", []) or [])
-            raw_goals.extend(_stack[-5:])
-
-        if getattr(self, "goal_system", None) is not None:
-            try:
-                raw_goals.extend(list(self.goal_system.get_active_goals() or []))
-            except Exception:
-                pass
-
-        normalized: List[Dict[str, Any]] = []
-        seen = set()
-        for raw in raw_goals:
-            try:
-                rec = self._goal_to_authoritative_record(raw)
-            except Exception:
-                continue
-            gid = str(rec.get("goal_id") or "").strip()
-            if not gid or gid in seen:
-                continue
-            seen.add(gid)
-            normalized.append(rec)
-
-        status_rank = {
-            "active": 0,
-            "in_progress": 0,
-            "planning": 1,
-            "blocked": 2,
-            "paused": 3,
-            "created": 4,
-            "failed": 5,
-            "cancelled": 6,
-            "completed": 7,
-        }
-        normalized.sort(
-            key=lambda g: (
-                status_rank.get(str(g.get("status") or "active").lower(), 4),
-                -float(g.get("confidence", 0.0) or 0.0),
-                -float(g.get("progress", 0.0) or 0.0),
-            )
-        )
-        return normalized[:8]
-
-    def _resolve_goal_followup_from_stack(
-        self,
-        user_input: str,
-        goal_stack: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        """Resolve short follow-up utterances directly to active goal objects."""
-        text = str(user_input or "").strip()
-        low = text.lower()
-        if not text or not goal_stack:
-            return {"matched": False, "reason": "no_goal_stack"}
-        if len(text.split()) > 8 and not re.search(
-            r"\b(continue|resume|next step|that one|this one|first|second|third|last|it)\b",
-            low,
-        ):
-            return {"matched": False, "reason": "not_short_followup"}
-
-        idx = None
-        if re.search(r"\b(second|2nd|two)\b", low):
-            idx = 1
-        elif re.search(r"\b(third|3rd|three)\b", low):
-            idx = 2
-        elif re.search(r"\b(last|latest|final)\b", low):
-            idx = len(goal_stack) - 1
-        elif re.search(r"\b(first|1st|one)\b", low):
-            idx = 0
-        elif re.search(
-            r"\b(continue|resume|next step|that one|this one|it|go on|keep going)\b",
-            low,
-        ):
-            idx = 0
-
-        if idx is None:
-            return {"matched": False, "reason": "no_followup_cue"}
-        if idx < 0 or idx >= len(goal_stack):
-            return {"matched": False, "reason": "goal_index_out_of_range"}
-
-        goal = dict(goal_stack[idx] or {})
-        title = str(goal.get("title") or goal.get("description") or "goal").strip()
-        desc = str(goal.get("description") or title).strip()
-        next_action = str(goal.get("next_action") or "").strip()
-
-        if re.search(r"\b(continue|resume|next step|go on|keep going)\b", low):
-            reconstructed = f"Continue goal {title}. {next_action or desc}".strip()
-        else:
-            reconstructed = f"For goal {title}: {next_action or desc}".strip()
-
-        return {
-            "matched": True,
-            "reason": "goal_stack_followup",
-            "goal": goal,
-            "reconstructed_input": reconstructed,
-            "intent_hint": str(goal.get("intent") or "").strip(),
-        }
 
     def _format_compact_list(self, items: List[str]) -> str:
         values = [str(x).strip() for x in list(items or []) if str(x).strip()]
@@ -6350,19 +4499,6 @@ class ALICE:
             "The key difference from a basic chatbot is reliable action across systems while tracking ongoing goals."
         )
 
-    def _is_simple_scaffold_intent(self, intent: str) -> bool:
-        normalized = str(intent or "").lower().strip()
-        return normalized in {
-            "conversation:help",
-            "conversation:help_opener",
-            "conversation:ack",
-            "conversation:acknowledgment",
-            "thanks",
-            "greeting",
-            "conversation:clarification_needed",
-            "conversation:goal_statement",
-        }
-
     def _native_scaffold_response(self, user_input: str, intent: str) -> Optional[str]:
         """Return native short scaffolding replies for low-complexity conversational turns."""
         normalized = str(intent or "").lower().strip()
@@ -6392,6 +4528,15 @@ class ALICE:
         has_explicit_action_cue: bool,
     ) -> Dict[str, Any]:
         """Block LLM when a direct low-risk native response is sufficient."""
+        # Every branch below answers the user from a template *without asking the
+        # model at all*. That is not a fallback for a model that failed; it is a
+        # decision that Alice should not think about this turn, made by a regex.
+        # It is the reason a question phrased slightly differently got a stock
+        # paragraph instead of an answer. Off by default; the branches remain so
+        # the two can be compared with scripts/quality_harness.py.
+        if not scripted_overrides_enabled():
+            return {"block_llm": False, "reason": "scripted_overrides_disabled", "response": ""}
+
         structured_teaching = self._structured_teaching_mode_response(user_input, intent)
         if structured_teaching:
             return {
@@ -6436,159 +4581,6 @@ class ALICE:
             }
 
         return {"block_llm": False, "reason": "allow_llm", "response": ""}
-
-    def _contains_resolution_placeholder_noise(self, text: str) -> bool:
-        low = str(text or "").lower()
-        if "general_assistance" in low:
-            return True
-        if "person 'an ai'" in low:
-            return True
-        if re.search(r"\b(?:placeholder|unknown|entity\s+'[^']+')\b", low):
-            return True
-        return False
-
-    def _safe_resolved_user_input(
-        self,
-        *,
-        raw_input: str,
-        candidate_input: str,
-        binding_confidences: Optional[List[float]] = None,
-    ) -> str:
-        """Keep raw input sacred unless a rewrite is high-confidence and semantically stable."""
-        raw = str(raw_input or "").strip()
-        cand = str(candidate_input or "").strip()
-        if not cand or cand == raw:
-            return raw
-        if self._contains_resolution_placeholder_noise(cand):
-            return raw
-
-        if binding_confidences:
-            min_conf = min(float(c or 0.0) for c in binding_confidences)
-            if min_conf < 0.90:
-                return raw
-
-        raw_tokens = re.findall(r"\b[a-z0-9']+\b", raw.lower())
-        cand_tokens = re.findall(r"\b[a-z0-9']+\b", cand.lower())
-        if not raw_tokens or not cand_tokens:
-            return raw
-
-        overlap = len(set(raw_tokens).intersection(cand_tokens)) / max(1, len(set(raw_tokens)))
-        if overlap < 0.62:
-            return raw
-
-        if abs(len(cand) - len(raw)) > 48:
-            return raw
-
-        return cand
-
-    def _semantic_anchor_terms(self, user_input: str) -> List[str]:
-        text = str(user_input or "").lower()
-        tokens = re.findall(r"\b[a-z0-9']+\b", text)
-        stop = {
-            "the",
-            "a",
-            "an",
-            "to",
-            "of",
-            "in",
-            "on",
-            "for",
-            "with",
-            "and",
-            "or",
-            "if",
-            "would",
-            "have",
-            "had",
-            "is",
-            "are",
-            "was",
-            "were",
-            "be",
-            "been",
-            "being",
-            "i",
-            "you",
-            "my",
-            "me",
-            "we",
-            "our",
-            "your",
-            "it",
-            "this",
-            "that",
-            "today",
-        }
-        anchors = [t for t in tokens if len(t) >= 3 and t not in stop]
-        seen = set()
-        out: List[str] = []
-        for t in anchors:
-            if t in seen:
-                continue
-            seen.add(t)
-            out.append(t)
-        return out[:14]
-
-    def _semantic_fidelity_check(self, *, user_input: str, response: str, intent: str) -> Dict[str, Any]:
-        """Check whether the final answer preserves user meaning before publish."""
-        normalized_intent = str(intent or "").lower().strip()
-        if normalized_intent in {
-            "greeting",
-            "thanks",
-            "conversation:ack",
-            "conversation:acknowledgment",
-            "conversation:help",
-            "conversation:goal_statement",
-        }:
-            return {"accepted": True, "reason": "scaffold_intent"}
-
-        user_low = str(user_input or "").lower()
-        resp_low = str(response or "").lower()
-        anchors = self._semantic_anchor_terms(user_input)
-        if len(anchors) < 4:
-            return {"accepted": True, "reason": "insufficient_anchor_terms"}
-
-        # Generalized critical-term logic: high-information anchors are terms
-        # with strong semantic payload, not topic-specific names.
-        critical_terms = [t for t in anchors if len(t) >= 6 or t.endswith("tion") or t.endswith("ment")][:8]
-        missing_critical = [t for t in critical_terms if t not in resp_low]
-        off_topic_terms = [
-            t for t in ("polymorphism", "interface", "inheritance", "class") if t in resp_low and t not in user_low
-        ]
-
-        if off_topic_terms:
-            return {
-                "accepted": False,
-                "reason": "off_topic_technical_drift",
-                "missing": missing_critical,
-            }
-
-        matched = [t for t in anchors if t in resp_low]
-        match_ratio = len(matched) / max(1, len(anchors))
-        if missing_critical and len(missing_critical) >= 2:
-            return {
-                "accepted": False,
-                "reason": "missing_critical_terms",
-                "missing": missing_critical,
-            }
-        if match_ratio < 0.30:
-            return {
-                "accepted": False,
-                "reason": "low_anchor_overlap",
-                "missing": missing_critical,
-            }
-
-        return {"accepted": True, "reason": "semantic_fidelity_ok"}
-
-    def _native_conceptual_fallback(self, user_input: str) -> Optional[str]:
-        """Native conceptual answer mode for broad architecture questions."""
-        text = str(user_input or "").lower()
-        if "foundation" in text and any(k in text for k in ("assistant", "system", "architecture", "real world")):
-            return (
-                "A practical assistant system should be built on understanding, memory, planning, execution, verification, "
-                "and bounded autonomy, with clear safety and escalation rules."
-            )
-        return None
 
     def _low_complexity_teacher_thought(
         self,
@@ -6642,141 +4634,6 @@ class ALICE:
         if intent in conversational_intents:
             return self._has_explicit_action_cue(user_input)
         return True
-
-    def _is_wake_word_only_input(self, user_input: str) -> bool:
-        """Detect short wake-word nudges like 'alice' with no task attached."""
-        if not user_input:
-            return False
-
-        normalized = user_input.strip().lower()
-        compact = re.sub(r"[^a-z]", "", normalized)
-        if compact not in {"alice", "aliceai"}:
-            return False
-
-        tokens = re.findall(r"\b[a-z']+\b", normalized)
-        return len(tokens) <= 2
-
-    def _wake_word_acknowledgment(self, user_name: str) -> Optional[str]:
-        """Generate wake-word acknowledgment via learned phrasing, with Ollama as teacher."""
-        wake_thought = {
-            "type": "wake_word_ack",
-            "data": {
-                "user_input": "alice",
-                "user_name": user_name,
-            },
-        }
-
-        # 1) Alice tries to phrase independently from learned patterns.
-        if self.phrasing_learner:
-            try:
-                if self.phrasing_learner.can_phrase_myself(wake_thought, "friendly"):
-                    learned = self.phrasing_learner.phrase_myself(wake_thought, "friendly")
-                    if learned:
-                        return learned
-            except Exception:
-                pass
-
-        # 2) If Alice does not know yet, ask Ollama for a short line, then learn it.
-        if getattr(self, "llm_gateway", None):
-            prompt = (
-                "User said only your wake word. "
-                "Reply with one short, natural acknowledgment (max 9 words). "
-                "Friendly, casual, human. "
-                "No quotes, no emoji, no explanation. "
-                f"You may include the user's name if useful: {user_name!r}."
-            )
-            try:
-                llm_response = self.llm_gateway.request(
-                    prompt=prompt,
-                    call_type=LLMCallType.CHITCHAT,
-                    use_history=False,
-                    user_input="alice",
-                )
-                if llm_response.success and llm_response.response:
-                    response = self._clamp_final_response(
-                        llm_response.response.strip().strip('"').strip("'"),
-                        tone="casual and friendly",
-                        response_type="wake_word_ack",
-                        route="wake_word",
-                        user_input="alice",
-                    )
-                    if response:
-                        if self.phrasing_learner:
-                            self.phrasing_learner.record_phrasing(
-                                alice_thought=wake_thought,
-                                ollama_phrasing=response,
-                                context={
-                                    "tone": "friendly",
-                                    "intent": "wake_word_ack",
-                                    "user_input": "alice",
-                                },
-                            )
-                        return response
-            except Exception:
-                pass
-
-        # 3) Last non-hardcoded fallback: use any learned greeting pattern.
-        return self._learned_greeting_response(
-            user_input="alice",
-            user_name=user_name,
-            asked_how=False,
-        )
-
-    def _is_issue_report_input(self, user_input: str) -> bool:
-        """Detect reflective problem-report text that should stay conversational."""
-        if not user_input:
-            return False
-
-        text = user_input.strip().lower()
-        if len(text.split()) < 8:
-            return False
-
-        issue_markers = [
-            "missed intent",
-            "missed intents",
-            "misread",
-            "wrong answer",
-            "wrong route",
-            "misclass",
-            "intent",
-            "conversational",
-            "routing",
-            "capabilitygraph",
-            "capability graph",
-            "recommendation",
-            "recommendations",
-        ]
-        reflective_markers = [
-            "i am trying",
-            "i'm trying",
-            "my project",
-            "my ai",
-            "we need to fix",
-            "there are",
-            "it keeps",
-        ]
-        explicit_command_markers = [
-            "create note",
-            "save note",
-            "delete note",
-            "open note",
-            "send email",
-            "check email",
-            "create event",
-            "delete event",
-            "what's the weather",
-            "show reminders",
-            "set reminder",
-            "open file",
-            "delete file",
-        ]
-
-        if any(marker in text for marker in explicit_command_markers):
-            return False
-
-        has_issue_signal = any(marker in text for marker in issue_markers)
-        has_reflective_signal = any(marker in text for marker in reflective_markers)
-        return has_issue_signal and has_reflective_signal
 
     def _is_explicit_greeting_input(self, user_input: str) -> bool:
         """Return True only when the utterance clearly looks like a greeting."""
@@ -6850,15 +4707,6 @@ class ALICE:
             "late session",
         ]
     )
-
-    def _greeting_is_time_inappropriate(self, text: str) -> bool:
-        """Return True if a learned greeting is time-inappropriate for the current hour."""
-        hour = datetime.now().hour
-        low = text.lower()
-        # 6 AM – 8 PM: reject night/late phrases
-        if 6 <= hour < 20:
-            return any(phrase in low for phrase in self._NIGHT_GREETING_PHRASES)
-        return False
 
     def _learned_greeting_response(
         self,
@@ -7438,70 +5286,6 @@ class ALICE:
                             result += f"  Line {m['line']}: `{m['content'][:80]}...`\n"
                     return result
                 return f"No matches found for '{query}'"
-
-        return None
-
-    def _handle_training_request(self, user_input: str) -> Optional[str]:
-        """Handle requests about training status and data collection"""
-        input_lower = user_input.lower()
-
-        # Training status
-        if any(
-            phrase in input_lower
-            for phrase in [
-                "training status",
-                "how many examples",
-                "training data",
-                "learning progress",
-                "fine-tuned",
-                "fine tuned",
-                "trained model",
-            ]
-        ):
-            if not getattr(self, "learning_engine", None):
-                return "Learning system not initialized."
-
-            stats = self.learning_engine.get_statistics()
-            result = "[LEARNING] **Learning Status**:\n\n"
-            result += f"[OK] Total interactions: {stats['total_examples']}\n"
-            result += f"[OK] High-quality examples: {stats['high_quality']}\n"
-            result += f"[OK] Ready for fine-tuning: {'Yes' if stats['should_finetune'] else 'No (need 50+ examples)'}\n"
-
-            if stats["examples_by_intent"]:
-                result += "\n[DETAILS] Examples by intent:\n"
-                for intent, count in list(stats["examples_by_intent"].items())[:5]:
-                    result += f"  - {intent}: {count}\n"
-
-            if not stats["should_finetune"]:
-                result += "\n[INFO] Keep using A.L.I.C.E! I'm learning from every interaction."
-
-            return result
-
-        # Export training data
-        if "export training" in input_lower or "export data" in input_lower:
-            if not getattr(self, "fine_tuning_system", None):
-                return "Training system not initialized."
-
-            format_match = re.search(r"(jsonl|json|txt)", input_lower)
-            format_match.group(1) if format_match else "jsonl"
-
-            # Export from learning engine
-            if getattr(self, "learning_engine", None):
-                training_data = self.learning_engine.get_high_quality_examples()
-                if training_data:
-                    export_path = "data/training/training_data.jsonl"
-                    return f"[OK] {len(training_data)} examples available for export to: `{export_path}`\n\nYou can use this file to train A.L.I.C.E with Ollama's fine-tuning tools."
-            return "No training data to export yet. Keep using A.L.I.C.E to collect data!"
-
-        # Prepare training data
-        if "prepare training" in input_lower or "ready to train" in input_lower:
-            if not getattr(self, "learning_engine", None):
-                return "Learning system not initialized."
-
-            if self.learning_engine.should_finetune():
-                examples = self.learning_engine.get_high_quality_examples()
-                return f"[OK] Ready to train! {len(examples)} high-quality examples available.\n\nTo train A.L.I.C.E:\n1. Use Ollama's fine-tuning: `ollama create alice-custom -f data/training/training_data.jsonl`\n2. Or export the data and use external training tools."
-            return "[ERROR] Not enough data yet. Need 50+ high-quality examples (currently have less)."
 
         return None
 
@@ -8108,39 +5892,6 @@ class ALICE:
             },
         )
 
-    def _prune_confidence_candidates(self, user_input: str, scores: Dict[str, Any]) -> Dict[str, float]:
-        """Remove low-relevance intent candidates before surfacing uncertainty options."""
-        parsed: Dict[str, float] = {}
-        for key, value in dict(scores or {}).items():
-            try:
-                parsed[str(key)] = float(value)
-            except Exception:
-                continue
-        if not parsed:
-            return {}
-
-        text = str(user_input or "").lower()
-        has_note_signal = bool(re.search(r"\b(note|notes|memo|notebook)\b", text))
-        has_knowledge_signal = bool(
-            re.search(
-                r"\b(nlp|algorithm|algorithms|embedding|embeddings|intent|routing|entity|conversation flow|architecture|pattern|python|git)\b",
-                text,
-            )
-        )
-        if has_knowledge_signal and not has_note_signal:
-            parsed = {
-                k: v
-                for k, v in parsed.items()
-                if (
-                    k.startswith("conversation:")
-                    or k.startswith("learning:")
-                    or k.startswith("question")
-                    or "search" in k
-                )
-            } or parsed
-
-        return parsed
-
     def _is_internal_infra_leakage(self, text: str) -> bool:
         low = str(text or "").lower()
         if not low:
@@ -8398,54 +6149,6 @@ class ALICE:
         )
         return generic
 
-    def _apply_confidence_cascade(self, intent: str, confidence: float, nlp_result, user_input: str = "") -> dict:
-        """
-        Confidence cascade policy:
-          >= 0.85 → execute directly
-          >= 0.65 → execute with a low-confidence prefix marker
-          >= 0.45 → ask for clarification
-          <  0.45 → surface top-2 interpretations
-        """
-        if confidence >= 0.85:
-            return {"action": "execute", "confidence": confidence}
-        if confidence >= 0.65:
-            return {
-                "action": "execute_low_conf",
-                "confidence": confidence,
-                "marker": "I'm not 100% sure, but I'll try—",
-            }
-        if confidence >= 0.45:
-            if self._should_answer_first_without_clarification(user_input, intent):
-                return {
-                    "action": "execute_low_conf",
-                    "confidence": confidence,
-                    "marker": "I might be slightly off, but I can still answer this directly.",
-                }
-            return {
-                "action": "clarify",
-                "confidence": confidence,
-                "question": "Could you clarify what you'd like me to do?",
-            }
-        # < 0.45: surface top-2 candidates
-        if self._should_answer_first_without_clarification(user_input, intent):
-            return {
-                "action": "execute_low_conf",
-                "confidence": confidence,
-                "marker": "I may be missing some detail, but I'll start with a direct answer.",
-            }
-        scores = self._prune_confidence_candidates(
-            user_input=user_input,
-            scores=getattr(nlp_result, "plugin_scores", {}) or {},
-        )
-        top2 = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:2]
-        options = [f"{p} ({v:.0%})" for p, v in top2] if top2 else [intent]
-        return {
-            "action": "interpret",
-            "confidence": confidence,
-            "options": options,
-            "question": f"Did you mean: {' or '.join(options)}?",
-        }
-
     def _executive_gate_fallback_response(
         self,
         *,
@@ -8547,71 +6250,6 @@ class ALICE:
             fallback_action=str(fallback_action or "safe_reply"),
         )
 
-    def _run_executive_reflection(
-        self,
-        *,
-        user_input: str,
-        intent: str,
-        response: str,
-        route: str,
-        prior_confidence: float,
-    ) -> None:
-        """Post-response reflection loop that updates executive routing weights."""
-        if not getattr(self, "reflection_engine", None) or not getattr(self, "executive_controller", None):
-            return
-        try:
-            gate_eval = getattr(self, "_last_exec_gate_eval", {}) or {}
-
-            # Track response quality first so reflection can consume it.
-            _turn_quality = None
-            if getattr(self, "response_quality_tracker", None):
-                try:
-                    _goal_align = 1.0
-                    if getattr(self, "goal_tracker", None):
-                        _goal_align = self.goal_tracker.goal_alignment_score(response)
-                    _topic_hint = str((getattr(self, "_internal_reasoning_state", {}) or {}).get("topic", "") or "")
-                    _turn_quality = self.response_quality_tracker.track_turn(
-                        user_input=user_input,
-                        response=response,
-                        intent=intent,
-                        gate_accepted=bool(gate_eval.get("accepted", True)),
-                        goal_alignment=_goal_align,
-                        topic_hint=_topic_hint,
-                    )
-                    self._internal_reasoning_state["turn_quality"] = _turn_quality.as_dict()
-                except Exception as _qt_err:
-                    logger.debug(f"[QualityTracker] {_qt_err}")
-
-            _quality_payload = _turn_quality.as_dict() if _turn_quality else {}
-            _failure_type = _quality_payload.get("failure_type", "none")
-            reflection = self.reflection_engine.reflect(
-                user_input=user_input,
-                intent=intent,
-                response=response,
-                route=route,
-                gate_accepted=bool(gate_eval.get("accepted", True)),
-                decision_scores=(getattr(self, "_internal_reasoning_state", {}) or {}).get("decision_scores", {}),
-                prior_confidence=float(prior_confidence or 0.0),
-                quality_metrics=_quality_payload,
-                failure_type=str(_failure_type),
-            ).as_dict()
-            self.executive_controller.apply_reflection(reflection)
-            self._internal_reasoning_state["reflection"] = reflection
-            self._think(
-                "Executive reflection → "
-                f"score={float(reflection.get('success_score', 0.0)):.2f}, "
-                f"relevant={reflection.get('was_relevant', False)}"
-            )
-            if _turn_quality and _turn_quality.failure_type != "none":
-                self._think(
-                    f"Quality tracker → failure={_turn_quality.failure_type}, "
-                    f"relevance={_turn_quality.relevance:.2f}, "
-                    f"topic={_turn_quality.topic_adherence:.2f}"
-                )
-
-        except Exception as e:
-            logger.debug(f"[ExecutiveReflection] {e}")
-
     def _on_scheduled_task(self, task_name: str, action: str) -> str:
         """Callback fired by TaskScheduler when a scheduled task is due."""
         try:
@@ -8648,256 +6286,6 @@ class ALICE:
                     self.speech.speak(response, blocking=False)
                 return response
         raise RuntimeError("Contract pipeline unavailable. Check runtime_boundaries initialization in ALICE.__init__.")
-
-    def _is_error_response(self, response: str, expected_domain: str = None) -> bool:
-        """Detect error-like responses that should be logged for learning."""
-        if not response:
-            return False
-        text = response.lower()
-        error_markers = [
-            "i apologize",
-            "encountered an error",
-            "error",
-            "sorry",
-            "i don't know",
-            "i do not know",
-            "not learned",
-            "still learning",
-            "i'm not sure",
-            "cannot",
-            "can't",
-        ]
-        has_error = any(marker in text for marker in error_markers)
-
-        # Also detect wrong-domain responses (e.g., weather response to email query)
-        if not has_error and expected_domain:
-            domain_indicators = {
-                "email": ["from", "subject", "inbox", "message", "sent"],
-                "weather": [
-                    "temperature",
-                    "forecast",
-                    "°c",
-                    "celsius",
-                    "condition",
-                    "humidity",
-                ],
-                "notes": ["note", "saved", "created", "added", "reminder"],
-                "calendar": ["meeting", "event", "appointment", "schedule", "time"],
-            }
-
-            expected_indicators = domain_indicators.get(expected_domain, [])
-            if expected_indicators and not any(ind in text for ind in expected_indicators):
-                # Check if response has OTHER domain's indicators
-                for domain, indicators in domain_indicators.items():
-                    if domain != expected_domain and any(ind in text for ind in indicators):
-                        return True  # Wrong domain detected
-
-        return has_error
-
-    def _clean_email_body(self, body: str) -> str:
-        if not body:
-            return ""
-        try:
-            body = html.unescape(body)
-            # Remove style/script blocks before stripping tags
-            body = re.sub(r"<style[\s\S]*?>[\s\S]*?</style>", "", body, flags=re.IGNORECASE)
-            body = re.sub(r"<script[\s\S]*?>[\s\S]*?</script>", "", body, flags=re.IGNORECASE)
-            body = re.sub(r"<\s*br\s*/?>", "\n", body, flags=re.IGNORECASE)
-            body = re.sub(r"</p\s*>", "\n\n", body, flags=re.IGNORECASE)
-            body = re.sub(r"<[^>]+>", "", body)
-
-            # Normalize whitespace
-            body = re.sub(r"\n{3,}", "\n\n", body)
-            body = re.sub(r"[ \t]{2,}", " ", body)
-
-            # Drop CSS-like lines
-            cleaned_lines = []
-            for line in body.splitlines():
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                # Skip CSS selectors/blocks and property lines
-                if "{" in stripped or "}" in stripped:
-                    continue
-                if re.match(r"^[\w\-]+\s*:\s*[^;]+;?\s*$", stripped):
-                    continue
-                # Skip single-number or very short noise lines
-                if re.match(r"^\d+$", stripped):
-                    continue
-                cleaned_lines.append(stripped)
-
-            return "\n".join(cleaned_lines).strip()
-        except Exception:
-            return body
-
-    def _log_error_interaction(
-        self,
-        user_input: str,
-        intent: str,
-        entities: Dict[str, Any],
-        response: str,
-        error_type: str,
-        actual_route: str = "LLM_FALLBACK",
-    ) -> None:
-        """Log error interactions into training data for correction learning."""
-        try:
-            training_dir = Path("data/training")
-            training_dir.mkdir(parents=True, exist_ok=True)
-            output_file = training_dir / "auto_generated.jsonl"
-
-            domain = "unknown"
-            if intent and ":" in intent:
-                domain = intent.split(":", 1)[0]
-
-            log_entry = {
-                "timestamp": datetime.now().isoformat(),
-                "user_input": user_input,
-                "actual_intent": intent,
-                "actual_route": actual_route,
-                "alice_response": response,
-                "success": False,
-                "success_flag": False,
-                "error_type": error_type,
-                "domain": domain,
-                "llm_used": actual_route == "LLM_FALLBACK",
-            }
-
-            with open(output_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(log_entry) + "\n")
-
-        except Exception as e:
-            logger.warning(f"[LOG] Failed to log error interaction: {e}")
-
-    def _track_response_entities(self, response: str, intent: str):
-        """Track entities mentioned in assistant responses"""
-        if not self.advanced_context:
-            return
-
-        # Track files mentioned
-        file_patterns = [
-            r"created? (?:a )?file (?:called )?['\"]([^'\"]+)['\"]",
-            r"(?:file|document) ['\"]([^'\"]+)['\"]",
-            r"saved? (?:to|as) ['\"]([^'\"]+)['\"]",
-        ]
-
-        for pattern in file_patterns:
-            matches = re.finditer(pattern, response, re.IGNORECASE)
-            for match in matches:
-                filename = match.group(1)
-                self.advanced_context.add_entity(
-                    entity_type="file",
-                    data={"name": filename, "mentioned_in_response": True},
-                    aliases=["the file", "this file", filename],
-                )
-
-        # Track people mentioned
-        person_patterns = [
-            r"(?:from|by|to) ([A-Z][a-z]+ [A-Z][a-z]+)",  # Full names
-            r"(?:from|by|to) ([A-Z][a-z]+)",  # First names
-        ]
-
-        for pattern in person_patterns:
-            matches = re.finditer(pattern, response, re.IGNORECASE)
-            for match in matches:
-                person_name = match.group(1)
-                self.advanced_context.add_entity(
-                    entity_type="person",
-                    data={"name": person_name, "mentioned_in_response": True},
-                    aliases=["this person", person_name],
-                )
-
-        # Track topics mentioned
-        if intent in ["weather", "time", "calculation"]:
-            topic_name = intent.replace("_", " ")
-            self.advanced_context.add_entity(
-                entity_type="topic",
-                data={"name": topic_name, "intent": intent},
-                aliases=["this topic", "that", topic_name],
-            )
-
-    def _detect_general_entities(self, user_input: str, intent: str, entities: Dict):
-        """Detect and track general entities from user input"""
-        if not self.advanced_context:
-            return
-
-        # Detect file mentions
-        file_patterns = [
-            r"(?:file|document) (?:called |named )?['\"]([^'\"]+)['\"]",
-            r"create (?:a )?file ['\"]([^'\"]+)['\"]",
-            r"(?:open|read|edit) ['\"]([^'\"]+)['\"]",
-        ]
-
-        for pattern in file_patterns:
-            matches = re.finditer(pattern, user_input, re.IGNORECASE)
-            for match in matches:
-                filename = match.group(1)
-                self.advanced_context.add_entity(
-                    entity_type="file",
-                    data={"name": filename, "mentioned_by_user": True},
-                    aliases=["the file", "this file", "that file", filename],
-                )
-
-        # Detect person mentions
-        person_patterns = [
-            r"(?:tell|ask|message|email|call) ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
-            r"(?:with|from|to) ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
-        ]
-
-        for pattern in person_patterns:
-            matches = re.finditer(pattern, user_input, re.IGNORECASE)
-            for match in matches:
-                person_name = match.group(1)
-                if person_name.lower() not in [
-                    "alice",
-                    "you",
-                    "me",
-                    "i",
-                ]:  # Skip self-references
-                    self.advanced_context.add_entity(
-                        entity_type="person",
-                        data={"name": person_name, "mentioned_by_user": True},
-                        aliases=["this person", "they", "them", person_name],
-                    )
-
-        # Detect location mentions
-        location_patterns = [
-            r"(?:in|at|to|from) ([A-Z][a-z]+(?:,?\s+[A-Z][a-z]+)*)",
-            r"weather (?:in|at|for) ([A-Z][a-z]+(?:,?\s+[A-Z][a-z]+)*)",
-        ]
-
-        for pattern in location_patterns:
-            matches = re.finditer(pattern, user_input, re.IGNORECASE)
-            for match in matches:
-                location = match.group(1)
-                # Simple validation - avoid common words
-                if location.lower() not in [
-                    "the",
-                    "this",
-                    "that",
-                    "there",
-                    "here",
-                    "now",
-                    "today",
-                ]:
-                    self.advanced_context.add_entity(
-                        entity_type="location",
-                        data={"name": location, "mentioned_by_user": True},
-                        aliases=["there", "this place", "that location", location],
-                    )
-
-        # Detect task/topic mentions based on intent
-        if intent in ["file_operation", "system_control", "weather", "time"]:
-            topic_data = {
-                "intent": intent,
-                "user_input": user_input[:100],  # Store snippet
-                "mentioned_by_user": True,
-            }
-
-            self.advanced_context.add_entity(
-                entity_type="topic",
-                data=topic_data,
-                aliases=["this", "that", intent.replace("_", " ")],
-            )
 
     def _get_recent_conversation_summary(self) -> str:
         """Get a summary of the last few conversation exchanges"""
@@ -8941,58 +6329,51 @@ class ALICE:
 
         return " | ".join(context_parts) if context_parts else ""
 
+    # Session state lives in JSON, not pickle: unpickling executes whatever the
+    # file says to, and in the Docker image data/ is a bind mount.
+    CONVERSATION_STATE_PATH = "data/conversation_state.json"
+    CONTEXT_STATE_PATH = "data/context_state.json"
+
     def _load_conversation_state(self):
-        """Load conversation state from previous session"""
-        import pickle
-        import os
+        """Load conversation state from the previous session."""
+        from ai.infrastructure.state_file import load_json, retire_pickle_state
 
-        state_file = "data/conversation_state.pkl"
+        retire_pickle_state("data/conversation_state.pkl")
+        retire_pickle_state("data/context_state.pkl")
 
-        if os.path.exists(state_file):
+        state = load_json(self.CONVERSATION_STATE_PATH)
+        if state:
             try:
-                with open(state_file, "rb") as f:
-                    state = pickle.load(f)
+                if "conversation_summary" in state:
+                    self.conversation_summary = list(state["conversation_summary"])[-5:]  # Last 5 only
+                if "conversation_topics" in state:
+                    self.conversation_topics = list(state["conversation_topics"])[-5:]
+                if "referenced_items" in state:
+                    self.referenced_items = state["referenced_items"]
+                if state.get("conversation_state_tracker") and getattr(self, "conversation_state_tracker", None):
+                    self.conversation_state_tracker.load_state(state["conversation_state_tracker"])
 
-                    # Restore conversation summary (only recent ones)
-                    if "conversation_summary" in state:
-                        self.conversation_summary = state["conversation_summary"][-5:]  # Last 5 only
+                # Restore adaptive routing weights (with decay toward neutral)
+                if getattr(self, "executive_controller", None):
+                    self.executive_controller.load_weights("data/executive_routing_weights.json")
 
-                    # Restore topics
-                    if "conversation_topics" in state:
-                        self.conversation_topics = state["conversation_topics"][-5:]
-
-                    # Restore referenced items
-                    if "referenced_items" in state:
-                        self.referenced_items = state["referenced_items"]
-
-                    if "conversation_state_tracker" in state and getattr(self, "conversation_state_tracker", None):
-                        self.conversation_state_tracker.load_state(state["conversation_state_tracker"])
-
-                    # Restore adaptive routing weights (with decay toward neutral)
-                    if getattr(self, "executive_controller", None):
-                        self.executive_controller.load_weights("data/executive_routing_weights.json")
-
-                    logger.info("[OK] Previous conversation context restored")
+                logger.info("[OK] Previous conversation context restored")
             except Exception as e:
-                logger.warning(f"[WARNING] Could not load conversation state: {e}")
+                logger.warning(f"[WARNING] Could not restore conversation state: {e}")
 
-        # Load advanced context state if available
+        # Entity registry and pronoun stack. This used to read
+        # data/advanced_context_state.pkl while the save wrote
+        # data/context_state.pkl, so the two never met and context never
+        # survived a restart.
         if self.advanced_context:
-            advanced_state_file = "data/advanced_context_state.pkl"
-            if os.path.exists(advanced_state_file):
-                try:
-                    self.advanced_context.load_state(advanced_state_file)
-                    logger.info("[OK] Advanced context state restored")
-                except Exception as e:
-                    logger.warning(f"[WARNING] Could not load advanced context state: {e}")
+            try:
+                self.advanced_context.load_state(self.CONTEXT_STATE_PATH)
+            except Exception as e:
+                logger.warning(f"[WARNING] Could not load context state: {e}")
 
     def _save_conversation_state(self):
-        """Save conversation state for next session"""
-        import pickle
-        import os
-
-        os.makedirs("data", exist_ok=True)
-        state_file = "data/conversation_state.pkl"
+        """Save conversation state for the next session."""
+        from ai.infrastructure.state_file import save_json_atomic
 
         try:
             state = {
@@ -9006,18 +6387,15 @@ class ALICE:
                 ),
                 "timestamp": datetime.now().isoformat(),
             }
-
-            with open(state_file, "wb") as f:
-                pickle.dump(state, f)
+            save_json_atomic(self.CONVERSATION_STATE_PATH, state)
 
             # Persist adaptive routing weights for cumulative learning
             if getattr(self, "executive_controller", None):
                 self.executive_controller.save_weights("data/executive_routing_weights.json")
 
-            # Save context state if available
+            # Written to the path _load_conversation_state actually reads.
             if self.context:
-                context_state_file = "data/context_state.pkl"
-                self.context.save_state(context_state_file)
+                self.context.save_state(self.CONTEXT_STATE_PATH)
 
             logger.info("[OK] Conversation state saved")
         except Exception as e:
@@ -10212,161 +7590,6 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
             # Ultimate fallback
             return f"Take care, {name}!"
 
-    def _handle_relationship_query(self, user_input: str, intent: str, entities: Dict[str, Any]) -> Optional[str]:
-        """Handle relationship queries like 'who does John work for?' or 'tell me about Sarah'"""
-        query_lower = user_input.lower()
-
-        # Technical domain exclusions - don't treat these as relationship queries
-        technical_domains = [
-            "neural",
-            "network",
-            "algorithm",
-            "memory",
-            "consolidation",
-            "gated",
-            "recall",
-            "learning",
-            "machine",
-            "deep",
-            "training",
-            "model",
-            "data",
-            "code",
-            "function",
-            "class",
-            "method",
-            "python",
-            "javascript",
-            "api",
-            "database",
-            "server",
-            "client",
-            "formula",
-            "equation",
-            "math",
-            "science",
-            "physics",
-            "chemistry",
-            "biology",
-            "weather",
-            "temperature",
-            "climate",
-            "file",
-            "folder",
-            "directory",
-            "system",
-        ]
-
-        # Self-reference exclusions - these should go to conversational engine
-        self_references = ["alice", "a.l.i.c.e", "a l i c e", "you", "yourself"]
-
-        # ONLY match specific relationship patterns - not general knowledge queries
-        # Explicit relationship patterns (high confidence these are about entity relationships)
-        specific_relationship_patterns = [
-            r"who does (\w+) work (?:for|with)",  # "who does John work for"
-            r"where does (\w+) live",  # "where does Sarah live"
-            r"(\w+)(?:'s)?\s+(?:relationship|connection)\s+(?:with|to)\s+(\w+)",  # "John's relationship with Mary"
-            r"how are (\w+) and (\w+) (?:related|connected)",  # "how are John and Mary related"
-            r"(\w+) and (\w+) relationship",  # "John and Mary relationship"
-        ]
-
-        for pattern in specific_relationship_patterns:
-            match = re.search(pattern, query_lower)
-            if match:
-                entity_name = match.group(1)
-                second_entity = match.group(2) if len(match.groups()) > 1 and match.group(2) else None
-
-                # Skip if technical domain or self-reference
-                if entity_name in technical_domains or entity_name in self_references:
-                    continue
-                if second_entity and (second_entity in technical_domains or second_entity in self_references):
-                    continue
-
-                # Get relationships for the entity
-                relationships = self.relationship_tracker.get_entity_relationships(entity_name)
-
-                if not relationships:
-                    # Don't return error for specific patterns - just skip to LLM
-                    continue
-
-                # Format relationships
-                response_parts = [f"Here's what I know about {entity_name.title()}:"]
-
-                # Group relationships by type
-                by_type = defaultdict(list)
-                for rel in relationships:
-                    if rel.source_entity == entity_name.lower():
-                        by_type[rel.relationship_type].append(
-                            f"{rel.relationship_type.replace('_', ' ')} {rel.target_entity.title()}"
-                        )
-                    else:
-                        by_type[rel.relationship_type].append(
-                            f"is {rel.relationship_type.replace('_', ' ')} by {rel.source_entity.title()}"
-                        )
-
-                for rel_type, connections in by_type.items():
-                    if len(connections) == 1:
-                        response_parts.append(f"• {connections[0]}")
-                    else:
-                        response_parts.append(
-                            f"• {rel_type.replace('_', ' ')}: {', '.join([c.replace(rel_type.replace('_', ' '), '').strip() for c in connections])}"
-                        )
-
-                # If asking about specific relationship between two entities
-                if second_entity:
-                    specific_rels = [
-                        rel
-                        for rel in relationships
-                        if (rel.source_entity == second_entity.lower() or rel.target_entity == second_entity.lower())
-                    ]
-                    if specific_rels:
-                        response_parts.append(f"\nConnection with {second_entity.title()}:")
-                        for rel in specific_rels:
-                            if rel.source_entity == entity_name.lower():
-                                response_parts.append(
-                                    f"• {entity_name.title()} {rel.relationship_type.replace('_', ' ')} {rel.target_entity.title()}"
-                                )
-                            else:
-                                response_parts.append(
-                                    f"• {rel.source_entity.title()} {rel.relationship_type.replace('_', ' ')} {entity_name.title()}"
-                                )
-
-                return "\n".join(response_parts)
-
-        # Check if user is asking for general relationship information
-        # More specific matching to avoid false positives with technical terms (e.g., "neural networks")
-        relationship_info_keywords = [
-            "relationship",
-            "relationships",  # Plural and singular
-            "connection between",
-            "connections between",
-            "entity network",
-            "entity connections",
-            "show relationships",
-            "show connections",
-            "tracked relationships",
-            "tracked connections",
-        ]
-
-        # Only trigger if explicitly asking about relationship tracking, not technical terms
-        if any(keyword in query_lower for keyword in relationship_info_keywords):
-            stats = self.relationship_tracker.get_statistics()
-            if stats["total_relationships"] == 0:
-                return "I haven't tracked any entity relationships yet. Have a conversation mentioning people, places, or things and I'll start building a relationship map!"
-
-            response_parts = [
-                f"I've tracked {stats['total_relationships']} relationships between {stats['total_entities']} entities.",
-            ]
-
-            if stats["most_connected_entities"]:
-                response_parts.append("\nMost connected entities:")
-                for entity, count in stats["most_connected_entities"][:3]:
-                    response_parts.append(f"• {entity.title()}: {count} connections")
-
-            return "\n".join(response_parts)
-
-        return None
-
     def _handle_correction_command(self, command: str):
         """Handle correction commands"""
         last = self.last_interaction or {}
@@ -11226,110 +8449,6 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
         print("=" * 70)
 
-    def _format_learning_guidance(self, guidance: Dict[str, Any]) -> str:
-        """Format learning guidance for LLM context"""
-        guidance_parts = ["Learning guidance:"]
-
-        if guidance.get("preferred_words"):
-            preferred = ", ".join(guidance["preferred_words"][:5])
-            guidance_parts.append(f"Consider using these words: {preferred}")
-
-        if guidance.get("avoid_words"):
-            avoid = ", ".join(guidance["avoid_words"][:5])
-            guidance_parts.append(f"Avoid using these words: {avoid}")
-
-        if guidance.get("style_improvement"):
-            guidance_parts.append(f"Style note: {guidance['style_improvement']}")
-
-        return "\n".join(guidance_parts)
-
-    # Compatibility: integration tests and legacy runtime wiring rely on these agentic helpers.
-    def _agentic_loop_perceive(self, state):
-        return {
-            "input": str((state or {}).get("input_text") or ""),
-            "intent": str((state or {}).get("intent") or ""),
-        }
-
-    def _agentic_loop_reason(self, state):
-        return {
-            "lane": "tool"
-            if str((state or {}).get("intent", "")).startswith(("notes:", "weather:", "file_operations:"))
-            else "llm"
-        }
-
-    def _agentic_loop_goal(self, state):
-        goal = str((state or {}).get("goal") or "").strip()
-        return {"goal": goal or "respond_usefully"}
-
-    def _agentic_loop_decide(self, state):
-        intent = str((state or {}).get("intent") or "")
-        if float((state or {}).get("confidence", 0.0) or 0.0) < 0.3:
-            return {"action": "ask_clarification", "route": "clarify"}
-        if ":" in intent and not intent.startswith("conversation:"):
-            return {"action": "verify_tool_outcome", "route": "tool"}
-        return {"action": "respond", "route": "llm"}
-
-    def _agentic_loop_execute(self, state):
-        return {"ok": True, "route": str((state or {}).get("route") or "llm")}
-
-    def _agentic_loop_learn(self, state):
-        return {"stored": bool((state or {}).get("success", False))}
-
-    def _run_agentic_control_cycle(
-        self,
-        *,
-        user_input: str,
-        intent: str,
-        entities: Dict[str, Any],
-        response: str,
-        route: str,
-        success: bool,
-        confidence: float,
-        plugin_result: Any,
-        goal: str,
-    ) -> Dict[str, Any]:
-        if not getattr(self, "agentic_loop", None):
-            return {}
-        state = {
-            "input_text": user_input,
-            "intent": intent,
-            "entities": dict(entities or {}),
-            "response": response,
-            "route": route,
-            "success": bool(success),
-            "confidence": float(confidence or 0.0),
-            "plugin_result": plugin_result,
-            "goal": goal,
-        }
-        report = self.agentic_loop.run_once(state)
-        self._last_agentic_cycle_report = dict(report or {})
-        self._internal_reasoning_state["agentic_loop"] = dict(report or {})
-        if getattr(self, "context", None):
-            self.context.update_system_status(
-                "agentic_loop",
-                dict(report.get("memory", {}) if isinstance(report, dict) else {}),
-            )
-        return dict(report or {})
-
-    def _agentic_primary_authority_decision(
-        self,
-        *,
-        user_input: str,
-        intent: str,
-        entities: Dict[str, Any],
-        intent_confidence: float,
-        has_action_cue: bool,
-        has_active_goal: bool,
-        execution_mode: str,
-        force_plugins_for_notes: bool,
-        pending_action: Any,
-    ) -> Dict[str, Any]:
-        if str(intent or "") == "conversation:clarification_needed" and float(intent_confidence or 0.0) < 0.35:
-            return {"action": "ask_clarification", "route": "clarify"}
-        if has_action_cue or (":" in str(intent or "") and not str(intent).startswith("conversation:")):
-            return {"action": "use_plugin", "route": "tool"}
-        return {"action": "use_llm", "route": "llm"}
-
     def _handle_companion_command(self, command: str) -> None:
         daemon = getattr(self, "companion_daemon", None)
         if daemon is None:
@@ -11595,6 +8714,8 @@ def __getattr__(name: str):
     global _ASGI_APP
     if name == "app":
         if _ASGI_APP is None:
+            from app.bootstrap import create_app
+
             _ASGI_APP = create_app()
         return _ASGI_APP
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

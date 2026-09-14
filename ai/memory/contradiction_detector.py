@@ -6,9 +6,11 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ContextManager, Dict, List, Optional, Tuple
 
 import numpy as np
+
+from ai.memory.memory_store import sqlite_connection
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +47,8 @@ class ContradictionDetector:
         self.db_path = db_path
         self._init_schema()
 
-    def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=10, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        return conn
+    def _conn(self) -> ContextManager[sqlite3.Connection]:
+        return sqlite_connection(self.db_path)
 
     def _init_schema(self) -> None:
         with self._conn() as conn:
@@ -67,7 +66,6 @@ class ContradictionDetector:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_contr_a ON contradictions(memory_a_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_contr_b ON contradictions(memory_b_id)")
-            conn.commit()
 
     # ------------------------------------------------------------------
     # Detection logic
@@ -121,24 +119,27 @@ class ContradictionDetector:
     # Storage
     # ------------------------------------------------------------------
 
-    def record(self, id_a: str, id_b: str, confidence: float) -> str:
-        """Persist a contradiction pair. Canonical order prevents (a,b)/(b,a) dupes."""
+    @staticmethod
+    def _insert(conn: sqlite3.Connection, id_a: str, id_b: str, confidence: float) -> str:
         if id_a > id_b:
             id_a, id_b = id_b, id_a
         cid = f"c_{uuid.uuid4().hex[:8]}"
         now = datetime.now(timezone.utc).isoformat()
-        with self._conn() as conn:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO contradictions
-                    (id, memory_a_id, memory_b_id, confidence, detected_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (cid, id_a, id_b, confidence, now),
-            )
-            conn.commit()
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO contradictions
+                (id, memory_a_id, memory_b_id, confidence, detected_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (cid, id_a, id_b, confidence, now),
+        )
         logger.info("[ContradictionDetector] %s ↔ %s (conf=%.2f)", id_a, id_b, confidence)
         return cid
+
+    def record(self, id_a: str, id_b: str, confidence: float) -> str:
+        """Persist a contradiction pair. Canonical order prevents (a,b)/(b,a) dupes."""
+        with self._conn() as conn:
+            return self._insert(conn, id_a, id_b, confidence)
 
     def resolve(self, memory_a_id: str, memory_b_id: str, resolution: str) -> bool:
         if memory_a_id > memory_b_id:
@@ -148,8 +149,7 @@ class ContradictionDetector:
                 "UPDATE contradictions SET resolved=1, resolution=? WHERE memory_a_id=? AND memory_b_id=?",
                 (resolution, memory_a_id, memory_b_id),
             )
-            conn.commit()
-        return cur.rowcount > 0
+            return cur.rowcount > 0
 
     def list_unresolved(self) -> List[Dict]:
         with self._conn() as conn:
@@ -195,8 +195,14 @@ class ContradictionDetector:
                 if conf is not None:
                     id_a = getattr(ea, "id", str(i))
                     id_b = getattr(entries[j], "id", str(j))
-                    self.record(id_a, id_b, conf)
                     found.append((id_a, id_b, conf))
+
+        # One transaction for the batch — a scan of 500 pairs otherwise opens and
+        # fsyncs a connection per hit, and a crash mid-scan leaves it half stored.
+        if found:
+            with self._conn() as conn:
+                for id_a, id_b, conf in found:
+                    self._insert(conn, id_a, id_b, conf)
         return found
 
 

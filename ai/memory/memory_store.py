@@ -5,15 +5,143 @@ Abstract storage interface for memory entries
 
 import json
 import pickle
+import os
 import sqlite3
 from abc import ABC, abstractmethod
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import ContextManager, Iterator, List, Dict, Optional, Any, Sequence, Tuple
 import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# Canonical `memories` schema
+#
+# Every module that touches this table reads these declarations instead of
+# writing its own DDL, and every read names MEMORY_COLUMNS instead of using
+# SELECT *. A bare SELECT * plus a positional unpack means the day another
+# module adds a column, every read raises and the assistant silently comes up
+# with an empty memory.
+# ------------------------------------------------------------------
+
+_MEMORY_COLUMN_DEFS: Tuple[Tuple[str, str], ...] = (
+    ("id", "TEXT PRIMARY KEY"),
+    ("content", "TEXT NOT NULL"),
+    ("memory_type", "TEXT NOT NULL"),
+    ("timestamp", "TEXT NOT NULL"),
+    ("context", "TEXT NOT NULL DEFAULT '{}'"),
+    ("importance", "REAL DEFAULT 0.5"),
+    ("access_count", "INTEGER DEFAULT 0"),
+    ("last_accessed", "TEXT"),
+    ("embedding", "BLOB"),
+    ("tags", "TEXT DEFAULT '[]'"),
+    ("source_file", "TEXT"),
+    ("chunk_index", "INTEGER"),
+)
+
+# Columns owned by ai.memory.hierarchical_compressor. They are declared here so
+# a fresh database and one upgraded by ALTER TABLE end up identical.
+MEMORY_EXTENSION_COLUMN_DEFS: Tuple[Tuple[str, str], ...] = (
+    ("memory_level", "INTEGER DEFAULT 0"),
+    ("parent_id", "TEXT"),
+)
+
+MEMORY_COLUMNS: Tuple[str, ...] = tuple(name for name, _ in _MEMORY_COLUMN_DEFS)
+_MEMORY_SELECT = ", ".join(MEMORY_COLUMNS)
+
+_MEMORY_INDEXES: Tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS idx_mem_type   ON memories(memory_type)",
+    "CREATE INDEX IF NOT EXISTS idx_mem_ts     ON memories(timestamp DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_mem_imp    ON memories(importance DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_mem_level  ON memories(memory_level)",
+    "CREATE INDEX IF NOT EXISTS idx_mem_parent ON memories(parent_id)",
+    "CREATE INDEX IF NOT EXISTS idx_mem_emb    ON memories(memory_type) WHERE embedding IS NOT NULL",
+)
+
+
+def ensure_memory_schema(conn: sqlite3.Connection) -> None:
+    """Create or upgrade the `memories` table in place. Idempotent."""
+    columns = ", ".join(f"{name} {defn}" for name, defn in _MEMORY_COLUMN_DEFS)
+    conn.execute(f"CREATE TABLE IF NOT EXISTS memories ({columns})")
+
+    present = {row[1] for row in conn.execute("PRAGMA table_info(memories)")}
+    for name, defn in MEMORY_EXTENSION_COLUMN_DEFS:
+        if name not in present:
+            conn.execute(f"ALTER TABLE memories ADD COLUMN {name} {defn}")
+
+    for statement in _MEMORY_INDEXES:
+        conn.execute(statement)
+
+
+@contextmanager
+def sqlite_connection(
+    db_path: Any,
+    *,
+    timeout: float = 10.0,
+    immediate: bool = False,
+) -> Iterator[sqlite3.Connection]:
+    """Open the memory database, commit on success, roll back on error, always close.
+
+    sqlite3's own connection context manager commits but never closes, so
+    `with sqlite3.connect(...) as conn` leaks a file descriptor per call — a few
+    hours of recalls is enough to hit the process limit.
+
+    immediate=True takes the write lock before the first read, which is what a
+    read-then-write sequence needs to stay atomic against a concurrent writer.
+    """
+    conn = sqlite3.connect(str(db_path), timeout=timeout, check_same_thread=False)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        if immediate:
+            conn.execute("BEGIN IMMEDIATE")
+        yield conn
+        conn.commit()
+    except BaseException:
+        with suppress(sqlite3.Error):
+            conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _rank_by_cosine(
+    query: Any,
+    vectors: Sequence[np.ndarray],
+    threshold: float,
+    top_k: int,
+) -> List[int]:
+    """Indices of `vectors` scoring >= threshold against `query`, best first, capped at top_k.
+
+    One matrix operation over the stacked candidates: scoring row by row made the
+    cost of a single recall grow with the size of the whole table.
+    """
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    if top_k <= 0 or not len(vectors):
+        return []
+
+    q = np.asarray(query, dtype=np.float32).reshape(1, -1)
+    dim = q.shape[1]
+    # Embeddings from a previous model have a different width and cannot be
+    # compared; dropping them beats letting vstack fail the whole recall.
+    usable = [(i, v) for i, v in enumerate(vectors) if v is not None and v.shape == (dim,)]
+    if not usable:
+        return []
+
+    origin = np.array([i for i, _ in usable], dtype=np.int64)
+    matrix = np.vstack([v for _, v in usable])
+    sims = cosine_similarity(q, matrix)[0]
+
+    keep = np.flatnonzero(sims >= threshold)
+    if keep.size == 0:
+        return []
+    order = keep[np.argsort(-sims[keep], kind="stable")][:top_k]
+    return [int(origin[i]) for i in order]
 
 
 @dataclass
@@ -199,30 +327,13 @@ class InMemoryMemoryStore(MemoryStore):
         memory_type: Optional[str] = None,
     ) -> List[MemoryEntry]:
         """Find similar memories"""
-        from sklearn.metrics.pairwise import cosine_similarity
-
-        candidates = self.get_all(memory_type=memory_type)
-
-        # Filter memories with embeddings
-        memories_with_embeddings = [mem for mem in candidates if mem.embedding is not None]
-
-        if not memories_with_embeddings:
+        candidates = [mem for mem in self.get_all(memory_type=memory_type) if mem.embedding is not None]
+        if not candidates:
             return []
 
         try:
-            # Calculate similarities
-            similarities = []
-            for mem in memories_with_embeddings:
-                mem_embedding = np.array(mem.embedding)
-                similarity = cosine_similarity(embedding.reshape(1, -1), mem_embedding.reshape(1, -1))[0][0]
-
-                if similarity >= threshold:
-                    similarities.append((mem, similarity))
-
-            # Sort by similarity and take top_k
-            similarities.sort(key=lambda x: x[1], reverse=True)
-            return [mem for mem, _ in similarities[:top_k]]
-
+            vectors = [np.asarray(mem.embedding, dtype=np.float32).ravel() for mem in candidates]
+            return [candidates[i] for i in _rank_by_cosine(embedding, vectors, threshold, top_k)]
         except Exception as e:
             logger.error(f"Similarity search failed: {e}")
             return []
@@ -267,39 +378,23 @@ class SQLiteMemoryStore(MemoryStore):
     _DEFAULT_DB = "data/memory/alice.db"
 
     def __init__(self, db_path: Optional[str] = None) -> None:
-        self.db_path = Path(db_path or self._DEFAULT_DB)
+        # ALICE_MEMORY_DB exists because the path was a bare constant, so every
+        # test that touched the memory system wrote to the user's live database.
+        # That is data loss waiting to happen on its own, and running several
+        # processes against one SQLite file is also how it ends up reporting
+        # "database disk image is malformed" — after which the session runs with
+        # no recall at all.
+        self.db_path = Path(db_path or os.getenv("ALICE_MEMORY_DB") or self._DEFAULT_DB)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
         logger.info(f"[SQLiteMemoryStore] Ready at {self.db_path}")
 
-    def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=10, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        return conn
+    def _conn(self) -> ContextManager[sqlite3.Connection]:
+        return sqlite_connection(self.db_path)
 
     def _init_db(self) -> None:
         with self._conn() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS memories (
-                    id            TEXT PRIMARY KEY,
-                    content       TEXT    NOT NULL,
-                    memory_type   TEXT    NOT NULL,
-                    timestamp     TEXT    NOT NULL,
-                    context       TEXT    NOT NULL DEFAULT '{}',
-                    importance    REAL             DEFAULT 0.5,
-                    access_count  INTEGER          DEFAULT 0,
-                    last_accessed TEXT,
-                    embedding     BLOB,
-                    tags          TEXT             DEFAULT '[]',
-                    source_file   TEXT,
-                    chunk_index   INTEGER
-                )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_type ON memories(memory_type)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_ts   ON memories(timestamp DESC)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_imp  ON memories(importance DESC)")
-            conn.commit()
+            ensure_memory_schema(conn)
 
     # ------------------------------------------------------------------
     # Serialisation helpers
@@ -328,7 +423,10 @@ class SQLiteMemoryStore(MemoryStore):
         )
 
     @staticmethod
-    def _unpack(row: tuple) -> MemoryEntry:
+    def _unpack(row: Sequence[Any]) -> MemoryEntry:
+        # Tolerate a wider row than MEMORY_COLUMNS so a stray SELECT * against a
+        # table another module has extended still yields an entry rather than
+        # blowing up the caller's whole load.
         (
             id_,
             content,
@@ -342,7 +440,7 @@ class SQLiteMemoryStore(MemoryStore):
             tags,
             source_file,
             chunk_index,
-        ) = row
+        ) = tuple(row)[: len(MEMORY_COLUMNS)]
         emb = pickle.loads(embedding_blob).tolist() if embedding_blob else None
         return MemoryEntry(
             id=id_,
@@ -359,11 +457,9 @@ class SQLiteMemoryStore(MemoryStore):
             chunk_index=chunk_index,
         )
 
-    _UPSERT = """
-        INSERT OR REPLACE INTO memories
-        (id, content, memory_type, timestamp, context, importance,
-         access_count, last_accessed, embedding, tags, source_file, chunk_index)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    _UPSERT = f"""
+        INSERT OR REPLACE INTO memories ({_MEMORY_SELECT})
+        VALUES ({", ".join("?" * len(MEMORY_COLUMNS))})
     """
 
     # ------------------------------------------------------------------
@@ -374,7 +470,6 @@ class SQLiteMemoryStore(MemoryStore):
         try:
             with self._conn() as conn:
                 conn.execute(self._UPSERT, self._pack(entry))
-                conn.commit()
             return True
         except Exception as e:
             logger.error(f"[SQLiteMemoryStore] add failed: {e}")
@@ -387,7 +482,6 @@ class SQLiteMemoryStore(MemoryStore):
             params = [self._pack(e) for e in entries]
             with self._conn() as conn:
                 conn.executemany(self._UPSERT, params)
-                conn.commit()
             return len(params)
         except Exception as e:
             logger.error(f"[SQLiteMemoryStore] bulk_add failed: {e}")
@@ -395,19 +489,34 @@ class SQLiteMemoryStore(MemoryStore):
 
     def get_by_id(self, memory_id: str) -> Optional[MemoryEntry]:
         with self._conn() as conn:
-            row = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+            row = conn.execute(
+                f"SELECT {_MEMORY_SELECT} FROM memories WHERE id = ?",
+                (memory_id,),
+            ).fetchone()
         return self._unpack(row) if row else None
 
     def get_all(self, memory_type: Optional[str] = None) -> List[MemoryEntry]:
         with self._conn() as conn:
             if memory_type:
                 rows = conn.execute(
-                    "SELECT * FROM memories WHERE memory_type = ? ORDER BY timestamp DESC",
+                    f"SELECT {_MEMORY_SELECT} FROM memories WHERE memory_type = ? ORDER BY timestamp DESC",
                     (memory_type,),
                 ).fetchall()
             else:
-                rows = conn.execute("SELECT * FROM memories ORDER BY timestamp DESC").fetchall()
+                rows = conn.execute(f"SELECT {_MEMORY_SELECT} FROM memories ORDER BY timestamp DESC").fetchall()
         return [self._unpack(r) for r in rows]
+
+    @staticmethod
+    def _decode_embeddings(rows: Sequence[tuple]) -> Tuple[List[str], List[np.ndarray]]:
+        ids: List[str] = []
+        vectors: List[np.ndarray] = []
+        for memory_id, blob in rows:
+            try:
+                vectors.append(np.asarray(pickle.loads(blob), dtype=np.float32).ravel())
+            except Exception:
+                continue  # one unreadable blob must not sink the whole recall
+            ids.append(memory_id)
+        return ids, vectors
 
     def find_by_similarity(
         self,
@@ -416,20 +525,38 @@ class SQLiteMemoryStore(MemoryStore):
         top_k: int,
         memory_type: Optional[str] = None,
     ) -> List[MemoryEntry]:
-        from sklearn.metrics.pairwise import cosine_similarity
-
-        candidates = [m for m in self.get_all(memory_type) if m.embedding is not None]
-        if not candidates:
+        if top_k <= 0:
             return []
         try:
-            query = np.array(embedding).reshape(1, -1)
-            scored = []
-            for mem in candidates:
-                sim = cosine_similarity(query, np.array(mem.embedding).reshape(1, -1))[0][0]
-                if sim >= threshold:
-                    scored.append((mem, sim))
-            scored.sort(key=lambda x: x[1], reverse=True)
-            return [m for m, _ in scored[:top_k]]
+            with self._conn() as conn:
+                # Only embedded rows are scoreable, and only id+blob is needed to
+                # rank them — the full rows are fetched for the winners alone.
+                if memory_type:
+                    rows = conn.execute(
+                        "SELECT id, embedding FROM memories "
+                        "WHERE embedding IS NOT NULL AND memory_type = ? ORDER BY timestamp DESC",
+                        (memory_type,),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT id, embedding FROM memories WHERE embedding IS NOT NULL ORDER BY timestamp DESC"
+                    ).fetchall()
+                if not rows:
+                    return []
+
+                ids, vectors = self._decode_embeddings(rows)
+                hits = [ids[i] for i in _rank_by_cosine(embedding, vectors, threshold, top_k)]
+                if not hits:
+                    return []
+
+                placeholders = ",".join("?" * len(hits))
+                full_rows = conn.execute(
+                    f"SELECT {_MEMORY_SELECT} FROM memories WHERE id IN ({placeholders})",
+                    hits,
+                ).fetchall()
+
+            by_id = {r[0]: self._unpack(r) for r in full_rows}
+            return [by_id[memory_id] for memory_id in hits if memory_id in by_id]
         except Exception as e:
             logger.error(f"[SQLiteMemoryStore] similarity search failed: {e}")
             return []
@@ -438,7 +565,6 @@ class SQLiteMemoryStore(MemoryStore):
         try:
             with self._conn() as conn:
                 conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
-                conn.commit()
             return True
         except Exception as e:
             logger.error(f"[SQLiteMemoryStore] remove failed: {e}")
@@ -472,10 +598,27 @@ class SQLiteMemoryStore(MemoryStore):
             params.append(memory_id)
             with self._conn() as conn:
                 conn.execute(f"UPDATE memories SET {', '.join(clauses)} WHERE id = ?", params)
-                conn.commit()
             return True
         except Exception as e:
             logger.error(f"[SQLiteMemoryStore] update failed: {e}")
+            return False
+
+    def bump_access(self, memory_id: str, last_accessed: Optional[str] = None) -> bool:
+        """Increment access_count in the database rather than via read-modify-write.
+
+        Two recalls of the same memory from different threads each read the old
+        count and write back old+1, so one of the two accesses disappears.
+        """
+        try:
+            with self._conn() as conn:
+                cur = conn.execute(
+                    "UPDATE memories SET access_count = COALESCE(access_count, 0) + 1, "
+                    "last_accessed = COALESCE(?, last_accessed) WHERE id = ?",
+                    (last_accessed, memory_id),
+                )
+            return cur.rowcount > 0
+        except Exception as e:
+            logger.error(f"[SQLiteMemoryStore] bump_access failed: {e}")
             return False
 
     def count(self, memory_type: Optional[str] = None) -> int:

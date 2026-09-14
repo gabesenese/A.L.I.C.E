@@ -12,7 +12,6 @@ ignore = ["E501"]
 "scenarios/**/*.py" = ["E402"]
 # Test files use local path manipulation before importing project modules
 "tests/**/*.py" = ["E402", "F821"]
-"test_nlp_quick.py" = ["E402"]
 "tests/enhanced_tests.py" = ["E402"]
 # Tools and scripts set up sys.path before imports
 "tools/**/*.py" = ["E402", "F821"]
@@ -22,8 +21,6 @@ ignore = ["E501"]
 "ai/plugins/*.py" = ["E402"]
 "ai/memory/*.py" = ["E402"]
 "ai/training/**/*.py" = ["E402"]
-# Unfinished skeleton — suppress until implemented
-"speech/speech_model.py" = ["F401", "F821", "F823"]
 # Optional dependency try/except imports
 "ai/infrastructure/database_pool.py" = ["F401"]
 "ai/core/nlp_processor.py" = ["F401"]
@@ -39,3 +36,30 @@ norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules"
 filterwarnings = [
     "ignore::DeprecationWarning:torchao.*",
 ]
+
+[tool.pyright]
+# `pyright .` over the whole tree reports ~1240 errors, so the CI step could
+# never pass and gated nothing. This is a ratchet instead: a list of modules
+# that type-check clean today, kept clean from here on. Add to `include` when
+# a module is cleaned up — never remove from it to make a build green.
+include = [
+    "ai/contracts",
+    "ai/core/confidence_fusion.py",
+    "ai/core/llm_policy.py",
+    "ai/core/nltk_support.py",
+    "ai/core/quiet_model_load.py",
+    "ai/core/react_loop.py",
+    "ai/core/tool_catalog.py",
+    "ai/runtime/trust_tiers.py",
+    "tests/support",
+    "tests/unit/test_confidence_fusion.py",
+    "tests/unit/test_quiet_model_load.py",
+    "tests/unit/test_react_loop.py",
+    "tests/unit/test_trust_tiers.py",
+]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+# Several runtime dependencies ship no type information (nltk is the one that
+# actually matters here). Missing stubs are not a defect in this code.
+reportMissingImports = "none"
+reportMissingModuleSource = "none"

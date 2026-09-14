@@ -653,7 +653,11 @@ def render_operator_response(
     # The momentum layer will append "I inspected {file}." with grounded evidence.
     inspected_file_evidence = str(local.get("inspected_file") or "").strip()
     if local_success is True and inspected_file_evidence:
-        return "Working on it."
+        # "Working on it." promises work that is already finished and says
+        # nothing about what was found. The momentum layer appends the grounded
+        # "I inspected {file}." right after this, so name the file here too
+        # rather than standing in with a placeholder.
+        return f"I looked at {inspected_file_evidence}."
 
     # Strip internal planning labels that executors may append to base_text.
     # These must not reach the contract check or the user surface.
@@ -674,4 +678,6 @@ def render_operator_response(
     action = str(local.get("action") or "")
     if action == "code:request":
         return "I can inspect local source code in this workspace and inspect the local workspace."
-    return "Working on it."
+    # Reached when nothing survived sanitising, which means there is no result to
+    # report. "Working on it." claims otherwise, and nothing follows it.
+    return "I don't have a result for that yet. Tell me what to look at and I'll go and check."

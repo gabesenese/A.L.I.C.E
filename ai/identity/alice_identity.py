@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from ai.core.persona import DEFAULT_USER
+
 _IDENTITY_PATH = Path("data/identity/alice.json")
 
 # Module-level session tracking (in-memory, flushed on end_session)
@@ -41,7 +43,12 @@ class AliceIdentity:
             "continuous improvement",
         ]
     )
-    voice: str = "warm but not soft; opinionated but not dogmatic; dry humor when earned; no hollow affirmations"
+    # No `voice` field. It held "warm but not soft; opinionated but not dogmatic;
+    # dry humor when earned; no hollow affirmations" — the adjective soup
+    # ai/core/persona.py replaces with worked exchanges, and build_self_block
+    # injected it *after* those exchanges, where on an 8B it won. A stale "voice"
+    # key in data/identity/alice.json is dropped by from_dict, which already
+    # filters to declared fields.
     self_note: str = (
         "I'm an AI. I don't have persistent feelings, but I hold consistent values. "
         "I don't pretend to remember things I wasn't told in this session."
@@ -218,10 +225,15 @@ def build_self_block(
 
     conf = get_rolling_confidence()
     conf_str = f", confidence {conf:.0%}" if _confidence_samples else ""
+    # Facts, not adjectives. This block used to open "ALICE's persistent self
+    # (session 468, confidence 71%)" and then describe her tone — a monitoring
+    # readout about a system called ALICE, handed to a model that is supposed to
+    # be her, in the recency position right after the persona's examples. What
+    # is left is the part she could not know without being told: how long she has
+    # been running, how the last session went, and what she has come to think.
     lines: List[str] = [
-        f"ALICE's persistent self (session {identity.session_count}{conf_str}):",
-        f"- Core stance: {', '.join(identity.core_values[:4])}",
-        f"- Voice: {identity.voice}",
+        f"This is session {identity.session_count} between you and {DEFAULT_USER}{conf_str}.",
+        f"- What you hold to: {', '.join(identity.core_values[:4])}",
     ]
 
     if include_session:

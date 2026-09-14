@@ -83,9 +83,30 @@ def _command_is_refused(command: str) -> bool:
     return bool(_REFUSED_RE.search(str(command or "")))
 
 
+# Shell metacharacters that chain, substitute, or redirect. A command carrying
+# any of these is more than the program it starts with, so a prefix match on the
+# allowlist no longer describes what will actually run.
+_SHELL_CONTROL_RE = re.compile(r"[;&|<>`$\n\r]|\$\(|\(\)")
+
+
 def _command_is_allowlisted(command: str) -> bool:
-    normalized = " ".join(str(command or "").strip().lower().split())
-    return any(normalized.startswith(allowed) for allowed in _ALLOWED_COMMANDS)
+    """True only when the whole command line is one allowlisted invocation.
+
+    Matching a prefix is not enough: `run_command` executes the string through
+    `shell=True`, so 'pytest; cat ~/.ssh/id_rsa' starts with an allowlisted
+    program and then does something else entirely. Anything that can chain,
+    redirect, or substitute is refused the unattended tier and has to be
+    confirmed, whatever it begins with.
+    """
+    raw = str(command or "").strip()
+    if not raw or _SHELL_CONTROL_RE.search(raw):
+        return False
+    normalized = " ".join(raw.lower().split())
+    for allowed in _ALLOWED_COMMANDS:
+        # Require a token boundary so 'git logsomething' does not match 'git log'.
+        if normalized == allowed or normalized.startswith(allowed + " "):
+            return True
+    return False
 
 
 def classify(tool_name: str, arguments: Optional[Dict[str, Any]] = None) -> TierDecision:

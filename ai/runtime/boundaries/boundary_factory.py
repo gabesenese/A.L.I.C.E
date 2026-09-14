@@ -30,9 +30,11 @@ from ai.contracts import (
     validate_tool_result_payload,
     ToolSchemaValidationError,
 )
+from ai.infrastructure.runtime_flags import is_enabled
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
 from ai.memory.personal_memory import PersonalMemoryStore
 from ai.memory.project_memory import load_project_state, update_project_state
+from ai.memory.temporal_scope import items_within, requested_period
 from ai.runtime.continuity_claim_guard import assess_continuity_claims
 from ai.runtime.greeting_surface_policy import render_grounded_greeting
 from ai.runtime.dominant_intent_resolver import (
@@ -136,6 +138,32 @@ def _looks_like_small_talk(req: Any) -> bool:
     return not any(word.strip(".!") in _REQUEST_VERBS for word in words)
 
 
+# Conversational turns get a tighter budget than workspace ones. Looking something
+# up mid-conversation is one or two lookups; anything longer is the model casting
+# about, and the user is waiting on a reply either way.
+_CONVERSATIONAL_TOOL_STEPS = 3
+_CONVERSATIONAL_TOOL_DEADLINE_SECONDS = 30.0
+
+
+def _may_reach_for_tools(req: Any) -> bool:
+    """Whether the model gets to see the tool surface on this turn.
+
+    The catalog has always held tools for weather, notes and system state, but
+    only codebase turns ever reached the loop, so the model was never given the
+    chance to call them — those turns could only act when the keyword router
+    recognised an intent and dispatched a plugin. A question phrased outside the
+    patterns got a chat reply about the thing rather than the thing itself.
+
+    Turns already routed to a tool or plugin are left alone: that dispatch has
+    the answer in hand and a second opinion would only cost a round trip.
+    """
+    if _is_workspace_turn(req):
+        return True
+    if not is_enabled("conversational_tool_use"):
+        return False
+    return str(getattr(req.decision, "route", "") or "") == "llm"
+
+
 def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any]) -> Any:
     """Let the model reach for a real tool before falling back to plain generation.
 
@@ -151,12 +179,21 @@ def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, An
     from ai.contracts import ResponseOutput
     from ai.core.react_loop import ReactLoop
 
-    user_id = str((req.metadata or {}).get("user_id") or "default")
+    user_id = str((getattr(req, "metadata", None) or {}).get("user_id") or "default")
+    workspace_turn = _is_workspace_turn(req)
     try:
         loop = ReactLoop(
             llm,
             plugin_manager=getattr(alice, "plugins", None),
-            allow_write_tools=True,
+            allow_write_tools=workspace_turn,
+            **(
+                {}
+                if workspace_turn
+                else {
+                    "max_steps": _CONVERSATIONAL_TOOL_STEPS,
+                    "deadline_seconds": _CONVERSATIONAL_TOOL_DEADLINE_SECONDS,
+                }
+            ),
         )
         result = loop.run(str(req.user_input or ""))
     except Exception as exc:
@@ -962,9 +999,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         # Compute project-intent flag early so both objective and goal-observation
         # blocks can use it without a forward-reference.
-        _project_intent = any(
-            _intent.startswith(pfx) for pfx in ("code:", "file:", "plugin:", "notes:", "operator:")
-        ) or _intent == "conversation:project_work_session"
+        _project_intent = (
+            any(_intent.startswith(pfx) for pfx in ("code:", "file:", "plugin:", "notes:", "operator:"))
+            or _intent == "conversation:project_work_session"
+        )
 
         # User's location — always inject so LLM never has to guess
         _home_city = ""
@@ -983,12 +1021,32 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if _home_city and user_input:
             try:
                 import re as _re
+
                 # Find all "in/to/at/near <word>" candidates, pick the first that isn't
                 # a generic word — geocode confirms it's a real place.
                 _GENERIC = {
-                    "a", "an", "the", "my", "your", "our", "their", "this", "that",
-                    "here", "there", "work", "home", "school", "store", "town",
-                    "restaurant", "cafe", "bar", "mall", "park", "downtown",
+                    "a",
+                    "an",
+                    "the",
+                    "my",
+                    "your",
+                    "our",
+                    "their",
+                    "this",
+                    "that",
+                    "here",
+                    "there",
+                    "work",
+                    "home",
+                    "school",
+                    "store",
+                    "town",
+                    "restaurant",
+                    "cafe",
+                    "bar",
+                    "mall",
+                    "park",
+                    "downtown",
                 }
                 _candidates = _re.findall(
                     r"\b(?:in|to|at|near)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\b",
@@ -1018,13 +1076,14 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     _dest_coords = _geocode(_dest_city)
                     if _home_coords and _dest_coords:
                         from math import radians, cos, sin, asin, sqrt
+
                         _lat1, _lon1 = map(radians, _home_coords)
                         _lat2, _lon2 = map(radians, _dest_coords)
                         _dlat, _dlon = _lat2 - _lat1, _lon2 - _lon1
                         _a = sin(_dlat / 2) ** 2 + cos(_lat1) * cos(_lat2) * sin(_dlon / 2) ** 2
                         _straight_km = 6371 * 2 * asin(sqrt(_a))
                         _road_km = round(_straight_km * 1.3)  # road-distance factor
-                        _mins = round(_road_km / 90 * 60)     # 90 km/h average Ontario highway
+                        _mins = round(_road_km / 90 * 60)  # 90 km/h average Ontario highway
                         _h, _m = divmod(_mins, 60)
                         _time_str = f"{_h}h {_m}m" if _h else f"{_m}m"
                         lines.append(
@@ -1223,6 +1282,24 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             value = re.sub(r"\s+", " ", value).strip()
             return value
 
+        # Recall ranks by similarity and recency, neither of which understands
+        # "on the 3rd of March last year". Asked that, Alice returned her most
+        # relevant memories — none from that date — under a heading that reads
+        # as an answer. Telling someone what they said on a day they did not say
+        # it is indistinguishable from remembering, so a question that names a
+        # period is answered only from memories that fall inside it.
+        period = requested_period(user_input)
+        if period is not None:
+            in_period = items_within(items, period)
+            if not in_period:
+                return _surface_text(
+                    f"I don't have anything saved from {period.describe()}.",
+                    user_input=user_input,
+                    intent=intent,
+                    route="contract_personal_memory_out_of_period",
+                )
+            items = in_period
+
         seen = set()
         snippets: List[str] = []
         for row in items[:4]:
@@ -1236,7 +1313,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             snippets.append(content)
         if not snippets:
             return _personal_memory_fallback_response(user_input, intent)
-        summary = "Here is what I have saved in memory:\n- " + "\n- ".join(snippets)
+        heading = f"From {period.describe()}:" if period is not None else "Here is what I have saved in memory:"
+        summary = heading + "\n- " + "\n- ".join(snippets)
         return _surface_text(
             summary,
             user_input=user_input,
@@ -1492,25 +1570,32 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             _input_low = user_input.lower()
             # Specific-weekday filter — match named days (saturday, sunday, monday…)
             _WEEKDAY_NAMES = {
-                "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
-                "friday": 4, "saturday": 5, "sunday": 6,
+                "monday": 0,
+                "tuesday": 1,
+                "wednesday": 2,
+                "thursday": 3,
+                "friday": 4,
+                "saturday": 5,
+                "sunday": 6,
             }
-            _target_weekday = next(
-                (wd for name, wd in _WEEKDAY_NAMES.items() if name in _input_low), None
-            )
+            _target_weekday = next((wd for name, wd in _WEEKDAY_NAMES.items() if name in _input_low), None)
             if _target_weekday is not None:
+
                 def _matches_weekday(d: dict) -> bool:
                     try:
                         return _date.fromisoformat(str(d.get("date") or "")).weekday() == _target_weekday
                     except Exception:
                         return False
+
                 day_slice = [d for d in forecast_days if _matches_weekday(d)]
             elif "weekend" in _input_low:
+
                 def _is_weekend(d: dict) -> bool:
                     try:
                         return _date.fromisoformat(str(d.get("date") or "")).weekday() in (5, 6)
                     except Exception:
                         return False
+
                 day_slice = [d for d in forecast_days if _is_weekend(d)]
             else:
                 day_slice = forecast_days[:3]
@@ -2676,7 +2761,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"type": "deterministic_location"},
             )
 
-        if _is_workspace_turn(req):
+        if _may_reach_for_tools(req):
             grounded_local = _try_tool_grounded_answer(alice, req, operator_state)
             if grounded_local is not None:
                 return grounded_local
@@ -2899,10 +2984,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
                 # Add a conversational layer via LLM, but the data string must be
                 # used verbatim — the LLM may only append a natural follow-up.
-                is_weather_turn = (
-                    str(req.decision.intent or "").startswith("weather:")
-                    or str(req.tool_result.tool_name or "").lower().startswith("weather")
-                )
+                is_weather_turn = str(req.decision.intent or "").startswith("weather:") or str(
+                    req.tool_result.tool_name or ""
+                ).lower().startswith("weather")
                 if is_weather_turn:
                     try:
                         _weather_prompt = (
@@ -3099,9 +3183,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 _is_short_followup = (
                     len(_user_words) <= 6
                     and bool(_user_words)
-                    and _user_words[0] in {
-                        "why", "how", "what", "huh", "really", "ok", "okay",
-                        "and", "but", "so", "wait", "meaning", "elaborate",
+                    and _user_words[0]
+                    in {
+                        "why",
+                        "how",
+                        "what",
+                        "huh",
+                        "really",
+                        "ok",
+                        "okay",
+                        "and",
+                        "but",
+                        "so",
+                        "wait",
+                        "meaning",
+                        "elaborate",
                     }
                 )
                 if _is_discussion and (_is_hedge or _is_question_only or _is_too_short) and not _is_short_followup:
@@ -3126,12 +3222,23 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         _retry = str(alice.llm.chat(req.user_input, use_history=False) or "").strip()
                     if _retry:
                         llm_text = _retry
+                        # The first pass was recorded; the user is shown this one.
+                        # Leaving both would put the question in the transcript
+                        # twice with two different answers under it.
+                        try:
+                            alice.llm.amend_last_reply(_retry)
+                        except Exception:
+                            pass
 
-                # Strip trailing question on brainstorm/discussion turns — let the take stand.
-                if _is_discussion and llm_text.endswith("?"):
-                    _sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", llm_text) if s.strip()]
-                    if len(_sentences) > 1 and _sentences[-1].endswith("?"):
-                        llm_text = " ".join(_sentences[:-1])
+                # A trailing question used to be stripped here "so the take can
+                # stand" — but the guard required more than one sentence, so it
+                # only ever fired when a take had *already* been given and Alice
+                # then asked something back. That is not a question diluting an
+                # answer; that is the reciprocity that makes an exchange a
+                # conversation, and deleting it is most of what makes a reply
+                # land like output. The case the comment describes — a question
+                # standing in *for* an answer — is caught above by
+                # _is_question_only, which regenerates the turn instead.
 
                 llm_text = apply_response_discipline(llm_text, max_sentences=5 if _is_discussion else 4)
                 # Reaching this path means no command was executed this turn, so any

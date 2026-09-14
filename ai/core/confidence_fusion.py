@@ -12,18 +12,38 @@ from typing import Dict, Optional
 
 
 class ConfidenceFusion:
-    """Fuses multiple confidence signals using a weighted average.
+    """Adjusts the router's confidence using behavioral and success-history priors.
 
-    Weights are tuned so the router confidence dominates but priors can
-    push a borderline score above or below a decision threshold.
+    Priors are applied as *signed nudges around neutral*, not averaged in as
+    absolute values. Averaging punished ignorance: a router score of 0.92 blended
+    with two uninformative 0.5 priors came out at 0.77, so a confidently routed
+    turn dropped a decision band purely because nothing was known about it. A
+    prior at 0.5 now means "no information" and moves the score by exactly zero;
+    only evidence that points somewhere moves it.
     """
 
-    # Source weights (must sum to 1.0 or be normalized)
-    _WEIGHTS = {
-        "router": 0.65,
-        "behavioral_prior": 0.20,
-        "intent_success_rate": 0.15,
+    # Maximum magnitude each prior may shift the router's score, in confidence
+    # points, before evidence weighting.
+    _MAX_SHIFT = {
+        "behavioral_prior": 0.12,
+        "intent_success_rate": 0.10,
     }
+
+    # Ceiling on the combined shift. The decision bands are 0.35 / 0.60 / 0.80,
+    # so the narrowest is 0.20 wide; capping below that keeps priors able to
+    # carry a borderline turn across one boundary but never across two. Without
+    # this, a single successful turn lifted a 0.65 router score to 0.98.
+    _MAX_TOTAL_SHIFT = 0.18
+
+    # Observations needed before a prior carries its full weight. Below it the
+    # shift is scaled by n/(n+k), so three-for-three counts as suggestive rather
+    # than as a settled 100% success rate.
+    _EVIDENCE_HALF_WEIGHT = 12
+
+    # A prior is only informative once it is this far from neutral; below that
+    # it is rounding noise and is ignored outright.
+    _NEUTRAL = 0.5
+    _DEADBAND = 0.02
 
     def fuse(
         self,
@@ -32,28 +52,48 @@ class ConfidenceFusion:
         intent: str,
         user_id: str = "default",
     ) -> float:
-        """Return a fused confidence score in [0, 1].
+        """Return a calibrated confidence score in [0, 1].
 
-        Falls back gracefully when behavioral or success-rate data is absent.
+        With no prior data available this returns the router's own confidence
+        unchanged, which is the honest answer when nothing else is known.
         """
         router_c = max(0.0, min(1.0, float(router_confidence or 0.0)))
-        behavioral_c = self._behavioral_prior(intent=intent, user_id=user_id)
-        success_c = self._intent_success_rate(intent=intent)
 
-        weights = dict(self._WEIGHTS)
-        total_weight = weights["router"]
-        weighted = weights["router"] * router_c
+        shift = 0.0
+        shift += self._shift_from(
+            self._behavioral_prior(intent=intent, user_id=user_id),
+            self._MAX_SHIFT["behavioral_prior"],
+        )
+        rate, samples = self._intent_success_rate_with_support(intent=intent)
+        shift += self._shift_from(
+            rate,
+            self._MAX_SHIFT["intent_success_rate"],
+            samples=samples,
+        )
 
-        if behavioral_c is not None:
-            weighted += weights["behavioral_prior"] * behavioral_c
-            total_weight += weights["behavioral_prior"]
-
-        if success_c is not None:
-            weighted += weights["intent_success_rate"] * success_c
-            total_weight += weights["intent_success_rate"]
-
-        fused = weighted / total_weight if total_weight > 0 else router_c
+        shift = max(-self._MAX_TOTAL_SHIFT, min(self._MAX_TOTAL_SHIFT, shift))
+        fused = router_c + shift
         return round(max(0.0, min(1.0, fused)), 4)
+
+    @classmethod
+    def _shift_from(cls, prior: Optional[float], max_shift: float, samples: Optional[int] = None) -> float:
+        """Map a prior in [0, 1] to a signed shift in [-max_shift, +max_shift].
+
+        When ``samples`` is given, the shift is scaled by how much evidence backs
+        the prior, so a rate drawn from a handful of turns moves the score less
+        than the same rate drawn from a hundred.
+        """
+        if prior is None:
+            return 0.0
+        offset = max(0.0, min(1.0, float(prior))) - cls._NEUTRAL
+        if abs(offset) < cls._DEADBAND:
+            return 0.0
+        # offset spans [-0.5, +0.5]; scale it to the full shift range.
+        shift = (offset / cls._NEUTRAL) * max_shift
+        if samples is not None:
+            n = max(0, int(samples))
+            shift *= n / (n + cls._EVIDENCE_HALF_WEIGHT)
+        return shift
 
     @staticmethod
     def _behavioral_prior(*, intent: str, user_id: str) -> Optional[float]:
@@ -92,37 +132,87 @@ class ConfidenceFusion:
 
         return base
 
-    @staticmethod
-    def _intent_success_rate(*, intent: str) -> Optional[float]:
-        """Return 0-1 success rate from evaluation log for this intent prefix."""
+    # Success rates come from an append-only evaluation log. Re-reading and
+    # re-parsing it on every turn put a file read and up to 200 json.loads calls
+    # in the routing hot path, so the parsed rates are cached and recomputed only
+    # when the file's size or mtime changes.
+    # Maps intent prefix -> (success rate, number of observations behind it).
+    _rates_cache: Dict[str, tuple] = {}
+    _rates_stamp: Optional[tuple] = None
+
+    # Sources that only ever record one outcome. FailureEvalConverter backfills
+    # routing_failures.jsonl — a failures-only log — into the same file, and
+    # nothing backfills the successes. Counting those rows as a sample gave every
+    # intent a success rate near zero no matter how well it actually performed,
+    # which quietly dropped every turn a decision band. They describe failures,
+    # not a rate, so they are excluded from the denominator.
+    _UNRATEABLE_SOURCES = frozenset({"routing_failure_backfill"})
+
+    @classmethod
+    def _intent_success_rate_with_support(cls, *, intent: str) -> tuple:
+        """Return ``(success_rate, observations)`` for this intent's prefix."""
+        rates = cls._load_success_rates()
+        if not rates:
+            return (None, 0)
+        entry = rates.get(str(intent or "").split(":")[0].lower())
+        if entry is None:
+            return (None, 0)
+        return entry
+
+    @classmethod
+    def _intent_success_rate(cls, *, intent: str) -> Optional[float]:
+        """Return the 0-1 success rate recorded for this intent's prefix."""
+        return cls._intent_success_rate_with_support(intent=intent)[0]
+
+    @classmethod
+    def _load_success_rates(cls) -> Dict[str, tuple]:
         try:
             import json
             from pathlib import Path
 
             eval_path = Path("data/evaluations/evaluations.jsonl")
             if not eval_path.exists():
-                return None
+                cls._rates_stamp = None
+                cls._rates_cache = {}
+                return cls._rates_cache
 
-            intent_prefix = str(intent or "").split(":")[0].lower()
-            total = 0
-            successes = 0
-            # Read last 200 entries for the prefix
-            lines = eval_path.read_text(encoding="utf-8").splitlines()
-            for line in lines[-200:]:
+            stat = eval_path.stat()
+            stamp = (stat.st_mtime_ns, stat.st_size)
+            if stamp == cls._rates_stamp:
+                return cls._rates_cache
+
+            totals: Dict[str, int] = {}
+            successes: Dict[str, int] = {}
+            # Only the most recent entries describe current behavior.
+            lines = eval_path.read_text(encoding="utf-8").splitlines()[-200:]
+            for line in lines:
                 try:
                     rec = json.loads(line)
-                    rec_intent = str(rec.get("action_type") or "").split(":")[0].lower()
-                    if rec_intent == intent_prefix:
-                        total += 1
-                        if int(rec.get("overall_score", 0)) >= 70:
-                            successes += 1
                 except Exception:
                     continue
-            if total < 3:
-                return None  # not enough data
-            return round(successes / total, 4)
+                if str(rec.get("source") or "") in cls._UNRATEABLE_SOURCES:
+                    continue
+                prefix = str(rec.get("action_type") or "").split(":")[0].lower()
+                if not prefix:
+                    continue
+                totals[prefix] = totals.get(prefix, 0) + 1
+                try:
+                    score = int(rec.get("overall_score", 0))
+                except (TypeError, ValueError):
+                    score = 0
+                if score >= 70:
+                    successes[prefix] = successes.get(prefix, 0) + 1
+
+            # Fewer than three observations is not a rate, it is an anecdote.
+            cls._rates_cache = {
+                prefix: (round(successes.get(prefix, 0) / count, 4), count)
+                for prefix, count in totals.items()
+                if count >= 3
+            }
+            cls._rates_stamp = stamp
+            return cls._rates_cache
         except Exception:
-            return None
+            return {}
 
 
 _fusion: ConfidenceFusion | None = None

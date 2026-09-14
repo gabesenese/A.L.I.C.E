@@ -106,11 +106,11 @@ Execute plugin functionality.
 **Response Format:**
 ```python
 {
-    "success": bool,           # Required: Operation success status
-    "action": str,             # Required: Action type identifier
-    "data": Dict[str, Any],    # Required: Structured data for formulation
-    "response": Optional[str], # Optional: Override response formulation
-    "formulate": bool          # Optional: Use ResponseFormulator (default True)
+    "success": bool,  # Required: Operation success status
+    "action": str,  # Required: Action type identifier
+    "data": Dict[str, Any],  # Required: Structured data for formulation
+    "response": Optional[str],  # Optional: Override response formulation
+    "formulate": bool,  # Optional: Use ResponseFormulator (default True)
 }
 ```
 
@@ -119,26 +119,17 @@ Execute plugin functionality.
 def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
     try:
         # Perform action
-        result = self._get_weather(location=context.get('city'))
+        result = self._get_weather(location=context.get("city"))
 
         return {
             "success": True,
             "action": "get_weather",
-            "data": {
-                "temperature": result['temp'],
-                "condition": result['condition'],
-                "location": context.get('city')
-            },
-            "formulate": True  # Let Alice learn to phrase weather responses
+            "data": {"temperature": result["temp"], "condition": result["condition"], "location": context.get("city")},
+            "formulate": True,  # Let Alice learn to phrase weather responses
         }
     except Exception as e:
         logger.error(f"Weather plugin error: {e}")
-        return {
-            "success": False,
-            "action": "get_weather",
-            "data": {},
-            "response": f"Failed to get weather: {str(e)}"
-        }
+        return {"success": False, "action": "get_weather", "data": {}, "response": f"Failed to get weather: {str(e)}"}
 ```
 
 ---
@@ -156,7 +147,7 @@ Cleanup when plugin is disabled or system shuts down.
 ```python
 def shutdown(self) -> None:
     try:
-        if hasattr(self, 'connection'):
+        if hasattr(self, "connection"):
             self.connection.close()
         logger.info(f"{self.name} shut down successfully")
     except Exception as e:
@@ -179,7 +170,7 @@ def get_info(self) -> Dict[str, str]:
         "version": self.version,
         "description": self.description,
         "enabled": self.enabled,
-        "capabilities": self.capabilities
+        "capabilities": self.capabilities,
     }
 ```
 
@@ -210,19 +201,10 @@ Plugins must handle errors gracefully and return structured error responses.
 ```python
 try:
     result = dangerous_operation()
-    return {
-        "success": True,
-        "action": "operation_name",
-        "data": result
-    }
+    return {"success": True, "action": "operation_name", "data": result}
 except SpecificException as e:
     logger.error(f"Operation failed: {e}")
-    return {
-        "success": False,
-        "action": "operation_name",
-        "data": {},
-        "response": f"Operation failed: {str(e)}"
-    }
+    return {"success": False, "action": "operation_name", "data": {}, "response": f"Operation failed: {str(e)}"}
 ```
 
 **DO NOT:**
@@ -240,18 +222,15 @@ All methods should include proper type hints:
 ```python
 from typing import Dict, Any
 
+
 class MyPlugin(PluginInterface):
-    def initialize(self) -> bool:
-        ...
+    def initialize(self) -> bool: ...
 
-    def can_handle(self, intent: str, entities: Dict, query: str = None) -> bool:
-        ...
+    def can_handle(self, intent: str, entities: Dict, query: str = None) -> bool: ...
 
-    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]:
-        ...
+    def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict[str, Any]: ...
 
-    def shutdown(self) -> None:
-        ...
+    def shutdown(self) -> None: ...
 ```
 
 ---
@@ -271,14 +250,17 @@ Create unit tests for your plugin:
 import pytest
 from plugins.my_plugin import MyPlugin
 
+
 def test_plugin_initialization():
     plugin = MyPlugin()
     assert plugin.initialize() is True
+
 
 def test_can_handle():
     plugin = MyPlugin()
     plugin.initialize()
     assert plugin.can_handle("test", {}, "test query") is True
+
 
 def test_execute_success():
     plugin = MyPlugin()

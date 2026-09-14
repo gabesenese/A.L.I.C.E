@@ -9,6 +9,7 @@ Foundation 2 (opinions, sessions). Two tables:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -16,7 +17,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-_DB_PATH = Path("data/memory/alice.db")
+# The same file the memory store uses, and honouring the same override, so a
+# test or a second process gets its own copy of both rather than writing into
+# Gabriel's.
+_DB_PATH = Path(os.getenv("ALICE_MEMORY_DB") or "data/memory/alice.db")
 _lock = threading.Lock()
 
 
@@ -25,8 +29,11 @@ def _now_iso() -> str:
 
 
 class GoalStore:
-    def __init__(self, db_path: Path = _DB_PATH) -> None:
-        self._path = db_path
+    def __init__(self, db_path: Optional[Path] = None) -> None:
+        # Resolved per instance rather than bound as a default argument: a
+        # default is evaluated once at import, so an override set afterwards
+        # (as a test fixture does) would never be seen.
+        self._path = db_path or Path(os.getenv("ALICE_MEMORY_DB") or "data/memory/alice.db")
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 

@@ -56,18 +56,20 @@ class MaintenanceScheduler:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        if self._running:
-            return
-        self._running = True
+        with self._lock:
+            if self._running:
+                return
+            self._running = True
         self._register_defaults()
         self._schedule_tick()
         logger.info("[MaintenanceScheduler] Started (%d tasks)", len(self._tasks))
 
     def stop(self) -> None:
-        self._running = False
-        if self._timer:
-            self._timer.cancel()
-            self._timer = None
+        with self._lock:
+            self._running = False
+            timer, self._timer = self._timer, None
+        if timer:
+            timer.cancel()
         logger.info("[MaintenanceScheduler] Stopped")
 
     # ------------------------------------------------------------------
@@ -104,11 +106,15 @@ class MaintenanceScheduler:
     # ------------------------------------------------------------------
 
     def _schedule_tick(self) -> None:
-        if not self._running:
-            return
-        self._timer = threading.Timer(self._TICK, self._tick)
-        self._timer.daemon = True
-        self._timer.start()
+        # Deciding to re-arm and storing the timer happen under the same lock, so
+        # a stop() racing the tick loop cannot leave an unreferenced timer alive.
+        with self._lock:
+            if not self._running:
+                return
+            timer = threading.Timer(self._TICK, self._tick)
+            timer.daemon = True
+            self._timer = timer
+        timer.start()
 
     def _tick(self) -> None:
         now = datetime.now(timezone.utc)

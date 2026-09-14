@@ -32,12 +32,14 @@ class _AssistFirstLLM(_DummyLLM):
     def __init__(self) -> None:
         super().__init__()
         self.chat_calls = 0
+        self.chat_kwargs: dict = {}
 
-    def query_knowledge(self, question: str) -> str:
+    def query_knowledge(self, question: str, timeout=None, temperature=None) -> str:
         return "knowledge:assist-first"
 
-    def chat(self, prompt: str, use_history: bool = False) -> str:
+    def chat(self, prompt: str, use_history: bool = False, **kwargs) -> str:
         self.chat_calls += 1
+        self.chat_kwargs = dict(kwargs)
         return super().chat(prompt, use_history=use_history)
 
 
@@ -112,8 +114,15 @@ def test_generation_uses_assist_paths_before_chat(monkeypatch):
     )
 
     assert response.success
-    assert response.response == "knowledge:assist-first"
-    assert llm.chat_calls == 0
+
+    # The assist still runs first, and still runs before generation — but its
+    # output is evidence, not the reply. Returning it directly handed the user
+    # the knowledge engine's own text, which is prompted "no personality, just
+    # facts", so a question came back as an encyclopedia entry with no voice and
+    # no continuity. It is passed to the path that carries Alice's voice.
+    assert llm.chat_calls == 1
+    assert "knowledge:assist-first" in str(llm.chat_kwargs.get("context") or "")
+    assert response.response != "knowledge:assist-first"
 
 
 def test_generation_routes_through_multi_router_when_enabled(monkeypatch):

@@ -30,9 +30,7 @@ def test_parses_arguments_delivered_as_a_json_string():
 
 
 def test_drops_null_arguments_the_model_emits_for_optional_fields():
-    calls = parse(
-        {"tool_calls": [{"function": {"name": "list_workspace_files", "arguments": {"subdirectory": None}}}]}
-    )
+    calls = parse({"tool_calls": [{"function": {"name": "list_workspace_files", "arguments": {"subdirectory": None}}}]})
     assert calls[0].arguments == {}
 
 

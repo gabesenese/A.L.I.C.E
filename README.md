@@ -2,6 +2,14 @@
 
 Advanced Linguistic Intelligence Companion Entity.
 
+A local, Jarvis-shaped assistant: it runs on your machine, talks to a local
+model, acts through real tools, and remembers across sessions.
+
+**Read [`docs/north_star.md`](docs/north_star.md) first.** It says what Alice is
+for, which parts of the Jarvis comparison are achievable with today's technology
+and which are set dressing, and gives the decision rules to apply when a change
+is ambiguous. Most disagreements about this codebase are settled there.
+
 This repository is organized around a central turn loop and contract pipeline.
 The current goal is companion-quality behavior: coherent state, disciplined actions,
 and continuity across turns.
@@ -46,7 +54,11 @@ Use a virtual environment, then install the lean default dependencies:
 
 ```bash
 pip install -r requirements.txt
+python scripts/setup_nltk.py   # optional: NLTK corpora, for better tokenizing
 ```
+
+Add `-r requirements-api.txt` if you want the HTTP API (`app/api`, Docker).
+The terminal companion does not need it.
 
 Run the main CLI runtime:
 
@@ -83,6 +95,24 @@ pip install -r requirements-integrations.txt
 pip install -r requirements-ops.txt
 ```
 
+## Measuring answer quality
+
+The test suite runs without Ollama, so it proves the plumbing and nothing more.
+To measure how well she actually answers, run the harness against your own local
+model:
+
+```bash
+python scripts/quality_harness.py
+python scripts/quality_harness.py --model llama3.1:8b --json before.json
+# make a change, then:
+python scripts/quality_harness.py --compare before.json
+```
+
+It checks each turn mechanically — did she call the tool that had the answer,
+did she state a fact she never read, did she reach for a tool on a turn that was
+just conversation — and reports per-scenario FIXED / REGRESSED between runs.
+Scenarios live in `scenarios/quality/suite.json`.
+
 ## Tests
 
 Canonical integration tests:
@@ -105,19 +135,17 @@ python test_init.py
 
 ## Docker
 
-Default compose path is intentionally minimal (alice service).
-Optional profiles:
-
-1. `llm` for local Ollama service
-2. `ops` for Redis cache service
-
-Examples:
+`docker compose up --build` starts Alice plus a local Ollama and waits for the
+model server to report healthy.
 
 ```bash
 docker compose up --build
-docker compose --profile llm up --build
-docker compose --profile ops up --build
+docker compose --profile gpu up --build   # attach an NVIDIA GPU to Ollama
 ```
+
+The GPU is opt-in because a `reservations.devices` block is a hard requirement
+rather than a preference: with it always on, `docker compose up` fails outright
+on any machine without an NVIDIA card instead of running on CPU.
 
 ## Repository Notes
 

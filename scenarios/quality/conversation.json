@@ -1,0 +1,88 @@
+{
+  "name": "Conversational feel",
+  "description": "Does Alice read like someone thinking, or like a program printing? Run with: python scripts/quality_harness.py --suite scenarios/quality/conversation.json --feel",
+  "scenarios": [
+    {
+      "id": "opener",
+      "prompt": "hey",
+      "why": "One word, no content. A person says something back; a terminal prints a menu.",
+      "checks": { "must_answer": true, "max_words": 30, "no_terminal_register": true }
+    },
+    {
+      "id": "opinion",
+      "prompt": "do you think local models are good enough to be useful yet, or is it still a toy?",
+      "why": "Directly asks for a view. Hedging into 'it depends on your use case' is the terminal answer.",
+      "checks": { "must_answer": true, "min_words": 20, "no_hedge_only": true, "no_terminal_register": true }
+    },
+    {
+      "id": "frustration",
+      "prompt": "I've been stuck on this memory bug for three hours and I'm losing my mind",
+      "why": "Not a request. Needs a human response, not a troubleshooting checklist.",
+      "checks": { "must_answer": true, "must_not_have_used_any_tool": true, "no_terminal_register": true, "no_bullet_dump": true }
+    },
+    {
+      "id": "followup_pronoun",
+      "prompt": "what would you do about it?",
+      "why": "'it' only means something if she kept the thread from the previous turn.",
+      "depends_on": "frustration",
+      "checks": { "must_answer": true, "no_lost_thread": true }
+    },
+    {
+      "id": "short_challenge",
+      "prompt": "why?",
+      "why": "Two letters. Should get a direct reason, not a request for clarification.",
+      "depends_on": "followup_pronoun",
+      "checks": { "must_answer": true, "max_words": 90, "must_not_match": ["could you (clarify|specify|elaborate)", "what (do you mean|are you referring)"] }
+    },
+    {
+      "id": "casual_aside",
+      "prompt": "honestly this whole project has gotten away from me",
+      "why": "An aside, not a task. Reaching for a tool here is the wrong instinct.",
+      "checks": { "must_answer": true, "must_not_have_used_any_tool": true, "no_terminal_register": true }
+    },
+    {
+      "id": "explain",
+      "prompt": "explain what an embedding actually is, like I've never heard the word",
+      "why": "Asks for teaching. Should read as explaining, not as a syllabus with numbered phases.",
+      "checks": { "must_answer": true, "min_words": 40, "no_numbered_syllabus": true, "no_terminal_register": true }
+    },
+    {
+      "id": "correction",
+      "prompt": "no, that's not what I meant",
+      "why": "A correction. Should adjust, not restart or ask what you meant from scratch.",
+      "depends_on": "explain",
+      "checks": { "must_answer": true, "max_words": 70, "no_lost_thread": true }
+    },
+    {
+      "id": "preference",
+      "prompt": "keep answers short from now on",
+      "why": "An instruction about style. Acknowledge briefly — a long reply here is self-refuting.",
+      "checks": { "must_answer": true, "max_words": 25 }
+    },
+    {
+      "id": "obeys_preference",
+      "prompt": "what's the difference between a vector database and a plain index?",
+      "why": "The turn that proves the preceding instruction changed anything.",
+      "depends_on": "preference",
+      "checks": { "must_answer": true, "max_words": 80 }
+    },
+    {
+      "id": "humour",
+      "prompt": "be honest, how bad is this codebase?",
+      "why": "An invitation to have a personality. A refusal to have a view is the terminal answer.",
+      "checks": { "must_answer": true, "min_words": 15, "no_hedge_only": true }
+    },
+    {
+      "id": "repeat_once",
+      "prompt": "what should I work on next?",
+      "why": "Asked twice in a run — see 'uniformity' in the feel report. Identical wording twice means nothing is being generated.",
+      "checks": { "must_answer": true }
+    },
+    {
+      "id": "repeat_twice",
+      "prompt": "what should I work on next?",
+      "why": "The same question again. A person varies; a lookup table does not.",
+      "checks": { "must_answer": true }
+    }
+  ]
+}
