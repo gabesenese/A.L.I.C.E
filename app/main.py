@@ -14,7 +14,7 @@ from brain.ambient_monitor import get_ambient_monitor
 from brain.task_scheduler import TaskScheduler
 
 from ai.infrastructure.rbac import get_rbac_engine
-from ai.infrastructure.runtime_flags import background_services_enabled
+from ai.infrastructure.runtime_flags import background_services_enabled, scripted_overrides_enabled
 from ai.infrastructure.approval_ledger import get_approval_ledger
 from ai.roadmap import get_roadmap_completion_stack
 from ai.integration.git_manager import get_git_manager
@@ -3212,14 +3212,22 @@ class ALICE:
                 or "or" in _out_low
             )
 
-            if _has_meta_leak or _has_dead_end or not _has_options_signal or len(out) < 70:
+            # Meta leakage is a real defect in the text — internal labels that
+            # must not reach the user — so it is suppressed either way. The rest
+            # of this test is about shape, not correctness: shorter than 70
+            # characters, no comma, no "or". A direct answer that happened to be
+            # brief was discarded and a menu put in its place.
+            if _has_meta_leak:
                 out = self._project_ideation_guidance_response(user_input)
-            elif "?" not in out:
-                out = out.rstrip(". ") + " " + self._project_ideation_narrowing_question(user_input)
+            elif scripted_overrides_enabled():
+                if _has_dead_end or not _has_options_signal or len(out) < 70:
+                    out = self._project_ideation_guidance_response(user_input)
+                elif "?" not in out:
+                    out = out.rstrip(". ") + " " + self._project_ideation_narrowing_question(user_input)
         elif _has_meta_leak:
             out = ""
 
-        if out and self._looks_abrupt_fast_lane_ending(out):
+        if out and scripted_overrides_enabled() and self._looks_abrupt_fast_lane_ending(out):
             repaired = self._deterministic_knowledge_fallback(user_input, intent)
             if repaired:
                 out = repaired
@@ -4535,6 +4543,15 @@ class ALICE:
         has_explicit_action_cue: bool,
     ) -> Dict[str, Any]:
         """Block LLM when a direct low-risk native response is sufficient."""
+        # Every branch below answers the user from a template *without asking the
+        # model at all*. That is not a fallback for a model that failed; it is a
+        # decision that Alice should not think about this turn, made by a regex.
+        # It is the reason a question phrased slightly differently got a stock
+        # paragraph instead of an answer. Off by default; the branches remain so
+        # the two can be compared with scripts/quality_harness.py.
+        if not scripted_overrides_enabled():
+            return {"block_llm": False, "reason": "scripted_overrides_disabled", "response": ""}
+
         structured_teaching = self._structured_teaching_mode_response(user_input, intent)
         if structured_teaching:
             return {

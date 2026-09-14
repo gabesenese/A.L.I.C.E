@@ -99,6 +99,19 @@ Hand-written heuristics are acceptable in exactly two places:
 
 Everywhere else, the model decides and a check verifies.
 
+**Substituting is not overriding.** Two things here look alike and are not. A
+template that *substitutes* for a missing answer — the model was unreachable, or
+returned nothing — is a fallback, and it stays; something has to be said. A
+template that *overrides* an answer that already exists, because it failed a
+shape test (under 70 characters, no comma, no question mark), is the bug. That
+is how a direct reply became a menu and a one-line confirmation became an essay.
+
+The override paths are behind `ALICE_ENABLE_SCRIPTED_OVERRIDES`, off by default.
+They are kept rather than deleted so the two behaviours can be compared with
+`scripts/quality_harness.py` on a machine with a real model, instead of argued
+about. If the comparison says the templates win on some turn, that is a finding
+about the prompt or the model, not a reason to restore the default.
+
 ### 3. Say what happened, in the user's words.
 
 The user did not ask about a route, a lane, a decision band, or a pipeline.

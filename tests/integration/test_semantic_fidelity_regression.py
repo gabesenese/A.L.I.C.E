@@ -1,9 +1,22 @@
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import pytest
+
 from ai.context_resolver import ContextResolver
 from ai.core.executive_controller import ExecutiveController
 from app.main import ALICE
+
+
+@pytest.fixture
+def scripted_overrides(monkeypatch):
+    """Opt in to the templates that answer without consulting the model.
+
+    They are off by default — a regex deciding Alice should not think about a
+    turn is what produced a stock paragraph for anything phrased unusually — but
+    the branches remain, and these tests are what covers them.
+    """
+    monkeypatch.setenv("ALICE_ENABLE_SCRIPTED_OVERRIDES", "1")
 
 
 EXACT_PROMPT = (
@@ -478,7 +491,7 @@ def test_goal_statement_fallback_preserves_agentic_learning_guidance():
     )
 
 
-def test_self_answer_first_gate_uses_structured_teaching_mode_for_teach_prompts():
+def test_self_answer_first_gate_uses_structured_teaching_mode_for_teach_prompts(scripted_overrides):
     alice = ALICE.__new__(ALICE)
 
     gate = alice._self_answer_first_gate(
@@ -503,7 +516,7 @@ def test_self_answer_first_override_contract_respects_executive_llm_authority():
     assert alice._self_answer_first_can_override("ask_clarification") is False
 
 
-def test_self_answer_first_gate_uses_non_structured_answer_for_learn_more_agentic_prompt():
+def test_self_answer_first_gate_uses_non_structured_answer_for_learn_more_agentic_prompt(scripted_overrides):
     alice = ALICE.__new__(ALICE)
 
     gate = alice._self_answer_first_gate(
@@ -578,7 +591,7 @@ def test_native_scaffold_disallowed_for_rich_conceptual_prompt():
     assert response is None
 
 
-def test_self_answer_gate_prefers_native_conceptual_for_rich_prompt():
+def test_self_answer_gate_prefers_native_conceptual_for_rich_prompt(scripted_overrides):
     alice = ALICE.__new__(ALICE)
 
     gate = alice._self_answer_first_gate(
@@ -597,7 +610,7 @@ def test_self_answer_gate_prefers_native_conceptual_for_rich_prompt():
     assert any(token in response for token in ("foundations", "memory", "planning", "autonomy"))
 
 
-def test_exact_fictional_inventor_prompt_blocks_scaffold_and_returns_direct_architecture_answer():
+def test_exact_fictional_inventor_prompt_blocks_scaffold_and_returns_direct_architecture_answer(scripted_overrides):
     alice = ALICE.__new__(ALICE)
 
     scaffold = alice._native_scaffold_response(
@@ -625,7 +638,7 @@ def test_exact_fictional_inventor_prompt_blocks_scaffold_and_returns_direct_arch
     assert "bounded autonomy" in response
 
 
-def test_exact_create_prompt_blocks_scaffold_and_returns_direct_architecture_answer():
+def test_exact_create_prompt_blocks_scaffold_and_returns_direct_architecture_answer(scripted_overrides):
     alice = ALICE.__new__(ALICE)
 
     scaffold = alice._native_scaffold_response(
