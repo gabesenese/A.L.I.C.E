@@ -39,6 +39,113 @@ _DANGLING_PRONOUN = re.compile(
 )
 
 
+# A goal is a piece of work. These are the verbs a piece of work starts with.
+#
+# The gate exists because goals are not only added on request: they are also
+# synced from "project hints", which CompanionRuntimeLoop._extract_project_hints
+# derives by matching any sentence containing project / feature / milestone /
+# roadmap / repo / build / test suite / automation and keeping the fragment
+# verbatim. Six of the nine goals on the live stack arrived that way, among them
+# "danger delete all project files" (a safety test string), "I've been stuck on
+# this project for a while", and "honestly this whole project has gotten away
+# from me". All three were read back to Alice as Gabriel's objectives in the
+# system prompt, on every turn, indefinitely.
+#
+# This is a grounding check in the sense of docs/north_star.md rule 2 — verifying
+# that extracted structure is what it claims to be — not a heuristic standing in
+# for an answer. It applies only to text the extractor guessed at; a goal Gabriel
+# states outright through `add` is his to phrase however he likes.
+_ACTION_VERBS = (
+    "add",
+    "audit",
+    "automate",
+    "build",
+    "clean",
+    "close",
+    "complete",
+    "continue",
+    "convert",
+    "debug",
+    "delete",
+    "deploy",
+    "design",
+    "document",
+    "draft",
+    "drop",
+    "evaluate",
+    "extend",
+    "extract",
+    "finish",
+    "fix",
+    "ghost",
+    "handle",
+    "implement",
+    "improve",
+    "index",
+    "instrument",
+    "integrate",
+    "land",
+    "launch",
+    "learn",
+    "make",
+    "measure",
+    "migrate",
+    "move",
+    "optimise",
+    "optimize",
+    "plan",
+    "port",
+    "profile",
+    "publish",
+    "read",
+    "rebuild",
+    "refactor",
+    "release",
+    "remove",
+    "rename",
+    "replace",
+    "restore",
+    "retire",
+    "review",
+    "rewrite",
+    "ship",
+    "simplify",
+    "split",
+    "start",
+    "test",
+    "tidy",
+    "track",
+    "tune",
+    "update",
+    "upgrade",
+    "verify",
+    "wire",
+    "write",
+)
+
+_ACTION_START = re.compile(r"^\s*(?:" + "|".join(_ACTION_VERBS) + r")\b", re.IGNORECASE)
+
+# A placeholder object anywhere in the phrase means the extractor caught the
+# shape of a goal without its content: "learn something simple to understand how
+# it works" starts with a real verb and still names no work.
+_PLACEHOLDER_OBJECT = re.compile(
+    r"\b(?:something|anything|stuff|things?|some\s+point|somehow|whatever)\b",
+    re.IGNORECASE,
+)
+
+
+def looks_like_a_goal(description: str) -> bool:
+    """Whether an extracted phrase is a piece of work rather than a remark."""
+    text = str(description or "").strip()
+    if len(text) < 12:
+        return False
+    if _VAGUE_GOAL.match(text) or _DANGLING_PRONOUN.search(text):
+        return False
+    if _PLACEHOLDER_OBJECT.search(text):
+        return False
+    return bool(_ACTION_START.match(text))
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -59,6 +166,7 @@ class Goal:
     # Each milestone: {"id": str, "text": str, "done": bool, "completed_at": str|None}
     dependencies: List[str] = field(default_factory=list)
     # List of goal_ids that must be completed before this goal is "ready"
+    source: str = ""  # "explicit" when Gabriel asked for it; "" when inferred from a turn
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -164,6 +272,9 @@ class GoalEngine:
             priority=priority,
             context=context,
             next_action=next_action,
+            # Asked for, not guessed at — so it is never filtered by `active`,
+            # whatever words he used.
+            source="explicit",
         )
         self._goals.append(goal)
         self._save()
@@ -204,8 +315,21 @@ class GoalEngine:
         self._record_event(goal_id, "completed", session_id=session_id, note=note)
 
     def active(self) -> List[Goal]:
+        """Active goals, with anything the extractor mistook for one filtered out.
+
+        Filtering at the door is not enough on its own. data/goals/goal_stack.json
+        already holds six utterances stored before the gate existed, and it is
+        Gabriel's file rather than something to rewrite underneath him — so the
+        read is filtered as well, the same way calendar words are filtered out of
+        his interests. A goal he added explicitly keeps its `source`, and is never
+        filtered.
+        """
         return sorted(
-            [g for g in self._goals if g.status == "active"],
+            [
+                g
+                for g in self._goals
+                if g.status == "active" and (g.source == "explicit" or looks_like_a_goal(g.description))
+            ],
             key=lambda g: g.priority,
         )
 
@@ -260,12 +384,15 @@ class GoalEngine:
         return None
 
     def sync_from_active_goals(self, active_goals: List[str]) -> None:
+        """Store goals inferred from a turn, rejecting anything that is not work.
+
+        Everything reaching this method was guessed at rather than asked for, so
+        the bar is higher than for `add`: it has to read as a piece of work.
+        """
         existing = {g.description.lower() for g in self._goals}
         changed = False
         for desc in active_goals:
-            if not desc or len(desc) < 12:
-                continue
-            if _VAGUE_GOAL.match(desc) or _DANGLING_PRONOUN.search(desc):
+            if not looks_like_a_goal(desc):
                 continue
             if desc.lower() not in existing:
                 goal = Goal(description=desc, priority=2)

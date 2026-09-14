@@ -87,12 +87,18 @@ def isolate_memory_store(tmp_path, monkeypatch):
     error and the process runs with recall silently disabled — which is also how
     a test that passes alone fails in a full run.
     """
+    import ai.goals.goal_store as goal_store
     import ai.memory.memory_store as memory_store
 
     monkeypatch.setenv("ALICE_MEMORY_DB", str(tmp_path / "alice.db"))
     monkeypatch.setattr(memory_store, "_memory_store", None, raising=False)
+    # GoalStore writes goals into the same file, behind its own singleton, so
+    # leaving it alone means the goal stack Gabriel is actually working from
+    # accumulates whatever strings the suite feeds through a turn.
+    monkeypatch.setattr(goal_store, "_store", None, raising=False)
     yield
     memory_store._memory_store = None
+    goal_store._store = None
 
 
 @pytest.fixture(autouse=True)
