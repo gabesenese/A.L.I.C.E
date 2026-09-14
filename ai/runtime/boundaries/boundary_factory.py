@@ -34,6 +34,7 @@ from ai.infrastructure.runtime_flags import is_enabled
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
 from ai.memory.personal_memory import PersonalMemoryStore
 from ai.memory.project_memory import load_project_state, update_project_state
+from ai.memory.temporal_scope import items_within, requested_period
 from ai.runtime.continuity_claim_guard import assess_continuity_claims
 from ai.runtime.greeting_surface_policy import render_grounded_greeting
 from ai.runtime.dominant_intent_resolver import (
@@ -1041,6 +1042,24 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             value = re.sub(r"\s+", " ", value).strip()
             return value
 
+        # Recall ranks by similarity and recency, neither of which understands
+        # "on the 3rd of March last year". Asked that, Alice returned her most
+        # relevant memories — none from that date — under a heading that reads
+        # as an answer. Telling someone what they said on a day they did not say
+        # it is indistinguishable from remembering, so a question that names a
+        # period is answered only from memories that fall inside it.
+        period = requested_period(user_input)
+        if period is not None:
+            in_period = items_within(items, period)
+            if not in_period:
+                return _surface_text(
+                    f"I don't have anything saved from {period.describe()}.",
+                    user_input=user_input,
+                    intent=intent,
+                    route="contract_personal_memory_out_of_period",
+                )
+            items = in_period
+
         seen = set()
         snippets: List[str] = []
         for row in items[:4]:
@@ -1054,7 +1073,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             snippets.append(content)
         if not snippets:
             return _personal_memory_fallback_response(user_input, intent)
-        summary = "Here is what I have saved in memory:\n- " + "\n- ".join(snippets)
+        heading = f"From {period.describe()}:" if period is not None else "Here is what I have saved in memory:"
+        summary = heading + "\n- " + "\n- ".join(snippets)
         return _surface_text(
             summary,
             user_input=user_input,
