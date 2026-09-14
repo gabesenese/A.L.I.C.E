@@ -1,3 +1,5 @@
+import importlib
+import threading
 import os
 import sys
 import logging
@@ -162,9 +164,6 @@ from ai.runtime.response_authority import (
     finalize_conversational_surface,
 )
 from ai.runtime.turn_orchestrator import run_default_turn
-from ai.reasoning.routing_decision_logger import (
-    RoutingDecisionLogger,
-)
 
 # ===== 10 TIER IMPROVEMENTS (LAZY IMPORT UNDER QUARANTINE FLAGS) =====
 
@@ -402,12 +401,19 @@ class ALICE:
             # 1. NLP Processor
             logger.info("Loading NLP processor...")
             self.nlp = NLPProcessor()
-            # Pre-warm the semantic classifier so the first user query has no cold-start delay
-            try:
-                self.nlp._ensure_semantic_classifier()
-                logger.info("Semantic classifier pre-warmed.")
-            except Exception:
-                pass  # non-fatal; will lazy-load on first real query
+            # Warm the semantic classifier off the critical path. Loading it means
+            # importing torch and reading a sentence-transformers model, and when the
+            # model is not cached it retries three times with backoff — minutes of
+            # blocking before the prompt appears, on a machine that is offline for
+            # exactly the reason someone runs a local assistant. The classifier is
+            # lazy by design; this only removes the cold start for the first query
+            # that actually needs it.
+            self._classifier_warm_thread = threading.Thread(
+                target=self._warm_semantic_classifier,
+                name="alice-classifier-warm",
+                daemon=True,
+            )
+            self._classifier_warm_thread.start()
             # Shared session objects from NLP stack
             self.dialogue_memory = getattr(self.nlp, "dialogue_memory", None)
             self.fp_store = getattr(self.nlp, "_fp_store", None)
@@ -686,89 +692,115 @@ class ALICE:
                 self.foundations = None
                 self.structured_logger.error(f"Foundation systems failed: {e}", component="foundations")
 
-            # 4.0.5. ===== 10 TIER IMPROVEMENTS INITIALIZATION =====
+            # 4.0.5. ===== TIER IMPROVEMENTS INITIALIZATION =====
+            # Each of these is quarantined by default (see ai/infrastructure/runtime_flags)
+            # and is built only when its flag is set. The log used to announce
+            # "All 10 tier improvements initialized successfully, active_systems=10"
+            # unconditionally, so the ordinary startup — where every flag is off and
+            # nothing is constructed — still reported ten active subsystems.
             if self.runtime_mode_config.enable_advanced_tiers:
-                logger.info("Initializing 10 Tier Improvements (quarantine-aware)...")
-                try:
-                    logger.info("  - Tier 1: Initializing long-session coherence...")
-                    if is_enabled("session_summarizer"):
-                        from ai.memory.session_summarizer import SessionSummarizer
-
-                        self.session_summarizer = SessionSummarizer(summarize_every_n_turns=5)
-
-                    logger.info("  - Tier 1: Initializing capability constraints...")
-                    if is_enabled("capability_constraints"):
-                        from ai.infrastructure.capability_constraints import (
-                            CapabilityConstraintsLedger,
+                logger.info("Initializing tier improvements (quarantine-aware)...")
+                tier_specs = [
+                    (
+                        "session_summarizer",
+                        "session_summarizer",
+                        "ai.memory.session_summarizer",
+                        "SessionSummarizer",
+                        {"summarize_every_n_turns": 5},
+                    ),
+                    (
+                        "capability_constraints",
+                        "capability_constraints",
+                        "ai.infrastructure.capability_constraints",
+                        "CapabilityConstraintsLedger",
+                        {},
+                    ),
+                    (
+                        "result_quality_scorer",
+                        "result_quality_scorer",
+                        "ai.core.result_quality_scorer",
+                        "ResultQualityScorer",
+                        {},
+                    ),
+                    (
+                        "goal_alignment_tracker",
+                        "goal_alignment_tracker",
+                        "ai.learning.goal_alignment_tracker",
+                        "GoalAlignmentTracker",
+                        {},
+                    ),
+                    (
+                        "tone_trajectory_engine",
+                        "tone_trajectory_engine",
+                        "ai.learning.tone_trajectory_engine",
+                        "ToneTrajectoryEngine",
+                        {},
+                    ),
+                    (
+                        "pattern_based_nudger",
+                        "pattern_nudger",
+                        "ai.proactivity.pattern_based_nudger",
+                        "PatternBasedNudger",
+                        {},
+                    ),
+                    (
+                        "system_state_api",
+                        "system_state_api",
+                        "ai.introspection.system_state_api",
+                        "SystemStateAPI",
+                        {},
+                    ),
+                    (
+                        "weak_spot_detector",
+                        "weak_spot_detector",
+                        "ai.learning.weak_spot_detector",
+                        "WeakSpotDetector",
+                        {},
+                    ),
+                    (
+                        "multi_goal_arbitrator",
+                        "multi_goal_arbitrator",
+                        "ai.goals.multi_goal_arbitrator",
+                        "MultiGoalArbitrator",
+                        {},
+                    ),
+                    (
+                        "routing_decision_logger",
+                        "routing_decision_logger",
+                        "ai.reasoning.routing_decision_logger",
+                        "RoutingDecisionLogger",
+                        {},
+                    ),
+                ]
+                active_tiers: List[str] = []
+                for flag, attribute, module_path, class_name, tier_kwargs in tier_specs:
+                    if not is_enabled(flag):
+                        continue
+                    try:
+                        module = importlib.import_module(module_path)
+                        setattr(self, attribute, getattr(module, class_name)(**tier_kwargs))
+                        active_tiers.append(flag)
+                    except Exception as e:
+                        # One tier failing is no reason to lose the rest, and it must
+                        # not be counted among the active ones.
+                        logger.error(f"[ERROR] Tier improvement {flag} failed to initialize: {e}")
+                        self.structured_logger.error(
+                            f"Tier improvement {flag} failed: {e}", component="tier_improvements"
                         )
-
-                        self.capability_constraints = CapabilityConstraintsLedger()
-
-                    logger.info("  - Tier 1: Initializing result quality scorer...")
-                    if is_enabled("result_quality_scorer"):
-                        from ai.core.result_quality_scorer import ResultQualityScorer
-
-                        self.result_quality_scorer = ResultQualityScorer()
-
-                    logger.info("  - Tier 1: Initializing goal alignment tracker...")
-                    if is_enabled("goal_alignment_tracker"):
-                        from ai.learning.goal_alignment_tracker import (
-                            GoalAlignmentTracker,
-                        )
-
-                        self.goal_alignment_tracker = GoalAlignmentTracker()
-
-                    logger.info("  - Tier 2: Initializing tone trajectory engine...")
-                    if is_enabled("tone_trajectory_engine"):
-                        from ai.learning.tone_trajectory_engine import (
-                            ToneTrajectoryEngine,
-                        )
-
-                        self.tone_trajectory_engine = ToneTrajectoryEngine()
-
-                    logger.info("  - Tier 2: Initializing pattern-based nudger...")
-                    if is_enabled("pattern_based_nudger"):
-                        from ai.proactivity.pattern_based_nudger import (
-                            PatternBasedNudger,
-                        )
-
-                        self.pattern_nudger = PatternBasedNudger()
-
-                    logger.info("  - Tier 3: Initializing system state API...")
-                    if is_enabled("system_state_api"):
-                        from ai.introspection.system_state_api import SystemStateAPI
-
-                        self.system_state_api = SystemStateAPI()
-
-                    logger.info("  - Tier 3: Initializing weak-spot detector...")
-                    if is_enabled("weak_spot_detector"):
-                        from ai.learning.weak_spot_detector import WeakSpotDetector
-
-                        self.weak_spot_detector = WeakSpotDetector()
-
-                    logger.info("  - Tier 4: Initializing multi-goal arbitrator...")
-                    if is_enabled("multi_goal_arbitrator"):
-                        from ai.goals.multi_goal_arbitrator import MultiGoalArbitrator
-
-                        self.multi_goal_arbitrator = MultiGoalArbitrator()
-
-                    logger.info("  - Tier 4: Initializing routing decision logger...")
-                    if is_enabled("routing_decision_logger"):
-                        self.routing_decision_logger = RoutingDecisionLogger()
-
-                    self.structured_logger.info(
-                        "All 10 tier improvements initialized successfully",
-                        component="tier_improvements",
-                        active_systems=10,
+                self.structured_logger.info(
+                    "Tier improvements initialized",
+                    component="tier_improvements",
+                    active_systems=len(active_tiers),
+                    active=list(active_tiers),
+                    available=len(tier_specs),
+                )
+                if active_tiers:
+                    logger.info(
+                        f"[OK] {len(active_tiers)}/{len(tier_specs)} tier improvements active: "
+                        f"{', '.join(active_tiers)}"
                     )
-                    logger.info("[OK] All 10 Tier Improvements active - advanced capabilities enabled")
-                except Exception as e:
-                    logger.error(f"[ERROR] Tier improvements initialization failed: {e}")
-                    import traceback
-
-                    traceback.print_exc()
-                    self.structured_logger.error(f"Tier improvements failed: {e}", component="tier_improvements")
-                    # Don't fail startup if improvements fail - these are enhancements
+                else:
+                    logger.info(f"[OK] No tier improvements active ({len(tier_specs)} available, all quarantined)")
             # ===== END 10 TIER IMPROVEMENTS =====
 
             # Inject LLM engine into autonomous agent now that it's loaded
@@ -1026,6 +1058,18 @@ class ALICE:
         except Exception as e:
             logger.error(f"[ERROR] Initialization failed: {e}")
             raise
+
+    def _warm_semantic_classifier(self) -> None:
+        """Load the semantic intent classifier in the background.
+
+        Failure here is not worth surfacing: the classifier is optional and the
+        NLP layer falls back to pattern matching without it.
+        """
+        try:
+            self.nlp._ensure_semantic_classifier()
+            logger.info("Semantic classifier warmed.")
+        except Exception as e:
+            logger.debug(f"Semantic classifier warm-up skipped: {e}")
 
     def _run_startup_doctor(self) -> None:
         """Run profile-based startup diagnostics and persist a health summary."""
