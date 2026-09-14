@@ -17,7 +17,7 @@ from typing import Any
 class Artifact:
     artifact_id: str = field(default_factory=lambda: f"art-{uuid.uuid4().hex[:8]}")
     step_id: str = ""
-    kind: str = "data"      # "data" | "text" | "tool_output" | "verification"
+    kind: str = "data"  # "data" | "text" | "tool_output" | "verification"
     content: Any = None
     evidence: dict = field(default_factory=dict)
     verified: bool = False

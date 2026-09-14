@@ -719,9 +719,10 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         # Compute project-intent flag early so both objective and goal-observation
         # blocks can use it without a forward-reference.
-        _project_intent = any(
-            _intent.startswith(pfx) for pfx in ("code:", "file:", "plugin:", "notes:", "operator:")
-        ) or _intent == "conversation:project_work_session"
+        _project_intent = (
+            any(_intent.startswith(pfx) for pfx in ("code:", "file:", "plugin:", "notes:", "operator:"))
+            or _intent == "conversation:project_work_session"
+        )
 
         # User's location — always inject so LLM never has to guess
         _home_city = ""
@@ -740,12 +741,32 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if _home_city and user_input:
             try:
                 import re as _re
+
                 # Find all "in/to/at/near <word>" candidates, pick the first that isn't
                 # a generic word — geocode confirms it's a real place.
                 _GENERIC = {
-                    "a", "an", "the", "my", "your", "our", "their", "this", "that",
-                    "here", "there", "work", "home", "school", "store", "town",
-                    "restaurant", "cafe", "bar", "mall", "park", "downtown",
+                    "a",
+                    "an",
+                    "the",
+                    "my",
+                    "your",
+                    "our",
+                    "their",
+                    "this",
+                    "that",
+                    "here",
+                    "there",
+                    "work",
+                    "home",
+                    "school",
+                    "store",
+                    "town",
+                    "restaurant",
+                    "cafe",
+                    "bar",
+                    "mall",
+                    "park",
+                    "downtown",
                 }
                 _candidates = _re.findall(
                     r"\b(?:in|to|at|near)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\b",
@@ -775,13 +796,14 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     _dest_coords = _geocode(_dest_city)
                     if _home_coords and _dest_coords:
                         from math import radians, cos, sin, asin, sqrt
+
                         _lat1, _lon1 = map(radians, _home_coords)
                         _lat2, _lon2 = map(radians, _dest_coords)
                         _dlat, _dlon = _lat2 - _lat1, _lon2 - _lon1
                         _a = sin(_dlat / 2) ** 2 + cos(_lat1) * cos(_lat2) * sin(_dlon / 2) ** 2
                         _straight_km = 6371 * 2 * asin(sqrt(_a))
                         _road_km = round(_straight_km * 1.3)  # road-distance factor
-                        _mins = round(_road_km / 90 * 60)     # 90 km/h average Ontario highway
+                        _mins = round(_road_km / 90 * 60)  # 90 km/h average Ontario highway
                         _h, _m = divmod(_mins, 60)
                         _time_str = f"{_h}h {_m}m" if _h else f"{_m}m"
                         lines.append(
@@ -1249,25 +1271,32 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             _input_low = user_input.lower()
             # Specific-weekday filter — match named days (saturday, sunday, monday…)
             _WEEKDAY_NAMES = {
-                "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
-                "friday": 4, "saturday": 5, "sunday": 6,
+                "monday": 0,
+                "tuesday": 1,
+                "wednesday": 2,
+                "thursday": 3,
+                "friday": 4,
+                "saturday": 5,
+                "sunday": 6,
             }
-            _target_weekday = next(
-                (wd for name, wd in _WEEKDAY_NAMES.items() if name in _input_low), None
-            )
+            _target_weekday = next((wd for name, wd in _WEEKDAY_NAMES.items() if name in _input_low), None)
             if _target_weekday is not None:
+
                 def _matches_weekday(d: dict) -> bool:
                     try:
                         return _date.fromisoformat(str(d.get("date") or "")).weekday() == _target_weekday
                     except Exception:
                         return False
+
                 day_slice = [d for d in forecast_days if _matches_weekday(d)]
             elif "weekend" in _input_low:
+
                 def _is_weekend(d: dict) -> bool:
                     try:
                         return _date.fromisoformat(str(d.get("date") or "")).weekday() in (5, 6)
                     except Exception:
                         return False
+
                 day_slice = [d for d in forecast_days if _is_weekend(d)]
             else:
                 day_slice = forecast_days[:3]
@@ -2650,10 +2679,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
                 # Add a conversational layer via LLM, but the data string must be
                 # used verbatim — the LLM may only append a natural follow-up.
-                is_weather_turn = (
-                    str(req.decision.intent or "").startswith("weather:")
-                    or str(req.tool_result.tool_name or "").lower().startswith("weather")
-                )
+                is_weather_turn = str(req.decision.intent or "").startswith("weather:") or str(
+                    req.tool_result.tool_name or ""
+                ).lower().startswith("weather")
                 if is_weather_turn:
                     try:
                         _weather_prompt = (
@@ -2846,9 +2874,21 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 _is_short_followup = (
                     len(_user_words) <= 6
                     and bool(_user_words)
-                    and _user_words[0] in {
-                        "why", "how", "what", "huh", "really", "ok", "okay",
-                        "and", "but", "so", "wait", "meaning", "elaborate",
+                    and _user_words[0]
+                    in {
+                        "why",
+                        "how",
+                        "what",
+                        "huh",
+                        "really",
+                        "ok",
+                        "okay",
+                        "and",
+                        "but",
+                        "so",
+                        "wait",
+                        "meaning",
+                        "elaborate",
                     }
                 )
                 if _is_discussion and (_is_hedge or _is_question_only or _is_too_short) and not _is_short_followup:

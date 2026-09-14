@@ -613,9 +613,7 @@ def _has_hallucinated_entity(candidate: str, user_name: str) -> bool:
     that is neither the user name nor 'Alice'.  Catches location / topic hallucination
     on pure greeting turns (e.g. 'The weather in Oakville looks rough.')."""
     _fname_lower = _first_name(user_name).lower() if user_name else ""
-    _allowed: frozenset[str] = frozenset(
-        filter(None, {"alice", "gabriel", _fname_lower, _fname_lower + "s"})
-    )
+    _allowed: frozenset[str] = frozenset(filter(None, {"alice", "gabriel", _fname_lower, _fname_lower + "s"}))
     _words = candidate.split()
     _at_start = True  # first word is always a sentence/clause opener
     for _w in _words:

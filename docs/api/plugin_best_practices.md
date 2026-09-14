@@ -10,6 +10,7 @@ Each plugin should do ONE thing well.
 ```python
 class WeatherPlugin(PluginInterface):
     """Provides weather information only"""
+
     capabilities = ["weather", "forecast"]
 ```
 
@@ -17,6 +18,7 @@ class WeatherPlugin(PluginInterface):
 ```python
 class SuperPlugin(PluginInterface):
     """Does weather, news, stocks, and email"""  # Too many responsibilities
+
     capabilities = ["weather", "news", "stocks", "email"]
 ```
 
@@ -32,13 +34,13 @@ Always handle errors and provide useful feedback.
 ```python
 def execute(self, intent, query, entities, context):
     try:
-        api_key = os.getenv('API_KEY')
+        api_key = os.getenv("API_KEY")
         if not api_key:
             return {
                 "success": False,
                 "action": "api_call",
                 "data": {},
-                "response": "API key not configured. Please set API_KEY environment variable."
+                "response": "API key not configured. Please set API_KEY environment variable.",
             }
 
         result = self.api.call(api_key)
@@ -46,17 +48,13 @@ def execute(self, intent, query, entities, context):
 
     except APIError as e:
         logger.error(f"API error: {e}")
-        return {
-            "success": False,
-            "data": {},
-            "response": f"API error: {str(e)}"
-        }
+        return {"success": False, "data": {}, "response": f"API error: {str(e)}"}
 ```
 
 **Bad:**
 ```python
 def execute(self, intent, query, entities, context):
-    api_key = os.getenv('API_KEY')  # Might be None
+    api_key = os.getenv("API_KEY")  # Might be None
     result = self.api.call(api_key)  # Crashes if API_KEY missing
     return {"success": True, "data": result}
 ```
@@ -72,13 +70,8 @@ Always return structured data, not just strings.
 return {
     "success": True,
     "action": "get_weather",
-    "data": {
-        "temperature": 22,
-        "condition": "sunny",
-        "location": "Kitchener",
-        "units": "celsius"
-    },
-    "formulate": True  # Let Alice learn to phrase this
+    "data": {"temperature": 22, "condition": "sunny", "location": "Kitchener", "units": "celsius"},
+    "formulate": True,  # Let Alice learn to phrase this
 }
 ```
 
@@ -86,7 +79,7 @@ return {
 ```python
 return {
     "success": True,
-    "response": "It's 22°C and sunny in Kitchener"  # Hard-coded string
+    "response": "It's 22°C and sunny in Kitchener",  # Hard-coded string
 }
 ```
 
@@ -109,6 +102,7 @@ def execute(self, intent, query, entities, context):
 **Bad:**
 ```python
 counter = 0  # Global state
+
 
 def execute(self, intent, query, entities, context):
     counter += 1  # Different result each time
@@ -159,8 +153,8 @@ class MyPlugin(PluginInterface):
 ```python
 class ConfigurablePlugin(PluginInterface):
     def initialize(self):
-        self.api_key = os.getenv('MY_PLUGIN_API_KEY')
-        self.endpoint = os.getenv('MY_PLUGIN_ENDPOINT', 'https://default.api')
+        self.api_key = os.getenv("MY_PLUGIN_API_KEY")
+        self.endpoint = os.getenv("MY_PLUGIN_ENDPOINT", "https://default.api")
 
         if not self.api_key:
             logger.warning(f"{self.name} API key not set")
@@ -175,6 +169,7 @@ class ConfigurablePlugin(PluginInterface):
 ```python
 from functools import lru_cache
 from datetime import datetime, timedelta
+
 
 class CachingPlugin(PluginInterface):
     def __init__(self):
@@ -206,6 +201,7 @@ class CachingPlugin(PluginInterface):
 ```python
 import time
 
+
 class RateLimitedPlugin(PluginInterface):
     def __init__(self):
         super().__init__()
@@ -220,7 +216,7 @@ class RateLimitedPlugin(PluginInterface):
             return {
                 "success": False,
                 "data": {},
-                "response": f"Please wait {wait_time:.1f} seconds before trying again."
+                "response": f"Please wait {wait_time:.1f} seconds before trying again.",
             }
 
         self.last_call_time = time.time()
@@ -268,6 +264,7 @@ def execute(self, intent, query, entities, context):
 ```python
 import asyncio
 
+
 async def execute_async(self, intent, query, entities, context):
     await asyncio.sleep(30)  # Non-blocking
     return {"success": True}
@@ -278,8 +275,8 @@ async def execute_async(self, intent, query, entities, context):
 **Bad:**
 ```python
 def execute(self, intent, query, entities, context):
-    entities['modified'] = True  # Mutates input!
-    context['user'] = 'changed'  # Affects other plugins!
+    entities["modified"] = True  # Mutates input!
+    context["user"] = "changed"  # Affects other plugins!
     return {"success": True, "data": entities}
 ```
 
@@ -288,7 +285,7 @@ def execute(self, intent, query, entities, context):
 def execute(self, intent, query, entities, context):
     # Make copies if you need to modify
     my_entities = entities.copy()
-    my_entities['processed'] = True
+    my_entities["processed"] = True
     return {"success": True, "data": my_entities}
 ```
 
@@ -297,6 +294,7 @@ def execute(self, intent, query, entities, context):
 **Bad:**
 ```python
 from some_obscure_library import magic_function  # Not documented
+
 
 class MyPlugin(PluginInterface):
     def initialize(self):
@@ -310,6 +308,7 @@ class MyPlugin(PluginInterface):
     def initialize(self):
         try:
             import some_obscure_library
+
             logger.info("Optional dependency loaded")
         except ImportError:
             logger.warning("some_obscure_library not found. Install with: pip install some-obscure-library")
@@ -327,6 +326,7 @@ Use logging to identify slow operations:
 
 ```python
 import time
+
 
 def execute(self, intent, query, entities, context):
     start = time.time()
@@ -371,7 +371,7 @@ def execute(self, intent, query, entities, context):
 ```python
 def execute(self, intent, query, entities, context):
     # Validate before using
-    location = context.get('location', '')
+    location = context.get("location", "")
     if not location or len(location) > 100:
         return {"success": False, "response": "Invalid location"}
 
@@ -402,7 +402,7 @@ API_KEY = "sk-1234567890abcdef"  # Hard-coded secret!
 
 **Good:**
 ```python
-API_KEY = os.getenv('MY_API_KEY')  # From environment
+API_KEY = os.getenv("MY_API_KEY")  # From environment
 if not API_KEY:
     logger.error("API_KEY not set!")
 ```
@@ -419,15 +419,17 @@ def test_plugin_execute_success():
     result = plugin.execute("test", "test", {}, {})
     assert result["success"] is True
 
+
 def test_plugin_execute_missing_data():
     plugin = MyPlugin()
     result = plugin.execute("test", "", {}, {})  # Empty query
     assert result["success"] is False
     assert "error" in result["response"].lower()
 
+
 def test_plugin_execute_api_failure(mocker):
     plugin = MyPlugin()
-    mocker.patch.object(plugin.api, 'call', side_effect=APIError("Network error"))
+    mocker.patch.object(plugin.api, "call", side_effect=APIError("Network error"))
     result = plugin.execute("test", "test", {}, {})
     assert result["success"] is False
 ```
@@ -437,7 +439,8 @@ def test_plugin_execute_api_failure(mocker):
 ```python
 @pytest.fixture
 def mock_api(mocker):
-    return mocker.patch('my_plugin.external_api.call')
+    return mocker.patch("my_plugin.external_api.call")
+
 
 def test_with_mock(mock_api):
     mock_api.return_value = {"data": "test"}

@@ -13,11 +13,13 @@ from memory.world_model import WorldModel, get_world_model
 logger = logging.getLogger(__name__)
 
 # Read-only actions the heartbeat may execute without user approval.
-_SAFE_ACTIONS: frozenset[str] = frozenset({
-    "system.health",
-    "calendar.list",
-    "notes.list",
-})
+_SAFE_ACTIONS: frozenset[str] = frozenset(
+    {
+        "system.health",
+        "calendar.list",
+        "notes.list",
+    }
+)
 
 _VAGUE_TEXT = re.compile(
     r"^(?:some(?:thing|body|where|how|times?)?|some\s+(?:stuff|things?)|"
@@ -65,8 +67,8 @@ class HeartbeatDecision:
 @dataclass(frozen=True)
 class HeartbeatConfig:
     interval_seconds: float = 60.0
-    min_interrupt_gap_seconds: float = 4 * 60 * 60   # at most once every 4 hours
-    stale_intention_seconds: float = 8 * 60 * 60     # only surface after 8 h of inactivity
+    min_interrupt_gap_seconds: float = 4 * 60 * 60  # at most once every 4 hours
+    stale_intention_seconds: float = 8 * 60 * 60  # only surface after 8 h of inactivity
     checkin_gap_seconds: float = 90 * 60
     active_recent_seconds: float = 2 * 60 * 60
     stale_task_seconds: float = 24 * 60 * 60

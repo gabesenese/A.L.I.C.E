@@ -17,8 +17,9 @@ def test_b_immediate_context_reply_accepted():
     result = render_grounded_greeting(
         user_name="Gabriel",
         user_input=text,
-        llm_generate=lambda *args,
-        **kwargs: "I caught the correction. Glad your day is going well - warmer weather definitely helps.",
+        llm_generate=lambda *args, **kwargs: (
+            "I caught the correction. Glad your day is going well - warmer weather definitely helps."
+        ),
     )
     assert result.generated_by == "llm_constrained"
 

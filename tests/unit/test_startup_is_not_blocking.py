@@ -50,7 +50,10 @@ def test_gmail_plugin_never_starts_interactive_flow_without_opt_in(monkeypatch, 
     def fail_if_called(*args, **kwargs):
         raise AssertionError("interactive OAuth flow started without ALICE_ALLOW_INTERACTIVE_AUTH")
 
-    monkeypatch.setattr("ai.plugins.email_plugin.InstalledAppFlow", type("Flow", (), {"from_client_secrets_file": staticmethod(fail_if_called)}))
+    monkeypatch.setattr(
+        "ai.plugins.email_plugin.InstalledAppFlow",
+        type("Flow", (), {"from_client_secrets_file": staticmethod(fail_if_called)}),
+    )
 
     plugin = GmailPlugin()
     assert plugin.service is None

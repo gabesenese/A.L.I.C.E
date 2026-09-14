@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# HTTP API surface (app/api, app/bootstrap, docker-compose).
+# The terminal companion does not need these; `python app/main.py` runs without them.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+pydantic-settings>=2.2

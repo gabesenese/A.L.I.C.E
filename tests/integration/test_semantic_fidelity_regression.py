@@ -1160,8 +1160,8 @@ def test_two_turn_llm_fallback_finalization_skips_publish_polish_and_runs_single
     greeting = alice._native_scaffold_response("hi alice", "greeting")
     assert greeting is None  # greeting is now handled by LLM via greeting policy
 
-    alice._deterministic_fallback_once = (
-        lambda _u, _i: "Agentic AI uses goals, planning, tool execution, and verification loops."
+    alice._deterministic_fallback_once = lambda _u, _i: (
+        "Agentic AI uses goals, planning, tool execution, and verification loops."
     )
     recovered = alice._safe_llm_failure_response(
         user_input="i want to learn more about agentic ai",

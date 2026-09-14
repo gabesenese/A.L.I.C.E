@@ -27,19 +27,12 @@ from collections import OrderedDict, defaultdict, deque, Counter
 from pathlib import Path
 import threading
 
-# Core NLP libraries
-try:
-    nltk_mod = importlib.import_module("nltk")
-    sentiment_mod = importlib.import_module("nltk.sentiment")
-    word_tokenize = nltk_mod.word_tokenize
-    SentimentIntensityAnalyzer = sentiment_mod.SentimentIntensityAnalyzer
-except ImportError:  # pragma: no cover
-
-    def word_tokenize(text: str):
-        return text.split()
-
-    SentimentIntensityAnalyzer = None
-    logging.warning("[WARN] NLTK not available. Using basic tokenization and neutral sentiment.")
+# Core NLP libraries.
+# NLTK's corpora are a separate download from the pip package, and both
+# word_tokenize() and SentimentIntensityAnalyzer() raise LookupError at call
+# time when a corpus is missing. ai.core.nltk_support resolves that lazily and
+# falls back to a regex tokenizer / neutral sentiment instead of crashing.
+from ai.core.nltk_support import get_sentiment_analyzer, tokenize as word_tokenize
 
 try:
     sklearn_text = importlib.import_module("sklearn.feature_extraction.text")
@@ -1463,7 +1456,7 @@ class NLPProcessor:
         self._initialized = True
 
         # Core components
-        self.sentiment_analyzer = SentimentIntensityAnalyzer() if SentimentIntensityAnalyzer else None
+        self.sentiment_analyzer = get_sentiment_analyzer()
         self.vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2)) if TfidfVectorizer else None
 
         # Advanced components

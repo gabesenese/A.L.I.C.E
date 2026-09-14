@@ -90,7 +90,7 @@ def test_run_command_captures_output_and_exit_code(scratch_file):
 
 
 def test_run_command_reports_a_failing_exit_code(scratch_file):
-    result = tc.execute_tool("run_command", {"command": "python -c \"import sys; sys.exit(3)\""})
+    result = tc.execute_tool("run_command", {"command": 'python -c "import sys; sys.exit(3)"'})
     assert result.success is False
     assert result.data["exit_code"] == 3
 

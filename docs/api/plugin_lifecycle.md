@@ -13,6 +13,7 @@ This document describes the complete lifecycle of a plugin in Alice's plugin sys
 ```python
 from ai.plugins.plugin_system import PluginInterface
 
+
 class MyPlugin(PluginInterface):
     def __init__(self):
         super().__init__()
@@ -229,7 +230,7 @@ class PersistentPlugin(PluginInterface):
         return {}
 
     def shutdown(self):
-        with open(self.state_file, 'w') as f:
+        with open(self.state_file, "w") as f:
             json.dump(self.state, f)
 ```
 
@@ -294,7 +295,7 @@ def test_plugin_lifecycle():
 
     # Execution
     assert plugin.can_handle("test", {}, "test") is True
-    result = plugin.execute("test",  "test", {}, {})
+    result = plugin.execute("test", "test", {}, {})
     assert result["success"] is True
 
     # Shutdown

@@ -6,7 +6,6 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.bootstrap import create_app
 from app.runtime_modes import RuntimeModeConfig, resolve_runtime_mode
 from brain.heartbeat import Heartbeat
 from brain.ambient_monitor import get_ambient_monitor
@@ -11595,6 +11594,8 @@ def __getattr__(name: str):
     global _ASGI_APP
     if name == "app":
         if _ASGI_APP is None:
+            from app.bootstrap import create_app
+
             _ASGI_APP = create_app()
         return _ASGI_APP
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

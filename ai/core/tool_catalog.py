@@ -12,6 +12,7 @@ work reads it to decide what runs unattended and what needs confirmation.
 from __future__ import annotations
 
 import fnmatch
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -78,12 +79,27 @@ class ToolExecution:
         }
 
 
+# A path is rooted if it names a location from the filesystem's top, in any
+# syntax this process might be handed — POSIX ('/etc/passwd'), Windows drive
+# ('C:\\Windows', 'C:/Windows'), or UNC ('\\\\server\\share'). Path.is_absolute()
+# only recognises the host platform's own form, so a drive-letter path read as
+# *relative* on Linux and was silently joined onto the project root.
+_ROOTED_PATH_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/]{2}|[\\/])")
+
+
+def _is_rooted_path(raw: str, path: Path) -> bool:
+    """True if ``raw`` names an absolute location under any platform's rules."""
+    return path.is_absolute() or bool(_ROOTED_PATH_RE.match(raw))
+
+
 def _resolve_inside_project(candidate: str) -> Optional[Path]:
     """Resolve a path and return it only if it lands inside the project.
 
     An absolute path must never be quietly reinterpreted as a relative one: stripping
     the leading separator turned '/etc/passwd' into '<project>/etc/passwd', which
     reads as contained while hiding that the caller asked to leave the workspace.
+    The same reinterpretation happened to 'C:/Windows/...' on POSIX, where
+    Path.is_absolute() is False — so rooted-ness is judged by syntax, not by host.
     """
     root = project_root().resolve()
     raw = str(candidate or "").strip()
@@ -91,8 +107,14 @@ def _resolve_inside_project(candidate: str) -> Optional[Path]:
         return None
     try:
         path = Path(raw)
-        rooted = path.is_absolute() or raw.startswith(("/", "\\"))
-        target = path.resolve() if rooted else (root / path).resolve()
+        if _is_rooted_path(raw, path):
+            # A foreign-syntax absolute path cannot be resolved meaningfully on
+            # this host, and it is certainly not inside the workspace.
+            if not path.is_absolute():
+                return None
+            target = path.resolve()
+        else:
+            target = (root / path).resolve()
     except (OSError, ValueError):
         return None
     if target == root or root in target.parents:

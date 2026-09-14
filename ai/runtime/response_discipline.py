@@ -48,8 +48,12 @@ _FILLER_CLOSINGS = (
 
 _OPENING_RE = re.compile(
     r"^\W*(?:"
-    + r"(?:" + "|".join(_FILLER_OPENINGS) + r")\b[^.!?]*[.!?]"
-    + r"|(?:" + "|".join(_FILLER_INTERJECTIONS) + r")\s*[.!,]"
+    + r"(?:"
+    + "|".join(_FILLER_OPENINGS)
+    + r")\b[^.!?]*[.!?]"
+    + r"|(?:"
+    + "|".join(_FILLER_INTERJECTIONS)
+    + r")\s*[.!,]"
     + r")\s*",
     re.IGNORECASE,
 )
