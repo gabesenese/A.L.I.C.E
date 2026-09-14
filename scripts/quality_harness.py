@@ -257,13 +257,78 @@ def _check(result: TurnResult, checks: Dict[str, Any]) -> None:
         result.failures.append("opened by restating the question")
 
 
+# Openings that only ever appear in a prompt Alice wrote to herself. If one of
+# these turns up in conversation_history, the transcript she replays as "what we
+# were talking about" contains machinery, and she will imitate its register.
+MACHINE_PROMPT_MARKERS = (
+    # An imperative aimed at a *thing* rather than at Alice. "Summarise what we
+    # decided" is a person; "Summarise the conversation below" is a prompt. The
+    # object is what separates them, so matching the bare verb over-flags.
+    r"^\s*(?:extract|classify|rewrite|summari[sz]e|evaluate|score|audit|parse|generate)\b"
+    r"[^.\n]{0,80}\b(?:the following|below|this utterance|the user'?s?|the conversation|"
+    r"the response|the intent|the goal|each|as json)\b",
+    r"\byou are a\b.{0,40}\b(?:engine|generator|classifier|evaluator|formatter)\b",
+    r"\breturn (?:only )?(?:json|a json|valid json|the score|nothing else)\b",
+    r"\brespond with (?:only|just|nothing but)\b",
+    r"^\s*(?:task|instruction|context|output format)\s*:",
+    r"\bdo not (?:add|include|explain|preface)\b",
+)
+
+
+def inspect_conversation_history(alice: Any) -> Dict[str, Any]:
+    """Report whether Alice's own transcript is polluted with internal prompts.
+
+    chat() appends to conversation_history unconditionally, including for callers
+    that passed use_history=False to mark the call as machinery. Those prompts
+    then come back as context on the next real turn.
+    """
+    engine = getattr(alice, "llm", None)
+    history = list(getattr(engine, "conversation_history", []) or [])
+    if not history:
+        return {"turns": 0, "note": "no history recorded"}
+
+    polluted = []
+    for entry in history:
+        if not isinstance(entry, dict) or entry.get("role") != "user":
+            continue
+        content = str(entry.get("content") or "")
+        hits = [p for p in MACHINE_PROMPT_MARKERS if re.search(p, content, re.IGNORECASE | re.MULTILINE)]
+        if hits:
+            polluted.append(content.strip().replace("\n", " ")[:90])
+
+    user_turns = sum(1 for e in history if isinstance(e, dict) and e.get("role") == "user")
+    return {
+        "turns": user_turns,
+        "machine_prompts_in_history": len(polluted),
+        "share": round(len(polluted) / user_turns, 2) if user_turns else 0.0,
+        "examples": polluted[:5],
+    }
+
+
+def print_history_report(report: Dict[str, Any]) -> None:
+    print("\n" + "=" * 68)
+    print("WHAT ALICE THINKS WAS SAID TO HER")
+    print("=" * 68)
+    if not report.get("turns"):
+        print(f"  {report.get('note', 'nothing recorded')}")
+        return
+    print(f"  user turns in history       {report['turns']}")
+    print(f"  of those, machine prompts   {report['machine_prompts_in_history']} ({report['share']:.0%})")
+    for example in report.get("examples", []):
+        print(f"    - {example}")
+    if report["machine_prompts_in_history"]:
+        print("\n  She replays these as conversation on the next turn and imitates")
+        print("  their register — which is how an assistant starts sounding clipped")
+        print("  and instruction-shaped for no reason the user can see.")
+
+
 def run_suite(
     suite: Dict[str, Any],
     *,
     model: Optional[str],
     only: Optional[List[str]],
     verbose: bool,
-) -> List[TurnResult]:
+) -> tuple:
     os.chdir(PROJECT_ROOT)
     os.environ.setdefault("ALICE_ENABLE_BACKGROUND_SERVICES", "0")
 
@@ -318,13 +383,14 @@ def run_suite(
                 if result.error:
                     print(f"       ! raised {result.error}")
                 print()
+        history_report = inspect_conversation_history(alice)
     finally:
         try:
             alice.shutdown()
         except Exception:
             pass
 
-    return results
+    return results, history_report
 
 
 def feel_report(results: List[TurnResult]) -> Dict[str, Any]:
@@ -484,7 +550,7 @@ def main() -> int:
     suite = json.loads(args.suite.read_text())
     only = [s.strip() for s in args.only.split(",")] if args.only else None
 
-    results = run_suite(suite, model=args.model, only=only, verbose=args.verbose)
+    results, history_report = run_suite(suite, model=args.model, only=only, verbose=args.verbose)
     if not results:
         print("No scenarios ran.", file=sys.stderr)
         return 2
@@ -495,6 +561,7 @@ def main() -> int:
     feel = feel_report(results) if args.feel else None
     if feel:
         print_feel_report(feel)
+        print_history_report(history_report)
 
     if args.json:
         payload = {
@@ -502,6 +569,7 @@ def main() -> int:
             "model": args.model or "default",
             "summary": summary,
             "feel": feel,
+            "history": history_report,
             "results": [{**asdict(r), "passed": r.passed, "word_count": r.word_count} for r in results],
         }
         args.json.write_text(json.dumps(payload, indent=2))
