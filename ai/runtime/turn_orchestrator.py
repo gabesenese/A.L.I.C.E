@@ -407,6 +407,11 @@ def run_default_turn(alice: Any, user_input: str, use_voice: bool = False) -> st
             )
             if result and getattr(result, "handled", False) and getattr(result, "response_text", ""):
                 meta = dict(getattr(result, "metadata", {}) or {})
+                # Which route ran, which tools were called, and what the verifier
+                # said are computed every turn and were then dropped. Keeping the
+                # last one lets a caller see how an answer was reached —
+                # scripts/quality_harness.py scores runs from exactly this.
+                alice.last_turn_metadata = meta
                 structured_logger = getattr(alice, "structured_logger", None)
                 if structured_logger is not None:
                     try:
