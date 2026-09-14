@@ -12,7 +12,6 @@ ignore = ["E501"]
 "scenarios/**/*.py" = ["E402"]
 # Test files use local path manipulation before importing project modules
 "tests/**/*.py" = ["E402", "F821"]
-"test_nlp_quick.py" = ["E402"]
 "tests/enhanced_tests.py" = ["E402"]
 # Tools and scripts set up sys.path before imports
 "tools/**/*.py" = ["E402", "F821"]
