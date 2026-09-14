@@ -5,7 +5,9 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, ContextManager, Dict, List, Optional
+
+from ai.memory.memory_store import sqlite_connection
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +39,8 @@ class MemoryQuarantine:
         self.ttl_days = ttl_days
         self._init_schema()
 
-    def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=10, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        return conn
+    def _conn(self, *, immediate: bool = False) -> ContextManager[sqlite3.Connection]:
+        return sqlite_connection(self.db_path, immediate=immediate)
 
     def _init_schema(self) -> None:
         with self._conn() as conn:
@@ -59,7 +58,40 @@ class MemoryQuarantine:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_q_mid ON quarantine(memory_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_q_exp ON quarantine(expires_at)")
-            conn.commit()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _insert(
+        self,
+        conn: sqlite3.Connection,
+        memory_id: str,
+        reason: str,
+        score: Optional[float],
+    ) -> str:
+        qid = f"q_{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(days=self.ttl_days)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO quarantine
+                (id, memory_id, reason, score, quarantined_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (qid, memory_id, reason, score, now.isoformat(), expires.isoformat()),
+        )
+        return qid
+
+    @staticmethod
+    def _held(conn: sqlite3.Connection, memory_id: str) -> bool:
+        return (
+            conn.execute(
+                "SELECT 1 FROM quarantine WHERE memory_id=? AND released=0",
+                (memory_id,),
+            ).fetchone()
+            is not None
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -72,19 +104,8 @@ class MemoryQuarantine:
         score: Optional[float] = None,
     ) -> str:
         """Add a memory to quarantine. Returns the quarantine record ID."""
-        qid = f"q_{uuid.uuid4().hex[:8]}"
-        now = datetime.now(timezone.utc)
-        expires = now + timedelta(days=self.ttl_days)
         with self._conn() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO quarantine
-                    (id, memory_id, reason, score, quarantined_at, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (qid, memory_id, reason, score, now.isoformat(), expires.isoformat()),
-            )
-            conn.commit()
+            qid = self._insert(conn, memory_id, reason, score)
         logger.info("[Quarantine] %s quarantined: %s (score=%s)", memory_id, reason, score)
         return qid
 
@@ -95,16 +116,12 @@ class MemoryQuarantine:
                 "UPDATE quarantine SET released=1, reviewed=1 WHERE memory_id=? AND released=0",
                 (memory_id,),
             )
-            conn.commit()
-        return cur.rowcount > 0
+            changed = cur.rowcount > 0
+        return changed
 
     def is_quarantined(self, memory_id: str) -> bool:
         with self._conn() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM quarantine WHERE memory_id=? AND released=0",
-                (memory_id,),
-            ).fetchone()
-        return row is not None
+            return self._held(conn, memory_id)
 
     def list_quarantined(self, include_expired: bool = False) -> List[Dict]:
         now = datetime.now(timezone.utc).isoformat()
@@ -135,7 +152,10 @@ class MemoryQuarantine:
     def purge_expired(self) -> int:
         """Delete expired quarantine records and their underlying memory rows."""
         now = datetime.now(timezone.utc).isoformat()
-        with self._conn() as conn:
+        expired_ids: List[str] = []
+        # The write lock is taken up front: a release() landing between the
+        # SELECT and the DELETE would otherwise have its memory deleted anyway.
+        with self._conn(immediate=True) as conn:
             expired_rows = conn.execute(
                 "SELECT memory_id FROM quarantine WHERE expires_at <= ? AND released=0 AND reviewed=0",
                 (now,),
@@ -154,7 +174,6 @@ class MemoryQuarantine:
                     )
                 except sqlite3.OperationalError:
                     pass  # memories table may not exist in isolated test DBs
-                conn.commit()
         if expired_ids:
             logger.info("[Quarantine] Purged %d expired memories", len(expired_ids))
         return len(expired_ids)
@@ -172,14 +191,19 @@ class MemoryQuarantine:
         """
         thr = threshold if threshold is not None else self.LOW_SCORE_THRESHOLD
         quarantined: List[str] = []
-        for entry in entries:
-            eid = getattr(entry, "id", None)
-            if not eid:
-                continue
-            sc = scores.get(eid, 1.0)
-            if sc < thr and not self.is_quarantined(eid):
-                self.quarantine(eid, reason=f"low_score:{sc:.3f}", score=sc)
-                quarantined.append(eid)
+        # One transaction for the whole batch: checking "already quarantined" on
+        # one connection and inserting on another lets the same memory in twice.
+        with self._conn(immediate=True) as conn:
+            for entry in entries:
+                eid = getattr(entry, "id", None)
+                if not eid:
+                    continue
+                sc = scores.get(eid, 1.0)
+                if sc < thr and not self._held(conn, eid):
+                    self._insert(conn, eid, f"low_score:{sc:.3f}", sc)
+                    quarantined.append(eid)
+        if quarantined:
+            logger.info("[Quarantine] Auto-quarantined %d low-score memories", len(quarantined))
         return quarantined
 
 

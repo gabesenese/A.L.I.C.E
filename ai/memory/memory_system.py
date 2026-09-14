@@ -313,13 +313,31 @@ class VectorStore:
         self.ids: List[str] = []
 
     def add(self, id: str, vector: np.ndarray, metadata: Dict):
-        """Add vector to store"""
+        """Add a vector, replacing any entry already stored under this id.
+
+        Appending blindly meant a reload — which the maintenance scheduler does
+        on its own timer — doubled the index, and search is a linear scan, so the
+        cost of every recall grew with it while returning each memory twice.
+        """
         if len(vector) != self.dimension:
             raise ValueError(f"Vector dimension mismatch: expected {self.dimension}, got {len(vector)}")
 
-        self.ids.append(id)
-        self.vectors.append(vector)
-        self.metadata.append(metadata)
+        try:
+            existing = self.ids.index(id)
+        except ValueError:
+            self.ids.append(id)
+            self.vectors.append(vector)
+            self.metadata.append(metadata)
+            return
+
+        self.vectors[existing] = vector
+        self.metadata[existing] = metadata
+
+    def clear(self) -> None:
+        """Drop every stored vector."""
+        self.ids.clear()
+        self.vectors.clear()
+        self.metadata.clear()
 
     def search(self, query_vector: np.ndarray, top_k: int = 5) -> List[Tuple[str, float, Dict]]:
         """
@@ -399,6 +417,9 @@ class MemorySystem:
 
         # Vector store for semantic search
         self.vector_store = VectorStore(dimension=384)
+        # True when a load failed, so an empty recall can be told apart from a
+        # first run rather than silently reading as "no memories yet".
+        self.load_failed = False
 
         # Document processor for ingestion
         self.document_processor = DocumentProcessor()
@@ -620,21 +641,18 @@ class MemorySystem:
             # Get full memory entry
             memory = self._get_memory_by_id(mem_id)
             if memory:
-                # Update access statistics
+                # Update access statistics. The increment happens in SQL rather
+                # than read-modify-write: two recalls of the same memory from
+                # different threads would each read the old count and write back
+                # old+1, losing one of the two accesses.
                 memory.access_count += 1
                 memory.last_accessed = datetime.now().isoformat()
                 try:
                     from ai.memory.memory_store import get_memory_store
 
-                    get_memory_store().update(
-                        mem_id,
-                        {
-                            "access_count": memory.access_count,
-                            "last_accessed": memory.last_accessed,
-                        },
-                    )
-                except Exception:
-                    pass
+                    get_memory_store().bump_access(mem_id, last_accessed=memory.last_accessed)
+                except Exception as exc:
+                    logger.debug(f"Could not record access for {mem_id}: {exc}")
 
                 filtered_results.append(
                     {
@@ -1398,6 +1416,9 @@ class MemorySystem:
 
     def _load_memories(self):
         """Load memories from SQLite, migrating from memories.json on first run."""
+        # Rebuilt from scratch each time: the vector index is repopulated below,
+        # and a reload that only appended left every memory in it twice.
+        self.vector_store.clear()
         try:
             from ai.memory.memory_store import get_memory_store
             from dataclasses import asdict as _asdict
@@ -1449,9 +1470,20 @@ class MemorySystem:
                     )
 
             self._load_document_registry()
+            self.load_failed = False
 
         except Exception as e:
-            logger.warning(f"[Memory] _load_memories failed: {e}")
+            # A failed load leaves every bucket empty, which is indistinguishable
+            # from a first run — Alice greets a long-time user as a stranger and
+            # nothing says why. Startup should still survive it, so this stays
+            # non-fatal, but it is an error and it is recorded.
+            self.load_failed = True
+            logger.error(
+                f"[Memory] Could not load memories ({type(e).__name__}: {e}). "
+                "Alice is running with no recall this session; stored memories are NOT lost, "
+                "but nothing new will be recalled until this is fixed.",
+                exc_info=True,
+            )
 
     def __enter__(self):
         """Context manager enter"""

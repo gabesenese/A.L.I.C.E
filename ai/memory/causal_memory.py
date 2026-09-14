@@ -6,7 +6,9 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import ContextManager, Dict, List, Optional, Tuple
+
+from ai.memory.memory_store import sqlite_connection
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +49,8 @@ class CausalMemory:
         self.db_path = db_path
         self._init_schema()
 
-    def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=10, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        return conn
+    def _conn(self) -> ContextManager[sqlite3.Connection]:
+        return sqlite_connection(self.db_path)
 
     def _init_schema(self) -> None:
         with self._conn() as conn:
@@ -69,7 +68,6 @@ class CausalMemory:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_causal_cause  ON causal_chains(cause_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_causal_effect ON causal_chains(effect_id)")
-            conn.commit()
 
     # ------------------------------------------------------------------
     # Storage
@@ -104,7 +102,6 @@ class CausalMemory:
                     now,
                 ),
             )
-            conn.commit()
         logger.debug(
             "[CausalMemory] %s → %s (%s, conf=%.2f)",
             cause_id,
