@@ -423,6 +423,26 @@ class SQLiteMemoryStore(MemoryStore):
         )
 
     @staticmethod
+    def _decode(raw: Any, loader, fallback, *, field: str, memory_id: Any):
+        """Decode one stored field, degrading to ``fallback`` if it is unreadable.
+
+        A damaged embedding or a context string with a NUL in it used to raise
+        out of _unpack, through the list comprehension in get_all, and out of
+        MemorySystem._load_memories, which retries twice and then gives up. The
+        cost of one bad row was therefore every memory: Alice ran the whole
+        session with recall disabled and greeted a long-time user as a stranger.
+        The content and timestamp of such a row are usually intact, so losing one
+        field of one memory is the right price.
+        """
+        if not raw:
+            return fallback
+        try:
+            return loader(raw)
+        except Exception as exc:
+            logger.warning(f"[Memory] Unreadable {field} on {memory_id}, using {fallback!r}: {exc}")
+            return fallback
+
+    @staticmethod
     def _unpack(row: Sequence[Any]) -> MemoryEntry:
         # Tolerate a wider row than MEMORY_COLUMNS so a stray SELECT * against a
         # table another module has extended still yields an entry rather than
@@ -441,18 +461,20 @@ class SQLiteMemoryStore(MemoryStore):
             source_file,
             chunk_index,
         ) = tuple(row)[: len(MEMORY_COLUMNS)]
-        emb = pickle.loads(embedding_blob).tolist() if embedding_blob else None
+        emb = SQLiteMemoryStore._decode(
+            embedding_blob, lambda b: pickle.loads(b).tolist(), None, field="embedding", memory_id=id_
+        )
         return MemoryEntry(
             id=id_,
             content=content,
             memory_type=memory_type,
             timestamp=timestamp,
-            context=json.loads(context) if context else {},
+            context=SQLiteMemoryStore._decode(context, json.loads, {}, field="context", memory_id=id_),
             importance=importance or 0.5,
             access_count=access_count or 0,
             last_accessed=last_accessed,
             embedding=emb,
-            tags=json.loads(tags) if tags else [],
+            tags=SQLiteMemoryStore._decode(tags, json.loads, [], field="tags", memory_id=id_),
             source_file=source_file,
             chunk_index=chunk_index,
         )
@@ -504,7 +526,31 @@ class SQLiteMemoryStore(MemoryStore):
                 ).fetchall()
             else:
                 rows = conn.execute(f"SELECT {_MEMORY_SELECT} FROM memories ORDER BY timestamp DESC").fetchall()
-        return [self._unpack(r) for r in rows]
+        return self._unpack_all(rows)
+
+    @staticmethod
+    def _unpack_all(rows: Sequence[Sequence[Any]]) -> List[MemoryEntry]:
+        """Unpack every row that can be unpacked, and say which could not.
+
+        _decode already saves a row whose embedding, context or tags are damaged.
+        This is the backstop for a row damaged somewhere it cannot degrade, so
+        that one unreadable memory costs one memory rather than all of them.
+        """
+        entries: List[MemoryEntry] = []
+        unreadable = 0
+        for row in rows:
+            try:
+                entries.append(SQLiteMemoryStore._unpack(row))
+            except Exception as exc:
+                unreadable += 1
+                identifier = row[0] if len(row) else "?"
+                logger.warning(f"[Memory] Skipping unreadable row {identifier}: {exc}")
+        if unreadable:
+            logger.error(
+                f"[Memory] {unreadable} memory row(s) could not be read and were skipped; "
+                f"{len(entries)} loaded. Recall is working, but those are lost."
+            )
+        return entries
 
     @staticmethod
     def _decode_embeddings(rows: Sequence[tuple]) -> Tuple[List[str], List[np.ndarray]]:
@@ -555,7 +601,7 @@ class SQLiteMemoryStore(MemoryStore):
                     hits,
                 ).fetchall()
 
-            by_id = {r[0]: self._unpack(r) for r in full_rows}
+            by_id = {entry.id: entry for entry in self._unpack_all(full_rows)}
             return [by_id[memory_id] for memory_id in hits if memory_id in by_id]
         except Exception as e:
             logger.error(f"[SQLiteMemoryStore] similarity search failed: {e}")
