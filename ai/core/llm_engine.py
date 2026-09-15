@@ -405,12 +405,12 @@ class LocalLLMEngine:
 
     def _start_ollama_service(self) -> bool:
         """Spawn `ollama serve` and wait a short, bounded time for it to bind."""
-        ollama_path = self._find_ollama_executable()
-        if not ollama_path:
-            logger.error("Ollama executable not found. Please install Ollama.")
-            return False
-
         try:
+            ollama_path = self._find_ollama_executable()
+            if not ollama_path:
+                logger.error("Ollama executable not found. Please install Ollama.")
+                return False
+
             logger.info("Initializing Ollama service...")
 
             if os.name == "nt":  # Windows
@@ -599,7 +599,13 @@ class LocalLLMEngine:
                 last_error = exc
                 if isinstance(exc, requests.exceptions.ConnectionError) and attempt == 1:
                     logger.error("[A.L.I.C.E.] Connection lost - attempting auto-restart...")
-                    self._ensure_ollama_running()
+                    # Recovery is best effort. Letting it raise here would discard
+                    # the connection error we came in with and report the restart's
+                    # failure instead, which tells the user nothing about Ollama.
+                    try:
+                        self._ensure_ollama_running()
+                    except Exception as restart_error:
+                        logger.debug("Auto-restart attempt failed: %s", restart_error)
             else:
                 if response.status_code == 200:
                     return dict(response.json() or {})
