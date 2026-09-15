@@ -8,6 +8,11 @@ import tempfile
 from pathlib import Path
 
 os.environ.setdefault("ALICE_ENABLE_BACKGROUND_SERVICES", "0")
+# The startup doctor resolves the checkout by absolute path and writes its health
+# summary into data/qa there, so merely booting the app in a test wrote to the
+# user's own data directory. Its own tests build a StartupDoctor against a
+# tmp_path, so nothing here needs the real one to run.
+os.environ.setdefault("ALICE_STARTUP_DOCTOR", "0")
 
 import pytest
 import pytest_asyncio
