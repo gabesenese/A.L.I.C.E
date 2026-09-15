@@ -93,7 +93,11 @@ class Period:
 
     def describe(self) -> str:
         if self.start == self.end:
-            return self.start.strftime("%-d %B %Y") if hasattr(self.start, "strftime") else str(self.start)
+            if not hasattr(self.start, "strftime"):
+                return str(self.start)
+            # %-d is a glibc extension. On Windows it raises ValueError, which
+            # crashed the turn instead of naming the day that came up empty.
+            return f"{self.start.day} {self.start.strftime('%B')} {self.start.year}"
         if (self.start.year, self.start.month) == (self.end.year, self.end.month):
             return self.start.strftime("%B %Y")
         if self.start.year == self.end.year and self.start.month == 1 and self.end.month == 12:
