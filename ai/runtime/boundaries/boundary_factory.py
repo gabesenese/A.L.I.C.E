@@ -2855,6 +2855,42 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return tool_response
         return reply
 
+    def _narrate_memory_recall(req: ResponseRequest, recalled: str) -> str:
+        # The saved rows answer the question; the model says it the way a
+        # person would. Whatever it says is checked against the rows, and the
+        # rows themselves stand when it adds anything they do not contain.
+        llm = getattr(alice, "llm", None)
+        if llm is None:
+            return ""
+        context = (
+            "The user is asking what you remember. These are the saved memories that match, "
+            "and the only facts you have:\n"
+            f"{recalled}\n"
+            "Answer them in your own words, in a sentence or two. "
+            "If these do not answer what they asked, say so plainly. "
+            "Do not add details the memories do not contain."
+        )
+        try:
+            reply = str(
+                llm.chat(
+                    req.user_input, use_history=True, record_history=False, context=context, intent="memory_recall"
+                )
+                or ""
+            ).strip()
+        except Exception as exc:
+            _logger.debug("memory narration skipped: %s", exc)
+            return ""
+        if not reply:
+            return ""
+        evidence = [{"content": recalled}]
+        if not memory_answer_verifier.verify_answer(answer_text=reply, evidence_items=evidence).get("accepted"):
+            _logger.info("memory narration dropped: states something the saved memories do not")
+            return ""
+        if not _numbers_grounded(reply, recalled):
+            _logger.info("memory narration dropped: states a number the saved memories do not")
+            return ""
+        return reply
+
     def _generate(req: ResponseRequest) -> ResponseOutput:
         if req.tool_result is not None:
             try:
@@ -3231,6 +3267,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                         "memory_answer_verification": verification,
                     },
                 )
+            if "\n- " in grounded_text:
+                grounded_text = _narrate_memory_recall(req, grounded_text) or grounded_text
             return ResponseOutput(
                 text=grounded_text,
                 confidence=max(0.7, float(verification.get("confidence") or 0.7)),
