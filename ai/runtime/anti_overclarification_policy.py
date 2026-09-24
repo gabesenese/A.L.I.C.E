@@ -39,24 +39,6 @@ def should_answer_instead_of_clarify(
     ):
         return False
 
-    if normalized_intent.startswith("conversation:clarification_needed"):
-        if any(
-            token in low
-            for token in (
-                "beginner",
-                "simple",
-                "just give me something",
-                "doesnt matter what",
-                "doesn't matter what",
-                "agentic ai companion",
-                "work on alice",
-                "improve alice",
-                "make alice more agentic",
-                "research how",
-            )
-        ):
-            return True
-
     if any(
         token in low
         for token in (
