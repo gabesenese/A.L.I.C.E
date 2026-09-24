@@ -20,7 +20,7 @@ Date: January 2026
 import os
 import pickle
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import re
 from dataclasses import dataclass
 
@@ -68,8 +68,12 @@ class CalendarEvent:
 class CalendarPlugin(PluginInterface):
     """Calendar plugin for A.L.I.C.E"""
 
-    def __init__(self):
+    def __init__(self, agenda: Optional[Callable[[str], str]] = None):
         super().__init__()
+        # What she can say about his day from reminders and notes, for when Google
+        # Calendar is not connected.
+        self.agenda = agenda
+        self._told_how_to_connect = False
         self.name = "CalendarPlugin"
         self.version = "1.0.0"
         self.description = "Manage calendar events with natural language"
@@ -121,8 +125,10 @@ class CalendarPlugin(PluginInterface):
     def initialize(self) -> bool:
         """Initialize the calendar plugin"""
         if not GOOGLE_AVAILABLE:
-            logger.error("Google Calendar API not available")
-            return False
+            # Loaded anyway: unregistered, "what's on my calendar?" reached no plugin
+            # at all, where unconnected it still answers from reminders and notes.
+            logger.warning("Google Calendar API not available; calendar questions use reminders and notes")
+            return True
 
         try:
             self.service = self._authenticate()
@@ -157,8 +163,14 @@ class CalendarPlugin(PluginInterface):
             "booking",
         ]
 
-        # Only check intent to avoid context pollution from previous queries
-        return intent in calendar_intents
+        # Only check intent to avoid context pollution from previous queries. The NLP
+        # routes to calendar:list_events and the like, and those matched nothing
+        # here, so "what's on my calendar today?" reached no plugin at all.
+        # Reminders have their own plugin.
+        family = str(intent or "").split(":", 1)[0]
+        return intent in calendar_intents or (
+            ":" in str(intent or "") and family in calendar_intents and family != "reminder"
+        )
 
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         """Execute calendar operations"""
@@ -167,7 +179,7 @@ class CalendarPlugin(PluginInterface):
 
             # Authentication check
             if not self.service:
-                return self._handle_no_auth()
+                return self._handle_no_auth(query)
 
             # View calendar events
             if any(word in query_lower for word in ["show", "view", "list", "what", "check"]):
@@ -252,15 +264,59 @@ class CalendarPlugin(PluginInterface):
             logger.error(f"Failed to build calendar service: {e}")
             return None
 
-    def _handle_no_auth(self) -> Dict:
-        """Handle case when calendar is not authenticated"""
+    def _handle_no_auth(self, query: str = "") -> Dict:
+        """Without Google Calendar, say so, and still answer from what she knows.
+
+        "what's on my calendar today?" was a dead end. His reminders and the notes
+        falling due are the schedule she has, so that is the answer, with the
+        missing connection said once. Asked to put something in the calendar,
+        she offers the reminder she can set.
+        """
+        how = " To connect it, add calendar_credentials.json to config/cred and restart me."
+        if not GOOGLE_AVAILABLE:
+            how = (
+                " To connect it, install google-api-python-client and google-auth-oauthlib,"
+                " add calendar_credentials.json to config/cred, and restart me."
+            )
+        if self._told_how_to_connect:
+            how = ""
+        self._told_how_to_connect = True
+        data = {
+            "setup_required": True,
+            "instructions": "Add calendar_credentials.json to the config/cred folder and restart A.L.I.C.E",
+        }
+        low = str(query or "").lower()
+        if re.search(r"\b(?:create|add|schedule|book|set\s+up|put)\b", low) and not re.search(
+            r"\b(?:what|show|list|check|when)\b", low
+        ):
+            return {
+                "success": True,
+                "response": "Google Calendar isn't connected, so I can't add it there. Want me to set a reminder instead?"
+                + how,
+                "data": data,
+            }
+        known = ""
+        if self.agenda is not None:
+            try:
+                known = str(self.agenda(query) or "").strip()
+            except Exception as exc:
+                logger.debug("Agenda unavailable for the calendar fallback: %s", exc)
+        if not known:
+            return {
+                "success": False,
+                "response": "Google Calendar isn't connected, so I can't see your events." + how,
+                "data": data,
+            }
+        if known.startswith("Nothing"):
+            return {
+                "success": True,
+                "response": "Google Calendar isn't connected, and there's " + known[0].lower() + known[1:] + how,
+                "data": {**data, "from": "reminders_and_notes"},
+            }
         return {
-            "success": False,
-            "response": "Calendar is not set up yet. Please add your Google Calendar credentials to enable calendar features.",
-            "data": {
-                "setup_required": True,
-                "instructions": "Add calendar_credentials.json to the config/cred folder and restart A.L.I.C.E",
-            },
+            "success": True,
+            "response": "Google Calendar isn't connected, so this is from your reminders and notes. " + known + how,
+            "data": {**data, "from": "reminders_and_notes"},
         }
 
     def _view_events(self, query: str, entities: Dict) -> Dict:

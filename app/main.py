@@ -1713,8 +1713,12 @@ class ALICE:
         # Ahead of the calendar, which also answers to the word "reminder".
         from ai.plugins.reminder_plugin import ReminderPlugin
 
-        self.plugins.register_plugin(ReminderPlugin(notes=lambda: notes_plugin.manager.get_all_notes()))
-        self.plugins.register_plugin(CalendarPlugin())
+        reminder_plugin = ReminderPlugin(notes=lambda: notes_plugin.manager.get_all_notes())
+        self.plugins.register_plugin(reminder_plugin)
+        # Without Google Calendar, his day is still in his reminders and notes.
+        self.plugins.register_plugin(
+            CalendarPlugin(agenda=lambda query: reminder_plugin.execute("reminder:agenda", query, {}, {})["response"])
+        )
         self.plugins.register_plugin(RAGIndexerPlugin(self.memory))  # RAG document indexer
         self.plugins.register_plugin(MemoryHealthPlugin())
         self.plugins.register_plugin(SystemPlugin())

@@ -687,6 +687,14 @@ _AGENDA_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Meetings and appointments are the calendar's. It answers from Google when it
+# is connected and from his reminders and notes when it is not.
+_CALENDAR_QUESTION_RE = re.compile(
+    r"^(?:so\s+|and\s+|ok(?:ay)?\s+)?(?:do|did)\s+i\s+have\s+(?:any\s+)?(?:meetings?|appointments?|events?)\b"
+    r"|^(?:so\s+|and\s+)?(?:when|what\s+time)(?:'s|\s+is)\s+my\s+(?:next\s+)?(?:meeting|appointment)\b",
+    re.IGNORECASE,
+)
+
 _ADD_TO_LIST_RE = re.compile(
     r"^(?:please\s+)?(?:(?:can|could)\s+you\s+)?(?:add|put|stick|throw|include)\s+.+?\s+(?:to|on|onto|in|into)\s+"
     r"(?:my|the|our)\s+[\w' -]{0,30}?\blist\b",
@@ -4334,6 +4342,10 @@ class NLPProcessor:
         _chosen_here = False
         if _AGENDA_RE.search(_raw) and "calendar" not in _raw:
             intent = "reminder:agenda"
+            intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+            _chosen_here = True
+        elif _CALENDAR_QUESTION_RE.search(_raw):
+            intent = "calendar:list_events"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
             _chosen_here = True
         # "add milk to my shopping list" is an item for a list, not a request to
