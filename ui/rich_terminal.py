@@ -14,6 +14,7 @@ from rich.markdown import Markdown
 from rich import box
 from datetime import datetime
 import re
+import time
 
 
 _MARKDOWN_LINE = re.compile(r"^\s*(#{1,6}\s|[-*>]\s|\d+\.\s|\|)", re.MULTILINE)
@@ -36,6 +37,28 @@ def _protect_underscores(text: str) -> str:
     """
     parts = _CODE_SPAN.split(text)
     return "".join(part if i % 2 else part.replace("_", "\\_") for i, part in enumerate(parts))
+
+
+class ThinkingStatus:
+    """What the spinner shows: a phase, and the elapsed seconds once it is slow."""
+
+    def __init__(self, style: str = "", phase: str = "thinking…", clock=time.monotonic):
+        self._clock = clock
+        self._started = clock()
+        self._style = style
+        self.phase = phase
+        self._spinner = Spinner("dots2")
+
+    def set_phase(self, phase: str) -> None:
+        self.phase = phase
+
+    def label(self) -> str:
+        elapsed = self._clock() - self._started
+        return self.phase if elapsed < 2 else f"{self.phase} {elapsed:.0f}s"
+
+    def __rich__(self):
+        self._spinner.update(text=Text(self.label(), style=self._style))
+        return self._spinner
 
 
 class RichTerminalUI:
@@ -129,10 +152,14 @@ class RichTerminalUI:
 
     @contextmanager
     def thinking_spinner(self):
-        """Context manager that shows an animated spinner while ALICE is processing."""
-        spinner = Spinner("dots2", text=f"[{self.colors['info']}]thinking…[/{self.colors['info']}]")
-        with Live(spinner, console=self.console, transient=True, refresh_per_second=12):
-            yield
+        """Spinner while a turn runs, with the seconds it has taken so far.
+
+        A fixed "thinking…" looked the same at second 2 of a normal answer and
+        at second 80 of a model that will time out; the counter tells them apart.
+        """
+        status = ThinkingStatus(style=self.colors["info"])
+        with Live(status, console=self.console, transient=True, refresh_per_second=12):
+            yield status
 
     def print_user_input(self, text):
         """Record the user's line. It is already on screen after the ❯ prompt,

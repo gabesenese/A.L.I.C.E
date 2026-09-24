@@ -26,3 +26,29 @@ def test_error_line_has_no_error_label():
         ui.print_error("Something broke on my side while handling that.")
 
     assert captured.get().strip() == "Something broke on my side while handling that."
+
+
+def test_spinner_shows_elapsed_seconds_once_the_turn_is_slow():
+    from ui.rich_terminal import ThinkingStatus
+
+    now = [100.0]
+    status = ThinkingStatus(clock=lambda: now[0])
+    assert status.label() == "thinking…"
+
+    now[0] = 112.4
+    assert status.label() == "thinking… 12s"
+
+    status.set_phase("reading agent_loop.py…")
+    assert status.label() == "reading agent_loop.py… 12s"
+
+
+def test_spinner_renders_inside_a_live_display():
+    from io import StringIO
+
+    from rich.console import Console
+
+    ui = RichTerminalUI.__new__(RichTerminalUI)
+    ui.console = Console(file=StringIO(), force_terminal=True)
+    ui.colors = {"info": "cyan"}
+    with ui.thinking_spinner() as status:
+        assert status.label().startswith("thinking")
