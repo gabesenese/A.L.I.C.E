@@ -14,6 +14,29 @@ This repository is organized around a central turn loop and contract pipeline.
 The current goal is companion-quality behavior: coherent state, disciplined actions,
 and continuity across turns.
 
+## What to ask her
+
+Everyday requests are handled by her own tools, not left to the model to guess:
+
+- **Your day:** "what's on my schedule today?", then "what about tomorrow?".
+  Without Google Calendar connected, "what's on my calendar?" answers from your
+  reminders and the notes falling due. The first reply of a session mentions
+  what's on today.
+- **Reminders and timers:** "remind me at 5pm to call mom", then "actually make it 6".
+  Also "remind me every day at 8am to take my pills", "set a timer for 10 minutes
+  for the pasta", "how long is left on my timer?", "snooze" and "what are my reminders?".
+- **Lists:** "add milk to my shopping list", then "and eggs". Also "what's on my
+  shopping list?", "take the milk off it" and "clear my shopping list".
+- **Memory:** she keeps what you tell her about yourself ("my sister's name is
+  Ana"), corrects it when you do, answers "what do you know about me?", and
+  "forget my favorite color" deletes just that.
+- **You:** "call me Gabe", "I live in Toronto". The weather uses your city
+  instead of asking every time.
+- **Say yes:** when she offers ("want me to remind you?"), "yeah, at 4" does it.
+  Anything irreversible asks first, and a plain "yes" answers.
+- **The web:** off by default (local means local). Set `ALICE_ENABLE_WEB_SEARCH=1`
+  to let her look up what is true today.
+
 ## Engineering Standard: Verified Growth
 
 Verified Growth is the permanent engineering standard for Alice. Every accepted change
