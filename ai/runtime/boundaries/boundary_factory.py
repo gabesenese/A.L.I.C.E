@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple
 
@@ -32,6 +33,7 @@ from ai.contracts import (
     validate_tool_result_payload,
     ToolSchemaValidationError,
 )
+from ai.identity.home_location import place_answer, remember_home
 from ai.infrastructure.runtime_flags import is_enabled
 from ai.core.web_search import web_search_enabled
 from ai.memory.memory_answer_verifier import MemoryAnswerVerifier
@@ -2058,6 +2060,22 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         return base
 
     def _route(req: RouterRequest) -> RouterDecision:
+        # Asked "What city should I check the weather for?", a place name is the
+        # answer. It went to the model as conversation, and the next weather
+        # question asked for the city again; it is also kept as where he lives.
+        awaiting_city = getattr(alice, "_awaiting_weather_city", None)
+        if awaiting_city is not None:
+            setattr(alice, "_awaiting_weather_city", None)
+            place = place_answer(req.user_input) if time.monotonic() - float(awaiting_city) < 600 else None
+            if place:
+                remember_home(place)
+                return RouterDecision(
+                    route="tool",
+                    intent="weather:current",
+                    confidence=0.92,
+                    decision_band="execute",
+                    metadata={"reason": "weather_city_answer", "resolved_input": f"weather in {place}"},
+                )
         operator_ctx = dict(getattr(alice, "_operator_context", {}) or {})
         state = dict(getattr(alice, "_operator_state", {}) or {})
         # Capture the objective set by THIS session before disk hydration overwrites it.
@@ -3501,6 +3519,9 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             if not _fallback_msg:
                 # Last-resort: ask for location so the user knows what to provide.
                 _fallback_msg = "What city should I check the weather for?"
+            if "city" in _fallback_msg.lower():
+                # The reply may be the answer: "Toronto" is the city, not small talk.
+                setattr(alice, "_awaiting_weather_city", time.monotonic())
             return ResponseOutput(
                 text=_fallback_msg,
                 confidence=0.90,

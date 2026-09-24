@@ -450,6 +450,12 @@ class WeatherPlugin(PluginInterface):
                     location = self._clean_location_candidate(" ".join(words[idx + 1 :]).strip("?!."))
                     logger.info(f"Weather plugin - Extracted location from query: {location}")
 
+            # Where he said he lives, before guessing from the IP address.
+            if not location:
+                from ai.identity.home_location import home_location
+
+                location = self._clean_location_candidate(home_location()) or None
+
             # If still no location, try fallback detection
             if not location:
                 location = self._detect_location_fallback()

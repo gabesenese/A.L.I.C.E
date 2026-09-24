@@ -590,6 +590,7 @@ class CompanionRuntimeLoop:
 
         # Layer 1 — capture explicit style corrections
         self._capture_explicit_preference(user_input, companion_state.last_response_excerpt)
+        self._capture_home_location(user_input)
 
         # Layer 2 — update behavioral profile
         self._update_behavioral_profile(user_input, response_text, str(route_decision.intent or ""))
@@ -809,6 +810,18 @@ class CompanionRuntimeLoop:
         r"\b(exactly (right|what I needed?)|perfect(,| that)?|spot on|keep (doing|that)|yes exactly|that'?s? (it|correct|perfect))\b",
         re.I,
     )
+
+    @staticmethod
+    def _capture_home_location(user_input: str) -> None:
+        """Where he lives, from "I live in Toronto", kept for the weather and every prompt."""
+        try:
+            from ai.identity.home_location import remember_home, stated_home
+
+            place = stated_home(user_input)
+            if place:
+                remember_home(place)
+        except Exception:
+            pass
 
     @staticmethod
     def _preferences_in(user_input: str) -> Dict[str, str]:

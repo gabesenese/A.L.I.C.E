@@ -28,6 +28,9 @@ class UserIdentity:
     known_projects: List[str] = field(default_factory=list)
     # Recent emotional state signals with timestamps — drives session continuity
     emotional_history: List[Dict[str, str]] = field(default_factory=list)
+    # Where he lives, from "I live in Toronto" or his answer to "what city?", so the
+    # weather is not asked for again every time.
+    home_location: str = ""
     updated_at: str = field(default_factory=_now_iso)
 
     def to_dict(self) -> Dict[str, Any]:

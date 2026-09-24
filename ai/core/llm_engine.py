@@ -339,6 +339,8 @@ def _build_companion_context(intent: str = "", user_query: str = "") -> str:
         if recent_signals:
             unique = list(dict.fromkeys(recent_signals))
             parts.append(f"Recent mood: {', '.join(unique[:3])}")
+        if str(getattr(identity, "home_location", "") or "").strip():
+            parts.append(f"Lives in: {identity.home_location}")
 
         # Layer 1 — inject learned style preferences
         prefs = dict(identity.learned_preferences or {})
