@@ -70,7 +70,17 @@ def _verification_fallback(
         return UNSUPPORTED_CLAIM_REPLY
 
     if reason == "unverified_codebase_claim":
-        return "I don't have the file details memorized. Use 'inspect <filename>' to get accurate info about a specific file."
+        # Say what happened, in the user's words: the answer leaned on a file that
+        # is not there. This used to tell the user to type "inspect <filename>".
+        missing = [
+            str(item).strip()
+            for item in list(diagnostics.get("missing_paths") or [])
+            + list(diagnostics.get("missing_directories") or [])
+            if str(item).strip()
+        ]
+        if missing:
+            return f"I don't see {missing[0]} in the workspace, so I'd only be guessing about it. Want me to look at what's there?"
+        return "I'd only be guessing about those files. Want me to look at what's there?"
 
     if reason == "unverified_weather_claim":
         return "I don't have live weather data. Try asking 'what's the weather in [city]?' to get current conditions."

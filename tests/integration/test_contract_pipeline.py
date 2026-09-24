@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+import pytest
+
+from ai.contracts import MemoryResult, ResponseOutput, RouterDecision, VerifierRequest
 from ai.memory.personal_memory import PersonalMemoryStore
 from ai.runtime.alice_contract_factory import build_runtime_boundaries
 from ai.runtime.contract_pipeline import ContractPipeline
@@ -645,7 +648,56 @@ def test_contract_pipeline_blocks_unverified_llm_codebase_claims():
     _assert_decision_band_is_consistent(result, "execute")
     assert result.metadata["verification"]["accepted"] is False
     assert result.metadata["verification"]["reason"] == "unverified_codebase_claim"
-    assert "file details" in result.response_text.lower() or "inspect" in result.response_text.lower()
+    # It says which file it could not find, instead of teaching a command.
+    assert "ai/dialogue_management.py" in result.response_text
+    assert "inspect <filename>" not in result.response_text
+
+
+def _verify_reply(user_input, reply):
+    boundaries = build_runtime_boundaries(_FakeAlice())
+    return boundaries.verifier.verify(
+        VerifierRequest(
+            user_input=user_input,
+            decision=RouterDecision(route="llm", intent="conversation:question", confidence=0.9),
+            memory=MemoryResult(items=[]),
+            proposed_response=ResponseOutput(text=reply, confidence=0.9),
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "user_input,reply",
+    [
+        (
+            "how do I run a module properly?",
+            "Run it from the working directory with python -m, so the imports resolve.",
+        ),
+        (
+            "where does pytest look for fixtures?",
+            "In conftest.py files, starting at the rootdir and walking down into each directory.",
+        ),
+        (
+            "where does django keep its settings?",
+            "In myproject/settings.py, in the same directory as urls.py, one level below manage.py.",
+        ),
+    ],
+)
+def test_explaining_other_software_is_not_a_claim_about_her_codebase(user_input, reply):
+    """The working directory, conftest.py and manage.py are the subject of the
+    question, not files she claims to have. Each of these was rejected whole and
+    replaced with a line telling the user to type a command."""
+    verdict = _verify_reply(user_input, reply)
+    assert verdict.reason != "unverified_codebase_claim"
+
+
+def test_an_invented_file_in_her_own_workspace_is_still_caught():
+    verdict = _verify_reply(
+        "what does the router do?",
+        "The routing lives in ai/router_core.py in the codebase.",
+    )
+    assert verdict.accepted is False
+    assert verdict.reason == "unverified_codebase_claim"
+    assert verdict.diagnostics["missing_paths"] == ["ai/router_core.py"]
 
 
 def test_contract_pipeline_blocks_unverified_llm_weather_claims():

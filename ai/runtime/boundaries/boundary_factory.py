@@ -558,6 +558,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             candidate = _normalize_path(match.group(1))
             if not candidate:
                 continue
+            # A directory claim names a path or an identifier. "The working
+            # directory" and "your home directory" are English, and reading the
+            # adjective as a claimed folder rejected every answer that used one.
+            if "/" not in candidate and "_" not in candidate:
+                continue
             first_token = candidate.split("/", 1)[0].lower()
             if first_token in _generic_directory_terms:
                 continue
@@ -1452,11 +1457,12 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
 
         explicit_paths = _extract_code_path_claims(text)
         explicit_dirs = _extract_directory_claims(text)
+        code_request = _looks_like_code_request(user_text)
 
         # Only enforce codebase claim verification when the user asked for code access
         # or the assistant claimed concrete paths/directories.
         if not explicit_paths and not explicit_dirs:
-            if not _looks_like_code_request(user_text):
+            if not code_request:
                 return {}
 
         if not any(
@@ -1503,13 +1509,25 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 return True
             return any(known.endswith(normalized) or normalized.endswith(known) for known in available_paths_lower)
 
+        # On a question that was not about her own code, a file is a claim about this
+        # workspace only when its path is rooted in one of its directories. manage.py
+        # in an answer about Django, or conftest.py in one about pytest, is the
+        # ecosystem being explained, not a file she says she has.
+        if not code_request:
+            explicit_paths = [
+                path
+                for path in explicit_paths
+                if "/" in _normalize_path(path) and _normalize_path(path).split("/", 1)[0].lower() in top_level_dirs
+            ]
+            explicit_dirs = []
+
         missing_paths: List[str] = []
-        for claimed_path in _extract_code_path_claims(text):
+        for claimed_path in explicit_paths:
             if not _path_exists(claimed_path):
                 missing_paths.append(claimed_path)
 
         missing_directories: List[str] = []
-        for claimed_dir in _extract_directory_claims(text):
+        for claimed_dir in explicit_dirs:
             first_segment = _normalize_path(claimed_dir).split("/", 1)[0].lower()
             if first_segment and first_segment not in top_level_dirs:
                 missing_directories.append(claimed_dir)
