@@ -205,7 +205,15 @@ class CompanionPolicyEngine:
             retry_budget=0,
         )
 
+    # What a reminder or a note says is not something being done: "remind me to
+    # post the letter" sets a reminder, and "add kill the weeds to my todo list"
+    # adds a line. Both were stopped for approval over those words, and notes ask
+    # before removing a note themselves.
+    _content_families = ("reminder", "notes")
+
     def requires_approval(self, *, user_input: str, intent: str) -> Tuple[bool, str]:
+        if str(intent or "").split(":", 1)[0].strip().lower() in self._content_families:
+            return False, ""
         text = f"{str(user_input or '').lower()} {str(intent or '').lower()}"
         for marker in self._approval_terms:
             if marker in text:
@@ -509,41 +517,34 @@ class CompanionRuntimeLoop:
         }
 
     def build_approval_response(self, *, policy: PolicyDecision, decision: RouterDecision) -> str:
-        intent = str(decision.intent or "action")
-        reason = str(policy.approval_reason or "safety_check")
-        action_label = intent.split(":")[-1].replace("_", " ") if ":" in intent else intent
+        """Asked the way a person asks, and answered with a plain "yes".
 
-        # Build a dry-run preview for high-risk actions
-        dry_run_preview = self._dry_run_preview(decision=decision)
-        preview_block = f"\n\nDry-run preview: {dry_run_preview}" if dry_run_preview else ""
-
-        return (
-            f"I can {action_label}, but this action is flagged as high-risk and needs your explicit approval first.{preview_block}\n\n"
-            f"Reply with 'approve {intent}' to proceed, or rephrase if you want something different. "
-            f"(risk reason: {reason})"
-        )
+        It used to end "Reply with 'approve notes:delete' to proceed ... (risk
+        reason: risk_classifier:high_risk:notes)", and nothing handled that reply.
+        """
+        return f"That would {self._dry_run_preview(decision=decision)}. Should I go ahead?"
 
     @staticmethod
     def _dry_run_preview(*, decision: RouterDecision) -> str:
-        """Generate a one-line dry-run description of what the action would do."""
+        """What the action would do, as the end of "That would ..."."""
         intent = str(decision.intent or "")
         meta = dict(decision.metadata or {})
-        resolved = str(meta.get("resolved_input") or "").strip()
+        resolved = str(meta.get("resolved_input") or "").strip().rstrip("?.!")
 
         intent_lower = intent.lower()
-        target = str(meta.get("target_file") or "").strip() or (resolved[:60] if resolved else "")
+        target = str(meta.get("target_file") or "").strip() or (resolved[:80] if resolved else "")
 
         if "delete" in intent_lower or "remove" in intent_lower:
-            return f"Would permanently delete: {target or 'the specified target'}"
+            return f"permanently delete {target or 'it'}"
         if "send" in intent_lower or "email" in intent_lower:
-            return f"Would send a message to: {target or 'the specified recipient'}"
+            return f"send {target or 'the message'}"
         if "push" in intent_lower or "deploy" in intent_lower:
-            return f"Would push/deploy: {target or 'the current changes'}"
+            return f"push {target or 'the current changes'}"
         if "overwrite" in intent_lower or "write" in intent_lower:
-            return f"Would overwrite: {target or 'the specified file'}"
+            return f"overwrite {target or 'the file'}"
         if target:
-            return f"Would execute '{intent_lower}' on: {target}"
-        return f"Would execute: {intent}"
+            return f'carry out "{target}"'
+        return f"run {intent}"
 
     def shape_response(
         self,

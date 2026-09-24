@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -49,6 +50,15 @@ def _get_greeting_llm_generate():
         return None
 
 
+# "yes" to "Should I go ahead?" A confirmation waits this long, then lapses.
+_APPROVAL_WINDOW_S = 300.0
+_APPROVAL_YES = re.compile(
+    r"^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|confirm(?:ed)?|approved?|go(?:\s+ahead)?|do\s+it|proceed)"
+    r"(?:[\s,]+(?:please|go\s+ahead|do\s+it|thanks?|i'?m\s+sure))*[\s.!]*$",
+    re.IGNORECASE,
+)
+
+
 @dataclass
 class PipelineResult:
     handled: bool
@@ -76,6 +86,8 @@ class ContractPipeline:
         self.memory_turn_service = MemoryTurnService()
         self.routing_failure_logger = RoutingFailureLogger()
         self._greeting_session_state_by_user: Dict[str, Dict[str, Any]] = {}
+        # The request waiting on "Should I go ahead?", if one is.
+        self._pending_approval: Optional[Dict[str, Any]] = None
         self._eval_turn_counter: int = 0
         self._briefing_sent: bool = False
         # Foundation 2 — begin session, track lifecycle
@@ -516,6 +528,19 @@ class ContractPipeline:
 
         stages.append(self._stage("input", "ok", {"length": len(user_input)}))
 
+        # The gate asked for "approve notes:delete", which nothing handled, so a
+        # request it stopped could never run. A plain "yes" now runs it; anything
+        # else lets it lapse.
+        approved_intent = ""
+        pending, self._pending_approval = self._pending_approval, None
+        if (
+            pending
+            and time.monotonic() - float(pending.get("at") or 0.0) < _APPROVAL_WINDOW_S
+            and _APPROVAL_YES.match(user_input.strip())
+        ):
+            user_input = str(pending.get("user_input") or user_input)
+            approved_intent = str(pending.get("intent") or "")
+
         user_state_snapshot = self.user_state_model.get_or_create(user_id)
         companion_state = self.companion_runtime.start_turn(
             user_id=user_id,
@@ -676,6 +701,9 @@ class ContractPipeline:
         except Exception:
             pass
 
+        if approved_intent and policy.requires_approval and str(decision.intent or "") == approved_intent:
+            policy = replace(policy, requires_approval=False, approval_reason="")
+
         execute_phase, action_discipline = self.companion_runtime.execute_with_discipline(
             orchestrator=self.orchestrator,
             route_phase=route_phase,
@@ -762,8 +790,13 @@ class ContractPipeline:
                 policy=policy,
                 decision=decision,
             )
+            self._pending_approval = {
+                "user_input": user_input,
+                "intent": str(decision.intent or ""),
+                "at": time.monotonic(),
+            }
             respond_requires_follow_up = True
-            follow_up_question = "Do you explicitly approve this action?"
+            follow_up_question = "Should I go ahead?"
             respond_metadata = {
                 "type": "approval_request",
                 "follow_up_question": follow_up_question,

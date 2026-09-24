@@ -407,11 +407,33 @@ def test_contract_pipeline_requires_approval_before_risky_tool_action():
     assert result.metadata["route"] == "tool"
     assert result.metadata["verification"]["reason"] == "approval_required"
     assert result.metadata["requires_follow_up"] is True
-    assert "explicit approval" in result.response_text.lower()
+    assert result.response_text.endswith("Should I go ahead?")
     action_discipline = result.metadata["companion"]["action_discipline"]
     assert action_discipline["approval_required"] is True
     execute_stage = _stage_by_name(result, "execute")
     assert execute_stage["status"] == "skipped"
+
+
+def test_yes_carries_out_what_was_waiting_for_approval():
+    """It asked for "approve weather:current", and nothing handled that reply,
+    so a request the gate stopped could never run."""
+    pipeline = ContractPipeline(build_runtime_boundaries(_FakeAlice()))
+    pipeline.run_turn(user_input="weather in boston and force push updates", user_id="u1", turn_number=1)
+
+    result = pipeline.run_turn(user_input="yes, go ahead", user_id="u1", turn_number=2)
+
+    assert _stage_by_name(result, "execute")["status"] == "ok"
+    assert result.response_text == "It is sunny."
+
+
+def test_an_approval_lapses_once_the_conversation_moves_on():
+    pipeline = ContractPipeline(build_runtime_boundaries(_FakeAlice()))
+    pipeline.run_turn(user_input="weather in boston and force push updates", user_id="u1", turn_number=1)
+    pipeline.run_turn(user_input="tell me something about rivers", user_id="u1", turn_number=2)
+
+    result = pipeline.run_turn(user_input="yes", user_id="u1", turn_number=3)
+
+    assert result.metadata["intent"] != "weather:current"
 
 
 def test_contract_pipeline_uses_follow_up_policy_when_threads_are_open():
