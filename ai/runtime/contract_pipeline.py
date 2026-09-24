@@ -883,7 +883,6 @@ class ContractPipeline:
                 str(getattr(decision, "intent", "") or "").endswith("greeting")
                 or str(getattr(decision, "intent", "") or "") == "greeting"
             )
-            is_conversational_turn = str(getattr(decision, "intent", "") or "").startswith("conversation:")
             if is_greeting_turn or (verification and str(verification.reason or "") == "unsupported_continuity_claim"):
                 op_state = dict((decision.metadata or {}).get("operator_state") or {})
                 if not op_state.get("active_objective"):
@@ -901,10 +900,9 @@ class ContractPipeline:
                 )
                 self._greeting_session_state_by_user[str(user_id)] = dict(greeting.session_state)
                 response_text = str(greeting.text or "").strip()
-            elif is_conversational_turn and response_text:
-                pass  # keep the LLM's response — verification errors don't apply to casual conversation
-            else:
-                pass  # respond_phase already set a specific fallback for this failure
+            # Otherwise respond_phase has already chosen the reply. Restoring the
+            # rejected text here would publish exactly the claim the verifier
+            # caught (a made-up path, an invented weather figure).
             self._maybe_record_behavior_event(
                 user_id=user_id,
                 source="verification_failure",
