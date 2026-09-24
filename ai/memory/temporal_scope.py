@@ -70,12 +70,28 @@ _THIS_YEAR = re.compile(r"\bthis\s+year\b", re.IGNORECASE)
 _YESTERDAY = re.compile(r"\byesterday\b", re.IGNORECASE)
 _LAST_WEEK = re.compile(r"\blast\s+week\b", re.IGNORECASE)
 _LAST_MONTH = re.compile(r"\blast\s+month\b", re.IGNORECASE)
+_LAST_NIGHT = re.compile(r"\blast\s+night\b", re.IGNORECASE)
+_THIS_WEEK = re.compile(r"\bthis\s+week\b", re.IGNORECASE)
+_DAYS_AGO = re.compile(
+    r"\b(\d{1,2}|a|one|two|three|four|five|six|a\s+few|few|a\s+couple\s+of|couple\s+of)\s+days?\s+ago\b",
+    re.IGNORECASE,
+)
+_WORD_DAYS = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+# The ways people point at earlier today. "Earlier" alone counts, but not in
+# "earlier this year" or "earlier than", which the year and date checks own.
+_TODAY = re.compile(
+    r"\b(?:today|this\s+(?:morning|afternoon|evening)|tonight|just\s+now"
+    r"|an?\s+(?:hour|minute|moment)\s+ago|\d{1,2}\s+(?:hours?|minutes?|mins?)\s+ago"
+    r"|(?:a\s+)?(?:few|couple\s+of)\s+(?:hours|minutes)\s+ago"
+    r"|earlier\b(?!\s+(?:this|in|last|that|than)\b))",
+    re.IGNORECASE,
+)
 
 # Only questions that look back over the conversation are in scope. "what is the
 # weather in March" is about the world, not about what was said.
 _RECOLLECTION = re.compile(
     r"\b(did i|did you|i say|you say|we (say|discuss|talk)|i tell|you tell|"
-    r"told (you|me)|talk(ed)? about|discuss(ed)?|remember|said)\b",
+    r"told (you|me)|talk(ed)? about|discuss(ed)?|remember|said|saying)\b",
     re.IGNORECASE,
 )
 
@@ -135,9 +151,22 @@ def requested_period(question: str, *, today: Optional[date] = None) -> Optional
         if (moment := _safe_date(year, month, day)) is not None:
             return Period(moment, moment, iso.group(0))
 
-    if _YESTERDAY.search(text):
+    if _YESTERDAY.search(text) or _LAST_NIGHT.search(text):
         moment = today - timedelta(days=1)
         return Period(moment, moment, "yesterday")
+
+    if days_ago := _DAYS_AGO.search(text):
+        amount = days_ago.group(1).lower()
+        if amount.isdigit() or amount in _WORD_DAYS:
+            moment = today - timedelta(days=int(amount) if amount.isdigit() else _WORD_DAYS[amount])
+            return Period(moment, moment, days_ago.group(0))
+        return Period(today - timedelta(days=4), today - timedelta(days=2), days_ago.group(0))
+
+    if _TODAY.search(text):
+        return Period(today, today, "today")
+
+    if _THIS_WEEK.search(text):
+        return Period(today - timedelta(days=today.weekday()), today, "this week")
 
     if _LAST_WEEK.search(text):
         return Period(today - timedelta(days=14), today - timedelta(days=7), "last week")
