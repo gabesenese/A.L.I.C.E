@@ -614,6 +614,11 @@ def render_local_execution_error_response(
     return normalize_response_paragraphs(rendered)
 
 
+# Executor planning labels. After "Finding:" comes the finding, which stays;
+# after "Next best move:" comes a plan step, which goes with its label.
+_INTERNAL_LABEL_SPAN = re.compile(r"(?i)\s*\bnext best move\s*:.*$|\bfinding\s*:\s*")
+
+
 def render_operator_response(
     *,
     user_input: str,
@@ -652,51 +657,32 @@ def render_operator_response(
             next_step=next_step,
         )
 
-    # Build a user-facing summary without internal labels or raw file paths.
-    # "Finding:", "Next best move:", and "I inspected {path}" are Alice's internal
-    # planning tokens and must never appear in user-facing output.
-    analysis = dict(local.get("analysis") or {})
-    summary = str(analysis.get("summary") or local.get("summary") or "").strip()
-    responsibility = str(analysis.get("responsibility") or "").strip()
-
-    # Priority 1: explicit summary from the local execution result.
-    if summary:
-        return summary.strip()
-
-    # Priority 2: responsibility label → natural sentence.
-    if responsibility:
-        if responsibility == "agent loop":
-            return "Looked at the operator loop — that's where plan/act/verify runs."
-        elif responsibility == "runtime pipeline":
-            return "Looked at the runtime pipeline."
-        else:
-            return f"Looked at the {responsibility} layer."
-
-    # Priority 2.5: when a file was actually inspected successfully, skip base_text.
-    # base_text in this case is LLM-generated context that should not surface in operator output.
-    # The momentum layer will append "I inspected {file}." with grounded evidence.
-    inspected_file_evidence = str(local.get("inspected_file") or "").strip()
-    if local_success is True and inspected_file_evidence:
-        # "Working on it." promises work that is already finished and says
-        # nothing about what was found. The momentum layer appends the grounded
-        # "I inspected {file}." right after this, so name the file here too
-        # rather than standing in with a placeholder.
-        return f"I looked at {inspected_file_evidence}."
-
-    # Strip internal planning labels that executors may append to base_text.
-    # These must not reach the contract check or the user surface.
-    # Filter line-by-line so leading labels (e.g. a response that IS "Next best move:...")
-    # are fully removed rather than partially matched.
-    _raw_lines = re.split(r"\n", str(base_text or ""))
-    _kept_lines = [ln for ln in _raw_lines if not re.search(r"(?i)\bnext best move\b|\bfinding:", ln)]
-    base_stripped = "\n".join(_kept_lines).strip()
-
-    # Priority 3: sanitized base_text — always preferred over a generic ack.
+    # The reply in hand was written from the tool result (by the model, with its
+    # numbers checked, or by the executor). It used to be replaced by a summary
+    # field, a canned label ("Looked at the runtime pipeline.") or "I looked at
+    # X." -- and a 400-file listing whose lines mentioned "Finding:" was deleted
+    # whole, leaving "I don't have a result for that yet". Strip the internal
+    # label spans, keep everything else, and fall back only when nothing is left.
+    kept_lines = []
+    for line in str(base_text or "").split("\n"):
+        stripped = _INTERNAL_LABEL_SPAN.sub("", line)
+        if stripped.strip() or not line.strip():
+            kept_lines.append(stripped.rstrip())
+    base_stripped = "\n".join(kept_lines).strip()
     cleaned = sanitize_operator_chatter(
         _suppress_passive_operator_chatter(strip_meta_response_artifacts(base_stripped))
     )
     if cleaned and len(cleaned) > 8:
         return cleaned.strip()
+
+    analysis = dict(local.get("analysis") or {})
+    summary = str(analysis.get("summary") or local.get("summary") or "").strip()
+    if summary:
+        return summary
+
+    inspected_file_evidence = str(local.get("inspected_file") or "").strip()
+    if local_success is True and inspected_file_evidence:
+        return f"I looked at {inspected_file_evidence}."
 
     # Priority 4: action-aware fallback when base_text was entirely internal labels.
     action = str(local.get("action") or "")

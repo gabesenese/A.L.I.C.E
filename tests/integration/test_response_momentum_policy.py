@@ -84,7 +84,9 @@ def test_operator_continue_local_turn_uses_compact_evidence_surface():
         next_step="inspect file ai/runtime/operator_state.py because It stores active objective, current focus, inspected files, and recommendations.",
     )
     low = out.lower()
-    assert "warm and cozy" not in low
+    # The reply the model wrote stands (north star rule 2); only passive
+    # filler and internal labels are removed.
+    assert "warm and cozy" in low
     assert "what would you like to tackle first" not in low
     # "I inspected X." narration is removed — action results speak through the base text
     assert "i inspected ai/runtime/agent_loop.py." not in low
@@ -92,3 +94,25 @@ def test_operator_continue_local_turn_uses_compact_evidence_surface():
     assert "next best move:" not in low
     assert "operator_state.py" in low
     assert "\n\n" in out
+
+
+def test_workspace_listing_survives_an_internal_label_line():
+    from ai.runtime.operator_response_surface import render_operator_response
+
+    listing = (
+        "Finding: 400 files in the workspace. The busiest are:\n- app/main.py\n- ai/core/llm_engine.py\n"
+        "Next best move: open app/main.py"
+    )
+
+    out = render_operator_response(
+        user_input="what files are in the workspace?",
+        base_text=listing,
+        operator_state={},
+        local_execution={"action": "code:list_files", "success": True, "workspace_file_count": 400},
+        next_step="",
+    )
+
+    assert out.startswith("400 files in the workspace.")
+    assert "app/main.py" in out and "ai/core/llm_engine.py" in out
+    assert "next best move" not in out.lower() and "finding" not in out.lower()
+    assert "don't have a result" not in out
