@@ -665,6 +665,25 @@ _P3_VAGUE_PATTERNS: tuple = (
 )
 
 
+# A question asking how to do something, or asking to be shown or taught, wants
+# instructions. "How do I get to ..." is left to directions, and "show me how
+# many notes I have" is a request for the count.
+_INSTRUCTION_REQUEST_RE = re.compile(
+    r"^(?:(?:hey|ok|okay|so)\s+(?:alice)?[\s,!]*)?"
+    r"(?:how (?:do|can|could|would|should) (?:i|we|you)\b(?!\s+get\s+to\b)"
+    r"|how to\b"
+    r"|show me how\b(?!\s+(?:many|much)\b)"
+    r"|teach me\b"
+    r"|find (?:the|a|any|this) (?:bugs?|errors?|mistakes?|problems?|issues?|typos?)\b)"
+)
+
+
+# Plugins that act, as opposed to ones that look something up.
+_ACTION_PLUGINS = frozenset(
+    {"notes", "reminder", "memory", "file_operations", "calendar", "email", "system", "music", "document"}
+)
+
+
 # Words that make "the time" or "the date" part of a question about something
 # other than the clock: a time complexity, a time difference, the date *of* a
 # meeting.
@@ -4288,6 +4307,14 @@ class NLPProcessor:
         ):
             intent = "weather:forecast"
             intent_confidence = max(float(intent_confidence or 0.0), 0.9)
+        # A request for instructions is answered, never acted on. "how do I set a
+        # reminder on my iphone?" went to reminder:set, "show me how recursion
+        # works" to notes:read, and "find the bug: ..." to notes:search, each at a
+        # confidence nothing downstream questioned. A plugin cannot teach, and
+        # doing the thing presumes he wanted it done.
+        if str(intent or "").split(":", 1)[0] in _ACTION_PLUGINS and _INSTRUCTION_REQUEST_RE.search(_raw):
+            intent = "conversation:question"
+            intent_confidence = 0.9
 
         # Build result
         result = ProcessedQuery(
