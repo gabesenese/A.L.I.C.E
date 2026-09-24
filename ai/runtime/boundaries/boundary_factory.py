@@ -532,16 +532,22 @@ def _llm_unavailable_text(exc: LLMUnavailableError) -> str:
 
 # Keys in a plugin's data dict that describe the plumbing, not the answer.
 _TOOL_PLUMBING_KEYS = frozenset({"formulate", "message_code", "plugin_type", "use_fallback_message"})
+# The result envelope around a plugin's answer; "response"/"message" go in as the summary.
+_TOOL_ENVELOPE_KEYS = frozenset(
+    {"response", "message", "success", "plugin", "confidence", "data", "error", "operator_context"}
+)
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 
 
 def _tool_facts_block(tool_payload: Dict[str, Any], *, limit: int = 6000) -> str:
     """The structured result a tool returned, as the model will read it."""
     nested = tool_payload.get("data") if isinstance(tool_payload.get("data"), dict) else {}
-    facts: Dict[str, Any] = {k: v for k, v in (nested or {}).items() if k not in _TOOL_PLUMBING_KEYS}
-    local = tool_payload.get("local_execution")
-    if isinstance(local, dict) and local:
-        facts["local_execution"] = local
+    # Plugins disagree on where the payload goes: weather nests it under "data",
+    # file operations puts "files" and "content" beside "response".
+    facts: Dict[str, Any] = {
+        k: v for k, v in tool_payload.items() if k not in _TOOL_ENVELOPE_KEYS and k not in _TOOL_PLUMBING_KEYS and v
+    }
+    facts.update({k: v for k, v in (nested or {}).items() if k not in _TOOL_PLUMBING_KEYS})
     if not facts:
         return ""
     text = json.dumps(facts, default=str, ensure_ascii=False)
@@ -559,6 +565,8 @@ def _numbers_grounded(reply: str, *sources: str) -> bool:
         for token in _NUMBER.findall(str(source or "")):
             value = float(token)
             known.update({value, float(round(value))})
+            if 13 <= value <= 23 and value.is_integer():
+                known.add(value - 12)  # "14:00" may be said as "2pm"
     return all(float(token) in known for token in _NUMBER.findall(str(reply or "")))
 
 

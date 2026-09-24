@@ -1690,3 +1690,28 @@ def test_tool_turn_keeps_the_tool_text_when_the_model_is_down():
     result = pipeline.run_turn(user_input="weather in boston", user_id="u1", turn_number=1)
 
     assert "sunny" in result.response_text.lower()
+
+
+def test_tool_facts_include_payload_kept_beside_the_response():
+    from ai.runtime.boundaries.boundary_factory import _tool_facts_block
+
+    facts = _tool_facts_block(
+        {
+            "success": True,
+            "response": "Found 2 files in .",
+            "plugin": "FileOperationsPlugin",
+            "files": [{"name": "todo.txt"}, {"name": "budget.xlsx"}],
+            "count": 2,
+        }
+    )
+
+    assert "todo.txt" in facts and "budget.xlsx" in facts
+    assert "FileOperationsPlugin" not in facts
+
+
+def test_tool_grounding_allows_rounding_and_twelve_hour_times_but_not_new_numbers():
+    from ai.runtime.boundaries.boundary_factory import _numbers_grounded
+
+    source = '{"temperature": 21.6, "start": "2026-09-15T14:00:00"}'
+    assert _numbers_grounded("About 22 degrees, and the dentist is at 2pm.", source)
+    assert not _numbers_grounded("About 25 degrees.", source)
