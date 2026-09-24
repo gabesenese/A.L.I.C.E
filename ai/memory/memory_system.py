@@ -694,18 +694,57 @@ class MemorySystem:
 
         # Weighted ranking improves stability for conversational queries.
         if weighted and memory_type is None:
-            return self.recall_memory_weighted(
+            results = self.recall_memory_weighted(
                 query=query,
                 top_k=int(top_k or 5),
                 min_similarity=float(min_similarity or 0.35),
             )
-
-        return self.recall_memory(
-            query=query,
-            memory_type=memory_type,
-            top_k=int(top_k or 5),
-            min_similarity=float(min_similarity or 0.35),
+        else:
+            results = self.recall_memory(
+                query=query,
+                memory_type=memory_type,
+                top_k=int(top_k or 5),
+                min_similarity=float(min_similarity or 0.35),
+            )
+        if results:
+            return results
+        # Semantic recall comes back empty for reasons other than "he never said
+        # it": no embedding model offline, or a TF-IDF fallback fitted before the
+        # word existed. A name he used then reads as never mentioned, and "who is
+        # Sarah?" gets "I don't know". Match the question's distinctive words
+        # literally before giving up.
+        return self._literal_recall(
+            query, top_k=int(top_k or 5), memory_type=memory_type, similarity=float(min_similarity or 0.35)
         )
+
+    # Words too common to say what a question is about.
+    _LITERAL_SKIP = frozenset(
+        (
+            "about after does from have into just know like remember said tell that their them then there "
+            "these they this told what when where which while with would your"
+        ).split()
+    )
+
+    def _literal_recall(
+        self, query: str, *, top_k: int, memory_type: Optional[str], similarity: float
+    ) -> List[Dict[str, Any]]:
+        """Memories sharing a distinctive word with the question, most shared first."""
+        punctuation = ".,!?;:'\"()"
+
+        def words(text: str) -> set:
+            found = {w.strip(punctuation) for w in str(text or "").lower().split()}
+            return found | {w[:-2] for w in found if w.endswith("'s")}
+
+        wanted = {w for w in words(query) if len(w) >= 4 and w not in self._LITERAL_SKIP}
+        if not wanted:
+            return []
+        scored = []
+        for memory in self.get_all_memories(memory_type=memory_type, limit=500):
+            hits = len(wanted & words(memory.get("content", "")))
+            if hits:
+                scored.append((hits, {**memory, "similarity": similarity, "match": "literal"}))
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return [memory for _, memory in scored[:top_k]]
 
     @staticmethod
     def _clamp01(value: float) -> float:
