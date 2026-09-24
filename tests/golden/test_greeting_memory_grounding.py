@@ -274,14 +274,13 @@ def test_r_timeless_greeting_accepted_any_time():
     assert result.generated_by == "llm_constrained"
 
 
-def test_s_unknown_time_rejects_time_sensitive_phrase():
+def test_s_wrong_time_of_day_is_rejected():
     result = render_grounded_greeting(
         user_name="Gabriel",
         operator_state={},
         session_state={},
         user_input="hi alice",
-        local_time=None,
-        timezone_name="",
+        local_time=datetime.fromisoformat("2026-05-10T20:15:00-04:00"),
         llm_generate=lambda *args, **kwargs: "Good morning Gabriel. How’s your morning?",
     )
     assert result.generated_by == "fallback"
