@@ -724,10 +724,18 @@ class ALICE:
             self.ambient_monitor = get_ambient_monitor()
             self.task_scheduler = TaskScheduler()
             self.task_scheduler.register_callback(self._on_scheduled_task)
+            # Delivers reminders into the chat when they come due, the way the
+            # heartbeat speaks up, including ones that came due while she was closed.
+            from ai.planning.reminders import ReminderStore, ReminderWatcher
+
+            self.reminder_watcher = ReminderWatcher(
+                ReminderStore(), lambda message: print(f"\nA.L.I.C.E: {message}", flush=True)
+            )
             if background_services_enabled():
                 self.heartbeat.start()
                 self.ambient_monitor.start()
                 self.task_scheduler.start()
+                self.reminder_watcher.start()
             else:
                 logger.info("Background companion services disabled for this process")
             self.execution_journal = get_execution_journal(storage_path="data/action_journal.jsonl")
@@ -1686,6 +1694,10 @@ class ALICE:
         self.plugins.register_plugin(SystemControlPlugin())
         self.plugins.register_plugin(WebSearchPlugin())
         self.plugins.register_plugin(DocumentPlugin())
+        # Ahead of the calendar, which also answers to the word "reminder".
+        from ai.plugins.reminder_plugin import ReminderPlugin
+
+        self.plugins.register_plugin(ReminderPlugin())
         self.plugins.register_plugin(CalendarPlugin())
         self.plugins.register_plugin(RAGIndexerPlugin(self.memory))  # RAG document indexer
         self.plugins.register_plugin(MemoryHealthPlugin())
@@ -7822,6 +7834,8 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
 
         if getattr(self, "heartbeat", None):
             self.heartbeat.stop()
+            if getattr(self, "reminder_watcher", None):
+                self.reminder_watcher.stop()
             logger.info("[OK] Heartbeat stopped")
 
         if getattr(self, "ambient_monitor", None):
