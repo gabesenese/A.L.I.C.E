@@ -124,6 +124,28 @@ _REQUEST_VERBS = (
 )
 
 
+# Where one action ends and the next begins: "X, then Y", "X and then Y", "X and
+# Y", "X, after that Y". A lead-in like "please" or "first" is not the action.
+_STEP_SPLIT = re.compile(r"\s*,?\s*\b(?:and\s+then|then|after\s+that|and\s+also|and)\b\s*,?\s*", re.IGNORECASE)
+_STEP_LEAD_IN = re.compile(r"^(?:(?:please|first|also|now)\s*,?\s+|(?:can|could|would)\s+you\s+)*", re.IGNORECASE)
+
+
+def _is_multi_step_request(text: str) -> bool:
+    """Whether the request chains two or more actions, each opening with an action verb.
+
+    "List my notes, then read the first one" is; "I tried to run it and then it
+    crashed" is not, since "it crashed" is not something to do.
+    """
+    parts = [part for part in _STEP_SPLIT.split(str(text or "").strip()) if part and part.strip()]
+    if len(parts) < 2:
+        return False
+    for part in parts:
+        words = _STEP_LEAD_IN.sub("", part.strip().lower()).split()
+        if not words or words[0].strip(",.!?") not in _REQUEST_VERBS:
+            return False
+    return True
+
+
 # The recent transcript that counts as evidence of what the user has said: the
 # last twenty exchanges.
 _SESSION_EVIDENCE_MESSAGES = 40
@@ -1894,6 +1916,24 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         last_recommended_action = dict(
             state.get("last_recommended_action") or project_state.last_recommended_action or {}
         )
+
+        # "List my notes, then read the first one." Every branch below sends a
+        # turn to one plugin, which does the first step and drops the rest:
+        # nlp_processor records the extra steps in its parse, and nothing reads
+        # them. The tool loop can take several steps, so a request that chains
+        # actions goes to the model with its tools.
+        if _is_multi_step_request(req.user_input):
+            return RouterDecision(
+                route="llm",
+                intent="conversation:general",
+                confidence=0.9,
+                decision_band="execute",
+                metadata={
+                    "reason": "multi_step_request",
+                    "resolved_input": req.user_input,
+                    "operator_state": state,
+                },
+            )
 
         if _is_recommendation_explain_query(req.user_input) and last_recommended_action:
             return RouterDecision(
