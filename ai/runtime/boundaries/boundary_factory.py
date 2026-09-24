@@ -227,14 +227,14 @@ def _record_tool_turn(alice: Any, req: Any, output: Any) -> None:
         _logger.debug("Could not record tool turn: %s", exc)
 
 
-def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any]) -> Any:
-    output = _run_tool_grounded_answer(alice, req, operator_state)
+def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any], context: str = "") -> Any:
+    output = _run_tool_grounded_answer(alice, req, operator_state, context)
     if output is not None:
         _record_tool_turn(alice, req, output)
     return output
 
 
-def _run_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any]) -> Any:
+def _run_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any], context: str = "") -> Any:
     """Let the model reach for a real tool before falling back to plain generation.
 
     Returns None whenever the loop is unavailable or chose not to act, so every
@@ -265,7 +265,9 @@ def _run_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, An
                 }
             ),
         )
-        result = loop.run(str(req.user_input or ""), history=_recent_history(llm))
+        # The same date, memory and goals the conversational path sees; without
+        # them a tool turn answered "what should I work on today?" blind.
+        result = loop.run(str(req.user_input or ""), context=context or None, history=_recent_history(llm))
     except Exception as exc:
         _logger.warning("Tool grounded answer unavailable, falling back to generation: %s", exc)
         return None
@@ -2877,6 +2879,19 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             return tool_response
         return reply
 
+    def _turn_context(req: ResponseRequest, operator_state: Dict[str, Any]) -> str:
+        try:
+            return _build_companion_context(
+                memory_items=list(req.memory.items or []),
+                operator_state=operator_state,
+                alice=alice,
+                intent=str(req.decision.intent or ""),
+                user_input=str(req.user_input or ""),
+            )
+        except Exception as exc:
+            _logger.debug("companion context unavailable: %s", exc)
+            return ""
+
     def _narrate_memory_recall(req: ResponseRequest, recalled: str) -> str:
         # The saved rows answer the question; the model says it the way a
         # person would. Whatever it says is checked against the rows, and the
@@ -2980,7 +2995,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         if _may_reach_for_tools(req):
-            grounded_local = _try_tool_grounded_answer(alice, req, operator_state)
+            grounded_local = _try_tool_grounded_answer(alice, req, operator_state, _turn_context(req, operator_state))
             if grounded_local is not None:
                 return grounded_local
 
@@ -3295,7 +3310,8 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 },
             )
 
-        grounded = _try_tool_grounded_answer(alice, req, operator_state)
+        turn_context = _turn_context(req, operator_state)
+        grounded = _try_tool_grounded_answer(alice, req, operator_state, turn_context)
         if grounded is not None:
             return grounded
 
@@ -3303,13 +3319,7 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
         if getattr(alice, "llm", None):
             try:
                 _turn_intent = str(req.decision.intent or "")
-                _companion_ctx = _build_companion_context(
-                    memory_items=list(req.memory.items or []),
-                    operator_state=operator_state,
-                    alice=alice,
-                    intent=_turn_intent,
-                    user_input=str(req.user_input or ""),
-                )
+                _companion_ctx = turn_context
                 try:
                     llm_text = str(
                         alice.llm.chat(
