@@ -224,6 +224,7 @@ _WEATHER_FORECAST_TERMS: frozenset = frozenset(
 _WEATHER_EVENT_TERMS: frozenset = frozenset({"snow", "rain", "storm", "drizzle", "thunder"})
 _WEATHER_FUTURE_TERMS: frozenset = frozenset({"will", "gonna", "going", "chance", "expect", "is"})
 _SYSTEM_TERMS: frozenset = frozenset({"system", "cpu", "memory", "disk", "battery", "status"})
+_SYSTEM_WORDS: frozenset = frozenset({"system", "status"})
 _NON_WEATHER_TARGET_TERMS: frozenset = frozenset(
     {
         "note",
@@ -3120,7 +3121,12 @@ class NLPProcessor:
         scores["email"] += 1.2 * sum(token_counts[word] for word in _EMAIL_TERMS)
         scores["calendar"] += 1.2 * sum(token_counts[word] for word in _CALENDAR_TERMS)
         scores["weather"] += 1.35 * sum(token_counts[word] for word in _WEATHER_TERMS)
-        scores["system"] += 1.2 * sum(token_counts[word] for word in _SYSTEM_TERMS)
+        # "disk", "battery" and "memory" are about this machine only when the
+        # sentence binds them to it ("my battery", "disk space"). Unbound, they
+        # sent "is the disk scheduler in linux still CFQ?" and "the battery on my
+        # bike light" to a CPU/RAM readout.
+        system_terms = _SYSTEM_TERMS if _is_machine_resource_query(" ".join(normalized)) else _SYSTEM_WORDS
+        scores["system"] += 1.2 * sum(token_counts[word] for word in system_terms)
         if _WEATHER_FORECAST_TERMS & normalized_set:
             scores["weather"] += 0.8
         if _WEATHER_EVENT_TERMS & normalized_set and _WEATHER_FUTURE_TERMS & normalized_set:
