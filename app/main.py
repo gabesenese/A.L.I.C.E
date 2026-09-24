@@ -34,7 +34,6 @@ from ai.core.llm_engine import LocalLLMEngine, LLMConfig, configured_model
 from ai.memory.context_engine import get_context_engine
 from ai.memory.memory_system import MemorySystem
 from ai.memory.conversation_summarizer import ConversationSummarizer
-from ai.models.entity_relationship_tracker import EntityRelationshipTracker
 from ai.learning.active_learning_manager import (
     ActiveLearningManager,
     CorrectionType,
@@ -776,10 +775,6 @@ class ALICE:
             # 4.5. Conversation Summarizer (now uses gateway for policy enforcement)
             logger.info("Loading conversation summarizer...")
             self.summarizer = ConversationSummarizer(llm_engine=self.llm, llm_gateway=self.llm_gateway)
-
-            # 4.6. Entity Relationship Tracker
-            logger.info("Loading entity relationship tracker...")
-            self.relationship_tracker = EntityRelationshipTracker()
 
             # 4.7. Active Learning Manager
             logger.info("Loading active learning system...")
@@ -6005,20 +6000,6 @@ class ALICE:
                     sentiment=sentiment,
                 )
 
-            # Extract and store entity relationships
-            if self.relationship_tracker:
-                try:
-                    # Extract relationships from user input
-                    relationships = self.relationship_tracker.process_text(user_input)
-                    logger.debug(f"Extracted {len(relationships)} relationships from user input")
-
-                    # Also process assistant response for relationship context
-                    if response and len(response) < 500:  # Only process shorter responses
-                        assistant_relationships = self.relationship_tracker.process_text(response)
-                        logger.debug(f"Extracted {len(assistant_relationships)} relationships from assistant response")
-                except Exception as e:
-                    logger.error(f"Error extracting relationships: {e}")
-
             # Add to conversation summary (keep last 10)
             self.conversation_summary.append(
                 {
@@ -6192,8 +6173,6 @@ class ALICE:
             print("   /summary   - Get conversation summary")
             print("   /context   - Show current context")
             print("   /topics    - List conversation topics")
-            print("   /entities  - Show tracked entities")
-            print("   /relationships - Show entity relationships")
             print()
             print("Debug Commands:")
             print("   /correct   - Correct my last response")
@@ -6456,8 +6435,6 @@ class ALICE:
             print("   /summary           - Get conversation summary")
             print("   /context           - Show current context")
             print("   /topics            - List conversation topics")
-            print("   /entities          - Show tracked entities")
-            print("   /relationships     - Show entity relationships")
             print()
             print("Memory Management:")
             print("   /mem-list [type]   - List memories (types: episodic, semantic, procedural, document)")
@@ -6583,50 +6560,6 @@ class ALICE:
                     print("\nI couldn't get the topics just now.")
             else:
                 print("\nConversation summarizer not available")
-
-        elif cmd == "/entities":
-            if self.relationship_tracker:
-                try:
-                    stats = self.relationship_tracker.get_statistics()
-                    print("\n Tracked Entities:")
-                    print(f"Total entities: {stats['total_entities']}")
-
-                    if stats["most_connected_entities"]:
-                        print("\nMost connected entities:")
-                        for entity, count in stats["most_connected_entities"]:
-                            print(f"   • {entity.title()}: {count} connections")
-
-                    if stats["entity_types"]:
-                        print(f"\nEntity types: {', '.join(stats['entity_types'].keys())}")
-                except Exception:
-                    print("\nI couldn't get the entities just now.")
-            else:
-                print("\nEntity relationship tracker not available")
-
-        elif cmd == "/relationships":
-            if self.relationship_tracker:
-                try:
-                    stats = self.relationship_tracker.get_statistics()
-                    print("\nEntity Relationships:")
-                    print(f"Total relationships: {stats['total_relationships']}")
-
-                    if stats["relationship_types"]:
-                        print("\nRelationship types:")
-                        for rel_type, count in stats["relationship_types"].items():
-                            print(f"   • {rel_type.replace('_', ' ').title()}: {count}")
-
-                    if stats["recent_relationships"]:
-                        print("\nRecent relationships:")
-                        for rel in stats["recent_relationships"][:5]:
-                            source = rel["source_entity"].title()
-                            target = rel["target_entity"].title()
-                            rel_type = rel["relationship_type"].replace("_", " ")
-                            confidence = rel["confidence"]
-                            print(f"   • {source} {rel_type} {target} (confidence: {confidence:.2f})")
-                except Exception:
-                    print("\nI couldn't get the relationships just now.")
-            else:
-                print("\nEntity relationship tracker not available")
 
         elif cmd.startswith("/mem-list"):
             # List memories with optional filter by type
