@@ -5462,6 +5462,14 @@ class ALICE:
         if evaluation.get("accepted", False):
             return response
 
+        # Swapping an answer that exists for a stand-in is a scripted override, so
+        # it follows that policy: off by default, and the answer stands. A
+        # word-overlap score decided "Your sister is Ana, and the dentist is on
+        # Friday" did not answer "what do you know about me?" and replaced it with
+        # "I didn't follow that." Only a reply with nothing in it needs a stand-in.
+        if str(response or "").strip() and not scripted_overrides_enabled():
+            return response
+
         fallback_action = evaluation.get("fallback_action", "safe_reply")
         return self._executive_gate_fallback_response(
             user_input=user_input,
