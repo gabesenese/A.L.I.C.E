@@ -185,6 +185,18 @@ class PersonalMemoryStore:
                 return {"updated": True, "memory_id": str(memory_id)}
         return {"updated": False, "memory_id": str(memory_id)}
 
+    def invalid_ids(self) -> set[str]:
+        """Facts corrected or replaced since they were stored.
+
+        Search results carry no context, so a caller cannot see the flag on the
+        row itself; without this, a fact he had corrected kept being recalled.
+        """
+        return {
+            str(r.get("id") or "")
+            for r in self._iter_structured_entries()
+            if (r.get("context") or {}).get("invalid") or (r.get("context") or {}).get("superseded")
+        }
+
     def mark_memory_incorrect(self, memory_id: str, reason: str) -> Dict[str, Any]:
         ok = self._update_entry_context(
             str(memory_id),

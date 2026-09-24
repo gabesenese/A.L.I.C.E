@@ -2731,6 +2731,11 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                     }
                 elif not greeting_turn:
                     items = alice.memory.search(req.query, top_k=req.max_items)
+                    # A fact he corrected is marked invalid, but search returns it
+                    # without the context that says so, and it reached the prompt.
+                    if personal_memory is not None and items:
+                        stale = personal_memory.invalid_ids()
+                        items = [i for i in items if str(i.get("id") or "") not in stale]
                     metadata = {
                         "count": len(items or []),
                         "mode": "default_search",

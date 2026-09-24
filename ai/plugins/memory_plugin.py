@@ -243,6 +243,10 @@ class MemoryPlugin(PluginInterface):
         }
 
     def _find(self, topic: str, limit: int = 5) -> List[Dict[str, Any]]:
+        stale = PersonalMemoryStore(self.memory).invalid_ids()
+        return [m for m in self._find_any(topic, limit + len(stale)) if str(m.get("id") or "") not in stale][:limit]
+
+    def _find_any(self, topic: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Semantic recall, falling back to a substring scan.
 
         Recall is embedding-backed, and the embedding model is optional — on a
@@ -277,7 +281,12 @@ class MemoryPlugin(PluginInterface):
         filter, not a topic; a real topic narrows the day further when it matches.
         """
         when = period.phrase
-        dated = items_within(self.memory.get_all_memories(limit=500), period)
+        stale = PersonalMemoryStore(self.memory).invalid_ids()
+        dated = [
+            m
+            for m in items_within(self.memory.get_all_memories(limit=500), period)
+            if str(m.get("id") or "") not in stale
+        ]
         needle = str(topic or "").strip().lower()
         if needle and needle not in when.lower():
             dated = [m for m in dated if needle in str(m.get("content", "")).lower()] or dated

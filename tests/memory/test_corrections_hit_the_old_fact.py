@@ -75,3 +75,22 @@ def test_a_second_correction_does_not_land_on_the_same_fact_again(setup):
     _correct(boundaries, "that's wrong")
 
     assert _valid(store) == []
+
+
+def test_a_corrected_fact_stops_coming_back(setup):
+    """Marking a fact invalid did not keep it out of recall: search results carry
+    no context, so the flag was invisible and the wrong fact kept reaching the
+    prompt, and the answer."""
+    from ai.contracts import MemoryRequest
+    from ai.plugins.memory_plugin import MemoryPlugin
+
+    alice, boundaries, store = setup
+    _correct(boundaries, "that's wrong")
+
+    recalled = boundaries.memory.recall(MemoryRequest(query="sister", user_id="u1", max_items=5))
+    assert "my sister's name is Ana" not in [i.get("content") for i in recalled.items]
+
+    answer = MemoryPlugin(memory_system=alice.memory).execute(
+        "memory:recall", "what's my sister's name?", {"topic": "sister"}, {}
+    )
+    assert "Ana" not in answer["response"]
