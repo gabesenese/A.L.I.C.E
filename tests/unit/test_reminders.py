@@ -148,3 +148,30 @@ def test_a_turn_is_marked_in_progress_while_it_runs():
 
     assert seen == [True]
     assert alice._turn_in_progress is False
+
+
+def test_a_line_said_unprompted_waits_for_the_turn_to_finish(capsys):
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    from app.main import ALICE
+
+    alice = ALICE.__new__(ALICE)
+    alice.context = SimpleNamespace(user_prefs=SimpleNamespace(name="Gabriel"))
+    alice.llm = SimpleNamespace(conversation_history=[{"role": "user", "content": "what's up?"}])
+    alice._turn_in_progress = True
+
+    speaker = threading.Thread(target=alice._say_unprompted, args=("Heads up, the build has been red for a day.",))
+    speaker.start()
+    time.sleep(0.5)
+    assert len(alice.llm.conversation_history) == 1
+
+    alice.llm.conversation_history.append({"role": "assistant", "content": "Not much."})
+    alice._turn_in_progress = False
+    speaker.join(timeout=5)
+
+    assert [m["content"] for m in alice.llm.conversation_history][-2:] == [
+        "Not much.",
+        "Heads up, the build has been red for a day.",
+    ]

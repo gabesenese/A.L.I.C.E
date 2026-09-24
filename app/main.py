@@ -729,7 +729,11 @@ class ALICE:
             self.action_engine = get_unified_action_engine()
             self.approval_ledger = get_approval_ledger()
             self.world_state_memory = get_world_state_memory(storage_path="data/world_state.json")
-            self.heartbeat = Heartbeat()
+            # Its check-ins go through the same path as reminders: said between
+            # turns, with the prompt redrawn, and kept in the conversation.
+            self.heartbeat = Heartbeat(
+                output=lambda text: self._say_unprompted(re.sub(r"^\s*A\.L\.I\.C\.E:\s*", "", str(text or "")))
+            )
             self.ambient_monitor = get_ambient_monitor()
             self.task_scheduler = TaskScheduler()
             self.task_scheduler.register_callback(self._on_scheduled_task)
@@ -6758,6 +6762,11 @@ Generate only the farewell (1 sentence), no other text. Be warm and friendly."""
         text = str(message or "").strip()
         if not text:
             return
+        # Never in the middle of a turn: this runs on a background thread, so it
+        # can wait for the reply to finish rather than land inside it.
+        deadline = time.monotonic() + 60
+        while getattr(self, "_turn_in_progress", False) and time.monotonic() < deadline:
+            time.sleep(0.2)
         prefs = getattr(getattr(self, "context", None), "user_prefs", None)
         name = str(getattr(prefs, "name", "") or "You")
         print(f"\nA.L.I.C.E: {text}\n\n{name}: ", end="", flush=True)
