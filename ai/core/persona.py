@@ -185,6 +185,15 @@ def for_tools(*, user_name: str = DEFAULT_USER, context: Optional[str] = None) -
     return _compose(_TOOL_BODY, user_name=user_name, context=context)
 
 
+def tool_guidance(*, user_name: str = DEFAULT_USER) -> str:
+    """What an ordinary turn adds to the conversational prompt when it may reach for a tool.
+
+    Added to that prompt rather than swapped in for it, so a turn the model
+    answers without a tool sounds exactly like one that never saw a tool.
+    """
+    return _TOOL_BODY.format(user=str(user_name or DEFAULT_USER))
+
+
 def for_phrasing(*, user_name: str = DEFAULT_USER, context: Optional[str] = None) -> str:
     """A turn that renders a payload Alice already computed."""
     return _compose(_PHRASING_BODY, user_name=user_name, context=context)

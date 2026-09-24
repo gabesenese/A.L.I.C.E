@@ -190,6 +190,7 @@ class ReactLoop:
         context: Optional[str] = None,
         tool_names: Optional[List[str]] = None,
         history: Optional[List[Dict[str, Any]]] = None,
+        conversation: Optional[List[Dict[str, Any]]] = None,
     ) -> ReactResult:
         # Advertise only what this loop is actually allowed to run. The ceiling was
         # computed and then thrown away in favour of RISK_OUTWARD, so with writes
@@ -201,16 +202,25 @@ class ReactLoop:
         if not tools:
             return ReactResult(stopped_reason="no_tools_available")
 
-        messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-        if context and str(context).strip():
-            messages.append({"role": "system", "content": str(context).strip()})
-        # The conversation so far. Without it "open the file we just talked about"
-        # reached the model as a sentence with no antecedent.
-        for turn in list(history or []):
-            role = str((turn or {}).get("role") or "")
-            if role in {"user", "assistant"} and str(turn.get("content") or "").strip():
-                messages.append({"role": role, "content": str(turn["content"])})
-        messages.append({"role": "user", "content": str(user_input or "")})
+        messages: List[Dict[str, Any]]
+        if conversation:
+            # An ordinary turn opens with exactly what chat() would send, with the
+            # tool rules added. When the model answers without reaching for
+            # anything, that answer can be the reply, instead of a draft thrown
+            # away and generated a second time from a different prompt.
+            messages = [dict(message) for message in conversation]
+            messages.insert(1, {"role": "system", "content": persona.tool_guidance()})
+        else:
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            if context and str(context).strip():
+                messages.append({"role": "system", "content": str(context).strip()})
+            # The conversation so far. Without it "open the file we just talked about"
+            # reached the model as a sentence with no antecedent.
+            for turn in list(history or []):
+                role = str((turn or {}).get("role") or "")
+                if role in {"user", "assistant"} and str(turn.get("content") or "").strip():
+                    messages.append({"role": role, "content": str(turn["content"])})
+            messages.append({"role": "user", "content": str(user_input or "")})
 
         result = ReactResult()
         started = time.perf_counter()

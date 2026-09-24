@@ -848,6 +848,16 @@ class LocalLLMEngine:
         messages.append({"role": "user", "content": user_input})
         return messages
 
+    def chat_messages_for(
+        self, user_input: str, *, context: Optional[str] = None, intent: str = ""
+    ) -> List[Dict[str, str]]:
+        """The message list chat() would send for this turn, history included.
+
+        The tool loop opens an ordinary turn with it, so when the model answers
+        without reaching for a tool, it has given the reply chat() would have.
+        """
+        return self._build_chat_messages(user_input, use_history=True, mode=None, context=context, intent=intent)
+
     def record_exchange(self, user_input: str, assistant_message: str) -> None:
         """Add one real exchange to the transcript Alice replays to herself."""
         self.conversation_history.append({"role": "user", "content": str(user_input or "")})

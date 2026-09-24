@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, NamedTuple
 
 from ai.core.llm_engine import LLMUnavailableError
 from ai.core.routing.route_arbiter import RouteArbiter
@@ -233,46 +233,87 @@ def _recent_history(llm: Any) -> List[Dict[str, Any]]:
     return [dict(turn) for turn in history[-_TOOL_LOOP_HISTORY_MESSAGES:] if isinstance(turn, dict)]
 
 
-def _record_tool_turn(alice: Any, req: Any, output: Any) -> None:
-    """Put a tool turn in the transcript, like any other exchange.
+def _record_turn(alice: Any, req: Any, text: str) -> None:
+    """Put a turn chat() did not generate in the transcript, like any other exchange.
 
     Only the plain chat path recorded turns, so after "list the files in ai/"
     the next message's model call had no idea the listing had happened.
     """
     llm = getattr(alice, "llm", None)
-    text = str(getattr(output, "text", "") or "").strip()
+    text = str(text or "").strip()
     if llm is None or not text or not hasattr(llm, "record_exchange"):
         return
     try:
         llm.record_exchange(str(req.user_input or ""), text)
     except Exception as exc:
-        _logger.debug("Could not record tool turn: %s", exc)
+        _logger.debug("Could not record turn: %s", exc)
+
+
+class _LoopTurn(NamedTuple):
+    """What the tool loop made of a turn.
+
+    ``output`` settles the turn: a grounded answer, a refusal, or a request for
+    approval. ``reply`` is set instead when the model answered without reaching
+    for anything, from the same messages chat() would have sent, so it is the
+    conversational reply and still has that path's checks ahead of it.
+    """
+
+    output: Any = None
+    reply: str = ""
 
 
 def _try_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any], context: str = "") -> Any:
-    output = _run_tool_grounded_answer(alice, req, operator_state, context)
-    if output is not None:
-        _record_tool_turn(alice, req, output)
-    return output
+    return _tool_loop_turn(alice, req, operator_state, context).output
 
 
-def _run_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, Any], context: str = "") -> Any:
+def _tool_loop_turn(alice: Any, req: Any, operator_state: Dict[str, Any], context: str = "") -> _LoopTurn:
+    turn = _run_tool_loop(alice, req, operator_state, context)
+    if turn.output is not None:
+        _record_turn(alice, req, str(getattr(turn.output, "text", "") or ""))
+    return turn
+
+
+def _chat_messages_for(llm: Any, req: Any, context: str) -> List[Dict[str, Any]]:
+    """The messages chat() would send for this turn, or none if the model cannot say."""
+    build = getattr(llm, "chat_messages_for", None)
+    if not callable(build):
+        return []
+    try:
+        return list(
+            build(
+                str(req.user_input or ""),
+                context=context or None,
+                intent=str(getattr(req.decision, "intent", "") or ""),
+            )
+            or []
+        )
+    except Exception as exc:
+        _logger.debug("Chat messages unavailable for the tool loop: %s", exc)
+        return []
+
+
+def _run_tool_loop(alice: Any, req: Any, operator_state: Dict[str, Any], context: str = "") -> _LoopTurn:
     """Let the model reach for a real tool before falling back to plain generation.
 
-    Returns None whenever the loop is unavailable or chose not to act, so every
+    Settles nothing whenever the loop is unavailable or chose not to act, so every
     existing conversational path stays exactly as it was.
     """
     llm = getattr(alice, "llm", None)
     if llm is None or not hasattr(llm, "chat_with_tools"):
-        return None
+        return _LoopTurn()
     if _looks_like_small_talk(req):
-        return None
+        return _LoopTurn()
 
     from ai.contracts import ResponseOutput
     from ai.core.react_loop import ReactLoop
 
     user_id = str((getattr(req, "metadata", None) or {}).get("user_id") or "default")
     workspace_turn = _is_workspace_turn(req)
+    # Every ordinary question used to be generated two or three times: this loop
+    # answered it, the answer was discarded because no tool was used, the loop
+    # ran again further down, and then chat() generated the reply. Opening with
+    # chat()'s own messages makes the loop's direct answer that reply.
+    conversation = [] if workspace_turn else _chat_messages_for(llm, req, context)
     try:
         loop = ReactLoop(
             llm,
@@ -289,39 +330,51 @@ def _run_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, An
         )
         # The same date, memory and goals the conversational path sees; without
         # them a tool turn answered "what should I work on today?" blind.
-        result = loop.run(str(req.user_input or ""), context=context or None, history=_recent_history(llm))
+        result = loop.run(
+            str(req.user_input or ""),
+            context=context or None,
+            history=_recent_history(llm),
+            conversation=conversation or None,
+        )
     except Exception as exc:
         _logger.warning("Tool grounded answer unavailable, falling back to generation: %s", exc)
-        return None
+        return _LoopTurn()
 
     if result.stopped_reason == "refused" and result.refused:
-        return ResponseOutput(
-            text=f"I won't run that. {_refusal_reason_text(result.refused)}",
-            confidence=1.0,
-            metadata={"type": "tool_refused", "refused": dict(result.refused)},
+        return _LoopTurn(
+            ResponseOutput(
+                text=f"I won't run that. {_refusal_reason_text(result.refused)}",
+                confidence=1.0,
+                metadata={"type": "tool_refused", "refused": dict(result.refused)},
+            )
         )
 
     if result.stopped_reason == "approval_required" and result.pending_approval:
-        return _request_approval(result.pending_approval, user_id=user_id)
+        return _LoopTurn(_request_approval(result.pending_approval, user_id=user_id))
+
+    if conversation and not result.used_tools and result.stopped_reason == "answered":
+        return _LoopTurn(reply=str(result.answer or "").strip())
 
     # Something was changed on disk. That must be reported even if the model went
     # quiet, otherwise a completed write looks to the user like nothing happened.
     if result.wrote_anything and not str(result.answer or "").strip():
         done = [f"{_describe_action(s.tool, s.arguments)}" for s in result.steps if s.success]
-        return ResponseOutput(
-            text="Done. " + ", ".join(done) + "." if done else "Done.",
-            confidence=0.9,
-            metadata={
-                "type": "tool_grounded_write",
-                "tools_used": [s.tool for s in result.steps],
-                "wrote_anything": True,
-            },
+        return _LoopTurn(
+            ResponseOutput(
+                text="Done. " + ", ".join(done) + "." if done else "Done.",
+                confidence=0.9,
+                metadata={
+                    "type": "tool_grounded_write",
+                    "tools_used": [s.tool for s in result.steps],
+                    "wrote_anything": True,
+                },
+            )
         )
 
     # A grounded answer needs actual grounding. If the lookup found nothing, fall back
     # to normal conversation rather than letting "no results" become the whole reply.
     if not result.used_tools or not result.produced_evidence or not str(result.answer or "").strip():
-        return None
+        return _LoopTurn()
 
     # Show real command output rather than trusting the model to relay it. Asked to
     # run pytest, an 8B model reported passing tests, timings, and a flaky test fixed
@@ -331,18 +384,20 @@ def _run_tool_grounded_answer(alice: Any, req: Any, operator_state: Dict[str, An
     if command_output:
         answer_text = f"{command_output}\n\n{answer_text}".strip()
 
-    return ResponseOutput(
-        text=answer_text,
-        confidence=0.9,
-        metadata={
-            "type": "tool_grounded_answer",
-            "tools_used": [step.tool for step in result.steps],
-            "tool_steps": [step.to_dict() for step in result.steps],
-            "stopped_reason": result.stopped_reason,
-            "wrote_anything": result.wrote_anything,
-            "checkpoint": result.checkpoint,
-            "operator_state_present": bool(operator_state),
-        },
+    return _LoopTurn(
+        ResponseOutput(
+            text=answer_text,
+            confidence=0.9,
+            metadata={
+                "type": "tool_grounded_answer",
+                "tools_used": [step.tool for step in result.steps],
+                "tool_steps": [step.to_dict() for step in result.steps],
+                "stopped_reason": result.stopped_reason,
+                "wrote_anything": result.wrote_anything,
+                "checkpoint": result.checkpoint,
+                "operator_state_present": bool(operator_state),
+            },
+        )
     )
 
 
@@ -3063,10 +3118,15 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
                 metadata={"type": "deterministic_location"},
             )
 
+        # Set when the model answered without reaching for a tool. The loop opened
+        # with what chat() would have sent, so the chat path below checks this
+        # answer rather than generating the turn again.
+        loop_reply = ""
         if _may_reach_for_tools(req):
-            grounded_local = _try_tool_grounded_answer(alice, req, operator_state, _turn_context(req, operator_state))
-            if grounded_local is not None:
-                return grounded_local
+            loop_turn = _tool_loop_turn(alice, req, operator_state, _turn_context(req, operator_state))
+            if loop_turn.output is not None:
+                return loop_turn.output
+            loop_reply = loop_turn.reply
 
         if req.decision.route == "local" and req.tool_result is not None and not req.tool_result.success:
             data = dict(req.tool_result.data or {})
@@ -3375,27 +3435,34 @@ def build_runtime_boundaries(alice: Any) -> RuntimeBoundaries:
             )
 
         turn_context = _turn_context(req, operator_state)
-        grounded = _try_tool_grounded_answer(alice, req, operator_state, turn_context)
-        if grounded is not None:
-            return grounded
+        # A turn that could reach for tools has already been through the loop.
+        # Running it again here was a second full generation on every question.
+        if not _may_reach_for_tools(req):
+            grounded = _try_tool_grounded_answer(alice, req, operator_state, turn_context)
+            if grounded is not None:
+                return grounded
 
         llm_text = ""
         if getattr(alice, "llm", None):
             try:
                 _turn_intent = str(req.decision.intent or "")
                 _companion_ctx = turn_context
-                try:
-                    llm_text = str(
-                        alice.llm.chat(
-                            req.user_input,
-                            use_history=True,
-                            context=_companion_ctx or None,
-                            intent=_turn_intent,
-                        )
-                        or ""
-                    ).strip()
-                except TypeError:
-                    llm_text = str(alice.llm.chat(req.user_input, use_history=True) or "").strip()
+                if loop_reply:
+                    llm_text = loop_reply
+                    _record_turn(alice, req, llm_text)
+                else:
+                    try:
+                        llm_text = str(
+                            alice.llm.chat(
+                                req.user_input,
+                                use_history=True,
+                                context=_companion_ctx or None,
+                                intent=_turn_intent,
+                            )
+                            or ""
+                        ).strip()
+                    except TypeError:
+                        llm_text = str(alice.llm.chat(req.user_input, use_history=True) or "").strip()
 
                 # Retry gate: if the LLM hedged, gave a non-answer, or was too dry/short
                 # on a discussion/brainstorm turn, force one harder pass.
