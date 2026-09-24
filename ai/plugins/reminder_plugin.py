@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
-from ai.core.followups import RESCHEDULE_RE
+from ai.core.followups import RESCHEDULE_RE, SNOOZE_RE
 from ai.planning.reminders import (
     ReminderStore,
     agenda,
@@ -66,6 +66,10 @@ class ReminderPlugin(PluginInterface):
             if moved is not None:
                 return moved
 
+        snooze = SNOOZE_RE.match(str(query or "").strip())
+        if snooze:
+            return self._snooze(snooze.group("amount"), now)
+
         timer = parse_timer(query)
         if timer is not None:
             return self._start_timer(*timer, now=now)
@@ -93,6 +97,28 @@ class ReminderPlugin(PluginInterface):
             "success": True,
             "response": f"Okay, I'll remind you {about} {said_back(task)} {when}.",
             "data": {"task": task, "due": due.isoformat(timespec="minutes"), "when": when, "repeat": repeat},
+        }
+
+    _SNOOZE_WORDS = {"five": 5, "ten": 10, "fifteen": 15, "twenty": 20, "thirty": 30}
+
+    def _snooze(self, amount: Optional[str], now: datetime) -> Dict[str, Any]:
+        """The reminder that just went off, again in a few minutes (ten unless he says)."""
+        last = self.store.last_fired()
+        if last is None:
+            return {"success": True, "response": "There's nothing to snooze.", "data": {}}
+        text = str(amount or "10").lower()
+        minutes = self._SNOOZE_WORDS.get(text) or int(text)
+        due = now + timedelta(minutes=minutes)
+        self._last_set_id = self.store.add(last.text, due, kind=last.kind).id
+        said = (
+            f"Okay, another {minutes} minutes."
+            if last.kind == "timer"
+            else f"Okay, I'll remind you to {said_back(last.text)} again in {minutes} minutes."
+        )
+        return {
+            "success": True,
+            "response": said,
+            "data": {"task": last.text, "due": due.isoformat(timespec="minutes"), "snoozed": True},
         }
 
     def _start_timer(self, minutes: float, label: str, now: datetime) -> Dict[str, Any]:

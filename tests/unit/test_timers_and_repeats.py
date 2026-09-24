@@ -81,3 +81,30 @@ def test_timer_requests_are_routed_to_reminders():
     from ai.core.nlp_processor import NLPProcessor
 
     assert NLPProcessor().process("set a timer for 10 minutes").intent == "reminder:set"
+
+
+def test_snooze_brings_back_what_just_went_off(tmp_path):
+    """A repeating reminder is set again rather than marked fired, so "remind me
+    again" could not find it, and "snooze" was not heard at all."""
+    store = ReminderStore(tmp_path / "r.json")
+    plugin = ReminderPlugin(store)
+    store.add("take my pills", datetime(2026, 9, 25, 8, 0), repeat="daily")
+    store.take_due(datetime(2026, 9, 25, 8, 0, 30))
+
+    reply = plugin._snooze(None, datetime(2026, 9, 25, 8, 1))["response"]
+
+    assert reply == "Okay, I'll remind you to take your pills again in 10 minutes."
+    assert [r.due_at for r in store.pending()] == [datetime(2026, 9, 25, 8, 11), datetime(2026, 9, 26, 8, 0)]
+
+
+def test_nothing_to_snooze_is_said_plainly(tmp_path):
+    assert ReminderPlugin(ReminderStore(tmp_path / "r.json"))._snooze("5", NOW)["response"] == (
+        "There's nothing to snooze."
+    )
+
+
+@pytest.mark.parametrize("text", ["snooze", "snooze 5 minutes", "ugh, snooze it for 10 min"])
+def test_snooze_is_routed_to_reminders(text):
+    from ai.core.nlp_processor import NLPProcessor
+
+    assert NLPProcessor().process(text).intent == "reminder:set"

@@ -39,6 +39,9 @@ class Reminder:
     repeat: str = ""
     # "timer" for "set a timer for 10 minutes", said differently when it is up.
     kind: str = ""
+    # When it last went off, so "snooze" and "remind me again" find a repeating
+    # reminder too, which is set again rather than marked fired.
+    delivered_at: str = ""
 
     @property
     def due_at(self) -> datetime:
@@ -392,6 +395,7 @@ class ReminderStore:
             delivered = [replace(r) for r in due]
             if due:
                 for reminder in due:
+                    reminder.delivered_at = now.replace(microsecond=0).isoformat()
                     if reminder.repeat:
                         # Said now, and set again for its next time.
                         reminder.due = next_repeat(reminder.due_at, reminder.repeat, now).isoformat()
@@ -401,8 +405,9 @@ class ReminderStore:
             return delivered
 
     def last_fired(self) -> Optional[Reminder]:
-        fired = [r for r in self._load() if r.fired]
-        return max(fired, key=lambda r: r.due) if fired else None
+        """The reminder that went off most recently, repeating or not."""
+        said = [r for r in self._load() if r.delivered_at or r.fired]
+        return max(said, key=lambda r: r.delivered_at or r.due) if said else None
 
     def cancel(self, words: str = "") -> List[Reminder]:
         """Cancel the pending reminders whose text shares a word with ``words``;

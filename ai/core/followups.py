@@ -42,3 +42,11 @@ def more_items(text: str) -> Optional[str]:
         return None
     items = (match.group("items") or match.group("items_too") or "").strip(" ,")
     return items or None
+
+
+# "snooze", "snooze for 10 minutes", "snooze it 5 min" once a reminder has gone off.
+SNOOZE_RE = re.compile(
+    r"^(?:(?:ok(?:ay)?|ugh|hmm)[,\s]+)?snooze(?:\s+(?:it|that))?(?:\s+(?:for\s+)?(?P<amount>\d+|five|ten|fifteen|twenty|thirty)"
+    r"\s*(?:min(?:ute)?s?|m)?)?[.!]*$",
+    re.IGNORECASE,
+)
