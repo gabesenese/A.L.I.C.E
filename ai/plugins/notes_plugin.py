@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # Import the proper plugin interface
+from ai.core.followups import more_items
 from ai.plugins.plugin_system import PluginInterface
 
 
@@ -1660,6 +1661,8 @@ class NotesPlugin(PluginInterface):
         ]
         # Track last accessed note for context-aware operations
         self.last_note_id = None
+        # The list he just added to, so "and eggs" goes on it too.
+        self._last_list: Optional[str] = None
         self.last_note_title = None
         self.last_note_result_ids: List[str] = []
         self.last_resolution_path = "none"
@@ -2857,6 +2860,7 @@ class NotesPlugin(PluginInterface):
             n for n in self.manager.find_by_title(name) if n.title.lower() == name
         ] or self.manager.find_by_title(name)
         joined = ", ".join(items[:-1]) + (" and " if len(items) > 1 else "") + items[-1]
+        self._last_list = name
         if existing:
             note = existing[0]
             for item in items:
@@ -2885,6 +2889,10 @@ class NotesPlugin(PluginInterface):
         adding = _LIST_ITEM_RE.search(text)
         if adding:
             return self._add_to_list(adding.group("items"), adding.group("name"))
+        # "and eggs" right after adding milk to the shopping list.
+        more = more_items(text) if self._last_list else None
+        if more and self._last_list:
+            return self._add_to_list(more, self._last_list)
         removing = _REMOVE_FROM_LIST_RE.search(text)
         clearing = None if removing else _CLEAR_LIST_RE.search(text)
         reading = None if removing or clearing else _READ_LIST_RE.search(text)

@@ -83,4 +83,4 @@ def test_the_time_plugin_answers_the_clock_intent():
     assert plugin.can_handle("time:current", {})
     assert plugin.execute("time:current", "what's today's date?", {}, {})["response"].startswith("Today is ")
     assert plugin.execute("time:current", "what day is it", {}, {})["response"].startswith("Today is ")
-    assert plugin.execute("time:current", "what time is it?", {}, {})["response"].startswith("The current time is ")
+    assert plugin.execute("time:current", "what time is it?", {}, {})["response"].startswith("It's ")

@@ -219,6 +219,17 @@ class ReminderStore:
             self._save(reminders)
             return reminder
 
+    def move(self, reminder_id: str, due: datetime) -> Optional[Reminder]:
+        """Give a pending reminder a new time, keeping what it is about."""
+        with self._lock:
+            reminders = self._load()
+            for reminder in reminders:
+                if reminder.id == reminder_id and not reminder.fired:
+                    reminder.due = due.replace(microsecond=0).isoformat()
+                    self._save(reminders)
+                    return reminder
+            return None
+
     def pending(self) -> List[Reminder]:
         return sorted((r for r in self._load() if not r.fired), key=lambda r: r.due)
 

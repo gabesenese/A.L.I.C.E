@@ -7,9 +7,10 @@ No plugin handled reminder:set, so "remind me to call mom at 5pm" was answered
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
+from ai.core.followups import RESCHEDULE_RE
 from ai.planning.reminders import (
     ReminderStore,
     agenda,
@@ -31,6 +32,8 @@ class ReminderPlugin(PluginInterface):
         self.description = "Set, list and cancel timed reminders"
         self.capabilities = ["reminders"]
         self.store = store or ReminderStore()
+        # The reminder just set, so "actually make it 6" knows which one to move.
+        self._last_set_id: Optional[str] = None
 
     def initialize(self) -> bool:
         return True
@@ -52,6 +55,12 @@ class ReminderPlugin(PluginInterface):
             names = "; ".join(r.text for r in cancelled)
             return {"success": True, "response": f"Cancelled: {names}.", "data": {"cancelled": names}}
 
+        moving = RESCHEDULE_RE.match(str(query or "").strip())
+        if moving:
+            moved = self._reschedule(moving.group("when"), now)
+            if moved is not None:
+                return moved
+
         parsed = parse_reminder(query, now)
         if parsed is None:
             return {"success": False, "response": "I couldn't tell what to remind you about."}
@@ -69,12 +78,44 @@ class ReminderPlugin(PluginInterface):
                 "response": f"When should I remind you {about} {task}?",
                 "data": {"task": task, "needs_time": True},
             }
-        self.store.add(task, due)
+        self._last_set_id = self.store.add(task, due).id
         when = describe_time(due, now)
         return {
             "success": True,
             "response": f"Okay, I'll remind you {about} {task} {when}.",
             "data": {"task": task, "due": due.isoformat(timespec="minutes"), "when": when},
+        }
+
+    def _reschedule(self, when: str, now: datetime) -> Optional[Dict[str, Any]]:
+        """Move the reminder just set: "actually make it 6" after "remind me at 5pm
+        to call mom". Set again from scratch, it would have left the 5pm one."""
+        last = next((r for r in self.store.pending() if r.id == self._last_set_id), None)
+        if last is None:
+            return None
+        spoken = " ".join(str(when or "").split())
+        if re.fullmatch(r"\d{1,2}(?::\d{2})?", spoken):
+            spoken = "at " + spoken
+        parsed = parse_reminder(f"remind me to {last.text} {spoken}", now)
+        due = parsed[1] if parsed else None
+        if due is None:
+            return {"success": True, "response": "When should I move it to?", "data": {"needs_time": True}}
+        moved_to = due
+        # "make it 6" keeps the day, and the afternoon, of the reminder it changes.
+        if not re.search(
+            r"\b(?:today|tonight|tomorrow|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b|\bin\s+\w+", spoken, re.I
+        ):
+            moved_to = datetime.combine(last.due_at.date(), moved_to.time())
+        if moved_to.hour < 12 <= last.due_at.hour and not re.search(
+            r"\b(?:am|pm|a\.m\.|p\.m\.|noon|midnight|morning|afternoon|evening|tonight)\b", spoken, re.I
+        ):
+            moved_to += timedelta(hours=12)
+        if moved_to <= now:
+            moved_to = due
+        self.store.move(last.id, moved_to)
+        return {
+            "success": True,
+            "response": f"Moved it. I'll remind you to {last.text} {describe_time(moved_to, now)}.",
+            "data": {"task": last.text, "due": moved_to.isoformat(timespec="minutes"), "moved": True},
         }
 
     def _list(self, now: datetime) -> Dict[str, Any]:

@@ -219,9 +219,14 @@ class PluginManager:
                     can_handle = plugin.can_handle(intent, entities)
 
                 if can_handle:
-                    # Score candidate based on intent match and plugin priority
+                    # Score candidate based on intent match and plugin priority. The
+                    # plugin the intent names wins over one that only liked the words:
+                    # checked the other way round ("timeplugin" in "time:current"),
+                    # this never matched, and with a note in context the notes plugin
+                    # answered "and what time is it?" because it contains "it".
                     score = 1.0
-                    if intent and plugin_name.lower() in intent.lower():
+                    family = str(intent or "").split(":", 1)[0].strip().lower().replace("_", "")
+                    if family and family in plugin_name.lower().replace(" ", "").replace("_", ""):
                         score = 2.0  # Strong match
                     candidates.append((plugin_name, plugin, score))
 
@@ -769,10 +774,12 @@ class TimePlugin(PluginInterface):
         now = datetime.now()
         low = query.lower()
 
+        # Said the way a person says it: "It's 6:17 PM.", not "The current time is
+        # 06:17 PM", and no zero-padded day or year on today's date.
         if re.search(r"\b(?:date|day|today)\b", low) and not re.search(r"\btime\b", low):
-            response = f"Today is {now.strftime('%A, %B %d, %Y')}"
+            response = f"Today is {now.strftime('%A, %B')} {now.day}."
         else:
-            response = f"The current time is {now.strftime('%I:%M %p')}"
+            response = f"It's {now.strftime('%I:%M %p').lstrip('0')}."
 
         return {
             "success": True,

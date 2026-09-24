@@ -31,7 +31,11 @@ class ReferenceResolver:
         r"|\b(?:this|that)\s*:"
         r"|\bwhat\s+(?:time|day|date|year|month)\s+is\s+it\b"
         r"|\bis\s+it\s+(?:going\s+to\s+)?(?:rain\w*|snow\w*|sunny|cloudy|cold|hot|warm|windy|late|early|dark|night|morning)\b"
-        r"|\bhow(?:'s|\s+is)\s+it\s+going\b",
+        r"|\bhow(?:'s|\s+is)\s+it\s+going\b"
+        # "actually make it 6": the reminder just set, which its plugin knows. Sent
+        # for clarification, the reschedule never reached it.
+        r"|\b(?:make|change|move|push|set)\s+(?:it|that)\s+(?:back\s+)?(?:to\s+|for\s+)?(?:at\s+)?"
+        r"(?:\d|tomorrow|today|tonight|noon|midnight|(?:mon|tues|wednes|thurs|fri|satur|sun)day|in\s+\w+)",
         re.IGNORECASE,
     )
     _TEMPORAL_DEICTIC = {
