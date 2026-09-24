@@ -384,7 +384,7 @@ class AdvancedCoreferenceResolver:
                 candidate = all_candidates[0]  # Pick first
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue, conf = "ATTRIBUTE_REF", candidate, 0.85
                 candidates = all_candidates
@@ -399,7 +399,7 @@ class AdvancedCoreferenceResolver:
                 candidate = all_candidates[0]
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue, conf = "ATTRIBUTE_REF", candidate, 0.82
                 candidates = all_candidates
@@ -421,7 +421,7 @@ class AdvancedCoreferenceResolver:
             if candidate:
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue, conf = "RECENCY_REF", candidate, 0.88
                 logger.info("[COREF] RECENCY '%s' -> '%s'", old, replacement)
@@ -435,7 +435,7 @@ class AdvancedCoreferenceResolver:
                 candidate = all_candidates[0]
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue, conf = "DESCRIPTIVE_REF", candidate, 0.80
                 candidates = all_candidates
@@ -455,7 +455,7 @@ class AdvancedCoreferenceResolver:
                     conf = 0.82
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue = "DOMAIN_PRONOUN", candidate
                 logger.info("[COREF] DOMAIN '%s' -> '%s'", old, replacement)
@@ -474,7 +474,7 @@ class AdvancedCoreferenceResolver:
                     conf = 0.75
                 old = m.group(0)
                 replacement = f'"{candidate}"'
-                text = text.replace(old, replacement, 1)
+                text = text[: m.start()] + replacement + text[m.end() :]
                 sub_map[old] = replacement
                 etype, evalue = "PRONOUN_GENERIC", candidate
                 logger.info("[COREF] PRONOUN '%s' -> '%s'", old, replacement)
