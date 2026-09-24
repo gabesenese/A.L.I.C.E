@@ -5,6 +5,7 @@ Supports: Weather, Calendar, File Operations, System Control, Web Search, etc.
 """
 
 import logging
+import re
 import math
 import threading
 from abc import ABC, abstractmethod
@@ -758,13 +759,17 @@ class TimePlugin(PluginInterface):
         return True
 
     def can_handle(self, intent: str, entities: Dict) -> bool:
-        # Only handle explicit time/date requests based on intent
-        return intent.lower() in ["time", "date"]
+        # The NLP routes clock questions to time:current, which this never
+        # accepted, so "what's today's date?" reached no plugin and was answered
+        # "I couldn't get a result for that."
+        low = intent.lower()
+        return low in ["time", "date"] or low.startswith("time:")
 
     def execute(self, intent: str, query: str, entities: Dict, context: Dict) -> Dict:
         now = datetime.now()
+        low = query.lower()
 
-        if "date" in query.lower():
+        if re.search(r"\b(?:date|day|today)\b", low) and not re.search(r"\btime\b", low):
             response = f"Today is {now.strftime('%A, %B %d, %Y')}"
         else:
             response = f"The current time is {now.strftime('%I:%M %p')}"

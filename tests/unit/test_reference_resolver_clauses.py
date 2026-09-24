@@ -54,3 +54,12 @@ def test_a_bare_reference_is_still_unresolved(resolver, text):
 def test_the_reference_is_replaced_not_the_clause_marker(resolver):
     result = resolver.resolve("I know that you said that", {"last_subject": "the tokenizer"})
     assert result.rewritten_input == "I know that you said the tokenizer"
+
+
+@pytest.mark.parametrize(
+    "text", ["what time is it?", "what day is it", "is it raining?", "is it going to snow", "how's it going"]
+)
+def test_the_it_of_the_weather_and_the_clock_is_not_a_reference(resolver, text):
+    """ "What time is it?" was sent for clarification and answered as a generic
+    statement, because its "it" counted as an unresolved pronoun."""
+    assert resolver.resolve(text, {}).unresolved_pronouns == []

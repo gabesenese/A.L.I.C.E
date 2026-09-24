@@ -23,9 +23,15 @@ class ReferenceResolver:
     # nothing earlier. Counted as references, a short turn like the first was sent
     # for clarification and never stored, and with a subject in context the word
     # was overwritten: "remember sqlite my sister's name is Ana".
+    # The "it" of "what time is it", "is it raining" and "how's it going" stands
+    # for nothing at all; counted as a reference, "what time is it?" was sent
+    # for clarification and answered as a generic statement instead of by the clock.
     _NOT_A_REFERENCE = re.compile(
         r"\bthat\s+(?:i|you|he|she|we|they|it|my|your|his|her|our|their|the|a|an|there|these|those|\w+'s)\b"
-        r"|\b(?:this|that)\s*:",
+        r"|\b(?:this|that)\s*:"
+        r"|\bwhat\s+(?:time|day|date|year|month)\s+is\s+it\b"
+        r"|\bis\s+it\s+(?:going\s+to\s+)?(?:rain\w*|snow\w*|sunny|cloudy|cold|hot|warm|windy|late|early|dark|night|morning)\b"
+        r"|\bhow(?:'s|\s+is)\s+it\s+going\b",
         re.IGNORECASE,
     )
     _TEMPORAL_DEICTIC = {
