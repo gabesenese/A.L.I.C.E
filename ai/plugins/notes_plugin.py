@@ -2656,7 +2656,7 @@ class NotesPlugin(PluginInterface):
 
     # ------------------------------------------------------------------
     # Feature #2: NoteContextProvider implementation
-    # Satisfies the Protocol → can be registered with _build_llm_context
+    # Satisfies the NoteContextProvider Protocol
     # ------------------------------------------------------------------
     def get_note_context_snippet(self, query: str, max_chars: int = 600) -> str:
         """Return a compact context snippet of the most relevant notes for *query*.
