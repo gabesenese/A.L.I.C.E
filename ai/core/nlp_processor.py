@@ -665,6 +665,16 @@ _P3_VAGUE_PATTERNS: tuple = (
 )
 
 
+# Words that make "the time" or "the date" part of a question about something
+# other than the clock: a time complexity, a time difference, the date *of* a
+# meeting.
+_NOT_THE_CLOCK = (
+    r"(?!\s+(?:complexity|difference|differences|zone|zones|limit|limits|signature|frame|frames"
+    r"|period|scale|series|step|steps|budget|cost|window|slot|slots"
+    r"|of|for|between|after|before|on|when|that|until|since|to)\b)"
+)
+
+
 # ============================================================================
 # DATA STRUCTURES
 # ============================================================================
@@ -4818,11 +4828,13 @@ class NLPProcessor:
 
         # Time queries: "what time is it?", "what's the time?", "current time"
         # Must come before greetings/weather to prevent misclassification.
+        # _NOT_THE_CLOCK keeps a longer noun phrase or another event out: "what's
+        # the time complexity of binary search?" was answered with the clock.
         if re.search(
             r"\b(what(?:'s|\s+is)\s+(?:the\s+)?(?:current\s+)?time"
             r"|what time is it"
             r"|tell me the time"
-            r"|current time)\b",
+            r"|current time)\b" + _NOT_THE_CLOCK,
             text_lower,
         ):
             return "time:current", 0.95
@@ -4831,7 +4843,7 @@ class NLPProcessor:
             r"\b(what(?:'s|\s+is)\s+(?:today(?:'s)?\s+date|the\s+date(?:\s+today)?)"
             r"|what day is it"
             r"|what(?:'s|\s+is)\s+the\s+day"
-            r"|today(?:'s)?\s+date)\b",
+            r"|today(?:'s)?\s+date)\b" + _NOT_THE_CLOCK,
             text_lower,
         ):
             return "time:current", 0.95
