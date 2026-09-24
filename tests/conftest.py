@@ -20,6 +20,8 @@ os.environ.setdefault("ALICE_STARTUP_DOCTOR", "0")
 # into the user's real database for each pipeline it built.
 _SESSION_DB_DIR = tempfile.mkdtemp(prefix="alice-tests-")
 os.environ["ALICE_MEMORY_DB"] = str(Path(_SESSION_DB_DIR) / "alice.db")
+# Behaviour events, audits and improvement hypotheses land here; the default is data/.
+os.environ["ALICE_SELF_IMPROVEMENT_DATA_DIR"] = str(Path(_SESSION_DB_DIR) / "self_improvement")
 atexit.register(shutil.rmtree, _SESSION_DB_DIR, True)
 
 import pytest
@@ -108,6 +110,9 @@ def isolate_memory_store(tmp_path, monkeypatch):
     import ai.memory.memory_store as memory_store
 
     monkeypatch.setenv("ALICE_MEMORY_DB", str(tmp_path / "alice.db"))
+    # The improvement loop reads its own history to decide what recurs, so one
+    # test's failures must not become the next test's pattern.
+    monkeypatch.setenv("ALICE_SELF_IMPROVEMENT_DATA_DIR", str(tmp_path / "self_improvement"))
     monkeypatch.setattr(memory_store, "_memory_store", None, raising=False)
     # Alice's own opinions and session history live in the same file, and her
     # opinions are read back into every prompt.

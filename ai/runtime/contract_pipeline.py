@@ -130,7 +130,6 @@ class ContractPipeline:
                 severity=severity,
                 evidence=dict(evidence or {}),
                 related_files=list(related_files or []),
-                user_id=user_id,
             )
             loop.maybe_auto_audit(event)
             # Foundation 2 bridge — high-confidence failures become self-opinions
