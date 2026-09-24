@@ -46,3 +46,17 @@ def test_a_note_from_the_turn_before_is_still_the_referent():
     resolver.memory.update_from_nlp_result("conversation:general", {})
 
     assert resolver.resolve_text("what should I do with it?", {}) == 'what should I do with "Groceries"?'
+
+
+def test_this_before_a_noun_names_that_noun_not_the_last_note():
+    # Right after "add milk to my notes", "i'm frustrated with this code" became
+    # 'i'm frustrated with "Milk" code' and was routed to notes:list.
+    resolver = _resolver_remembering("Milk")
+    assert resolver.resolve_text("i'm frustrated with this code", {}) == "i'm frustrated with this code"
+    assert resolver.resolve_text("that bug is back", {}) == "that bug is back"
+
+
+def test_a_standalone_this_still_points_at_the_note():
+    resolver = _resolver_remembering("Milk")
+    assert resolver.resolve_text("delete this", {}) == 'delete "Milk"'
+    assert resolver.resolve_text("that one please", {}) == '"Milk" please'
